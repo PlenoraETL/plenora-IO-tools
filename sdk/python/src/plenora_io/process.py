@@ -40,6 +40,11 @@ accorgerebbe da un log corrotto, non da qui.
 Se un giorno il v1 servira', avra' un percorso suo, dichiarato: un protocollo
 diverso si sceglie, non si indovina dal fatto che qualcosa e' comparso su
 `stderr`.
+
+«Vuoto» vuol dire **zero byte**, non «niente di significativo»: anche uno spazio
+e' contenuto. Un confine che ammettesse gli spazi lascerebbe passare una
+scrittura accidentale vuota, che e' la forma in cui una violazione arriva senza
+che nessuno l'abbia voluta.
 """
 
 from __future__ import annotations
@@ -123,7 +128,12 @@ class Runner:
     # --- i due flussi, ciascuno al proprio posto ---------------------------
 
     def _success(self, completed: Completed) -> dict[str, Any]:
-        if completed.stderr.strip():
+        # `!= ""`, non `.strip()`: anche uno spazio e' contenuto. Uno `strip()`
+        # lascerebbe passare una scrittura accidentale vuota o di soli spazi --
+        # un `eprintln!("")` di troppo, un a capo rimasto -- che e' proprio la
+        # forma in cui una violazione arriva senza che nessuno l'abbia voluta.
+        # Il confine dev'essere quello che si puo' verificare guardando i byte.
+        if completed.stderr != "":
             # Il v2 tace su stderr quando riesce. Non e' pignoleria: e' la sola
             # affermazione che rende quel flusso utilizzabile da chi compone la
             # CLI in una pipeline, e tollerarne la violazione la toglierebbe.

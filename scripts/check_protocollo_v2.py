@@ -211,6 +211,70 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
     return errori
 
 
+#: Il sorgente dove vivono le sonde che provano la semantica delle buste.
+#:
+#: Non e' `busta.rs`, che porta i tetti della diagnostica: la semantica di
+#: `--limit` e `truncated` la decide il ciclo di lettura, che sta nel binario.
+CLI_MAIN = ROOT / "crates" / "plenora-io-cli" / "src" / "main.rs"
+
+
+def semantica_delle_buste(manifesto: dict[str, Any]) -> list[str]:
+    """Ogni clausola di semantica nomina una sonda, e la sonda esiste.
+
+    # Perche' serve
+
+    Una clausola che dice **che cosa un valore afferma** non si confronta con
+    una costante: non e' un numero, e non c'e' un simbolo nel codice che la
+    ripeta. Cio' che si puo' pretendere e' che sia **esercitata**, e che la
+    prova si trovi.
+
+    E' la stessa forma delle `sonde_che_lo_provano`, applicata a un altro
+    sorgente. Una clausola senza prova si legge come verificata e non lo e';
+    una prova nominata che non esiste e' una promessa mai eseguita.
+
+    # Che cosa non pretende
+
+    Che la sonda provi **quella** clausola. Nessun gate puo' dirlo, e affermarlo
+    qui darebbe a questo controllo il credito di una rilettura umana. Quel che
+    si ottiene e' che la clausola non resti senza nessuno che la guardi, e che
+    cancellare la sonda diventi rosso invece che silenzioso.
+    """
+    errori: list[str] = []
+    sorgente = CLI_MAIN.read_text(encoding="utf-8")
+    presenti = set(SONDA.findall(sorgente))
+
+    for nome_busta, busta in (manifesto.get("envelopes") or {}).items():
+        semantica = busta.get("semantica")
+        if not isinstance(semantica, dict):
+            continue
+        for chiave, clausola in semantica.items():
+            if not isinstance(clausola, dict):
+                # `nota` e simili: prosa che introduce la sezione, non una
+                # clausola. Una clausola e' un oggetto, e questo la distingue
+                # senza dover elencare le chiavi da saltare.
+                continue
+            if not str(clausola.get("clausola", "")).strip():
+                errori.append(
+                    f"cli-protocol-v2: `envelopes.{nome_busta}.semantica.{chiave}` "
+                    "non dice che cosa afferma."
+                )
+            sonde = clausola.get("verificata_da")
+            if not sonde:
+                errori.append(
+                    f"cli-protocol-v2: la clausola `{nome_busta}.{chiave}` non "
+                    "nomina nessuna sonda: si legge come verificata e non lo e'."
+                )
+                continue
+            for sonda in sonde:
+                if sonda not in presenti:
+                    errori.append(
+                        f"cli-protocol-v2: la clausola `{nome_busta}.{chiave}` "
+                        f"nomina la sonda `{sonda}`, che in "
+                        f"{CLI_MAIN.name} non esiste."
+                    )
+    return errori
+
+
 CONST_USIZE = re.compile(r"^pub const ([A-Z][A-Z0-9_]*): usize = ([^;]+);", re.M)
 SONDA = re.compile(r"#\[test\]\s*\n\s*fn ([a-z_][a-z0-9_]*)\s*\(")
 
@@ -1242,6 +1306,7 @@ def verifica(
             "dichiararlo congelato prometterebbe una stabilita' che nessuno ha ratificato."
         )
     errori.extend(stato_del_manifesto(manifesto))
+    errori.extend(semantica_delle_buste(manifesto))
 
     limiti = manifesto.get("limiti_della_diagnostica")
     if not isinstance(limiti, dict):

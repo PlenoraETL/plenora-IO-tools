@@ -64,23 +64,46 @@ class LEsecutore(unittest.TestCase):
         for rumore in (
             "attenzione: protocollo legacy",
             "DEBUG: apro il file",
+            # Il caso che conta piu' degli altri: uno spazio e una riga vuota.
+            # Uno `strip()` li lascerebbe passare, e sono la forma in cui una
+            # violazione arriva senza che nessuno l'abbia voluta -- un
+            # `eprintln!("")` di troppo, un a capo rimasto.
             " ",
+            "",
         ):
             with self.subTest(rumore=rumore):
                 runner = self.runner(
                     f"print({rumore!r}, file=sys.stderr)\n"
                     'print(json.dumps({"status": "ok"}))\n'
                 )
-                if not rumore.strip():
-                    # Uno spazio solo non e' contenuto: il flusso e' vuoto per
-                    # come lo si giudica, e il confine va detto invece che
-                    # scoperto da chi ci inciampa.
-                    self.assertEqual(runner.run(["convert"]), {"status": "ok"})
-                    continue
                 with self.assertRaises(ProtocolError) as preso:
                     runner.run(["convert"])
                 self.assertIn("non mette niente", str(preso.exception))
-                self.assertIn(rumore, str(preso.exception))
+
+    def test_vuoto_vuol_dire_zero_byte(self) -> None:
+        """La controprova del confine, dai due lati.
+
+        Un `print` su stderr scrive almeno un a capo: e' contenuto, e va
+        rifiutato. Non scrivere niente e' l'unica forma di vuoto che il
+        protocollo ammette, e deve restare verde -- se no la regola sarebbe
+        «nessun successo passa», che e' un'altra cosa.
+        """
+        muto = self.runner('print(json.dumps({"status": "ok"}))\n')
+        self.assertEqual(muto.run(["catalog"]), {"status": "ok"})
+
+        un_a_capo = self.runner(
+            'sys.stderr.write("\\n")\n'
+            'print(json.dumps({"status": "ok"}))\n'
+        )
+        with self.assertRaises(ProtocolError):
+            un_a_capo.run(["catalog"])
+
+        uno_spazio = self.runner(
+            'sys.stderr.write(" ")\n'
+            'print(json.dumps({"status": "ok"}))\n'
+        )
+        with self.assertRaises(ProtocolError):
+            uno_spazio.run(["catalog"])
 
     def test_il_successo_pulito_resta_un_successo(self) -> None:
         """La controprova: senza, «stderr sporco e' un errore» sarebbe vero

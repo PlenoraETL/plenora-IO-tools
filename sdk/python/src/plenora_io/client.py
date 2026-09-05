@@ -163,11 +163,9 @@ class Client:
         altro oltre quel punto non lo trova qui, e nessun campo della busta lo
         dice.
 
-        Nessuna delle due semantiche e' dichiarata in
-        `release/cli-protocol-v2.json`: la ratifica delle buste ha censito la
-        **forma**, non il significato dei valori. Sono fissate qui e da una
-        sonda, cosi' che un cambiamento si veda; cambiarle sarebbe una decisione
-        di prodotto, perche' cambierebbe cio' che esce.
+        Entrambe sono ora ratificate in `release/cli-protocol-v2.json`, sotto
+        `envelopes.read.semantica`, ciascuna con la sonda che la esercita: sono
+        clausole del contratto e non note di questo wrapper.
 
         `limits` sono i tetti che il prodotto applica, `deadline` compresa. Non
         vanno confusi con `Client(timeout=...)`, che uccide il processo da

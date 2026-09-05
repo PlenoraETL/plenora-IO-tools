@@ -34,9 +34,11 @@ intero -- ogni geometria decodificata, ogni tetto applicato -- e restituisce
 quante righe ha letto, in quanti batch, con quale fedelta'. Non una riga di dati.
 Chiamarlo `read()` avrebbe promesso righe che non arrivano.
 
-Due comportamenti **misurati**, che il contratto non dichiara e i nomi non
-suggeriscono: `limit` e' per **batch**, quindi `rows_read` puo' superarlo; e
-`truncated` dice «mi sono fermato per il limite», non «c'era altro».
+Due semantiche che i nomi non suggeriscono, e che il contratto ora ratifica in
+`envelopes.read.semantica`: `limit` e' una soglia verificata **fra un batch e il
+successivo**, quindi `rows_read` puo' superarlo della parte residua del batch
+corrente; e `truncated` significa **arresto per limite con EOF non accertato**,
+non «ci sono altre righe».
 
 ## La deadline non e' il timeout
 

@@ -2147,6 +2147,13 @@ mod tests {
         path
     }
 
+    /// Un punto WKB valido: little-endian, tipo 1, coordinate (0, 0).
+    ///
+    /// Sta qui e non dentro una fixture perche' due la usano.
+    const VALID_POINT: &[u8] = &[
+        1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
     fn materialize_multibatch_geometry_ipc(
         directory: &tempfile::TempDir,
         first_batch_valid: bool,
@@ -2161,9 +2168,6 @@ mod tests {
         use plenora_io_model::crs::CrsResolution;
         use plenora_io_model::geometry::{with_contract_version, with_geometry_contract_metadata};
 
-        const VALID_POINT: &[u8] = &[
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
         const INVALID_WKB: &[u8] = &[1, 1, 0];
         let path = directory.path().join(if first_batch_valid {
             "late-invalid.arrow"
@@ -2251,6 +2255,152 @@ mod tests {
         assert_eq!(summary["batches"], 0);
         assert_eq!(summary["truncated"], true);
         assert_eq!(summary["contract"], "plenora-io-read-v2");
+    }
+
+    /// Due batch, tutti validi: dodici righe e una.
+    ///
+    /// `materialize_multibatch_geometry_ipc` porta sempre una coda invalida --
+    /// e' cio' per cui esiste -- e le sonde sulla **semantica del limite** non
+    /// possono usarla: il file non si legge per intero, e senza quel conteggio
+    /// non c'e' niente con cui confrontare il conteggio troncato.
+    fn materialize_multibatch_valid_ipc(directory: &tempfile::TempDir) -> PathBuf {
+        use std::fs::File;
+        use std::sync::Arc;
+
+        use arrow_array::{BinaryArray, RecordBatch};
+        use arrow_ipc::writer::FileWriter;
+        use arrow_schema::{DataType, Field, Schema};
+        use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
+        use plenora_io_model::crs::CrsResolution;
+        use plenora_io_model::geometry::{with_contract_version, with_geometry_contract_metadata};
+
+        let path = directory.path().join("all-valid.arrow");
+        let mut geometry =
+            GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let field = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            &geometry,
+        );
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+
+        let dodici = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(
+                (0..12).map(|_| Some(VALID_POINT)).collect::<Vec<_>>(),
+            ))],
+        )
+        .unwrap();
+        let una = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(VALID_POINT)]))],
+        )
+        .unwrap();
+
+        let mut writer = FileWriter::try_new(File::create(&path).unwrap(), &schema).unwrap();
+        writer.write(&dodici).unwrap();
+        writer.write(&una).unwrap();
+        writer.finish().unwrap();
+        path
+    }
+
+    /// `--limit` e' una soglia verificata **fra un batch e il successivo**.
+    ///
+    /// Non taglia un batch a meta': il ciclo di lettura chiede il batch, lo
+    /// conta per intero, e solo allora guarda se il limite sia stato raggiunto.
+    /// `rows_read` puo' percio' superare il limite della parte residua del
+    /// batch corrente, e su un file letto in un colpo solo lo supera sempre.
+    ///
+    /// E' una conseguenza dello streaming, non una svista: fermarsi a meta' di
+    /// un batch vorrebbe dire consegnarne uno parziale a chi lo conta, e il
+    /// conteggio non direbbe piu' quante righe il reader ha davvero decodificato.
+    ///
+    /// La sonda fissa il fatto perche' il nome non lo suggerisce, e perche'
+    /// `release/cli-protocol-v2.json` lo ratifica in `envelopes.read.semantica`:
+    /// una clausola del contratto che nessuno esercita e' una promessa che si
+    /// legge come verificata.
+    #[test]
+    fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_multibatch_valid_ipc(&directory);
+
+        // Senza limite: quante righe ha il primo batch, e quante il file.
+        let intero = cmd_read(&parse(&[input.to_string_lossy().into_owned()]).unwrap())
+            .expect("il file si legge per intero");
+        let righe_totali = intero["rows_read"].as_u64().expect("un conteggio");
+        assert!(righe_totali > 1, "serve piu' di una riga per dire qualcosa");
+
+        // Con limite uno: si ferma dopo il **primo batch**, che ne porta piu'
+        // di una.
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            "--limit".to_owned(),
+            "1".to_owned(),
+        ])
+        .unwrap();
+        let assaggio = cmd_read(&cli).expect("un limite basso non e' un errore");
+        assert_eq!(assaggio["batches"], 1, "un batch solo, e intero");
+        let lette = assaggio["rows_read"].as_u64().expect("un conteggio");
+        assert!(
+            lette > 1,
+            "il limite si verifica fra i batch: `rows_read` = {lette} lo supera"
+        );
+        assert_eq!(assaggio["truncated"], true);
+    }
+
+    /// `truncated` dice **arresto per limite con EOF non accertato**.
+    ///
+    /// Non dice che esistano altre righe: dice che la lettura si e' fermata
+    /// perche' il limite e' stato raggiunto, e che il reader non ha visto la
+    /// fine del file. Le due cose non coincidono, e la differenza si vede
+    /// esattamente qui -- un limite pari al numero di righe del file lascia
+    /// `truncated` vero pur avendole lette tutte.
+    ///
+    /// Il significato **prudente** e' quello giusto: per sapere che non c'e'
+    /// altro bisognerebbe chiedere un batch in piu' e vederlo tornare vuoto,
+    /// cioe' leggere oltre il limite che il chiamante ha imposto. Affermare
+    /// l'EOF senza averlo osservato sarebbe la cosa peggiore delle due.
+    #[test]
+    fn read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_multibatch_valid_ipc(&directory);
+        let intero = cmd_read(&parse(&[input.to_string_lossy().into_owned()]).unwrap())
+            .expect("il file si legge per intero");
+        let righe = intero["rows_read"].as_u64().expect("un conteggio");
+        assert_eq!(
+            intero["truncated"], false,
+            "senza limite la fine del file e' osservata"
+        );
+
+        // Il limite **esatto**: tutte le righe sono lette, e non c'e' altro.
+        let esatto = cmd_read(
+            &parse(&[
+                input.to_string_lossy().into_owned(),
+                "--limit".to_owned(),
+                righe.to_string(),
+            ])
+            .unwrap(),
+        )
+        .expect("il file si legge");
+        assert_eq!(esatto["rows_read"], righe);
+        assert_eq!(
+            esatto["truncated"], true,
+            "vero pur non essendoci altro: il reader si e' fermato al limite \
+             senza chiedere il batch che gli avrebbe mostrato la fine"
+        );
+
+        // Un limite oltre la fine: il reader arriva all'EOF e lo dice.
+        let oltre = cmd_read(
+            &parse(&[
+                input.to_string_lossy().into_owned(),
+                "--limit".to_owned(),
+                (righe + 1).to_string(),
+            ])
+            .unwrap(),
+        )
+        .expect("il file si legge");
+        assert_eq!(oltre["rows_read"], righe);
+        assert_eq!(oltre["truncated"], false);
     }
 
     #[test]
