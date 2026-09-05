@@ -16,5 +16,7 @@
     "src/drawing.rs",
     "src/lib.rs"
   ],
-  "packaging_delta_files": []
+  "packaging_delta_files": [
+    "Cargo.toml"
+  ]
 }

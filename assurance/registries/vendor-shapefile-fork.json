@@ -7,7 +7,7 @@
   "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
   "provenienza_della_revisione": "`.cargo_vcs_info.json` della release crates.io 0.6.0, che registra lo sha1 del commit da cui `cargo package` e' stato eseguito. Il file non entra nell'albero vendorizzato: e' un artefatto di packaging, non contenuto del crate, e lasciarlo dentro avrebbe messo nell'impronta un dato che descrive l'impronta.",
   "licenza_upstream": "MIT",
-  "file_licenza": "vendor/shapefile/LICENSE.md",
+  "file_licenza": "LICENSE.md",
   "risoluzione": "il workspace risolve shapefile 0.6.0 esclusivamente da vendor/shapefile via [patch.crates-io]",
   "perche_il_fork": "la specifica Shapefile ammette un record con shape type 0 -- `NullShape` -- dentro un file la cui intestazione ne dichiara un altro: e' cosi' che si scrive una feature senza geometria, ed e' cio' che ogni altra implementazione produce. La nostra fixture canonica ne contiene una, scritta da OGR, e il nostro reader la legge.\n\nL'API upstream non sa esprimerla. `Shape::NullShape` e' una variante senza valore e non implementa ne' `WritableShape` ne' `EsriShape`; `ShapeWriter::write_shape` pretende `S: EsriShape` e i campi del `Writer` sono privati. Non c'era quindi modo di riscrivere un file che sapevamo leggere, e il writer rifiutava la riga: un round trip che deve conservare i dati si fermava sulla riga che non ne aveva.",
   "delta_funzionale": [
