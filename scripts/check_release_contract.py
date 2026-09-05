@@ -246,6 +246,12 @@ INVARIANTI_OBBLIGATORI = frozenset(
         "fuzz.profondita-riproducibile",
         "wire.clausole-confrontabili",
         "stato.fonti-legate",
+        # Differibile, e proprio per questo obbligatoria: differire non deve
+        # poter diventare far sparire. Una voce che si puo' togliere dal
+        # registro dopo averla differita perderebbe anche il proprio
+        # `non_promette`, che e' l'unica cosa che chi riceve un artefatto ha da
+        # leggere.
+        "distribuzione.licenza-first-party",
     }
 )
 
