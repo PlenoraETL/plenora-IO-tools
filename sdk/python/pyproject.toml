@@ -61,8 +61,13 @@ classifiers = [
 # nei metadati di un pacchetto installabile l'avrebbe fatta leggere come una
 # concessione che nessuno ha fatto.
 #
-# Finche' la licenza non e' decisa, il pacchetto non si pubblica -- ed e'
-# esattamente cio' che il classificatore qui sopra dichiara.
+# Il 2026-09-05 il titolare ha deciso di non produrre per ora un documento
+# legale first-party. Non e' un rinvio della pubblicazione: e' il perimetro. Il
+# pacchetto si consegna a clienti autorizzati per un canale riservato, dove i
+# termini stanno nel contratto con loro, e su nessun indice pubblico -- che e'
+# esattamente cio' che il classificatore qui sopra dichiara. Il contratto di
+# release lo registra nell'invariante `distribuzione.licenza-first-party`, e
+# `scripts/check_canale_privato.py` verifica che il canale resti chiuso.
 
 [project.urls]
 Repository = "https://github.com/PlenoraETL/plenora-IO-tools"

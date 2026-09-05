@@ -433,13 +433,22 @@
       }
     ],
     "il_binario_non_e_dentro": "nessuno dei due porta `plenora-io`. Incorporarlo vorrebbe dire una wheel per piattaforma, il triplo degli artefatti da qualificare, e un prodotto che si aggiorna solo cambiando il pacchetto Python. La separazione si paga con `smoke-installato`, che la dimostra funzionante contro un artefatto nativo vero.",
-    "requires_python": "copre **soltanto** le versioni che la CI prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python futuro, e la promessa la si mantiene provandola."
+    "requires_python": "copre **soltanto** le versioni che la CI prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python futuro, e la promessa la si mantiene provandola.",
+    "il_sorgente_resta_leggibile": "wheel e sdist sono Python puro: contengono i `.py` cosi' come sono scritti, e la sdist anche i test. Chi li riceve legge il sorgente. E' una conseguenza della forma, non una svista, ed e' stata accettata esplicitamente: la consegna e' riservata, non segreta. Chi volesse anche la riservatezza del codice non otterrebbe da questa scelta cio' che cerca -- servirebbe un SDK compilato, che e' un altro prodotto, con un'altra qualifica e un'altra matrice."
   },
   "pubblicazione": {
     "regola": "si pubblicano **gli stessi byte** che sono stati qualificati. Nessuna ricostruzione al momento del rilascio, per nessuna classe di artefatto.",
     "perche": "cio' che i referti descrivono e' un archivio con un checksum preciso. Ricostruirlo al rilascio produrrebbe un secondo archivio, e le verifiche parlerebbero del primo: chi scarica riceverebbe byte che nessuno ha guardato, con accanto l'evidenza di byte diversi. Che i due coincidano non basta a renderlo onesto -- e' proprio perche' quasi sempre coincidono che la differenza passerebbe inosservata.",
     "come": "gli artefatti passano dal servizio artifact della corsa che li ha qualificati, e la pubblicazione li riscarica di li'. Il gate finale ricalcola sui byte **ricevuti** checksum, dimensione, revisione, lock, piattaforma, profilo e canale: verificare soltanto prima dell'upload dimostrerebbe i byte sul runner produttore, non quelli consegnati.",
     "il_pacchetto_python_non_fa_eccezione": "wheel e sdist si costruiscono una volta e si pubblicano quelle. La loro costruzione e' **riproducibile** -- date fisse, ordine per nome, e un passo del checkpoint che costruisce due volte e confronta i digest -- e questo rende la regola verificabile invece che soltanto prudente: se i byte divergessero, la divergenza sarebbe un difetto e non un fatto della vita.",
-    "che_cosa_la_riproducibilita_non_sostituisce": "la regola. Costruire due volte gli stessi byte rende la ricostruzione **innocua**, non lecita: i referti restano legati a un archivio preciso, e riusarlo e' cio' che tiene l'evidenza attaccata a cio' che descrive. La riproducibilita' e' la difesa che dice quando la regola e' stata infranta, non il permesso di infrangerla."
+    "che_cosa_la_riproducibilita_non_sostituisce": "la regola. Costruire due volte gli stessi byte rende la ricostruzione **innocua**, non lecita: i referti restano legati a un archivio preciso, e riusarlo e' cio' che tiene l'evidenza attaccata a cio' che descrive. La riproducibilita' e' la difesa che dice quando la regola e' stata infranta, non il permesso di infrangerla.",
+    "canale_del_pacchetto_python": {
+      "riservato": true,
+      "indice_pubblico": false,
+      "che_cos_e": "wheel e sdist si consegnano a clienti autorizzati, per un canale riservato. Non vanno su PyPI ne' su un indice pubblico di alcun tipo.",
+      "come_si_tiene": "per assenza non basta. `scripts/check_canale_privato.py` verifica che il classificatore `Private :: Do Not Upload` ci sia, che nessun workflow invochi uno strumento di pubblicazione, e che nessuno nomini una credenziale d'indice -- perche' uno strumento nuovo avrebbe comunque bisogno di una credenziale, e la credenziale ha una forma piu' stabile del comando.",
+      "perche_un_gate_e_non_una_regola": "un workflow aggiunto per comodita' -- �pubblichiamo su un indice interno, tanto e' privato� -- non farebbe rosso da nessuna parte, e il primo a scoprirlo sarebbe chi trova il pacchetto dove non doveva essere. Da li' non si torna indietro: un artefatto pubblicato e' un artefatto che qualcuno ha gia' scaricato.",
+      "perche_non_pubblico": "nessuna licenza first-party e' dichiarata -- l'invariante `distribuzione.licenza-first-party` lo registra come perimetro, non come blocco -- e senza termini un artefatto pubblico sarebbe consegnato a chi non ha modo di sapere che cosa gli e' concesso. Nel canale riservato quei termini li stabilisce il contratto con il cliente."
+    }
   }
 }

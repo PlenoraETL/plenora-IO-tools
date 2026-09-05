@@ -44,7 +44,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
-| capacità differite | 1 |
+| capacità differite | 2 |
 | S9, qualificato su | `8fe5120` |
 | candidate, versione del manifesto | `2.0.0` |
 | candidate, revisione congelata | `8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac` |
@@ -74,6 +74,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
 | `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. |
+| `distribuzione.licenza-first-party` | differita: la licenza first-party non e' dichiarata, e la 2.0.0 si distribuisce soltanto nel canale privato | la 2.0.0 NON concede alcuna licenza d'uso, copia, modifica o redistribuzione sui componenti first-party. Chi riceve un artefatto non trova dentro l'archivio i termini che lo governano, e non puo' dedurli: l'assenza di un file di licenza non e' un permesso, e in mancanza di concessione esplicita valgono le restrizioni predefinite del diritto d'autore. Nessun artefatto e' quindi ridistribuibile da chi lo riceve, e nessuno di essi puo' essere pubblicato su un indice, un registry o un repository aperto. La consegna avviene esclusivamente nel canale riservato, dove i termini li stabilisce il contratto con il cliente. |
 
 <!-- generato da assurance/current-state.json: fine -->
 

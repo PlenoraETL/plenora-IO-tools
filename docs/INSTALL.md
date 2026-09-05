@@ -68,6 +68,36 @@ perché, è un elenco chiuso in
 prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python
 futuro, e una promessa del genere la si mantiene provandola.
 
+## Come si ottiene, e sotto quali termini
+
+Gli artefatti — i quattro nativi e i due Python — si consegnano per un **canale
+riservato a clienti autorizzati**. Non stanno su PyPI né su altri indici
+pubblici, e il pacchetto Python porta nei metadati il classificatore
+`Private :: Do Not Upload`, che i servizi d'indice leggono per rifiutare il
+caricamento.
+
+Nessuna licenza first-party è dichiarata: dentro l'archivio non ci sono termini
+che concedano qualcosa, e la loro assenza non è un permesso. Ciò che è concesso
+lo stabilisce il contratto con cui l'artefatto è stato consegnato. In
+particolare, chi riceve un artefatto non è autorizzato a ridistribuirlo né a
+pubblicarlo.
+
+Il contratto di release lo registra nell'invariante
+`distribuzione.licenza-first-party` come **capacità differita** — perimetro
+dichiarato, non blocco chiuso — e
+[docs/RELEASE.md](RELEASE.md) ne riporta la riga con ciò che la 2.0.0 non
+promette. Una distribuzione pubblica richiederebbe una decisione separata del
+titolare.
+
+Le licenze dei **componenti di terzi** sono un'altra cosa, e restano dovute:
+ogni artefatto nativo porta in `LICENSES/` il testo di ognuna, e un gate conta
+che ci siano tutte. Il pacchetto Python non ne porta perché non spedisce byte
+di terzi.
+
+Wheel e sdist sono Python puro e contengono i sorgenti leggibili; la sdist
+anche i test. La consegna è riservata, non segreta: non è stata promessa alcuna
+riservatezza del codice.
+
 ## Scegliere il profilo
 
 `base` porta il binario, il manifesto, l'SBOM e le licenze. Non porta GDAL: il

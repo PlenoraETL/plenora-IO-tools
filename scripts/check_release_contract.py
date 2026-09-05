@@ -147,7 +147,23 @@ CAMPI = {"id", "superficie", "invariante", "prova", "stato"}
 # Chi puo' essere differita, e nessun altro. Se lo stato fosse applicabile a
 # qualunque voce, la via piu' breve al verde sarebbe differire il bloccante che
 # non passa: l'elenco chiuso rende quella mossa un rosso invece che una scelta.
-DIFFERIBILI = frozenset({"sistema.qualifica-cross-component"})
+DIFFERIBILI = frozenset(
+    {
+        "sistema.qualifica-cross-component",
+        # La seconda voce differibile, dal 2026-09-05. Il titolare ha deciso di
+        # non produrre per ora un documento legale first-party, e il perimetro
+        # della distribuzione 2.0.0 e' il canale privato -- dove i termini
+        # stanno nel contratto con il cliente invece che in un file dentro
+        # l'archivio.
+        #
+        # Il passaggio da qui e' il punto: trattarla come bloccante avrebbe
+        # fermato una distribuzione che quel documento non lo richiede;
+        # lasciarla fuori dal registro l'avrebbe fatta sparire. Differirla dice
+        # che cosa la release **non promette**, che e' l'unica cosa che chi
+        # riceve un artefatto ha bisogno di sapere.
+        "distribuzione.licenza-first-party",
+    }
+)
 
 # Che cosa deve dire una voce differita. Non bastano una parola e un rinvio:
 # servono chi ha deciso, che cosa la release **non promette** per effetto del

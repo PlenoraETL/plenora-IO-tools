@@ -166,6 +166,10 @@
       "log": true
     },
     {
+      "id": "canale_privato",
+      "log": true
+    },
+    {
       "id": "check_requires_python",
       "log": true
     },

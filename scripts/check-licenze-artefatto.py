@@ -197,6 +197,14 @@ def main() -> int:
             esito="verde" if not errori else "rosso",
             misure={
                 "componenti_con_testo": componenti,
+                # La licenza **first-party**, che non c'e'. Il conteggio qui
+                # sopra riguarda le licenze altrui, che sono un'altra domanda:
+                # un albero puo' portare quarantatre testi di terzi e non dire
+                # niente del proprio stato, ed e' cio' che faceva. Dichiararlo
+                # non e' un blocco -- la distribuzione privata non ne ha bisogno
+                # -- ma un artefatto che tace su questo lascia dedurre, e la
+                # deduzione piu' comoda e' che una licenza ci sia.
+                "licenza_first_party": distribuzione.licenza_first_party(),
                 "crate_rust": len(
                     [
                         p

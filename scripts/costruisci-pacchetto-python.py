@@ -283,18 +283,20 @@ def sbom(versione_pacchetto: str, artefatti: list[pathlib.Path]) -> dict:
 
 
 def licenze(versione_pacchetto: str) -> dict:
-    """Le licenze dei componenti spediti: nessuno, e la nostra che manca.
+    """Le licenze dei componenti spediti: nessuno, e la propria che manca ancora.
 
     Il primo numero e' zero perche' non si spedisce niente di terzi, e zero e'
-    una misura come le altre. Il secondo fatto e' che **questo repository non
-    dichiara una licenza propria**: nessun `Cargo.toml` ha il campo, tutti
-    hanno `publish = false`, e la sezione «Licenza» del README parla soltanto
-    dei fork vendorizzati.
+    una misura come le altre.
 
-    Il documento lo dice invece di tacerlo. Un artefatto senza licenza dichiarata
-    non e' pubblicabile, ed e' esattamente cio' che il classificatore
-    `Private :: Do Not Upload` afferma: le due dichiarazioni si tengono, e questa
-    e' quella che il gate legge.
+    Il secondo fatto e' che una licenza first-party **non e' dichiarata**, e per
+    questa distribuzione non serve: il pacchetto va a clienti autorizzati per un
+    canale riservato, dove i termini stanno nel contratto con loro. Non e' un
+    blocco e non e' una verifica: e' un perimetro, e il contratto di release lo
+    registra come tale.
+
+    Il dato viene da `distribuzione.LICENZA_FIRST_PARTY`, che e' l'unica fonte:
+    scritto qui e nel referto nativo, sarebbe divergiuto il giorno in cui lo
+    stato cambia e qualcuno aggiorna un posto solo.
     """
     return {
         "schema_licenze": 1,
@@ -304,20 +306,14 @@ def licenze(versione_pacchetto: str) -> dict:
             "il pacchetto non spedisce byte di terzi, quindi non c'e' nessuna "
             "licenza altrui da consegnare."
         ),
-        "licenza_propria": None,
-        "perche_nessuna": (
-            "questo repository non ne dichiara una: nessun `Cargo.toml` ha il "
-            "campo `license`, tutti hanno `publish = false`, e la sezione "
-            "«Licenza» del README parla soltanto dei fork vendorizzati. La prima "
-            "stesura del `pyproject.toml` diceva `Apache-2.0`: era un'invenzione, "
-            "ed e' stata tolta -- propagarla nei metadati di un pacchetto "
-            "installabile l'avrebbe fatta leggere come una concessione che "
-            "nessuno ha fatto."
-        ),
+        "licenza_first_party": distribuzione.licenza_first_party(),
         "conseguenza": (
-            "il pacchetto non si pubblica su un indice. Il classificatore "
-            "`Private :: Do Not Upload` lo dichiara nei metadati, e i servizi "
-            "che lo leggono rifiutano il caricamento."
+            "il pacchetto non si pubblica su un indice: la distribuzione "
+            "avviene per canale riservato a clienti autorizzati. Il "
+            "classificatore `Private :: Do Not Upload` lo dichiara nei "
+            "metadati, i servizi che lo leggono rifiutano il caricamento, e "
+            "`scripts/check_canale_privato.py` verifica che nessun workflow "
+            "provi a farlo comunque."
         ),
     }
 
@@ -441,7 +437,10 @@ def main(argv: list[str] | None = None) -> int:
                 profilo=variante,
                 canale=opzioni.canale,
                 esito="ok",
-                misure={"componenti_con_testo": 0},
+                misure={
+                    "componenti_con_testo": 0,
+                    "licenza_first_party": distribuzione.licenza_first_party(),
+                },
                 errori=[],
                 note=(
                     "zero e' una misura: il pacchetto non spedisce byte di terzi. "

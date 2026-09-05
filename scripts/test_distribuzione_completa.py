@@ -17,11 +17,15 @@ import importlib.util
 import json
 import pathlib
 import shutil
+import sys
 import tempfile
 import unittest
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 GATE = RADICE / "scripts" / "check-distribuzione-completa.py"
+
+sys.path.insert(0, str(RADICE / "scripts"))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
 
 def carica(percorso: pathlib.Path):
@@ -68,7 +72,15 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
                 "dipendenze_esterne": ["libc.so.6"],
                 "percorsi_assoluti_classificati": 29,
             },
-            "licenze-artefatto": {"componenti_con_testo": 43},
+            # `licenza_first_party` c'e' perche' il gate la pretende: un
+            # artefatto dice a che punto sta la licenza propria, e le licenze
+            # altrui -- quarantatre testi -- sono un'altra domanda. La fixture
+            # usa la fonte vera invece di una finta: se lo stato cambiasse,
+            # questi referti cambierebbero con lui.
+            "licenze-artefatto": {
+                "componenti_con_testo": 43,
+                "licenza_first_party": distribuzione.licenza_first_party(),
+            },
             "relocation": {"librerie_dall_albero": 57 if profilo == "filegdb" else 1},
             "digest-manifesto": {
                 "file_dichiarati": 145,

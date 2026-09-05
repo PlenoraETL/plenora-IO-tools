@@ -690,6 +690,11 @@ passo pacchetto_python_riproducibile bash scripts/verifica-riproducibilita-pytho
 # la suite eseguita contro il pacchetto installato invece che contro i sorgenti
 # che stanno li' accanto.
 passo smoke_pacchetto_python bash scripts/smoke-pacchetto-python.sh target/pacchetto-python
+# Il canale del pacchetto e' chiuso **per assenza**: nessun workflow carica su
+# un indice. Una promessa mantenuta per assenza si rompe senza far rosso da
+# nessuna parte, e il primo a scoprirlo sarebbe chi trova il pacchetto dove non
+# doveva essere.
+passo canale_privato python3 scripts/check_canale_privato.py
 # `requires-python` copre esattamente le versioni che la CI prova, nei due
 # versi. Una riga piu' larga della matrice promette un Python su cui nessuno ha
 # guardato; una piu' stretta rifiuta installazioni che funzionano.

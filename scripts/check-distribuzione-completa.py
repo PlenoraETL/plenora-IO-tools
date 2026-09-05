@@ -114,8 +114,19 @@ VERIFICHE_ATTESE = {
         "perche": "la chiusura, le dipendenze fuori dall'albero e i percorsi cotti dentro",
     },
     "licenze-artefatto": {
-        "misure_obbligatorie": ("componenti_con_testo",),
-        "perche": "ogni componente che spedisce byte porta il testo della propria licenza",
+        # Due domande diverse, e prima ce n'era una sola.
+        #
+        # `componenti_con_testo` conta le licenze **altrui**: un albero nativo
+        # ne porta quarantatre, la wheel zero perche' non spedisce byte di
+        # terzi. Nessuna delle due dice sotto quale licenza l'artefatto stesso
+        # viene consegnato, e per un prodotto proprietario e' la domanda che
+        # conta di piu': un artefatto puo' avere tutti i testi altrui in ordine
+        # e non dire niente del proprio regime.
+        "misure_obbligatorie": ("componenti_con_testo", "licenza_first_party"),
+        "perche": (
+            "ogni componente che spedisce byte porta il testo della propria "
+            "licenza, e l'artefatto dichiara sotto quale licenza viene consegnato"
+        ),
     },
     "smoke-profilo": {
         # Anche `non_richiesta` e' una misura: distingue la decisione unsigned
