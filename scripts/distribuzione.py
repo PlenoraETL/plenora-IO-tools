@@ -685,6 +685,12 @@ def sha256(percorso: pathlib.Path) -> str:
     return digesto.hexdigest()
 
 
+#: I due esiti che un referto puo' portare. Insieme chiuso: e' quello che il
+#: gate finale legge, e un terzo valore -- per quanto sensato -- verrebbe
+#: rifiutato la' invece che qui, cioe' a distribuzione gia' costruita.
+ESITI = frozenset({"verde", "rosso"})
+
+
 def scrivi_referto(
     percorso: pathlib.Path,
     *,
@@ -702,7 +708,18 @@ def scrivi_referto(
     `misure` e' la parte che conta: l'esito e' una conclusione, e una
     conclusione si puo' sbagliare in silenzio. I numeri no -- o ci sono e
     tornano, o non ci sono.
+
+    L'esito e' `verde` o `rosso`, e nient'altro. Il lato Python scriveva
+    `ok`/`fallito`: due vocabolari per la stessa cosa, e il gate -- che accetta
+    solo `verde` -- rifiutava otto referti in cui non c'era niente di
+    sbagliato. Il difetto e' vissuto finche' il gate non e' girato su una corsa
+    completa, ed e' il genere di cosa che una convenzione non scritta produce.
     """
+    if esito not in ESITI:
+        raise ValueError(
+            f"esito «{esito}» non ammesso: sono {sorted(ESITI)}. Un vocabolario "
+            "nuovo non si inaugura scrivendolo in un referto."
+        )
     percorso.parent.mkdir(parents=True, exist_ok=True)
     percorso.write_text(
         json.dumps(

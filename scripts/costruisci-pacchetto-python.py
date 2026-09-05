@@ -436,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
                 piattaforma="any",
                 profilo=variante,
                 canale=opzioni.canale,
-                esito="ok",
+                esito="verde",
                 misure={
                     "componenti_con_testo": 0,
                     "licenza_first_party": distribuzione.licenza_first_party(),
@@ -454,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
                 piattaforma="any",
                 profilo=variante,
                 canale=opzioni.canale,
-                esito="ok",
+                esito="verde",
                 misure={
                     "archivio_sha256": distribuzione.sha256(artefatto),
                     "revisione": distribuzione.revisione_del_repository(),
@@ -468,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                 piattaforma="any",
                 profilo=variante,
                 canale=opzioni.canale,
-                esito="ok",
+                esito="verde",
                 misure={"componenti_di_terzi": 0},
                 errori=[],
                 note="il pacchetto non ha dipendenze: l'elenco non ha voci.",

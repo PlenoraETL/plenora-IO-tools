@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             piattaforma="any",
             profilo=opzioni.formato,
             canale=opzioni.canale,
-            esito="ok" if not errori else "fallito",
+            esito="verde" if not errori else "rosso",
             misure={
                 **misure,
                 "provato_contro": (

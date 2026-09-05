@@ -124,6 +124,7 @@ class SondeDeliverable(unittest.TestCase):
         percorso.write_text(json.dumps(prova), encoding="utf-8")
 
     def crea_serie(self) -> None:
+        self.crea_python()
         for piattaforma in ("linux-x86_64", "windows-x86_64"):
             for profilo in ("base", "filegdb"):
                 nome = self.d.nome_archivio(self.VERSIONE, piattaforma, profilo)
@@ -151,6 +152,64 @@ class SondeDeliverable(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
+
+    #: La versione del pacchetto Python, che **non** e' quella degli archivi
+    #: nativi: il nome di quelli lo compone la versione della corsa, questo
+    #: porta la propria. Nella fixture sono diverse apposta -- se fossero
+    #: uguali, un gate che le confondesse passerebbe lo stesso.
+    VERSIONE_PYTHON = "2.0.0"
+
+    def crea_python(self) -> None:
+        """I due artefatti Python, coi loro sidecar e i due documenti comuni."""
+        nomi = (
+            f"plenora_io-{self.VERSIONE_PYTHON}-py3-none-any.whl",
+            f"plenora_io-{self.VERSIONE_PYTHON}.tar.gz",
+        )
+        file = []
+        for indice, nome in enumerate(nomi):
+            percorso = self.tmp / nome
+            # Contenuti diversi: due file identici avrebbero lo stesso digest, e
+            # uno scambio fra i due passerebbe inosservato.
+            percorso.write_bytes(b"pacchetto " + bytes([indice]) * (16 + indice))
+            digesto = self.d.sha256(percorso)
+            (self.tmp / f"{nome}.sha256").write_text(
+                f"{digesto}  {nome}\n", encoding="utf-8"
+            )
+            file.append(
+                {"nome": nome, "sha256": digesto, "byte": percorso.stat().st_size}
+            )
+
+        (self.tmp / "MANIFEST.json").write_text(
+            json.dumps(
+                {
+                    "nome": "plenora-io",
+                    "versione": self.VERSIONE_PYTHON,
+                    "classe": "python-puro",
+                    "piattaforma": "any",
+                    "canale": "prova",
+                    "non_release": True,
+                    "revisione": self.REVISIONE,
+                    "file": file,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (self.tmp / "provenance.json").write_text(
+            json.dumps(
+                {
+                    "artefatto": f"plenora-io {self.VERSIONE_PYTHON}",
+                    "revisione": self.REVISIONE,
+                    "lock_sha256": "d" * 64,
+                    "file": [
+                        {"nome": v["nome"], "archivio_sha256": v["sha256"]}
+                        for v in file
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        for accessorio in ("sbom.json", "licenze.json"):
+            (self.tmp / accessorio).write_text("{}", encoding="utf-8")
 
     def errori(self) -> list[str]:
         return self.gate.verifica(self.tmp, self.VERSIONE, "prova", self.REVISIONE)
