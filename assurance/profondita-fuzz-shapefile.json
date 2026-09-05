@@ -3,22 +3,22 @@
   "descrizione": "Che cosa il replay deterministico dei semi di `shp_reader` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh shp_reader`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
   "target": "shp_reader",
   "corpus": {
-    "input": 30
+    "input": 32
   },
-  "impronta_perimetro": "76e4c6dd88eb5f24419bbc59808fe3218567a308bfae7a5af5308e68ea3754e4",
+  "impronta_perimetro": "646e67a5dc722ed9cfd706b7146d95c7fdd6942e82e3186795b2d5159fc66696",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",
       "famiglia": "riga",
-      "riga": 3704,
+      "riga": 3808,
       "raggiunto": true
     },
     {
       "id": "bundle.shx-materializzato",
       "famiglia": "riga",
-      "riga": 3698,
+      "riga": 3802,
       "raggiunto": true
     },
     {
@@ -114,19 +114,19 @@
     {
       "id": "rifiuto.campo-dbf-corto",
       "famiglia": "riga",
-      "riga": 2302,
+      "riga": 2406,
       "raggiunto": true
     },
     {
       "id": "rifiuto.cardinalita-nel-drenaggio",
       "famiglia": "riga",
-      "riga": 3465,
+      "riga": 3569,
       "raggiunto": true
     },
     {
       "id": "rifiuto.conteggi-all-apertura",
       "famiglia": "riga",
-      "riga": 3012,
+      "riga": 3116,
       "raggiunto": true
     },
     {
@@ -138,13 +138,13 @@
     {
       "id": "rifiuto.data-e-ora-fuori-intervallo",
       "famiglia": "riga",
-      "riga": 2381,
+      "riga": 2485,
       "raggiunto": true
     },
     {
       "id": "rifiuto.data-non-interpretabile",
       "famiglia": "riga",
-      "riga": 2374,
+      "riga": 2478,
       "raggiunto": true
     },
     {

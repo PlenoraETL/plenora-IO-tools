@@ -2267,12 +2267,116 @@ fn valida_intestazione_dbf(path: &Path) -> Result<()> {
     // `read_dbf_layout`; qui interessa solo dove si trovano i valori.
     let record = DBF_DELETION_FLAG_SIZE + campi.iter().map(|campo| campo.lunghezza).sum::<usize>();
 
+    valida_fine_del_dbf(&file, &intestazione, utile, record)?;
+
     if campi.iter().any(|campo| matches!(campo.tipo, b'D' | b'T')) {
         // Il costo di questa scansione lo paga solo chi ha campi temporali:
         // sono gli unici tipi il cui **valore** puo' fermare la crate. Gli
         // altri si fermano al descrittore -- una stringa che non e' un numero
         // e' un errore di parsing, e la crate lo restituisce.
         valida_i_valori_temporali(&mut file, &intestazione, record, &campi)?;
+    }
+    Ok(())
+}
+
+/// Il byte che chiude un file dBase, quando c'e'.
+///
+/// La specifica lo prevede; non tutti i produttori lo scrivono, e un file che
+/// finisce esattamente sull'ultimo record e' altrettanto valido. Le due
+/// fixture `.dbf` di questo repository lo portano, ed e' **l'unico** byte che
+/// segue i loro record: la coda ammessa e' stata caratterizzata su di loro
+/// prima di fissarla, invece di dedurla dalla specifica.
+const DBF_FINE_FILE: u8 = 0x1A;
+
+/// Oltre i record che l'header dichiara non c'e' niente da leggere.
+///
+/// # Il difetto che chiude
+///
+/// `RecordIterator::next` di `dbase`, davanti a un record **cancellato**, fa
+/// `continue` senza incrementare il proprio contatore: salta il record e ne
+/// legge un altro al suo posto. La finestra di lettura scorre percio' in avanti
+/// di uno per ogni cancellato, e con abbastanza cancellati arriva a leggere
+/// byte che l'header non dichiara come record.
+///
+/// Quei byte nessuno li valida: la prevalidazione dei valori temporali scorre i
+/// record **dichiarati**, ed e' giusto che lo faccia, perche' sono quelli che
+/// il file afferma di contenere. Il risultato e' che un `.dbf` con un record
+/// cancellato e una coda ostile porta `Date::from_str` a una stringa piu' corta
+/// di quattro caratteri, dove `s[0..4]` esce dall'intervallo -- un panico, non
+/// un errore.
+///
+/// E' la seconda meta' del reperto del 2026-09-04, e non si vedeva perche' la
+/// prima bastava a spiegarlo.
+///
+/// # Perche' il conteggio dell'header, e non una scansione piu' larga
+///
+/// Perche' e' il conteggio a essere autorevole. Allargare la prevalidazione ai
+/// record non dichiarati vorrebbe dire validare byte che il file non dichiara
+/// essere record -- e deciderne il numero con la stessa aritmetica sbagliata da
+/// cui nasce il difetto. Qui si afferma il contrario: dopo l'ultimo record
+/// dichiarato **non c'e' un record**, e il file lo deve rispettare.
+///
+/// # Che cosa resta ammesso
+///
+/// La fine esatta, e il solo `0x1A`. Non un byte qualunque: un byte diverso e'
+/// l'inizio di qualcosa, e distinguere «un byte innocuo» da «il primo byte di
+/// un record» non si puo' fare guardandone uno solo.
+fn valida_fine_del_dbf(
+    file: &File,
+    intestazione: &[u8; DBF_HEADER_SIZE],
+    primo_record: usize,
+    passo: usize,
+) -> Result<()> {
+    let dichiarati = u64::from(u32::from_le_bytes([
+        intestazione[4],
+        intestazione[5],
+        intestazione[6],
+        intestazione[7],
+    ]));
+    // Aritmetica controllata: `dichiarati` e `passo` vengono dal file, e il
+    // prodotto di due valori dichiarati non ha un tetto che il formato imponga.
+    // Un traboccamento qui produrrebbe una fine piu' vicina del vero, cioe'
+    // rifiuterebbe un file valido -- ma anche questo va detto invece che
+    // subito.
+    let ultimo_byte = u64::try_from(passo)
+        .ok()
+        .and_then(|passo| dichiarati.checked_mul(passo))
+        .and_then(|corpo| corpo.checked_add(driver_common::saturating_u64(primo_record)))
+        .ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "dimensione dichiarata del DBF fuori intervallo",
+            ))
+        })?;
+
+    let dimensione = file
+        .metadata()
+        .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?
+        .len();
+
+    if dimensione <= ultimo_byte {
+        // Piu' corto di quanto dichiari: e' un altro difetto, e lo nomina un
+        // altro controllo. Qui interessa solo cio' che avanza.
+        return Ok(());
+    }
+    let avanzo = dimensione - ultimo_byte;
+    if avanzo > 1 {
+        return Err(err(&PublicMessage::Curated(
+            "byte DBF oltre i record dichiarati dall'header",
+        )));
+    }
+
+    let mut coda = [0_u8; 1];
+    let mut lettore = file;
+    lettore
+        .seek(SeekFrom::Start(ultimo_byte))
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+    lettore
+        .read_exact(&mut coda)
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+    if coda[0] != DBF_FINE_FILE {
+        return Err(err(&PublicMessage::Curated(
+            "byte DBF oltre i record dichiarati dall'header",
+        )));
     }
     Ok(())
 }
@@ -4582,12 +4686,15 @@ mod tests {
         );
     }
 
-    /// Il reperto della campagna, fino in fondo al driver, vivo e cancellato.
+    /// Il campo di controllo, fino in fondo al driver, vivo e cancellato.
     ///
     /// Le sonde sulla condizione dicono che la difesa rifiuta quei byte; questa
     /// dice che il prodotto la **raggiunge** e la traduce, invece di panicare
-    /// prima. E' lo stesso entry point del target `shp_reader`, sugli stessi
-    /// byte che la campagna ha archiviato.
+    /// prima. E' lo stesso entry point del target `shp_reader`.
+    ///
+    /// Nessuno dei due semi porta una coda oltre i record dichiarati: con una,
+    /// a fermarli sarebbe `valida_fine_del_dbf`, che interviene prima, e questa
+    /// sonda direbbe di provare una difesa mentre ne prova un'altra.
     ///
     /// I due semi stanno insieme perche' misurano due proprieta' diverse: che
     /// il campo sia rifiutato, e che il marcatore di cancellazione non compri
@@ -4627,19 +4734,20 @@ mod tests {
     /// driver, dentro un `catch_unwind`. E' il difetto nella sua forma nuda: un
     /// panico, non un `Err`, in una libreria che sta fra noi e il file.
     ///
-    /// Il seme e' quello **cancellato**, e la ragione e' misurata: il solo
-    /// primo record non basta a far panicare `dbase`, che su di esso
-    /// restituisce un `Err(InvalidDigit)`. A panicare e' il secondo record --
-    /// quello che l'intestazione non dichiara e che la crate legge lo stesso --
-    /// il cui campo si tronca al primo NUL. La difesa lo ferma prima, sul
-    /// primo record, ed e' questa catena che la controprova tiene insieme.
+    /// Il seme e' quello con il record oltre il conteggio, e la ragione e'
+    /// misurata: un campo di controllo da solo **non** fa panicare `dbase`, che
+    /// su di esso restituisce un `Err(InvalidDigit)` dal `?` di
+    /// `s[0..4].parse()`. A panicare e' un campo che si tronca a **tre**
+    /// caratteri, dove gia' `s[0..4]` esce dall'intervallo -- e per arrivarci
+    /// serve un record che l'header non dichiara, raggiunto perche' un
+    /// cancellato ha spostato la finestra.
     ///
     /// L'hook di panico resta quello di default: sopprimerlo qui zittirebbe
     /// anche il panico di un altro test in parallelo, e un messaggio in piu'
     /// nel log costa meno di un fallimento altrui reso muto.
     #[test]
     fn senza_la_difesa_il_campo_di_controllo_fa_panicare_dbase() {
-        let bundle = seme("dbf-data-di-controllo-cancellata.bundle");
+        let bundle = seme("dbf-record-oltre-il-conteggio.bundle");
         let parti = __fuzz_dividi_bundle(&bundle).expect("il seme e' un bundle");
         let dbf = parti.dbf.to_vec();
 
@@ -4666,7 +4774,98 @@ mod tests {
                 .expect_err("il driver rifiuta cio' che farebbe panicare la crate");
         assert_eq!(
             errore.message,
-            "campo data DBF che il lettore non puo' interpretare"
+            "byte DBF oltre i record dichiarati dall'header"
+        );
+    }
+
+    /// I byte oltre i record dichiarati sono rifiutati prima di `dbase`.
+    ///
+    /// La difesa sul campo data guarda i record che l'header dichiara, ed e'
+    /// giusto: sono quelli che il file afferma di contenere. `dbase` pero' ne
+    /// legge altri -- davanti a un record cancellato fa `continue` senza
+    /// incrementare il proprio contatore, e la finestra scorre in avanti di uno
+    /// -- e su quei byte nessuno aveva niente da dire.
+    ///
+    /// La controprova sta nel seme accanto: lo **stesso** file senza la coda si
+    /// legge. Senza, «i byte oltre il conteggio sono rifiutati» sarebbe vero
+    /// anche di un driver che rifiuta ogni record cancellato.
+    #[test]
+    fn i_byte_oltre_i_record_dichiarati_sono_rifiutati() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-record-oltre-il-conteggio.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("oltre i record dichiarati non c'e' niente da leggere");
+        assert_eq!(
+            errore.message,
+            "byte DBF oltre i record dichiarati dall'header"
+        );
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+
+        // Lo stesso file senza la coda: un record cancellato non e' un difetto.
+        let righe = match __fuzz_leggi_bundle(
+            &seme("dbf-cancellato-senza-coda.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        ) {
+            Ok(righe) => righe,
+            Err(errore) => panic!("un record cancellato si legge: {errore:?}"),
+        };
+        assert_eq!(righe, 0, "l'unico record e' cancellato, e non esce");
+    }
+
+    /// La fine del file, nelle due forme che il formato ammette.
+    ///
+    /// Il terminatore `0x1A` c'e' o non c'e': la specifica lo prevede, non
+    /// tutti i produttori lo scrivono, e un file che finisce esattamente
+    /// sull'ultimo record e' altrettanto valido. Le due fixture `.dbf` di
+    /// questo repository lo portano, ed e' l'**unico** byte che segue i loro
+    /// record: la coda ammessa e' stata caratterizzata su di loro prima di
+    /// fissarla.
+    ///
+    /// Un byte diverso non e' ammesso, e non e' pignoleria: distinguere «un
+    /// byte innocuo» da «il primo byte di un record» non si puo' fare
+    /// guardandone uno solo.
+    #[test]
+    fn la_fine_del_dbf_ammette_il_terminatore_e_niente_altro() {
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        let bundle = seme("dbf-data-valida.bundle");
+        let parti = __fuzz_dividi_bundle(&bundle).expect("il seme e' un bundle");
+        let intero = parti.dbf.to_vec();
+        assert_eq!(
+            intero.last(),
+            Some(&0x1A),
+            "il seme di partenza porta il terminatore"
+        );
+
+        let prova = |coda: &[u8], atteso: std::result::Result<(), &str>| {
+            let mut dbf = intero[..intero.len() - 1].to_vec();
+            dbf.extend_from_slice(coda);
+            let percorso = temporanea.path().join(format!("c{}.dbf", coda.len()));
+            std::fs::write(&percorso, &dbf).expect("il DBF si scrive");
+            let esito = valida_intestazione_dbf(&percorso);
+            match (atteso, esito) {
+                (Ok(()), Ok(())) | (Err(_), Err(_)) => {}
+                (Ok(()), Err(errore)) => {
+                    panic!("la coda {coda:?} doveva passare: {}", errore.message)
+                }
+                (Err(messaggio), Ok(())) => {
+                    panic!("la coda {coda:?} doveva essere rifiutata: {messaggio}")
+                }
+            }
+        };
+
+        // Le due forme ammesse.
+        prova(&[], Ok(()));
+        prova(&[0x1A], Ok(()));
+        // Un byte che non e' il terminatore, e un record intero.
+        prova(&[0x20], Err("un byte qualunque e' l'inizio di qualcosa"));
+        prova(&[0x1A, 0x1A], Err("due byte non sono un terminatore"));
+        prova(
+            b" 20260102",
+            Err("un record completo oltre il conteggio non e' una coda"),
         );
     }
 

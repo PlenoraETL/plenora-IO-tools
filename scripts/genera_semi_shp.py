@@ -584,25 +584,45 @@ def semi() -> dict[str, bytes]:
         "dbf-data-di-controllo.bundle": bundle(
             linee, indice_linee, dbf_con_data_ostile(una_data, b"2\x15\x15\x15\x15\x15\x15\x15")
         ),
-        # Il reperto della campagna del 2026-09-04, nella sua struttura.
-        #
-        # Due cose insieme, e ci vogliono entrambe. Il primo record e'
-        # cancellato e porta il campo di controllo: e' quello che la difesa deve
-        # fermare, e il marcatore non compra l'esenzione. Il secondo record non
-        # e' dichiarato dall'intestazione -- che ne conta uno -- e `dbase` lo
-        # legge lo stesso: e' quello che **panica**, perche' il suo campo si
-        # tronca al primo NUL e diventa una stringa di tre caratteri.
-        #
-        # Senza la coda il seme non riprodurrebbe il difetto: `dbase` sul solo
-        # primo record restituisce un `Err` e non panica, e la controprova
-        # direbbe di provare una cosa che non prova.
+        # Lo stesso campo in una riga cancellata, e **senza** coda: il
+        # marcatore non compra l'esenzione, ed e' la sola proprieta' che questo
+        # seme misura. Con una coda sarebbe la difesa sulla fine del file a
+        # fermarlo, e il seme direbbe di provare un'altra cosa.
         "dbf-data-di-controllo-cancellata.bundle": bundle(
             linee,
             indice_linee,
+            dbf_con_record_cancellato(dbf_con_data_ostile(una_data, b"2\x15\x15\x15\x15\x15\x15\x15")),
+        ),
+        # Il reperto della campagna del 2026-09-04, nella sua struttura.
+        #
+        # Due cose insieme, e ci vogliono entrambe. Il primo record e'
+        # cancellato e porta una data **valida**: nessuna prevalidazione dei
+        # valori ha di che lamentarsi. Il secondo record non e' dichiarato
+        # dall'intestazione -- che ne conta uno -- e `dbase` lo legge lo stesso,
+        # perche' davanti a un cancellato fa `continue` senza incrementare il
+        # proprio contatore: la finestra scorre in avanti di uno.
+        #
+        # Quel secondo record ha un campo data che si tronca al primo NUL e
+        # arriva a `Date::from_str` come stringa di **tre** caratteri, dove
+        # `s[0..4]` esce dall'intervallo. Tre e non quattro: con quattro la
+        # crate restituisce `Err(InvalidDigit)` dal `?` di `s[0..4].parse()` e
+        # non arriva mai a `s[4..6]`.
+        #
+        # E' il seme della difesa sulla **fine del file**, non di quella sul
+        # campo data: il record dichiarato e' valido, e a fermarlo e' il fatto
+        # che oltre i record dichiarati ci siano byte interpretabili.
+        "dbf-record-oltre-il-conteggio.bundle": bundle(
+            linee,
+            indice_linee,
             dbf_con_un_record_oltre_il_dichiarato(
-                dbf_con_record_cancellato(dbf_con_data_ostile(una_data, b"2\x15\x15\x15\x15\x15\x15\x15")),
-                b"\x15\x15\x15\x01\x00\x00\x00\x00\x00",
+                dbf_con_record_cancellato(una_data), b"\x15\x15\x01\x00\x00\x00\x00\x00\x00"
             ),
+        ),
+        # La controprova della difesa sulla fine: lo **stesso** file senza la
+        # coda si legge. Senza, «i byte oltre il conteggio sono rifiutati»
+        # sarebbe vero anche di un driver che rifiuta ogni record cancellato.
+        "dbf-cancellato-senza-coda.bundle": bundle(
+            linee, indice_linee, dbf_con_record_cancellato(una_data)
         ),
         # Un record che dichiara una polilinea e porta solo il tag: i conteggi
         # non stanno dentro il record, e il decoder li legge dai byte che
