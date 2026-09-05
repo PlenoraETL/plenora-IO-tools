@@ -63,19 +63,27 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_undici_voci(self) -> None:
+    def test_l_allowlist_ha_dodici_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
-        Quattro canonici e sette operativi. Sono cresciuti due volte il
+        Cinque canonici e sette operativi. Sono cresciuti due volte il
         2026-09-04: con il terzo fork governato, che ridistribuisce anche un
         CHANGELOG e la propria licenza in Markdown -- contenuto di terzi, la cui
         integrita' la verifica il gate del fork sull'albero intero e non questo
         -- e con il README dell'SDK Python, che `pyproject.toml` dichiara
         `readme` e che finisce nei metadati del pacchetto: la stessa convenzione
         di percorso dei manifesti Cargo.
+
+        Il 2026-09-05 e' cresciuto il lato **canonico**, che fino ad allora non
+        si era mai mosso: `docs/INSTALL.md` risponde alla domanda di chi riceve
+        il prodotto -- che cosa scarico, come verifico che sia arrivato intero,
+        che cosa riscrivo passando dalla 1.x -- e gli altri quattro rispondono
+        a domande di chi ci lavora. Che questa sonda sia diventata rossa e'
+        precisamente il suo mestiere: un quinto documento canonico e' una
+        decisione, e passa di qui.
         """
-        self.assertEqual(len(gate.AMMESSI), 11)
-        self.assertEqual(len(gate.CANONICI), 4)
+        self.assertEqual(len(gate.AMMESSI), 12)
+        self.assertEqual(len(gate.CANONICI), 5)
         self.assertEqual(len(gate.OPERATIVI), 7)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
