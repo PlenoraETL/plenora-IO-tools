@@ -376,7 +376,20 @@ def main() -> int:
         for ciascuno in errori:
             print(f"ERRORE: {ciascuno}", file=sys.stderr)
         return 1
-    print("deliverable verificati: 4 archivi, 4 checksum, 4 provenance")
+    # Contati, non scritti. Il numero era fisso -- «4 archivi» -- ed e' rimasto
+    # quattro quando gli artefatti sono diventati sei: il riepilogo diceva meno
+    # di cio' che la verifica aveva fatto, e chi lo legge ne avrebbe dedotto che
+    # i due pacchetti Python nessuno li avesse guardati.
+    archivi = sorted(
+        p.name
+        for p in directory.iterdir()
+        if p.is_file() and (directory / f"{p.name}.sha256").is_file()
+    )
+    print(
+        f"deliverable verificati: {len(archivi)} archivi con altrettanti "
+        f"checksum, di cui {sum(1 for n in archivi if n.startswith('plenora_io-'))} "
+        "Python"
+    )
     if arg.contro_la_candidate is not None:
         print(
             f"byte pubblicati identici ai {congelati} artefatti congelati "
