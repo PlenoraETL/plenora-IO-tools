@@ -36,25 +36,25 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CANONICHE = ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
 
-#: I comandi che leggono il protocollo dagli argomenti. `catalog` non e' fra
-#: loro, e non per una dimenticanza di questo strumento: il dispatch della CLI
-#: tiene i quattro comandi che possono consegnare un documento legacy separati
-#: da `catalog`, che emette sempre il v2. Metterlo nell'elenco produrrebbe una
-#: riga «nessuna differenza» che sembrerebbe dire �le due buste coincidono� e
-#: direbbe invece �non ci sono due buste�.
+#: I cinque comandi, tutti e cinque.
+#:
+#: `catalog` c'e' perche' il contratto v1 dichiara sei buste e la sua e' una di
+#: quelle. Per un periodo il dispatch lo teneva fuori dalla scelta del
+#: protocollo, e questo strumento -- nato dopo -- aveva registrato quell'assenza
+#: come se fosse il disegno: una misura che descrive un difetto e lo chiama
+#: intenzione e' peggio di una misura mancante.
+#:
+#: Gli argomenti sono scelti per **far uscire** la diagnostica invece di una
+#: busta pulita: e' li' che i due protocolli differiscono, e un confronto su un
+#: file senza perdita non troverebbe niente da migrare.
 COMANDI = (
+    ("catalog", ["catalog"]),
     ("inspect", ["inspect", "{shp}"]),
     ("layers", ["layers", "{shp}"]),
     ("read", ["read", "{shp}"]),
     # Il formato d'uscita lo decide l'estensione.
-    # apposta: i suoi nomi di campo stanno in dieci caratteri ASCII, e una
-    # conversione che li accorcia **produce diagnostica** invece di una busta
-    # pulita. E' li' che i due protocolli differiscono davvero.
     ("convert", ["convert", "{shp}", "{uscita}"]),
 )
-
-#: Il comando fuori dalla scelta, e cio' che di lui va comunque misurato.
-SENZA_SCELTA = ("catalog", ["catalog"])
 
 
 def forma(documento, prefisso: str = "") -> set[str]:
@@ -100,24 +100,6 @@ def main(argv: list[str] | None = None) -> int:
 
     delta: dict[str, dict] = {}
 
-    # `catalog` prima, perche' cio' che va detto di lui e' diverso: non che le
-    # due buste coincidano, ma che di buste ce ne sia una sola.
-    solo_v2, _ = esegui(opzioni.binario, list(SENZA_SCELTA[1]))
-    col_flag, avviso_catalog = esegui(
-        opzioni.binario, [*SENZA_SCELTA[1], "--legacy-protocol-v1-unsafe"]
-    )
-    delta["catalog"] = {
-        "sceglie_il_protocollo": False,
-        "contratto_senza_flag": solo_v2.get("contract"),
-        "contratto_col_flag": col_flag.get("contract"),
-        "il_flag_cambia_qualcosa": solo_v2 != col_flag,
-        "avviso_su_stderr": avviso_catalog.strip() != "",
-        "che_cosa_significa": (
-            "`catalog` emette il v2 in ogni caso. Il flag legacy non lo "
-            "riguarda, e la CLI non lo rifiuta: chi lo passa riceve una busta "
-            "v2 senza che niente glielo dica."
-        ),
-    }
     for nome, modello in COMANDI:
         # Un'uscita per esecuzione. Riusare lo stesso percorso faceva fallire
         # la seconda -- il prodotto rifiuta di sovrascrivere -- e il confronto
@@ -146,17 +128,8 @@ def main(argv: list[str] | None = None) -> int:
             "avviso_su_stderr": avviso.strip() != "",
         }
 
-    catalog = delta["catalog"]
-    print(
-        f"catalog    sempre {catalog['contratto_senza_flag']}; col flag legacy "
-        f"{catalog['contratto_col_flag']}, avviso: "
-        f"{'sì' if catalog['avviso_su_stderr'] else 'nessuno'}"
-    )
-    print()
     print(f"{'comando':10} {'v1':7} {'v2':7} {'comuni':7}  campi che cambiano")
     for nome, voce in delta.items():
-        if nome == "catalog":
-            continue
         print(
             f"{nome:10} {len(voce['solo_nel_v1']):<7} {len(voce['solo_nel_v2']):<7} "
             f"{voce['in_comune']:<7}  {voce['contratto_v1']} -> {voce['contratto_v2']}"

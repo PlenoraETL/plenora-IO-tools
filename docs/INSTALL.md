@@ -226,7 +226,7 @@ raggiungibile con un'opzione esplicita.
 | `layers` | `plenora-io-layers-v1` | `plenora-io-layers-v2` |
 | `read` | `plenora-io-read-v1` | `plenora-io-read-v2` |
 | `convert` | `plenora-io-convert-v1` | `plenora-io-convert-v2` |
-| `catalog` | — | `plenora-io-catalog-v2` sempre (vedi sotto) |
+| `catalog` | `plenora-io-catalog-v1` | `plenora-io-catalog-v2` |
 | errori | `plenora-io-error-v1` | `plenora-io-error-v1`, invariato |
 
 Un consumatore che verifica `contract` — ed è ciò che un consumatore dovrebbe
@@ -297,16 +297,28 @@ e nemmeno un suo hash, che resta un identificatore controllato da chi il file lo
 fornisce. Il secondo effetto è che una dipendenza che cambia la propria `Debug`
 non può più cambiare la busta senza che nessuno tocchi il protocollo.
 
-### `catalog` non ha un v1
+### `catalog` cambia soltanto l'intestazione
 
-`catalog` emette il v2 in ogni caso, anche col flag legacy, e senza avviso.
-Non è un residuo: il dispatch tiene separati i quattro comandi che possono
-consegnare un documento legacy — `inspect`, `layers`, `read`, `convert` — da
-`catalog`, che il documento legacy non lo produce.
+Il catalogo è la busta che si migra più facilmente: i due protocolli producono
+lo **stesso** elenco di driver, con le stesse capability e lo stesso
+`determinism`. A cambiare sono `protocol_version` e `contract`, e nient'altro
+— settantaquattro percorsi identici su settantaquattro.
 
-Il flag, passato a `catalog`, **non viene rifiutato**: chi scrive
-`catalog --legacy-protocol-v1-unsafe` riceve una busta v2 senza che niente
-glielo dica. Vale la pena saperlo prima di scriverlo in uno script.
+Chi legge il catalogo per sapere che cosa il prodotto sa fare può quindi
+passare al v2 senza toccare una riga, e verificare `contract` per accorgersi di
+essere passato.
+
+### Gli argomenti che questi comandi non conoscono
+
+`catalog` accetta il solo flag legacy, e `--version` non accetta niente: ogni
+altro argomento — un'opzione sconosciuta, un percorso, il flag ripetuto,
+un'opzione buona per un altro comando — è un `CLI_USAGE`.
+
+Vale la pena saperlo perché per un periodo non è stato vero: i due punti
+d'ingresso senza sorgente scartavano gli argomenti senza guardarli, e
+`catalog --limit 5` usciva con zero e una busta buona. Uno script scritto
+contro quel comportamento — o un errore di battitura sopravvissuto perché
+nessuno l'aveva mai visto fallire — ora fallisce, ed è il punto.
 
 ### Restare sul v1
 

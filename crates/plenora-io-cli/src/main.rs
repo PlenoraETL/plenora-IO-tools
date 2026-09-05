@@ -455,7 +455,7 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             // Il nome dice che cosa si sta scegliendo. `--protocol 1` sarebbe
             // stato piu' corto e avrebbe fatto sembrare le due versioni due
             // opzioni pari: non lo sono.
-            "--legacy-protocol-v1-unsafe" => cli.protocollo = Protocollo::V1Legacy,
+            FLAG_LEGACY => cli.protocollo = Protocollo::V1Legacy,
             "--opt" => {
                 let (k, v) = kv(it.next().ok_or_else(|| {
                     usage_err(&PublicMessage::Curated("--opt richiede chiave=valore"))
@@ -634,6 +634,39 @@ fn catalog_document_con(protocollo: Protocollo, filegdb_available: bool) -> Valu
         "determinism": "byte_for_byte",
         "drivers": drivers,
     })
+}
+
+/// Il flag che sceglie il protocollo congelato.
+///
+/// In una costante perche' ora lo leggono due parser: quello dei comandi che
+/// aprono una sorgente e quello di `catalog`. Scritto due volte, sarebbe bastato
+/// correggerne uno per lasciare l'altro a rispondere a un flag che nessuno passa
+/// piu'.
+const FLAG_LEGACY: &str = "--legacy-protocol-v1-unsafe";
+
+/// Gli argomenti che `catalog` ammette: nessuno, o il solo flag legacy.
+///
+/// # Perche' un parser suo e non `parse`
+///
+/// `parse` conosce sorgenti, quote e opzioni di formato, e nessuna di quelle ha
+/// significato per un comando che non apre niente. Riusarla avrebbe fatto
+/// accettare `catalog --limit 5`: accettare e non farne niente, che e'
+/// esattamente il difetto da cui si viene.
+///
+/// # Perche' il duplicato e' un errore
+///
+/// `catalog --legacy… --legacy…` sceglierebbe lo stesso protocollo due volte, e
+/// tollerarlo non costerebbe niente **oggi**. E' il motivo per cui va rifiutato
+/// adesso: le tolleranze che non costano niente sono quelle che si concedono
+/// senza accorgersene, e a cui poi qualcuno si appoggia.
+fn parse_catalog(argomenti: &[String]) -> Result<Protocollo, (i32, Value)> {
+    match argomenti {
+        [] => Ok(Protocollo::V2),
+        [solo] if solo == FLAG_LEGACY => Ok(Protocollo::V1Legacy),
+        _ => Err(usage_err(&PublicMessage::Curated(
+            "catalog non prende argomenti, salvo --legacy-protocol-v1-unsafe",
+        ))),
+    }
 }
 
 // Firma uniforme con gli altri `cmd_*`: il dispatch in `run()` richiede
@@ -1030,9 +1063,9 @@ fn parse_legato(args: &[String], cancellazione: &CancellationToken) -> Result<Cl
 ///
 /// Il protocollo esce da `run` perche' l'avviso del v1 legacy **accompagna un
 /// output consegnato**, e chi lo consegna e' `main`. Dedurlo dagli argomenti
-/// direbbe un'altra cosa: `catalog` e `--version` non leggono il flag, e un
-/// avviso su una busta v2 parlerebbe di una diagnostica illimitata che quel
-/// documento non ha.
+/// direbbe un'altra cosa: un avviso su una busta v2 parlerebbe di una
+/// diagnostica illimitata che quel documento non ha, e `--version` non e' una
+/// busta di protocollo affatto.
 type EsitoDelComando = (CliResult, Protocollo);
 
 fn run() -> EsitoDelComando {
@@ -1067,12 +1100,28 @@ fn run() -> EsitoDelComando {
         };
         return (esito, protocollo);
     }
+    // `catalog` legge il protocollo come gli altri quattro. Stava fuori, e il
+    // v1 che `release/cli-protocol-v1.json` dichiara fra le sei buste era
+    // diventato irraggiungibile: `cmd_catalog` sapeva ancora produrlo, ma
+    // nessuno glielo chiedeva piu'.
+    if args.first().map(String::as_str) == Some("catalog") {
+        return match parse_catalog(&args[1..]) {
+            Ok(protocollo) => (cmd_catalog(protocollo), protocollo),
+            Err(errore) => (Err(errore), Protocollo::default()),
+        };
+    }
     let esito = match args.first().map(String::as_str) {
-        Some("--version" | "-V") => Ok(json!({
+        // La busta di bootstrap non prende niente in coda. Il flag legacy e' il
+        // caso che inganna di piu': `--version` **non e'** una busta di
+        // protocollo, non ha un v1, e accettarlo li' farebbe credere il
+        // contrario a chi lo scrive.
+        Some("--version" | "-V") if args.len() == 1 => Ok(json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
         })),
-        Some("catalog") => cmd_catalog(Protocollo::default()),
+        Some("--version" | "-V") => Err(usage_err(&PublicMessage::Curated(
+            "--version non prende argomenti",
+        ))),
         _ => Err(usage_err(&PublicMessage::Curated(
             "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
         ))),
