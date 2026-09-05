@@ -405,7 +405,7 @@ def verifica(
     return errori
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--referti", required=True, type=pathlib.Path)
     a.add_argument("--canale", default="candidate", choices=["prova", "candidate"])
@@ -418,7 +418,7 @@ def main() -> int:
             "cambia il perimetro"
         ),
     )
-    arg = a.parse_args()
+    arg = a.parse_args(argv)
 
     directory = arg.referti.resolve()
     if not directory.is_dir():
@@ -458,7 +458,11 @@ def main() -> int:
     print(f"artefatti attesi: {len(artefatti)} ({dettaglio})")
     print(f"referti attesi: {attesi}")
 
-    errori = verifica(directory, arg.canale, piattaforme)
+    # `artefatti` e `dichiarate` si passano invece di essere ricalcolati dentro:
+    # sono gli stessi che hanno prodotto i due numeri stampati qui sopra, e
+    # ricavarli una seconda volta avrebbe permesso al conteggio annunciato e a
+    # quello verificato di divergere senza che nessuno lo vedesse.
+    errori = verifica(directory, arg.canale, piattaforme, artefatti, dichiarate)
     referti, _ = carica_referti(directory)
     print(f"referti trovati: {len(referti)}")
 

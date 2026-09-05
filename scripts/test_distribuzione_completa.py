@@ -571,6 +571,41 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
             self.assertNotIn(token, self.testo)
 
 
+class SondeDellIngressoDelGate(ConGliArtefattiAttesi, unittest.TestCase):
+    """`main` si esercita, non solo la funzione che chiama.
+
+    # Il difetto che questa sonda chiude
+
+    `verifica` ha preso due parametri nuovi quando gli obblighi sono diventati
+    dipendenti dalla classe, e `main` ha continuato a chiamarla con tre
+    argomenti. Le sonde erano tutte verdi: chiamano `verifica` **direttamente**,
+    con la firma nuova, e nessuna passava dall'ingresso.
+
+    A trovarlo e' stata la prima corsa reale della distribuzione a sei
+    artefatti, con un `TypeError` dopo che il gate aveva gia' stampato i due
+    conteggi giusti. Un gate che non parte non e' un gate rosso: e' un job che
+    fallisce, e la differenza la vede solo chi legge il diario.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.gate = carica(GATE)
+        self.distribuzione = carica(RADICE / "scripts" / "distribuzione.py")
+
+    def test_il_gate_gira_dalla_riga_di_comando(self) -> None:
+        """Su una directory vuota deve dire **che cosa manca**, non rompersi.
+
+        Il verde qui sarebbe sbagliato -- non c'e' nessun referto -- e cio' che
+        si verifica e' che l'uscita sia `1`, cioe' un rifiuto motivato, invece
+        di un'eccezione.
+        """
+        esito = self.gate.main(
+            ["--referti", str(self.tmp), "--canale", "prova", "--piattaforme", "linux-x86_64"]
+        )
+        self.assertEqual(esito, 1)
+
+
 class SondeDelRuntimeNativo(unittest.TestCase):
     """Che il campo dica quello che il suo nome promette.
 
