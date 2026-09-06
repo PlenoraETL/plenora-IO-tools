@@ -55,7 +55,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, revisione del tag | `None` |
 | candidate, tag sulla candidate | no |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
+| candidate, release_action consentita | no |
 | release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
