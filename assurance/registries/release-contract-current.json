@@ -686,7 +686,7 @@
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "I sei archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
       "stato": "verified",
-      "sintesi": "sei archivi qualificati su a61a081; byte riscaricati dalla bozza identici ai digest congelati",
+      "sintesi": "sei archivi qualificati su a61a081; byte riscaricati dalla release pubblicata identici ai digest congelati",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
       "prova": {
         "tipo": "esterna",
@@ -698,7 +698,7 @@
         "tipo": "workflow",
         "artefatto": ".github/workflows/distribuzione.yml, job `gate`",
         "comando": "python3 scripts/check-distribuzione-completa.py --referti <referti> --canale <canale>",
-        "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_bozza",
+        "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_release_pubblicata",
         "ultima_corsa_verde": "a61a081",
         "corsa": 34030548057
       }

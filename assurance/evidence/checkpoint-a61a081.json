@@ -883,8 +883,11 @@
       ]
     },
     "publication": {
-      "status": "pending",
-      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0"
+      "status": "published",
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0",
+      "published_at": "2026-09-06T19:23:50Z",
+      "tag": "v2.0.0",
+      "revision": "a61a0815b000f2856594375a2858c41e32a1fff7"
     },
     "preflight": {
       "gate": {
@@ -923,6 +926,152 @@
         "failed_step": "Verify the current contract registry"
       },
       "limitation": "La suite del contratto contiene ancora sette asserzioni sullo stato reale precedente al rilascio: richiedono blocchi aperti, autorizzazione negata o tag assente. Il workflow sul tag legge inoltre lo stato storico congelato prima della registrazione della release. Questi controlli non sono dichiarati verdi. Il gate finale eseguito sullo stato di assurance autorizzato e verde; la qualifica L2 e la distribuzione della candidate non sono state ripetute ne alterate. La correzione delle sonde richiede una successiva modifica del codice, esclusa da questo commit di pubblicazione."
+    },
+    "published": {
+      "timestamp_utc": "2026-09-06T19:24:26.113658+00:00",
+      "release_id": 383535798,
+      "draft": false,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0",
+      "target_commitish": "a61a0815b000f2856594375a2858c41e32a1fff7",
+      "command": [
+        "python3",
+        "scripts/check-deliverable.py",
+        "--directory",
+        ".s9-checkpoint/release-2.0.0/published",
+        "--versione",
+        "2.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "a61a0815b000f2856594375a2858c41e32a1fff7",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "stdout": "deliverable verificati: 6 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 6 artefatti congelati dalla candidate\n",
+      "stderr": "",
+      "assets": [
+        {
+          "id": 547137031,
+          "name": "MANIFEST.json",
+          "size": 1392,
+          "sha256": "a46a1801fe1ce71ffa4a411c38cdb460619c98d0279944b1a9b33c3ad5d559a9"
+        },
+        {
+          "id": 547137029,
+          "name": "licenze.json",
+          "size": 2162,
+          "sha256": "c612b8bfe76b3e192eeff32bd0544028ab3c3e64ac2406efcff7302f543b0603"
+        },
+        {
+          "id": 547137027,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
+          "size": 8593654,
+          "sha256": "b1df054da018bd4933f98d982ca202fce97eaeba1e08a43873b74022f1538c34"
+        },
+        {
+          "id": 547137028,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz.provenance.json",
+          "size": 2582,
+          "sha256": "c4031c547b6c7f7ab5cd02a3167528a49d935397f1845adbad774b5da97c2531"
+        },
+        {
+          "id": 547137030,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz.sha256",
+          "size": 108,
+          "sha256": "b0cd36cb117584cc33003c9116c24c496f76ace6d02e3dc35e35c08eb066e2a4"
+        },
+        {
+          "id": 547137039,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
+          "size": 64455950,
+          "sha256": "d12c66b365dcb95829f21ad23841b8d1b89e7f533f658764b1280b280021a99b"
+        },
+        {
+          "id": 547137041,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz.provenance.json",
+          "size": 2589,
+          "sha256": "95a97236fd3b203b3dfcaaeb3e4058fdc747dff23a104d376a02f5fbee04e0f2"
+        },
+        {
+          "id": 547137047,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz.sha256",
+          "size": 111,
+          "sha256": "c83591c88faf7c6f9f29f6bab4cf4d1682c08b84e77229c673485111bacba810"
+        },
+        {
+          "id": 547137046,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip",
+          "size": 8732323,
+          "sha256": "8a66e9a4817d4ef14275de1123a86b4fb74347c8490c7d2bcb38d0d118d7ac82"
+        },
+        {
+          "id": 547137054,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip.provenance.json",
+          "size": 2435,
+          "sha256": "a83e37be3adaa71a602283d426fa71e0bdaf890efac6eb64330610b03803ea95"
+        },
+        {
+          "id": 547137059,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip.sha256",
+          "size": 108,
+          "sha256": "20f4416b60eec95e7467a5a65be519ddc315e39f358338ec1ccbe2079a9d67f1"
+        },
+        {
+          "id": 547137060,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
+          "size": 47800908,
+          "sha256": "95bf5d035c860ff6d2825b4f7ca592179589d2250197e9d40f65dda26ba7f0de"
+        },
+        {
+          "id": 547137069,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip.provenance.json",
+          "size": 2442,
+          "sha256": "64e082b3d845c090a4d70922b594d473e0c63af32018265965d160fe548d67e4"
+        },
+        {
+          "id": 547137071,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip.sha256",
+          "size": 111,
+          "sha256": "bcb6675318724d71f1aba3cce00238c45a4c8725d2a5aa95cc67cea51a69d07d"
+        },
+        {
+          "id": 547137075,
+          "name": "plenora_io-2.0.0-py3-none-any.whl",
+          "size": 33787,
+          "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7"
+        },
+        {
+          "id": 547137077,
+          "name": "plenora_io-2.0.0-py3-none-any.whl.sha256",
+          "size": 100,
+          "sha256": "974856aed18af4faa9c600fe0f0be126a27ca498d577d128c7f8bb3bc973d15c"
+        },
+        {
+          "id": 547137081,
+          "name": "plenora_io-2.0.0.tar.gz",
+          "size": 48171,
+          "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214"
+        },
+        {
+          "id": 547137090,
+          "name": "plenora_io-2.0.0.tar.gz.sha256",
+          "size": 90,
+          "sha256": "23602614968491707d363d9b3457769eb89200cb257cb7a70c731237145fd58a"
+        },
+        {
+          "id": 547137091,
+          "name": "provenance.json",
+          "size": 769,
+          "sha256": "109f7f66c26935007841e2da22fb466059db9e26403080c4047683acbcc6e65e"
+        },
+        {
+          "id": 547137094,
+          "name": "sbom.json",
+          "size": 973,
+          "sha256": "3a6c8e43ebcc4fcab161239c34071749a976542583fd19336cc16ab19f5eeb8e"
+        }
+      ]
     }
   },
   "status": "satisfied",
