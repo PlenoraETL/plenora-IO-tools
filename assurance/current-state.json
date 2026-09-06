@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "131ff9c",
+      "sha": "a61a081",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "131ff9c",
+    "sha": "a61a081",
     "checkpoint": {
       "passi_eseguiti": 95,
       "passi_verdi": 95,
@@ -23,7 +23,7 @@
       "riconciliazione": "95 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 80412,
+      "replay_input": 80672,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,8 +32,8 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 89.71,
-      "lcov_righe_coperte": 39314,
+      "lcov_percentuale": 89.72,
+      "lcov_righe_coperte": 39317,
       "lcov_righe_strumentate": 43824,
       "cargo_lines_percentuale": 88.13,
       "soglia": 80.0,
@@ -41,23 +41,23 @@
       "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "1b913b6",
+      "baseline": "131ff9c",
       "esito": "n/d",
       "righe_cambiate_eseguibili": 0,
       "coperte": 0,
       "scoperte": 0,
       "cambiate_non_eseguibili": 0,
-      "ragione": "misurata **dentro** la corsa, con `S9_CHECKPOINT_BASE` impostata alla revisione dell'ultimo checkpoint superato. Fra quella e questa non cambia una sola riga eseguibile in `crates/`: la percentuale e' `n/d` perche' il denominatore e' zero, non perche' manchi. Scriverci `100%` direbbe che tutto il codice nuovo e' coperto, `0%` il contrario, e non c'e' codice nuovo di cui dire l'una o l'altra cosa.",
+      "ragione": "misurata **dentro** la corsa, con `S9_CHECKPOINT_BASE` impostata alla revisione dell'ultimo checkpoint superato. Cio' che e' cambiato fra le due sta nel gate del contratto e nelle sue sonde, non nei driver: la percentuale dice quanto di quel poco e' attraversato dai test.",
       "che_cosa_sono_le_scoperte": "righe cambiate fra le due revisioni che nessun test attraversa. Non sono un difetto ne' un debito: sono il punto in cui la copertura complessiva, che resta alta, non dice niente sul codice **nuovo**. L'elenco e' integrale e non troncato: i numeri dicono quante, e senza i nomi nessun artefatto direbbe quali."
     },
-    "evidenza": "assurance/evidence/checkpoint-131ff9c.json"
+    "evidenza": "assurance/evidence/checkpoint-a61a081.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "131ff9c"
+      "qualificato_su": "a61a081"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -108,46 +108,46 @@
     },
     "candidate_release": {
       "versione_manifesto": "2.0.0",
-      "revisione_candidate": "131ff9c826e3497dad510b38c5d071dc22640926",
+      "revisione_candidate": "a61a0815b000f2856594375a2858c41e32a1fff7",
       "versione_workspace": "2.0.0",
       "tag_previsto": "v2.0.0",
       "tag_creato": false,
       "tag_revisione": null,
       "tag_sulla_candidate": false,
-      "assurance_entro_l_allowlist": false,
+      "assurance_entro_l_allowlist": true,
       "artefatti": [
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "247f2066f03adc285baef6e8e1ed537cae6a3e00cdafb78b0d6eb1c2fcbffa35",
-          "dimensione": 8593667,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "sha256": "b1df054da018bd4933f98d982ca202fce97eaeba1e08a43873b74022f1538c34",
+          "dimensione": 8593654,
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "linux-x86_64",
           "profilo": "base",
           "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "73604469759671ee1d851b62eacabafd6db612c86e96bae8bf215bdc085cf7df",
-          "dimensione": 64455677,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "sha256": "d12c66b365dcb95829f21ad23841b8d1b89e7f533f658764b1280b280021a99b",
+          "dimensione": 64455950,
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "linux-x86_64",
           "profilo": "filegdb",
           "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
-          "sha256": "cf7ab5851e022a460de2f1c10f55398c02f4578f510247be8a5b4759ccc84e71",
-          "dimensione": 8732325,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "sha256": "8a66e9a4817d4ef14275de1123a86b4fb74347c8490c7d2bcb38d0d118d7ac82",
+          "dimensione": 8732323,
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "windows-x86_64",
           "profilo": "base",
           "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "3a6e31f302c8e5409ef73e6be4678cb7a78b49cd20ae3fe70d467808f1d02239",
-          "dimensione": 47800910,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "sha256": "95bf5d035c860ff6d2825b4f7ca592179589d2250197e9d40f65dda26ba7f0de",
+          "dimensione": 47800908,
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "windows-x86_64",
           "profilo": "filegdb",
           "classe": "nativo"
@@ -156,7 +156,7 @@
           "nome": "plenora_io-2.0.0-py3-none-any.whl",
           "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7",
           "dimensione": 33787,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "any",
           "profilo": "wheel",
           "classe": "python-puro"
@@ -165,7 +165,7 @@
           "nome": "plenora_io-2.0.0.tar.gz",
           "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214",
           "dimensione": 48171,
-          "revisione": "131ff9c826e3497dad510b38c5d071dc22640926",
+          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
           "piattaforma": "any",
           "profilo": "sdist",
           "classe": "python-puro"
@@ -174,7 +174,7 @@
       "release_action_allowed": false,
       "release_blocking": true,
       "stato": "attiva",
-      "nota": "# La candidate 2.0.0 su `131ff9c`\n\nCongelata il 2026-09-06 su una revisione il cui perimetro comprende l'SDK Python, che e' la ragione per cui la precedente -- su `8fe5120` -- era stata ritirata.\n\n## Che cosa e' stato misurato\n\nIl **livello 2** del checkpoint su questa revisione: 95 passi su 95, fuzz e copertura compresi, su un albero pulito. E la **distribuzione completa** in canale `candidate`, corsa 34020276333, sullo stesso SHA: sei artefatti, 32 referti attesi e 32 trovati, e i sei archivi riverificati dopo l'upload contro i propri checksum.\n\nChe la corsa girasse sulla stessa revisione di L2 e' una condizione, non una coincidenza: una candidate qualifica **una** revisione, e artefatti costruiti da un'altra descriverebbero un prodotto che nessuno ha misurato. Sono state necessarie quattro corse di L2 proprio per questo -- ogni correzione spostava HEAD, e la misura andava rifatta dove sarebbe stata congelata. L'ultima e' servita perche' il congelamento stesso, per essere registrabile, chiedeva una modifica al gate: dopo il congelamento la diff puo' toccare soltanto l'assurance e `docs/RELEASE.md`, e una modifica al codice fatta li' avrebbe invalidato cio' che stava fissando.\n\n## Perche' il campo dell'allowlist torna falso\n\nCorreggere il perimetro del gate di rilascio -- che conosceva la sola classe `nativo` -- ha toccato `scripts/`, e dopo un congelamento la diff puo' toccare soltanto l'assurance. Il campo lo deriva il gate, e dice il vero: questa candidate non descrive piu' HEAD.\n\nNon e' lo stesso caso delle volte precedenti. Li' il codice serviva a **registrare** la qualifica, e la correzione d'ordine e' stata portarlo prima. Qui serviva a farla passare: il gate rifiutava una candidate corretta per una lacuna propria, e quella lacuna andava chiusa comunque -- prima o dopo il congelamento, la qualifica andava rifatta.\n\n## La bozza, e i byte che porta\n\nI sei artefatti sono stati caricati in una release **in bozza** nel repository, senza ricostruirli: sono gli stessi byte che la corsa ha qualificato. Riscaricati di li' e riverificati con `check-deliverable.py --contro-la-candidate`, coincidono con i digest congelati qui sopra.\n\nLa bozza non e' pubblicata e nessun tag `v2.0.0` esiste: GitHub lo crea al momento della pubblicazione, e quella decisione non e' stata presa. `release_action_allowed` resta **falso**: il gate di rilascio rifiuta, e due delle sue tre ragioni sono difetti del gate stesso. `artefatti_attesi` deriva i nomi degli archivi dalla matrice ma conosce soltanto la classe `nativo`: i due artefatti Python -- che la matrice dichiara -- gli risultano «in piu'», e un artefatto in piu' e' precisamente cio' che quel controllo esiste per rifiutare. La terza ragione e' vera e attesa: il tag non esiste.\n\nFinche' il gate non conosce il perimetro completo, dichiarare vero il permesso vorrebbe dire scriverlo **contro** cio' che il gate deriva.\n\n## Che cosa non e' stato fatto\n\nNessun tag, nessuna pubblicazione, `release_action_allowed` falso. Il congelamento fissa i byte e la loro provenienza; l'autorizzazione al rilascio e' un'altra decisione, e non e' stata presa.\n\n## I sei artefatti\n\nQuattro nativi -- due piattaforme per due profili -- e due Python, wheel e sdist, che in questa candidate compaiono per la prima volta: prima non erano costruiti da nessun job, ed erano il motivo del ritiro della candidate precedente."
+      "nota": "# La candidate 2.0.0 su `a61a081`\n\nCongelata il 2026-09-06 su una revisione il cui perimetro comprende l'SDK Python, che e' la ragione per cui la precedente -- su `8fe5120` -- era stata ritirata.\n\n## Che cosa e' stato misurato\n\nIl **livello 2** del checkpoint su questa revisione: 95 passi su 95, fuzz e copertura compresi, su un albero pulito. E la **distribuzione completa** in canale `candidate`, corsa 34030548057, sullo stesso SHA: sei artefatti, 32 referti attesi e 32 trovati, e i sei archivi riverificati dopo l'upload contro i propri checksum.\n\nChe la corsa girasse sulla stessa revisione di L2 e' una condizione, non una coincidenza: una candidate qualifica **una** revisione, e artefatti costruiti da un'altra descriverebbero un prodotto che nessuno ha misurato. Sono state necessarie quattro corse di L2 proprio per questo -- ogni correzione spostava HEAD, e la misura andava rifatta dove sarebbe stata congelata. L'ultima e' servita perche' il congelamento stesso, per essere registrabile, chiedeva una modifica al gate: dopo il congelamento la diff puo' toccare soltanto l'assurance e `docs/RELEASE.md`, e una modifica al codice fatta li' avrebbe invalidato cio' che stava fissando.\n\n## Che cosa non e' stato fatto\n\nNessun tag, nessuna pubblicazione, `release_action_allowed` falso. Il congelamento fissa i byte e la loro provenienza; l'autorizzazione al rilascio e' un'altra decisione, e non e' stata presa.\n\n## I sei artefatti\n\nQuattro nativi -- due piattaforme per due profili -- e due Python, wheel e sdist, che in questa candidate compaiono per la prima volta: prima non erano costruiti da nessun job, ed erano il motivo del ritiro della candidate precedente."
     }
   },
   "docset": {

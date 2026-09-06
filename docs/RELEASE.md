@@ -21,40 +21,40 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `131ff9c` |
-| revisione misurata | `131ff9c` |
+| ultima qualificata | `a61a081` |
+| revisione misurata | `a61a081` |
 | passi del checkpoint | 95 |
 | passi verdi | 95 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 80 412 |
+| input di replay | 80 672 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 89,71% |
-| righe coperte LCOV | 39 314 |
+| copertura LCOV | 89,72% |
+| righe coperte LCOV | 39 317 |
 | righe strumentate LCOV | 43 824 |
 | copertura cargo | 88,13% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `1b913b6` |
+| baseline differenziale | `131ff9c` |
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
 | capacità differite | 2 |
-| S9, qualificato su | `131ff9c` |
+| S9, qualificato su | `a61a081` |
 | candidate, versione del manifesto | `2.0.0` |
-| candidate, revisione congelata | `131ff9c826e3497dad510b38c5d071dc22640926` |
+| candidate, revisione congelata | `a61a0815b000f2856594375a2858c41e32a1fff7` |
 | candidate, versione del workspace | `2.0.0` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v2.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | `None` |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release_authorized | `false` |
 
@@ -64,8 +64,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate congelata su `131ff9c` e qualificata; resta da creare il tag `v2.0.0` su quella revisione |
-| `distribuzione.artefatti-qualificati` | sei artefatti costruiti e qualificati su `131ff9c` in canale `candidate`; resta la pubblicazione nel canale di release |
+| `release.candidate-non-valida-per-head` | candidate congelata su `a61a081` e qualificata; resta da creare il tag `v2.0.0` su quella revisione |
+| `distribuzione.artefatti-qualificati` | sei artefatti costruiti e qualificati su `a61a081` in canale `candidate`; resta la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
