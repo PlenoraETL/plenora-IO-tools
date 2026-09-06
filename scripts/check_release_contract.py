@@ -442,6 +442,27 @@ FOGLIE_LEGATE = frozenset(
 # Le foglie senza fonte, e perche' non ne hanno una. Non e' un'esenzione
 # generica: ogni voce dice che cosa e', e una prosa che diventasse un numero
 # andrebbe spostata fra le legate.
+#: Le foglie che esistono **solo in certi stati**, e la ragione.
+#:
+#: `motivo_del_ritiro` sta su una candidate ritirata e non su una attiva, e le
+#: due sono entrambe legittime: fra un rilascio e il successivo la candidate e'
+#: ritirata, mentre subito dopo un congelamento e' attiva. La classificazione
+#: pretendeva corrispondenza esatta fra foglie presenti e dichiarate, e chiedeva
+#: percio' che lo stato ne avesse una sola per sempre -- il che avrebbe reso
+#: rosso il congelamento della candidate successiva, che e' un evento normale.
+#:
+#: Restano classificate: se ci sono, sono dichiarate; se non ci sono, la loro
+#: assenza non e' un campo dimenticato. Cio' che questa struttura **non**
+#: concede e' di non dire perche': una voce qui senza ragione sarebbe una foglia
+#: sottratta al controllo, che e' esattamente cio' che la classificazione esiste
+#: per impedire.
+FOGLIE_CONDIZIONATE = {
+    "aperto.candidate_release.motivo_del_ritiro": (
+        "esiste solo su una candidate `ritirata`, dove il gate lo pretende non "
+        "vuoto: una candidate attiva non ha un ritiro da motivare"
+    ),
+}
+
 FOGLIE_DICHIARATE = {
     "descrizione": "prosa che spiega a che cosa serve il file",
     "release_authorized": (
@@ -489,11 +510,6 @@ FOGLIE_DICHIARATE = {
         "rilascia, `ritirata` quando il perimetro della versione l'ha superata. "
         "E' una decisione e non si deriva: git puo' dire che una revisione "
         "esiste, non che qualcuno abbia smesso di rilasciarla"
-    ),
-    "aperto.candidate_release.motivo_del_ritiro": (
-        "prosa: perche' la candidate e' stata superata. Obbligatoria quando lo "
-        "stato e' `ritirata` -- un ritiro senza ragione e' un campo svuotato -- "
-        "e assente altrimenti"
     ),
     "aperto.candidate_release.nota": "prosa",
     "blocchi.nota": "prosa",
@@ -3169,7 +3185,7 @@ def _classificazione(stato: dict[str, Any]) -> list[str]:
     sotto una promessa che non lo copre.
     """
     presenti = {".".join(percorso) for percorso in _foglie(stato)}
-    dichiarate = set(FOGLIE_DICHIARATE)
+    dichiarate = set(FOGLIE_DICHIARATE) | set(FOGLIE_CONDIZIONATE)
     errori = [
         f"`{foglia}`: foglia non classificata. O la si lega a una fonte che la "
         "riscrive, o la si dichiara in `FOGLIE_DICHIARATE` con la ragione per "
@@ -3180,7 +3196,11 @@ def _classificazione(stato: dict[str, Any]) -> list[str]:
     errori.extend(
         f"`{foglia}`: dichiarata ma assente dallo stato. Una classificazione "
         "che descrive un campo che non c'e' piu' non classifica niente."
-        for foglia in sorted((FOGLIE_LEGATE | dichiarate) - presenti)
+        # Le condizionate non entrano qui: la loro assenza dipende dallo
+        # stato della candidate, ed e' prevista.
+        for foglia in sorted(
+            (FOGLIE_LEGATE | set(FOGLIE_DICHIARATE)) - presenti
+        )
     )
     return errori
 

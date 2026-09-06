@@ -1275,11 +1275,41 @@ class SondeCandidateRitirata(unittest.TestCase):
     def candidate(self, stato: dict) -> dict:
         return stato["aperto"]["candidate_release"]
 
+    def ritirata(self) -> dict:
+        """Una candidate **ritirata**, qualunque sia quella corrente.
+
+        Partiva dallo stato reale e ne dava per scontato il ritiro: le sonde
+        erano verdi finche' la candidate su `8fe5120` restava ritirata, e sono
+        diventate rosse il giorno in cui se n'e' congelata una nuova -- che e'
+        un evento normale, non un difetto. Cio' che va verificato e' il
+        **comportamento del gate** su una candidate ritirata, e per verificarlo
+        bisogna costruirne una.
+        """
+        candidate = self.candidate(self.stato())
+        candidate["stato"] = "ritirata"
+        candidate["release_action_allowed"] = False
+        candidate["tag_creato"] = False
+        candidate["motivo_del_ritiro"] = (
+            "motivo di prova: questa candidate non esiste, serve a muovere il "
+            "gate"
+        )
+        return candidate
+
     # --- la controprova positiva ------------------------------------------
 
-    def test_lo_stato_reale_dichiara_un_ritiro_coerente(self) -> None:
-        """Senza, «sempre rosso» sarebbe una difesa."""
+    def test_lo_stato_reale_e_coerente(self) -> None:
+        """Senza, «sempre rosso» sarebbe una difesa.
+
+        Vale per **entrambi** gli stati: una candidate attiva e una ritirata
+        sono l'una e l'altra legittime, e il gate le accetta se coerenti. Prima
+        questa sonda diceva «dichiara un ritiro coerente», e descriveva la
+        candidate del momento invece della proprieta'.
+        """
         self.assertEqual(gate._stato_del_manifesto(self.candidate(self.stato())), [])
+
+    def test_una_ritirata_coerente_e_accettata(self) -> None:
+        """La controprova dell'impalcatura: il ritiro costruito qui e' valido."""
+        self.assertEqual(gate._stato_del_manifesto(self.ritirata()), [])
 
     def test_una_candidate_attiva_e_accettata(self) -> None:
         """Il ritiro e' uno dei due stati, non l'unico ammesso."""
@@ -1297,7 +1327,7 @@ class SondeCandidateRitirata(unittest.TestCase):
         pretende vero: lasciarlo vero su una candidate ritirata terrebbe aperta
         la strada al rilascio di una revisione che il perimetro ha superato.
         """
-        candidate = self.candidate(self.stato())
+        candidate = self.ritirata()
         candidate["release_action_allowed"] = True
         errori = gate._stato_del_manifesto(candidate)
         self.assertTrue(
@@ -1308,7 +1338,7 @@ class SondeCandidateRitirata(unittest.TestCase):
         """Un ritiro senza motivo non si distingue da un campo dimenticato."""
         for vuoto in (None, "", "   "):
             with self.subTest(motivo=vuoto):
-                candidate = self.candidate(self.stato())
+                candidate = self.ritirata()
                 if vuoto is None:
                     candidate.pop("motivo_del_ritiro", None)
                 else:
@@ -1320,7 +1350,7 @@ class SondeCandidateRitirata(unittest.TestCase):
 
     def test_una_ritirata_con_un_tag_creato_e_rossa(self) -> None:
         """Un tag esiste fuori da questo file, e ritirarla qui non lo revoca."""
-        candidate = self.candidate(self.stato())
+        candidate = self.ritirata()
         candidate["tag_creato"] = True
         errori = gate._stato_del_manifesto(candidate)
         self.assertTrue(any("tag_creato" in errore for errore in errori), errori)
