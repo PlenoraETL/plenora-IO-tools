@@ -108,44 +108,73 @@
     },
     "candidate_release": {
       "versione_manifesto": "2.0.0",
-      "revisione_candidate": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
+      "revisione_candidate": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
       "versione_workspace": "2.0.0",
       "tag_previsto": "v2.0.0",
       "tag_creato": false,
       "tag_revisione": null,
       "tag_sulla_candidate": false,
-      "assurance_entro_l_allowlist": false,
+      "assurance_entro_l_allowlist": true,
       "artefatti": [
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "8f11e18c28c8743d0d665d1dea272061edc61b8c21e252928a74dd093d5c75b5",
-          "dimensione": 8579244,
-          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
+          "sha256": "d60f62b239d89d8b88206a8741739ab3091c904742383fec3c14c39befaad308",
+          "dimensione": 8593701,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "linux-x86_64",
+          "profilo": "base",
+          "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "2dd5bfcc261c2d5b754901f3b19028ce38d2a97adae58ee31d378953af02b988",
-          "dimensione": 64427938,
-          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
+          "sha256": "defbf51110c2b07dca793a63e43fd12a4e90f5523a4b3cbf5ed47bdc38141638",
+          "dimensione": 64455462,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "linux-x86_64",
+          "profilo": "filegdb",
+          "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
-          "sha256": "6c514f8c83cac8cc29a7d5e021de7edca42f4292f267bf782ca412221da2aaad",
-          "dimensione": 8715536,
-          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
+          "sha256": "ec89ad9bcef7021367debe827d51b7e7a676aafaa52eaca26f1cf37bcb4fc2f1",
+          "dimensione": 8732321,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "windows-x86_64",
+          "profilo": "base",
+          "classe": "nativo"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "76a549a4170c00f5711043ba3f02c07a6451b17cdd6d6a215fae403961772e89",
-          "dimensione": 47785800,
-          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
+          "sha256": "5b3763e1db3ffc3ed8463cc64e6440d2768a766cc54bf3051e4d18416432fd35",
+          "dimensione": 47800911,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "windows-x86_64",
+          "profilo": "filegdb",
+          "classe": "nativo"
+        },
+        {
+          "nome": "plenora_io-2.0.0-py3-none-any.whl",
+          "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7",
+          "dimensione": 33787,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "any",
+          "profilo": "wheel",
+          "classe": "python-puro"
+        },
+        {
+          "nome": "plenora_io-2.0.0.tar.gz",
+          "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214",
+          "dimensione": 48171,
+          "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+          "piattaforma": "any",
+          "profilo": "sdist",
+          "classe": "python-puro"
         }
       ],
       "release_action_allowed": false,
       "release_blocking": true,
-      "nota": "# La candidate 2.0.0 su `8fe5120` e' RITIRATA\n\nRitirata il 2026-09-04, non annullata: la revisione, i quattro artefatti con i propri digest e l'evidenza del livello 2 restano dove sono, perche' descrivono una qualificazione che e' davvero avvenuta. Cio' che non e' piu' vero e' che quella revisione sia **la** candidate: il perimetro della 2.0.0 comprende ora l'SDK Python, e una candidate qualifica una revisione per un perimetro.\n\nNessun tag e' stato creato e nessuna draft e' stata pubblicata, quindi il ritiro non lascia niente da revocare fuori da qui. Non esiste una candidate nuova, e la sua assenza e' **intenzionale**: il gate ordinario la accetta, il gate di rilascio no. `release_action_allowed` e' falso, e `condizione_candidate_coerente` -- che lo pretende vero -- continua a rifiutare pubblicazione e autorizzazione finche' una candidate coerente non esiste.\n\nLa lezione, che vale oltre questo caso: un congelamento fissa una revisione **e** un perimetro, e cambiare il secondo invalida il primo esattamente come cambiare il codice. Il modello non lo diceva, perche' non aveva un modo di rappresentare una candidate superata da una decisione invece che da un difetto.\n\n---\n\n# La storia, come era scritta al congelamento\n\nLa candidate 2.0.0 e' congelata su `8fe5120`. Da quella revisione escono i quattro archivi, i loro SBOM e le loro provenance, nella corsa `Distribuzione` 33784424183 in canale `candidate`; i digest qui sotto sono ricalcolati sui byte scaricati da quella corsa, non copiati dai suoi sommari.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' puntera' il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive.\n\n# Le due candidate superate, e perche'\n\n`b6a79ea` e' stata annullata perche' il commit che la congelava toccava anche `scripts/test_check_release_contract.py`, fuori dall'allowlist.\n\n`ba1e94e` e' stata superata da `8fe5120`, che corregge due difetti trovati aprendo i byte riscaricati dalla sua draft: il manifesto Linux non nominava la revisione, e `canale_nota` -- emesso sempre, con il testo del canale `prova` -- descriveva come artefatto di prova una candidate. Il secondo era una dichiarazione falsa spedita dentro il deliverable. Sono stati corretti invece che documentati come limiti, e correggerli tocca `scripts/`: quindi invalida il congelamento, per costruzione.\n\nL'evidenza di `ba1e94e` non e' riscritta: resta in git, dove e' stata prodotta. La sua draft `untagged-d1edb593` va rimossa **dopo** che la nuova e' stata verificata, non prima.\n\n# Uno spigolo del modello, trovato qui\n\n`assurance_entro_l_allowlist` e' **derivato**: e' vero quando HEAD e' la revisione congelata, o la contiene senza aver toccato altro che l'allowlist. Il commit che ha corretto i costruttori ha percio' reso quel campo falso -- tocca `scripts/` -- e lo ha ereditato `true` dal commit precedente: il contratto e' andato rosso, e ha avuto ragione.\n\nLa lezione non e' «ricordarsi di aggiornare il campo». E' che **un commit che supera una candidate deve dichiararlo nello stesso commit**, portando `assurance_entro_l_allowlist` a `false`. Quel valore si puo' calcolare quando si scrive, perche' la diff e' contro il congelamento **vecchio**, che e' noto. Solo il congelamento nuovo non si puo' scrivere da dentro il commito che lo produce, e per questo lo fissa il commit seguente.\n\n# Il perimetro qualificato\n\nIl livello 2 misura la revisione di assurance, non `8fe5120`: fra le due c'e' esattamente questo file, che sta nell'allowlist proprio perche' non puo' influire sugli artefatti. Gli artefatti vengono da `8fe5120`, e il tag andra' su `8fe5120`.\n\n`tag_creato` e' falso perche' e' falso, e `release_action_allowed` dice che la candidate permette all'azione di rilascio di procedere -- non che sia autorizzata. L'autorizzazione e' `release_authorized`, e resta `false`.",
-      "stato": "ritirata",
-      "motivo_del_ritiro": "la 2.0.0 deve includere l'SDK Python. Il perimetro della versione e' cambiato dopo il congelamento, e una candidate qualifica una revisione **per un perimetro**: quello di `8fe5120` non e' piu' quello della 2.0.0."
+      "stato": "attiva",
+      "nota": "# La candidate 2.0.0 su `1b913b6`\n\nCongelata il 2026-09-06 su una revisione il cui perimetro comprende l'SDK Python, che e' la ragione per cui la precedente -- su `8fe5120` -- era stata ritirata.\n\n## Che cosa e' stato misurato\n\nIl **livello 2** del checkpoint su questa revisione: 95 passi su 95, fuzz e copertura compresi, su un albero pulito. E la **distribuzione completa** in canale `candidate`, corsa 34006105395, sullo stesso SHA: sei artefatti, 32 referti attesi e 32 trovati, e i sei archivi riverificati dopo l'upload contro i propri checksum.\n\nChe la corsa girasse sulla stessa revisione di L2 e' una condizione, non una coincidenza: una candidate qualifica **una** revisione, e artefatti costruiti da un'altra descriverebbero un prodotto che nessuno ha misurato. Sono state necessarie quattro corse di L2 proprio per questo -- ogni correzione spostava HEAD, e la misura andava rifatta dove sarebbe stata congelata. L'ultima e' servita perche' il congelamento stesso, per essere registrabile, chiedeva una modifica al gate: dopo il congelamento la diff puo' toccare soltanto l'assurance e `docs/RELEASE.md`, e una modifica al codice fatta li' avrebbe invalidato cio' che stava fissando.\n\n## Che cosa non e' stato fatto\n\nNessun tag, nessuna pubblicazione, `release_action_allowed` falso. Il congelamento fissa i byte e la loro provenienza; l'autorizzazione al rilascio e' un'altra decisione, e non e' stata presa.\n\n## I sei artefatti\n\nQuattro nativi -- due piattaforme per due profili -- e due Python, wheel e sdist, che in questa candidate compaiono per la prima volta: prima non erano costruiti da nessun job, ed erano il motivo del ritiro della candidate precedente."
     }
   },
   "docset": {
