@@ -1189,9 +1189,15 @@ class SondeCongelamento(unittest.TestCase):
         )
 
     def test_un_artefatto_mancante_dal_perimetro_e_rosso(self) -> None:
-        """Quattro: due piattaforme per due profili, derivati dalla matrice."""
+        """Sei: quattro nativi -- due piattaforme per due profili -- e due Python.
+
+        Erano quattro, e il numero era giusto finche' la matrice dichiarava una
+        classe sola. Con `python-puro` sono sei, e questa sonda e' diventata
+        rossa: e' il suo mestiere, perche' il perimetro di una release non si
+        allarga per accumulo.
+        """
         attesi = gate.artefatti_attesi("2.0.0")
-        self.assertEqual(len(attesi), 4, attesi)
+        self.assertEqual(len(attesi), 6, attesi)
         candidate = self.candidate_finta()
         mancante = candidate["artefatti"].pop()["nome"]
         motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
@@ -1384,8 +1390,23 @@ class SondeCandidateRitirata(unittest.TestCase):
         E' la meta' che rende il ritiro sicuro: senza, dichiarare ritirata una
         candidate sarebbe il modo di far tacere il contratto invece di dirgli
         la verita'.
+
+        Lo stato e' **costruito**, non quello del repository: la sonda leggeva
+        quello reale, ed e' diventata rossa il giorno in cui `release_action`
+        e' passato a vero per altre ragioni. Cio' che va verificato e' il
+        comportamento del gate davanti a un permesso negato, e per verificarlo
+        bisogna negarlo.
         """
-        motivi = gate.condizione_candidate_coerente({})
+        stato = {
+            "aperto": {
+                "candidate_release": {
+                    "stato": "ritirata",
+                    "release_action_allowed": False,
+                }
+            }
+        }
+        with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
+            motivi = gate.condizione_candidate_coerente({})
         self.assertTrue(
             any("release_action" in motivo for motivo in motivi),
             f"il rilascio deve rifiutare, e nominare il permesso mancante: {motivi}",
@@ -3193,3 +3214,167 @@ class SondeProtocolloCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SondeDelGateDiRilascioSuFixture(unittest.TestCase):
+    """L'intera `condizione_candidate_coerente`, su stato e git costruiti.
+
+    # Perche' non basta provarne i pezzi
+
+    `_artefatti_fissati` e `_tag_sulla_candidate` avevano gia' le proprie sonde,
+    e passavano. Cio' che nessuna guardava e' la condizione **intera** su una
+    candidate valida: il perimetro conosceva la sola classe `nativo`, i due
+    artefatti Python risultavano «in piu'», e il gate rifiutava una candidate
+    corretta dicendo che il difetto era suo. Il difetto era del gate, e a
+    trovarlo e' stato un rilascio vero.
+
+    # Il tag resta nella fixture
+
+    Nessuna sonda crea un tag git: `revisione_risolta` viene sostituita da una
+    tabella. Un tag creato per far passare una prova resterebbe nel repository,
+    e da li' potrebbe far passare anche altro.
+    """
+
+    CONGELATA = "a" * 40
+    ALTRA = "b" * 40
+    VERSIONE = "2.0.0"
+
+    def artefatti(self, revisione=None) -> list:
+        """I sei artefatti del perimetro, ciascuno con un digest suo."""
+        revisione = revisione or self.CONGELATA
+        return [
+            {
+                "nome": nome,
+                "sha256": f"{indice:02x}" * 32,
+                "dimensione": 1024 + indice,
+                "revisione": revisione,
+            }
+            for indice, nome in enumerate(gate.artefatti_attesi(self.VERSIONE))
+        ]
+
+    def candidate(self, **cambi) -> dict:
+        voce = {
+            "versione_manifesto": self.VERSIONE,
+            "revisione_candidate": self.CONGELATA,
+            "artefatti": self.artefatti(),
+            "release_action_allowed": True,
+            "stato": "attiva",
+        }
+        voce.update(cambi)
+        return voce
+
+    def motivi(self, candidate: dict, tag: str | None = "congelata") -> list[str]:
+        """Esegue il gate con lo stato e il git della fixture.
+
+        `tag` dice dove punta `v2.0.0`: alla revisione congelata, a un'altra, o
+        da nessuna parte. HEAD coincide con la congelata, cosi' la parte che
+        confronta la diff dopo il congelamento non entra in gioco -- ha le
+        proprie sonde, e mescolarle qui renderebbe il rosso ambiguo.
+        """
+        tabella = {
+            "HEAD": self.CONGELATA,
+            self.CONGELATA: self.CONGELATA,
+            self.ALTRA: self.ALTRA,
+        }
+        if tag == "congelata":
+            tabella[f"v{self.VERSIONE}"] = self.CONGELATA
+        elif tag == "altrove":
+            tabella[f"v{self.VERSIONE}"] = self.ALTRA
+
+        stato = {"aperto": {"candidate_release": candidate}}
+        with mock.patch.object(
+            gate, "_stato_corrente", return_value=(stato, [])
+        ), mock.patch.object(
+            gate, "revisione_risolta", side_effect=lambda r: tabella.get(r)
+        ), mock.patch.object(
+            gate, "versione_workspace", return_value=self.VERSIONE
+        ):
+            return gate.condizione_candidate_coerente({})
+
+    # --- la controprova positiva ------------------------------------------
+
+    def test_una_candidate_valida_e_accettata(self) -> None:
+        """Sei artefatti, tag sulla congelata, permesso consentito.
+
+        Senza questa riga «sempre rosso» sarebbe una difesa, e per mesi lo e'
+        stato senza che nessuno se ne accorgesse: la condizione non era mai
+        passata su una candidate corretta.
+        """
+        self.assertEqual(self.motivi(self.candidate()), [])
+
+    def test_i_sei_artefatti_sono_le_due_classi(self) -> None:
+        """Il perimetro comprende i nativi **e** i due pacchetti Python."""
+        nomi = gate.artefatti_attesi(self.VERSIONE)
+        self.assertEqual(len(nomi), 6)
+        self.assertEqual(
+            sorted(n for n in nomi if n.startswith("plenora_io-")),
+            [
+                f"plenora_io-{gate.versione_del_pacchetto_python()}-py3-none-any.whl",
+                f"plenora_io-{gate.versione_del_pacchetto_python()}.tar.gz",
+            ],
+        )
+
+    # --- cio' che deve rifiutare ------------------------------------------
+
+    def test_un_artefatto_mancante_e_rifiutato(self) -> None:
+        for indice, mancante in enumerate(gate.artefatti_attesi(self.VERSIONE)):
+            with self.subTest(mancante=mancante):
+                restanti = [v for v in self.artefatti() if v["nome"] != mancante]
+                motivi = self.motivi(self.candidate(artefatti=restanti))
+                self.assertTrue(
+                    any(mancante in motivo for motivo in motivi),
+                    f"deve nominare l'archivio che manca: {motivi}",
+                )
+
+    def test_un_artefatto_in_piu_e_rifiutato(self) -> None:
+        """Un artefatto fuori perimetro non e' una qualifica in piu'."""
+        con_extra = self.artefatti() + [
+            {
+                "nome": "plenora-io-2.0.0-macos-aarch64-base.tar.gz",
+                "sha256": "f" * 64,
+                "dimensione": 4096,
+                "revisione": self.CONGELATA,
+            }
+        ]
+        motivi = self.motivi(self.candidate(artefatti=con_extra))
+        self.assertTrue(
+            any("non e' nel perimetro" in motivo for motivo in motivi), motivi
+        )
+
+    def test_un_tag_assente_e_rifiutato(self) -> None:
+        motivi = self.motivi(self.candidate(), tag=None)
+        self.assertTrue(any("non esiste" in motivo for motivo in motivi), motivi)
+
+    def test_un_tag_che_punta_altrove_e_rifiutato(self) -> None:
+        """Il tag nomina cio' da cui si e' costruito, non cio' che lo attesta."""
+        motivi = self.motivi(self.candidate(), tag="altrove")
+        self.assertTrue(
+            any("punta a" in motivo for motivo in motivi), motivi
+        )
+
+    def test_il_permesso_falso_e_rifiutato(self) -> None:
+        motivi = self.motivi(self.candidate(release_action_allowed=False))
+        self.assertTrue(any("release_action" in motivo for motivo in motivi), motivi)
+
+    def test_un_artefatto_da_un_altra_revisione_e_rifiutato(self) -> None:
+        """Un archivio costruito altrove non qualifica questa revisione."""
+        sbagliati = self.artefatti()
+        sbagliati[0]["revisione"] = self.ALTRA
+        motivi = self.motivi(self.candidate(artefatti=sbagliati))
+        self.assertTrue(any("revisione" in motivo for motivo in motivi), motivi)
+
+    def test_due_artefatti_con_lo_stesso_digest_sono_rifiutati(self) -> None:
+        """Due archivi con gli stessi byte sono lo stesso archivio con due nomi."""
+        gemelli = self.artefatti()
+        gemelli[1]["sha256"] = gemelli[0]["sha256"]
+        motivi = self.motivi(self.candidate(artefatti=gemelli))
+        self.assertTrue(any("digest ripetuto" in motivo for motivo in motivi), motivi)
+
+    def test_nessun_tag_e_stato_creato_dalle_sonde(self) -> None:
+        """La controprova dell'isolamento.
+
+        Le fixture nominano `v2.0.0`, e nessuna di esse deve averlo creato: un
+        tag nato per far passare una prova resterebbe nel repository, e da li'
+        potrebbe far passare anche altro.
+        """
+        self.assertIsNone(gate.revisione_risolta(f"v{self.VERSIONE}"))

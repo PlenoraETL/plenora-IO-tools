@@ -1295,13 +1295,55 @@ def cambiamenti_dopo_il_congelamento(
     return [p for p in percorsi if not _ammesso_dopo_il_congelamento(p)], []
 
 
-def artefatti_attesi(versione: str) -> list[str]:
-    """I nomi degli archivi del perimetro, derivati dalla matrice.
+#: Dove vive la versione del pacchetto Python.
+#:
+#: Non e' quella del workspace, e la distinzione non e' teorica: il nome degli
+#: archivi nativi lo compone la versione che si sta rilasciando, il pacchetto
+#: Python porta la propria -- `plenora_io.__version__` -- e oggi coincidono per
+#: scelta, non per costruzione.
+SORGENTE_DELLA_VERSIONE_PYTHON = (
+    "sdk", "python", "src", "plenora_io", "__init__.py",
+)
+VERSIONE_PYTHON = re.compile(r'^__version__ = "([^"]+)"$', re.MULTILINE)
 
-    Il perimetro viene da `perimetro.distribuite`, non dai job che esistono: un
-    artefatto in meno perche' qualcuno ha tolto un job e' un buco, uno in meno
-    perche' la piattaforma e' fuori scope e' una decisione, e nel conteggio si
-    somigliano.
+
+def versione_del_pacchetto_python() -> str:
+    """La versione dell'SDK, dalla **sola** sorgente autorevole.
+
+    Si legge dal sorgente e non importando il modulo: un gate che importasse
+    cio' che verifica eseguirebbe il pacchetto per scoprire come si chiama.
+    """
+    testo = ROOT.joinpath(*SORGENTE_DELLA_VERSIONE_PYTHON).read_text(encoding="utf-8")
+    trovato = VERSIONE_PYTHON.search(testo)
+    if trovato is None:
+        raise ValueError(
+            "`__version__` non si trova in `plenora_io/__init__.py`: e' la sola "
+            "sorgente autorevole della versione del pacchetto, e senza non si "
+            "puo' dire come si chiamino i due artefatti Python."
+        )
+    return trovato.group(1)
+
+
+def artefatti_attesi(versione: str) -> list[str]:
+    """I nomi degli artefatti del perimetro, derivati dalla matrice.
+
+    Il perimetro viene da `perimetro.distribuite` e dalle classi dichiarate, non
+    dai job che esistono: un artefatto in meno perche' qualcuno ha tolto un job
+    e' un buco, uno in meno perche' la piattaforma e' fuori scope e' una
+    decisione, e nel conteggio si somigliano.
+
+    # Le due classi
+
+    Questa funzione ne conosceva una sola -- `nativo` -- e i due artefatti
+    Python, che la matrice dichiara e che la distribuzione qualifica, le
+    risultavano «in piu'». Un artefatto in piu' e' precisamente cio' che il
+    controllo esiste per rifiutare, e cosi' una candidate a sei artefatti non
+    poteva passare: il gate rifiutava per una lacuna propria, dicendo pero' che
+    il difetto era della candidate.
+
+    I nomi dei due Python li porta la matrice con `<versione>` da sostituire, e
+    la versione da sostituire e' quella del **pacchetto**, non quella passata a
+    questa funzione.
     """
     matrice = json.loads(
         (ROOT / "assurance" / "registries" / "distribuzione-matrice.json").read_text(
@@ -1310,12 +1352,18 @@ def artefatti_attesi(versione: str) -> list[str]:
     )
     piattaforme = matrice["perimetro"]["distribuite"]
     profili = [p["id"] for p in matrice["profili"]]
-    return sorted(
+    nativi = [
         f"{distribuzione.nome_archivio(versione, piattaforma, profilo)}"
         f".{distribuzione.contenitore(piattaforma)}"
         for piattaforma in piattaforme
         for profilo in profili
-    )
+    ]
+    versione_python = versione_del_pacchetto_python()
+    python = [
+        voce["nome"].replace("<versione>", versione_python)
+        for voce in matrice.get("artefatti_python", {}).get("elenco", [])
+    ]
+    return sorted(nativi + python)
 
 
 def _tag_sulla_candidate(
