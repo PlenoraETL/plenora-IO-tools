@@ -710,5 +710,231 @@
       "test_default.log": "1415e5b59e4ebe06209c67692e855a43fe0797f534137a33efce1cf4ea67fe50"
     }
   },
-  "esito": "S9 checkpoint level 2 passed"
+  "esito": "S9 checkpoint level 2 passed",
+  "release_verification": {
+    "schema_version": 1,
+    "status": "satisfied",
+    "open_blockers": [],
+    "components": [
+      {
+        "name": "plenora-IO-tools",
+        "revision": "a61a0815b000f2856594375a2858c41e32a1fff7"
+      }
+    ],
+    "evidence": {
+      "status": "passed",
+      "scope": "Integrita dei sei archivi qualificati e dei quattordici file di accompagnamento riscaricati dalla release. La verifica prima della pubblicazione riguarda la bozza; quella successiva riguarda la release pubblicata."
+    },
+    "authorization": {
+      "instruction": "vai pubblichiamo la versione 2.0.0 come abbiamo fatto con https://github.com/PlenoraETL/plenora-database-tools",
+      "channel": "GitHub Releases nel repository attuale; visibilita gestita dal titolare; nessuna pubblicazione su PyPI",
+      "candidate_revision": "a61a0815b000f2856594375a2858c41e32a1fff7"
+    },
+    "distribution": {
+      "run_id": 34030548057,
+      "revision": "a61a0815b000f2856594375a2858c41e32a1fff7",
+      "channel": "candidate",
+      "checkpoint_evidence": "assurance/evidence/checkpoint-a61a081.json"
+    },
+    "prepublish": {
+      "timestamp_utc": "2026-09-06T19:19:39.788592+00:00",
+      "release_id": 383535798,
+      "draft": true,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-e601cf5db34272b3df6c",
+      "target_commitish": "a61a0815b000f2856594375a2858c41e32a1fff7",
+      "command": [
+        "python3",
+        "scripts/check-deliverable.py",
+        "--directory",
+        ".s9-checkpoint/release-2.0.0/prepublish",
+        "--versione",
+        "2.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "a61a0815b000f2856594375a2858c41e32a1fff7",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "stdout": "deliverable verificati: 6 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 6 artefatti congelati dalla candidate\n",
+      "stderr": "",
+      "assets": [
+        {
+          "id": 547137031,
+          "name": "MANIFEST.json",
+          "size": 1392,
+          "sha256": "a46a1801fe1ce71ffa4a411c38cdb460619c98d0279944b1a9b33c3ad5d559a9"
+        },
+        {
+          "id": 547137029,
+          "name": "licenze.json",
+          "size": 2162,
+          "sha256": "c612b8bfe76b3e192eeff32bd0544028ab3c3e64ac2406efcff7302f543b0603"
+        },
+        {
+          "id": 547137027,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
+          "size": 8593654,
+          "sha256": "b1df054da018bd4933f98d982ca202fce97eaeba1e08a43873b74022f1538c34"
+        },
+        {
+          "id": 547137028,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz.provenance.json",
+          "size": 2582,
+          "sha256": "c4031c547b6c7f7ab5cd02a3167528a49d935397f1845adbad774b5da97c2531"
+        },
+        {
+          "id": 547137030,
+          "name": "plenora-io-2.0.0-linux-x86_64-base.tar.gz.sha256",
+          "size": 108,
+          "sha256": "b0cd36cb117584cc33003c9116c24c496f76ace6d02e3dc35e35c08eb066e2a4"
+        },
+        {
+          "id": 547137039,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
+          "size": 64455950,
+          "sha256": "d12c66b365dcb95829f21ad23841b8d1b89e7f533f658764b1280b280021a99b"
+        },
+        {
+          "id": 547137041,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz.provenance.json",
+          "size": 2589,
+          "sha256": "95a97236fd3b203b3dfcaaeb3e4058fdc747dff23a104d376a02f5fbee04e0f2"
+        },
+        {
+          "id": 547137047,
+          "name": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz.sha256",
+          "size": 111,
+          "sha256": "c83591c88faf7c6f9f29f6bab4cf4d1682c08b84e77229c673485111bacba810"
+        },
+        {
+          "id": 547137046,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip",
+          "size": 8732323,
+          "sha256": "8a66e9a4817d4ef14275de1123a86b4fb74347c8490c7d2bcb38d0d118d7ac82"
+        },
+        {
+          "id": 547137054,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip.provenance.json",
+          "size": 2435,
+          "sha256": "a83e37be3adaa71a602283d426fa71e0bdaf890efac6eb64330610b03803ea95"
+        },
+        {
+          "id": 547137059,
+          "name": "plenora-io-2.0.0-windows-x86_64-base.zip.sha256",
+          "size": 108,
+          "sha256": "20f4416b60eec95e7467a5a65be519ddc315e39f358338ec1ccbe2079a9d67f1"
+        },
+        {
+          "id": 547137060,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
+          "size": 47800908,
+          "sha256": "95bf5d035c860ff6d2825b4f7ca592179589d2250197e9d40f65dda26ba7f0de"
+        },
+        {
+          "id": 547137069,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip.provenance.json",
+          "size": 2442,
+          "sha256": "64e082b3d845c090a4d70922b594d473e0c63af32018265965d160fe548d67e4"
+        },
+        {
+          "id": 547137071,
+          "name": "plenora-io-2.0.0-windows-x86_64-filegdb.zip.sha256",
+          "size": 111,
+          "sha256": "bcb6675318724d71f1aba3cce00238c45a4c8725d2a5aa95cc67cea51a69d07d"
+        },
+        {
+          "id": 547137075,
+          "name": "plenora_io-2.0.0-py3-none-any.whl",
+          "size": 33787,
+          "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7"
+        },
+        {
+          "id": 547137077,
+          "name": "plenora_io-2.0.0-py3-none-any.whl.sha256",
+          "size": 100,
+          "sha256": "974856aed18af4faa9c600fe0f0be126a27ca498d577d128c7f8bb3bc973d15c"
+        },
+        {
+          "id": 547137081,
+          "name": "plenora_io-2.0.0.tar.gz",
+          "size": 48171,
+          "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214"
+        },
+        {
+          "id": 547137090,
+          "name": "plenora_io-2.0.0.tar.gz.sha256",
+          "size": 90,
+          "sha256": "23602614968491707d363d9b3457769eb89200cb257cb7a70c731237145fd58a"
+        },
+        {
+          "id": 547137091,
+          "name": "provenance.json",
+          "size": 769,
+          "sha256": "109f7f66c26935007841e2da22fb466059db9e26403080c4047683acbcc6e65e"
+        },
+        {
+          "id": 547137094,
+          "name": "sbom.json",
+          "size": 973,
+          "sha256": "3a6c8e43ebcc4fcab161239c34071749a976542583fd19336cc16ab19f5eeb8e"
+        }
+      ]
+    },
+    "publication": {
+      "status": "pending",
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0"
+    },
+    "preflight": {
+      "gate": {
+        "command": [
+          "python3",
+          "scripts/check_release_contract.py",
+          "--release"
+        ],
+        "exit_code": 0,
+        "stdout": "release autorizzabile: 37 invarianti, nessun blocco, 5 condizioni verificate.\n  DIFFERITO sistema.qualifica-cross-component: NON verificato. la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.\n  DIFFERITO distribuzione.licenza-first-party: NON verificato. La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI.\n"
+      },
+      "contract_tests": {
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "scripts.test_check_release_contract"
+        ],
+        "exit_code": 1,
+        "tests": 247,
+        "failures": [
+          "test_i_bloccanti_correnti_negano_la_prima_condizione (scripts.test_check_release_contract.SondeCondizioni.test_i_bloccanti_correnti_negano_la_prima_condizione)",
+          "test_la_candidate_corrente_non_e_coerente (scripts.test_check_release_contract.SondeCondizioni.test_la_candidate_corrente_non_e_coerente)",
+          "test_la_decisione_scritta_non_e_presa (scripts.test_check_release_contract.SondeCondizioni.test_la_decisione_scritta_non_e_presa)",
+          "test_release_e_rossa_sul_registro_corrente (scripts.test_check_release_contract.SondeCondizioni.test_release_e_rossa_sul_registro_corrente)",
+          "test_la_condizione_corrente_non_e_soddisfatta (scripts.test_check_release_contract.SondeCongelamento.test_la_condizione_corrente_non_e_soddisfatta)",
+          "test_nessun_tag_e_stato_creato_dalle_sonde (scripts.test_check_release_contract.SondeDelGateDiRilascioSuFixture.test_nessun_tag_e_stato_creato_dalle_sonde)",
+          "test_un_blocco_negato_dallo_stato_e_rosso (scripts.test_check_release_contract.SondeFontiLegate.test_un_blocco_negato_dallo_stato_e_rosso)"
+        ],
+        "output": ".......................F.FF.F.........F.................F........................................................................................................................F.....................................................................\n======================================================================\nFAIL: test_i_bloccanti_correnti_negano_la_prima_condizione (scripts.test_check_release_contract.SondeCondizioni.test_i_bloccanti_correnti_negano_la_prima_condizione)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 837, in test_i_bloccanti_correnti_negano_la_prima_condizione\n    self.assertTrue(motivi)\nAssertionError: [] is not true\n\n======================================================================\nFAIL: test_la_candidate_corrente_non_e_coerente (scripts.test_check_release_contract.SondeCondizioni.test_la_candidate_corrente_non_e_coerente)\nLa condizione non e' soddisfatta, e la sonda non dice **perche'**.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 860, in test_la_candidate_corrente_non_e_coerente\n    self.assertTrue(gate.condizione_candidate_coerente(self.registro()))\nAssertionError: [] is not true\n\n======================================================================\nFAIL: test_la_decisione_scritta_non_e_presa (scripts.test_check_release_contract.SondeCondizioni.test_la_decisione_scritta_non_e_presa)\n`release_authorized` e' false: la condizione deve dirlo, non dedurlo.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 847, in test_la_decisione_scritta_non_e_presa\n    self.assertTrue(any(\"decisione scritta\" in m for m in motivi), motivi)\nAssertionError: False is not true : []\n\n======================================================================\nFAIL: test_release_e_rossa_sul_registro_corrente (scripts.test_check_release_contract.SondeCondizioni.test_release_e_rossa_sul_registro_corrente)\nLa controprova d'insieme: oggi la release non e' autorizzabile.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 975, in test_release_e_rossa_sul_registro_corrente\n    self.assertEqual(esito, 1)\nAssertionError: 0 != 1\n\n======================================================================\nFAIL: test_la_condizione_corrente_non_e_soddisfatta (scripts.test_check_release_contract.SondeCongelamento.test_la_condizione_corrente_non_e_soddisfatta)\nLa candidate pendente e' 1.0.1 e il workspace e' 2.0.0.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 1234, in test_la_condizione_corrente_non_e_soddisfatta\n    self.assertTrue(gate.condizione_candidate_coerente(self.registro()))\nAssertionError: [] is not true\n\n======================================================================\nFAIL: test_nessun_tag_e_stato_creato_dalle_sonde (scripts.test_check_release_contract.SondeDelGateDiRilascioSuFixture.test_nessun_tag_e_stato_creato_dalle_sonde)\nLa controprova dell'isolamento.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 3380, in test_nessun_tag_e_stato_creato_dalle_sonde\n    self.assertIsNone(gate.revisione_risolta(f\"v{self.VERSIONE}\"))\nAssertionError: 'a61a0815b000f2856594375a2858c41e32a1fff7' is not None\n\n======================================================================\nFAIL: test_un_blocco_negato_dallo_stato_e_rosso (scripts.test_check_release_contract.SondeFontiLegate.test_un_blocco_negato_dallo_stato_e_rosso)\n`release_blocking: false` accanto a un invariante che blocca.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/scripts/test_check_release_contract.py\", line 1680, in test_un_blocco_negato_dallo_stato_e_rosso\n    self.assertTrue(\nAssertionError: False is not true : []\n\n----------------------------------------------------------------------\nRan 247 tests in 36.327s\n\nFAILED (failures=7)\nrelease autorizzabile: 37 invarianti, nessun blocco, 5 condizioni verificate.\n  DIFFERITO sistema.qualifica-cross-component: NON verificato. la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.\n  DIFFERITO distribuzione.licenza-first-party: NON verificato. La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI.\n"
+      },
+      "tag_workflow": {
+        "run_id": 34054284516,
+        "revision": "a61a0815b000f2856594375a2858c41e32a1fff7",
+        "failed_job": "functional-gates / rust",
+        "failed_step": "Verify the current contract registry"
+      },
+      "limitation": "La suite del contratto contiene ancora sette asserzioni sullo stato reale precedente al rilascio: richiedono blocchi aperti, autorizzazione negata o tag assente. Il workflow sul tag legge inoltre lo stato storico congelato prima della registrazione della release. Questi controlli non sono dichiarati verdi. Il gate finale eseguito sullo stato di assurance autorizzato e verde; la qualifica L2 e la distribuzione della candidate non sono state ripetute ne alterate. La correzione delle sonde richiede una successiva modifica del codice, esclusa da questo commit di pubblicazione."
+    }
+  },
+  "status": "satisfied",
+  "evidence": {
+    "status": "passed",
+    "scope": "Integrita dei sei archivi qualificati e dei quattordici file di accompagnamento riscaricati dalla release. La verifica prima della pubblicazione riguarda la bozza; quella successiva riguarda la release pubblicata."
+  },
+  "open_blockers": [],
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "a61a0815b000f2856594375a2858c41e32a1fff7"
+    }
+  ]
 }

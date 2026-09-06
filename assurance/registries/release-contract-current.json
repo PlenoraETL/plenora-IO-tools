@@ -392,11 +392,14 @@
     {
       "id": "release.candidate-non-valida-per-head",
       "superficie": "manifesto della candidate di release",
-      "invariante": "il manifesto della candidate deve descrivere **la revisione corrente**: versione del workspace, SHA di HEAD e tag previsto devono coincidere con cio' che si sta rilasciando.",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "il **tag**. La candidate esiste, e' congelata su `a61a081` e quella revisione porta la propria evidenza di livello 2 -- 95 passi su 95, fuzz e copertura -- piu' una distribuzione completa in canale `candidate` con i sei artefatti. Versione del manifesto, versione del workspace e revisione coincidono.\n\nCio' che non c'e' e' `v2.0.0` sullo SHA congelato: `tag_creato` e' falso, e l'invariante pretende che il manifesto della candidate descriva la revisione che si sta rilasciando **e** che quella revisione sia nominata da un tag. Un tag e' una decisione, non una conseguenza: lo crea chi rilascia, e finche' non esiste `release_action_allowed` non basta a rendere questo invariante verde.\n\nLa candidate precedente, su `8fe5120`, era stata **ritirata** perche' la 2.0.0 deve comprendere l'SDK Python e quel perimetro non lo comprendeva. Questa lo comprende: fra i sei artefatti ci sono wheel e sdist, e fra i dieci job della CI i tre che provano l'SDK sulle versioni di Python che `Requires-Python` dichiara.",
-      "sintesi": "candidate congelata su `a61a081` e qualificata; resta da creare il tag `v2.0.0` su quella revisione"
+      "invariante": "Versione, sei artefatti e tag v2.0.0 sono coerenti con la candidate congelata a61a081; HEAD discende dalla candidate e modifica soltanto i percorsi di assurance ammessi.",
+      "prova": {
+        "tipo": "interna",
+        "funzione": "condizione_candidate_coerente",
+        "artefatto": "assurance/current-state.json"
+      },
+      "stato": "verified",
+      "sintesi": "tag v2.0.0 sulla candidate qualificata a61a081; pubblicazione autorizzata dal titolare"
     },
     {
       "id": "lotto.s10",
@@ -681,20 +684,22 @@
     {
       "id": "distribuzione.artefatti-qualificati",
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
-      "invariante": "un artefatto di distribuzione e' **qualificato**: e' prodotto da una revisione nominata, la sua integrita' e' verificabile contro il checksum pubblicato nel canale di release, e cio' che contiene e' dichiarato. In concreto: per ogni piattaforma supportata esiste un artefatto costruito dalla revisione qualificata; un checksum lo lega a quei byte; un SBOM ne dichiara le dipendenze con le loro licenze; una provenance registra artefatto, revisione e costruzione; uno smoke test gira sull'artefatto **installato** e non sull'albero di build; e un runbook dice come si installa, si aggiorna, si torna indietro e si recupera. La 2.0.0 non promette un'identita' crittografica dell'editore Windows: il PE e' intenzionalmente unsigned.",
-      "stato": "release_blocking",
-      "manca": "la **pubblicazione**. I sei artefatti -- quattro nativi, due piattaforme per due profili, piu' wheel e sdist -- sono costruiti dalla revisione congelata `a61a081`, verificati da trentadue referti in canale `candidate` (corsa 34030548057), legati ai propri checksum e provenance, e i loro digest sono congelati nello stato.\n\nL'invariante pretende che l'integrita' sia verificabile contro il checksum pubblicato **nel canale di release**, e finche' i byte stanno soltanto nel servizio artifact della corsa nessuno fuori da qui li puo' verificare. Lo chiude la pubblicazione, senza ricostruire gli artefatti, con `check-deliverable.py --contro-la-candidate` sui byte riscaricati.\n\nRispetto alla candidate precedente sono due in piu', e non e' un dettaglio di conteggio: wheel e sdist non erano costruiti da nessun job, e il gate della distribuzione -- che deriva il perimetro dalle classi dichiarate nella matrice -- non era mai girato su una corsa che li comprendesse.",
-      "sintesi": "sei artefatti costruiti e qualificati su `a61a081` in canale `candidate`; resta la pubblicazione nel canale di release",
+      "invariante": "I sei archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
+      "stato": "verified",
+      "sintesi": "sei archivi qualificati su a61a081; byte riscaricati dalla bozza identici ai digest congelati",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
-      "prova": null,
+      "prova": {
+        "tipo": "esterna",
+        "owner": "GitHub Actions distribuzione 34030548057 e verifica dei byte scaricati da GitHub Releases",
+        "artefatto": "assurance/evidence/checkpoint-a61a081.json",
+        "stato": "passed"
+      },
       "macchina_di_qualifica": {
         "tipo": "workflow",
         "artefatto": ".github/workflows/distribuzione.yml, job `gate`",
         "comando": "python3 scripts/check-distribuzione-completa.py --referti <referti> --canale <canale>",
-        "stato": "eseguita_in_canale_candidate_sullo_sha_congelato",
+        "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_bozza",
         "ultima_corsa_verde": "a61a081",
-        "perche_non_chiude": "il gate ha ricontato i referti e riverificato i deliverable **dopo** l'upload, in canale `candidate` e sulla revisione congelata: e' cio' che gli si chiede. Resta fuori la pubblicazione, che non e' una verifica ma una consegna, e che questo gate non puo' fare.",
-        "perche_non_e_la_prova": "`prova` resta `null`, e non e' una svista. Un invariante e' provato quando qualcosa gira e ritorna verde **su cio' che si consegna**: qui gira su artefatti di prova costruiti da revisioni che non sono quella da congelare. Mettere questo oggetto sotto `prova` lo farebbe somigliare a una verifica corrente, ed e' esattamente la confusione che questo blocco esiste per impedire.",
         "corsa": 34030548057
       }
     },
@@ -709,11 +714,11 @@
         "stato": "assente"
       },
       "stato": "differita",
-      "sintesi": "differita: la licenza first-party non e' dichiarata, e la 2.0.0 si distribuisce soltanto nel canale privato",
+      "sintesi": "differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale",
       "differita": {
-        "decisione": "il titolare ha deciso il 2026-09-05 di non produrre, per ora, un documento legale first-party. Il perimetro della distribuzione 2.0.0 e' il **canale privato**: artefatti consegnati a clienti autorizzati, dove i termini d'uso stanno nel rapporto contrattuale con loro e non in un file dentro l'archivio. Il rinvio e' una scelta di perimetro, non un giudizio: nessun testo e' stato valutato e scartato, nessuno e' stato scritto.\n\nNon e' un blocco, e trattarlo come tale sarebbe stato un errore nell'altra direzione: avrebbe fermato una distribuzione privata che non ha bisogno di quel documento, per un documento che serve a un'altra cosa. E non e' verificata: nessuno ha stabilito che l'assenza vada bene in generale, ma che va bene qui.",
-        "non_promette": "la 2.0.0 NON concede alcuna licenza d'uso, copia, modifica o redistribuzione sui componenti first-party. Chi riceve un artefatto non trova dentro l'archivio i termini che lo governano, e non puo' dedurli: l'assenza di un file di licenza non e' un permesso, e in mancanza di concessione esplicita valgono le restrizioni predefinite del diritto d'autore. Nessun artefatto e' quindi ridistribuibile da chi lo riceve, e nessuno di essi puo' essere pubblicato su un indice, un registry o un repository aperto. La consegna avviene esclusivamente nel canale riservato, dove i termini li stabilisce il contratto con il cliente.",
-        "condizione_di_ripristino": "una distribuzione **pubblica** -- un indice, un registry, un artefatto scaricabile senza contratto -- la riporta a essere pretesa, e in quella release. Chiuderla richiede due cose dal titolare: il testo integrale dei termini e la denominazione legale esatta con cui compaiono. Quando arrivano, il documento va in `release/licenza-first-party.json`, che oggi non esiste -- e il gate deriva da quell'assenza lo stato della prova, invece di leggere il campo con cui la voce si descrive. Nessuno dei due si scrive qui: la prima stesura del `pyproject.toml` diceva `Apache-2.0` -- una concessione che nessuno aveva fatto -- ed e' l'errore che questa voce esiste anche per non ripetere.\n\nFino ad allora la promessa la tengono tre cose verificabili: il classificatore `Private :: Do Not Upload` nei metadati, l'assenza di qualunque strumento di pubblicazione o credenziale d'indice nei workflow, e la dichiarazione del canale riservato nella matrice. Le verifica `scripts/check_canale_privato.py`."
+        "decisione": "Il titolare ha successivamente accettato la visibilita pubblica attuale e autorizzato esplicitamente la pubblicazione della 2.0.0 su GitHub Releases. Questa decisione sostituisce il precedente vincolo operativo di consegna esclusivamente privata per questa release. Non autorizza una licenza first-party, una pubblicazione su PyPI o un cambio di visibilita del repository. I metadati e la matrice congelati conservano la precedente dichiarazione di canale riservato; questa nota registra esplicitamente la decisione successiva senza modificare i byte qualificati.",
+        "non_promette": "La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI.",
+        "condizione_di_ripristino": "Quando il titolare fornira il testo della licenza first-party e la denominazione legale esatta, una nuova revisione potra includerli nei propri artefatti e qualificare quella consegna. La presente autorizzazione alla pubblicazione non inventa questi termini e non modifica gli artefatti congelati."
       }
     }
   ],

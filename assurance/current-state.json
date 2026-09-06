@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -111,9 +111,9 @@
       "revisione_candidate": "a61a0815b000f2856594375a2858c41e32a1fff7",
       "versione_workspace": "2.0.0",
       "tag_previsto": "v2.0.0",
-      "tag_creato": false,
-      "tag_revisione": null,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+      "tag_sulla_candidate": true,
       "assurance_entro_l_allowlist": true,
       "artefatti": [
         {
@@ -171,10 +171,10 @@
           "classe": "python-puro"
         }
       ],
-      "release_action_allowed": false,
-      "release_blocking": true,
+      "release_action_allowed": true,
+      "release_blocking": false,
       "stato": "attiva",
-      "nota": "# La candidate 2.0.0 su `a61a081`\n\nCongelata il 2026-09-06 su una revisione il cui perimetro comprende l'SDK Python, che e' la ragione per cui la precedente -- su `8fe5120` -- era stata ritirata.\n\n## Che cosa e' stato misurato\n\nIl **livello 2** del checkpoint su questa revisione: 95 passi su 95, fuzz e copertura compresi, su un albero pulito. E la **distribuzione completa** in canale `candidate`, corsa 34030548057, sullo stesso SHA: sei artefatti, 32 referti attesi e 32 trovati, e i sei archivi riverificati dopo l'upload contro i propri checksum.\n\nChe la corsa girasse sulla stessa revisione di L2 e' una condizione, non una coincidenza: una candidate qualifica **una** revisione, e artefatti costruiti da un'altra descriverebbero un prodotto che nessuno ha misurato. Sono state necessarie quattro corse di L2 proprio per questo -- ogni correzione spostava HEAD, e la misura andava rifatta dove sarebbe stata congelata. L'ultima e' servita perche' il congelamento stesso, per essere registrabile, chiedeva una modifica al gate: dopo il congelamento la diff puo' toccare soltanto l'assurance e `docs/RELEASE.md`, e una modifica al codice fatta li' avrebbe invalidato cio' che stava fissando.\n\n## La bozza, e la verifica dei suoi byte\n\nI sei artefatti sono stati caricati in una release **in bozza** nel repository, senza ricostruirli: sono gli stessi byte che la corsa 34030548057 ha qualificato. La bozza punta ad `a61a081`, resta `untagged-...` e nessun tag `v2.0.0` esiste sul remoto -- GitHub lo crea al momento della pubblicazione.\n\n### Il confronto e' superato, ed e' un fatto a se'\n\nI venti file sono stati **riscaricati dalla bozza** e passati a\n`check-deliverable.py --directory <riscaricati> --versione 2.0.0 --canale candidate --revisione a61a081... --contro-la-candidate assurance/current-state.json`, che ha risposto:\n\n> deliverable verificati: 6 archivi con altrettanti checksum, di cui 2 Python\n> byte pubblicati identici ai 6 artefatti congelati dalla candidate\n\nIl confronto ha ricalcolato i digest sui byte **tornati dal canale** e li ha trovati uguali ai sei congelati qui sopra: cio' che la bozza porta e' cio' che e' stato misurato, non una ricostruzione equivalente.\n\nQuesto risultato **resta valido** e non dipende dai flag: descrive un confronto fra byte, avvenuto e riuscito. Sta qui e non in un campo proprio perche' un campo nuovo sarebbe una foglia da classificare nel gate, e classificarla toccherebbe `scripts/` -- fuori dall'allowlist che un congelamento impone.\n\n### Perche' il permesso resta falso\n\n`release_action_allowed` e' tornato **falso** per decisione: i tre flag di rilascio restano tutti a falso in questa fase. Non e' un giudizio sulla verifica qui sopra, che e' superata: e' che il permesso di procedere non e' stato concesso, e un flag scritto vero perche' *potrebbe* esserlo direbbe un'altra cosa.\n\n## Che cosa non e' stato fatto\n\nNessun tag, nessuna pubblicazione, `release_action_allowed` falso. Il congelamento fissa i byte e la loro provenienza; l'autorizzazione al rilascio e' un'altra decisione, e non e' stata presa.\n\n## I sei artefatti\n\nQuattro nativi -- due piattaforme per due profili -- e due Python, wheel e sdist, che in questa candidate compaiono per la prima volta: prima non erano costruiti da nessun job, ed erano il motivo del ritiro della candidate precedente."
+      "nota": "# Release 2.0.0 su `a61a081`\n\nIl titolare ha autorizzato esplicitamente la pubblicazione su GitHub Releases nel repository attuale. La visibilita del repository resta una sua decisione; non e stata modificata. Nessuna pubblicazione su PyPI e nessuna nuova licenza first-party sono state autorizzate.\n\nLa candidate resta congelata su `a61a0815b000f2856594375a2858c41e32a1fff7`: checkpoint L2 e distribuzione 34030548057 qualificano quella revisione. Il tag `v2.0.0` punta alla candidate, non al commit di assurance. I sei archivi non sono stati ricostruiti.\n\nI venti asset sono stati riscaricati dalla bozza e verificati con `scripts/check-deliverable.py --contro-la-candidate assurance/current-state.json`. I digest e le dimensioni sono stati ricalcolati sui byte scaricati e confrontati anche con i metadati degli asset di GitHub. Comando, output e manifest completo sono nella sezione release_verification di `assurance/evidence/checkpoint-a61a081.json`, distinta dalle misure del checkpoint originale.\n\nPubblicazione autorizzata e ancora da eseguire: il gate finale precede la pubblicazione. Il confronto dalla bozza e superato e non viene descritto come download dalla release pubblicata."
     }
   },
   "docset": {

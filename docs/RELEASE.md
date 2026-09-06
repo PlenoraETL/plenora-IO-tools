@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 2 |
+| blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `a61a081` |
 | candidate, versione del manifesto | `2.0.0` |
@@ -51,12 +51,12 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, versione del workspace | `2.0.0` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v2.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | `None` |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `a61a0815b000f2856594375a2858c41e32a1fff7` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
-| release_authorized | `false` |
+| candidate, release_action consentita | sì |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -64,8 +64,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate congelata su `a61a081` e qualificata; resta da creare il tag `v2.0.0` su quella revisione |
-| `distribuzione.artefatti-qualificati` | sei artefatti costruiti e qualificati su `a61a081` in canale `candidate`; resta la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -74,7 +72,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
 | `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. |
-| `distribuzione.licenza-first-party` | differita: la licenza first-party non e' dichiarata, e la 2.0.0 si distribuisce soltanto nel canale privato | la 2.0.0 NON concede alcuna licenza d'uso, copia, modifica o redistribuzione sui componenti first-party. Chi riceve un artefatto non trova dentro l'archivio i termini che lo governano, e non puo' dedurli: l'assenza di un file di licenza non e' un permesso, e in mancanza di concessione esplicita valgono le restrizioni predefinite del diritto d'autore. Nessun artefatto e' quindi ridistribuibile da chi lo riceve, e nessuno di essi puo' essere pubblicato su un indice, un registry o un repository aperto. La consegna avviene esclusivamente nel canale riservato, dove i termini li stabilisce il contratto con il cliente. |
+| `distribuzione.licenza-first-party` | differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale | La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
 
 <!-- generato da assurance/current-state.json: fine -->
 
