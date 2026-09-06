@@ -21,31 +21,31 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `8fe5120` |
-| revisione misurata | `8fe5120` |
-| passi del checkpoint | 80 |
-| passi verdi | 80 |
+| ultima qualificata | `1b913b6` |
+| revisione misurata | `1b913b6` |
+| passi del checkpoint | 95 |
+| passi verdi | 95 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 78 654 |
+| input di replay | 80 061 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 89,05% |
-| righe coperte LCOV | 37 970 |
-| righe strumentate LCOV | 42 638 |
-| copertura cargo | 87,56% |
+| copertura LCOV | 89,71% |
+| righe coperte LCOV | 39 314 |
+| righe strumentate LCOV | 43 824 |
+| copertura cargo | 88,12% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `ba1e94e` |
-| esito differenziale | n/d |
+| baseline differenziale | `8fe5120` |
+| esito differenziale | 88.49% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
 | capacità differite | 2 |
-| S9, qualificato su | `8fe5120` |
+| S9, qualificato su | `1b913b6` |
 | candidate, versione del manifesto | `2.0.0` |
 | candidate, revisione congelata | `1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81` |
 | candidate, versione del workspace | `2.0.0` |
@@ -64,8 +64,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate `8fe5120` ritirata: la 2.0.0 deve includere l'SDK Python; nessuna candidate attiva |
-| `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati su `8fe5120`, la cui candidate e' ora ritirata: vanno ricostruiti dalla revisione che comprendera' l'SDK |
+| `release.candidate-non-valida-per-head` | candidate congelata su `1b913b6` e qualificata; resta da creare il tag `v2.0.0` su quella revisione |
+| `distribuzione.artefatti-qualificati` | sei artefatti costruiti e qualificati su `1b913b6` in canale `candidate`; resta la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

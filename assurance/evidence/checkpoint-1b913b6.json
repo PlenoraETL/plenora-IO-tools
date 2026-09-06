@@ -1,0 +1,862 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione congelata della candidate 2.0.0. I numeri vengono dai log della corsa, estratti da `scripts/registra-evidenza-s9.py`: sono le righe di riepilogo che ciascun passo stampa dopo aver contato, non il sommario a schermo, che gli esiti li dice e i numeri no. Il manifest impronta ogni file della directory di corsa, uno per uno.",
+  "non_significa": "non autorizza una release, non promuove la readiness del componente ne' quella del sistema, e non chiude alcun invariante. Qualifica **tecnicamente una revisione**. La decisione di rilascio e' `release_authorized`, che nessun gate deriva.",
+  "release_authorized": false,
+  "qualifica_esterna": {
+    "nota": "corse su GitHub, sulla stessa revisione. Non fanno parte del checkpoint e sono registrate qui perche' qualificano lo stesso albero su macchine che non sono questa.",
+    "ci": {
+      "corsa": 34004126134,
+      "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+      "job_verdi": 10,
+      "job_totali": 10,
+      "job": [
+        "rust",
+        "windows",
+        "fuzz",
+        "coverage",
+        "gdal-linux-matrix (ubuntu-22.04, false)",
+        "gdal-linux-matrix (ubuntu-24.04, true)",
+        "macos-publish",
+        "python-sdk (3.11)",
+        "python-sdk (3.12)",
+        "python-sdk (3.13)"
+      ],
+      "perche_dieci_e_non_sette": "i tre job `python-sdk` provano l'SDK sulle tre versioni di Python che `Requires-Python` dichiara. Non c'erano quando la candidate precedente fu qualificata, ed e' la ragione per cui quella e' stata ritirata: il perimetro della 2.0.0 comprende l'SDK."
+    },
+    "distribuzione": {
+      "corsa": 34006105395,
+      "revisione": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+      "canale": "candidate",
+      "versione": "2.0.0",
+      "avvio": "workflow_dispatch",
+      "artefatti_attesi": 6,
+      "referti_attesi": 32,
+      "referti_trovati": 32,
+      "classi": "quattro `nativo` -- due piattaforme per due profili -- e due `python-puro`, wheel e sdist. Le due classi hanno obblighi diversi: a un pacchetto senza un solo file compilato non si chiede un referto di chiusura `DT_NEEDED`, che parlerebbe di ELF inesistenti.",
+      "firma": "`non_richiesta` su tutte e quattro le piattaforme-profilo. La 2.0.0 distribuisce il PE Windows senza Authenticode: i manifesti lo dichiarano invece di lasciarlo dedurre.",
+      "deliverable": "sei archivi con altrettanti checksum, riverificati **dopo** l'upload sui byte tornati dal servizio artifact: ricalcolare prima dimostrerebbe i byte sul runner produttore, non quelli che chi scarica ricevera'."
+    }
+  },
+  "campagne_mirate": {
+    "soak": {
+      "eseguito": false,
+      "perche_no": "il soak da un'ora per bersaglio si ripete quando cambia il codice di **prodotto** o quando compare un finding nuovo. Fra la revisione dell'ultimo soak e questa, cio' che e' cambiato in `crates/` e' il dispatch della CLI -- `catalog` che torna a leggere il protocollo, e i due punti d'ingresso che rifiutano gli argomenti sconosciuti -- piu' sonde. Il resto sta in `scripts/`, `sdk/` e nei registri.",
+      "e_i_numeri_di_prima": "non sono riportati qui. Quel soak ha misurato un'altra corsa su un'altra revisione, e ricopiarne i numeri li farebbe leggere come misure di **questa**. Stanno in git."
+    }
+  },
+  "perche_la_candidate_e_cambiata": {
+    "nota": "la candidate precedente, su `8fe5120`, e' stata ritirata; e prima di questo congelamento due tentativi sono stati annullati. Sono registrati perche' ciascuno e' stato fermato da una regola che funzionava, e una regola che ferma qualcosa merita di essere trovata nell'evidenza invece che in un log.",
+    "8fe5120": "ritirata il 2026-09-04: la 2.0.0 deve comprendere l'SDK Python, e quel perimetro non lo comprendeva. Una candidate qualifica una revisione **per un perimetro**; cambiato il secondo, la prima non qualifica piu' cio' che si rilascia. I suoi quattro artefatti e la sua evidenza restano in git, perche' descrivono una qualificazione avvenuta.",
+    "e1b74ce": "la distribuzione in canale `candidate` e' stata rifiutata dal gate: i sei referti del pacchetto Python dichiaravano il canale `prova`, perche' il costruttore non riceveva `--canale`. «Un artefatto di prova non qualifica una candidate», e aveva ragione.",
+    "de7885f": "il gate dei deliverable si e' fermato su un `NameError` nel proprio riepilogo. Un gate che non parte non e' un gate rosso, ed e' la ragione per cui ora una sonda esercita l'ingresso di entrambi i gate invece della sola funzione interna.",
+    "70b6e09": "il commit che la congelava toccava anche il codice del gate del contratto -- le modifiche che rendevano registrabile il congelamento stesso -- e cadeva fuori dall'allowlist ammessa dopo un congelamento. Quelle modifiche sono state portate dentro la revisione da qualificare, che e' il loro posto, e il congelamento rifatto."
+  },
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "**nessuno**. Questa corsa qualifica tecnicamente una revisione. I due bloccanti restano, per ragioni che una corsa non puo' togliere: manca il tag sullo SHA congelato, e manca la pubblicazione degli artefatti nel canale di release.",
+    "assurance_n1": "zero gruppi aperti su cinquanta, invariato.",
+    "candidate": "congelata su `1b913b6`, che e' anche la revisione misurata da questa corsa."
+  },
+  "resta_aperto": {
+    "sistema_qualifica_cross_component": {
+      "stato": "differita",
+      "che_cosa_significa": "non richiesta dalla 2.0.0 e **non verificata**. La release non promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools."
+    },
+    "licenza_first_party": {
+      "stato": "differita",
+      "che_cosa_significa": "nessuna licenza first-party e' dichiarata, e per la distribuzione privata corrente non serve: gli artefatti si consegnano a clienti autorizzati per un canale riservato, dove i termini stanno nel contratto con loro. La 2.0.0 non concede alcuna licenza d'uso, copia, modifica o redistribuzione sui componenti nostri, e l'assenza di un file di licenza non e' un permesso."
+    }
+  },
+  "corsa": {
+    "revisione_iniziale": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+    "revisione_finale": "1b913b6a6ea0a518bc5a4ceabe736702c2a0ed81",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
+    "percorso_dei_log": "C:\\Users\\marco\\.claude\\jobs\\dcb1b418\\tmp\\s9log"
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 95,
+    "eseguiti": 95,
+    "eseguiti_dichiarati_dalla_corsa": 95,
+    "verdi": 95,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa ha registrato in `risultato.json`, non contati a mano dal sommario a schermo",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_vendor",
+        "esito": "verde",
+        "log": "clippy_vendor.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_conversioni",
+        "esito": "verde",
+        "log": "sonde_conversioni.log"
+      },
+      {
+        "id": "check_conversioni",
+        "esito": "verde",
+        "log": "check_conversioni.log"
+      },
+      {
+        "id": "sonde_fixture_canoniche",
+        "esito": "verde",
+        "log": "sonde_fixture_canoniche.log"
+      },
+      {
+        "id": "check_fixture_canoniche",
+        "esito": "verde",
+        "log": "check_fixture_canoniche.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_buste_v2",
+        "esito": "verde",
+        "log": "sonde_buste_v2.log"
+      },
+      {
+        "id": "check_buste_v2",
+        "esito": "verde",
+        "log": "check_buste_v2.log"
+      },
+      {
+        "id": "sonde_sdk_python",
+        "esito": "verde",
+        "log": "sonde_sdk_python.log"
+      },
+      {
+        "id": "check_sdk_python",
+        "esito": "verde",
+        "log": "check_sdk_python.log"
+      },
+      {
+        "id": "costruisci_pacchetto_python",
+        "esito": "verde",
+        "log": "costruisci_pacchetto_python.log"
+      },
+      {
+        "id": "pacchetto_python_riproducibile",
+        "esito": "verde",
+        "log": "pacchetto_python_riproducibile.log"
+      },
+      {
+        "id": "smoke_pacchetto_python",
+        "esito": "verde",
+        "log": "smoke_pacchetto_python.log"
+      },
+      {
+        "id": "canale_privato",
+        "esito": "verde",
+        "log": "canale_privato.log"
+      },
+      {
+        "id": "check_requires_python",
+        "esito": "verde",
+        "log": "check_requires_python.log"
+      },
+      {
+        "id": "sonde_confine_v1",
+        "esito": "verde",
+        "log": "sonde_confine_v1.log"
+      },
+      {
+        "id": "check_confine_v1",
+        "esito": "verde",
+        "log": "check_confine_v1.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_shapefile_fork",
+        "esito": "verde",
+        "log": "check_shapefile_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 80061,
+      "target": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`",
+      "target_totali": 15
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "finding": 0,
+      "quarantena": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_smoke`",
+      "target_totali": 15
+    },
+    "copertura": {
+      "lcov_percentuale": 89.71,
+      "lcov_righe_coperte": 39314,
+      "lcov_righe_strumentate": 43824,
+      "cargo_lines_percentuale": 88.12,
+      "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
+      "perche_due_numeri": "89,71% viene dal report lcov, 88,12% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
+    },
+    "diagnostica_differenziale": {
+      "base": "8fe5120",
+      "esito": "88.49%",
+      "righe_cambiate_eseguibili": 1295,
+      "coperte": 1146,
+      "scoperte": 149,
+      "cambiate_non_eseguibili": 1347,
+      "righe_scoperte": [
+        "crates/driver-common/src/lib.rs:632",
+        "crates/driver-common/src/lib.rs:698",
+        "crates/driver-common/src/lib.rs:710",
+        "crates/driver-common/src/lib.rs:720",
+        "crates/driver-common/src/lib.rs:721",
+        "crates/driver-common/src/lib.rs:722",
+        "crates/driver-common/src/lib.rs:723",
+        "crates/driver-common/src/lib.rs:724",
+        "crates/driver-common/src/lib.rs:725",
+        "crates/driver-common/src/lib.rs:726",
+        "crates/driver-common/src/lib.rs:727",
+        "crates/driver-common/src/lib.rs:728",
+        "crates/driver-common/src/lib.rs:1070",
+        "crates/driver-common/src/lib.rs:1152",
+        "crates/driver-common/src/lib.rs:1156",
+        "crates/driver-csv/src/lib.rs:874",
+        "crates/driver-csv/src/lib.rs:875",
+        "crates/driver-csv/src/lib.rs:876",
+        "crates/driver-csv/src/lib.rs:881",
+        "crates/driver-csv/src/lib.rs:882",
+        "crates/driver-csv/src/lib.rs:883",
+        "crates/driver-csv/src/lib.rs:885",
+        "crates/driver-csv/src/lib.rs:886",
+        "crates/driver-csv/src/lib.rs:887",
+        "crates/driver-csv/src/lib.rs:888",
+        "crates/driver-csv/src/lib.rs:889",
+        "crates/driver-csv/src/lib.rs:890",
+        "crates/driver-csv/src/lib.rs:891",
+        "crates/driver-csv/src/lib.rs:892",
+        "crates/driver-csv/src/lib.rs:893",
+        "crates/driver-csv/src/lib.rs:894",
+        "crates/driver-csv/src/lib.rs:895",
+        "crates/driver-csv/src/lib.rs:896",
+        "crates/driver-csv/src/lib.rs:897",
+        "crates/driver-csv/src/lib.rs:898",
+        "crates/driver-csv/src/lib.rs:901",
+        "crates/driver-csv/src/lib.rs:902",
+        "crates/driver-csv/src/lib.rs:903",
+        "crates/driver-csv/src/lib.rs:910",
+        "crates/driver-csv/src/lib.rs:911",
+        "crates/driver-csv/src/lib.rs:1518",
+        "crates/driver-csv/src/lib.rs:1555",
+        "crates/driver-filegdb/src/lib.rs:1473",
+        "crates/driver-filegdb/src/lib.rs:1474",
+        "crates/driver-filegdb/src/lib.rs:1475",
+        "crates/driver-filegdb/src/lib.rs:1476",
+        "crates/driver-filegdb/src/lib.rs:3347",
+        "crates/driver-filegdb/src/lib.rs:3356",
+        "crates/driver-filegdb/src/lib.rs:3367",
+        "crates/driver-filegdb/src/lib.rs:3368",
+        "crates/driver-filegdb/src/lib.rs:3404",
+        "crates/driver-filegdb/src/lib.rs:3405",
+        "crates/driver-filegdb/src/lib.rs:3406",
+        "crates/driver-filegdb/src/lib.rs:3407",
+        "crates/driver-filegdb/src/lib.rs:3408",
+        "crates/driver-filegdb/src/lib.rs:3409",
+        "crates/driver-filegdb/src/lib.rs:3410",
+        "crates/driver-filegdb/src/lib.rs:3411",
+        "crates/driver-filegdb/src/lib.rs:3412",
+        "crates/driver-filegdb/src/lib.rs:3414",
+        "crates/driver-filegdb/src/lib.rs:3448",
+        "crates/driver-geojson/src/lib.rs:1187",
+        "crates/driver-geojson/src/lib.rs:1188",
+        "crates/driver-geojson/src/lib.rs:1189",
+        "crates/driver-geojson/src/lib.rs:1195",
+        "crates/driver-geojson/src/lib.rs:1196",
+        "crates/driver-geojson/src/lib.rs:1197",
+        "crates/driver-geojson/src/lib.rs:1199",
+        "crates/driver-geojson/src/lib.rs:1200",
+        "crates/driver-geojson/src/lib.rs:1201",
+        "crates/driver-gpkg/src/lib.rs:271",
+        "crates/driver-gpkg/src/lib.rs:1351",
+        "crates/driver-shp/src/lib.rs:947",
+        "crates/driver-shp/src/lib.rs:948",
+        "crates/driver-shp/src/lib.rs:949",
+        "crates/driver-shp/src/lib.rs:2346",
+        "crates/driver-shp/src/lib.rs:2347",
+        "crates/driver-shp/src/lib.rs:2348",
+        "crates/driver-shp/src/lib.rs:2349",
+        "crates/driver-shp/src/lib.rs:4145",
+        "crates/driver-shp/src/lib.rs:4185",
+        "crates/driver-shp/src/lib.rs:4186",
+        "crates/driver-shp/src/lib.rs:4208",
+        "crates/driver-shp/src/lib.rs:4209",
+        "crates/driver-shp/src/lib.rs:4212",
+        "crates/driver-shp/src/lib.rs:4213",
+        "crates/driver-shp/src/lib.rs:4214",
+        "crates/driver-shp/src/lib.rs:4222",
+        "crates/driver-shp/src/lib.rs:4245",
+        "crates/driver-shp/src/lib.rs:4289",
+        "crates/driver-shp/src/lib.rs:4290",
+        "crates/driver-shp/src/lib.rs:4295",
+        "crates/driver-shp/src/lib.rs:4296",
+        "crates/driver-shp/src/lib.rs:4303",
+        "crates/driver-shp/src/lib.rs:4340",
+        "crates/driver-shp/src/lib.rs:4351",
+        "crates/driver-shp/src/lib.rs:4352",
+        "crates/driver-shp/src/lib.rs:4353",
+        "crates/driver-shp/src/lib.rs:4354",
+        "crates/driver-shp/src/lib.rs:4355",
+        "crates/driver-shp/src/lib.rs:4362",
+        "crates/driver-shp/src/lib.rs:4385",
+        "crates/driver-shp/src/lib.rs:4390",
+        "crates/driver-shp/src/lib.rs:4716",
+        "crates/driver-shp/src/lib.rs:4765",
+        "crates/driver-shp/src/lib.rs:4766",
+        "crates/driver-shp/src/lib.rs:4767",
+        "crates/driver-shp/src/lib.rs:4814",
+        "crates/driver-shp/src/lib.rs:4840",
+        "crates/driver-shp/src/lib.rs:4851",
+        "crates/driver-shp/src/lib.rs:4852",
+        "crates/driver-shp/src/lib.rs:4854",
+        "crates/driver-shp/src/lib.rs:4855",
+        "crates/driver-shp/src/lib.rs:4889",
+        "crates/driver-shp/src/lib.rs:4953",
+        "crates/driver-shp/src/lib.rs:4968",
+        "crates/driver-shp/src/lib.rs:8591",
+        "crates/driver-shp/src/lib.rs:8597",
+        "crates/driver-shp/src/lib.rs:8609",
+        "crates/driver-shp/src/lib.rs:8646",
+        "crates/driver-shp/src/lib.rs:8647",
+        "crates/driver-shp/src/lib.rs:8717",
+        "crates/driver-xls/src/lib.rs:1013",
+        "crates/driver-xls/src/lib.rs:1014",
+        "crates/driver-xls/src/lib.rs:1015",
+        "crates/driver-xls/src/lib.rs:1016",
+        "crates/driver-xls/src/lib.rs:1017",
+        "crates/driver-xls/src/lib.rs:1018",
+        "crates/driver-xls/src/lib.rs:1019",
+        "crates/driver-xls/src/lib.rs:1020",
+        "crates/driver-xls/src/lib.rs:5160",
+        "crates/driver-xls/src/lib.rs:5161",
+        "crates/driver-xls/src/lib.rs:5162",
+        "crates/driver-xls/src/lib.rs:5174",
+        "crates/driver-xls/src/lib.rs:5208",
+        "crates/driver-xls/src/lib.rs:5211",
+        "crates/driver-xls/src/lib.rs:5212",
+        "crates/driver-xls/src/lib.rs:5214",
+        "crates/driver-xls/src/lib.rs:5215",
+        "crates/driver-xls/src/lib.rs:5244",
+        "crates/driver-xls/src/lib.rs:5267",
+        "crates/driver-xls/src/lib.rs:5275",
+        "crates/driver-xls/src/lib.rs:5289",
+        "crates/driver-xls/src/lib.rs:5290",
+        "crates/driver-xls/src/lib.rs:5291",
+        "crates/driver-xls/src/lib.rs:5298",
+        "crates/driver-xls/src/lib.rs:5321",
+        "crates/driver-xls/src/lib.rs:5325",
+        "crates/plenora-io-core/src/driver.rs:2954"
+      ],
+      "ragione": "misurata sull'intervallo fra la revisione dell'ultimo checkpoint superato e questa. Il passo non era girato dentro la corsa -- `S9_CHECKPOINT_BASE` non era impostata -- ed e' stato eseguito subito dopo **sui dati della corsa stessa**, il suo `lcov.info`, con lo stesso comando che il checkpoint avrebbe usato. Non e' una misura diversa: e' la stessa misura sugli stessi byte, e lo si dice invece di lasciarlo supporre.",
+      "che_cosa_sono_le_scoperte": "righe cambiate fra le due revisioni che nessun test attraversa. Non sono un difetto ne' un debito: sono il punto in cui la copertura complessiva, che resta alta, non dice niente sul codice **nuovo**. L'elenco e' integrale e non troncato: i numeri dicono quante, e senza i nomi nessun artefatto direbbe quali."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "C:\\Users\\marco\\.claude\\jobs\\dcb1b418\\tmp\\s9log",
+    "file": 99,
+    "digest_manifest": "78d2e223e1b452ed34f56cbf1236d786eb3e6e080f4ef097f30781371b495faa",
+    "forma_del_manifest": "percorso relativo alla directory di corsa -> sha256 del contenuto; il digest e' `percorso NUL sha256 LF` concatenati in ordine di percorso, la stessa forma che il gate del contratto ricalcola",
+    "manifest": {
+      "assurance_fallbacks.log": "a94c7d51d01934f4cab3252dc1bbae0969a884b7b8c3d570dbe5ca9e747ed0ba",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+      "canale_privato.log": "fee625fa1b0eecb4ffb916926462ccb20ff2b76dad65a945d774ff76ddbcc645",
+      "catalog.json": "64c7ee3a255277c9094b5ebefcf2144739d5467251470f491002d841e7c509c5",
+      "check_action_pins.log": "1ab9d4d993ac045685d4c3f849de9feaa006e20a59ec3bab414e4f111dcc2ec1",
+      "check_buste_v2.log": "4472a429b083396758f8c6d52c4eb6a1e273893daa63582784ef89bf7218ba3d",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
+      "check_confine_v1.log": "542f332bd3b461c45bd09e83f962c34df98e38f6303358cbe499f17129c841b1",
+      "check_conversioni.log": "e1ff5d832014bba610cdeaddccaf916f9a3fd181b6a548bac5ae298c296a8808",
+      "check_coverage_exclusions.log": "25bb4c4ca443b3dd6b738bf4dfaf2ced36473a391b89989fbec8fc82f0f6598f",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "b56fde911b65a2aabecc88f10d5b1aae362cb86bfc98dc936b0dac26a5439aa7",
+      "check_dxf_fork.log": "2bdcefd6e25d75e69d693e8d85baa101d6b04fbdea75e23ed6bf0cc763c1bf84",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_fixture_canoniche.log": "d214f4464f6fe249ae2429c14fcca295c9fcecf86e1514fcda33e14bee27bcbc",
+      "check_gdal_fork.log": "3b5270d0f9bfa21b84eab0510f163de8f71281fbbbef1a7e6b185ed29dc73d2a",
+      "check_identita.log": "3c016d73906b33fdc586c775b7f5411d06a57b32f6f03a6a937ff0fb03d8e764",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "399346a29822d280c603c725adaf25592cb836bbff9182e9bda4dab0d884fa17",
+      "check_protocollo_v2.log": "6a73bdb67bfbd5b249ac798016db1a3ecd8c87c30c3e05358f7c6fb3deb15970",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "2172871bcd34d06239c5f1d11cc4e032cb90c3cee1376b2e7bd43bc91e04d43d",
+      "check_release.log": "2b69786c31b711de3a3a5eb3da8be79c4614cee9cc0c30a6371982c4faf5ec77",
+      "check_requires_python.log": "5a9113449211c23ec19d998d6a46f161c12e05211d64563d38cb37277b74fe32",
+      "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
+      "check_sdk_python.log": "738adf4f89aa73900d427821feba17c0e3c7af094d9e0c591978dfb7b25d4c11",
+      "check_shapefile_fork.log": "fb3bd761b694d289c00141012e60e357bc4fc91c7e2c875adcbb1edaac361fbb",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "2bf0334c47092d29bf84cf9331dd3b9cba75253dded84fdee2ab7454267b30ba",
+      "clippy.log": "7221e1692f13f438d4ec8b38045d81a70a6b632ed2b7b95de1c43bff37619e97",
+      "clippy_default.log": "af0937f113578b23698d10a5dfd8dc25a7367750659611fa0b692beda74479a6",
+      "clippy_sicurezza.log": "ed5bce8f7dcfc02ea4d997dd666b06c111823ab2fefbfa834ae3ed93e1b77db3",
+      "clippy_vendor.log": "4f6db8ad9951d9fd766d8720c7d3d485ea2512d0eca5dc6e78bcbdaa88bd4714",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "costruisci_pacchetto_python.log": "0e5f44472b5a7f3b4d2f03821ee5fb5ce3b74989c1fdded83d2f20d7a4079ede",
+      "coverage_diff.log": "8d2ae84d6877edc899597d14eb5ceccae97608e7e49b8cd185bd669af3ae0769",
+      "coverage_diff_cli.log": "a77723c7a982f13eb87a5766fc9a724d1f4bb61d8df723c88c4a07ea76eaa15e",
+      "coverage_export.log": "e99a0e91ab088fa37889cbfb79888a9f34bfd3b81561602202c689a886867742",
+      "coverage_export_cli.log": "f9a6cab8dcaa074740457e14d8fd6e81682de0ca8dee41a53cba89636faca3e4",
+      "coverage_misura.log": "dcb69eedb5bf24bfce167e5267c6d0d7bd184b9286c4eeb0987e96f9fb8d725c",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "26132e26f533995d09e6b86cbd4333917595d2ad635fd4ef06de942bffd020f9",
+      "coverage_soglia_dal_report.log": "47672e2bd50a63958d652171aacae8fdf36b5a271ede7058375fdb867aeea2ea",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "3aa2baa891ede05e0b22b3c669b7095891a333bd407f9196647bd3d95eb7601b",
+      "fuzz_smoke.log": "e8ae6824d3e327e32d8e5e1a4c56743f81cdbd38991a4aad111067282aad8d74",
+      "lcov-completo.info": "747d94a5181a3c4e97a8a6a96ba05a31df7924981a82b53da1c40c06d6866957",
+      "lcov.info": "fa71393f80e487b0e4b13fe57a3cf31b768f0d4bdce5206d4cbf6440e9597ef3",
+      "pacchetto_python_riproducibile.log": "d2afb27b193bfb403bb8876e8b5f502c2ae517c90d55214e96edcc7074a7c3eb",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "0ae608221a8016b50f4299182ec551b7e32b6c013d8a31f3d4fd408ec1587557",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "smoke_pacchetto_python.log": "af09a21ecac1c221cad727c748925803ee5373cb74ceb47a5ecff4b6ad7c5b5f",
+      "sonde_action_pins.log": "bd39be70bbe6f872fa41f467482f6920c2f78894aaff1fd5efd2dbc13c45543d",
+      "sonde_assurance_n1.log": "d997a3c10b2314dfb44e0237788d62054ef4193a9de8319e247d5e38d715742c",
+      "sonde_assurance_n1_prove.log": "0b487dd197331c02512202319dd6e3bcc9b246f43271f82cc2097443075db78f",
+      "sonde_audit_ignores.log": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2",
+      "sonde_buste_v2.log": "48ed2bacba83af9f23ae14fcbd24c7eee9e62e1fc4aa409d16dd618f8549b36b",
+      "sonde_capability_ostile.log": "68b4c8729aaf24aded4900e100321e124581875a4ae11b3217ff42cbc102963f",
+      "sonde_categorie_di_perdita.log": "335da3dbddeec3b92d4edb2f88674fd0ede31792885731a5fba0f48c6df49851",
+      "sonde_checkpoint.log": "05364ce20d04a656d17a5d305dc134d1dbf9be5c5b0c94ab08f1fba1ce960664",
+      "sonde_confine_v1.log": "eae88ae1f0771f8c160aeddf2aa7a38d559fa9fb81046b9d5d3666ca03fbefa0",
+      "sonde_conversioni.log": "e3ae5917e0ee65b5d7e1d59caa9e886ce929db87fa1ca2c03a7a6a9c0758f12d",
+      "sonde_coverage_excl.log": "4dad0def6cf1cc8ac9be0bab90879cfcbfa20b9b52e5f7aebdf72f816d278fbf",
+      "sonde_dist_completa.log": "a89409c7f83870f905f2a65c52a167544362ce3a19bcb12d85992e692827256f",
+      "sonde_distribuzione.log": "e79c496e0d16f7884e53d9c319c5da00c47a567bf4499d7cc9b51a711f8646cd",
+      "sonde_docset.log": "207bfb2ca613e7ef092dc4330de3603bbca807e8456d63f84099b7e0fb81f85b",
+      "sonde_errori_redatti.log": "f29f7827b66a1937eec363ec247bf347476092ad98d6e1de4cef3111b610bef6",
+      "sonde_fallback.log": "eab4281419f49474c6773f172eab4705e82da9e9196e5418e92a366609bcb99e",
+      "sonde_filegdb.log": "e00da7e465fbb1b007f5d736308609b32bb1a35656e71b4274a4472930943589",
+      "sonde_fixture_canoniche.log": "0e343bb0b0e07fc94529c12474500dac40060a519c6afbb43f231358e5202c36",
+      "sonde_fork.log": "acb642ac83a1b634b61fe95fc1c988ebc64d7dbb92fc2da04cb891703e55f69f",
+      "sonde_identita.log": "e73c3805f810fdcf3d0167ced7085c48306c9482a952ffb710551d230cdb3e51",
+      "sonde_licenze.log": "97e6e802fd05b8040a17ed5823a390832598ef3c04ea1c045b7141ed376d4499",
+      "sonde_metadati_geoparquet.log": "e7868349f80d90e9674de9c2df12e50a116d24331e4cdf921e14d11d317a3981",
+      "sonde_niente_leak.log": "bd39be70bbe6f872fa41f467482f6920c2f78894aaff1fd5efd2dbc13c45543d",
+      "sonde_prevalidazione.log": "811eabda5dc298da232b3c7953fbe433089645edff6f53063d91016c4136c0a2",
+      "sonde_protocollo_v2.log": "e6a8ec109309b489eae99b8fd40a5d1c95e1dd8bde2af4bb5b06df1d5cbd169e",
+      "sonde_quarantena.log": "21c7e48d0b1ec908feef784bbce1fa55f2c9a7acf76382fa7578754a78bd1ed8",
+      "sonde_quartetto.log": "acfb09536560388410092c5cee079b9ee896afa337322fef4582c0abab99ae18",
+      "sonde_release.log": "230c54a91cc4a74ea5e9781f1dfb12a1ec6e58ca2dd8abfb6caa48c379c246d3",
+      "sonde_sbom.log": "b21dafa2af6a050871b4e5cd7ddfdfb3bf9c9b8afc5c74e95ffeee9dbb633b42",
+      "sonde_schemi_geoparquet.log": "ec4c657416abbb4a2ae4c44944d6c47d1d49a319c58b3ae65832aebc08dcca22",
+      "sonde_sdk_python.log": "ac46250ad78ca9850ee136db3d5d992fb8d2cbd20ae5a5ed389536fe2459c73b",
+      "sonde_semi_s12.log": "8bc4516a06aa6eedf8268120e7c68064a4a5fb809721981ead70947f018c946e",
+      "sonde_toolchain.log": "a2dc3c137a58e07b1fd7b3c8f9e51920dcf77b1e278bedb9dc1292f27cdb7160",
+      "sonde_verificatori_nativi.log": "5af0635f51b5ea793903b2807418452bf1674971bbe05aa2b045ba975897ce7b",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "ca18ffc8e8fdc6b71e49e9b4fd64e04661daa3243fb767d57a64ce80ea2d7b63",
+      "test.log": "9b0f74cb5c5dbfbf1c93277224d6ad434c2b842c1a518d65b7ae05721f812395",
+      "test_default.log": "9b9bb516b6cdbf30a49791ea96ceecba4da23dec11a3801e4e2742aa1e60da2c"
+    }
+  },
+  "esito": "S9 checkpoint level 2 passed"
+}

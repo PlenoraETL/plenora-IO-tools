@@ -2906,10 +2906,10 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         evidenza = self.evidenza()
         passi, errori = gate._passi_dichiarati(evidenza)
         self.assertEqual(errori, [], errori)
-        self.assertEqual(len(passi), 80)
+        self.assertEqual(len(passi), 95)
         self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
         con_log = {v["log"] for v in passi if v["log"]}
-        self.assertEqual(len(con_log), 78)
+        self.assertEqual(len(con_log), 93)
         # L'insieme atteso si **deriva**: il risultato della corsa, gli
         # artefatti dei passi che ci sono, e i log della diagnostica se la base
         # c'era. Ripeterlo qui come costante rifarebbe l'errore che ha reso il

@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "8fe5120",
+      "sha": "1b913b6",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "8fe5120",
+    "sha": "1b913b6",
     "checkpoint": {
-      "passi_eseguiti": 80,
-      "passi_verdi": 80,
+      "passi_eseguiti": 95,
+      "passi_verdi": 95,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "80 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
+      "riconciliazione": "95 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 78654,
+      "replay_input": 80061,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 89.05,
-      "lcov_righe_coperte": 37970,
-      "lcov_righe_strumentate": 42638,
-      "cargo_lines_percentuale": 87.56,
+      "lcov_percentuale": 89.71,
+      "lcov_righe_coperte": 39314,
+      "lcov_righe_strumentate": 43824,
+      "cargo_lines_percentuale": 88.12,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
-      "nota": "89,05% viene dal report lcov, 87,56% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
+      "nota": "89,71% viene dal report lcov, 88,12% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "ba1e94e",
-      "esito": "n/d",
-      "righe_cambiate_eseguibili": 0,
-      "coperte": 0,
-      "scoperte": 0,
-      "cambiate_non_eseguibili": 0,
-      "ragione": "misurata: **zero** righe cambiate ed eseguibili fra `ba1e94e` e `8fe5120` nel perimetro di libreria. La percentuale e' `n/d` e non `100%`: su un denominatore nullo il 100% sarebbe un numero che non misura niente, e si leggerebbe come copertura perfetta.",
-      "che_cosa_sono_le_scoperte": "nessuna, e non perche' siano state coperte: perche' non ci sono righe di libreria cambiate. Le modifiche di questo intervallo stanno nei costruttori e nei verificatori -- `scripts/` -- che sono fuori dal perimetro di questa misura e hanno le proprie sonde, e negli artefatti dell'assurance."
+      "baseline": "8fe5120",
+      "esito": "88.49%",
+      "righe_cambiate_eseguibili": 1295,
+      "coperte": 1146,
+      "scoperte": 149,
+      "cambiate_non_eseguibili": 1347,
+      "ragione": "misurata sull'intervallo fra la revisione dell'ultimo checkpoint superato e questa. Il passo non era girato dentro la corsa -- `S9_CHECKPOINT_BASE` non era impostata -- ed e' stato eseguito subito dopo **sui dati della corsa stessa**, il suo `lcov.info`, con lo stesso comando che il checkpoint avrebbe usato. Non e' una misura diversa: e' la stessa misura sugli stessi byte, e lo si dice invece di lasciarlo supporre.",
+      "che_cosa_sono_le_scoperte": "righe cambiate fra le due revisioni che nessun test attraversa. Non sono un difetto ne' un debito: sono il punto in cui la copertura complessiva, che resta alta, non dice niente sul codice **nuovo**. L'elenco e' integrale e non troncato: i numeri dicono quante, e senza i nomi nessun artefatto direbbe quali."
     },
-    "evidenza": "assurance/evidence/checkpoint-8fe5120.json"
+    "evidenza": "assurance/evidence/checkpoint-1b913b6.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "8fe5120"
+      "qualificato_su": "1b913b6"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
