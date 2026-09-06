@@ -98,7 +98,7 @@ DIFFERENZIALE = re.compile(
     r".*?coperte:\s+(?P<coperte>\d+)"
     r".*?scoperte:\s+(?P<scoperte>\d+)"
     r".*?cambiate ma non eseguibili:\s+(?P<non_eseguibili>\d+)"
-    r".*?percentuale:\s+(?P<percentuale>[\d.]+)%",
+    r".*?percentuale:\s+(?P<percentuale>[\d.]+%|n/d)",
     re.DOTALL,
 )
 RIGA_SCOPERTA = re.compile(r"^  (?P<riga>\S+:\d+)$", re.MULTILINE)
@@ -214,9 +214,14 @@ def misure(corsa: pathlib.Path) -> tuple[dict, list[str]]:
     else:
         testo = diagnostica.read_text(encoding="utf-8", errors="replace")
         _, _, coda = testo.partition("righe cambiate e mai eseguite:")
+        # `n/d` non e' una percentuale mancante: e' la misura di un
+        # intervallo in cui **nessuna riga eseguibile** e' cambiata, e la
+        # percentuale non esiste perche' il denominatore e' zero. Scriverci
+        # `100%` direbbe che tutto il codice nuovo e' coperto; scriverci `0%`
+        # il contrario. Sono entrambe affermazioni su codice che non c'e'.
         fuori["diagnostica_differenziale"] = {
             "base": trovata["base"],
-            "esito": f"{trovata['percentuale']}%",
+            "esito": trovata["percentuale"],
             "righe_cambiate_eseguibili": int(trovata["cambiate"]),
             "coperte": int(trovata["coperte"]),
             "scoperte": int(trovata["scoperte"]),
@@ -225,6 +230,39 @@ def misure(corsa: pathlib.Path) -> tuple[dict, list[str]]:
         }
 
     return fuori, motivi
+
+
+def misure_con_prosa(valori: dict, prosa: dict) -> dict:
+    """Le misure, piu' la prosa che le accompagna -- e mai al loro posto.
+
+    La fusione era `{**misura, **prosa}`, e la seconda vinceva: un file di
+    giudizio poteva scrivere `input`, `crash` o `lcov_percentuale` e sostituire
+    cio' che il log diceva. E' precisamente il difetto che questo strumento
+    esiste per chiudere -- i numeri li produce chi esegue, non chi racconta --
+    e riaprirlo dal lato del giudizio sarebbe stato peggio, perche' l'evidenza
+    avrebbe **l'aria** di essere derivata.
+
+    Una collisione non si risolve dando la precedenza a qualcuno: si rifiuta.
+    Se una chiave serve a entrambi, uno dei due la sta chiamando male.
+    """
+    fuori: dict = {}
+    for nome, misura in valori.items():
+        accanto = prosa.get(nome, {})
+        collisioni = sorted(set(misura) & set(accanto))
+        if collisioni:
+            raise ValueError(
+                f"la prosa di «{nome}» userebbe {collisioni}, che sono campi "
+                "misurati: la prosa accompagna una misura, non la sostituisce."
+            )
+        fuori[nome] = {**misura, **accanto}
+    ignorate = sorted(set(prosa) - set(valori))
+    if ignorate:
+        raise ValueError(
+            f"la prosa parla di misure che non esistono: {ignorate}. Un "
+            "commento a una misura assente resterebbe nell'evidenza a "
+            "descrivere qualcosa che nessuno ha misurato."
+        )
+    return fuori
 
 
 def manifesto_dei_log(corsa: pathlib.Path) -> dict:
@@ -354,10 +392,7 @@ def main(argv: list[str] | None = None) -> int:
             "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
             "passi": passi,
         },
-        "misure": {
-            nome: {**misura, **prosa.get(nome, {})}
-            for nome, misura in valori.items()
-        },
+        "misure": misure_con_prosa(valori, prosa),
         "artefatti": manifesto_dei_log(opzioni.corsa),
     }
     # `risultato.json` dice «superato»; l'evidenza porta la frase che la corsa
