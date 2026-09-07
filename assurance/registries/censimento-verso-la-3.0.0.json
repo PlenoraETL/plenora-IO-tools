@@ -5,7 +5,7 @@
   "come_e_stato_misurato": {
     "ultime_versioni": "API di crates.io, campo `max_stable_version`",
     "upstream": "i sorgenti delle ultime versioni pubblicate, dai `.crate`, e i file alla revisione corrente dei repository git",
-    "presenza_di_una_modifica": "cercata nel file upstream che la ospiterebbe. L'assenza del nome e' conclusiva -- se l'API non si chiama cosi', non c'e' -- mentre la presenza e' stata **riletta nel codice** prima di dichiararla integrata: `InvalidShapeRecordSize` compare upstream per altri usi, e `checked_mul` in cinque funzioni diverse. Due marcatori su nove erano falsi positivi."
+    "presenza_di_una_modifica": "cercata nel file upstream che la ospiterebbe. La **presenza** e' stata riletta nel codice prima di dichiararla integrata: `InvalidShapeRecordSize` compare upstream per altri usi, e `checked_mul` in cinque funzioni diverse. Due marcatori su nove erano falsi positivi. L'**assenza** di un nome dice solo che quel nome non c'e': upstream puo' esporre la stessa capacita' con un'altra forma. Il campo `misura` di ciascuna modifica dice percio' che cosa e' stato cercato -- vedi `correzioni_al_primo_rapporto.assenza_di_un_nome`."
   },
   "misurato_il": "2026-09-07",
   "dipendenze": {
@@ -703,7 +703,10 @@
         "conseguenza_per_l_aggiornamento": "aggiornare arrow **non** chiude questo difetto. La prevalidazione che lo aggira resta necessaria fino a una versione che lo corregga, e non e' una toppa temporanea.",
         "correzione_da_proporre": "allineare `reader.rs` a `convert.rs`: saltare la voce a cui manchi un campo invece di aprirla. E' la stessa struttura letta in modo sicuro due volte su tre nello stesso crate.",
         "difeso_da_noi": "driver_common::prevalida_arrow::valida_metadati_del_footer",
-        "registrato_in": "fuzz-findings/2026-09-07-ipc-reader-footer-metadata-arrow/"
+        "registrato_in": "fuzz-findings/2026-09-07-ipc-reader-footer-metadata-arrow/",
+        "natura_della_protezione": "difesa dalla **versione di arrow che leghiamo**, non un requisito della grammatica flatbuffer. Un file che omette uno dei due campi e' conforme al formato: rifiutarlo e' una nostra decisione, presa perche' la libreria con cui lo apriamo va in panico invece di deciderne il significato.",
+        "non_introduce_un_fork": "`arrow-rs` non e' forkato e non lo diventa. La proposta si aggiunge ai contributi upstream in preparazione per DXF, Shapefile e GDAL: quattro assi di contributo, tre fork.",
+        "quando_si_toglie": "non quando esce una versione nuova, ma quando esce una versione **corretta** e le regressioni di `driver-ipc` passano contro quella. Fino ad allora la protezione va portata attraverso l'aggiornamento a 59.3.0 senza toglierla."
       }
     ]
   }

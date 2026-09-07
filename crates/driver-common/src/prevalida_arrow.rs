@@ -158,6 +158,21 @@ pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> 
 /// percorsi arrow si difende da se', e duplicare li' il controllo rifiuterebbe
 /// file che arrow legge senza problemi.
 ///
+/// # Che cosa e' questa verifica, e che cosa non e'
+///
+/// E' una protezione dalla versione di arrow che leghiamo, **non** un
+/// requisito della grammatica flatbuffer. Un file che omette uno dei due campi
+/// resta conforme al formato: il criterio non e' la conformita' del file, ma il
+/// fatto che la libreria con cui lo apriamo vada in panico invece di deciderne
+/// il significato. Il giorno in cui una versione ufficiale di arrow lo decide
+/// -- saltando la voce, come gia' fa in `convert.rs` -- il file continuera' a
+/// essere quello che e' oggi, e a cambiare sara' soltanto chi lo legge.
+///
+/// Vale a dire: questa verifica ha una fine, ma la fine non e' «esce una
+/// versione nuova». E' «esce una versione corretta, e le regressioni qui sotto
+/// passano contro quella». Fino ad allora resta, e resta anche dopo un
+/// aggiornamento di arrow che non tocchi `reader.rs`.
+///
 /// # Che cosa rifiuta, e che cosa no
 ///
 /// **Solo** una voce a cui manchi uno dei due campi. Una chiave vuota o un
@@ -175,8 +190,9 @@ pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> 
 /// la stessa ragione di FZ-0, e questa e' la voce che quella verifica non
 /// guardava.
 ///
-/// Il difetto e' aperto anche in arrow-ipc 59.2.0 e 59.3.0: aggiornare non lo
-/// chiude, e questa verifica non e' una toppa in attesa di una versione nuova.
+/// Il difetto e' aperto anche in arrow-ipc 59.2.0 e 59.3.0: l'aggiornamento
+/// alla 59.3.0 previsto per la 3.0.0 non lo chiude, e questa verifica va
+/// portata attraverso quell'aggiornamento senza toglierla.
 fn valida_metadati_del_footer(driver: &'static str, footer: &arrow_ipc::Footer<'_>) -> Result<()> {
     let Some(voci) = footer.custom_metadata() else {
         return Ok(());
