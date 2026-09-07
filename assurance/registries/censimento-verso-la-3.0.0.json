@@ -34,16 +34,16 @@
       },
       {
         "crate": "arrow",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "distanza": "due patch",
+        "distanza": "allineato",
         "forkato": false
       },
       {
         "crate": "parquet",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "distanza": "due patch",
+        "distanza": "allineato",
         "forkato": false
       },
       {
@@ -102,11 +102,11 @@
     "divergenti": [
       {
         "famiglia": "arrow",
-        "io_tools": "59.1.0",
+        "io_tools": "59.3.0",
         "data_tools": "59.2.0",
         "database_tools": "59.2.0",
         "ultima_stabile": "59.3.0",
-        "perche_conta": "e' la famiglia del **confine**: i tre componenti si scambiano Arrow IPC, e sono gli unici crate che tutti e tre dichiarano. IO-tools e' l'unico rimasto sulla 59.1.0."
+        "perche_conta": "e' la famiglia del **confine**: i tre componenti si scambiano Arrow IPC, e sono gli unici crate che tutti e tre dichiarano. Dal 2026-09-07 IO-tools e' sull'ultima stabile, e la divergenza si e' **invertita**: non e' piu' IO-tools a essere indietro di due minor, sono gli altri due a esserlo di uno. Da proporre la 59.3.0 come bersaglio comune; finche' restano sulla 59.2.0 la divergenza resta e va letta cosi', non cancellata."
       },
       {
         "famiglia": "base64",
@@ -346,47 +346,47 @@
     "voci": [
       {
         "crate": "arrow-array",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
         "crate": "arrow-buffer",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
         "crate": "arrow-ipc",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
         "crate": "arrow-schema",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
         "crate": "arrow-select",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
@@ -403,7 +403,7 @@
         "ultima_stabile": "0.23.1",
         "passo": "1 minor (0.x)",
         "barriera": true,
-        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'. Dal 2026-09-07 `parquet 59.3.0` porta comunque la 0.23.1 nel grafo accanto alla nostra 0.22.1: alzare il nostro pin toglie una duplicazione **e** allinea a `plenora-database-tools`, che e' gia' sulla 0.23.1. E' il primo gruppo indipendente.",
         "forkato": false
       },
       {
@@ -491,11 +491,11 @@
       },
       {
         "crate": "parquet",
-        "in_uso": "59.1.0",
+        "in_uso": "59.3.0",
         "ultima_stabile": "59.3.0",
-        "passo": "2 minor",
+        "passo": "allineato",
         "barriera": false,
-        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "perche": "aggiornato il 2026-09-07, gruppo unico; vedi `preparazione_arrow_59_3_0.esito`",
         "forkato": false
       },
       {
@@ -598,7 +598,8 @@
         "a": "59.3.0",
         "barriera": false,
         "perche_insieme": "sono una famiglia sola e cargo pretende che le versioni coincidano; muoverne una sposta le altre.",
-        "obiettivo_comune": "59.3.0 e' anche l'ultima che data-tools e database-tools possono adottare: proporlo come obiettivo condiviso evita che i tre componenti si allineino a numeri diversi. Il passaggio intermedio a 59.2.0 -- dove i fratelli stanno oggi -- serve solo se emerge un'esigenza concreta, e oggi non ce n'e' una."
+        "obiettivo_comune": "59.3.0 e' anche l'ultima che data-tools e database-tools possono adottare: proporlo come obiettivo condiviso evita che i tre componenti si allineino a numeri diversi. Il passaggio intermedio a 59.2.0 -- dove i fratelli stanno oggi -- serve solo se emerge un'esigenza concreta, e oggi non ce n'e' una.",
+        "stato": "**eseguito** il 2026-09-07; vedi `preparazione_arrow_59_3_0.esito`"
       },
       {
         "gruppo": "patch senza barriera",
@@ -711,7 +712,7 @@
     ]
   },
   "grafo_transitivo": {
-    "nota": "punto 1 del piano verso la 3.0.0: il grafo completo, i vincoli di feature e quelli di piattaforma. Misurato il 2026-09-07 su `0d1b4ea`, a lockfile fermo. Nessuna dipendenza aggiornata.",
+    "nota": "punto 1 del piano verso la 3.0.0: il grafo completo, i vincoli di feature e quelli di piattaforma. Misurato il 2026-09-07 su `0d1b4ea`, a lockfile fermo. Nessuna dipendenza aggiornata. **Superato in parte**: l'aggiornamento Arrow del 2026-09-07 porta il grafo a 202 nodi e le duplicazioni da sette a nove. I numeri qui sotto restano quelli di `0d1b4ea` -- una misura vale per la revisione su cui e' presa -- e il delta sta in `preparazione_arrow_59_3_0.esito`.",
     "come_e_stato_misurato": {
       "comandi": [
         "cargo tree --workspace --locked --target <triplo> [--features gdal-backend] --edges normal --prefix none",
@@ -976,6 +977,66 @@
     ],
     "costo_da_mettere_in_conto": "toccare `Cargo.lock` invalida **cinque** misure insieme: le quattro profondita' di fuzzing (`shapefile`, `geojson`, `wkt`, `filegdb`) e la corsa ASan di FileGDB, che porta la stessa impronta del perimetro FileGDB. Se la corsa ASan cambia `contatori_di_copertura`, il valore va riallineato anche in `assurance/current-state.json`, campo `chiuso.fuzz_filegdb`. Le rimisure vanno fatte **dopo** ogni modifica al codice, non durante.",
     "il_secondo_lockfile": "`fuzz/Cargo.lock` e' una risoluzione separata e va aggiornato insieme, o il fuzzing misurerebbe una versione di Arrow e il prodotto ne spedirebbe un'altra. Oggi i due alberi coincidono versione per versione -- vedi `grafo_transitivo.workspace_di_fuzzing` -- e questo aggiornamento e' la prima occasione in cui potrebbero separarsi.",
-    "coordinamento": "da proporre agli altri due componenti la 59.3.0 come bersaglio comune, non la 59.2.0 su cui stanno oggi. Se restano sulla 59.2.0, la divergenza resta -- di un minor invece che di due -- e va registrata come tale in `vincoli_condivisi.divergenti`, non cancellata."
+    "coordinamento": "da proporre agli altri due componenti la 59.3.0 come bersaglio comune, non la 59.2.0 su cui stanno oggi. Se restano sulla 59.2.0, la divergenza resta -- di un minor invece che di due -- e va registrata come tale in `vincoli_condivisi.divergenti`, non cancellata.",
+    "esito": {
+      "stato": "**eseguito**. La preparazione qui sopra resta com'era scritta: e' cio' che ci si aspettava, e serve poterlo confrontare con cio' che e' successo.",
+      "eseguito_il": "2026-09-07",
+      "che_cosa_si_e_mosso": {
+        "voluto": "i sei pin `=59.1.0` -> `=59.3.0`, piu' `arrow-data` che li segue.",
+        "transitivo_necessario": [
+          "`lz4_flex` 0.13.1 -> 0.14.0, richiesto da `parquet 59.3.0`",
+          "`base64` **0.23.1 in piu'**, richiesto da `parquet 59.3.0`",
+          "`num-bigint` **0.5.1 in piu'**, richiesto da `arrow-buffer 59.3.0`",
+          "`paste 1.0.15` **sparisce**: nessuno lo tira piu'"
+        ],
+        "nient_altro": "la risoluzione e' minima: 201 -> 202 nodi su linux con il tier GDB. Nessun crate e' stato aggiornato per comodita'.",
+        "i_due_lockfile": "`Cargo.lock` e `fuzz/Cargo.lock` si sono mossi **allo stesso modo**, crate per crate e versione per versione. I `.workspace = true` del progetto di fuzzing risolvono contro il manifesto padre, quindi i pin nuovi valgono anche li' e restava solo da rigenerare il lock. I due alberi restano allineati."
+      },
+      "confronto_dei_file_prodotti": {
+        "metodo": "lo stesso ingresso GeoJSON, byte per byte, convertito in `.arrow` e in `.parquet` dal binario release prima e dopo; poi `inspect`, `layers` e `read` su ciascuna uscita, e la rilettura dei semi IPC versionati.",
+        "ipc": "**byte identici**, 3850 byte. E' la risposta al dubbio aperto dalla preparazione (`arrow.padding-del-writer`): la riscrittura del percorso di scrittura attorno a `IpcMessageSink` e a `MetadataLayout` non cambia un byte dell'uscita.",
+        "geoparquet": {
+          "differenza": "**un byte**, all'offset 4520: `1` diventa `3`.",
+          "che_cos_e": "la stringa `created_by` che parquet scrive nel footer: «parquet-rs version 59.1.0» diventa «parquet-rs version 59.3.0». E' il timbro della versione che ha scritto il file, non un dato.",
+          "che_cosa_non_e_cambiato": "i metadati GeoParquet sono identici carattere per carattere: `version 1.1.0`, `primary_column geometry`, `encoding WKB`, i quattro riferimenti `bbox` del `covering`, e la lista dei `geometry_types` -- LineString, MultiPoint, Point, Polygon. Stessa dimensione totale, 4560 byte."
+        },
+        "rilettura": "`inspect`, `layers` e `read` danno uscite **identiche** sulle due versioni, per entrambi i formati: stessi cinque campi con gli stessi tipi, stesso CRS `OGC:CRS84` risolto, stesse quattro righe, `fidelity` `lossless` con zero omissioni. La prima passata segnava una differenza nel nome del layer -- `uscita-prima` contro `uscita-dopo` -- che era un artefatto della prova: il nome del layer viene dal nome del file, e i due file li avevo chiamati diversamente io.",
+        "cosa_pretendiamo_davvero": "non l'identita' dei byte fra due versioni di una libreria. `docs/PRODUCT.md` dichiara determinismo `semantic` per tutti e dieci i driver, e byte-per-byte solo per la busta di `catalog`. Il criterio e' la conservazione di dati, metadati e garanzie dichiarate; una differenza di serializzazione va **capita**, non vietata. Qui e' capita e vale un byte. L'identita' obbligatoria resta quella degli artefatti congelati della 2.0.0, che questo intervento non tocca."
+      },
+      "verifiche": {
+        "clippy": "pulito sull'intero workspace, `--all-targets`, senza nuove eccezioni",
+        "test": "40 suite verdi, nessun fallimento",
+        "protezione_ipc": "`un_metadato_del_footer_senza_un_campo_e_rifiutato_prima_di_arrow` e la sua controprova positiva restano verdi contro la 59.3.0. L'`unwrap` upstream e' ancora li'.",
+        "dizionari": "nuova regressione permanente `una_colonna_a_dizionario_si_rilegge_con_i_valori_giusti`, su un seme costruito da `driver-common/examples/scrivi_ipc_con_dizionario`: chiavi `Int8`, sei righe, tre valori con ripetizioni e un nullo. E' l'unico cambiamento di **comportamento** che il salto porta sul percorso di lettura, e senza questo test l'avremmo attraversato senza guardarlo. I valori tornano indietro giusti, nullo compreso.",
+        "replay": "cinque bersagli, nessun crash: ipc_reader 3431 input, shp_reader 4290, wkt_parse 11386, geojson_reader 10127, filegdb_reader 829",
+        "profondita": "le quattro rimisurate, numeri invariati: shapefile 35/35, geojson 9/9, wkt 9/9, filegdb 12/12",
+        "asan": "rimisurata. I contatori di copertura passano da 174795 a 179433 -- arrow 59.3.0 e' piu' codice, e il wrapper strumentato lo lega. Zero simboli del runtime in `libgdal.so.32`: il confine regge. `assurance/current-state.json`, campo `chiuso.fuzz_filegdb.contatori_di_copertura`, riallineato al valore nuovo."
+      },
+      "duplicazioni_dopo": {
+        "quante": "da sette a **nove** nomi in piu' versioni su linux, dieci su windows.",
+        "base64": {
+          "versioni": [
+            "0.22.1",
+            "0.23.1"
+          ],
+          "chi": "la 0.22.1 e' una dipendenza **diretta** di `driver-geoparquet`, dichiarata da noi; la 0.23.1 arriva da `parquet 59.3.0`.",
+          "rotta": "questa e' in mano nostra e si chiude con una riga. `plenora-database-tools` e' gia' su 0.23.1: alzare il nostro pin toglie la duplicazione **e** una divergenza fra componenti. Non fatto qui perche' non e' un aggiornamento transitivo necessario -- e' il primo dei gruppi indipendenti."
+        },
+        "num_bigint": {
+          "versioni": [
+            "0.4.8",
+            "0.5.1"
+          ],
+          "chi": "la 0.4.8 da `fraction` sotto `jsonschema`; la 0.5.1 da `arrow-buffer 59.3.0`.",
+          "rotta": "non in mano nostra: dipende da quando `jsonschema` aggiornera' `fraction`. Da riguardare al prossimo aggiornamento di `jsonschema`."
+        },
+        "in_meno": "`paste 1.0.15` esce dal grafo: era un proc-macro che nessuno tira piu'."
+      },
+      "cosa_non_e_stato_fatto": [
+        "KML, `rust_xlsxwriter` e gli altri gruppi restano fermi: il secondo `zip` e' ancora li'",
+        "`base64` nostro non e' stato alzato, per non allargare il gruppo",
+        "nessun tag e nessun artefatto della 2.0.0 e' stato toccato"
+      ]
+    }
   }
 }

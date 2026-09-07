@@ -587,6 +587,91 @@ mod tests {
         }
     }
 
+    /// Una colonna a **dizionario** si rilegge con i valori giusti.
+    ///
+    /// # Perche' questo test esiste
+    ///
+    /// L'aggiornamento ad `arrow 59.3.0` cambia il comportamento del reader IPC
+    /// proprio sui dizionari: in `arrow-ipc/src/reader.rs` cambiano le attese
+    /// sulle chiavi `Int8` e un campo che il commento dichiarava «technically
+    /// not legal for this field to be null» diventa non nullable. E' l'unica
+    /// modifica di comportamento -- non di forma -- che quel salto di versione
+    /// porta sul percorso di lettura.
+    ///
+    /// Il prodotto non **scrive** dizionari: i tipi che i nostri writer
+    /// emettono sono `Binary`, `Utf8`, `Int64`, `Float64`. Ma li **legge**, e li
+    /// attraversa in prevalidazione -- `header_as_dictionary_batch` in
+    /// `prevalida_arrow` -- perche' un file di terze parti puo' portarli. Senza
+    /// questo test l'aggiornamento avrebbe attraversato quella modifica senza
+    /// che niente la guardasse.
+    ///
+    /// Il seme e' costruito da `driver-common/examples/scrivi_ipc_con_dizionario`:
+    /// chiavi `Int8` -- il tipo su cui le attese sono cambiate -- sei righe, tre
+    /// valori distinti con ripetizioni, e un nullo, che e' il caso che quella
+    /// modifica riguarda.
+    #[test]
+    fn una_colonna_a_dizionario_si_rilegge_con_i_valori_giusti() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/dizionario-int8.arrow");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let ds = IpcDriver
+            .open(Source::Path(seme), opzioni_lettura())
+            .expect("un file con una colonna a dizionario si apre");
+        let layer = ds.layers()[0].clone();
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: layer.id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .expect("il reader si apre");
+
+        let batch = reader.next_batch().unwrap().expect("un batch c'e'");
+        assert_eq!(batch.num_rows(), 6);
+        assert!(reader.next_batch().unwrap().is_none());
+
+        // I valori, non solo il conteggio: e' la sostanza della modifica.
+        let colonna = batch.column(0);
+        let dizionario = colonna
+            .as_any()
+            .downcast_ref::<arrow_array::DictionaryArray<arrow_array::types::Int8Type>>()
+            .expect("la colonna resta un dizionario Int8");
+        let valori = dizionario
+            .values()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .expect("i valori del dizionario sono stringhe");
+
+        use arrow_array::Array as _;
+        let letti: Vec<Option<&str>> = (0..dizionario.len())
+            .map(|i| {
+                if dizionario.is_null(i) {
+                    None
+                } else {
+                    Some(valori.value(dizionario.keys().value(i) as usize))
+                }
+            })
+            .collect();
+        assert_eq!(
+            letti,
+            vec![
+                Some("alfa"),
+                Some("beta"),
+                Some("alfa"),
+                None,
+                Some("gamma"),
+                Some("beta"),
+            ],
+            "il dizionario deve rileggersi con gli stessi valori, nullo compreso"
+        );
+    }
+
     /// La controprova positiva: metadati **completi** nel footer si leggono.
     ///
     /// Senza questa riga, una verifica che rifiutasse ogni metadato passerebbe
