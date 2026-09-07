@@ -321,13 +321,32 @@ class SondeStatoGenerato(unittest.TestCase):
         self.assertIn("fonte", blocchi)
 
     def test_il_conteggio_reso_segue_il_registro(self) -> None:
-        """Il numero nel blocco non viene dallo stato: si conta nel registro."""
+        """Il numero nel blocco non viene dallo stato: si conta nel registro.
+
+        I bloccanti si **costruiscono**. Li filtrava da quello reale e ne
+        prendeva due: ha smesso di funzionare con il rilascio della 2.0.0, che
+        li ha chiusi entrambi e ha lasciato la lista vuota. Una sonda che
+        conta due cose in un insieme che potrebbe averne zero misura il
+        calendario.
+        """
         registro = self.registro()
+        modello = dict(registro["invarianti"][0])
         registro["invarianti"] = [
-            v for v in registro["invarianti"] if v["stato"] == "release_blocking"
-        ][:2]
+            {**modello, "id": f"prova.bloccante-{indice}", "stato": "release_blocking"}
+            for indice in range(2)
+        ]
         self.assertEqual(
             stato_release.campi(self.stato(), registro)["blocchi"], "2"
+        )
+
+    def test_il_conteggio_reso_e_zero_senza_bloccanti(self) -> None:
+        """L'altro verso, che dopo un rilascio e' il caso normale."""
+        registro = self.registro()
+        registro["invarianti"] = [
+            {**dict(registro["invarianti"][0]), "stato": "verified"}
+        ]
+        self.assertEqual(
+            stato_release.campi(self.stato(), registro)["blocchi"], "0"
         )
 
     def test_l_elenco_delle_differite_e_quello_del_registro(self) -> None:
@@ -394,11 +413,17 @@ class SondeStatoGenerato(unittest.TestCase):
             self.assertIn(non_promette, self.documento())
 
     def test_un_bloccante_senza_sintesi_e_rosso(self) -> None:
+        """Il bloccante si **costruisce**: dopo un rilascio non ce ne sono.
+
+        Cercava il primo `release_blocking` del registro vero e gli toglieva la
+        sintesi. Con la 2.0.0 rilasciata non ne trova nessuno, non toglie
+        niente, e la sonda passa a verificare un errore che non puo' esserci.
+        """
         registro = self.registro()
-        for voce in registro["invarianti"]:
-            if voce["stato"] == "release_blocking":
-                voce.pop("sintesi", None)
-                break
+        senza = dict(registro["invarianti"][0])
+        senza["stato"] = "release_blocking"
+        senza.pop("sintesi", None)
+        registro["invarianti"] = [senza]
         _, errori = stato_release.blocchi(registro)
         self.assertTrue(any("senza `sintesi`" in e for e in errori), errori)
 

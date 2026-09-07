@@ -310,6 +310,37 @@ class SondeMatrice(unittest.TestCase):
             with self.subTest(piattaforma=piattaforma):
                 self.assertIn("virtuali_alla_risoluzione", carica(percorso))
 
+    def test_una_versione_gdal_fuori_contratto_e_colta(self) -> None:
+        """La controprova del filtro di contesto.
+
+        Restringere alle righe che nominano il runtime poteva spegnere la
+        difesa insieme al falso positivo. Qui si costruisce la riga che il
+        difetto storico produceva -- un documento che dice una GDAL diversa da
+        quella del contratto -- e si verifica che la sonda la colga ancora.
+        """
+        contratto = self.matrice["contratto_gdal"]["versione"]
+        binding = self.matrice["contratto_gdal"]["binding_rust"][
+            "binding_version_dichiarata"
+        ]
+        ammesse = {contratto, binding}
+        schema = re.compile(r"(?<![\w.])3\.\d+\.\d+(?!\w|\.\d)")
+        contesto = re.compile(
+            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
+        )
+        riga = "Il runtime GDAL fissato e' 3.10.3 su entrambe le piattaforme."
+        self.assertTrue(contesto.search(riga), "la riga nomina il runtime")
+        trovate = [v for v in schema.findall(riga) if v not in ammesse]
+        self.assertEqual(trovate, ["3.10.3"], "la versione fuori contratto e' colta")
+
+    def test_una_versione_del_prodotto_non_e_una_versione_gdal(self) -> None:
+        """E il falso positivo che il filtro toglie."""
+        contesto = re.compile(
+            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
+        )
+        self.assertIsNone(
+            contesto.search("## Verso la 3.0.0 - primo passo concordato")
+        )
+
     def test_nessun_documento_nomina_una_versione_gdal_diversa(self) -> None:
         """La sonda che avrebbe colto la contraddizione dove e' sopravvissuta.
 
@@ -330,10 +361,25 @@ class SondeMatrice(unittest.TestCase):
         # frase, dove il punto fermo segue subito. La controprova l'ha trovato.
         schema = re.compile(r"(?<![\w.])3\.\d+\.\d+(?!\w|\.\d)")
         storica = re.compile(r"\b(era|prima|precedent|non piu|storic|dichiarava|forzava|mascherava)", re.I)
+        # La riga deve parlare del **runtime nativo**, non di una versione
+        # qualunque che comincia per tre. Il prodotto e' arrivato alla 2.0.0 e
+        # la prossima serie si chiama 3.0.0: senza questo filtro, «Verso la
+        # 3.0.0» in `docs/RELEASE.md` veniva letto come una GDAL diversa da
+        # quella del contratto, e la sonda accusava un documento che diceva il
+        # vero su un'altra cosa.
+        #
+        # Il contesto non indebolisce la difesa: il difetto storico erano
+        # documenti che dicevano «GDAL 3.10.3» e «binding 3.6.0», e quelle righe
+        # nominano cio' di cui parlano. La controprova qui sotto lo verifica.
+        contesto = re.compile(
+            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
+        )
         for documento in docset():
             if not documento.exists():
                 continue
             for numero, riga in enumerate(documento.read_text(encoding="utf-8").splitlines(), 1):
+                if not contesto.search(riga):
+                    continue
                 for versione in schema.findall(riga):
                     if versione in ammesse or storica.search(riga):
                         continue
