@@ -27,8 +27,8 @@
       ],
       "crate": "paste",
       "chiuse_il": "2026-09-07",
-      "come": "aggiornamento della famiglia Arrow e di `parquet` da 59.1.0 a 59.3.0, in un gruppo unico. `paste` era una dipendenza build-time di `parquet 59.1.0` e la 59.3.0 non la tira piu': esce dal grafo e dalla closure di `driver-geoparquet`.",
-      "nota": "era esattamente la condizione di chiusura registrata quando l'eccezione fu accettata il 2026-07-27 -- «aggiornare l'intero pin Arrow/Parquet alla prima release compatibile che rimuove paste» -- e l'aggiornamento l'ha soddisfatta senza che fosse il suo scopo. La condizione chiedeva anche i test di interoperabilita' con `plenora-data-tools`: quel confronto resta da fare, ed e' registrato in `censimento-verso-la-3.0.0.json` sotto `vincoli_condivisi.divergenti`, perche' i due componenti sono ora su versioni diverse di Arrow -- noi 59.3.0, loro 59.2.0."
+      "come": "`paste` **non e' piu' nel grafo**. Era una dipendenza build-time di `parquet 59.1.0`; la 59.3.0 non la tira, e con l'aggiornamento del 2026-09-07 esce dal lockfile e dalla closure di `driver-geoparquet`. Un advisory su una crate che non compiliamo non ha bisogno di un'eccezione: non c'e' niente da accettare. Questo chiude la voce per intero, e non a meta'.",
+      "nota": "il testo con cui l'eccezione fu accettata il 2026-07-27 legava due cose diverse: la rimozione di `paste` e i test di interoperabilita' con `plenora-data-tools`. La prima e' fatta e chiude questa voce. La seconda **non e' una condizione residua di questo advisory** e non va tenuta qui, dove finirebbe fra le cose risolte e nessuno la rileggerebbe: e' una verifica aperta per conto suo, che vive nell'invariante differita `sistema.qualifica-cross-component` del contratto di release e nella voce `verifiche_aperte.interoperabilita_arrow_con_data_tools` del censimento verso la 3.0.0. L'aggiornamento ad Arrow 59.3.0 la rende piu' urgente, non soddisfatta."
     }
   ]
 }

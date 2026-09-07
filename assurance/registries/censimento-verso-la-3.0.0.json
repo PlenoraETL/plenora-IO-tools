@@ -1038,5 +1038,16 @@
         "nessun tag e nessun artefatto della 2.0.0 e' stato toccato"
       ]
     }
+  },
+  "verifiche_aperte": {
+    "nota": "cose che restano da verificare e che nessuna corsa di questo repository puo' chiudere. Stanno qui perche' altrove finirebbero fra le risolte.",
+    "interoperabilita_arrow_con_data_tools": {
+      "che_cosa": "lo scambio effettivo di Arrow IPC fra `plenora-IO-tools` e `plenora-data-tools`: un file scritto dall'uno e riletto dall'altro, nelle due direzioni, con le quindici proprieta' del contratto di sistema -- fra cui `srid`, `crs_resolution`, `axis_order`, `native_metadata` -- confrontate ai due capi.",
+      "stato": "**aperta**. Non eseguita, non tentata.",
+      "perche_ora": "dal 2026-09-07 i due componenti dichiarano versioni diverse della famiglia del confine: IO-tools 59.3.0, data-tools 59.2.0. Prima la divergenza era di due minor con IO-tools indietro; ora e' di uno con IO-tools avanti. In entrambi i casi non e' dimostrato che il confine tenga -- e la versione della **libreria** non e' la versione del **formato**: `MetadataVersion::V5` e' la stessa, il che toglie un motivo presunto di incompatibilita' e non prova il confine.",
+      "che_cosa_non_la_soddisfa": "la CI del solo IO-tools. I dieci job verdi su `e7388c6` dimostrano che IO-tools legge e scrive Arrow 59.3.0 conservando cio' che dichiara; non dicono niente su che cosa un altro componente ne faccia. Nessuna corsa interna a questo repository puo' chiuderla, per costruzione.",
+      "dove_e_gia_registrata": "invariante `sistema.qualifica-cross-component` del contratto di release, stato `differita`, prova esterna con owner `plenora-contracts/conformance` e artefatto `release/system-rc-gate.json` in `not_run`. Questa voce non ne crea una seconda: la nomina perche' l'aggiornamento di Arrow le ha aggiunto una ragione concreta e recente.",
+      "come_si_chiude": "l'owner esterno consegna harness e fixture, la corsa produce evidenza, e l'artefatto passa a `passed`. Fino ad allora la catena non e' qualificata in nessuna direzione."
+    }
   }
 }
