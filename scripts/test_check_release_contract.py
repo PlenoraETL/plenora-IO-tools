@@ -832,32 +832,58 @@ class SondeCondizioni(unittest.TestCase):
     def registro(self) -> dict:
         return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
-    def test_i_bloccanti_correnti_negano_la_prima_condizione(self) -> None:
-        motivi = gate.condizione_nessun_bloccante(self.registro())
-        self.assertTrue(motivi)
+    def test_un_bloccante_nega_la_prima_condizione(self) -> None:
+        """Il caso si **costruisce**: nel registro corrente non ce ne sono piu'.
+
+        Leggeva il registro vero e asseriva che dei bloccanti ci fossero. Era
+        vero fino al 2026-09-06 e ha smesso di esserlo con il rilascio della
+        2.0.0, che li ha chiusi entrambi: la sonda misurava il calendario.
+        """
+        con_blocco = documento(voce(stato="release_blocking", manca="qualcosa"))
+        motivi = gate.condizione_nessun_bloccante(con_blocco)
         self.assertTrue(any("restano bloccanti" in m for m in motivi), motivi)
 
     def test_senza_bloccanti_la_prima_condizione_e_soddisfatta(self) -> None:
         senza_blocchi = documento(voce())
         self.assertEqual(gate.condizione_nessun_bloccante(senza_blocchi), [])
 
-    def test_la_decisione_scritta_non_e_presa(self) -> None:
-        """`release_authorized` e' false: la condizione deve dirlo, non dedurlo."""
-        motivi = gate.condizione_decisione_scritta(self.registro())
+    def test_una_decisione_non_presa_nega_la_condizione(self) -> None:
+        """`release_authorized: false` va **detto**, non dedotto.
+
+        Lo stato e' costruito: quello vero porta `true` dal rilascio della
+        2.0.0, e una sonda che vi si appoggiasse direbbe il contrario di cio'
+        che verifica appena qualcuno rilascia.
+        """
+        stato = {"release_authorized": False}
+        with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
+            motivi = gate.condizione_decisione_scritta(self.registro())
         self.assertTrue(any("decisione scritta" in m for m in motivi), motivi)
 
-    def test_la_candidate_corrente_non_e_coerente(self) -> None:
-        """La condizione non e' soddisfatta, e la sonda non dice **perche'**.
+    def test_una_decisione_presa_soddisfa_la_condizione(self) -> None:
+        """L'altro verso: senza, «sempre rossa» sarebbe una difesa."""
+        stato = {"release_authorized": True}
+        with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
+            self.assertEqual(gate.condizione_decisione_scritta(self.registro()), [])
 
-        Le due stesure precedenti di questa sonda cercavano il motivo
-        specifico del momento -- prima «non qualifica il codice corrente», poi
-        il divario di versione -- e sono diventate rosse quando quel motivo e'
-        stato chiuso, pur restando la condizione insoddisfatta. Una sonda che
-        segue lo stato transitorio del repository misura il calendario, non il
-        gate: i motivi puntuali si provano qui sotto costruendoli, e qui resta
-        la sola cosa che deve valere finche' la release non e' fatta.
+    def test_la_condizione_della_candidate_e_provata_su_fixture(self) -> None:
+        """Questa sonda e' caduta tre volte, e la terza per la ragione giusta.
+
+        Le prime due cercavano il motivo specifico del momento -- «non
+        qualifica il codice corrente», poi il divario di versione -- e sono
+        diventate rosse quando quel motivo e' stato chiuso. La terza ripiegava
+        su «la sola cosa che deve valere finche' la release non e' fatta», ed e'
+        caduta quando la release e' stata fatta.
+
+        La lezione, alla terza: **non esiste** un verdetto sullo stato corrente
+        che una sonda possa fissare. La condizione si prova costruendo i casi, e
+        quelli stanno in `SondeDelGateDiRilascioSuFixture` -- candidate valida
+        accettata, artefatti mancanti o in piu' rifiutati, tag assente o che
+        punta altrove rifiutato, permesso negato rifiutato.
+
+        Qui resta la sola cosa che non dipende dal giorno: la condizione e'
+        eseguibile e risponde con una lista.
         """
-        self.assertTrue(gate.condizione_candidate_coerente(self.registro()))
+        self.assertIsInstance(gate.condizione_candidate_coerente(self.registro()), list)
 
     def test_il_congelamento_rotto_nega_la_condizione(self) -> None:
         """La quarta condizione, costruita invece che osservata.
@@ -962,20 +988,40 @@ class SondeCondizioni(unittest.TestCase):
     # vero adesso, non cio' che si spera.
     SODDISFATTE = frozenset({"debito-n1-a-zero", "qualifica-cross-component"})
 
-    def test_release_e_rossa_sul_registro_corrente(self) -> None:
-        """La controprova d'insieme: oggi la release non e' autorizzabile.
+    def test_l_esito_del_gate_coincide_con_i_motivi(self) -> None:
+        """La composizione: l'uscita dice cio' che le condizioni hanno detto.
+
+        Asseriva `esito == 1` -- «oggi la release non e' autorizzabile» -- ed e'
+        diventata rossa quando la 2.0.0 e' stata rilasciata. Cio' che vale in
+        entrambi i mondi e' il **legame**: uscita diversa da zero se e solo se
+        una condizione ha prodotto motivi, e ogni condizione insoddisfatta
+        nominata su `stderr`.
 
         `esegui` e' sostituito perche' lancerebbe `cargo` e i gate del
-        workspace: qui si prova la **composizione** delle condizioni, e la
-        loro esecuzione vera e' provata una per una qui sopra.
+        workspace: qui si prova la composizione, e l'esecuzione vera di ciascuna
+        condizione e' provata una per una qui sopra.
         """
         with mock.patch.object(gate, "esegui", return_value=[]):
             with contextlib.redirect_stderr(io.StringIO()) as riportato:
                 esito = gate.main(["--release"])
-        self.assertEqual(esito, 1)
         motivi = riportato.getvalue()
-        for identita in sorted(gate.CONDIZIONI_OBBLIGATORIE - self.SODDISFATTE):
-            self.assertIn(identita, motivi)
+        insoddisfatte = {
+            identita
+            for identita in gate.CONDIZIONI_OBBLIGATORIE
+            if identita in motivi
+        }
+        self.assertEqual(
+            esito,
+            1 if insoddisfatte else 0,
+            f"uscita {esito} con {sorted(insoddisfatte)} insoddisfatte",
+        )
+
+    def test_ogni_condizione_insoddisfatta_e_nominata(self) -> None:
+        """Una condizione che rifiuta in silenzio non si distingue da una che passa."""
+        with mock.patch.object(gate, "esegui", return_value=[]):
+            with contextlib.redirect_stderr(io.StringIO()) as riportato:
+                gate.main(["--release"])
+        motivi = riportato.getvalue()
         for identita in sorted(self.SODDISFATTE):
             self.assertNotIn(
                 identita,
@@ -1229,9 +1275,17 @@ class SondeCongelamento(unittest.TestCase):
         motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
         self.assertTrue(motivi)
 
-    def test_la_condizione_corrente_non_e_soddisfatta(self) -> None:
-        """La candidate pendente e' 1.0.1 e il workspace e' 2.0.0."""
-        self.assertTrue(gate.condizione_candidate_coerente(self.registro()))
+    def test_la_condizione_e_eseguibile_sul_registro_corrente(self) -> None:
+        """Cio' che vale in ogni giorno: la condizione gira e risponde.
+
+        Diceva «la candidate pendente e' 1.0.1 e il workspace e' 2.0.0», poi
+        quel divario si e' chiuso; e' rimasta come asserzione che la condizione
+        **non** fosse soddisfatta, e con il rilascio della 2.0.0 e' caduta anche
+        quella. I casi che deve rifiutare si costruiscono in
+        `SondeDelGateDiRilascioSuFixture`; qui resta l'unica cosa che non
+        dipende dal giorno.
+        """
+        self.assertIsInstance(gate.condizione_candidate_coerente(self.registro()), list)
 
     # --- il campo che non si scrive ------------------------------------------
 
@@ -1663,22 +1717,43 @@ class SondeFontiLegate(unittest.TestCase):
     def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
         """`release_blocking: false` accanto a un invariante che blocca.
 
-        Era su `loss_report`, ratificato; e' passata al debito di copertura
-        negativa; e' arrivata sulla candidate di release quando quello e'
-        andato a zero, e' tornata indietro quando quella chiusura e' stata
-        ritirata, ed e' di nuovo qui ora che il debito ha chiuso per la via
-        giusta. Il viavai non e' rumore: e' una sonda che si appoggia a un
-        fatto vero invece che a un caso inventato, e i fatti veri si muovono.
+        Ha girato per mesi appoggiandosi ogni volta a un bloccante vero --
+        `loss_report`, il debito di copertura negativa, la candidate di release
+        -- e a ogni chiusura andava ripuntata. La sua vecchia prosa lo diceva:
+        «quando chiudera' anche la candidate, tornera' rossa e andra'
+        ripuntata». Il rilascio della 2.0.0 ha chiuso l'ultimo, e non ce n'e'
+        piu' nessuno a cui puntare.
 
-        Quando chiudera' anche la candidate, tornera' rossa e andra' ripuntata.
-        E' il prezzo giusto: un invariante finto direbbe che il gate funziona
-        su qualcosa che nel registro non esiste.
+        Il caso ora si **costruisce**: si prende un invariante del registro, lo
+        si porta a `release_blocking` e si nega il blocco nello stato. Cosi' la
+        sonda vale anche quando il registro non ha bloccanti -- che, dopo un
+        rilascio riuscito, e' la condizione normale.
         """
+        percorso, bersaglio = next(iter(gate.BLOCCANTI_DELLO_STATO.items()))
+        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        for invariante in registro["invarianti"]:
+            if invariante["id"] == bersaglio:
+                invariante["stato"] = "release_blocking"
+
         stato = self.stato()
-        stato["aperto"]["candidate_release"]["release_blocking"] = False
-        errori = gate.validate_stato_corrente(stato)
+        dentro = stato
+        for chiave in percorso[:-1]:
+            dentro = dentro[chiave]
+        dentro[percorso[-1]] = False
+
+        # La directory sta **dentro** il repository: il gate calcola il
+        # percorso del registro relativo alla radice per nominarlo negli
+        # errori, e un file fuori da li' non ha un percorso relativo. E'
+        # temporanea e sparisce con il `with`.
+        with tempfile.TemporaryDirectory(dir=gate.ROOT) as lavoro:
+            finto = pathlib.Path(lavoro) / "registro.json"
+            finto.write_text(json.dumps(registro), encoding="utf-8")
+            with mock.patch.object(gate, "REGISTRO", finto):
+                errori = gate.validate_stato_corrente(stato)
+
         self.assertTrue(
-            any("release.candidate-non-valida-per-head" in e for e in errori), errori
+            any(bersaglio in e for e in errori),
+            f"un bloccante che lo stato nega deve essere nominato: {errori}",
         )
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
@@ -3370,11 +3445,21 @@ class SondeDelGateDiRilascioSuFixture(unittest.TestCase):
         motivi = self.motivi(self.candidate(artefatti=gemelli))
         self.assertTrue(any("digest ripetuto" in motivo for motivo in motivi), motivi)
 
-    def test_nessun_tag_e_stato_creato_dalle_sonde(self) -> None:
-        """La controprova dell'isolamento.
+    def test_le_sonde_non_creano_tag(self) -> None:
+        """La controprova dell'isolamento: l'elenco dei tag non cambia.
 
-        Le fixture nominano `v2.0.0`, e nessuna di esse deve averlo creato: un
-        tag nato per far passare una prova resterebbe nel repository, e da li'
-        potrebbe far passare anche altro.
+        Verificava che `v2.0.0` **non esistesse**, e per un giorno e' stata la
+        stessa cosa. Poi la 2.0.0 e' stata rilasciata e il tag e' comparso per
+        una ragione legittima: la sonda diceva «le fixture non creano tag» e
+        misurava «non e' stata rilasciata nessuna versione».
+
+        Cio' che va verificato e' che l'insieme dei tag sia lo stesso prima e
+        dopo: un tag nato per far passare una prova resterebbe nel repository, e
+        da li' potrebbe far passare anche altro.
         """
-        self.assertIsNone(gate.revisione_risolta(f"v{self.VERSIONE}"))
+        prima = set(gate._git("tag", "--list").splitlines())
+        self.motivi(self.candidate())
+        self.motivi(self.candidate(), tag=None)
+        self.motivi(self.candidate(), tag="altrove")
+        dopo = set(gate._git("tag", "--list").splitlines())
+        self.assertEqual(dopo, prima, "le fixture hanno toccato i tag")
