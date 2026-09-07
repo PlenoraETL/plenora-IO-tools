@@ -97,7 +97,8 @@
       "serde_json 1.0.151",
       "tempfile 3.27.0",
       "wkt 0.14.0",
-      "rustix 1.1.4"
+      "rustix 1.1.4",
+      "base64 0.23.1 (allineato a database_tools il 2026-09-07)"
     ],
     "divergenti": [
       {
@@ -107,12 +108,6 @@
         "database_tools": "59.2.0",
         "ultima_stabile": "59.3.0",
         "perche_conta": "e' la famiglia del **confine**: i tre componenti si scambiano Arrow IPC, e sono gli unici crate che tutti e tre dichiarano. Dal 2026-09-07 IO-tools e' sull'ultima stabile, e la divergenza si e' **invertita**: non e' piu' IO-tools a essere indietro di due minor, sono gli altri due a esserlo di uno. Da proporre la 59.3.0 come bersaglio comune; finche' restano sulla 59.2.0 la divergenza resta e va letta cosi', non cancellata."
-      },
-      {
-        "famiglia": "base64",
-        "io_tools": "0.22.1",
-        "database_tools": "0.23.1",
-        "perche_conta": "interno a ciascun componente; non attraversa il confine"
       },
       {
         "famiglia": "ctrlc",
@@ -399,11 +394,11 @@
       },
       {
         "crate": "base64",
-        "in_uso": "0.22.1",
+        "in_uso": "0.23.1",
         "ultima_stabile": "0.23.1",
-        "passo": "1 minor (0.x)",
+        "passo": "allineato",
         "barriera": true,
-        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'. Dal 2026-09-07 `parquet 59.3.0` porta comunque la 0.23.1 nel grafo accanto alla nostra 0.22.1: alzare il nostro pin toglie una duplicazione **e** allinea a `plenora-database-tools`, che e' gia' sulla 0.23.1. E' il primo gruppo indipendente.",
+        "perche": "alzato il 2026-09-07 come gruppo a se'; vedi `gruppo_base64_0_23_1`",
         "forkato": false
       },
       {
@@ -1049,5 +1044,25 @@
       "dove_e_gia_registrata": "invariante `sistema.qualifica-cross-component` del contratto di release, stato `differita`, prova esterna con owner `plenora-contracts/conformance` e artefatto `release/system-rc-gate.json` in `not_run`. Questa voce non ne crea una seconda: la nomina perche' l'aggiornamento di Arrow le ha aggiunto una ragione concreta e recente.",
       "come_si_chiude": "l'owner esterno consegna harness e fixture, la corsa produce evidenza, e l'artefatto passa a `passed`. Fino ad allora la catena non e' qualificata in nessuna direzione."
     }
+  },
+  "gruppo_base64_0_23_1": {
+    "nota": "primo dei gruppi indipendenti, eseguito il 2026-09-07. Un pin solo, `=0.22.1` -> `=0.23.1`. Nessun altro gruppo toccato.",
+    "perche": "l'aggiornamento Arrow aveva introdotto una duplicazione: `parquet 59.3.0` porta `base64 0.23.1`, e accanto restava la 0.22.1 che `driver-geoparquet` dichiara. Il pin nuovo non insegue l'ultima versione: e' esattamente quella che parquet porta gia', ed e' quella su cui sta `plenora-database-tools`. Chiude una duplicazione e una divergenza fra componenti con la stessa riga.",
+    "adattamento_api": "**nessuno**. `base64::engine::general_purpose::STANDARD` e' definito identico nelle due versioni -- `GeneralPurpose::new(&alphabet::STANDARD, PAD)` con `decode_padding_mode: RequireCanonical` -- e il tratto `Engine` conserva `decode`. Le aggiunte della 0.23.1 sono additive: un motore SIMD (`Simd`, `Avx2`, `Neon`), `Scalar`, `STANDARD_PAD_INDIFFERENT`. Il codice del prodotto non e' stato toccato e clippy passa con `-D warnings`.",
+    "conservazione_del_comportamento": {
+      "metodo": "non la lettura del changelog: due progetti minimi fuori dal workspace, uno per versione, sugli stessi ventun ingressi. Il decoder e' riscritto -- 2062 righe cambiate, un motore SIMD nuovo -- e leggere che `STANDARD` e' definito uguale non dice che decida uguale.",
+      "casi": "vuoto; validi con e senza padding; uno, due e tre caratteri; padding mancante, eccessivo, in mezzo e da solo; bit di coda non nulli in tre forme; carattere fuori alfabeto; spazio, a capo e NUL interni; alfabeto URL-safe; UTF-8 non ASCII; una stringa lunga.",
+      "esito": "**la decisione e' identica su tutti e ventuno**. Quel che decodificava decodifica agli stessi byte -- confrontati con una somma stabile, non solo per lunghezza -- e quel che era rifiutato resta rifiutato, con lo stesso motivo.",
+      "cosa_cambia": "due **testi** d'errore della libreria: «Invalid last symbol 66, offset 5.» diventa «Invalid last symbol 0x42 ('B') at offset 5, decoded as 0b00000001.»",
+      "perche_quel_testo_conta": "il messaggio nuovo include il carattere che ha fatto fallire il decode, cioe' contenuto **derivato dal file**. Da noi non esce -- il `map_err` lo scarta e mette il messaggio curato «ARROW:schema non decodificabile da base64» -- ma se qualcuno un giorno propagasse l'errore della libreria invece di scartarlo, un messaggio che dichiara di non portare payload ne porterebbe. La regressione nuova lo verifica esplicitamente, non solo di riflesso."
+    },
+    "regressioni_aggiunte": [
+      "`un_arrow_schema_non_decodificabile_e_rifiutato`: il ramo del rifiuto non aveva **nessun** test -- era coperto solo dal fatto che i file che scriviamo noi hanno sempre un `ARROW:schema` valido. Il file di prova porta due voci `ARROW:schema`, la valida che `ArrowWriter` scrive da se' e una indecifrabile aggiunta dopo, verificato leggendo il footer: prova anche che il ciclo guarda ogni voce e non si ferma alla prima buona. Asserisce il messaggio curato, l'assenza di panico, e che nessun frammento del testo della libreria esca.",
+      "`l_arrow_schema_scritto_da_arrow_si_decodifica`: la controprova positiva. Senza, una verifica che rifiutasse ogni `ARROW:schema` passerebbe l'altro test e romperebbe ogni Parquet scritto da arrow."
+    ],
+    "prova_sul_grafo": "`base64` compare in **una sola** versione, 0.23.1, su tutte e tre le piattaforme, e non e' piu' nell'elenco dei duplicati. La verifica e' su `cargo tree`, non sul lockfile: il lock dice quali versioni esistono, non quali si compilano. Restano otto nomi in piu' versioni -- `getrandom`, `hashbrown`, `num-bigint`, `num-traits`, `syn`, `thiserror`, `thiserror-impl`, `zip` -- piu' `libc`, che non e' una duplicazione ma la stessa versione vista da due tipi di arco.",
+    "misure_rifatte": "le cinque invalidate da `Cargo.lock`: quattro profondita' (35/35, 9/9, 9/9, 12/12, numeri invariati) e la corsa ASan. Questa volta i contatori di copertura **non** cambiano -- restano 179433 -- perche' `base64 0.23.1` non cambia quanto del **nostro** codice viene strumentato: cambia solo l'impronta del perimetro. `current-state.json` percio' non va toccato, a differenza dell'aggiornamento Arrow. Replay su cinque bersagli, nessun crash.",
+    "i_due_lockfile": "allineati: dopo la rigenerazione i due lock coincidono su ogni nome condiviso.",
+    "non_toccato": "KML, `rust_xlsxwriter` e gli altri gruppi. Nessun tag e nessun artefatto della 2.0.0."
   }
 }

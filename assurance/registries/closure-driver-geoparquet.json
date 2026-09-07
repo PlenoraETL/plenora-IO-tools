@@ -435,7 +435,7 @@
     },
     {
       "crate": "base64",
-      "versione": "0.22.1 e 0.23.1",
+      "versione": "0.23.1",
       "licenza": "MIT OR Apache-2.0"
     },
     {
@@ -1245,6 +1245,11 @@
     "closure_dopo": 177,
     "uscite": "`paste`: era una dipendenza build-time di `parquet 59.1.0` e nessuno la tira piu'. Con lei si chiude l'eccezione RUSTSEC-2024-0436, la cui condizione di chiusura registrata era esattamente questo aggiornamento.",
     "entrate": "nessun nome nuovo, e percio' nessuna licenza nuova da guardare.",
-    "in_due_versioni": "`base64` e `num-bigint` sono ora nella closure in **due** versioni. Il gate confronta i nomi e non se ne accorge; il censimento dice le versioni e deve dirle entrambe. `base64` 0.22.1 la dichiara `driver-geoparquet` stesso, la 0.23.1 la porta `parquet`; `num-bigint` 0.4.8 arriva da `fraction` sotto `jsonschema`, la 0.5.1 da `arrow-buffer`. Misurato con `cargo tree -i`, non dedotto dal lock: il lock non dice chi raggiunge che cosa."
+    "in_due_versioni": "`num-bigint` e' nella closure in **due** versioni: la 0.4.8 da `fraction` sotto `jsonschema`, la 0.5.1 da `arrow-buffer`. Il gate confronta i nomi e non se ne accorge; il censimento dice le versioni e deve dirle entrambe. `base64` lo era anch'esso fino al 2026-09-07, quando il nostro pin e' salito alla 0.23.1 -- la stessa che porta `parquet` -- e la duplicazione si e' chiusa: vedi `variazione_base64_0_23_1`. Misurato con `cargo tree -i`, non dedotto dal lock: il lock dice quali versioni esistono, non chi le raggiunge."
+  },
+  "variazione_base64_0_23_1": {
+    "ragione": "il pin `base64` da `=0.22.1` a `=0.23.1`, il 2026-09-07, come gruppo a se'.",
+    "effetto": "la duplicazione introdotta dall'aggiornamento Arrow si chiude: `base64` torna a una versione sola nel grafo, su tutte e tre le piattaforme. La closure resta di 177 crate e nessun nome cambia.",
+    "perche_proprio_la_0_23_1": "non per inseguire l'ultima: e' la versione che `parquet 59.3.0` porta comunque nel grafo, ed e' quella su cui `plenora-database-tools` gia' sta. Alzarla toglie una duplicazione **e** una divergenza fra componenti."
   }
 }

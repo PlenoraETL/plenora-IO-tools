@@ -39,7 +39,7 @@ serde_json = "=1.0.151"
 # fissati in `assurance/schemi/`. Uno schema che si scarica quando serve
 # non e' fissato: e' sperato.
 jsonschema = { version = "=0.51.0", default-features = false }
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 tempfile = "=3.27.0"
 # L'unico modo di collegare Ctrl+C al `CancellationToken` senza `unsafe`, che
 # il workspace **vieta** (`unsafe_code = "forbid"`, non `deny`: nemmeno un

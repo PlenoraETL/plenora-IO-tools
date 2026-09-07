@@ -3385,6 +3385,118 @@ mod tests {
         assert!(contratto.schema.index_of("geometry").is_ok());
     }
 
+    /// Un `ARROW:schema` non decodificabile da base64 e' rifiutato, con il
+    /// messaggio curato e senza panico.
+    ///
+    /// # Perche' esiste
+    ///
+    /// `valida_schema_arrow_incorporato` decodifica il valore di `ARROW:schema`
+    /// dal footer Parquet con `base64::…::STANDARD.decode`, e da quel byte in
+    /// poi lo passa alla prevalidazione Arrow. Il ramo del **rifiuto** non
+    /// aveva nessun test: era coperto solo di riflesso, dal fatto che i file
+    /// che scriviamo noi hanno sempre un `ARROW:schema` valido.
+    ///
+    /// Lo si e' scoperto alzando `base64` da 0.22.1 a 0.23.1, il 2026-09-07.
+    /// Il decoder e' riscritto -- 2062 righe, un motore SIMD nuovo -- e la
+    /// domanda «gli stessi ingressi danno gli stessi esiti?» non aveva un test
+    /// nel prodotto a cui rispondere. Le due versioni, misurate fuori dal
+    /// workspace su ventun casi limite, **decidono** allo stesso modo: quel che
+    /// decodificava decodifica agli stessi byte, quel che era rifiutato resta
+    /// rifiutato. A cambiare sono due **testi** d'errore della libreria, e qui
+    /// non escono: il `map_err` li scarta e mette il messaggio curato.
+    ///
+    /// Che li scarti conta piu' di prima. Il testo nuovo di `base64` include il
+    /// carattere che ha fatto fallire il decode -- «Invalid last symbol 0x42
+    /// ('B') at offset 5» -- cioe' contenuto **derivato dal file**. Se qualcuno
+    /// un giorno propagasse l'errore della libreria invece di scartarlo, un
+    /// messaggio che dichiara di non portare payload ne porterebbe.
+    ///
+    /// Il file di prova porta **due** voci `ARROW:schema`: quella valida che
+    /// `ArrowWriter` scrive da se', e una seconda indecifrabile aggiunta dopo.
+    /// Cosi' il test prova anche che il ciclo guarda ogni voce e non si ferma
+    /// alla prima buona.
+    #[test]
+    fn un_arrow_schema_non_decodificabile_e_rifiutato() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("arrow_schema_rotto.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+                Arc::new(Int64Array::from(vec![1_i64])),
+            ],
+        )
+        .unwrap();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        // Non e' base64: `*` e lo spazio sono fuori dall'alfabeto, e la
+        // lunghezza non e' multipla di quattro.
+        writer.append_key_value_metadata(KeyValue::new(
+            "ARROW:schema".to_owned(),
+            "non e' base64 *".to_owned(),
+        ));
+        writer.close().unwrap();
+
+        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        let Err(errore) = esito else {
+            panic!("un ARROW:schema indecifrabile non deve aprirsi")
+        };
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        let testo = errore.to_string();
+        assert!(
+            testo.contains("ARROW:schema non decodificabile da base64"),
+            "il messaggio deve essere quello curato, e dice «{testo}»"
+        );
+        assert!(
+            !testo.contains("in panico"),
+            "il rifiuto deve precedere il panico, non seguirlo: {testo}"
+        );
+        // Il messaggio della libreria non esce: ne' l'offset, ne' il simbolo,
+        // ne' i bit decodificati che `base64 0.23.1` mette nel proprio testo.
+        for pezzo in ["Invalid", "offset", "symbol", "0x", "0b"] {
+            assert!(
+                !testo.contains(pezzo),
+                "«{pezzo}» viene dall'errore della libreria e non deve uscire: {testo}"
+            );
+        }
+    }
+
+    /// La controprova positiva: l'`ARROW:schema` che scriviamo noi si legge.
+    ///
+    /// Senza questa riga, una verifica che rifiutasse **ogni** `ARROW:schema`
+    /// passerebbe il test qui sopra e romperebbe ogni Parquet scritto da arrow
+    /// -- cioe' tutti, perche' `ArrowWriter` quella chiave la scrive sempre.
+    #[test]
+    fn l_arrow_schema_scritto_da_arrow_si_decodifica() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = parquet_con_geo(&dir, None);
+        let metadati = {
+            use parquet::file::reader::FileReader as _;
+            let file = File::open(&percorso).unwrap();
+            let lettore = parquet::file::reader::SerializedFileReader::new(file).unwrap();
+            lettore
+                .metadata()
+                .file_metadata()
+                .key_value_metadata()
+                .cloned()
+        };
+        let chiavi = metadati.expect("il footer porta metadati");
+        assert!(
+            chiavi.iter().any(|kv| kv.key == "ARROW:schema"),
+            "ArrowWriter deve avere scritto ARROW:schema: senza, il test qui \
+             sopra proverebbe il rifiuto di una chiave che nessuno mette"
+        );
+        GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("un ARROW:schema valido non deve essere rifiutato");
+    }
+
     #[test]
     fn un_file_storico_senza_opt_in_e_rifiutato() {
         // Il default e' il rifiuto, e deve restarlo: ogni GeoParquet che questo
