@@ -232,6 +232,14 @@
       "diceva": "l'assenza del nome di un'API upstream e' conclusiva",
       "e_invece": "dice solo che quel nome non c'e'. Upstream puo' esporre la stessa capacita' con un'altra firma -- un parametro in piu' su una funzione esistente, un metodo su un tipo diverso, una config option -- e il censimento non lo vedrebbe. I casi dichiarati «ancora necessari» vanno percio' riletti **semanticamente** prima di aprire una proposta: cercare la capacita', non il nome.",
       "conseguenza": "il campo `misura` di ciascuna modifica dice che cosa e' stato cercato. Nessuna di quelle misure e' stata rifatta con questo criterio: e' il primo passo di ogni proposta, non un risultato gia' acquisito."
+    },
+    "aggiornare_un_fork_non_e_eliminarlo": {
+      "diceva": "l'aggiornamento dei crate forkati e' l'ultimo passo, e dipende da una release upstream",
+      "e_invece": "sono due cose. **Aggiornare** un fork significa portare la copia in `vendor/` a una versione recente e riapplicarvi le sole modifiche ancora necessarie: non dipende da nessuno. **Eliminarlo** significa togliere la patch, e quello si' aspetta una release ufficiale che contenga la modifica accettata.\n\nLa distinzione conta perche' cambia l'ordine: i fork possono restare aggiornati e governati mentre le proposte upstream seguono il proprio corso, invece di irrigidirsi su versioni vecchie in attesa di terzi."
+    },
+    "arrow_v5_non_prova_il_confine": {
+      "diceva": "il default `MetadataVersion::V5` toglie la questione della compatibilita' IPC",
+      "e_invece": "toglie un motivo **presunto** di incompatibilita', e non prova il confine. Restano da verificare gli schemi, i tipi e i metadati che i tre componenti si scambiano davvero: un tipo logico nuovo, un metadato di campo, una convenzione sulle chiavi possono divergere con la stessa versione di formato."
     }
   },
   "toolchain": {
@@ -621,10 +629,16 @@
         "nota": "arrow/parquet, poi le patch, poi i 0.x uno per volta. Non aspettano le proposte upstream."
       },
       {
-        "ordine": 2,
+        "ordine": 1,
         "che_cosa": "aggiornamento dei crate forkati",
+        "dipende_da": "la toolchain, e il grafo completo per gdal",
+        "nota": "portare `vendor/gdal` a 0.19 e `vendor/shapefile` a 0.9 riapplicando le sole modifiche ancora necessarie -- per shapefile sono tre su quattro, perche' il `checked_mul` e' gia' a valle. `dxf` e' allineato e non ha salto da fare. Non aspetta le proposte upstream: le accompagna."
+      },
+      {
+        "ordine": 2,
+        "che_cosa": "eliminazione dei crate forkati",
         "dipende_da": "una release upstream che contenga la modifica accettata",
-        "nota": "l'unico passo che dipende da terzi, e per questo l'ultimo. I fork restano finche' quella release non esiste."
+        "nota": "l'unico passo che dipende da terzi. L'**aggiornamento** dei fork non e' qui: si porta `vendor/` a una versione recente riapplicando le sole modifiche ancora necessarie, e procede insieme agli altri assi."
       }
     ],
     "riesame": "le risposte upstream si riesaminano a una data fissata, non si attendono. L'accettazione di una correzione non garantisce quella delle successive -- il `checked_mul` accolto in shapefile non dice niente su `write_null_shape` -- e nessuna attesa deve bloccare gli altri assi."
