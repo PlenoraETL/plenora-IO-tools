@@ -533,6 +533,79 @@ mod tests {
             .expect("un IPC conforme non deve essere rifiutato");
     }
 
+    /// I metadati del footer con un campo assente sono rifiutati **prima** di
+    /// arrow, e i due campi si verificano separatamente.
+    ///
+    /// # Il difetto
+    ///
+    /// `arrow-ipc` legge i metadati del footer con `kv.key().unwrap()` e
+    /// `kv.value().unwrap()` (`reader.rs:1263-1264`). Nella grammatica
+    /// flatbuffer quei due campi sono **facoltativi**, e arrow stessa lo sa: in
+    /// `convert.rs` -- sui metadati di un campo e su quelli dello schema --
+    /// salta la voce incompleta invece di aprirla. Sono i soli due `unwrap` su
+    /// questi campi in tutto il crate, ed e' un'incoerenza interna ad arrow: la
+    /// stessa struttura, letta in modo sicuro in due punti e non nel terzo.
+    ///
+    /// Trovato dalla campagna fuzz del 2026-09-07 su `ipc_reader`, con un input
+    /// di 2764 byte che portava dieci voci vuote nel footer. I due semi qui
+    /// sotto sono costruiti invece che ridotti: partono da un file che arrow
+    /// scrive, e ne azzerano **uno** slot del vtable -- che e' il modo in cui
+    /// flatbuffer omette un campo, non una corruzione. Cosi' ciascuno prova un
+    /// campo solo, cosa che il caso originale, con entrambi assenti, non
+    /// distingue.
+    ///
+    /// # Perche' rifiutare, dato che c'e' `catch_unwind`
+    ///
+    /// Perche' il panico avviene comunque. La barriera lo converte in un
+    /// errore, ma sotto `libfuzzer-sys` un panico diventa `abort()` prima
+    /// dell'unwinding: il bersaglio resta rosso e va in quarantena. E' la stessa
+    /// ragione di FZ-0, e questa e' la voce che quella verifica non guardava.
+    #[test]
+    fn un_metadato_del_footer_senza_un_campo_e_rifiutato_prima_di_arrow() {
+        for (seme, atteso) in [
+            ("footer-senza-chiave.arrow", "senza chiave"),
+            ("footer-senza-valore.arrow", "senza valore"),
+        ] {
+            let percorso = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fuzz/seeds/ipc_reader")
+                .join(seme);
+            assert!(percorso.is_file(), "seme assente: {}", percorso.display());
+
+            let Err(errore) = IpcDriver.open(Source::Path(percorso), opzioni_lettura()) else {
+                panic!("{seme} doveva essere rifiutato")
+            };
+            assert!(
+                !errore.to_string().contains("in panico"),
+                "{seme}: il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+            );
+            assert!(
+                errore.to_string().contains(atteso),
+                "{seme}: l'errore deve dire quale campo manca, e dice «{errore}»"
+            );
+            assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        }
+    }
+
+    /// La controprova positiva: metadati **completi** nel footer si leggono.
+    ///
+    /// Senza questa riga, una verifica che rifiutasse ogni metadato passerebbe
+    /// il test sopra e romperebbe ogni file che ne porta uno -- e i file reali
+    /// ne portano: `arrow-rs` scrive `ARROW:schema` nel footer Parquet, e i
+    /// nostri stessi artefatti ne dichiarano.
+    ///
+    /// Il seme e' lo **stesso file** da cui i due ostili derivano, senza lo slot
+    /// azzerato: la differenza fra passare e non passare e' esattamente il campo
+    /// che manca, e nient'altro.
+    #[test]
+    fn un_footer_con_metadati_completi_supera_la_prevalidazione() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/footer-con-metadati-validi.arrow");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+        driver_common::prevalida_arrow::valida_file_ipc("arrow", &seme)
+            .expect("un footer con metadati completi non deve essere rifiutato");
+    }
+
     #[test]
     fn geometry_without_crs_metadata_is_explicitly_missing() {
         let dir = tempfile::tempdir().unwrap();

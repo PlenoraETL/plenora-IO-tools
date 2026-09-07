@@ -137,6 +137,67 @@ pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> 
     valida_schema(driver, schema)
 }
 
+/// I metadati del footer: `key` e `value` devono esserci entrambi.
+///
+/// # Perche' e' il footer e non lo schema
+///
+/// `KeyValue` ha due campi, e nella grammatica flatbuffer sono **entrambi
+/// facoltativi**: un file che ne omette uno e' strutturalmente valido, e a
+/// deciderne il significato e' chi legge. `arrow-ipc` decide due volte in modo
+/// diverso, nello stesso crate:
+///
+/// * `convert.rs:185`, sui metadati di un **campo** — `if let (Some(k),
+///   Some(v))`, e la voce incompleta si salta;
+/// * `convert.rs:216`, sui metadati dello **schema** — due `if let` annidati,
+///   stessa cosa;
+/// * `reader.rs:1263-1264`, sui metadati del **footer** — `kv.key().unwrap()`
+///   e `kv.value().unwrap()`.
+///
+/// Sono i soli due `unwrap` su questi campi in tutto il crate, ed e' la ragione
+/// per cui questa verifica riguarda il footer e nient'altro: sugli altri due
+/// percorsi arrow si difende da se', e duplicare li' il controllo rifiuterebbe
+/// file che arrow legge senza problemi.
+///
+/// # Che cosa rifiuta, e che cosa no
+///
+/// **Solo** una voce a cui manchi uno dei due campi. Una chiave vuota o un
+/// valore vuoto sono `Some("")`, non `None`: passano, perche' passano anche in
+/// arrow. Un footer senza metadati passa. Un footer con metadati completi
+/// passa. Il rifiuto e' esattamente largo quanto il difetto, e non un byte di
+/// piu': un controllo che scartasse ogni metadato chiuderebbe il panico
+/// rifiutando file che il formato ammette e che arrow legge.
+///
+/// # Perche' qui e non aspettando arrow
+///
+/// Perche' il panico avviene comunque. La barriera `catch_unwind` lo converte
+/// in un errore, ma un panico catturato resta un panico: sotto `libfuzzer-sys`
+/// diventa `abort()` prima dell'unwinding, e il bersaglio va in quarantena. E'
+/// la stessa ragione di FZ-0, e questa e' la voce che quella verifica non
+/// guardava.
+///
+/// Il difetto e' aperto anche in arrow-ipc 59.2.0 e 59.3.0: aggiornare non lo
+/// chiude, e questa verifica non e' una toppa in attesa di una versione nuova.
+fn valida_metadati_del_footer(driver: &'static str, footer: &arrow_ipc::Footer<'_>) -> Result<()> {
+    let Some(voci) = footer.custom_metadata() else {
+        return Ok(());
+    };
+    if voci.len() > MAX_CAMPI {
+        return Err(errore(
+            driver,
+            "troppi metadati dichiarati nel footer Arrow",
+        ));
+    }
+    for kv in voci {
+        if kv.key().is_none() {
+            return Err(errore(driver, "metadato del footer Arrow senza chiave"));
+        }
+        if kv.value().is_none() {
+            return Err(errore(driver, "metadato del footer Arrow senza valore"));
+        }
+    }
+    Ok(())
+}
+
 /// Verifica un file Arrow IPC: schema del footer e coerenza di ogni messaggio.
 ///
 /// Legge solo i metadati — footer e intestazioni dei messaggi — mai il corpo.
@@ -193,6 +254,7 @@ pub fn valida_file_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
         .schema()
         .ok_or_else(|| errore(driver, "footer Arrow senza schema"))?;
     valida_schema(driver, schema)?;
+    valida_metadati_del_footer(driver, &footer)?;
 
     for blocchi in [footer.dictionaries(), footer.recordBatches()] {
         let Some(blocchi) = blocchi else { continue };

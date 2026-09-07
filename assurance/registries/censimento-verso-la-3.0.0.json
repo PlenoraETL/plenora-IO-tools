@@ -686,5 +686,25 @@
       }
     ],
     "riesame": "le risposte upstream si riesaminano a una data fissata, non si attendono. L'accettazione di una correzione non garantisce quella delle successive -- il `checked_mul` accolto in shapefile non dice niente su `write_null_shape` -- e nessuna attesa deve bloccare gli altri assi."
+  },
+  "proposte_upstream_oltre_i_fork": {
+    "nota": "difetti trovati in dipendenze **non** forkate. Non richiedono un fork -- il prodotto si difende prevalidando -- ma vanno segnalati, e la loro chiusura upstream toglie una difesa che oggi manteniamo noi.",
+    "arrow-rs": [
+      {
+        "difetto": "`arrow-ipc` fa `unwrap` sui metadati del footer",
+        "dove": "src/reader.rs:1263-1264, `kv.key().unwrap()` e `kv.value().unwrap()`",
+        "perche_e_un_difetto": "nella grammatica flatbuffer di Arrow i due campi di `KeyValue` sono facoltativi, e arrow stessa lo sa: `convert.rs:185` e `convert.rs:216` saltano la voce incompleta invece di aprirla. Sono i soli due `unwrap` su questi campi in tutto il crate: e' un'incoerenza interna, non una scelta.",
+        "trovato_da": "la campagna fuzz della CI su `ipc_reader`, il 2026-09-07",
+        "presente_in": [
+          "59.1.0 (in uso)",
+          "59.2.0",
+          "59.3.0 (ultima stabile)"
+        ],
+        "conseguenza_per_l_aggiornamento": "aggiornare arrow **non** chiude questo difetto. La prevalidazione che lo aggira resta necessaria fino a una versione che lo corregga, e non e' una toppa temporanea.",
+        "correzione_da_proporre": "allineare `reader.rs` a `convert.rs`: saltare la voce a cui manchi un campo invece di aprirla. E' la stessa struttura letta in modo sicuro due volte su tre nello stesso crate.",
+        "difeso_da_noi": "driver_common::prevalida_arrow::valida_metadati_del_footer",
+        "registrato_in": "fuzz-findings/2026-09-07-ipc-reader-footer-metadata-arrow/"
+      }
+    ]
   }
 }
