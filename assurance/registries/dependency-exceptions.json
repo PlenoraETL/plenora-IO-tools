@@ -10,15 +10,6 @@
       "esposizione": "nessun codice del componente distribuibile lo collega",
       "chiusura": "rimuovere l'eccezione appena l'ecosistema geo-types/rstar non lo include piu' nella risoluzione del lockfile",
       "trigger_di_riesame": "modifica a feature o dipendenze geospaziali"
-    },
-    {
-      "id": "RUSTSEC-2024-0436",
-      "crate": "paste",
-      "accettata_dal": "2026-07-27",
-      "motivo": "dipendenza build-time di parquet 59.1.0, versione Arrow condivisa e fissata dal contratto ABI del workspace",
-      "esposizione": "macro procedurale eseguita in compilazione; l'advisory segnala progetto non mantenuto, non una vulnerabilita' nota",
-      "chiusura": "aggiornare l'intero pin Arrow/Parquet alla prima release compatibile che rimuove paste, dopo test di interoperabilita' con plenora-data-tools",
-      "trigger_di_riesame": "nuova release Arrow/Parquet o modifica del pin condiviso"
     }
   ],
   "risolte_senza_eccezione": [
@@ -29,6 +20,15 @@
       ],
       "chiuse_il": "2026-07-27",
       "come": "aggiornamento di kml, calamine e quick-xml perche' l'intero grafo attivo usi quick-xml 0.41.0"
+    },
+    {
+      "id": [
+        "RUSTSEC-2024-0436"
+      ],
+      "crate": "paste",
+      "chiuse_il": "2026-09-07",
+      "come": "aggiornamento della famiglia Arrow e di `parquet` da 59.1.0 a 59.3.0, in un gruppo unico. `paste` era una dipendenza build-time di `parquet 59.1.0` e la 59.3.0 non la tira piu': esce dal grafo e dalla closure di `driver-geoparquet`.",
+      "nota": "era esattamente la condizione di chiusura registrata quando l'eccezione fu accettata il 2026-07-27 -- «aggiornare l'intero pin Arrow/Parquet alla prima release compatibile che rimuove paste» -- e l'aggiornamento l'ha soddisfatta senza che fosse il suo scopo. La condizione chiedeva anche i test di interoperabilita' con `plenora-data-tools`: quel confronto resta da fare, ed e' registrato in `censimento-verso-la-3.0.0.json` sotto `vincoli_condivisi.divergenti`, perche' i due componenti sono ora su versioni diverse di Arrow -- noi 59.3.0, loro 59.2.0."
     }
   ]
 }

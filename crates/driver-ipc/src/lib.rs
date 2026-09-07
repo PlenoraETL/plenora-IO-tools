@@ -611,6 +611,8 @@ mod tests {
     /// modifica riguarda.
     #[test]
     fn una_colonna_a_dizionario_si_rilegge_con_i_valori_giusti() {
+        use arrow_array::Array as _;
+
         let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fuzz/seeds/ipc_reader/dizionario-int8.arrow");
         assert!(seme.is_file(), "seme assente: {}", seme.display());
@@ -648,13 +650,16 @@ mod tests {
             .downcast_ref::<arrow_array::StringArray>()
             .expect("i valori del dizionario sono stringhe");
 
-        use arrow_array::Array as _;
         let letti: Vec<Option<&str>> = (0..dizionario.len())
             .map(|i| {
                 if dizionario.is_null(i) {
                     None
                 } else {
-                    Some(valori.value(dizionario.keys().value(i) as usize))
+                    // Le chiavi sono `Int8`: l'indice non puo' essere negativo,
+                    // e se lo fosse il file sarebbe corrotto e il test deve dirlo.
+                    let chiave = usize::try_from(dizionario.keys().value(i))
+                        .expect("un indice del dizionario non puo' essere negativo");
+                    Some(valori.value(chiave))
                 }
             })
             .collect();

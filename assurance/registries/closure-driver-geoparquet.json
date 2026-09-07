@@ -3,7 +3,7 @@
   "descrizione": "La closure di `driver-geoparquet`: ogni crate che quel driver raggiunge, con la versione fissata e la licenza dichiarata. E' un **censimento**, non un'istantanea: il gate lo ricalcola dal `Cargo.lock` e pretende che coincida, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
   "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa: un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. Cio' che conta e' che cosa **questo** driver puo' eseguire.",
   "radice": "driver-geoparquet",
-  "crate_totali": 178,
+  "crate_totali": 177,
   "licenze": {
     "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
     "0BSD OR MIT OR Apache-2.0": 1,
@@ -395,32 +395,32 @@
     },
     {
       "crate": "arrow-array",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0 AND MIT"
     },
     {
       "crate": "arrow-buffer",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
     },
     {
       "crate": "arrow-data",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
     },
     {
       "crate": "arrow-ipc",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
     },
     {
       "crate": "arrow-schema",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
     },
     {
       "crate": "arrow-select",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
     },
     {
@@ -435,7 +435,7 @@
     },
     {
       "crate": "base64",
-      "versione": "0.22.1",
+      "versione": "0.22.1 e 0.23.1",
       "licenza": "MIT OR Apache-2.0"
     },
     {
@@ -775,7 +775,7 @@
     },
     {
       "crate": "lz4_flex",
-      "versione": "0.13.1",
+      "versione": "0.14.0",
       "licenza": "MIT"
     },
     {
@@ -800,7 +800,7 @@
     },
     {
       "crate": "num-bigint",
-      "versione": "0.4.8",
+      "versione": "0.4.8 e 0.5.1",
       "licenza": "MIT OR Apache-2.0"
     },
     {
@@ -855,13 +855,8 @@
     },
     {
       "crate": "parquet",
-      "versione": "59.1.0",
+      "versione": "59.3.0",
       "licenza": "Apache-2.0"
-    },
-    {
-      "crate": "paste",
-      "versione": "1.0.15",
-      "licenza": "MIT OR Apache-2.0"
     },
     {
       "crate": "percent-encoding",
@@ -1243,5 +1238,13 @@
       "versione": "2.0.16+zstd.1.5.7",
       "licenza": "MIT/Apache-2.0"
     }
-  ]
+  ],
+  "variazione_arrow_59_3_0": {
+    "ragione": "l'aggiornamento della famiglia Arrow e di `parquet` alla 59.3.0, il 2026-09-07, in un gruppo solo.",
+    "closure_prima": 178,
+    "closure_dopo": 177,
+    "uscite": "`paste`: era una dipendenza build-time di `parquet 59.1.0` e nessuno la tira piu'. Con lei si chiude l'eccezione RUSTSEC-2024-0436, la cui condizione di chiusura registrata era esattamente questo aggiornamento.",
+    "entrate": "nessun nome nuovo, e percio' nessuna licenza nuova da guardare.",
+    "in_due_versioni": "`base64` e `num-bigint` sono ora nella closure in **due** versioni. Il gate confronta i nomi e non se ne accorge; il censimento dice le versioni e deve dirle entrambe. `base64` 0.22.1 la dichiara `driver-geoparquet` stesso, la 0.23.1 la porta `parquet`; `num-bigint` 0.4.8 arriva da `fraction` sotto `jsonschema`, la 0.5.1 da `arrow-buffer`. Misurato con `cargo tree -i`, non dedotto dal lock: il lock non dice chi raggiunge che cosa."
+  }
 }
