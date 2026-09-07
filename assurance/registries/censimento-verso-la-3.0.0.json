@@ -918,5 +918,64 @@
       "punto 4 (contributi upstream): due delle sette duplicazioni -- `num-traits` via `enum_primitive`, e meta' di `thiserror` -- sono dentro i nostri fork `dxf` e `gdal`. Si chiudono aggiornando i fork, senza attendere nessuno.",
       "aggiornamenti indipendenti: `kml` e `rust_xlsxwriter` sono i due che portano il secondo `zip`. Sono il gruppo piu' isolato del piano, e il primo da cui partire."
     ]
+  },
+  "preparazione_arrow_59_3_0": {
+    "nota": "punto 2 del piano: la ricognizione che precede l'aggiornamento. Misurata il 2026-09-07 sui sorgenti pubblicati delle due versioni. **Nessuna dipendenza aggiornata**: `Cargo.lock` e' fermo alla 59.1.0.",
+    "obiettivo": "portare la famiglia Arrow e `parquet` da `=59.1.0` a `=59.3.0`, in un gruppo solo. E' il bersaglio comune ai tre componenti: `plenora-data-tools` e `plenora-database-tools` sono sulla 59.2.0, IO-tools e' l'unico rimasto sulla 59.1.0, e la 59.3.0 e' l'ultima stabile. Aggiornare all'altrui 59.2.0 allineerebbe oggi e disallineerebbe domani.",
+    "crate_del_gruppo": [
+      "arrow-array =59.1.0",
+      "arrow-schema =59.1.0",
+      "arrow-ipc =59.1.0",
+      "arrow-select =59.1.0",
+      "arrow-buffer =59.1.0",
+      "parquet =59.1.0 (default-features = false)"
+    ],
+    "che_cosa_cambia": {
+      "misura": "diff dei sorgenti pubblicati, `src/` contro `src/`: arrow-ipc 710 righe in 3 file, arrow-array 370 in 12, arrow-select 833 in 7, arrow-data 456 in 2, arrow-buffer 172 in 1, arrow-schema 104 in 3, parquet 1941 in 24.",
+      "rilievi": [
+        {
+          "id": "arrow.schema-invariato",
+          "misura": "`arrow-schema` non ha nessun cambiamento di codice fra le due versioni: le 104 righe sono commenti e test. E' il crate da cui viene la meta' dei simboli che leghiamo -- `DataType`, `Field`, `Schema`, `SchemaRef`, `TimeUnit`.",
+          "conseguenza": "la superficie che usiamo di piu' non si muove."
+        },
+        {
+          "id": "arrow.dizionari",
+          "misura": "in `arrow-ipc/src/reader.rs` cambiano le attese dei test sui dizionari: `Int8Array::from_iter_values([0, 0, 2, 1, 1, 3])` diventa `[0, 0, 2, 2, 2, 3]`, e un campo dichiarato nullable con il commento «It is technically not legal for this field to be null» diventa `false`.",
+          "conseguenza": "e' una correzione di **comportamento** sulla lettura dei dizionari, non un ritocco. Va coperta dal replay del corpus IPC e dalle regressioni di `driver-ipc`, non data per scontata."
+        },
+        {
+          "id": "arrow.padding-del-writer",
+          "misura": "`arrow-ipc/src/writer.rs` estrae il calcolo del riempimento in una struttura `MetadataLayout`. La formula e' la stessa -- `(metadata_len + prefix_size + alignment_mask) & !alignment_mask` -- ma il percorso di scrittura e' riscritto attorno a un tratto `IpcMessageSink` nuovo.",
+          "conseguenza": "i **byte** dei file IPC che scriviamo potrebbero cambiare anche a formula invariata. Da verificare confrontando l'uscita del prodotto prima e dopo, non leggendo il diff."
+        },
+        {
+          "id": "arrow.disallineamento-non-e-nuovo",
+          "misura": "la 59.3.0 aggiunge `test_misaligned_buffers_error` a `reader.rs`, e a prima vista sembra un rifiuto nuovo. Non lo e': il messaggio «Misaligned buffers» c'e' gia' in `arrow-data 59.1.0/src/data.rs`, e `require_alignment` compare 26 volte nel reader della 59.1.0 contro 28 nella 59.3.0.",
+          "conseguenza": "**non** e' un cambiamento di comportamento, e non va registrato come tale. Il sospetto era ragionevole e la misura lo smentisce."
+        },
+        {
+          "id": "parquet.selection-diventa-modulo",
+          "misura": "`parquet/src/arrow/arrow_reader/selection.rs` diventa la cartella `selection/` con sei file. Cambia il percorso dei simboli che vi stanno dentro.",
+          "conseguenza": "nessun impatto: il prodotto non nomina `selection`. Di `parquet` usiamo `file::metadata`, `file::properties`, `file::reader`, `file::statistics`, `column::page`, `basic` e `schema::types`."
+        },
+        {
+          "id": "arrow.msrv-ferma",
+          "misura": "`arrow-ipc` e `parquet` dichiarano `rust-version = \"1.85\"` ed edizione 2024 in **entrambe** le versioni.",
+          "conseguenza": "l'aggiornamento non tocca la MSRV, ne' il pavimento del grafo (1.88, imposto altrove). L'asse toolchain resta chiuso."
+        }
+      ]
+    },
+    "la_protezione_da_portare_attraverso": "`driver_common::prevalida_arrow::valida_metadati_del_footer` resta. L'`unwrap` sui metadati del footer e' ancora nella 59.3.0, a `reader.rs:1264` invece che a `1263`: l'aggiornamento **non** chiude il finding del 2026-09-07. La verifica va portata attraverso l'aggiornamento senza toglierla, e le due regressioni di `driver-ipc` devono restare verdi contro la versione nuova. Vedi `proposte_upstream_oltre_i_fork.arrow-rs`.",
+    "criteri_di_accettazione": [
+      "le due regressioni sui metadati del footer restano verdi, e la controprova positiva pure",
+      "il replay del corpus IPC non trova crash nuovi",
+      "i file IPC scritti dal prodotto si confrontano byte a byte con quelli scritti prima -- e se cambiano, la differenza si spiega prima di accettarla",
+      "GeoParquet: lettura e riscrittura di un artefatto reale, non di un file costruito",
+      "clippy pulito con i lint di sicurezza gia' in uso, senza nuove eccezioni",
+      "L1 verde, poi CI verde"
+    ],
+    "costo_da_mettere_in_conto": "toccare `Cargo.lock` invalida **cinque** misure insieme: le quattro profondita' di fuzzing (`shapefile`, `geojson`, `wkt`, `filegdb`) e la corsa ASan di FileGDB, che porta la stessa impronta del perimetro FileGDB. Se la corsa ASan cambia `contatori_di_copertura`, il valore va riallineato anche in `assurance/current-state.json`, campo `chiuso.fuzz_filegdb`. Le rimisure vanno fatte **dopo** ogni modifica al codice, non durante.",
+    "il_secondo_lockfile": "`fuzz/Cargo.lock` e' una risoluzione separata e va aggiornato insieme, o il fuzzing misurerebbe una versione di Arrow e il prodotto ne spedirebbe un'altra. Oggi i due alberi coincidono versione per versione -- vedi `grafo_transitivo.workspace_di_fuzzing` -- e questo aggiornamento e' la prima occasione in cui potrebbero separarsi.",
+    "coordinamento": "da proporre agli altri due componenti la 59.3.0 come bersaglio comune, non la 59.2.0 su cui stanno oggi. Se restano sulla 59.2.0, la divergenza resta -- di un minor invece che di due -- e va registrata come tale in `vincoli_condivisi.divergenti`, non cancellata."
   }
 }
