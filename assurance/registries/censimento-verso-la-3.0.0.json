@@ -475,7 +475,7 @@
         "passo": "allineato",
         "barriera": false,
         "forkato": false,
-        "perche": "gia' sull'ultima stabile: non esiste una versione successiva alla 0.14.0. Trattiene `zip 2.x` e `quick-xml 0.41.0` esatta; si chiude solo upstream."
+        "perche": "gia' sull'ultima stabile: non esiste una versione successiva alla 0.14.0. Dal 2026-09-08 lo prendiamo con `default-features = false`, che toglie dal grafo il suo `zip` opzionale e la catena `bzip2`. Vincola `quick-xml` alla riga 0.41.x **per se'**, non per noi; vedi `gruppo_kml_e_xlsx.vincolo_di_quick_xml`."
       },
       {
         "crate": "libc",
@@ -715,7 +715,8 @@
         "perche_non_possiamo_farlo_noi": "`kml` e' gia' alla sua ultima stabile: non esiste una versione a cui aggiornarlo. E non e' forkato, ne' vale forkarlo per una riga di manifesto.",
         "secondo_vincolo": "lo stesso crate fissa `quick-xml = \"0.41.0\"` **esatta**, e blocca anche quello: la 0.42.0 esiste e non e' raggiungibile finche' `kml` non si muove.",
         "misurato_il": "2026-09-07",
-        "registrato_in": "`gruppo_kml_e_xlsx.il_secondo_zip`"
+        "registrato_in": "`gruppo_kml_e_xlsx.il_secondo_zip`",
+        "priorita": "**derubricata** il 2026-09-08: spegnendo la default feature `zip` di `kml` quel ramo non lo compiliamo piu', quindi la richiesta non serve piu' a noi. Resta sensata per chi usa il KMZ di `kml`, e resta da portare quando ci sara' occasione."
       }
     ]
   },
@@ -1084,9 +1085,9 @@
       "in_uso": "0.14.0",
       "ultima_stabile": "0.14.0",
       "esito": "**niente da fare**: siamo gia' sull'ultima stabile pubblicata. Le versioni precedenti sono 0.13.0, 0.12.0, 0.11.0 -- non esiste una 0.15.",
-      "cosa_dichiara": "`zip = \"^2.2\"` con `default-features = false` e le feature `bzip2`, `deflate`, `time`, `zstd`; `quick-xml = \"0.41.0\"` esatta.",
-      "conseguenza": "il secondo `zip` non si chiude aggiornando `kml`, perche' non c'e' niente a cui aggiornarlo. Si chiude solo se upstream passa alla 8.x, ed e' una proposta da portare -- non un aggiornamento da fare.",
-      "nota_su_quick_xml": "`quick-xml` ha una 0.42.0, ma `kml 0.14.0` fissa la 0.41.0 **esatta**: alzarla romperebbe la risoluzione. E' un altro vincolo che passa da `kml`, e un'altra ragione per cui quel crate e' il collo di bottiglia del gruppo."
+      "cosa_dichiara": "`zip = \"^2.2\"` **opzionale**, con `default-features = false` e le feature `bzip2`, `deflate`, `time`, `zstd`, accesa dalla default feature omonima; `quick-xml = \"0.41.0\"`, che e' un caret sulla riga 0.41.x e non un vincolo esatto.",
+      "conseguenza": "il secondo `zip` **non** dipendeva da `kml` come credevo: dipendeva dal fatto che ne tenessimo i default. Vedi `il_secondo_zip`. Resta vero che `kml` non ha una versione successiva a cui andare.",
+      "nota_su_quick_xml": "`quick-xml` ha una 0.42.0. `kml 0.14.0` la esclude **per se'** con un caret `>=0.41.0, <0.42.0`, non con un `=`: la nostra dipendenza diretta puo' avanzare separatamente, al costo di due versioni nel grafo. Vedi `vincolo_di_quick_xml`."
     },
     "rust_xlsxwriter": {
       "da": "0.79.4",
@@ -1112,11 +1113,13 @@
     },
     "il_secondo_zip": {
       "domanda": "l'aggiornamento chiude la duplicazione di `zip`?",
-      "risposta": "**no**. `zip` resta in due versioni su tutte e tre le piattaforme.",
-      "chi_lo_trattiene": "`kml 0.14.0`, da solo. Prima dell'aggiornamento la `2.4.2` aveva due dipendenti -- `kml` e `rust_xlsxwriter`; ora ne ha uno. La `8.6.0` la tirano `calamine 0.36.1`, `rust_xlsxwriter 0.99.0` e `driver-xls` direttamente: tutti e tre dentro il driver XLSX.",
-      "feature": "invariate: `zip 2.4.2` resta con `bzip2`, `deflate`, `time`, `zstd` e la catena `zopfli`/`flate2`, perche' erano gia' tutte chieste da `kml`. `rust_xlsxwriter` chiedeva la sola `deflate`, che `kml` chiede comunque. Restano nel grafo `bzip2-sys` e `zstd-sys`, cioe' codice C che nessuna nostra riga chiede.",
-      "come_si_chiude": "solo con `kml` upstream su `zip` 8.x. E' una **proposta da portare**, non un aggiornamento da fare, e va nell'elenco dei contributi accanto a DXF, Shapefile, GDAL e Arrow.",
-      "non_e_una_condizione": "l'aggiornamento di `rust_xlsxwriter` vale per se': API invariate, contenuto conservato, differenza di byte spiegata, e un dipendente in meno sulla versione vecchia. La sopravvivenza del doppione non lo mette in discussione."
+      "prima_risposta_sbagliata": "il 2026-09-07 questa voce diceva «si chiude **solo** con `kml` upstream su `zip` 8.x». Era falso, e va lasciato scritto perche' l'errore era di metodo: avevo letto che `kml 0.14.0` dichiara `zip = \"^2.2\"` e concluso che il vincolo fosse suo da sciogliere, senza guardare **come** quella dipendenza entra.",
+      "come_stanno_le_cose": "in `kml` la dipendenza `zip` e' `optional = true`, e la feature omonima sta fra le **default**: `default = [\"geo-types\", \"zip\"]`. Il nostro manifesto chiedeva `features = [\"geo-types\"]` **tenendo i default**, quindi il secondo `zip` lo accendevamo noi, per una funzionalita' -- il KMZ -- che il driver non ha mai avuto: `driver-kml` riconosce la sola estensione `.kml`, e il suo commento di testa dice da sempre «KMZ resta un incremento successivo».",
+      "correzione": "`kml = { version = \"=0.14.0\", default-features = false, features = [\"geo-types\"] }`. Una riga di manifesto, nessuna riga di codice.",
+      "effetto_misurato": "escono dal grafo **tre** crate: `zip 2.4.2`, `bzip2 0.5.2` e `bzip2-sys 0.1.13+1.0.8` -- l'ultimo e' codice C. `zip` resta in una sola versione, la 8.6.0, su tutte e tre le piattaforme. Il grafo scende a 198 nodi su linux col tier GDB.",
+      "che_cosa_resta_a_kml": "`quick-xml`, `geo-types` e le sue dipendenze normali. Il vincolo su `quick-xml` resta e non e' toccato da questa modifica -- vedi `vincolo_di_quick_xml`.",
+      "la_proposta_upstream_resta_ma_cambia_ragione": "chiedere a `kml` di passare a `zip` 8.x non serve piu' a noi, perche' quel ramo non lo compiliamo. Serve a chi usa il KMZ di `kml`, che oggi tira una serie vecchia di un parser di archivi con `bzip2-sys` e `zstd-sys` al seguito. Resta una richiesta sensata e non e' piu' urgente per noi: va derubricata di priorita', non cancellata.",
+      "lezione": "prima di dichiarare che un vincolo si scioglie solo upstream, guardare **come** la dipendenza entra: una `optional` accesa da una default feature non e' un vincolo dell'altro, e' una scelta nostra che non avevamo notato di fare."
     },
     "verifiche": {
       "clippy": "pulito su tutto il workspace con `-D warnings` e `--all-features`",
@@ -1130,6 +1133,20 @@
       "`calamine`, gia' all'ultima stabile",
       "gli altri gruppi",
       "nessun tag e nessun artefatto della 2.0.0"
-    ]
+    ],
+    "vincolo_di_quick_xml": {
+      "prima_lettura_sbagliata": "questa voce diceva che `kml` fissa `quick-xml = \"0.41.0\"` **esatta** e che percio' «blocca anche quello». Due errori in una riga.",
+      "il_vincolo_vero": "nel manifesto di `kml 0.14.0` c'e' `version = \"0.41.0\"`, che in cargo e' un **caret**: `>=0.41.0, <0.42.0`. `\"0.41.0\"` e `\"=0.41.0\"` sono vincoli diversi, e solo il secondo e' esatto. Il nostro pin, quello si', e' `=0.41.0`.",
+      "conseguenza": "`kml` vincola **la versione che usa lui**, non la nostra. La nostra dipendenza diretta puo' avanzare per conto suo: alzandola a `=0.42.0`, cargo risolverebbe **due** versioni di `quick-xml`, la 0.41.x sotto `kml` e la 0.42.0 sotto `driver-kml` e `driver-xls`. Non e' bloccato: e' un costo da valutare.",
+      "i_tipi_al_confine": "due versioni convivono solo se nessun tipo di `quick-xml` attraversa il confine fra il nostro codice e `kml` -- altrimenti i tipi sono nominalmente diversi e non compilano. `kml` **espone** `quick_xml` nella propria API pubblica: `KmlWriter::new(quick_xml::Writer<W>)`, `KmlReader::from_xml_reader(quick_xml::Reader<B>)`, e la variante d'errore `MalformedXml(quick_xml::Error)`. Noi pero' non ne usiamo nessuna: chiamiamo `KmlWriter::from_writer(&mut W)` con uno scrittore normale, passiamo valori di `kml::types`, facciamo il nostro parsing con un `quick_xml::Reader` **nostro**, e l'errore di `kml` lo scartiamo con `map_err(|_| ...)`. Al confine non passa niente di `quick-xml`.",
+      "giudizio": "tecnicamente possibile, non fatto e non proposto qui. Aggiungerebbe una duplicazione proprio mentre ne abbiamo tolta una, e `quick-xml 0.42.0` non risolve per noi nessun problema noto. Da riprendere se la 0.42 portera' una ragione -- una correzione che ci serve, o un advisory."
+    }
+  },
+  "censimento_unwrap_arrow_ipc": {
+    "che_cosa_copre": "gli **otto** `unwrap()` presenti in `arrow-ipc 59.3.0/src/reader.rs` fuori dagli esempi di documentazione, elencati uno per uno nel commento della regressione `un_dizionario_senza_dati_e_rifiutato_prima_di_arrow` in `driver-ipc`. Due sono irraggiungibili per costruzione, cinque erano gia' coperti dalla prevalidazione, uno era aperto ed e' stato chiuso il 2026-09-07.",
+    "che_cosa_non_copre": "**non** e' una garanzia che arrow non possa panicare leggendo un file. Restano fuori: gli `assert!` e i `debug_assert!`; le indicizzazioni dirette di slice e vettori; le sottrazioni e le moltiplicazioni che possono traboccare; e ogni panico dentro le funzioni **chiamate** dal reader, che stanno in altri crate.",
+    "la_prova_che_non_copre_tutto": "e' nella nostra stessa giornata. Il secondo finding del 2026-09-07 -- la bitmap del dizionario piu' corta della lunghezza dichiarata -- era un `assert!` in **`arrow-buffer`**, raggiunto attraverso `arrow-ipc`. Un censimento degli `unwrap()` di `reader.rs` non lo avrebbe trovato, e infatti non lo trovo': lo ha trovato il fuzzing.",
+    "a_che_serve_allora": "a chiudere una classe, non tutte. Tre panici in un giorno sullo stesso file avevano smesso di sembrare casi; l'elenco dice che di **quella** forma -- `unwrap()` su un campo facoltativo del flatbuffer, in `reader.rs` -- non ne restano. Le altre forme restano affidate al fuzzing e alla barriera, che e' dove sono sempre state.",
+    "quando_va_rifatto": "a ogni aggiornamento di arrow: l'elenco vale per la 59.3.0 e per nessun'altra versione."
   }
 }
