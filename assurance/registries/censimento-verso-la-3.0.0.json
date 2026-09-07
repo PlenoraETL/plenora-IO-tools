@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "descrizione": "Censimento delle dipendenze e dei tre fork governati, misurato il 2026-09-07 contro crates.io e i repository upstream. E' il primo passo verso la 3.0.0, il cui obiettivo dichiarato e' far integrare le modifiche upstream e tornare alle dipendenze ufficiali.",
+  "non_e": "una qualifica, ne' un piano approvato. Nessuna dipendenza e' stata aggiornata e nessun fork rimosso: il censimento dice che cosa c'e', e l'ordine degli interventi lo fissa il titolare.",
+  "come_e_stato_misurato": {
+    "ultime_versioni": "API di crates.io, campo `max_stable_version`",
+    "upstream": "i sorgenti delle ultime versioni pubblicate, dai `.crate`, e i file alla revisione corrente dei repository git",
+    "presenza_di_una_modifica": "cercata nel file upstream che la ospiterebbe. L'assenza del nome e' conclusiva -- se l'API non si chiama cosi', non c'e' -- mentre la presenza e' stata **riletta nel codice** prima di dichiararla integrata: `InvalidShapeRecordSize` compare upstream per altri usi, e `checked_mul` in cinque funzioni diverse. Due marcatori su nove erano falsi positivi."
+  },
+  "misurato_il": "2026-09-07",
+  "dipendenze": {
+    "nota": "le versioni pinnate del workspace contro l'ultima stabile pubblicata. Il pin esatto (`=`) e' una scelta del progetto: un aggiornamento e' sempre una decisione, mai una conseguenza.",
+    "voci": [
+      {
+        "crate": "gdal",
+        "in_uso": "0.17.1",
+        "ultima_stabile": "0.19.0",
+        "distanza": "due minor",
+        "forkato": true
+      },
+      {
+        "crate": "dxf",
+        "in_uso": "0.6.1",
+        "ultima_stabile": "0.6.1",
+        "distanza": "allineato",
+        "forkato": true
+      },
+      {
+        "crate": "shapefile",
+        "in_uso": "0.6.0",
+        "ultima_stabile": "0.9.0",
+        "distanza": "tre minor",
+        "forkato": true
+      },
+      {
+        "crate": "arrow",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "distanza": "due patch",
+        "forkato": false
+      },
+      {
+        "crate": "parquet",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "distanza": "due patch",
+        "forkato": false
+      },
+      {
+        "crate": "geo-types",
+        "in_uso": "0.7.19",
+        "ultima_stabile": "0.7.20",
+        "distanza": "una patch",
+        "forkato": false
+      },
+      {
+        "crate": "quick-xml",
+        "in_uso": "0.41.0",
+        "ultima_stabile": "0.42.0",
+        "distanza": "un minor",
+        "forkato": false
+      },
+      {
+        "crate": "rust_xlsxwriter",
+        "in_uso": "0.79.4",
+        "ultima_stabile": "0.99.0",
+        "distanza": "venti minor",
+        "forkato": false
+      },
+      {
+        "crate": "calamine",
+        "in_uso": "0.36.1",
+        "ultima_stabile": "0.36.1",
+        "distanza": "allineato",
+        "forkato": false
+      },
+      {
+        "crate": "serde_json",
+        "in_uso": "1.0.151",
+        "ultima_stabile": "1.0.151",
+        "distanza": "allineato",
+        "forkato": false
+      },
+      {
+        "crate": "zip",
+        "in_uso": "8.6.0",
+        "ultima_stabile": "8.6.0",
+        "distanza": "allineato",
+        "forkato": false
+      }
+    ]
+  },
+  "vincoli_condivisi": {
+    "nota": "i crate che IO-tools ha in comune con plenora-data-tools e plenora-database-tools. Le versioni si confrontano perche' i tre componenti si scambiano dati: una differenza su una famiglia di confine non e' una preferenza interna.",
+    "allineati": [
+      "serde 1.0.229",
+      "serde_json 1.0.151",
+      "tempfile 3.27.0",
+      "wkt 0.14.0",
+      "rustix 1.1.4"
+    ],
+    "divergenti": [
+      {
+        "famiglia": "arrow",
+        "io_tools": "59.1.0",
+        "data_tools": "59.2.0",
+        "database_tools": "59.2.0",
+        "ultima_stabile": "59.3.0",
+        "perche_conta": "e' la famiglia del **confine**: i tre componenti si scambiano Arrow IPC, e sono gli unici crate che tutti e tre dichiarano. IO-tools e' l'unico rimasto sulla 59.1.0."
+      },
+      {
+        "famiglia": "base64",
+        "io_tools": "0.22.1",
+        "database_tools": "0.23.1",
+        "perche_conta": "interno a ciascun componente; non attraversa il confine"
+      },
+      {
+        "famiglia": "ctrlc",
+        "io_tools": "3.5.0",
+        "data_tools": "3.5.2",
+        "perche_conta": "interno; differenza di patch"
+      }
+    ]
+  },
+  "fork": {
+    "gdal": {
+      "in_uso": "0.17.1",
+      "ultima_stabile": "0.19.0",
+      "upstream_git": "georust/gdal @ c0a6266",
+      "modifiche": [
+        {
+          "nome": "set_ignored_fields",
+          "file": "src/vector/layer.rs",
+          "stato": "ancora necessaria",
+          "misura": "nessuna occorrenza di `ignored` in `layer.rs` upstream, ne' nella 0.19.0 ne' nel git corrente",
+          "usata_da": "crates/driver-filegdb/src/lib.rs"
+        },
+        {
+          "nome": "set_proj_search_paths / get_proj_search_paths",
+          "file": "src/spatial_ref/srs.rs, src/spatial_ref/mod.rs",
+          "stato": "ancora necessaria",
+          "misura": "nessuna occorrenza di `PROJSearchPaths`, `proj_search` o `search_path` upstream",
+          "usata_da": "crates/driver-filegdb/src/lib.rs e tests/radici_di_proj.rs",
+          "perche_serve": "un artefatto rilocabile deve dire a PROJ dove sono i propri dati; la config option `PROJ_DATA` di GDAL non arriva a PROJ"
+        }
+      ]
+    },
+    "dxf": {
+      "in_uso": "0.6.1",
+      "ultima_stabile": "0.6.1",
+      "upstream_git": "ixmilia/dxf-rs @ c63c560",
+      "nota": "l'unico fork allineato alla propria ultima release: qui non c'e' un salto di versione da affrontare, solo modifiche da proporre",
+      "modifiche": [
+        {
+          "nome": "DrawingEntityReader",
+          "file": "src/drawing.rs, src/lib.rs",
+          "stato": "ancora necessaria",
+          "misura": "il nome non compare upstream",
+          "usata_da": "crates/driver-dxf/src/lib.rs"
+        },
+        {
+          "nome": "lettura progressiva delle righe ASCII",
+          "file": "src/code_pair_iter.rs",
+          "stato": "ancora necessaria",
+          "misura": "upstream non usa `read_until`"
+        },
+        {
+          "nome": "read_block pretende un avanzamento",
+          "file": "src/block.rs",
+          "stato": "ancora necessaria",
+          "misura": "il ciclo upstream non porta alcun controllo di progresso (`progress`, `advance`, `stall`, `position` assenti nelle 756 righe del file)",
+          "perche_serve": "undici righe di DXF tenevano il lettore occupato senza fine; trovato dal fuzz il 2026-09-02"
+        }
+      ]
+    },
+    "shapefile": {
+      "in_uso": "0.6.0",
+      "ultima_stabile": "0.9.0",
+      "upstream_git": "tmontaigu/shapefile-rs @ 646ec58",
+      "nota": "il fork col salto piu' ampio, e il solo in cui una nostra correzione e' gia' arrivata a valle",
+      "modifiche": [
+        {
+          "nome": "checked_mul sulla lunghezza del record",
+          "file": "src/reader.rs",
+          "stato": "gia' integrata e distribuita",
+          "misura": "la 0.9.0 fa `hdr.record_size.checked_mul(2).ok_or(Error::InvalidShapeRecordSize)?` dentro `read_one_shape_as`, riletto nel sorgente",
+          "conseguenza": "non va riproposta"
+        },
+        {
+          "nome": "rifiuto di una lunghezza negativa",
+          "file": "src/reader.rs",
+          "stato": "ancora necessaria",
+          "misura": "upstream non controlla il segno prima della moltiplicazione: `-1 * 2` non trabocca e prosegue come `-2`",
+          "perche_serve": "protegge anche `ShapeIterator::next`, che avanza di `record_size as usize * 2` -- un cast che di un negativo fa una posizione enorme",
+          "nota": "e' la meta' non integrata di una modifica la cui altra meta' e' gia' a valle: proporla significa proporre **questa** riga, non il blocco"
+        },
+        {
+          "nome": "un NullShape dichiara esattamente il proprio tag",
+          "file": "src/record/mod.rs",
+          "stato": "ancora necessaria",
+          "misura": "la 0.9.0 fa `ShapeType::NullShape => Shape::NullShape` senza guardare `record_size`",
+          "attenzione": "`InvalidShapeRecordSize` **esiste** upstream per altri usi: cercare quel nome dava un falso positivo, e la presenza e' stata riletta nel codice"
+        },
+        {
+          "nome": "write_null_shape / write_null_shape_and_record",
+          "file": "src/writer.rs",
+          "stato": "ancora necessaria",
+          "misura": "il nome non compare upstream",
+          "usata_da": "crates/driver-shp/src/lib.rs"
+        }
+      ]
+    }
+  },
+  "sintesi": {
+    "modifiche_totali": 9,
+    "gia_integrate": 1,
+    "ancora_necessarie": 8,
+    "superflue": 0,
+    "nota": "nessuna modifica e' risultata superflua: tutte e nove sono usate dal prodotto o proteggono un difetto che il fuzz ha trovato. Una sola e' arrivata a valle -- il `checked_mul` di shapefile -- e quella non va riproposta."
+  }
+}
