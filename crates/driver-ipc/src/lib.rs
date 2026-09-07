@@ -587,6 +587,60 @@ mod tests {
         }
     }
 
+    /// Un messaggio di dizionario **senza dati** e' rifiutato prima di arrow.
+    ///
+    /// `DictionaryBatch.data` e' facoltativo nella grammatica flatbuffer e
+    /// obbligatorio nel formato. `get_dictionary_values` lo apre con `unwrap`
+    /// (`arrow-ipc/src/reader.rs:895`), quindi un messaggio che lo omette fa
+    /// panicare la libreria prima di arrivare a qualunque errore. Rifiutarlo non
+    /// e' piu' severo di arrow: e' la **stessa** assunzione, restituita come
+    /// errore invece che come panico.
+    ///
+    /// Trovato dalla campagna fuzz della CI il 2026-09-07, corsa
+    /// [34155579047][corsa]. E' il terzo panico della famiglia -- dopo i
+    /// metadati del footer e la bitmap del dizionario -- e il terzo ha
+    /// suggerito di smettere di rincorrerli uno per uno.
+    ///
+    /// # Gli `unwrap` di `arrow-ipc/src/reader.rs`, e chi li copre
+    ///
+    /// | riga | che cosa apre | copertura |
+    /// |---|---|---|
+    /// | 572 | `child.as_ref().unwrap()` | irraggiungibile: `if child.is_none()` lo riempie due righe sopra |
+    /// | 636 | `skip_buffer`: `buffers.next().unwrap()` | `preleva_buffer` rifiuta «meno buffer dello schema», e la passeggiata consuma i buffer di **ogni** campo, anche quelli che una proiezione salterebbe |
+    /// | 895 | `batch.data().unwrap()` | **questa** verifica |
+    /// | 918-920 | lunghezze del blocco, `to_usize` e `checked_add` | `valida_blocco`: lunghezze negative rifiutate, e offset piu' lunghezza dentro il file |
+    /// | 950 | `buf[..4].try_into().unwrap()` | il minimo che pretendiamo dal file e' `MAGIC * 2 + 2 + 4` |
+    /// | 1098 | `header_as_dictionary_batch().unwrap()` | irraggiungibile: preceduto dal controllo del tipo di header |
+    /// | 1251 | `footer.schema().unwrap()` | «footer Arrow senza schema» |
+    /// | 1264-1265 | `kv.key()` e `kv.value()` | il finding sui metadati del footer, chiuso lo stesso giorno |
+    ///
+    /// L'elenco non e' una promessa che non ce ne siano altri: e' l'elenco di
+    /// quelli che ci sono **in questa versione**, e va rifatto quando arrow si
+    /// aggiorna. Ma trasforma una rincorsa in una verifica che si puo' chiudere.
+    ///
+    /// [corsa]: https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/34155579047
+    #[test]
+    fn un_dizionario_senza_dati_e_rifiutato_prima_di_arrow() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/dizionario-senza-dati.arrow");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let Err(errore) = IpcDriver.open(Source::Path(seme), opzioni_lettura()) else {
+            panic!("un dizionario senza dati non deve aprirsi")
+        };
+        let testo = errore.to_string();
+        assert!(
+            !testo.contains("in panico"),
+            "il rifiuto deve precedere arrow, non seguirne il panico: {testo}"
+        );
+        assert!(
+            testo.contains("senza dati"),
+            "l'errore deve dire che cosa manca, e dice «{testo}»"
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
     /// Il batch del **dizionario** con una bitmap piu' corta della lunghezza
     /// dichiarata e' rifiutato prima di arrow.
     ///

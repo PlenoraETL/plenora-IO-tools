@@ -379,20 +379,26 @@ fn valida_blocco(
         valida_batch(driver, schema, batch, versione_v4, lunghezza_corpo)?;
     }
     if let Some(dizionario) = messaggio.header_as_dictionary_batch() {
-        if let Some(batch) = dizionario.data() {
-            if batch.compression().is_some() {
-                return Err(errore(driver, "corpo Arrow compresso non verificabile"));
-            }
-            valida_buffer(driver, batch, lunghezza_corpo)?;
-            valida_batch_del_dizionario(
-                driver,
-                schema,
-                dizionario.id(),
-                batch,
-                versione_v4,
-                lunghezza_corpo,
-            )?;
+        // `data` e' facoltativo nella grammatica flatbuffer e obbligatorio nel
+        // formato: `get_dictionary_values` lo apre con `unwrap`
+        // (`reader.rs:895`), quindi un messaggio che lo omette fa panicare arrow
+        // prima di arrivare a qualunque errore. Rifiutarlo non e' piu' severo
+        // della libreria: e' la stessa assunzione, restituita come errore.
+        let batch = dizionario
+            .data()
+            .ok_or_else(|| errore(driver, "messaggio di dizionario Arrow senza dati"))?;
+        if batch.compression().is_some() {
+            return Err(errore(driver, "corpo Arrow compresso non verificabile"));
         }
+        valida_buffer(driver, batch, lunghezza_corpo)?;
+        valida_batch_del_dizionario(
+            driver,
+            schema,
+            dizionario.id(),
+            batch,
+            versione_v4,
+            lunghezza_corpo,
+        )?;
     }
     Ok(())
 }
