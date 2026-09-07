@@ -785,12 +785,11 @@ fn main() {
                 .duration_since(UNIX_EPOCH)
                 // Seed del PRNG: il troncamento dei nanosecondi a 64 bit è
                 // voluto, serve solo entropia iniziale.
-                .map(|d| {
+                .map_or(0x9E37_79B9_7F4A_7C15, |d| {
                     #[allow(clippy::cast_possible_truncation)]
                     let nanos = d.as_nanos() as u64;
                     nanos
                 })
-                .unwrap_or(0x9E37_79B9_7F4A_7C15)
                 | 1
         });
     let out = PathBuf::from(

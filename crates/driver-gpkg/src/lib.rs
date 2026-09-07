@@ -1778,14 +1778,14 @@ fn forma_del_punto(
         ))
     })?;
     let mut tutte_nan = true;
-    for blocco in coordinate.chunks_exact(8) {
-        let Ok(byte) = <[u8; 8]>::try_from(blocco) else {
-            continue;
-        };
+    // `as_chunks` invece di `chunks_exact`: da' `&[[u8; 8]]` e non `&[&[u8]]`,
+    // quindi la conversione all'array -- che qui non poteva fallire, e il cui
+    // ramo d'errore era codice morto -- non serve piu'.
+    for byte in coordinate.as_chunks::<8>().0 {
         let valore = if little_endian {
-            f64::from_le_bytes(byte)
+            f64::from_le_bytes(*byte)
         } else {
-            f64::from_be_bytes(byte)
+            f64::from_be_bytes(*byte)
         };
         if !valore.is_nan() {
             tutte_nan = false;

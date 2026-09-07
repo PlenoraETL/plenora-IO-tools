@@ -243,8 +243,8 @@ fn segments_for_angle(sweep: f64, full_circle_segments: usize) -> usize {
 fn bulge_center(p1: Point, p2: Point, bulge: f64) -> Point {
     let cot = 0.5 * (1.0 / bulge - bulge);
     [
-        0.5 * (p1[0] + p2[0]) - cot * 0.5 * (p2[1] - p1[1]),
-        0.5 * (p1[1] + p2[1]) + cot * 0.5 * (p2[0] - p1[0]),
+        f64::midpoint(p1[0], p2[0]) - cot * 0.5 * (p2[1] - p1[1]),
+        f64::midpoint(p1[1], p2[1]) + cot * 0.5 * (p2[0] - p1[0]),
     ]
 }
 

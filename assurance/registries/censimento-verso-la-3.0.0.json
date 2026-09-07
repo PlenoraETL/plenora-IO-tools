@@ -245,8 +245,8 @@
   "toolchain": {
     "nota": "l'aggiornamento della toolchain e' un intervento **separato e precedente** a quello delle dipendenze. Farli insieme renderebbe ambiguo ogni rosso: un test che cade dopo aver mosso compilatore e librerie non dice quale dei due l'ha rotto.",
     "stabile": {
-      "fissata": "1.92.0",
-      "rilasciata": "2025-12-08",
+      "fissata": "1.98.1",
+      "rilasciata": "2026-09-01",
       "ultima": "1.98.1",
       "ultima_rilasciata": "2026-09-01",
       "distanza": "sei minor, nove mesi",
@@ -258,7 +258,9 @@
         "rust-toolchain.toml": 1,
         "scripts/fuzz-smoke.sh": 1,
         "totale": 12
-      }
+      },
+      "precedente": "1.92.0 (2025-12-08)",
+      "aggiornata_il": "2026-09-07"
     },
     "nightly_del_fuzzing": {
       "fissata": "nightly-2026-07-21",
@@ -278,14 +280,16 @@
       "va_aggiornata_separatamente": "e' un secondo asse, indipendente dalla stabile: la nightly e' legata a `cargo-fuzz` e alla strumentazione, e muoverla insieme alla stabile confonderebbe due cause. L'ultima occorrenza sta in un riproduttore di finding: quello **non** va aggiornato, perche' descrive la corsa che ha trovato il difetto."
     },
     "versione_minima_supportata": {
-      "dichiarata": "rust-version = 1.92",
+      "dichiarata": "rust-version = 1.98",
       "chi_la_verifica": "nessuno",
       "perche_e_un_problema": "coincide con la toolchain fissata, quindi oggi e' vera per coincidenza: la CI compila su 1.92 perche' e' l'unica versione che usa, non perche' qualcuno provi il limite inferiore. Portando la toolchain a 1.98, `rust-version = 1.92` diventerebbe un'affermazione che nessuna corsa sostiene -- e le affermazioni non sostenute sono quelle che questo progetto tratta peggio di un'assenza.",
       "le_due_vie": [
         "alzarla insieme alla toolchain, e allora e' di nuovo vera per coincidenza ma **dichiaratamente**: la promessa e' «serve almeno questa», e coincide con cio' che si prova",
         "tenerla bassa e **verificarla**, con un job che compila sulla versione minima dichiarata. Costa una corsa in piu' e rende la promessa un fatto"
       ],
-      "la_via_da_non_prendere": "lasciarla a 1.92 mentre tutto gira su 1.98. Sarebbe una promessa verso l'esterno che nessuno misura."
+      "la_via_da_non_prendere": "lasciarla a 1.92 mentre tutto gira su 1.98. Sarebbe una promessa verso l'esterno che nessuno misura.",
+      "decisione": "allineata alla toolchain adottata, come chiesto: non c'e' un requisito concreto di supportare compilatori precedenti, e una MSRV piu' bassa sarebbe una promessa che nessuna corsa sostiene. Resta vera per coincidenza -- coincide col pin -- ma **dichiaratamente**: la promessa e' «serve almeno questa», e coincide con cio' che si prova a ogni corsa.",
+      "per_i_contributi_upstream": "vale la MSRV del progetto destinatario, non questa. Una correzione proposta a shapefile o dxf deve compilare sulla loro versione minima, che puo' essere molto piu' bassa: e' un vincolo del contributo, non del nostro workspace."
     },
     "ordine": [
       "aggiornare insieme compilatore, cargo, clippy, rustfmt, i due Dockerfile e i job della CI",
@@ -293,7 +297,47 @@
       "sistemare incompatibilita' e lint nuovi -- clippy cambia a ogni minor, e sei minor di distanza ne portano parecchi",
       "solo allora aggiornare le librerie"
     ],
-    "cosa_non_risolve": "i fork. Un compilatore nuovo puo' far emergere problemi dentro `vendor/`, e quelli si correggono nel fork come ogni altro delta; non rende superflua nessuna delle otto modifiche da proporre."
+    "cosa_non_risolve": "i fork. Un compilatore nuovo puo' far emergere problemi dentro `vendor/`, e quelli si correggono nel fork come ogni altro delta; non rende superflua nessuna delle otto modifiche da proporre.",
+    "eseguito": {
+      "che_cosa": "il primo dei cinque interventi: la sola toolchain stabile, con le dipendenze ferme",
+      "punti_toccati": {
+        "scripts/toolchain-pins.env": "la fonte unica",
+        "rust-toolchain.toml": 1,
+        ".github/workflows/ci.yml": 6,
+        ".github/workflows/distribuzione.yml": 2,
+        "Dockerfile.dev": "il tag base, la toolchain esatta e la prosa",
+        "Dockerfile.build-linux": "ARG RUST_VERSION",
+        "fuzz/Dockerfile": "il tag base -- trovato dal gate, non da me",
+        "scripts/fuzz-smoke.sh": "prosa",
+        "Cargo.toml": "rust-version"
+      },
+      "nightly": "ferma a nightly-2026-07-21, in tutti e nove i punti. E' il secondo asse, e non e' stato toccato.",
+      "difetto_trovato": {
+        "che_cosa": "`Dockerfile.dev` partiva da `FROM rust:1.98-slim-bookworm` e si fidava del tag. Docker Hub per quel tag serve 1.98.0, mentre `rust-toolchain.toml` chiede 1.98.1: rustup scaricava la seconda **a ogni corsa dentro il repository**.",
+        "perche_contava": "il pin smetteva di pinnare -- la toolchain arrivava dalla rete invece che dall'immagine -- e i componenti aggiunti con `rustup component add` restavano su 1.98.0, cioe' clippy e rustfmt assenti proprio dove i gate li cercano. Un'immagine che non contiene la toolchain che dichiara non riproduce niente.",
+        "corretto": "`Dockerfile.dev` installa ora la versione esatta con `rustup toolchain install`, la rende default, e **poi** aggiunge i componenti. Verificato: dentro il repository `rustc --version` da' 1.98.1 senza scaricare nulla.",
+        "residuo": "il gate `check_toolchain_pins.py` confronta i tag immagine sul solo `maggiore.minore`, quindi `rust:1.98` gli va bene con qualunque patch. E' cio' che ha lasciato passare la divergenza. Non e' stato cambiato in questo intervento -- toccare il gate mentre si muove cio' che verifica confonde le cause -- e resta un rilievo aperto."
+      },
+      "lint_nuovi": {
+        "quanti": 13,
+        "dove": "tutti nel nostro codice; nessuno nei tre fork",
+        "elenco": [
+          "driver-gpkg: `chunks_exact(8)` -> `as_chunks::<8>()`, e il `try_from` che non poteva fallire sparisce col proprio ramo morto",
+          "driver-dxf: due `0.5 * (a + b)` -> `f64::midpoint`, che non trabocca",
+          "driver-geojson: due cicli di azzeramento -> `fill(false)`",
+          "driver-shp: `chunks_exact(4)` -> `as_chunks::<4>()`, e un `map_or(11, |p| p)` -> `unwrap_or(11)`",
+          "driver-geoparquet: un `if` dentro un braccio di `match` -> guardia",
+          "plenora-fuzz e plenora-bench: tre `map(..).unwrap_or(..)` -> `map_or` / `is_ok_and`, e una divisione protetta a mano -> `checked_div`"
+        ],
+        "nota": "emersi a ondate: ogni errore fermava la compilazione del proprio crate e nascondeva i successivi. Quattro corse per arrivare a zero, e nessuno di questi lint era un difetto di comportamento."
+      },
+      "verifica": {
+        "cargo fmt --check": "pulito",
+        "cargo clippy --workspace --all-features --all-targets con -Dwarnings": "pulito",
+        "cargo test --workspace --all-features --locked": "30 suite, nessun fallimento",
+        "con_le_dipendenze_attuali": "si': nessuna libreria e' stata mossa, e i tre fork sono quelli di prima"
+      }
+    }
   },
   "matrice_degli_aggiornamenti": {
     "nota": "tutte le dipendenze dichiarate in `[workspace.dependencies]`, con la distanza dall'ultima stabile. La colonna `barriera` dice se l'aggiornamento attraversa un confine di compatibilita': per un crate `0.x` cargo tratta il **minor** come cargo tratta il major di `1.x`, quindi `0.79 -> 0.99` sono venti barriere, non venti passi.",

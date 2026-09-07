@@ -55,7 +55,7 @@ done
 
 # La toolchain e' scelta **qui**, non ereditata dall'ambiente. -Zsanitizer
 # richiede nightly, e senza una scelta esplicita lo script userebbe cio' che
-# capita: rust-toolchain.toml lo porterebbe su stable 1.92.0, dove la build
+# capita: rust-toolchain.toml lo porterebbe su stable 1.98.1, dove la build
 # strumentata fallisce con "only accepted on nightly"; un RUSTUP_TOOLCHAIN
 # impostato altrove lo porterebbe su un nightly qualsiasi, e due esecuzioni
 # della stessa revisione produrrebbero binari diversi. Il pin e' lo stesso di

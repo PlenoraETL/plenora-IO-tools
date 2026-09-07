@@ -1,4 +1,4 @@
-FROM rust:1.92-slim-bookworm
+FROM rust:1.98-slim-bookworm
 
 # Tenuti allineati a scripts/toolchain-pins.env dal gate check_toolchain_pins.py.
 ARG PLENORA_RUST_NIGHTLY=nightly-2026-07-21

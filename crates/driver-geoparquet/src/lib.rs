@@ -1869,24 +1869,22 @@ fn gruppi_dopo_pruning_spaziale(
                 .and_then(stat_f64_range)
                 .map(|(_, b)| b),
         );
+        // Un'estensione con un minimo oltre il proprio massimo non e' un
+        // errore: e' un insieme di geometrie che attraversa l'antimeridiano, e
+        // la semplice intersezione di rettangoli la leggerebbe al contrario --
+        // **escludendo** row group che servono. Un'estensione cosi' non supera
+        // la guardia e cade sul ramo `_`, che tiene il gruppo: il pruning si
+        // spegne per quel gruppo, e si legge di piu', mai di meno.
+        //
+        // E' la stessa ragione per cui la conformita' non rifiuta piu' un
+        // `bbox` invertito: lo schema lo ammette, e a non saperlo usare siamo
+        // noi.
         let keep_it = match ext {
-            (Some(minx), Some(miny), Some(maxx), Some(maxy)) => {
-                // Un'estensione con un minimo oltre il proprio massimo non e'
-                // un errore: e' un insieme di geometrie che attraversa
-                // l'antimeridiano, e la semplice intersezione di rettangoli la
-                // leggerebbe al contrario -- **escludendo** row group che
-                // servono. Il pruning si spegne per quel gruppo e lo tiene: si
-                // legge di piu', mai di meno.
-                //
-                // E' la stessa ragione per cui la conformita' non rifiuta piu'
-                // un `bbox` invertito: lo schema lo ammette, e a non saperlo
-                // usare siamo noi.
-                if metadati::interpretabile_per_il_pruning(&[minx, miny, maxx, maxy]) {
-                    // Interseca l'hint? (nessuna intersezione = fuori da un lato)
-                    !(maxx < q.minx || minx > q.maxx || maxy < q.miny || miny > q.maxy)
-                } else {
-                    true
-                }
+            (Some(minx), Some(miny), Some(maxx), Some(maxy))
+                if metadati::interpretabile_per_il_pruning(&[minx, miny, maxx, maxy]) =>
+            {
+                // Interseca l'hint? (nessuna intersezione = fuori da un lato)
+                !(maxx < q.minx || minx > q.maxx || maxy < q.miny || miny > q.maxy)
             }
             _ => true,
         };

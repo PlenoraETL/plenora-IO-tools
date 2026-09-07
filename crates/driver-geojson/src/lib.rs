@@ -963,12 +963,8 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
     // rompe la sequenza degli stati del sink senza guadagno di leggibilita'.
     #[allow(clippy::too_many_lines)]
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
-        for s in &mut self.sink.seen {
-            *s = false;
-        }
-        for seen in &mut self.sink.property_seen {
-            *seen = false;
-        }
+        self.sink.seen.fill(false);
+        self.sink.property_seen.fill(false);
         let mut geom_seen = false;
         let mut props_seen = false;
         let mut type_seen = false;

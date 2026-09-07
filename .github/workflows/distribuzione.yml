@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: "1.92.0"
+          toolchain: "1.98.1"
       - name: Strumenti nativi
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends
           pkg-config zstd binutils patchelf strace file
@@ -195,7 +195,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: "1.92.0"
+          toolchain: "1.98.1"
 
       # Il timeout sta sul **passo** e non solo sul job: quando scade il job,
       # scadono anche i passi `if: always()`, e il diario -- l'unica cosa che

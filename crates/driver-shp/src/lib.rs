@@ -1815,8 +1815,10 @@ fn conteggi_del_record(contenuto: &[u8], byte_del_record: i64) -> Result<Option<
 /// pretende esattamente quello.
 fn valida_indice_delle_parti(parti: &[u8], punti: i64) -> Result<()> {
     let mut precedente = 0_i64;
-    for voce in parti.chunks_exact(4) {
-        let inizio = i64::from(i32::from_le_bytes([voce[0], voce[1], voce[2], voce[3]]));
+    // `as_chunks` da' `&[[u8; 4]]`, che e' esattamente cio' che
+    // `from_le_bytes` vuole: la ricostruzione byte per byte non serve.
+    for voce in parti.as_chunks::<4>().0 {
+        let inizio = i64::from(i32::from_le_bytes(*voce));
         if inizio < precedente || inizio > punti {
             return Err(err(&PublicMessage::Curated(
                 "indice delle parti Shapefile che esce dai punti dichiarati",
@@ -5265,7 +5267,7 @@ mod tests {
             let name_end = descriptor[..11]
                 .iter()
                 .position(|byte| *byte == 0)
-                .map_or(11, |position| position);
+                .unwrap_or(11);
             let name = std::str::from_utf8(&descriptor[..name_end]).unwrap();
             let width = usize::from(descriptor[16]);
             if name == field_name {

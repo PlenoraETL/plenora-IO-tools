@@ -173,9 +173,7 @@ fn coord(k: usize) -> (f64, f64) {
 /// invece di punti: così le metriche riflettono il costo del percorso geometria
 /// (che con soli Point è quasi nullo).
 fn use_polygon() -> bool {
-    std::env::var("PLENORA_BENCH_GEOM")
-        .map(|v| v == "polygon")
-        .unwrap_or(false)
+    std::env::var("PLENORA_BENCH_GEOM").is_ok_and(|v| v == "polygon")
 }
 
 /// Anello quadrato (chiuso) attorno a `coord(k)`.
@@ -493,7 +491,7 @@ fn read_drain(
 // --- esecuzione di un benchmark (subprocesso figlio) ----------------------
 
 fn file_len(p: &Path) -> u64 {
-    std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)
+    std::fs::metadata(p).map_or(0, |m| m.len())
 }
 
 fn dataset_len(id: &str, path: &Path) -> u64 {
@@ -628,7 +626,7 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
         "allocation_count": alloc_count,
         "wkb_decode_count": wkb_decode,
         "wkb_encode_count": wkb_encode,
-        "avg_batch_bytes": if batches > 0 { total_bb / batches } else { 0 },
+        "avg_batch_bytes": total_bb.checked_div(batches).unwrap_or(0),
         "max_batch_bytes": max_bb,
         "io_bytes": io_bytes,
         "bytes_copied": serde_json::Value::Null,

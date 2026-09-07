@@ -42,9 +42,19 @@
 # piu' lenta. Per il fuzz basta PLENORA_FUZZ_TARGET_DIR, per la coverage
 # CARGO_TARGET_DIR.
 
-FROM rust:1.92-slim-bookworm
+FROM rust:1.98-slim-bookworm
 
 # Tenuti allineati a scripts/toolchain-pins.env dal gate check_toolchain_pins.py.
+#
+# `PLENORA_RUST_STABLE` e' la versione **esatta**, e va installata esplicitamente
+# anche se il tag dell'immagine sembra gia' darla: `rust:1.98-slim-bookworm`
+# porta l'ultima patch che Docker Hub ha pubblicato per quel minor, che non e'
+# necessariamente quella pinnata. Con 1.98.0 nell'immagine e 1.98.1 in
+# `rust-toolchain.toml`, rustup scaricava la seconda **a ogni corsa**: il pin
+# smetteva di pinnare, la toolchain arrivava dalla rete, e i componenti aggiunti
+# qui sotto restavano sulla versione sbagliata. Un'immagine che non contiene la
+# toolchain che dichiara e' un'immagine che non riproduce niente.
+ARG PLENORA_RUST_STABLE=1.98.1
 ARG PLENORA_RUST_NIGHTLY=nightly-2026-07-21
 ARG PLENORA_CARGO_FUZZ_VERSION=0.13.2
 ARG PLENORA_CARGO_LLVM_COV_VERSION=0.9.0
@@ -85,13 +95,18 @@ RUN apt-get update \
 # pacchetti che pesano pochi megabyte.
 RUN apt-get update  && apt-get install --yes --no-install-recommends         python3-venv         python3-pip         python3-setuptools  && rm -rf /var/lib/apt/lists/*
 
-# Componenti Rust richiesti da rust-toolchain.toml e dai gate CI
+# La toolchain esatta, e i componenti **sopra di essa**.
+#
+# L'ordine conta: `rustup component add` aggiunge alla toolchain di default, e
+# se quella non fosse ancora quella pinnata i componenti finirebbero altrove --
+# clippy e rustfmt assenti proprio dove i gate li cercano.
+#
 # (clippy per il gate anti-panic, rustfmt per `cargo fmt --check`,
-# llvm-tools-preview per la copertura LCOV).
-RUN rustup component add clippy rustfmt llvm-tools-preview
+# llvm-tools-preview per la copertura LCOV.)
+RUN rustup toolchain install ${PLENORA_RUST_STABLE} --profile minimal  && rustup default ${PLENORA_RUST_STABLE}  && rustup component add clippy rustfmt llvm-tools-preview  && rustc --version && cargo clippy --version
 
 # Nightly **accanto** a stable, non al posto suo: `rustup default` resta
-# 1.92.0, che e' la toolchain con cui il workspace viene costruito e testata.
+# 1.98.1, che e' la toolchain con cui il workspace viene costruito e testata.
 # Il nightly e' raggiungibile solo con `cargo +${PLENORA_RUST_NIGHTLY}` o
 # tramite RUSTUP_TOOLCHAIN, quindi nessun comando lo usa per sbaglio: se il
 # fuzzing sfuggisse a stable senza che nessuno lo abbia chiesto, il gate
