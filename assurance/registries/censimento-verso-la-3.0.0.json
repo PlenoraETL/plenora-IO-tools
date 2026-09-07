@@ -217,5 +217,416 @@
     "ancora_necessarie": 8,
     "superflue": 0,
     "nota": "nessuna modifica e' risultata superflua: tutte e nove sono usate dal prodotto o proteggono un difetto che il fuzz ha trovato. Una sola e' arrivata a valle -- il `checked_mul` di shapefile -- e quella non va riproposta."
+  },
+  "correzioni_al_primo_rapporto": {
+    "nota": "tre affermazioni della prima stesura erano sbagliate o troppo forti. Restano registrate perche' una correzione cancellata non insegna niente, e due di queste riguardano il **metodo** con cui il censimento e' stato fatto.",
+    "arrow_due_patch": {
+      "diceva": "arrow 59.1.0 -> 59.3.0 sono «due patch»",
+      "e_invece": "sono due **minor**. In `59.1.0` il campo minor e' `1`, e la 59.3.0 lo porta a `3`: il numero di patch non cambia affatto."
+    },
+    "arrow_e_l_interoperabilita": {
+      "diceva": "la divergenza di versione fra i tre componenti conta perche' si scambiano Arrow IPC",
+      "e_invece": "la versione della **libreria** e quella del **formato** sono distinte. `driver-ipc` usa `FileWriter::try_new` senza opzioni esplicite, quindi il default di `IpcWriteOptions`: `metadata_version: MetadataVersion::V5`, `alignment: 64`, nessuna compressione. V5 e' la versione di formato dal 2020, e non cambia fra 59.1, 59.2 e 59.3. Verificato leggendo `impl Default for IpcWriteOptions` in arrow-ipc 59.1.0.\n\nResta vero che allineare le versioni e' desiderabile -- meno combinazioni da qualificare, un solo comportamento da descrivere -- ma non e' una questione di compatibilita' del confine, e presentarla come tale avrebbe fatto sembrare urgente cio' che e' soltanto ordinato."
+    },
+    "assenza_di_un_nome": {
+      "diceva": "l'assenza del nome di un'API upstream e' conclusiva",
+      "e_invece": "dice solo che quel nome non c'e'. Upstream puo' esporre la stessa capacita' con un'altra firma -- un parametro in piu' su una funzione esistente, un metodo su un tipo diverso, una config option -- e il censimento non lo vedrebbe. I casi dichiarati «ancora necessari» vanno percio' riletti **semanticamente** prima di aprire una proposta: cercare la capacita', non il nome.",
+      "conseguenza": "il campo `misura` di ciascuna modifica dice che cosa e' stato cercato. Nessuna di quelle misure e' stata rifatta con questo criterio: e' il primo passo di ogni proposta, non un risultato gia' acquisito."
+    }
+  },
+  "toolchain": {
+    "nota": "l'aggiornamento della toolchain e' un intervento **separato e precedente** a quello delle dipendenze. Farli insieme renderebbe ambiguo ogni rosso: un test che cade dopo aver mosso compilatore e librerie non dice quale dei due l'ha rotto.",
+    "stabile": {
+      "fissata": "1.92.0",
+      "rilasciata": "2025-12-08",
+      "ultima": "1.98.1",
+      "ultima_rilasciata": "2026-09-01",
+      "distanza": "sei minor, nove mesi",
+      "punti_di_pin": {
+        ".github/workflows/ci.yml": 6,
+        ".github/workflows/distribuzione.yml": 2,
+        "Dockerfile.build-linux": 1,
+        "Dockerfile.dev": 1,
+        "rust-toolchain.toml": 1,
+        "scripts/fuzz-smoke.sh": 1,
+        "totale": 12
+      }
+    },
+    "nightly_del_fuzzing": {
+      "fissata": "nightly-2026-07-21",
+      "perche_nightly": "`-Zsanitizer` e la strumentazione di copertura del fuzz esistono solo li'. La deroga vale dentro quei job e non altrove.",
+      "perche_a_una_data": "una nightly mobile renderebbe due corse non confrontabili: la strumentazione cambia, e con essa i numeri della profondita'.",
+      "punti_di_pin": {
+        ".github/workflows/ci.yml": 2,
+        "scripts/asan-filegdb.sh": 1,
+        "scripts/fuzz-campaign.sh": 1,
+        "scripts/fuzz-coverage.sh": 1,
+        "scripts/fuzz-profondita.sh": 1,
+        "scripts/fuzz-replay.sh": 1,
+        "scripts/fuzz-smoke.sh": 1,
+        "fuzz-findings/2026-08-17-xlsx-reader-overflow-calamine/riproduci-xlsx.sh": 1,
+        "totale": 9
+      },
+      "va_aggiornata_separatamente": "e' un secondo asse, indipendente dalla stabile: la nightly e' legata a `cargo-fuzz` e alla strumentazione, e muoverla insieme alla stabile confonderebbe due cause. L'ultima occorrenza sta in un riproduttore di finding: quello **non** va aggiornato, perche' descrive la corsa che ha trovato il difetto."
+    },
+    "versione_minima_supportata": {
+      "dichiarata": "rust-version = 1.92",
+      "chi_la_verifica": "nessuno",
+      "perche_e_un_problema": "coincide con la toolchain fissata, quindi oggi e' vera per coincidenza: la CI compila su 1.92 perche' e' l'unica versione che usa, non perche' qualcuno provi il limite inferiore. Portando la toolchain a 1.98, `rust-version = 1.92` diventerebbe un'affermazione che nessuna corsa sostiene -- e le affermazioni non sostenute sono quelle che questo progetto tratta peggio di un'assenza.",
+      "le_due_vie": [
+        "alzarla insieme alla toolchain, e allora e' di nuovo vera per coincidenza ma **dichiaratamente**: la promessa e' «serve almeno questa», e coincide con cio' che si prova",
+        "tenerla bassa e **verificarla**, con un job che compila sulla versione minima dichiarata. Costa una corsa in piu' e rende la promessa un fatto"
+      ],
+      "la_via_da_non_prendere": "lasciarla a 1.92 mentre tutto gira su 1.98. Sarebbe una promessa verso l'esterno che nessuno misura."
+    },
+    "ordine": [
+      "aggiornare insieme compilatore, cargo, clippy, rustfmt, i due Dockerfile e i job della CI",
+      "verificare il progetto **con le dipendenze attuali**, fork compresi",
+      "sistemare incompatibilita' e lint nuovi -- clippy cambia a ogni minor, e sei minor di distanza ne portano parecchi",
+      "solo allora aggiornare le librerie"
+    ],
+    "cosa_non_risolve": "i fork. Un compilatore nuovo puo' far emergere problemi dentro `vendor/`, e quelli si correggono nel fork come ogni altro delta; non rende superflua nessuna delle otto modifiche da proporre."
+  },
+  "matrice_degli_aggiornamenti": {
+    "nota": "tutte le dipendenze dichiarate in `[workspace.dependencies]`, con la distanza dall'ultima stabile. La colonna `barriera` dice se l'aggiornamento attraversa un confine di compatibilita': per un crate `0.x` cargo tratta il **minor** come cargo tratta il major di `1.x`, quindi `0.79 -> 0.99` sono venti barriere, non venti passi.",
+    "misurata_il": "2026-09-07",
+    "dichiarate": 28,
+    "voci": [
+      {
+        "crate": "arrow-array",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "arrow-buffer",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "arrow-ipc",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "arrow-schema",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "arrow-select",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "atomicwrites",
+        "in_uso": "0.4.4",
+        "ultima_stabile": "0.4.4",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "base64",
+        "in_uso": "0.22.1",
+        "ultima_stabile": "0.23.1",
+        "passo": "1 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": false
+      },
+      {
+        "crate": "calamine",
+        "in_uso": "0.36.1",
+        "ultima_stabile": "0.36.1",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "csv",
+        "in_uso": "1.4.0",
+        "ultima_stabile": "1.4.0",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "ctrlc",
+        "in_uso": "3.5.0",
+        "ultima_stabile": "3.5.2",
+        "passo": "2 patch",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "dxf",
+        "in_uso": "0.6.1",
+        "ultima_stabile": "0.6.1",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": true
+      },
+      {
+        "crate": "gdal",
+        "in_uso": "0.17.1",
+        "ultima_stabile": "0.19.0",
+        "passo": "2 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": true
+      },
+      {
+        "crate": "geo-types",
+        "in_uso": "0.7.19",
+        "ultima_stabile": "0.7.20",
+        "passo": "1 patch",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "geojson",
+        "in_uso": "0.24.2",
+        "ultima_stabile": "1.0.0",
+        "passo": "1 major",
+        "barriera": true,
+        "perche": "cambio di major: rottura dichiarata",
+        "forkato": false
+      },
+      {
+        "crate": "jsonschema",
+        "in_uso": "0.51.0",
+        "ultima_stabile": "0.55.0",
+        "passo": "4 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": false
+      },
+      {
+        "crate": "kml",
+        "in_uso": "0.14.0",
+        "ultima_stabile": "0.14.0",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "libc",
+        "in_uso": "0.2.189",
+        "ultima_stabile": "0.2.189",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "parquet",
+        "in_uso": "59.1.0",
+        "ultima_stabile": "59.3.0",
+        "passo": "2 minor",
+        "barriera": false,
+        "perche": "minor su >=1.0: compatibile per semver, ma da provare",
+        "forkato": false
+      },
+      {
+        "crate": "quick-xml",
+        "in_uso": "0.41.0",
+        "ultima_stabile": "0.42.0",
+        "passo": "1 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": false
+      },
+      {
+        "crate": "rusqlite",
+        "in_uso": "0.39.0",
+        "ultima_stabile": "0.40.2",
+        "passo": "1 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": false
+      },
+      {
+        "crate": "rust_xlsxwriter",
+        "in_uso": "0.79.4",
+        "ultima_stabile": "0.99.0",
+        "passo": "20 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": false
+      },
+      {
+        "crate": "rustix",
+        "in_uso": "1.1.4",
+        "ultima_stabile": "1.1.4",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "serde",
+        "in_uso": "1.0.229",
+        "ultima_stabile": "1.0.229",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "serde_json",
+        "in_uso": "1.0.151",
+        "ultima_stabile": "1.0.151",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "shapefile",
+        "in_uso": "0.6.0",
+        "ultima_stabile": "0.9.0",
+        "passo": "3 minor (0.x)",
+        "barriera": true,
+        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "forkato": true
+      },
+      {
+        "crate": "tempfile",
+        "in_uso": "3.27.0",
+        "ultima_stabile": "3.27.0",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "wkt",
+        "in_uso": "0.14.0",
+        "ultima_stabile": "0.14.0",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      },
+      {
+        "crate": "zip",
+        "in_uso": "8.6.0",
+        "ultima_stabile": "8.6.0",
+        "passo": "allineato",
+        "barriera": false,
+        "forkato": false
+      }
+    ],
+    "gruppi_proposti": [
+      {
+        "gruppo": "arrow e parquet",
+        "crate": [
+          "arrow-array",
+          "arrow-buffer",
+          "arrow-ipc",
+          "arrow-schema",
+          "arrow-select",
+          "parquet"
+        ],
+        "da": "59.1.0",
+        "a": "59.3.0",
+        "barriera": false,
+        "perche_insieme": "sono una famiglia sola e cargo pretende che le versioni coincidano; muoverne una sposta le altre.",
+        "obiettivo_comune": "59.3.0 e' anche l'ultima che data-tools e database-tools possono adottare: proporlo come obiettivo condiviso evita che i tre componenti si allineino a numeri diversi. Il passaggio intermedio a 59.2.0 -- dove i fratelli stanno oggi -- serve solo se emerge un'esigenza concreta, e oggi non ce n'e' una."
+      },
+      {
+        "gruppo": "patch senza barriera",
+        "crate": [
+          "ctrlc",
+          "geo-types"
+        ],
+        "barriera": false,
+        "perche_insieme": "aggiornamenti di patch indipendenti; un gruppo verificabile in una corsa sola"
+      },
+      {
+        "gruppo": "0.x con una barriera",
+        "crate": [
+          "base64",
+          "quick-xml",
+          "rusqlite"
+        ],
+        "barriera": true,
+        "perche_separati": "un minor su 0.x puo' rompere; uno per volta, con la propria corsa"
+      },
+      {
+        "gruppo": "salti ampi, ciascuno da solo",
+        "crate": [
+          "jsonschema (4 minor)",
+          "geojson (1 major)",
+          "rust_xlsxwriter (20 minor)"
+        ],
+        "barriera": true,
+        "perche_separati": "`rust_xlsxwriter` merita un intervento dedicato: venti minor su un crate 0.x sono venti occasioni di rottura, e il driver XLSX ci scrive sopra. `geojson` cambia major, che e' una rottura dichiarata."
+      },
+      {
+        "gruppo": "forkati",
+        "crate": [
+          "gdal (2 minor)",
+          "shapefile (3 minor)",
+          "dxf (allineato)"
+        ],
+        "barriera": true,
+        "perche_ultimi": "aggiornare un crate forkato non e' cambiare un numero: la patch locale va riportata sulla versione nuova, o tolta se la modifica e' arrivata a valle. Segue le proposte upstream, non le precede."
+      }
+    ],
+    "non_ancora_censiti": {
+      "dipendenze_di_sviluppo_e_build": "i tre `[dev-dependencies]` di `driver-filegdb`, `driver-ipc` e `plenora-io-cli` attingono al workspace, quindi la matrice li copre. Cio' che **non** e' censito e' il grafo **transitivo**: `cargo tree --duplicates` direbbe dove due versioni della stessa libreria convivono, e va misurato prima di muovere un gruppo.",
+      "runtime_nativi": "GDAL 3.9.3 da conda-forge e la soglia glibc 2.35 sono fissati dalla matrice di distribuzione. Un salto di `gdal` a 0.19 tocca `gdal-sys`, che porta binding pre-generati per una versione precisa: e' il vincolo che va verificato **prima** di proporre quell'aggiornamento, non dopo."
+    }
+  },
+  "sequenza_proposta": {
+    "nota": "gli assi sono indipendenti e procedono in parallelo. L'unica precedenza stretta e' la toolchain, che viene prima di tutto il resto: un rosso dopo aver mosso compilatore **e** librerie non dice quale dei due l'ha causato.",
+    "passi": [
+      {
+        "ordine": 0,
+        "che_cosa": "toolchain",
+        "dipende_da": "niente",
+        "nota": "compilatore, clippy, rustfmt, immagini e CI insieme; poi verifica con le dipendenze attuali e fork compresi; poi i lint nuovi. La nightly del fuzzing e' un secondo asse, e la MSRV una decisione a se'."
+      },
+      {
+        "ordine": 1,
+        "che_cosa": "correzioni difensive DXF e shapefile, proposte upstream",
+        "dipende_da": "niente -- si preparano subito",
+        "nota": "ciascuna col proprio riproduttore minimo e il proprio test. Sono le piu' facili da far accettare: un ciclo che non avanza e una lunghezza negativa sono difetti per chiunque."
+      },
+      {
+        "ordine": 1,
+        "che_cosa": "proposte API: GDAL e lettura progressiva DXF",
+        "dipende_da": "niente -- si aprono presto **perche'** discutono",
+        "nota": "sono API nuove, non correzioni: la discussione coi manutentori e' il tempo lungo, e va iniziato subito invece che dopo le difensive."
+      },
+      {
+        "ordine": 1,
+        "che_cosa": "aggiornamenti indipendenti, per gruppi verificabili",
+        "dipende_da": "la toolchain",
+        "nota": "arrow/parquet, poi le patch, poi i 0.x uno per volta. Non aspettano le proposte upstream."
+      },
+      {
+        "ordine": 2,
+        "che_cosa": "aggiornamento dei crate forkati",
+        "dipende_da": "una release upstream che contenga la modifica accettata",
+        "nota": "l'unico passo che dipende da terzi, e per questo l'ultimo. I fork restano finche' quella release non esiste."
+      }
+    ],
+    "riesame": "le risposte upstream si riesaminano a una data fissata, non si attendono. L'accettazione di una correzione non garantisce quella delle successive -- il `checked_mul` accolto in shapefile non dice niente su `write_null_shape` -- e nessuna attesa deve bloccare gli altri assi."
   }
 }
