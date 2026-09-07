@@ -1,0 +1,50 @@
+--- a/src/block.rs
++++ b/src/block.rs
+@@ -156,9 +156,45 @@
+                         }
+                         CodePair { code: 0, .. } => {
+                             // should be an entity
++                            //
++                            // `Entity::read()` returns `Ok(None)` *without consuming the
++                            // pair* when the pair doesn't start an entity.  `0/ENDSEC` is
++                            // one such pair, and it turns up here when a `BLOCK` never
++                            // reaches its `ENDBLK`: the pair goes back into the iterator
++                            // untouched, the outer loop picks it up again, and the read
++                            // never terminates.
++                            //
++                            // The guard below doesn't name `ENDSEC`; it requires that the
++                            // iteration made *progress*.  Naming the one pair that behaves
++                            // this way today would leave the door open for the next one,
++                            // and this loop has no way of noticing on its own.
++                            let expected = pair.assert_string()?;
++                            let entity_count = current.entities.len();
+                             iter.put_back(Ok(pair));
+-                            let mut iter = EntityIter { iter };
+-                            iter.read_entities_into_vec(&mut current.entities)?;
++                            {
++                                let mut entity_iter = EntityIter { iter };
++                                entity_iter.read_entities_into_vec(&mut current.entities)?;
++                            }
++                            if current.entities.len() == entity_count {
++                                match iter.next() {
++                                    Some(Ok(next)) => {
++                                        let unchanged = next.code == 0
++                                            && match next.value {
++                                                CodePairValue::Str(ref s) => *s == expected,
++                                                _ => false,
++                                            };
++                                        if unchanged {
++                                            return Err(DxfError::UnexpectedCodePair(
++                                                next,
++                                                String::from("expected ENDBLK"),
++                                            ));
++                                        }
++                                        iter.put_back(Ok(next));
++                                    }
++                                    Some(Err(e)) => return Err(e),
++                                    None => return Err(DxfError::UnexpectedEndOfInput),
++                                }
++                            }
+                         }
+                         _ => {
+                             // specific to the BLOCK

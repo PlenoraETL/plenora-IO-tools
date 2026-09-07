@@ -1,0 +1,21 @@
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -110,6 +110,18 @@
+     mut source: &mut T,
+ ) -> Result<(record::RecordHeader, S), Error> {
+     let hdr = record::RecordHeader::read_from(&mut source)?;
++    // `record_size` is a length in 16-bit words read straight from the file, so
++    // its value is whatever the file says - negative values included.  It has to
++    // be rejected *before* the doubling: `-1 * 2` does not overflow, so
++    // `checked_mul` lets a negative length through as a valid-looking `-2`.
++    //
++    // This also guards `ShapeIterator::next`, which advances `current_pos` by
++    // `hdr.record_size as usize * 2` - a cast that turns a negative length into
++    // an enormous position.  That runs only once this function has returned
++    // `Ok`, so the check here is the one that makes it safe.
++    if hdr.record_size < 0 {
++        return Err(Error::InvalidShapeRecordSize);
++    }
+     let record_size = hdr
+         .record_size
+         .checked_mul(2)

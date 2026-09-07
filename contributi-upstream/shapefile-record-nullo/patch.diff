@@ -1,0 +1,33 @@
+--- a/src/record/mod.rs
++++ b/src/record/mod.rs
+@@ -237,7 +237,29 @@
+             ShapeType::Multipatch => {
+                 Shape::Multipatch(Multipatch::read_shape_content(&mut source, record_size)?)
+             }
+-            ShapeType::NullShape => Shape::NullShape,
++            // A null record's content is its four-byte shape type and nothing
++            // else.  Every other arm above consumes the content the header
++            // declares; this one used to ignore `record_size` entirely and
++            // return, leaving the rest of the record in the stream.  The
++            // iterator then read the next record header from the middle of this
++            // record's content, and arbitrary bytes became a `record_size`.
++            //
++            // Anything beyond the tag is not padding to be skipped but a record
++            // that disagrees with its own header, so it is rejected rather than
++            // tolerated: skipping the remainder would keep the stream aligned
++            // while accepting a file whose shape count and shape contents
++            // cannot both be true.
++            //
++            // `record_size` has already had the four bytes of the tag
++            // subtracted, so a conforming record leaves exactly zero.  A record
++            // declaring fewer than four bytes leaves it negative, and the same
++            // test rejects that too.
++            ShapeType::NullShape => {
++                if record_size != 0 {
++                    return Err(Error::InvalidShapeRecordSize);
++                }
++                Shape::NullShape
++            }
+         };
+         Ok(shape)
+     }

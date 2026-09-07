@@ -163,8 +163,10 @@
           "nome": "read_block pretende un avanzamento",
           "file": "src/block.rs",
           "stato": "ancora necessaria",
-          "misura": "il ciclo upstream non porta alcun controllo di progresso (`progress`, `advance`, `stall`, `position` assenti nelle 756 righe del file)",
-          "perche_serve": "undici righe di DXF tenevano il lettore occupato senza fine; trovato dal fuzz il 2026-09-02"
+          "misura": "riletta nel codice di `master` il 2026-09-08 guardando la funzione, non cercando un nome: il ramo `CodePair { code: 0, .. }` di `read_block` e' invariato e non porta nessun controllo di avanzamento.",
+          "perche_serve": "undici righe di DXF tenevano il lettore occupato senza fine; trovato dal fuzz il 2026-09-02",
+          "dimostrato": "misurato: un progetto minimo che dipende da `dxf = \"=0.6.1\"` di crates.io, senza nostre modifiche, non ritorna entro venti secondi su 57 byte. Con la patch ritorna con un errore, e i 293 test del crate passano.",
+          "contributo": "contributi-upstream/dxf-block-senza-endblk/"
         }
       ]
     },
@@ -185,23 +187,28 @@
           "nome": "rifiuto di una lunghezza negativa",
           "file": "src/reader.rs",
           "stato": "ancora necessaria",
-          "misura": "upstream non controlla il segno prima della moltiplicazione: `-1 * 2` non trabocca e prosegue come `-2`",
+          "misura": "riletta nel codice di `master` il 2026-09-08, ed e' piu' sottile di come l'avevo scritta. `read_one_shape_as` non controlla il segno -- `-1 * 2` non trabocca e `checked_mul` lo lascia passare come `-2` -- ma la via dell'iteratore e' comunque protetta: `ShapeIterator::next` fa `(hdr.record_size as usize).checked_mul(2)`, e su un negativo il cast da' un numero enorme che fa traboccare la moltiplicazione. Il buco e' su `read_nth_shape_as`, che chiama `read_one_shape_as` senza quella guardia.",
           "perche_serve": "protegge anche `ShapeIterator::next`, che avanza di `record_size as usize * 2` -- un cast che di un negativo fa una posizione enorme",
-          "nota": "e' la meta' non integrata di una modifica la cui altra meta' e' gia' a valle: proporla significa proporre **questa** riga, non il blocco"
+          "nota": "e' la meta' non integrata di una modifica la cui altra meta' e' gia' a valle: proporla significa proporre **questa** riga, non il blocco",
+          "dimostrato": "misurato sul crate non modificato: per la via dell'iteratore il caso e' gia' `InvalidShapeRecordSize`; per `read_nth_shape_as` **e' accettato** e torna come `NullShape`. Con la patch entrambe le vie rifiutano.",
+          "contributo": "contributi-upstream/shapefile-lunghezza-negativa/"
         },
         {
           "nome": "un NullShape dichiara esattamente il proprio tag",
           "file": "src/record/mod.rs",
           "stato": "ancora necessaria",
           "misura": "la 0.9.0 fa `ShapeType::NullShape => Shape::NullShape` senza guardare `record_size`",
-          "attenzione": "`InvalidShapeRecordSize` **esiste** upstream per altri usi: cercare quel nome dava un falso positivo, e la presenza e' stata riletta nel codice"
+          "attenzione": "`InvalidShapeRecordSize` **esiste** upstream per altri usi: cercare quel nome dava un falso positivo, e la presenza e' stata riletta nel codice",
+          "dimostrato": "misurato sul crate non modificato il 2026-09-08: il record nullo sovradimensionato e' **accettato** e la lettura termina con `Ok` su meta' file. Con la patch e' rifiutato, e il nullo conforme seguito da un punto resta leggibile.",
+          "contributo": "contributi-upstream/shapefile-record-nullo/"
         },
         {
           "nome": "write_null_shape / write_null_shape_and_record",
           "file": "src/writer.rs",
           "stato": "ancora necessaria",
           "misura": "il nome non compare upstream",
-          "usata_da": "crates/driver-shp/src/lib.rs"
+          "usata_da": "crates/driver-shp/src/lib.rs",
+          "natura": "non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente e con la domanda aperta se al progetto interessi."
         }
       ]
     }
@@ -1148,5 +1155,54 @@
     "la_prova_che_non_copre_tutto": "e' nella nostra stessa giornata. Il secondo finding del 2026-09-07 -- la bitmap del dizionario piu' corta della lunghezza dichiarata -- era un `assert!` in **`arrow-buffer`**, raggiunto attraverso `arrow-ipc`. Un censimento degli `unwrap()` di `reader.rs` non lo avrebbe trovato, e infatti non lo trovo': lo ha trovato il fuzzing.",
     "a_che_serve_allora": "a chiudere una classe, non tutte. Tre panici in un giorno sullo stesso file avevano smesso di sembrare casi; l'elenco dice che di **quella** forma -- `unwrap()` su un campo facoltativo del flatbuffer, in `reader.rs` -- non ne restano. Le altre forme restano affidate al fuzzing e alla barriera, che e' dove sono sempre state.",
     "quando_va_rifatto": "a ogni aggiornamento di arrow: l'elenco vale per la 59.3.0 e per nessun'altra versione."
+  },
+  "contributi_upstream": {
+    "nota": "il materiale per riportare le nostre correzioni nei progetti originali. **Niente e' stato ancora inviato.** I file -- patch, riproduttori, script di verifica -- stanno in `contributi-upstream/`; la segnalazione sta qui, perche' il docset del repository e' minimo per scelta e cinque documenti sono cinque.",
+    "aggiornare_non_e_eliminare": "gli aggiornamenti dei fork possono procedere conservando le patch ancora necessarie. A dipendere da una release ufficiale che le sostituisca e' l'**eliminazione**, che non e' la stessa cosa e non dipende da noi.",
+    "come_si_verifica": "due script fanno il giro completo: riproducono il difetto sul crate **non modificato**, applicano la patch su un albero pulito, mostrano che corregge, e rieseguono la suite di test del progetto. `contributi-upstream/dxf-block-senza-endblk/prova-upstream.sh` e `contributi-upstream/prova-shapefile.sh`, nel container di sviluppo perche' servono rete e cargo.",
+    "pronti": [
+      {
+        "id": "dxf.block-senza-endblk",
+        "progetto": "ixmilia/dxf-rs, licenza MIT, edition 2021, nessuna `rust-version` dichiarata",
+        "classe": "lettura che non termina su ingresso ostile",
+        "trovato_da": "la fuzz smoke della nostra CI, il 2026-09-02",
+        "il_difetto": "in `Block::read_block` il ramo `CodePair { code: 0, .. }` rimette la coppia nell'iteratore e chiama `read_entities_into_vec`. `Entity::read` restituisce `Ok(None)` **senza consumare la coppia** quando questa non apre un'entita' -- `0/ENDSEC` e' uno di quei casi, e arriva qui quando un `BLOCK` non vede mai il proprio `ENDBLK`. La coppia torna intatta, il `loop` esterno la riprende, e il giro ricomincia identico, allocando.",
+        "verifica_upstream": "riletto nel codice di `master` il 2026-09-08 guardando la funzione, non cercando un nome: il ramo e' invariato e non c'e' nessun controllo di avanzamento.",
+        "dimostrazione": "un progetto minimo che dipende da `dxf = \"=0.6.1\"` di crates.io, senza nostre modifiche, **non ritorna entro venti secondi** su 57 byte. Con la patch ritorna con «the code pair '[@9]0/ENDSEC' was not expected at this time: expected ENDBLK», e i 293 test del crate -- le due prove nuove comprese -- passano.",
+        "la_correzione": "se il giro non ha prodotto entita' e la coppia successiva e' la stessa da cui si e' partiti, la lettura non avanza e va fermata. **Non nomina `ENDSEC`**: pretende un avanzamento, perche' fermarsi sulla sola coppia che oggi si comporta cosi' lascerebbe aperta la porta alla prossima.",
+        "una_cosa_misurata_e_non_dedotta": "la prima stesura usava `CodePair::offset` per accorgersi del non avanzamento, che sarebbe stato piu' economico. Ma `CodePair::new_str` costruisce con `offset: 0`, quindi tutte le coppie dei **loro** helper di test hanno lo stesso offset e la guardia sarebbe scattata a vuoto sui loro test. Il confronto e' sul valore.",
+        "nota_sulla_prova": "la prova e' che la chiamata **ritorni**; l'assert sull'esito viene dopo. Se il difetto tornasse il test non fallirebbe: resterebbe appeso, e il loro CI andrebbe in timeout invece che in rosso. E' una proprieta' del difetto, non del test, e vale la pena dirgliela.",
+        "file": "contributi-upstream/dxf-block-senza-endblk/"
+      },
+      {
+        "id": "shapefile.record-nullo",
+        "progetto": "tmontaigu/shapefile-rs",
+        "classe": "flusso disallineato: un file letto a meta' e consegnato come intero",
+        "trovato_da": "il fuzzing della nostra CI",
+        "il_difetto": "in `Shape::read_from` ogni ramo consuma il contenuto che l'intestazione dichiara. `ShapeType::NullShape => Shape::NullShape` no: ignora `record_size`, e il resto del record resta nel flusso. L'iteratore legge allora l'intestazione successiva dalla meta' del contenuto di questo, e byte arbitrari diventano un `record_size`.",
+        "verifica_upstream": "riletto in `master` il 2026-09-08: il ramo e' invariato.",
+        "dimostrazione": "sul crate non modificato il record nullo sovradimensionato e' **accettato** e la lettura termina con `Ok` su meta' file: non panica e non sbaglia vistosamente, ed e' la forma pericolosa. Con la patch e' rifiutato con `InvalidShapeRecordSize`.",
+        "controprova_positiva": "un nullo **conforme** seguito da un punto deve continuare a dare due forme: senza questa riga, «rifiuta il sovradimensionato» sarebbe vero anche di un lettore che avesse smesso del tutto di leggere i record nulli. Con la patch resta accettato.",
+        "perche_rifiutare_e_non_saltare": "saltare il residuo terrebbe il flusso allineato, ma accetterebbe un file il cui conteggio delle forme e il cui contenuto non possono essere entrambi veri. La specifica non lascia margine: il contenuto di un record nullo e' il suo tag di quattro byte e nient'altro.",
+        "file": "contributi-upstream/shapefile-record-nullo/"
+      },
+      {
+        "id": "shapefile.lunghezza-negativa",
+        "progetto": "tmontaigu/shapefile-rs",
+        "classe": "lunghezza negativa accettata su una via non protetta",
+        "che_cosa_e_gia_protetto": "va detto per primo. `read_one_shape_as` non controlla il segno -- `-1 * 2` non trabocca e `checked_mul` lo lascia passare come `-2` -- ma la via dell'iteratore e' comunque coperta: `ShapeIterator::next` fa `(hdr.record_size as usize).checked_mul(2)`, e su un negativo il cast da' un numero enorme che fa traboccare la moltiplicazione. Il rifiuto li' e' un effetto del cast, non un controllo.",
+        "il_buco": "`ShapeReader::read_nth_shape_as` chiama `read_one_shape_as` **senza** quella guardia. La lunghezza negativa arriva intatta a `Shape::read_from`, che le sottrae i quattro byte del tag e prosegue; se il tag e' `NullShape`, l'arm ignora `record_size` e restituisce `Ok`.",
+        "dimostrazione": "sul crate non modificato: per la via dell'iteratore il caso e' gia' `InvalidShapeRecordSize`; per `read_nth_shape_as` **e' accettato** e torna come `NullShape`. Con la patch entrambe le vie rifiutano.",
+        "come_l_ho_scoperto": "il primo riproduttore era rifiutato **anche senza patch**, cioe' non dimostrava niente. Ha costretto a capire perche', e il perche' era la protezione che c'e' gia' su una via sola.",
+        "file": "contributi-upstream/shapefile-lunghezza-negativa/"
+      }
+    ],
+    "da_preparare": [
+      "**GDAL**: le proposte di API in `fork.gdal.modifiche`. E' il fork col salto di versione piu' netto -- 0.17.1 contro 0.19.0 -- quindi va deciso prima se proporre contro la 0.19 o contro `master`.",
+      "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
+      "**`arrow-rs`**: l'`unwrap` sui metadati del footer, in `proposte_upstream_oltre_i_fork`. Non richiede un fork: il prodotto si difende prevalidando.",
+      "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."
+    ],
+    "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due."
   }
 }
