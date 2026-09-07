@@ -474,7 +474,8 @@
         "ultima_stabile": "0.14.0",
         "passo": "allineato",
         "barriera": false,
-        "forkato": false
+        "forkato": false,
+        "perche": "gia' sull'ultima stabile: non esiste una versione successiva alla 0.14.0. Trattiene `zip 2.x` e `quick-xml 0.41.0` esatta; si chiude solo upstream."
       },
       {
         "crate": "libc",
@@ -513,11 +514,11 @@
       },
       {
         "crate": "rust_xlsxwriter",
-        "in_uso": "0.79.4",
+        "in_uso": "0.99.0",
         "ultima_stabile": "0.99.0",
-        "passo": "20 minor (0.x)",
+        "passo": "allineato",
         "barriera": true,
-        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "perche": "alzato il 2026-09-07 da 0.79.4; vedi `gruppo_kml_e_xlsx`",
         "forkato": false
       },
       {
@@ -684,7 +685,7 @@
     "riesame": "le risposte upstream si riesaminano a una data fissata, non si attendono. L'accettazione di una correzione non garantisce quella delle successive -- il `checked_mul` accolto in shapefile non dice niente su `write_null_shape` -- e nessuna attesa deve bloccare gli altri assi."
   },
   "proposte_upstream_oltre_i_fork": {
-    "nota": "difetti trovati in dipendenze **non** forkate. Non richiedono un fork -- il prodotto si difende prevalidando -- ma vanno segnalati, e la loro chiusura upstream toglie una difesa che oggi manteniamo noi.",
+    "nota": "difetti trovati in dipendenze **non** forkate. Non richiedono un fork -- il prodotto si difende prevalidando -- ma vanno segnalati, e la loro chiusura upstream toglie una difesa che oggi manteniamo noi. Non tutte nascono da un difetto: alcune sono richieste di ammodernamento, e vanno tenute distinte -- una segnalazione di bug e una richiesta di aggiornare una dipendenza non si portano allo stesso modo.",
     "arrow-rs": [
       {
         "difetto": "`arrow-ipc` fa `unwrap` sui metadati del footer",
@@ -703,6 +704,18 @@
         "natura_della_protezione": "difesa dalla **versione di arrow che leghiamo**, non un requisito della grammatica flatbuffer. Un file che omette uno dei due campi e' conforme al formato: rifiutarlo e' una nostra decisione, presa perche' la libreria con cui lo apriamo va in panico invece di deciderne il significato.",
         "non_introduce_un_fork": "`arrow-rs` non e' forkato e non lo diventa. La proposta si aggiunge ai contributi upstream in preparazione per DXF, Shapefile e GDAL: quattro assi di contributo, tre fork.",
         "quando_si_toglie": "non quando esce una versione nuova, ma quando esce una versione **corretta** e le regressioni di `driver-ipc` passano contro quella. Fino ad allora la protezione va portata attraverso l'aggiornamento a 59.3.0 senza toglierla."
+      }
+    ],
+    "kml": [
+      {
+        "richiesta": "aggiornare `zip` dalla serie 2.x alla 8.x",
+        "non_e_un_difetto": "`kml 0.14.0` funziona. E' una richiesta di ammodernamento, non una segnalazione: va scritta come tale, con la ragione misurata e senza dare del rotto a chi ci ospita.",
+        "dove": "`Cargo.toml` di `kml`: `zip = \"^2.2\"` con `default-features = false` e le feature `bzip2`, `deflate`, `time`, `zstd`.",
+        "perche_ci_riguarda": "e' **l'unico** dipendente rimasto della vecchia serie nel nostro grafo. Dopo l'aggiornamento di `rust_xlsxwriter` alla 0.99.0 -- che e' passata a `zip ^8.3` -- `kml` trattiene da solo una seconda copia di un parser di archivi, con `bzip2-sys` e `zstd-sys` al seguito: codice C che nessuna nostra riga chiede e che il fuzzing attraversa.",
+        "perche_non_possiamo_farlo_noi": "`kml` e' gia' alla sua ultima stabile: non esiste una versione a cui aggiornarlo. E non e' forkato, ne' vale forkarlo per una riga di manifesto.",
+        "secondo_vincolo": "lo stesso crate fissa `quick-xml = \"0.41.0\"` **esatta**, e blocca anche quello: la 0.42.0 esiste e non e' raggiungibile finche' `kml` non si muove.",
+        "misurato_il": "2026-09-07",
+        "registrato_in": "`gruppo_kml_e_xlsx.il_secondo_zip`"
       }
     ]
   },
@@ -1064,5 +1077,59 @@
     "misure_rifatte": "le cinque invalidate da `Cargo.lock`: quattro profondita' (35/35, 9/9, 9/9, 12/12, numeri invariati) e la corsa ASan. Questa volta i contatori di copertura **non** cambiano -- restano 179433 -- perche' `base64 0.23.1` non cambia quanto del **nostro** codice viene strumentato: cambia solo l'impronta del perimetro. `current-state.json` percio' non va toccato, a differenza dell'aggiornamento Arrow. Replay su cinque bersagli, nessun crash.",
     "i_due_lockfile": "allineati: dopo la rigenerazione i due lock coincidono su ogni nome condiviso.",
     "non_toccato": "KML, `rust_xlsxwriter` e gli altri gruppi. Nessun tag e nessun artefatto della 2.0.0."
+  },
+  "gruppo_kml_e_xlsx": {
+    "nota": "secondo gruppo indipendente, eseguito il 2026-09-07. Misurato prima di agire, e il primo dei due componenti si e' rivelato non aggiornabile.",
+    "kml": {
+      "in_uso": "0.14.0",
+      "ultima_stabile": "0.14.0",
+      "esito": "**niente da fare**: siamo gia' sull'ultima stabile pubblicata. Le versioni precedenti sono 0.13.0, 0.12.0, 0.11.0 -- non esiste una 0.15.",
+      "cosa_dichiara": "`zip = \"^2.2\"` con `default-features = false` e le feature `bzip2`, `deflate`, `time`, `zstd`; `quick-xml = \"0.41.0\"` esatta.",
+      "conseguenza": "il secondo `zip` non si chiude aggiornando `kml`, perche' non c'e' niente a cui aggiornarlo. Si chiude solo se upstream passa alla 8.x, ed e' una proposta da portare -- non un aggiornamento da fare.",
+      "nota_su_quick_xml": "`quick-xml` ha una 0.42.0, ma `kml 0.14.0` fissa la 0.41.0 **esatta**: alzarla romperebbe la risoluzione. E' un altro vincolo che passa da `kml`, e un'altra ragione per cui quel crate e' il collo di bottiglia del gruppo."
+    },
+    "rust_xlsxwriter": {
+      "da": "0.79.4",
+      "a": "0.99.0",
+      "passo": "venti minor su un crate 0.x, cioe' venti barriere di compatibilita' potenziali",
+      "superficie_che_usiamo": "piccola e stabile: `Workbook`, `Worksheet`, `XlsxError`, e i metodi `add_worksheet`, `write_string`, `write_number`, `write_boolean`, `save`, `save_to_buffer`. Le firme di tutti e sei sono **identiche** fra le due versioni.",
+      "varianti_di_errore": "`classe_xlsx` nomina undici varianti di `XlsxError` e tutte e undici esistono ancora. La 0.99.0 ne toglie una che non nominavamo -- `TableNameReused`, sostituita da `NameReused` -- e ne aggiunge sei: `NameError`, `NameReused`, `AutofilterRangeOverlaps`, `MaxGroupLevelExceeded`, `DefaultFormatError`, `ThemeError`. Il ramo `_ => \"altro\"` le assorbe, ed e' la ragione per cui esiste.",
+      "adattamento_api": "**nessuno**: nessuna riga del prodotto e' stata toccata, e clippy passa con `-D warnings`.",
+      "cosa_cambia_nel_grafo": "`zip` passa da `^2.2.0` a `^8.3`, quindi `rust_xlsxwriter` smette di trattenere la vecchia. `chrono` resta chiesto con `default-features = false`.",
+      "msrv": "sale da 1.73.0 a **1.88.0**. Non alza il pavimento del grafo, che era gia' 1.88 per `icu_*`, `image`, `zip` e `calamine`, e resta dieci minor sotto la nostra 1.98.1.",
+      "risoluzione": "minima: 287 voci prima, 287 dopo. Si muove `rust_xlsxwriter` e nient'altro. I due lockfile restano allineati su ogni nome condiviso."
+    },
+    "percorso_di_scrittura_e_rilettura": {
+      "metodo": "lo stesso ingresso GeoJSON convertito in `.xlsx` prima e dopo; poi il contenuto dell'archivio letto da fuori con `zipfile`, le celle e le stringhe condivise estratte dall'XML, e la rilettura dal prodotto con `--assume-crs OGC:CRS84 --opt wkt_column=geometry`.",
+      "celle": "**identiche**: venti celle, stessi riferimenti, stessi tipi (`s`, `b`, numerico) e stessi valori. Le undici stringhe condivise coincidono, nello stesso ordine.",
+      "contenuto_dell_archivio": "**identico**: dieci voci, stessi nomi, stesso ordine, stesse dimensioni non compresse, stesso metodo di compressione.",
+      "rilettura": "`inspect`, `layers` e `read` danno uscite identiche carattere per carattere. Sei campi, `geometry` binaria, `n` Float64, `vero` Boolean; `fidelity` `conditional` con la stessa ragione.",
+      "i_byte": {
+        "differenza": "5497 -> 5656 byte, **+159**.",
+        "spiegazione": "spiegata al byte, e sono due addendi. **+160**: `zip 8.x` scrive un *data descriptor* per ogni voce -- il bit 3 dei `flag_bits` passa da 0 a 8 su tutte e dieci -- e un data descriptor costa 16 byte (firma, CRC, dimensione compressa, dimensione non compressa). Dieci per sedici fa centosessanta. **-1**: `docProps/core.xml` comprime a 294 byte invece di 295, perche' porta `dcterms:created` e `dcterms:modified`, cioe' l'orologio. Quel byte cambierebbe anche fra due corse della **stessa** versione.",
+        "cosa_non_e": "non e' una differenza di contenuto: i dati compressi delle altre nove voci hanno la stessa dimensione esatta. L'XLSX non e' mai stato riproducibile byte per byte, perche' incorpora l'ora di creazione -- coerente con il determinismo `semantic` che `PRODUCT.md` dichiara per tutti e dieci i driver."
+      }
+    },
+    "il_secondo_zip": {
+      "domanda": "l'aggiornamento chiude la duplicazione di `zip`?",
+      "risposta": "**no**. `zip` resta in due versioni su tutte e tre le piattaforme.",
+      "chi_lo_trattiene": "`kml 0.14.0`, da solo. Prima dell'aggiornamento la `2.4.2` aveva due dipendenti -- `kml` e `rust_xlsxwriter`; ora ne ha uno. La `8.6.0` la tirano `calamine 0.36.1`, `rust_xlsxwriter 0.99.0` e `driver-xls` direttamente: tutti e tre dentro il driver XLSX.",
+      "feature": "invariate: `zip 2.4.2` resta con `bzip2`, `deflate`, `time`, `zstd` e la catena `zopfli`/`flate2`, perche' erano gia' tutte chieste da `kml`. `rust_xlsxwriter` chiedeva la sola `deflate`, che `kml` chiede comunque. Restano nel grafo `bzip2-sys` e `zstd-sys`, cioe' codice C che nessuna nostra riga chiede.",
+      "come_si_chiude": "solo con `kml` upstream su `zip` 8.x. E' una **proposta da portare**, non un aggiornamento da fare, e va nell'elenco dei contributi accanto a DXF, Shapefile, GDAL e Arrow.",
+      "non_e_una_condizione": "l'aggiornamento di `rust_xlsxwriter` vale per se': API invariate, contenuto conservato, differenza di byte spiegata, e un dipendente in meno sulla versione vecchia. La sopravvivenza del doppione non lo mette in discussione."
+    },
+    "verifiche": {
+      "clippy": "pulito su tutto il workspace con `-D warnings` e `--all-features`",
+      "test": "40 suite verdi",
+      "replay": "sette bersagli, nessun crash: ipc 3432, shp 4290, wkt 11386, geojson 10127, filegdb 829, **xlsx 4757**, **kml 11341**",
+      "profondita": "le quattro rimisurate, numeri invariati: 35/35, 9/9, 9/9, 12/12",
+      "asan": "rimisurata; i contatori restano **179433**, quindi `current-state.json` non si tocca. `rust_xlsxwriter` non cambia quanto del nostro codice viene strumentato."
+    },
+    "non_toccato": [
+      "`quick-xml`, fissato da `kml`",
+      "`calamine`, gia' all'ultima stabile",
+      "gli altri gruppi",
+      "nessun tag e nessun artefatto della 2.0.0"
+    ]
   }
 }
