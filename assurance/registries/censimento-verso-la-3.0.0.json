@@ -709,5 +709,214 @@
         "quando_si_toglie": "non quando esce una versione nuova, ma quando esce una versione **corretta** e le regressioni di `driver-ipc` passano contro quella. Fino ad allora la protezione va portata attraverso l'aggiornamento a 59.3.0 senza toglierla."
       }
     ]
+  },
+  "grafo_transitivo": {
+    "nota": "punto 1 del piano verso la 3.0.0: il grafo completo, i vincoli di feature e quelli di piattaforma. Misurato il 2026-09-07 su `0d1b4ea`, a lockfile fermo. Nessuna dipendenza aggiornata.",
+    "come_e_stato_misurato": {
+      "comandi": [
+        "cargo tree --workspace --locked --target <triplo> [--features gdal-backend] --edges normal --prefix none",
+        "cargo tree --workspace --locked --target <triplo> --edges normal,build --duplicates",
+        "cargo metadata --format-version 1 --locked --filter-platform <triplo>"
+      ],
+      "l_albero_e_il_lockfile_non_sono_la_stessa_cosa": "il primo conteggio, fatto su `cargo metadata`, dava undici nomi in piu' versioni. L'albero ne da' **sette**. La differenza non e' un errore di lettura: `resolve` di `cargo metadata` tiene nel grafo anche le dipendenze **opzionali non attivate**, e il lockfile le blocca a una versione. `cargo tree` mostra invece cio' che viene davvero compilato. Il caso limite e' `rstar`: cinque versioni nel `Cargo.lock` -- 0.8.4, 0.9.3, 0.10.0, 0.11.0, 0.12.2 -- tutte dietro le feature `rstar_0_*` di `geo-types`, che **nessuno attiva**. `cargo tree -i rstar@0.8.4` risponde «nothing to print». Con loro cadono `heapless` (tre versioni), `generic-array` (tre), `hash32` (tre) e `as-slice`: sono nel lockfile e non nel binario. **Un crate nel `Cargo.lock` non e' un crate compilato**, e un censimento che confondesse le due cose gonfierebbe il problema del 60%.",
+      "perche_l_unione_delle_piattaforme": "le tre piattaforme si compilano da un solo lockfile: un conteggio su una sola di esse non descrive cio' che va tenuto compilabile. Le misure sono percio' prese per piattaforma e poi unite, e le differenze sono elencate."
+    },
+    "piattaforme": {
+      "nota": "due distribuite -- linux-x86_64-gnu e windows-x86_64-msvc, vedi `distribuzione-matrice.json` -- e una terza compilata e verificata in CI ma non distribuita: aarch64-apple-darwin, dove il job `macos-publish` prova il percorso di pubblicazione esclusiva di `plenora-io-core`.",
+      "conteggi": {
+        "x86_64-unknown-linux-gnu": {
+          "senza_gdal_backend": 199,
+          "con_gdal_backend": 201
+        },
+        "x86_64-pc-windows-msvc": {
+          "con_gdal_backend": 203
+        },
+        "aarch64-apple-darwin": {
+          "con_gdal_backend": 203
+        },
+        "unione_delle_tre": 210
+      },
+      "solo_su_una_piattaforma": {
+        "windows": {
+          "crate": [
+            "atomicwrites 0.4.4",
+            "windows-link 0.2.1",
+            "windows-sys 0.52.0",
+            "windows-sys 0.61.2",
+            "windows-targets 0.52.6",
+            "windows_x86_64_msvc 0.52.6"
+          ],
+          "da_dove": "`atomicwrites` e' dichiarato da noi in `plenora-io-core` sotto `[target.'cfg(windows)'.dependencies]`, ed e' lui a tirare `windows-sys 0.52.0`; la `0.61.2` arriva invece da `ctrlc` e `tempfile`."
+        },
+        "linux": {
+          "crate": [
+            "iana-time-zone 0.1.65",
+            "linux-raw-sys 0.12.1",
+            "nix 0.30.1",
+            "rustix 1.1.4"
+          ],
+          "da_dove": "`rustix` e' dichiarato da noi sotto `cfg(any(linux, android, apple))` e su linux si appoggia a `linux-raw-sys`; `nix` arriva da `ctrlc` nella CLI, e c'e' anche su macos; `iana-time-zone` da `chrono`, e c'e' anche su macos."
+        },
+        "macos": {
+          "crate": [
+            "core-foundation-sys 0.8.7",
+            "dispatch 0.2.0",
+            "errno 0.3.14"
+          ],
+          "da_dove": "`dispatch` da `ctrlc`; `core-foundation-sys` da `iana-time-zone`, cioe' da `chrono`; `errno` da `rustix`, che su macos non ha `linux-raw-sys` sotto di se'."
+        }
+      },
+      "asimmetrie_da_notare": [
+        "`rustix` e `nix` sono entrambi presenti su linux e su macos: due binding POSIX distinti nello stesso binario. Non e' un difetto -- il secondo entra da `ctrlc`, non da noi -- ma e' una duplicazione di superficie unsafe da guardare quando si tocchera' la CLI.",
+        "delle otto piattaforme-per-feature misurate, la sola differenza fra windows e macos nel numero di crate e' una coincidenza: 203 entrambe, ma con insiemi diversi."
+      ]
+    },
+    "feature": {
+      "gdal_backend": "l'unica feature del prodotto che cambia il grafo, e lo cambia di **due crate**: `gdal 0.17.1` (il fork) e `gdal-sys 0.10.0`. Nient'altro. Il confine del tier GDB e' netto: tutto cio' che `gdal` usa era gia' nel grafo.",
+      "metrics": "`plenora-io-model/metrics` non ha dipendenze: `metrics = []`. Non tocca il grafo.",
+      "gia_strette_da_noi": [
+        "parquet: `default-features = false`, con i soli codec dichiarati (`snap`, `brotli`, `flate2-rust_backend`, `lz4`, `zstd`)",
+        "zip 8.6.0: `default-features = false`, solo `deflate`",
+        "rusqlite: `bundled` -- SQLite compilato dai sorgenti, non quello di sistema"
+      ],
+      "rilievi": [
+        {
+          "id": "feature.zip-doppio",
+          "misura": "`zip` e' compilato in due versioni: la 8.6.0 che dichiariamo noi con la sola `deflate`, e la **2.4.2** che entra da `kml 0.14.0` e `rust_xlsxwriter 0.79.4` con `bzip2`, `deflate`, `time`, `zopfli` e `zstd`.",
+          "perche_conta": "la scelta stretta che abbiamo fatto sulla 8.6.0 non protegge il binario: accanto ne viaggia una seconda con una superficie molto piu' larga, `bzip2-sys` compreso -- codice C in piu' che nessuna nostra riga chiede. Ed e' un parser di archivi, cioe' esattamente la classe di codice su cui il fuzzing lavora.",
+          "rotta": "`calamine 0.36.1` e' gia' su `zip ^8.6`; restano `kml` e `rust_xlsxwriter`. Da verificare se le loro versioni recenti sono passate alla 8.x: e' un aggiornamento indipendente, non un fork."
+        },
+        {
+          "id": "feature.chrono-allargata",
+          "misura": "su una compilazione linux `chrono 0.4.45` ha attive `oldtime`, `wasmbind`, `js-sys`, `wasm-bindgen`, `winapi` e `windows-link`. Dei dieci dipendenti, otto lo chiedono con `default-features = false`; a chiederlo con i default sono **`dxf 0.6.1`** -- il nostro fork -- e **`zip 2.4.2`**.",
+          "perche_conta": "l'unificazione delle feature e' monotona: un solo dipendente distratto allarga il grafo per tutti gli altri, e la disciplina degli altri otto non serve a niente. Il costo compilato qui e' contenuto -- le feature wasm sono comunque escluse dal target -- ma il meccanismo e' quello, e in un caso il dipendente distratto siamo noi.",
+          "rotta": "mettere `default-features = false` su `chrono` nel fork `dxf` e' una riga, ed e' anche una proposta upstream pulita per `ixmilia/dxf-rs`. Va misurata: `dxf` usa `chrono` con `serde`, e va verificato quali altre feature dei default gli servano davvero."
+        }
+      ]
+    },
+    "duplicazioni_reali": {
+      "nota": "sette nomi in piu' versioni su linux e macos, otto su windows. Ciascuno ha un proprietario e una rotta; nessuno e' un difetto in se'.",
+      "voci": [
+        {
+          "crate": "zip",
+          "versioni": [
+            "2.4.2",
+            "8.6.0"
+          ],
+          "chi_tira_la_vecchia": [
+            "kml 0.14.0",
+            "rust_xlsxwriter 0.79.4"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "aggiornamento indipendente di kml e rust_xlsxwriter -- vedi `feature.zip-doppio`"
+        },
+        {
+          "crate": "thiserror",
+          "versioni": [
+            "1.0.69",
+            "2.0.19"
+          ],
+          "chi_tira_la_vecchia": [
+            "wkt 0.14.0 (sempre)",
+            "gdal 0.17.1 (fork), solo con gdal-backend"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "l'aggiornamento del fork gdal alla 0.19.0 toglie meta' del problema; per `wkt` e' un aggiornamento indipendente. `thiserror-impl` segue la sua libreria e non e' una voce a se'."
+        },
+        {
+          "crate": "num-traits",
+          "versioni": [
+            "0.1.43",
+            "0.2.19"
+          ],
+          "chi_tira_la_vecchia": [
+            "enum_primitive 0.1.1, tirato da dxf 0.6.1 (fork)"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "`enum_primitive` e' edizione 2015 e non e' manutenuto. E' interamente dentro il nostro fork `dxf`: sostituirlo e' una modifica locale, e una proposta upstream sensata."
+        },
+        {
+          "crate": "hashbrown",
+          "versioni": [
+            "0.16.1",
+            "0.17.1"
+          ],
+          "chi_tira_la_vecchia": [
+            "hashlink 0.11.1, tirato da rusqlite 0.39.0"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "dipende da `rusqlite`: non e' in nostra mano e non vale un fork. Da riguardare al prossimo aggiornamento di rusqlite."
+        },
+        {
+          "crate": "getrandom",
+          "versioni": [
+            "0.3.4",
+            "0.4.3"
+          ],
+          "chi_tira_la_vecchia": [
+            "ahash 0.8.12, tirato da arrow-array, arrow-select, parquet, jsonschema, referencing, foldhash"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "`ahash` e' sotto arrow: si chiude con l'aggiornamento della famiglia Arrow, o non si chiude affatto. Da riverificare sulla 59.3.0."
+        },
+        {
+          "crate": "syn",
+          "versioni": [
+            "2.0.119",
+            "3.0.3"
+          ],
+          "chi_tira_la_vecchia": [
+            "displaydoc",
+            "strum_macros",
+            "synstructure",
+            "thiserror-impl 1.0.69",
+            "yoke-derive",
+            "zerocopy-derive"
+          ],
+          "linkata_nel_binario": false,
+          "rotta": "costo di **compilazione**, non di artefatto: `syn` sta nei proc-macro e non finisce nel binario. Priorita' bassa; si sgonfia da se' col resto."
+        },
+        {
+          "crate": "windows-sys",
+          "versioni": [
+            "0.52.0",
+            "0.61.2"
+          ],
+          "solo_su": "windows",
+          "chi_tira_la_vecchia": [
+            "atomicwrites 0.4.4, che dichiariamo noi in plenora-io-core"
+          ],
+          "chi_tira_la_nuova": [
+            "ctrlc 3.5.0",
+            "tempfile 3.27.0"
+          ],
+          "linkata_nel_binario": true,
+          "rotta": "questa e' in mano nostra: la vecchia la tiene ferma una dipendenza **diretta** che dichiariamo noi. Da verificare se una versione recente di `atomicwrites` sia passata alla `windows-sys 0.6x`; e' un aggiornamento indipendente e isolato."
+        }
+      ],
+      "non_e_una_duplicazione": "`cargo tree --duplicates` stampa `libc 0.2.189` due volte, una sotto `[build-dependencies]`. E' la **stessa** versione vista da due tipi di arco, non due copie."
+    },
+    "requisiti_di_rust": {
+      "msrv_del_prodotto": "1.98.1, dichiarata in `Cargo.toml` del workspace e allineata alla toolchain adottata.",
+      "pavimento_imposto_dalle_dipendenze": "**1.88** -- `icu_normalizer 2.3.0`, `image 0.25.10`, `zip 8.6.0`, `calamine 0.36.1` e la famiglia `icu_*`. Su 186 dipendenze esterne compilate, 166 dichiarano `rust-version` e 36 no.",
+      "conseguenza": "la nostra 1.98.1 e' una **scelta**, non un obbligo: fra il pavimento delle dipendenze e la MSRV dichiarata ci sono dieci minor di margine. Nessuna dipendenza attuale la spinge in alto, e un aggiornamento che la spingesse sarebbe percio' visibile subito -- e' la misura da rifare dopo ogni gruppo di aggiornamenti.",
+      "edizioni": {
+        "2015": 16,
+        "2018": 34,
+        "2021": 129,
+        "2024": 23,
+        "nota": "i sedici in edizione 2015 comprendono `enum_primitive 0.1.1` e `num-traits 0.1.43`, che entrano dal fork `dxf`, e la catena `brotli`/`alloc-*` che entra da `parquet`."
+      }
+    },
+    "workspace_di_fuzzing": {
+      "misura": "`fuzz/` e' un workspace **detached** con un proprio `Cargo.lock`. Rispetto al prodotto porta in piu' tre crate -- `arbitrary 1.4.2`, `libfuzzer-sys 0.4.13`, `plenora-cargofuzz` -- e non porta `ctrlc`, `nix` e i tre membri che non gli servono. Tutto il resto coincide, **versione per versione**.",
+      "perche_conta": "che i due lockfile coincidano oggi non e' garantito da niente: sono due risoluzioni separate. Se divergessero, il fuzzing misurerebbe una libreria e il prodotto ne spedirebbe un'altra -- e le impronte di profondita', che gia' comprendono `fuzz/Cargo.lock`, direbbero soltanto che la misura e' scaduta, non che i due alberi si sono separati. Da tenere d'occhio a ogni aggiornamento della famiglia Arrow."
+    },
+    "che_cosa_apre_per_i_punti_successivi": [
+      "punto 2 (Arrow/Parquet 59.3.0): la duplicazione `getrandom` sta sotto `ahash`, sotto arrow. Va rimisurata sulla 59.3.0, non prevista.",
+      "punto 3 (percorsi IPC e GeoParquet): `arrow-ipc` ha `default` attiva e `parquet` no; il confine di formato va verificato con quelle feature, non con le altre.",
+      "punto 4 (contributi upstream): due delle sette duplicazioni -- `num-traits` via `enum_primitive`, e meta' di `thiserror` -- sono dentro i nostri fork `dxf` e `gdal`. Si chiudono aggiornando i fork, senza attendere nessuno.",
+      "aggiornamenti indipendenti: `kml` e `rust_xlsxwriter` sono i due che portano il secondo `zip`. Sono il gruppo piu' isolato del piano, e il primo da cui partire."
+    ]
   }
 }
