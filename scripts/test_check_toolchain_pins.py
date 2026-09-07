@@ -27,16 +27,25 @@ PLENORA_CARGO_LLVM_COV_VERSION=0.9.0
 ALBERO = {
     "scripts/toolchain-pins.env": PINS,
     "rust-toolchain.toml": '[toolchain]\nchannel = "1.92.0"\n',
+    # I due Dockerfile **installano** lo stable esatto e lo rendono default,
+    # come i veri: un tag `rust:X.Y` porta l'ultima patch pubblicata per quel
+    # minor, che non e' necessariamente quella pinnata.
     "Dockerfile.dev": (
         "FROM rust:1.92-slim-bookworm\n"
+        "ARG PLENORA_RUST_STABLE=1.92.0\n"
         "ARG PLENORA_RUST_NIGHTLY=nightly-2026-07-21\n"
         "ARG PLENORA_CARGO_FUZZ_VERSION=0.13.2\n"
         "ARG PLENORA_CARGO_LLVM_COV_VERSION=0.9.0\n"
+        "RUN rustup toolchain install ${PLENORA_RUST_STABLE} --profile minimal \\\n"
+        " && rustup default ${PLENORA_RUST_STABLE}\n"
     ),
     "fuzz/Dockerfile": (
         "FROM rust:1.92-slim-bookworm\n"
+        "ARG PLENORA_RUST_STABLE=1.92.0\n"
         "ARG PLENORA_RUST_NIGHTLY=nightly-2026-07-21\n"
         "ARG PLENORA_CARGO_FUZZ_VERSION=0.13.2\n"
+        "RUN rustup toolchain install \"${PLENORA_RUST_STABLE}\" --profile minimal \\\n"
+        " && rustup default \"${PLENORA_RUST_STABLE}\"\n"
         "ENV PLENORA_FUZZ_TOOLCHAIN=nightly-2026-07-21\n"
     ),
     ".github/workflows/ci.yml": (
@@ -92,6 +101,51 @@ class SondeDivergenza(unittest.TestCase):
 
     def test_albero_allineato_non_produce_errori(self) -> None:
         self.assertEqual(verifica(self.albero()), [])
+
+    # --- il tag non basta: l'immagine deve **contenere** la patch pinnata ---
+    #
+    # Il 2026-09-07 `Dockerfile.dev` partiva da `rust:1.98-slim-bookworm` e si
+    # fidava del tag. Docker Hub vi serviva 1.98.0 mentre `rust-toolchain.toml`
+    # chiedeva 1.98.1: rustup scaricava la seconda a ogni corsa dentro il
+    # repository -- il pin smetteva di pinnare, e i componenti aggiunti al
+    # momento della build restavano sulla patch dell'immagine, cioe' clippy e
+    # rustfmt assenti proprio dove i gate li cercano.
+    #
+    # Il gate confrontava il solo `maggiore.minore` e non lo vedeva.
+
+    def test_un_immagine_che_si_fida_del_tag_e_rossa(self) -> None:
+        """Il difetto originale: nessuna installazione esplicita."""
+        radice = self.sostituisci(
+            "Dockerfile.dev",
+            "RUN rustup toolchain install ${PLENORA_RUST_STABLE} --profile minimal \\\n"
+            " && rustup default ${PLENORA_RUST_STABLE}\n",
+            "",
+        )
+        errori = verifica(radice)
+        self.assertTrue(
+            any("non installa esplicitamente lo stable" in e for e in errori),
+            errori,
+        )
+
+    def test_un_tag_con_la_patch_sbagliata_e_rosso(self) -> None:
+        """`rust:1.92.1` quando il pin dice 1.92.0."""
+        radice = self.sostituisci(
+            "Dockerfile.dev", "FROM rust:1.92-slim", "FROM rust:1.92.1-slim"
+        )
+        errori = verifica(radice)
+        self.assertTrue(
+            any("1.92.1" in e and "1.92.0" in e for e in errori), errori
+        )
+
+    def test_installare_senza_rendere_default_e_rosso(self) -> None:
+        """`rustup component add` aggiunge alla toolchain di default."""
+        radice = self.sostituisci(
+            "Dockerfile.dev", " && rustup default ${PLENORA_RUST_STABLE}\n", "\n"
+        )
+        errori = verifica(radice)
+        self.assertTrue(
+            any("non lo rende `rustup default`" in e for e in errori), errori
+        )
 
     # --- divergenze: ogni consumatore, ogni famiglia --------------------
 

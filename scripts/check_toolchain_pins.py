@@ -138,10 +138,23 @@ def valori_trovati(testo: str, famiglia: Famiglia) -> set[str]:
     return trovati
 
 
+#: Come un Dockerfile puo' **contenere** la toolchain esatta.
+#:
+#: Un tag `rust:X.Y` non basta: Docker Hub vi pubblica l'ultima patch di quel
+#: minor, che non e' necessariamente quella pinnata. Servono un'installazione
+#: esplicita della versione piena e il suo uso come default -- l'ordine conta,
+#: perche' `rustup component add` aggiunge alla toolchain di default.
+INSTALLA_ESATTA = (
+    re.compile(r"rustup\s+toolchain\s+install\s+\"?\$\{?PLENORA_RUST_STABLE"),
+    re.compile(r"--default-toolchain\s+\$\{?RUST_VERSION"),
+)
+RENDE_DEFAULT = re.compile(r"rustup\s+default\s+\"?\$\{?PLENORA_RUST_STABLE")
+
+
 def controlla_stable(radice: Path, atteso: str, errori: list[str]) -> None:
     maggiore_minore = ".".join(atteso.split(".")[:2])
     pieno = re.compile(r"(?<![\d.])\d+\.\d+\.\d+(?![\d.])")
-    tag = re.compile(r"rust:(\d+\.\d+)(?:\.\d+)?-")
+    tag = re.compile(r"rust:(\d+\.\d+)(?:\.(\d+))?-")
 
     for relativo in SORVEGLIATI:
         percorso = radice / relativo
@@ -149,13 +162,49 @@ def controlla_stable(radice: Path, atteso: str, errori: list[str]) -> None:
             continue
         testo = percorso.read_text(encoding="utf-8")
 
-        for trovato in set(tag.findall(testo)):
+        basi = set(tag.findall(testo))
+        for trovato, patch in basi:
             if trovato != maggiore_minore:
                 errori.append(
                     f"{relativo}: immagine `rust:{trovato}-...`, ma lo stable "
                     f"pinnato e' {atteso}. Il container costruirebbe con un "
                     "compilatore diverso da quello di rust-toolchain.toml."
                 )
+            elif patch and f"{trovato}.{patch}" != atteso:
+                errori.append(
+                    f"{relativo}: immagine `rust:{trovato}.{patch}-...`, ma lo "
+                    f"stable pinnato e' {atteso}."
+                )
+
+        # Il minor giusto non basta: il tag deve **contenere** la patch pinnata.
+        #
+        # `rust:1.98` serviva 1.98.0 mentre `rust-toolchain.toml` chiedeva
+        # 1.98.1, e rustup scaricava la seconda a ogni corsa dentro il
+        # repository: il pin smetteva di pinnare -- la toolchain arrivava dalla
+        # rete invece che dall'immagine -- e i componenti aggiunti al momento
+        # della build restavano sulla patch sbagliata, cioe' clippy e rustfmt
+        # assenti proprio dove i gate li cercano. Il gate confrontava il solo
+        # `maggiore.minore` e non lo vedeva.
+        #
+        # Un tag col numero pieno non e' la sola via, e nemmeno la migliore:
+        # Docker Hub ritira i tag di patch vecchie. La via che si pretende e'
+        # installare la versione esatta **dentro** l'immagine, e usarla come
+        # default prima di aggiungerci i componenti.
+        if basi and not any(schema.search(testo) for schema in INSTALLA_ESATTA):
+            errori.append(
+                f"{relativo}: parte da `rust:{maggiore_minore}-...` e non "
+                f"installa esplicitamente lo stable {atteso}. Il tag porta "
+                "l'ultima patch pubblicata per quel minor, e se non e' quella "
+                "pinnata rustup la scarichera' a ogni corsa: il pin smette di "
+                "pinnare, e i componenti restano sulla patch dell'immagine."
+            )
+        elif basi and not RENDE_DEFAULT.search(testo):
+            errori.append(
+                f"{relativo}: installa lo stable {atteso} ma non lo rende "
+                "`rustup default`. `rustup component add` aggiunge alla "
+                "toolchain di default: clippy e rustfmt finirebbero su quella "
+                "dell'immagine."
+            )
 
         # Il numero pieno va cercato solo dove e' davvero una toolchain: nei
         # workflow accanto a `toolchain:`, nel toml accanto a `channel`.

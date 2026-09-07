@@ -739,6 +739,52 @@ mod tests {
     }
 
     #[test]
+    fn un_bulge_fra_coordinate_enormi_non_perde_l_arco() {
+        // Il punto medio non e' `0.5 * (a + b)`, ed e' una differenza di
+        // **comportamento**, non di forma.
+        //
+        // Il lettore DXF valida le coordinate soltanto per finitezza: `1e308`
+        // passa. Due ascisse la cui **somma** supera `f64::MAX` facevano
+        // traboccare quella somma a infinito prima che il fattore `0.5` la
+        // riportasse in scala, e `tessellate_bulge` scartava l'arco sul proprio
+        // controllo `center.is_finite()`. Il file era valido, il difetto nostro,
+        // e l'arco spariva in silenzio.
+        //
+        // `f64::midpoint` calcola la media senza passare dalla somma, quindi il
+        // centro resta finito e l'arco viene tassellato.
+        //
+        // Le due ascisse sono **dello stesso segno** e distanti fra loro: e' la
+        // somma a dover traboccare, non la differenza. La prima stesura di
+        // questa sonda usava `-lontano` e `+lontano`, dove a traboccare era
+        // `p2[0] - p1[0]` nel termine dell'offset -- un altro punto del calcolo,
+        // che `midpoint` non tocca. La sonda e' diventata rossa e aveva ragione.
+        let alta = f64::MAX * 0.6;
+        let bassa = f64::MAX * 0.5;
+        assert!(!(alta + bassa).is_finite(), "la somma deve traboccare");
+        assert!((alta - bassa).is_finite(), "la differenza no");
+
+        let centro = bulge_center([alta, 0.0], [bassa, 0.0], 1.0);
+        assert!(
+            centro[0].is_finite() && centro[1].is_finite(),
+            "il centro deve restare finito: {centro:?}"
+        );
+        assert!(
+            close(centro[0], f64::MAX * 0.55),
+            "e valere la media esatta: {}",
+            centro[0]
+        );
+
+        // E l'arco esce davvero, invece di sparire: e' cio' che il prodotto
+        // consegna, e il controllo `is_finite` di `tessellate_bulge` lo
+        // scartava.
+        let punti = tessellate_bulge([alta, 0.0], [bassa, 0.0], 1.0, 24);
+        assert!(
+            !punti.is_empty(),
+            "l'arco fra coordinate enormi non deve piu' essere scartato"
+        );
+    }
+
+    #[test]
     fn quarter_bulge_center_is_exact() {
         // 90°: bulge = tan(π/8). Da (1,0) a (0,1) attorno all'origine.
         let bulge = (std::f64::consts::PI / 8.0).tan();
