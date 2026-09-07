@@ -614,9 +614,24 @@ mod tests {
     /// | 1251 | `footer.schema().unwrap()` | «footer Arrow senza schema» |
     /// | 1264-1265 | `kv.key()` e `kv.value()` | il finding sui metadati del footer, chiuso lo stesso giorno |
     ///
-    /// L'elenco non e' una promessa che non ce ne siano altri: e' l'elenco di
-    /// quelli che ci sono **in questa versione**, e va rifatto quando arrow si
-    /// aggiorna. Ma trasforma una rincorsa in una verifica che si puo' chiudere.
+    /// # Che cosa questo elenco **non** dice
+    ///
+    /// Non dice che arrow non possa panicare leggendo un file. Copre gli otto
+    /// `unwrap()` di **questo** file in **questa** versione, e nient'altro.
+    /// Restano fuori gli `assert!`, le indicizzazioni dirette, le aritmetiche
+    /// che possono traboccare, e ogni panico nelle funzioni **chiamate** dal
+    /// reader, che stanno in altri crate.
+    ///
+    /// La prova che non basta e' nella stessa giornata: il secondo finding del
+    /// 2026-09-07 -- la bitmap del dizionario piu' corta della lunghezza
+    /// dichiarata -- era un `assert!` in **`arrow-buffer`**, raggiunto
+    /// attraverso `arrow-ipc`. Un censimento degli `unwrap()` di `reader.rs`
+    /// non lo avrebbe trovato, e infatti non lo ha trovato: lo ha trovato il
+    /// fuzzing.
+    ///
+    /// L'elenco chiude **una classe** -- `unwrap()` su un campo facoltativo del
+    /// flatbuffer, qui dentro -- e va rifatto a ogni aggiornamento di arrow.
+    /// Le altre forme restano dove sono sempre state: il fuzzing e la barriera.
     ///
     /// [corsa]: https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/34155579047
     #[test]
