@@ -511,6 +511,12 @@ FOGLIE_DICHIARATE = {
         "E' una decisione e non si deriva: git puo' dire che una revisione "
         "esiste, non che qualcuno abbia smesso di rilasciarla"
     ),
+    "aperto.candidate_release.commit_di_assurance": (
+        "il commit fino a cui la registrazione della release doveva restare "
+        "dentro l'allowlist. Lo scrive chi registra, leggendolo dalla storia; "
+        "non si deriva, perche' git puo' dire che un commit esiste, non che sia "
+        "quello in cui la registrazione si e' chiusa"
+    ),
     "aperto.candidate_release.nota": "prosa",
     "blocchi.nota": "prosa",
 }
@@ -1578,6 +1584,12 @@ def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
 
 
 def _coda_della_candidate(candidate: dict[str, Any]) -> list[str]:
+    if candidate.get("stato") == "pubblicata":
+        return [
+            "la candidate e' gia' **pubblicata**: la sua autorizzazione e' un "
+            "fatto storico e non ne autorizza un'altra. Una release nuova vuole "
+            "una candidate nuova, congelata, qualificata e autorizzata per se'."
+        ]
     if candidate.get("release_action_allowed") is not True:
         return ["`release_action.allowed` non e' consentita"]
     return []
@@ -2755,7 +2767,162 @@ def _conteggi_n1_legati_al_registro(stato: dict[str, Any]) -> list[str]:
 #: Il terzo caso -- nessuna candidate -- resta rappresentato dall'assenza del
 #: blocco, e non da uno stato: un blocco svuotato somiglia a uno mai scritto, e
 #: i due vanno distinti.
-STATI_DELLA_CANDIDATE = ("attiva", "ritirata")
+#: I tre stati di una candidate, e le tre domande diverse che pongono.
+#:
+#: `attiva` -- si sta rilasciando quella. L'albero non puo' muoversi fuori
+#: dall'assurance: gli artefatti sono gia' stati costruiti da quella revisione,
+#: e cio' che li produce o li verifica non puo' cambiare sotto di loro.
+#:
+#: `ritirata` -- abbandonata **prima** del rilascio. Il ritiro va dichiarato con
+#: la propria ragione, non permette a niente di procedere, e pretende che nessun
+#: tag esista: se ce ne fosse uno, il ritiro andrebbe revocato fuori da qui.
+#:
+#: `pubblicata` -- il rilascio e' avvenuto. E' lo stato che mancava, e la sua
+#: assenza congelava il repository per sempre: la 2.0.0 e' la prima release che
+#: attraversa questo modello, e `current-state.json` non esisteva ancora quando
+#: usci' la 1.0.1.
+#:
+#: Una release pubblicata non si **autorizza** -- e' gia' avvenuta -- ma si
+#: **verifica**: il tag esiste e punta alla revisione qualificata, gli artefatti
+#: portano i propri digest, l'evidenza c'e', e la registrazione che l'accompagna
+#: e' rimasta dentro l'allowlist. Cio' che non si pretende piu' e' che HEAD stia
+#: fermo: il movimento successivo di `main` non tocca byte gia' pubblicati.
+STATI_DELLA_CANDIDATE = ("attiva", "ritirata", "pubblicata")
+
+
+def _forma_della_pubblicata(
+    candidate: dict[str, Any], motivo: Any
+) -> list[str]:
+    """Che cosa deve dire una candidate il cui rilascio e' avvenuto.
+
+    Tre cose, e ciascuna chiude un modo di raccontarla male.
+
+    * **il tag esiste**: una release pubblicata senza tag non e' nominabile, e
+      `tag_creato: false` accanto a un rilascio sarebbe una dichiarazione falsa;
+    * **il permesso e' consumato**: `release_action_allowed` torna falso. Il
+      permesso autorizzava **quella** pubblicazione, e' stato speso, e lasciarlo
+      vero lo farebbe valere per la successiva -- che nessuno ha autorizzato;
+    * **il commit di registrazione e' nominato**: `commit_di_assurance` dice
+      fino a dove la diff dalla revisione qualificata deve stare nell'allowlist.
+      Senza, il controllo si riferirebbe a HEAD, e HEAD dopo un rilascio si
+      muove: la verifica diventerebbe rossa al primo commit di sviluppo, che e'
+      esattamente cio' che questo stato esiste per rendere possibile.
+
+    Un `motivo_del_ritiro` qui non ci sta: non e' stata ritirata.
+    """
+    errori: list[str] = []
+    if motivo is not None:
+        errori.append(
+            "`candidate_release.motivo_del_ritiro` e' presente su una candidate "
+            "pubblicata: non e' stata ritirata, e' stata rilasciata"
+        )
+    if candidate.get("tag_creato") is not True:
+        errori.append(
+            "`candidate_release.tag_creato` non e' vero su una candidate "
+            "pubblicata: una release senza tag non e' nominabile"
+        )
+    if candidate.get("release_action_allowed") is not False:
+        errori.append(
+            "`candidate_release.release_action_allowed` deve essere falso su "
+            "una candidate pubblicata: il permesso autorizzava **quella** "
+            "pubblicazione ed e' stato speso. Lasciarlo vero lo farebbe valere "
+            "per la successiva, che nessuno ha autorizzato."
+        )
+    registrazione = candidate.get("commit_di_assurance")
+    if not isinstance(registrazione, str) or not registrazione.strip():
+        errori.append(
+            "`candidate_release.commit_di_assurance` assente: e' il commit fino "
+            "a cui la registrazione della release doveva restare dentro "
+            "l'allowlist. Senza, il controllo si riferirebbe a HEAD, che dopo "
+            "un rilascio si muove."
+        )
+    return errori
+
+
+def verifica_release_pubblicata(stato: dict[str, Any]) -> list[str]:
+    """Una release avvenuta si verifica; una nuova si autorizza. Sono due cose.
+
+    Non e' `condizione_candidate_coerente` con qualche controllo saltato: e'
+    un'altra domanda. Quella chiede *possiamo rilasciare?*; questa chiede *cio'
+    che e' stato rilasciato e' ancora quello?*.
+
+    Le quattro verifiche, e nessuna e' facoltativa perche' lo stato dice
+    `pubblicata`:
+
+    1. il **tag** esiste e punta alla revisione qualificata -- un tag spostato
+       farebbe nominare a `v2.0.0` un albero diverso da quello da cui gli
+       artefatti sono usciti;
+    2. la **revisione** e' risolvibile, e la versione del manifesto e' quella
+       con cui la release e' uscita;
+    3. gli **artefatti** portano nome, digest, dimensione e revisione, e quella
+       revisione e' la qualificata -- e' la sola cosa che lega i byte pubblicati
+       a cio' che e' stato misurato;
+    4. l'**evidenza** di quella revisione e' nel repository, e la registrazione
+       che l'ha scritta non e' uscita dall'allowlist.
+
+    Cio' che **non** si pretende e' che HEAD stia fermo. Il movimento di `main`
+    dopo un rilascio non tocca byte gia' pubblicati, e pretenderlo congelerebbe
+    il repository per sempre -- che e' quanto e' successo, e la ragione per cui
+    questo stato esiste.
+    """
+    candidate = stato.get("aperto", {}).get("candidate_release")
+    if not isinstance(candidate, dict):
+        return ["`aperto.candidate_release` assente: non c'e' release da verificare"]
+    if candidate.get("stato") != "pubblicata":
+        return [
+            f"la candidate e' in stato «{candidate.get('stato')}», non "
+            "«pubblicata»: questa verifica riguarda una release avvenuta"
+        ]
+
+    errori: list[str] = []
+    versione = candidate.get("versione_manifesto")
+    dichiarata = candidate.get("revisione_candidate")
+    qualificata = revisione_risolta(dichiarata)
+    if qualificata is None:
+        return [
+            f"la release dichiara la revisione «{dichiarata}», che git non "
+            "risolve a un commit: non c'e' niente da verificare"
+        ]
+    if not isinstance(versione, str) or not versione.strip():
+        return ["`candidate_release.versione_manifesto` assente"]
+
+    errori.extend(_tag_sulla_candidate(candidate, qualificata, versione))
+    errori.extend(_artefatti_fissati(candidate, qualificata, versione))
+
+    evidenza = CARTELLA_DELLE_EVIDENZE_ATTESA(qualificata)
+    if not (ROOT / evidenza).is_file():
+        errori.append(
+            f"«{evidenza}» non c'e': una release pubblicata senza l'evidenza "
+            "della propria qualifica e' un'affermazione"
+        )
+
+    registrazione = candidate.get("commit_di_assurance")
+    fino_a = revisione_risolta(registrazione) if registrazione else None
+    if fino_a is None:
+        errori.append(
+            f"`commit_di_assurance` vale «{registrazione}», che git non risolve"
+        )
+    elif fino_a != qualificata:
+        if not _discende_da(qualificata, fino_a):
+            errori.append(
+                f"il commit di registrazione «{fino_a[:7]}» non discende dalla "
+                f"revisione qualificata «{qualificata[:7]}»"
+            )
+        else:
+            fuori, guasti = cambiamenti_dopo_il_congelamento(qualificata, fino_a)
+            errori.extend(guasti)
+            if fuori:
+                errori.append(
+                    f"fra «{qualificata[:7]}» e la registrazione "
+                    f"«{fino_a[:7]}» sono cambiati file che l'assurance non "
+                    f"produce: {fuori}"
+                )
+    return errori
+
+
+def CARTELLA_DELLE_EVIDENZE_ATTESA(revisione: str) -> str:
+    """Il percorso dell'evidenza di una revisione, per nome corto."""
+    return f"{CARTELLA_DELLE_EVIDENZE}/checkpoint-{revisione[:7]}.json"
 
 
 def _stato_del_manifesto(candidate: dict[str, Any]) -> list[str]:
@@ -2785,6 +2952,8 @@ def _stato_del_manifesto(candidate: dict[str, Any]) -> list[str]:
             f"{list(STATI_DELLA_CANDIDATE)}"
         ]
     motivo = candidate.get("motivo_del_ritiro")
+    if stato == "pubblicata":
+        return _forma_della_pubblicata(candidate, motivo)
     if stato == "attiva":
         if motivo is not None:
             return [
@@ -2888,20 +3057,29 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
         )
 
     # `assurance_entro_l_allowlist` e' la forma leggibile della quarta
-    # condizione: HEAD e' la candidate stessa, oppure la contiene e non ha
-    # toccato altro che cio' che l'assurance produce.
+    # condizione: la revisione di riferimento e' la candidate stessa, oppure la
+    # contiene e non ha toccato altro che cio' che l'assurance produce.
+    #
+    # Il riferimento e' **HEAD** finche' la candidate e' attiva, e il **commit
+    # di registrazione** quando e' pubblicata. La differenza e' la ragione per
+    # cui `pubblicata` esiste: dopo un rilascio HEAD si muove, e riferirsi a lui
+    # renderebbe il campo falso al primo commit di sviluppo -- su una release i
+    # cui byte nessuno ha toccato.
+    fino_a = head
+    if candidate.get("stato") == "pubblicata":
+        fino_a = revisione_risolta(candidate.get("commit_di_assurance"))
     entro = False
-    if congelata is not None and head is not None:
-        if head == congelata:
+    if congelata is not None and fino_a is not None:
+        if fino_a == congelata:
             entro = True
-        elif _discende_da(congelata, head):
-            fuori, guasti = cambiamenti_dopo_il_congelamento(congelata)
+        elif _discende_da(congelata, fino_a):
+            fuori, guasti = cambiamenti_dopo_il_congelamento(congelata, fino_a)
             entro = not fuori and not guasti
     if candidate.get("assurance_entro_l_allowlist") is not entro:
         errori.append(
             f"`candidate_release.assurance_entro_l_allowlist` vale "
-            f"«{candidate.get('assurance_entro_l_allowlist')}»: HEAD e' "
-            f"«{(head or '')[:7]}», la candidate e' congelata su "
+            f"«{candidate.get('assurance_entro_l_allowlist')}»: il "
+            f"riferimento e' «{(fino_a or '')[:7]}», la candidate e' congelata su "
             f"«{(congelata or '')[:7]}», e la diff fra le due "
             f"{'sta' if entro else 'non sta'} dentro l'allowlist "
             "dell'assurance"

@@ -55,7 +55,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, revisione del tag | `a61a0815b000f2856594375a2858c41e32a1fff7` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
+| candidate, release_action consentita | no |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -1185,3 +1185,34 @@ si vuole sapere.
 
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.
+
+## Verso la 3.0.0 — primo passo concordato
+
+Il primo passo è far integrare le modifiche dei tre fork nei rispettivi
+progetti upstream, quindi tornare alle dipendenze ufficiali. La decisione
+è stata confermata dal titolare il 2026-09-07. Il resto del perimetro della
+3.0.0 non è fissato da questa sezione.
+
+Il confronto dei sorgenti upstream del 2026-09-07 dà questo punto di partenza;
+è un censimento statico, non una nuova qualifica:
+
+| Fork locale | Revisione upstream esaminata | Contributi da preparare |
+|---|---|---|
+| `dxf` 0.6.1 | [`ixmilia/dxf-rs`, `main`, `c63c560`](https://github.com/ixmilia/dxf-rs/tree/c63c560c758179b8ff9971ea965b2bc944605545) | separare la protezione dal ciclo senza avanzamento in `BLOCK` dalla lettura progressiva e dall'API `DrawingEntityReader` |
+| `gdal` 0.17.1 | [`georust/gdal`, `master`, `c0a6266`](https://github.com/georust/gdal/tree/c0a6266b987a2c2d44aea9956c2cae1ed71445cf) | proporre separatamente `set_ignored_fields` e le API per leggere e impostare i percorsi di ricerca PROJ |
+| `shapefile` 0.6.0 | [`tmontaigu/shapefile-rs`, `master`, `646ec58`](https://github.com/tmontaigu/shapefile-rs/tree/646ec58298c8757723dedf6cac122d66de9985da) | proporre la scrittura di `NullShape` e completare la validazione delle lunghezze dei record; `checked_mul(2)` è già presente upstream, quindi quella parte non va riproposta |
+
+Ogni contributo va adattato al ramo corrente del progetto originale e
+accompagnato da test di regressione autonomi. Le modifiche locali di packaging
+e le soppressioni di warning non si trasferiscono automaticamente upstream.
+Per i reader si portano anche i casi minimali che hanno motivato le correzioni;
+per DXF si misura inoltre la conservazione del comportamento e della lettura
+progressiva, e per GDAL la rilocabilità dei dati PROJ.
+
+**Criterio di chiusura, per ciascun fork:** modifiche accettate upstream,
+release ufficiale che le contiene, dipendenza e lock aggiornati in IO-tools,
+test dei driver e verifiche pertinenti superati senza la patch locale.
+Solo a quel punto si elimina il relativo `[patch.crates-io]`, la copia in
+`vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
+ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
+upstream dipendono dai manutentori dei progetti originali.

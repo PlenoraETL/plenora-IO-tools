@@ -3463,3 +3463,290 @@ class SondeDelGateDiRilascioSuFixture(unittest.TestCase):
         self.motivi(self.candidate(), tag="altrove")
         dopo = set(gate._git("tag", "--list").splitlines())
         self.assertEqual(dopo, prima, "le fixture hanno toccato i tag")
+
+
+class SondeDellaReleasePubblicata(unittest.TestCase):
+    """Una release avvenuta si verifica; una nuova si autorizza.
+
+    # Lo stato che mancava
+
+    Il vocabolario aveva due parole -- `attiva` e `ritirata` -- e nessuna
+    descrive una release gia' uscita: `ritirata` pretende perfino che nessun tag
+    esista. Finche' la candidate restava `attiva`, la quarta condizione
+    pretendeva che l'albero non si muovesse fuori dall'assurance, e il primo
+    commit di sviluppo dopo il rilascio la rompeva. Il repository era congelato
+    per sempre.
+
+    La 2.0.0 e' la prima release che attraversa questo modello --
+    `current-state.json` non esisteva quando usci' la 1.0.1 -- e il caso non si
+    era mai presentato.
+
+    # Che cosa `pubblicata` **non** e'
+
+    Non e' «salta i controlli». Un tag spostato, un digest che non torna,
+    l'evidenza sparita: ognuna resta rossa. Cio' che cambia e' la domanda --
+    non *possiamo rilasciare?* ma *cio' che e' stato rilasciato e' ancora
+    quello?* -- e il riferimento della diff, che diventa il commit in cui la
+    registrazione si e' chiusa invece di un HEAD che continua a muoversi.
+    """
+
+    QUALIFICATA = "c" * 40
+    REGISTRAZIONE = "d" * 40
+    DOPO = "e" * 40
+    VERSIONE = "2.0.0"
+
+    def artefatti(self, revisione=None) -> list:
+        revisione = revisione or self.QUALIFICATA
+        return [
+            {
+                "nome": nome,
+                "sha256": f"{indice + 32:02x}" * 32,
+                "dimensione": 2048 + indice,
+                "revisione": revisione,
+            }
+            for indice, nome in enumerate(gate.artefatti_attesi(self.VERSIONE))
+        ]
+
+    def candidate(self, **cambi) -> dict:
+        voce = {
+            "versione_manifesto": self.VERSIONE,
+            "revisione_candidate": self.QUALIFICATA,
+            "commit_di_assurance": self.REGISTRAZIONE,
+            "artefatti": self.artefatti(),
+            "release_action_allowed": False,
+            "tag_creato": True,
+            "stato": "pubblicata",
+        }
+        voce.update(cambi)
+        return voce
+
+    def verifica(self, candidate: dict, tag="qualificata", evidenza=True,
+                 diff_pulita=True) -> list[str]:
+        """Esegue la verifica su git e filesystem costruiti.
+
+        `diff_pulita` decide che cosa sia cambiato fra la revisione qualificata
+        e il commito di registrazione: nulla di fuori allowlist, oppure un file
+        di `scripts/`.
+        """
+        tabella = {
+            self.QUALIFICATA: self.QUALIFICATA,
+            self.REGISTRAZIONE: self.REGISTRAZIONE,
+            self.DOPO: self.DOPO,
+            "HEAD": self.DOPO,
+        }
+        if tag == "qualificata":
+            tabella[f"v{self.VERSIONE}"] = self.QUALIFICATA
+        elif tag == "altrove":
+            tabella[f"v{self.VERSIONE}"] = self.DOPO
+
+        fuori = [] if diff_pulita else ["scripts/check_release_contract.py"]
+        stato = {"aperto": {"candidate_release": candidate}}
+        with mock.patch.object(
+            gate, "revisione_risolta", side_effect=lambda r: tabella.get(r)
+        ), mock.patch.object(
+            gate, "_discende_da", return_value=True
+        ), mock.patch.object(
+            gate, "cambiamenti_dopo_il_congelamento", return_value=(fuori, [])
+        ), mock.patch.object(
+            gate.Path, "is_file", lambda self: evidenza
+        ):
+            return gate.verifica_release_pubblicata(stato)
+
+    # --- la controprova positiva ------------------------------------------
+
+    def test_una_release_pubblicata_e_verificata(self) -> None:
+        """Tag sulla qualificata, artefatti coi digest, evidenza, diff pulita."""
+        self.assertEqual(self.verifica(self.candidate()), [])
+
+    def test_lo_sviluppo_dopo_la_pubblicazione_e_consentito(self) -> None:
+        """Il movimento di `main` non tocca byte gia' pubblicati.
+
+        E' la ragione per cui questo stato esiste. La diff che conta e' quella
+        fino al **commit di registrazione**; che HEAD sia andato avanti, e con
+        commit fuori dall'allowlist, non riguarda una release gia' uscita.
+        """
+        stato = {"aperto": {"candidate_release": self.candidate()}}
+        tabella = {
+            self.QUALIFICATA: self.QUALIFICATA,
+            self.REGISTRAZIONE: self.REGISTRAZIONE,
+            f"v{self.VERSIONE}": self.QUALIFICATA,
+            "HEAD": self.DOPO,
+        }
+
+        def diff(congelata, fino_a="HEAD"):
+            # Fino alla registrazione: pulita. Fino a HEAD: sporca di codice.
+            return ([], []) if fino_a == self.REGISTRAZIONE else (
+                ["crates/driver-shp/src/lib.rs"], []
+            )
+
+        with mock.patch.object(
+            gate, "revisione_risolta", side_effect=lambda r: tabella.get(r)
+        ), mock.patch.object(
+            gate, "_discende_da", return_value=True
+        ), mock.patch.object(
+            gate, "cambiamenti_dopo_il_congelamento", side_effect=diff
+        ), mock.patch.object(
+            gate.Path, "is_file", lambda self: True
+        ):
+            self.assertEqual(gate.verifica_release_pubblicata(stato), [])
+
+    # --- cio' che resta rifiutato -----------------------------------------
+
+    def test_un_tag_spostato_e_rifiutato(self) -> None:
+        """`pubblicata` non vuol dire «non guardare il tag»."""
+        motivi = self.verifica(self.candidate(), tag="altrove")
+        self.assertTrue(any("punta a" in m for m in motivi), motivi)
+
+    def test_un_tag_sparito_e_rifiutato(self) -> None:
+        motivi = self.verifica(self.candidate(), tag=None)
+        self.assertTrue(any("non esiste" in m for m in motivi), motivi)
+
+    def test_un_digest_discordante_e_rifiutato(self) -> None:
+        """Il digest lega i byte pubblicati a cio' che e' stato misurato."""
+        storti = self.artefatti()
+        storti[0]["sha256"] = "non-e-un-digest"
+        motivi = self.verifica(self.candidate(artefatti=storti))
+        self.assertTrue(any("sha256" in m for m in motivi), motivi)
+
+    def test_un_artefatto_mancante_e_rifiutato(self) -> None:
+        restanti = self.artefatti()[:-1]
+        motivi = self.verifica(self.candidate(artefatti=restanti))
+        self.assertTrue(any("non e' fra gli artefatti" in m for m in motivi), motivi)
+
+    def test_l_evidenza_mancante_e_rifiutata(self) -> None:
+        """Una release senza l'evidenza della propria qualifica e' un'affermazione."""
+        motivi = self.verifica(self.candidate(), evidenza=False)
+        self.assertTrue(any("evidenza" in m or "non c'e'" in m for m in motivi), motivi)
+
+    def test_una_registrazione_fuori_allowlist_e_rifiutata(self) -> None:
+        """Fra la revisione qualificata e la registrazione vale ancora la regola."""
+        motivi = self.verifica(self.candidate(), diff_pulita=False)
+        self.assertTrue(
+            any("l'assurance non produce" in m for m in motivi), motivi
+        )
+
+    def test_una_revisione_irrisolvibile_e_rifiutata(self) -> None:
+        motivi = self.verifica(self.candidate(revisione_candidate="z" * 40))
+        self.assertTrue(any("non risolve" in m for m in motivi), motivi)
+
+    # --- la forma del manifesto -------------------------------------------
+
+    def test_una_pubblicata_senza_tag_e_rossa(self) -> None:
+        motivi = gate._stato_del_manifesto(self.candidate(tag_creato=False))
+        self.assertTrue(any("tag_creato" in m for m in motivi), motivi)
+
+    def test_una_pubblicata_che_permette_ancora_e_rossa(self) -> None:
+        """Il permesso autorizzava **quella** pubblicazione, ed e' stato speso."""
+        motivi = gate._stato_del_manifesto(
+            self.candidate(release_action_allowed=True)
+        )
+        self.assertTrue(any("release_action_allowed" in m for m in motivi), motivi)
+
+    def test_una_pubblicata_senza_registrazione_e_rossa(self) -> None:
+        candidate = self.candidate()
+        del candidate["commit_di_assurance"]
+        motivi = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("commit_di_assurance" in m for m in motivi), motivi)
+
+    def test_una_pubblicata_con_un_motivo_di_ritiro_e_rossa(self) -> None:
+        """Non e' stata ritirata: e' stata rilasciata."""
+        motivi = gate._stato_del_manifesto(
+            self.candidate(motivo_del_ritiro="qualcosa")
+        )
+        self.assertTrue(any("motivo_del_ritiro" in m for m in motivi), motivi)
+
+    def test_una_pubblicata_e_una_forma_valida(self) -> None:
+        """La controprova: senza, «sempre rossa» sarebbe una difesa."""
+        self.assertEqual(gate._stato_del_manifesto(self.candidate()), [])
+
+    # --- e non autorizza la successiva -------------------------------------
+
+    def test_una_pubblicata_non_autorizza_una_nuova_release(self) -> None:
+        """L'autorizzazione della 2.0.0 e' un fatto storico.
+
+        `condizione_candidate_coerente` e' la domanda *possiamo rilasciare?*, e
+        su una candidate gia' pubblicata la risposta e' no: una release nuova
+        vuole una candidate nuova. Senza questo rifiuto, il permesso speso per
+        la 2.0.0 varrebbe per la 3.0.0.
+        """
+        stato = {"aperto": {"candidate_release": self.candidate()}}
+        with mock.patch.object(
+            gate, "_stato_corrente", return_value=(stato, [])
+        ), mock.patch.object(
+            gate, "versione_workspace", return_value=self.VERSIONE
+        ), mock.patch.object(
+            gate, "revisione_risolta", side_effect=lambda r: {
+                self.QUALIFICATA: self.QUALIFICATA,
+                f"v{self.VERSIONE}": self.QUALIFICATA,
+                "HEAD": self.QUALIFICATA,
+            }.get(r)
+        ):
+            motivi = gate.condizione_candidate_coerente({})
+        self.assertTrue(
+            any("gia' **pubblicata**" in m for m in motivi), motivi
+        )
+
+
+class SondeDelCongelamentoAncoraAttivo(unittest.TestCase):
+    """Con una candidate **attiva**, la regola dell'allowlist vale ancora.
+
+    Introdurre `pubblicata` poteva allentare il congelamento anche dove serve.
+    Qui si verifica che non sia successo: finche' si sta rilasciando, un file di
+    `scripts/` cambiato dopo la revisione congelata resta un rifiuto.
+    """
+
+    CONGELATA = "a" * 40
+    HEAD = "b" * 40
+    VERSIONE = "2.0.0"
+
+    def candidate(self, **cambi) -> dict:
+        voce = {
+            "versione_manifesto": self.VERSIONE,
+            "revisione_candidate": self.CONGELATA,
+            "artefatti": [
+                {
+                    "nome": nome,
+                    "sha256": f"{indice:02x}" * 32,
+                    "dimensione": 1024 + indice,
+                    "revisione": self.CONGELATA,
+                }
+                for indice, nome in enumerate(gate.artefatti_attesi(self.VERSIONE))
+            ],
+            "release_action_allowed": True,
+            "tag_creato": False,
+            "stato": "attiva",
+        }
+        voce.update(cambi)
+        return voce
+
+    def motivi(self, fuori: list[str]) -> list[str]:
+        tabella = {
+            self.CONGELATA: self.CONGELATA,
+            self.HEAD: self.HEAD,
+            "HEAD": self.HEAD,
+            f"v{self.VERSIONE}": self.CONGELATA,
+        }
+        stato = {"aperto": {"candidate_release": self.candidate()}}
+        with mock.patch.object(
+            gate, "_stato_corrente", return_value=(stato, [])
+        ), mock.patch.object(
+            gate, "versione_workspace", return_value=self.VERSIONE
+        ), mock.patch.object(
+            gate, "revisione_risolta", side_effect=lambda r: tabella.get(r)
+        ), mock.patch.object(
+            gate, "_discende_da", return_value=True
+        ), mock.patch.object(
+            gate, "cambiamenti_dopo_il_congelamento", return_value=(fuori, [])
+        ):
+            return gate.condizione_candidate_coerente({})
+
+    def test_una_modifica_fuori_allowlist_e_ancora_rifiutata(self) -> None:
+        """La difesa che `pubblicata` non deve avere indebolito."""
+        motivi = self.motivi(["scripts/check_release_contract.py"])
+        self.assertTrue(
+            any("l'assurance non produce" in m for m in motivi), motivi
+        )
+
+    def test_una_diff_di_sola_assurance_e_accettata(self) -> None:
+        """L'altro verso: l'assurance **deve** poter avanzare."""
+        self.assertEqual(self.motivi([]), [])

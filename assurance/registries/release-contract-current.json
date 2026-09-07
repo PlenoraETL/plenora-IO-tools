@@ -392,10 +392,10 @@
     {
       "id": "release.candidate-non-valida-per-head",
       "superficie": "manifesto della candidate di release",
-      "invariante": "Versione, sei artefatti e tag v2.0.0 sono coerenti con la candidate congelata a61a081; HEAD discende dalla candidate e modifica soltanto i percorsi di assurance ammessi.",
+      "invariante": "Versione, sei artefatti e tag v2.0.0 sono coerenti con la candidate congelata a61a081; HEAD discende dalla candidate e modifica soltanto i percorsi di assurance ammessi. Con la release avvenuta, l'invariante non chiede piu' *possiamo rilasciare?* ma *cio' che e' stato rilasciato e' ancora quello?*: il tag punta alla revisione qualificata, gli artefatti portano i propri digest, l'evidenza c'e', e la registrazione non e' uscita dall'allowlist.",
       "prova": {
         "tipo": "interna",
-        "funzione": "condizione_candidate_coerente",
+        "funzione": "verifica_release_pubblicata",
         "artefatto": "assurance/current-state.json"
       },
       "stato": "verified",
