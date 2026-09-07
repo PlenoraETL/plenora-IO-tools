@@ -587,6 +587,58 @@ mod tests {
         }
     }
 
+    /// Il batch del **dizionario** con una bitmap piu' corta della lunghezza
+    /// dichiarata e' rifiutato prima di arrow.
+    ///
+    /// # Il buco
+    ///
+    /// La prevalidazione guardava il messaggio del dizionario solo con
+    /// `valida_buffer`, che verifica che ogni buffer stia dentro il corpo.
+    /// Nessuno accoppiava la lunghezza del nodo alla bitmap di validita', e
+    /// quel controllo e' proprio cio' che impedisce l'assert di
+    /// `BooleanBuffer::new`. Il record batch lo aveva; il dizionario no.
+    ///
+    /// Il caso dichiara un nodo lungo 4 278 190 083 con **un byte** di bitmap:
+    ///
+    /// ```text
+    /// arrow-buffer/src/buffer/boolean.rs:128:
+    /// buffer not large enough (bit_offset: 0, bit_len: 4278190083, buffer_len: 1)
+    /// ```
+    ///
+    /// # Da dove viene, e che cosa non e'
+    ///
+    /// Dalla campagna fuzz della CI su `ipc_reader`, il 2026-09-07, corsa
+    /// [34145597421][corsa]. **Non** e' una regressione dell'aggiornamento ad
+    /// arrow 59.3.0: lo stesso file panica identico contro la 59.1.0 -- provato
+    /// costruendo il binario alla revisione `3681d26` -- e l'`assert!` sta alla
+    /// stessa riga in entrambe le versioni. Era una lacuna nostra, che la
+    /// campagna ha raggiunto ora. Il seme a dizionario aggiunto poche ore prima
+    /// col salto ad arrow 59.3.0 ha probabilmente aiutato il fuzzer ad
+    /// arrivarci: e' cio' per cui i semi si aggiungono.
+    ///
+    /// [corsa]: https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/34145597421
+    #[test]
+    fn un_dizionario_con_la_bitmap_corta_e_rifiutato_prima_di_arrow() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/dizionario-bitmap-corta.arrow");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let Err(errore) = IpcDriver.open(Source::Path(seme), opzioni_lettura()) else {
+            panic!("un dizionario con la bitmap corta non deve aprirsi")
+        };
+        let testo = errore.to_string();
+        assert!(
+            !testo.contains("in panico"),
+            "il rifiuto deve precedere arrow, non seguirne il panico: {testo}"
+        );
+        assert!(
+            testo.contains("bitmap di validita'"),
+            "l'errore deve dire che cosa non torna, e dice «{testo}»"
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
     /// Una colonna a **dizionario** si rilegge con i valori giusti.
     ///
     /// # Perche' questo test esiste

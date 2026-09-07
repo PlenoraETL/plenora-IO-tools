@@ -384,6 +384,14 @@ fn valida_blocco(
                 return Err(errore(driver, "corpo Arrow compresso non verificabile"));
             }
             valida_buffer(driver, batch, lunghezza_corpo)?;
+            valida_batch_del_dizionario(
+                driver,
+                schema,
+                dizionario.id(),
+                batch,
+                versione_v4,
+                lunghezza_corpo,
+            )?;
         }
     }
     Ok(())
@@ -461,10 +469,25 @@ enum Layout {
 
 impl Layout {
     /// Deriva il layout dal tipo dichiarato nel `FlatBuffer`.
+    ///
+    /// Per un campo a dizionario e' il layout degli **indici**: nel record
+    /// batch quel campo porta gli indici, e i valori arrivano per conto loro
+    /// nel messaggio del dizionario. Per quelli serve [`Self::per_valore`].
     fn per_campo(campo: &FbField<'_>) -> Option<Self> {
         if campo.dictionary().is_some() {
             return Some(Self::Dizionario);
         }
+        Self::per_valore(campo)
+    }
+
+    /// Il layout del **valore**, cioe' del tipo dichiarato ignorando il
+    /// dizionario.
+    ///
+    /// E' quello che il messaggio del dizionario porta davvero: se un campo e'
+    /// `Dictionary(Int8, Utf8)`, il record batch porta `Int8` e il messaggio
+    /// del dizionario porta `Utf8`. Guardare il primo mentre si valida il
+    /// secondo consumerebbe i buffer sbagliati.
+    fn per_valore(campo: &FbField<'_>) -> Option<Self> {
         Some(match campo.type_type() {
             Type::Null => Self::Nulla,
             Type::Utf8 | Type::Binary => Self::Binaria { larghezza: 4 },
@@ -518,6 +541,102 @@ struct Cursori {
     buffer: usize,
     variadico: usize,
     profondita: usize,
+}
+
+/// Il messaggio del dizionario porta un batch, e va guardato come gli altri.
+///
+/// # Il buco che questo chiude
+///
+/// Fino al 2026-09-07 il batch del dizionario passava soltanto da
+/// [`valida_buffer`], che verifica che ogni buffer stia dentro il corpo. Nessuno
+/// accoppiava la **lunghezza dichiarata dal nodo** alla bitmap di validita', e
+/// quel controllo -- [`verifica_validita`] -- e' esattamente cio' che impedisce
+/// l'assert di `BooleanBuffer::new`.
+///
+/// Un file che dichiara nel dizionario un nodo lungo 4 278 190 083 con un byte
+/// di bitmap passava di qui e faceva panicare `arrow`:
+///
+/// ```text
+/// arrow-buffer/src/buffer/boolean.rs:128:
+/// buffer not large enough (bit_offset: 0, bit_len: 4278190083, buffer_len: 1)
+/// ```
+///
+/// Trovato dalla campagna fuzz della CI su `ipc_reader`, il 2026-09-07.
+/// **Non** e' una regressione dell'aggiornamento ad arrow 59.3.0: lo stesso
+/// input panica identico contro la 59.1.0, e le due versioni hanno lo stesso
+/// `assert!` alla stessa riga. Era una lacuna nostra che la campagna ha
+/// raggiunto ora.
+///
+/// # Perche' il layout del valore e non quello del campo
+///
+/// Un campo `Dictionary(Int8, Utf8)` porta `Int8` nel record batch e `Utf8`
+/// qui. `Layout::per_campo` restituisce il primo -- ed e' giusto la' --
+/// mentre qui serve [`Layout::per_valore`]: consumare i buffer degli indici
+/// mentre si guardano quelli dei valori sposterebbe ogni controllo successivo.
+///
+/// # Quando il campo non si trova
+///
+/// Un messaggio di dizionario con un `id` che nessun campo dichiara e' un file
+/// malformato, e viene rifiutato. Non e' piu' severo di `arrow`: il suo
+/// `read_dictionary` cerca lo stesso campo e senza di quello non sa nemmeno di
+/// che tipo siano i valori.
+fn valida_batch_del_dizionario(
+    driver: &'static str,
+    schema: FbSchema<'_>,
+    id: i64,
+    batch: arrow_ipc::RecordBatch<'_>,
+    versione_v4: bool,
+    lunghezza_corpo: u64,
+) -> Result<()> {
+    let campi = schema
+        .fields()
+        .ok_or_else(|| errore(driver, "schema Arrow senza vettore dei campi"))?;
+    let dichiarante = (0..campi.len())
+        .find_map(|indice| trova_campo_del_dizionario(campi.get(indice), id, 0))
+        .ok_or_else(|| {
+            errore(
+                driver,
+                "messaggio di dizionario Arrow con un id che nessun campo dichiara",
+            )
+        })?;
+    let layout = Layout::per_valore(&dichiarante)
+        .ok_or_else(|| errore(driver, "campo Arrow con tipo non decodificabile"))?;
+    let mut cursori = Cursori {
+        nodo: 0,
+        buffer: 0,
+        variadico: 0,
+        profondita: 0,
+    };
+    valida_campo_con_layout(
+        driver,
+        dichiarante,
+        layout,
+        batch,
+        versione_v4,
+        lunghezza_corpo,
+        &mut cursori,
+    )
+}
+
+/// Cerca in questo campo, e sotto, quello che dichiara questo `id`.
+///
+/// La ricorsione ha lo stesso tetto di profondita' della passeggiata: uno
+/// schema che si annida oltre non e' un albero da percorrere piu' a fondo, e
+/// senza tetto un file ostile potrebbe farci scendere finche' lo stack tiene.
+fn trova_campo_del_dizionario(
+    campo: FbField<'_>,
+    id: i64,
+    profondita: usize,
+) -> Option<FbField<'_>> {
+    if campo.dictionary().is_some_and(|d| d.id() == id) {
+        return Some(campo);
+    }
+    if profondita > MAX_PROFONDITA {
+        return None;
+    }
+    let figli = campo.children()?;
+    (0..figli.len())
+        .find_map(|indice| trova_campo_del_dizionario(figli.get(indice), id, profondita + 1))
 }
 
 /// Verifica un batch: la passeggiata sullo schema consuma nodi e buffer nello
@@ -578,11 +697,36 @@ fn valida_campo_del_batch(
     lunghezza_corpo: u64,
     cursori: &mut Cursori,
 ) -> Result<()> {
+    let layout = Layout::per_campo(&campo)
+        .ok_or_else(|| errore(driver, "campo Arrow con tipo non decodificabile"))?;
+    valida_campo_con_layout(
+        driver,
+        campo,
+        layout,
+        batch,
+        versione_v4,
+        lunghezza_corpo,
+        cursori,
+    )
+}
+
+/// Come sopra, ma col layout gia' scelto da chi chiama.
+///
+/// Serve al messaggio del dizionario, che porta i **valori** di un campo il cui
+/// layout ordinario e' quello degli indici.
+#[allow(clippy::too_many_arguments)]
+fn valida_campo_con_layout(
+    driver: &'static str,
+    campo: FbField<'_>,
+    layout: Layout,
+    batch: arrow_ipc::RecordBatch<'_>,
+    versione_v4: bool,
+    lunghezza_corpo: u64,
+    cursori: &mut Cursori,
+) -> Result<()> {
     if cursori.profondita > MAX_PROFONDITA {
         return Err(errore(driver, "schema Arrow annidato oltre il tetto"));
     }
-    let layout = Layout::per_campo(&campo)
-        .ok_or_else(|| errore(driver, "campo Arrow con tipo non decodificabile"))?;
 
     // Le viste consumano i buffer **prima** del nodo: e' l'ordine del decoder,
     // e invertirlo sposterebbe ogni controllo successivo di una posizione.
