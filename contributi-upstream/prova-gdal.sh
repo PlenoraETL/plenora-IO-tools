@@ -11,9 +11,7 @@
 set -u
 QUI="$(cd "$(dirname "$0")" && pwd)"
 export CARGO_TARGET_DIR=/tmp/gdal-target
-export LIBCLANG_PATH="${LIBCLANG_PATH:-/usr/lib/llvm-14/lib}"
-
-echo "ambiente: GDAL $(gdal-config --version 2>/dev/null || echo '?'), libclang in $LIBCLANG_PATH"
+echo "ambiente: GDAL $(gdal-config --version 2>/dev/null || echo '?'), rustc $(rustc --version | cut -d' ' -f2)"
 
 BASE=/tmp/gdal-master
 rm -rf "$BASE"
@@ -32,9 +30,9 @@ fi
 
 echo
 echo "########## 2. compila"
-(cd "$BASE" && cargo check -p gdal --features bindgen 2>&1 \
+(cd "$BASE" && cargo check -p gdal 2>&1 \
   | sed 's/\x1b\[[0-9;]*m//g' | grep -E "^(error|warning: unused)" | head -12 | sed 's/^/    /')
-(cd "$BASE" && cargo check -p gdal --features bindgen >/dev/null 2>&1)
+(cd "$BASE" && cargo check -p gdal >/dev/null 2>&1)
 echo "    check_exit=$?"
 
 echo
@@ -54,9 +52,9 @@ fn main() {
     println!("OK: set/get dei percorsi di PROJ");
 }
 RUST
-(cd "$BASE" && cargo run -q --features bindgen --example prova_api 2>&1 | tail -4 | sed 's/^/    /')
+(cd "$BASE" && cargo run -q --example prova_api 2>&1 | tail -4 | sed 's/^/    /')
 
 echo
 echo "########## 4. i test del crate"
-(cd "$BASE" && cargo test -q -p gdal --features bindgen 2>&1 \
+(cd "$BASE" && cargo test -q -p gdal 2>&1 \
   | grep -E "^test result|^error|FAILED" | head -6 | sed 's/^/    /')

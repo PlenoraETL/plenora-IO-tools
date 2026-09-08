@@ -1302,7 +1302,19 @@
         "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
         "issue": "https://github.com/apache/arrow-rs/issues/11019",
         "pr": "https://github.com/apache/arrow-rs/pull/11020",
-        "nota": "il loro CONTRIBUTING chiede di legare il PR a un ticket: issue aperto per primo, e il PR lo chiude."
+        "nota": "il loro CONTRIBUTING chiede di legare il PR a un ticket: issue aperto per primo, e il PR lo chiude.",
+        "riscontro_ricevuto": {
+          "da": "Jefffrey, il 2026-09-08, cinque rilievi",
+          "che_cosa_chiedeva": [
+            "togliere i commenti esplicativi -- «these LLM comments are really not necessary»",
+            "togliere il commento di dottrina sul test",
+            "rinominare il test alla loro convenzione, `test_invalid_dictionary_batch_without_data`",
+            "spostarlo sotto gli import",
+            "costruire il dato di prova **in memoria** invece di committare un file"
+          ],
+          "fatto": "tutti e cinque. Il test ora costruisce il `DictionaryBatch` malformato con `FlatBufferBuilder` e chiama `read_dictionary` direttamente, sul modello di `test_missing_buffer_metadata_error`: niente file, niente byte da rattoppare. La PR tocca ora il solo `arrow-ipc/src/reader.rs`.",
+          "un_errore_mio_da_registrare": "il primo tentativo di riscontro ha cancellato, insieme al mio blocco, gli **import del modulo di test**: 636 errori di compilazione, e li ho spinti perche' lo script non si fermava sui test rossi. Ricostruito il ramo da `main` e rifatto con uno script che si ferma prima di spingere se test o clippy non passano. La lezione e' quella: uno script che spinge deve avere il cancello prima del push, non dopo."
+        }
       }
     ],
     "da_preparare": [
@@ -1314,11 +1326,20 @@
         "la_premessa_riletta": "le due modifiche non aggiungono FFI: le funzioni C **sono gia' legate** in `gdal-sys`. `OGR_L_SetIgnoredFields` e `OSRSetPROJSearchPaths` compaiono nei binding pre-generati di ogni versione, dalla 3_8 alla 3_13. Quello che manca e' il **wrapper sicuro** nel crate `gdal`, che e' esattamente cio' per cui quel crate esiste. Detta cosi' la proposta e' piu' piccola e piu' facile da accettare di come l'aveva descritta il censimento.",
         "attenzione_al_metodo": "cercare i due nomi in `layer.rs` e in `srs.rs` non ne trova nessuno, e da soli quei due file avrebbero fatto concludere «assenti dal progetto». La ricerca sul repository intero li trova in `gdal-sys/prebuilt-bindings`. E' la stessa regola gia' imparata due volte: l'assenza da un file non e' l'assenza dal progetto.",
         "da_fare": "portare i due wrapper del nostro fork su `master`, con la prova nello stile del progetto. Serve un ambiente con libgdal e gli header, che il container di sviluppo ha.",
-        "stato": "**preparato, non compilato qui.** La patch si applica su un albero pulito di `master`; la verifica di compilazione manca.",
+        "stato": "**compilato e provato** il 2026-09-08. Non ancora proposto: l'invio non e' fra i quattro autorizzati.",
         "che_cosa_contiene": "i due wrapper sicuri portati dal nostro fork: `set_ignored_fields` come metodo del tratto `LayerAccess`, accanto a `clear_attribute_filter`; `set_proj_search_paths` e `get_proj_search_paths` in fondo a `srs.rs`, riesportati da `spatial_ref/mod.rs`. Novantadue righe di diff, nessuna FFI nuova.",
         "perche_non_compilata": "il container di sviluppo ha **GDAL 3.6.2**, e il `build.rs` di `gdal` master si ferma da se': «The GDAL crate requires a GDAL version >= 3.8.0». Non e' un difetto della patch, e' il nostro ambiente. Nemmeno la feature `bindgen` aggira il controllo, perche' il rifiuto sta nel build script del crate `gdal`, non in `gdal-sys`.",
         "come_si_verifica": "serve un ambiente con GDAL 3.8 o successiva. Il job `gdal-linux-matrix (ubuntu-24.04)` della nostra CI ne ha uno; in alternativa un container costruito su `ubuntu:24.04`. Lo script `contributi-upstream/prova-gdal.sh` fa gia' il giro completo -- applica, compila, esercita le due API, esegue i test -- e basta eseguirlo dove GDAL e' abbastanza recente.",
-        "che_cosa_e_gia_evidenza": "i due wrapper sono compilati e usati ogni giorno nel nostro fork contro GDAL 3.9.3, e `tests/radici_di_proj.rs` esercita i percorsi di PROJ. E' evidenza che il codice funziona, **non** che compili contro l'API di `master`: sono due cose diverse e non vanno confuse."
+        "che_cosa_e_gia_evidenza": "i due wrapper sono compilati e usati ogni giorno nel nostro fork contro GDAL 3.9.3, e `tests/radici_di_proj.rs` esercita i percorsi di PROJ. E' evidenza che il codice funziona, **non** che compili contro l'API di `master`: sono due cose diverse e non vanno confuse.",
+        "ambiente": "costruita l'immagine `plenora-gdal-38` da `contributi-upstream/Dockerfile.gdal-38`: `ubuntu:24.04`, che porta **GDAL 3.8.4**, con la nostra toolchain fissata a 1.98.1. Serviva perche' il container di sviluppo ha la 3.6.2 e il `build.rs` del crate `gdal` si ferma sotto la 3.8. Niente `bindgen`: dalla 3_8 alla 3_13 i binding sono pre-generati, che e' la stessa ragione per cui il nostro contratto di distribuzione li preferisce.",
+        "esito": {
+          "la patch si applica": "su un albero pulito di `master`",
+          "compila": "`cargo check -p gdal` esce 0 contro GDAL 3.8.4",
+          "le api rispondono": "un esempio le esercita davvero: `get_proj_search_paths()` riporta i default -- `/root/.local/share/proj`, `/usr/share/proj` -- `set_proj_search_paths()` li sostituisce, e la rilettura torna esattamente i due percorsi impostati.",
+          "i test del crate": "279 + 1 + 1 + 57, tutti verdi"
+        },
+        "una_correzione_trovata_compilando": "la prima stesura non compilava: `get_proj_search_paths` usa `_string_array`, che upstream **ha** in `utils.rs` ma non importa in `srs.rs`. Il nostro fork lo importava gia', quindi il difetto si vedeva solo contro l'albero di upstream. E' esattamente la ragione per cui «la patch si applica» e «le prove girano sul nostro fork» non bastavano a dichiararlo pronto.",
+        "che_cosa_manca_ancora": "una prova per `set_ignored_fields` dentro il patch: compila ed e' usata ogni giorno dal nostro `driver-filegdb`, ma nel contributo non c'e' un test che la eserciti. Serve una fixture vettoriale e le loro convenzioni di test. Da fare prima di aprire la PR, non dopo."
       },
       "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
       "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."

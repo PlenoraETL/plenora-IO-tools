@@ -37,6 +37,15 @@
      /// Extended options are available via [`crate::cpl::CslStringList`].
 --- a/src/spatial_ref/srs.rs
 +++ b/src/spatial_ref/srs.rs
+@@ -7,7 +7,7 @@
+ use gdal_sys::{OGRErr, OSRAxisMappingStrategy};
+ 
+ use crate::errors::*;
+-use crate::utils::{_last_null_pointer_err, _string};
++use crate::utils::{_last_null_pointer_err, _string, _string_array};
+ 
+ /// A OpenGIS Spatial Reference System definition.
+ ///
 @@ -972,3 +972,42 @@
          );
      }

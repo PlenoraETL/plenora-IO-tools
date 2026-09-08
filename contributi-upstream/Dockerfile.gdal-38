@@ -1,0 +1,16 @@
+# Ambiente per provare i contributi a `georust/gdal`.
+#
+# Il container di sviluppo ha GDAL 3.6.2, e il `build.rs` del crate `gdal` si
+# ferma sotto la 3.8: «The GDAL crate requires a GDAL version >= 3.8.0».
+# Ubuntu 24.04 ne porta una che va bene.
+FROM ubuntu:24.04
+ARG PLENORA_RUST_STABLE=1.98.1
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+        libgdal-dev gdal-bin build-essential pkg-config curl ca-certificates git \
+        clang libclang-dev python3 patch \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --no-modify-path --profile minimal --default-toolchain ${PLENORA_RUST_STABLE}
+ENV PATH=/root/.cargo/bin:$PATH
+RUN rustup component add clippy rustfmt && rustc --version && gdal-config --version
