@@ -1188,6 +1188,20 @@
           "conseguenza": "l'aggiornamento resta da fare ed e' suo un intervento a se': va deciso e verificato che cosa succede ai file non UTF-8 -- se rifiutarli sia il comportamento che vogliamo, o se serva `DecodingReader` -- e la decisione va presa guardando il contratto del driver, non il compilatore. Non e' un aggiornamento da infilare in coda a un altro.",
           "msrv_ed_edizione": "la 0.42.0 sale a `rust-version = 1.86` ed edizione 2024. Nessun problema: la nostra MSRV e' 1.98.1 e il pavimento del grafo era gia' 1.88.",
           "stato": "**valutato, non eseguito.** Il pin e' stato riportato a `=0.41.0` e l'albero e' pulito."
+        },
+        "contratto_delle_codifiche": {
+          "misurato_il": "2026-09-08",
+          "che_cosa_accetta_oggi": [
+            "UTF-8, con o senza caratteri non ASCII: **letto**, valore conservato",
+            "ISO-8859-1 dichiarata e reale: **letto**, e il valore si conserva -- `citta` con l'accento torna indietro giusto",
+            "una dichiarazione che mente su byte validi in entrambe le letture: letto",
+            "UTF-16LE: **rifiutato**, «nome di elemento XML non valido»"
+          ],
+          "da_dove_viene_il_supporto": "dalla feature `encoding` di `quick-xml`, che legge la dichiarazione XML e transcodifica con `encoding_rs`. Non era dichiarata da noi.",
+          "il_difetto_trovato_per_strada": "il supporto **dipendeva da quali altri crate stavano nello stesso build**. `driver-kml` non chiedeva la feature: la accendeva `calamine`, che entra dal driver XLSX. Nel workspace intero il latin-1 si legge; con `cargo test -p driver-kml` la feature non c'e' e lo stesso file torna con il byte non decodificato. Il binario spedito e i test di quel crate dicevano cose diverse sullo stesso ingresso, e nessuno se ne era accorto.",
+          "come_l_ho_scoperto": "la regressione nuova falliva in `-p driver-kml` e passava dalla CLI, sugli stessi byte. Due misure in disaccordo sono un fatto da spiegare, non un test da aggiustare.",
+          "correzione": "`quick-xml = { version = \"=0.41.0\", features = [\"encoding\"] }` nel manifesto del workspace: dichiariamo cio' che usiamo. `Cargo.lock` non si muove -- `encoding_rs` era gia' nel grafo -- e le cinque misure del fuzzing non cadono.",
+          "conseguenza_per_l_aggiornamento": "ora il contratto e' fissato da un test, e l'aggiornamento a `quick-xml 0.42.0` ha un metro. La 0.42 toglie la decodifica dal lettore e la sposta in un `DecodingReader` esplicito: per **preservare** gli ingressi supportati va adottato quello. Aggiornare senza adottarlo restringerebbe il supporto, e una restrizione va proposta prima di introdurla, non scoperta dopo."
         }
       }
     }
@@ -1215,7 +1229,10 @@
         "la_correzione": "se il giro non ha prodotto entita' e la coppia successiva e' la stessa da cui si e' partiti, la lettura non avanza e va fermata. **Non nomina `ENDSEC`**: pretende un avanzamento, perche' fermarsi sulla sola coppia che oggi si comporta cosi' lascerebbe aperta la porta alla prossima.",
         "una_cosa_misurata_e_non_dedotta": "la prima stesura usava `CodePair::offset` per accorgersi del non avanzamento, che sarebbe stato piu' economico. Ma `CodePair::new_str` costruisce con `offset: 0`, quindi tutte le coppie dei **loro** helper di test hanno lo stesso offset e la guardia sarebbe scattata a vuoto sui loro test. Il confronto e' sul valore.",
         "nota_sulla_prova": "la prova e' che la chiamata **ritorni**; l'assert sull'esito viene dopo. Se il difetto tornasse il test non fallirebbe: resterebbe appeso, e il loro CI andrebbe in timeout invece che in rosso. E' una proprieta' del difetto, non del test, e vale la pena dirgliela.",
-        "file": "contributi-upstream/dxf-block-senza-endblk/"
+        "file": "contributi-upstream/dxf-block-senza-endblk/",
+        "stato": "**inviato** il 2026-09-08",
+        "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
+        "pr": "https://github.com/ixmilia/dxf-rs/pull/105"
       },
       {
         "id": "shapefile.record-nullo",
@@ -1227,7 +1244,10 @@
         "dimostrazione": "sul crate non modificato il record nullo sovradimensionato e' **accettato** e la lettura termina con `Ok` su meta' file: non panica e non sbaglia vistosamente, ed e' la forma pericolosa. Con la patch e' rifiutato con `InvalidShapeRecordSize`.",
         "controprova_positiva": "un nullo **conforme** seguito da un punto deve continuare a dare due forme: senza questa riga, «rifiuta il sovradimensionato» sarebbe vero anche di un lettore che avesse smesso del tutto di leggere i record nulli. Con la patch resta accettato.",
         "perche_rifiutare_e_non_saltare": "saltare il residuo terrebbe il flusso allineato, ma accetterebbe un file il cui conteggio delle forme e il cui contenuto non possono essere entrambi veri. La specifica non lascia margine: il contenuto di un record nullo e' il suo tag di quattro byte e nient'altro.",
-        "file": "contributi-upstream/shapefile-record-nullo/"
+        "file": "contributi-upstream/shapefile-record-nullo/",
+        "stato": "**inviato** il 2026-09-08",
+        "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
+        "pr": "https://github.com/tmontaigu/shapefile-rs/pull/56"
       },
       {
         "id": "shapefile.lunghezza-negativa",
@@ -1237,7 +1257,10 @@
         "il_buco": "`ShapeReader::read_nth_shape_as` chiama `read_one_shape_as` **senza** quella guardia. La lunghezza negativa arriva intatta a `Shape::read_from`, che le sottrae i quattro byte del tag e prosegue; se il tag e' `NullShape`, l'arm ignora `record_size` e restituisce `Ok`.",
         "dimostrazione": "sul crate non modificato: per la via dell'iteratore il caso e' gia' `InvalidShapeRecordSize`; per `read_nth_shape_as` **e' accettato** e torna come `NullShape`. Con la patch entrambe le vie rifiutano.",
         "come_l_ho_scoperto": "il primo riproduttore era rifiutato **anche senza patch**, cioe' non dimostrava niente. Ha costretto a capire perche', e il perche' era la protezione che c'e' gia' su una via sola.",
-        "file": "contributi-upstream/shapefile-lunghezza-negativa/"
+        "file": "contributi-upstream/shapefile-lunghezza-negativa/",
+        "stato": "**inviato** il 2026-09-08",
+        "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
+        "pr": "https://github.com/tmontaigu/shapefile-rs/pull/57"
       },
       {
         "id": "arrow.dizionario-senza-dati",
@@ -1248,7 +1271,12 @@
         "verifica_upstream": "riletto in `main` il 2026-09-08: `batch.data().unwrap()` e' ancora li'.",
         "dimostrazione": "il riproduttore -- il seme della nostra campagna, 2169 byte -- fa panicare `main` non modificato. Con la patch: «Parser error: Dictionary batch is missing its data». I test di `arrow-ipc` restano verdi.",
         "il_precedente_che_aiuta": "i metadati del footer, nello stesso file, sono appena passati da `unwrap` a `let ... else` con `ParseError`. La patch usa quella forma, e la proposta e' «finite il giro».",
-        "file": "contributi-upstream/arrow-dizionario-senza-dati/"
+        "file": "contributi-upstream/arrow-dizionario-senza-dati/",
+        "stato": "**inviato** il 2026-09-08",
+        "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
+        "issue": "https://github.com/apache/arrow-rs/issues/11019",
+        "pr": "https://github.com/apache/arrow-rs/pull/11020",
+        "nota": "il loro CONTRIBUTING chiede di legare il PR a un ticket: issue aperto per primo, e il PR lo chiude."
       }
     ],
     "da_preparare": [
@@ -1276,6 +1304,12 @@
       "inviato": "**nessuno.** Finche' restano qui, il tempo di attesa dei manutentori non e' nemmeno cominciato. E' il passaggio che costa meno a noi e che sblocca tutto il resto.",
       "accettato_e_rilasciato": "non dipende da noi, e non ha una data. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' aperto e nemmeno quando e' unito.",
       "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo."
+    },
+    "identita_degli_invii": {
+      "nome": "PlenoraETL",
+      "indirizzo": "4678670+PlenoraETL@users.noreply.github.com",
+      "come_e_stato_determinato": "**recuperato, non costruito.** Nel repository non c'e' nessuna configurazione git -- `user.name` e `user.email` sono assenti a livello locale, globale e di sistema -- e i commit di questo lavoro passano l'identita' per riga di comando. L'indirizzo e' stato trovato in uso: la ricerca dei commit di GitHub lo mostra in sette commit su `PlenoraETL/plenora-rest-tools` e `PlenoraETL/plenora-runtime-tools`, tutti attribuiti all'account `PlenoraETL`. Non e' stato composto dalla convenzione `id+login`.",
+      "storia_non_riscritta": "i commit gia' in `plenora-IO-tools` restano com'erano. L'identita' e' applicata ai soli commit nuovi nei fork."
     }
   }
 }

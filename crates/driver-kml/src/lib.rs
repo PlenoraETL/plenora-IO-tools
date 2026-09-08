@@ -1802,6 +1802,120 @@ mod tests {
         assert!(r.next_batch().unwrap().is_none());
     }
 
+    /// Il documento di prova delle codifiche: un nome con un carattere non ASCII.
+    ///
+    /// `citta` con l'accento e' il carattere che distingue una codifica
+    /// dall'altra: in UTF-8 sono due byte, in ISO-8859-1 uno solo, e in UTF-16
+    /// tutto il documento cambia forma.
+    fn kml_con_accento(codifica_dichiarata: &str) -> String {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"{codifica_dichiarata}\"?>\
+             <kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document>\
+             <Placemark><name>città</name>\
+             <Point><coordinates>11.25,43.75</coordinates></Point>\
+             </Placemark></Document></kml>"
+        )
+    }
+
+    /// Legge un KML da byte e restituisce il nome del primo segnaposto.
+    fn primo_nome(byte: &[u8]) -> Result<Option<String>> {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("prova.kml");
+        std::fs::write(&percorso, byte).expect("il file si scrive");
+        let dataset = KmlDriver.open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs("OGC:CRS84"),
+        )?;
+        let layer = dataset.layers()[0].clone();
+        let mut lettore = dataset.open_layer_reader(&ReadRequest {
+            layer: layer.id,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })?;
+        let batch = lettore.next_batch()?.expect("un batch");
+        let indice = batch.schema().index_of("name").expect("colonna name");
+        let nomi = batch
+            .column(indice)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .expect("il nome e' una stringa");
+        Ok(if nomi.is_null(0) {
+            None
+        } else {
+            Some(nomi.value(0).to_owned())
+        })
+    }
+
+    /// Le codifiche che il driver accetta **oggi**, fissate una per una.
+    ///
+    /// # Perche' questo test esiste
+    ///
+    /// Il supporto alle codifiche non UTF-8 non e' dichiarato da nessuna parte
+    /// nel driver, e non e' nemmeno chiesto da noi: arriva dalla feature
+    /// `encoding` di `quick-xml`, che nel nostro grafo e' accesa da
+    /// **`calamine`**. Il nostro manifesto dichiara `quick-xml = "=0.41.0"` e
+    /// basta. Se un giorno `calamine` smettesse di accenderla, o se cambiasse
+    /// il modo in cui `quick-xml` decodifica, un documento ISO-8859-1 che oggi
+    /// leggiamo correttamente smetterebbe di funzionare **in silenzio** -- e
+    /// nessun test se ne sarebbe accorto.
+    ///
+    /// Il caso concreto e' gia' davanti a noi: `quick-xml 0.42.0` toglie la
+    /// decodifica dal lettore -- «Reader now validates that input is valid
+    /// UTF-8 when constructing events» -- e la sposta in un `DecodingReader`
+    /// esplicito. Aggiornare senza adottarlo restringerebbe gli ingressi
+    /// supportati, e questo test lo farebbe vedere invece di lasciarlo passare.
+    ///
+    /// Il test fissa il comportamento **misurato**, non quello desiderato: se
+    /// una riga qui va cambiata, e' una decisione da prendere e da dichiarare,
+    /// non un dettaglio da aggiornare.
+    #[test]
+    fn le_codifiche_accettate_restano_quelle() {
+        // UTF-8: il caso normale, e il valore si conserva.
+        let utf8 = kml_con_accento("UTF-8").into_bytes();
+        assert_eq!(
+            primo_nome(&utf8).expect("un KML UTF-8 si legge"),
+            Some("città".to_owned()),
+            "UTF-8 e' il caso di riferimento"
+        );
+
+        // ISO-8859-1 dichiarata **e** reale: il driver la accetta e conserva il
+        // valore. E' il caso che l'aggiornamento a quick-xml 0.42 metterebbe a
+        // rischio.
+        let latin1: Vec<u8> = kml_con_accento("ISO-8859-1")
+            .chars()
+            .map(|c| u8::try_from(c as u32).expect("il documento sta in latin-1"))
+            .collect();
+        assert_eq!(
+            primo_nome(&latin1).expect("un KML ISO-8859-1 si legge oggi"),
+            Some("città".to_owned()),
+            "la codifica dichiarata viene onorata, e il valore si conserva"
+        );
+
+        // Una dichiarazione che mente: byte UTF-8, intestazione ISO-8859-1.
+        // Passa, perche' i byte sono validi in entrambe le letture.
+        let mentitore = kml_con_accento("ISO-8859-1").into_bytes();
+        assert!(
+            primo_nome(&mentitore).is_ok(),
+            "una dichiarazione sbagliata su byte validi non e' un motivo di rifiuto"
+        );
+
+        // UTF-16: **rifiutato** oggi. Fissato per la stessa ragione degli
+        // altri: se un giorno passasse, e' un cambiamento da dichiarare.
+        let utf16: Vec<u8> = kml_con_accento("UTF-16")
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert!(
+            primo_nome(&utf16).is_err(),
+            "UTF-16 non e' fra gli ingressi supportati, e il rifiuto e' il comportamento fissato"
+        );
+    }
+
     #[test]
     fn event_stream_matches_legacy_document_traversal() {
         let text = r#"<?xml version="1.0" encoding="UTF-8"?>
