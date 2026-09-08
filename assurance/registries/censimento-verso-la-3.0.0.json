@@ -503,11 +503,11 @@
       },
       {
         "crate": "quick-xml",
-        "in_uso": "0.41.0",
+        "in_uso": "0.42.0",
         "ultima_stabile": "0.42.0",
-        "passo": "1 minor (0.x)",
+        "passo": "allineato",
         "barriera": true,
-        "perche": "per un crate 0.x cargo tratta il minor come barriera di compatibilita'",
+        "perche": "alzato il 2026-09-08 adottando `DecodingReader`; vedi `gruppo_kml_e_xlsx.vincolo_di_quick_xml.esito`",
         "forkato": false
       },
       {
@@ -1177,7 +1177,7 @@
           "le cinque misure che `Cargo.lock` invalida"
         ],
         "il_confine_gia_verificato": "nessun tipo di `quick-xml` attraversa il confine con `kml`: chiamiamo `KmlWriter::from_writer(&mut W)` con uno scrittore normale, passiamo valori di `kml::types`, facciamo il nostro parsing con un `Reader` nostro, e l'errore di `kml` lo scartiamo con `map_err(|_| ...)`. E' la condizione che rende le due versioni compatibili, ed e' gia' misurata.",
-        "stato": "**aperto**, nell'elenco degli aggiornamenti residui.",
+        "stato": "**eseguito** il 2026-09-08. Vedi `esito`.",
         "valutazione": {
           "fatta_il": "2026-09-08",
           "metodo": "cambiato il pin e lasciato parlare il compilatore, invece di leggere un diff di 67 000 righe. Poi riletto il loro changelog per capire il perche'.",
@@ -1203,6 +1203,32 @@
           "correzione": "`quick-xml = { version = \"=0.41.0\", features = [\"encoding\"] }` nel manifesto del workspace: dichiariamo cio' che usiamo. `Cargo.lock` non si muove -- `encoding_rs` era gia' nel grafo -- e le cinque misure del fuzzing non cadono.",
           "conseguenza_per_l_aggiornamento": "ora il contratto e' fissato da un test, e l'aggiornamento a `quick-xml 0.42.0` ha un metro. La 0.42 toglie la decodifica dal lettore e la sposta in un `DecodingReader` esplicito: per **preservare** gli ingressi supportati va adottato quello. Aggiornare senza adottarlo restringerebbe il supporto, e una restrizione va proposta prima di introdurla, non scoperta dopo."
         }
+      },
+      "esito": {
+        "da": "=0.41.0",
+        "a": "=0.42.0",
+        "adattamento": "42 errori di compilazione chiusi: i tipi degli eventi passano da `Cow<[u8]>` a `Cow<str>`, quindi i confronti con letterali di byte diventano confronti di stringa e cio' che alimenta gli helper a byte passa per `as_bytes()`. Gli helper restano su `[u8]`: cambiarli avrebbe allargato la modifica senza cambiare cio' che fanno. 49 punti in `driver-kml`, 4 in `driver-xls`.",
+        "la_decodifica": "la 0.42 pretende UTF-8 dal lettore e sposta la transcodifica in `DecodingReader`. Ma `DecodingReader` rileva **dal BOM**, non dalla dichiarazione XML: la documentazione del `Reader` dice «auto-detects encoding from BOM or XML declaration», e non e' vero -- il codice e' l'autorita', e `set_encoding` va chiamata dal chiamante. Aggiunta `applica_codifica_dichiarata`, invocata su `Event::Decl` nei due cicli di lettura. Senza, un KML che dichiara ISO-8859-1 veniva rifiutato: misurato, non temuto.",
+        "il_contratto_prima_e_dopo": {
+          "metodo": "sette casi, gli stessi byte, contro il prodotto costruito con la 0.41 e con la 0.42.",
+          "utf-8": "letto, `citta` con l'accento -> identico",
+          "utf-8 con BOM": "letto -> identico",
+          "iso-8859-1 dichiarata e reale": "letto, valore conservato -> identico",
+          "dichiarazione che mente (byte utf-8, testa latin-1)": "letto, e il valore esce trasformato: `cittA` piu' un byte. **Identico nelle due versioni**: non e' un difetto introdotto ora, ed e' fissato dal test perche' nessuno lo scambi per una regressione.",
+          "codifica dichiarata sconosciuta": "letto, ripiego su UTF-8 -> identico",
+          "utf-16 senza BOM": "0.41: **rifiutato**. 0.42: **letto**, valore giusto.",
+          "utf-16 con BOM": "0.41: **rifiutato**. 0.42: **letto**, valore giusto."
+        },
+        "giudizio": "**nessuna restrizione.** Ogni ingresso accettato prima e' accettato ora, con lo stesso valore. L'unico cambiamento e' un **allargamento**: UTF-16 si legge dove prima era rifiutato. Non c'era niente da proporre prima di introdurlo, perche' niente e' stato tolto -- ma sta scritto, perche' un allargamento resta un cambiamento.",
+        "il_costo_nel_grafo": "`quick-xml` e' ora in due versioni: la 0.41.0 sotto `calamine`, che e' gia' all'ultima stabile, e la 0.42.0 sotto `driver-kml` e `driver-xls`. E' il costo previsto, e si chiude quando `calamine` si muove.",
+        "verifiche": [
+          "clippy pulito con `-D warnings`",
+          "40 suite verdi",
+          "`driver-kml` isolato: 14 test verdi, contratto delle codifiche compreso",
+          "`driver-xls` isolato: 54 verdi",
+          "replay su sette bersagli, nessun crash: kml 11341, xlsx 4757, ipc 3433, shp 4290, wkt 11386, geojson 10127, filegdb 829",
+          "quattro profondita' invariate, ASan a 179433"
+        ]
       }
     }
   },

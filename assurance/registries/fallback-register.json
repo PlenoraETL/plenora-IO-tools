@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 130,
+  "totale": 129,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -36,8 +36,8 @@
       "ragione": "nome; projection best-effort conserva il campo originale se non esiste una sostituzione"
     },
     "driver-kml": {
-      "conteggio": 3,
-      "ragione": "nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibile con escape ASCII il **testo estratto** quando non è UTF-8 valido — non i messaggi d'errore, che dal 2026-08-20 non portano più nulla di letto dal file; geometrie vuote sono rifiutate"
+      "conteggio": 2,
+      "ragione": "nome diagnostico; eterogeneità dimensionale → `Unknown`; geometrie vuote sono rifiutate. **Dal 2026-09-08 i due ripieghi sul testo estratto non ci sono più**: rendevano leggibile con escape ASCII il testo quando `decode()` falliva, e con `quick-xml 0.42` quel fallimento non può avvenire lì — il lettore valida UTF-8 in ingresso e la transcodifica dalla codifica dichiarata avviene prima, in `DecodingReader`. Non è una degradazione tolta per scelta estetica: è una degradazione diventata irraggiungibile, e tenerla sarebbe stato codice morto che il registro contava come difesa. Il contratto delle codifiche che quei ripieghi coprivano di fatto è ora fissato da `le_codifiche_accettate_restano_quelle`, che lo prova invece di ripiegarci sopra."
     },
     "driver-shp": {
       "conteggio": 7,

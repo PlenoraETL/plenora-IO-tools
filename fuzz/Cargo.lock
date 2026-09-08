@@ -304,7 +304,7 @@ dependencies = [
  "encoding_rs",
  "fast-float2",
  "log",
- "quick-xml",
+ "quick-xml 0.41.0",
  "serde",
  "zip",
 ]
@@ -581,7 +581,7 @@ dependencies = [
  "kml",
  "plenora-io-core",
  "plenora-io-model",
- "quick-xml",
+ "quick-xml 0.42.0",
  "tempfile",
 ]
 
@@ -610,7 +610,7 @@ dependencies = [
  "driver-common",
  "plenora-io-core",
  "plenora-io-model",
- "quick-xml",
+ "quick-xml 0.42.0",
  "rust_xlsxwriter",
  "serde_json",
  "tempfile",
@@ -1276,7 +1276,7 @@ checksum = "1ad943f54e9e575b0c01c2260a3cdacf54c898ca6840022c171a967cd01a2237"
 dependencies = [
  "geo-types",
  "num-traits 0.2.19",
- "quick-xml",
+ "quick-xml 0.41.0",
  "thiserror 2.0.19",
 ]
 
@@ -1662,6 +1662,16 @@ name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+dependencies = [
+ "encoding_rs",
+ "memchr",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
 dependencies = [
  "encoding_rs",
  "memchr",

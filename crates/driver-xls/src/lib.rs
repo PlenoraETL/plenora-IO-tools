@@ -602,7 +602,10 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
 
 /// Scorre una parte XML e verifica ogni attributo che porta un riferimento.
 fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudget) -> Result<()> {
-    let mut lettore = quick_xml::Reader::from_reader(sorgente);
+    // Come in `driver-kml`: la 0.42 pretende UTF-8 dal lettore, e la
+    // transcodifica dalla codifica dichiarata passa da `DecodingReader`.
+    let mut lettore =
+        quick_xml::Reader::from_reader(quick_xml::encoding::DecodingReader::new(sorgente));
     let mut buffer = Vec::new();
     let mut eventi = 0usize;
     loop {
@@ -630,10 +633,10 @@ fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudge
             // assegna all'attributo la grammatica di `row`, `c`, `dimension` o
             // di un altro elemento. Un `r:id` di relazione ha il prefisso e
             // non entra.
-            if !matches!(attributo.key.as_ref(), b"r" | b"ref") {
+            if !matches!(attributo.key.as_ref(), "r" | "ref") {
                 continue;
             }
-            valida_valore_riferimento(attributo.value.as_ref())?;
+            valida_valore_riferimento(attributo.value.as_ref().as_bytes())?;
         }
     }
 }

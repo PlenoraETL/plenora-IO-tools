@@ -52,6 +52,7 @@ use plenora_io_model::wkb::{
 use plenora_io_model::{
     CancellationToken, ErrorPhase, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
 };
+use quick_xml::encoding::DecodingReader;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
 
@@ -78,8 +79,37 @@ fn valid_xml_name(name: &[u8]) -> bool {
     valid_part(first) && parts.next().is_none_or(valid_part) && parts.next().is_none()
 }
 
+/// Applica al lettore la codifica che il documento dichiara.
+///
+/// # Perche' sta scritto a mano
+///
+/// Fino a `quick-xml 0.41` la decodifica era dentro il lettore: bastava la
+/// feature `encoding` e la dichiarazione `<?xml encoding="..."?>` veniva
+/// onorata da sola. La `0.42` sposta la transcodifica in `DecodingReader`, che
+/// rileva **dal BOM** e non dalla dichiarazione: quest'ultima resta al
+/// chiamante, ed e' questa funzione.
+///
+/// Senza, un KML che dichiara `ISO-8859-1` -- che leggiamo, e i cui valori
+/// conserviamo -- verrebbe rifiutato come XML non valido. E' il caso che
+/// `le_codifiche_accettate_restano_quelle` tiene fermo.
+///
+/// # Che cosa fa quando non sa
+///
+/// Se la dichiarazione nomina una codifica che `encoding_rs` non conosce,
+/// `encoder()` restituisce `None` e qui non si tocca niente: il lettore resta
+/// su UTF-8, che e' cio' che faceva la `0.41` nello stesso caso. Un nome
+/// sconosciuto non e' un motivo di rifiuto, e non lo diventa adesso.
+fn applica_codifica_dichiarata<R>(
+    reader: &mut XmlReader<DecodingReader<R>>,
+    dichiarazione: &quick_xml::events::BytesDecl<'_>,
+) {
+    if let Some(codifica) = dichiarazione.encoder() {
+        reader.get_mut().set_encoding(codifica);
+    }
+}
+
 fn validate_element(event: &BytesStart<'_>) -> Result<()> {
-    if !valid_xml_name(event.name().as_ref()) {
+    if !valid_xml_name(event.name().as_ref().as_bytes()) {
         return Err(err(&PublicMessage::Curated(
             "nome di elemento XML non valido",
         )));
@@ -87,7 +117,7 @@ fn validate_element(event: &BytesStart<'_>) -> Result<()> {
     for attribute in event.attributes().with_checks(true) {
         let attribute =
             attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML non valido")))?;
-        if !valid_xml_name(attribute.key.as_ref()) {
+        if !valid_xml_name(attribute.key.as_ref().as_bytes()) {
             return Err(err(&PublicMessage::Curated(
                 "nome di attributo XML non valido",
             )));
@@ -130,7 +160,10 @@ fn observe_point_coordinate_text(
 /// di un `Point`. Una scansione XML limitata evita di consegnargli input
 /// ambigui o punti senza coordinate.
 fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
-    let mut reader = XmlReader::from_reader(input);
+    // `quick-xml 0.42` pretende UTF-8 dal lettore e sposta la transcodifica
+    // qui: senza `DecodingReader` un documento che dichiara ISO-8859-1 --
+    // che oggi leggiamo e i cui valori conserviamo -- verrebbe rifiutato.
+    let mut reader = XmlReader::from_reader(DecodingReader::new(input));
     let mut event_buffer = Vec::new();
     let mut stack = Vec::<Vec<u8>>::new();
     let mut open_points_with_coordinates = Vec::<bool>::new();
@@ -155,6 +188,11 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
         previous_position = position;
 
         match event {
+            // Va applicata prima che il prefisso del `DecodingReader` si esaurisca,
+            // cioe' subito: e' il primo evento del documento.
+            Event::Decl(ref dichiarazione) => {
+                applica_codifica_dichiarata(&mut reader, dichiarazione);
+            }
             Event::Start(element) => {
                 validate_element(&element)?;
                 if stack.len() >= MAX_XML_DEPTH {
@@ -163,14 +201,14 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
                         NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_XML_DEPTH)),
                     )));
                 }
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     open_points_with_coordinates.push(false);
                 }
-                stack.push(element.name().as_ref().to_vec());
+                stack.push(element.name().as_ref().as_bytes().to_vec());
             }
             Event::Empty(element) => {
                 validate_element(&element)?;
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                 }
             }
@@ -178,18 +216,18 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
                 observe_point_coordinate_text(
                     &stack,
                     &mut open_points_with_coordinates,
-                    text.as_ref(),
+                    text.as_ref().as_bytes(),
                 )?;
             }
             Event::CData(text) => {
                 observe_point_coordinate_text(
                     &stack,
                     &mut open_points_with_coordinates,
-                    text.as_ref(),
+                    text.as_ref().as_bytes(),
                 )?;
             }
             Event::End(element) => {
-                if !valid_xml_name(element.name().as_ref()) {
+                if !valid_xml_name(element.name().as_ref().as_bytes()) {
                     return Err(err(&PublicMessage::Curated(
                         "nome di chiusura XML non valido",
                     )));
@@ -199,12 +237,12 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
                         "chiusura XML senza elemento aperto",
                     )));
                 };
-                if opened.as_slice() != element.name().as_ref() {
+                if opened.as_slice() != element.name().as_ref().as_bytes() {
                     return Err(err(&PublicMessage::Curated(
                         "elementi XML annidati in modo non valido",
                     )));
                 }
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     let Some(has_coordinates) = open_points_with_coordinates.pop() else {
                         return Err(err(&PublicMessage::Curated(
                             "chiusura Point KML senza apertura",
@@ -613,7 +651,7 @@ fn read_spool_string(input: &mut impl Read) -> Result<Option<String>> {
 }
 
 struct PlacemarkStream {
-    reader: XmlReader<BufReader<File>>,
+    reader: XmlReader<DecodingReader<BufReader<File>>>,
     event_buffer: Vec<u8>,
     ancestors: Vec<Vec<u8>>,
     visited_events: usize,
@@ -633,7 +671,7 @@ impl PlacemarkStream {
         })?;
         let input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, File::open(path)?);
         Ok(Self {
-            reader: XmlReader::from_reader(input),
+            reader: XmlReader::from_reader(DecodingReader::new(input)),
             event_buffer: Vec::new(),
             ancestors: Vec::new(),
             visited_events: 0,
@@ -645,15 +683,11 @@ impl PlacemarkStream {
         })
     }
 
-    fn next_event(&mut self, cancellation: &CancellationToken) -> Result<Event<'static>> {
-        if self.events_left == 0 {
-            return Err(err(&PublicMessage::Curated(
-                "numero di eventi XML incoerente con la dimensione dell'input",
-            )));
-        }
-        self.events_left -= 1;
-        check_cancelled_periodically(cancellation, ErrorPhase::Read, self.visited_events)?;
-        self.visited_events = self.visited_events.saturating_add(1);
+    /// Legge il prossimo evento e pretende che il parser sia avanzato.
+    ///
+    /// Sta a parte da `next_event` perche' e' l'unica parte che non decide
+    /// niente sul contenuto: legge, controlla la posizione, e restituisce.
+    fn leggi_evento_avanzando(&mut self) -> Result<Event<'static>> {
         self.event_buffer.clear();
         let event = self
             .reader
@@ -665,7 +699,23 @@ impl PlacemarkStream {
             return Err(err(&PublicMessage::Curated("parser XML senza avanzamento")));
         }
         self.previous_position = position;
+        Ok(event)
+    }
+
+    fn next_event(&mut self, cancellation: &CancellationToken) -> Result<Event<'static>> {
+        if self.events_left == 0 {
+            return Err(err(&PublicMessage::Curated(
+                "numero di eventi XML incoerente con la dimensione dell'input",
+            )));
+        }
+        self.events_left -= 1;
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, self.visited_events)?;
+        self.visited_events = self.visited_events.saturating_add(1);
+        let event = self.leggi_evento_avanzando()?;
         match &event {
+            Event::Decl(dichiarazione) => {
+                applica_codifica_dichiarata(&mut self.reader, dichiarazione);
+            }
             Event::Start(element) => {
                 validate_element(element)?;
                 if self.xml_depth >= MAX_XML_DEPTH {
@@ -675,26 +725,27 @@ impl PlacemarkStream {
                     )));
                 }
                 self.xml_depth += 1;
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     self.open_points_with_coordinates.push(false);
                 }
-                self.element_stack.push(element.name().as_ref().to_vec());
+                self.element_stack
+                    .push(element.name().as_ref().as_bytes().to_vec());
             }
             Event::Empty(element) => {
                 validate_element(element)?;
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                 }
             }
             Event::Text(text) => observe_point_coordinate_text(
                 &self.element_stack,
                 &mut self.open_points_with_coordinates,
-                text.as_ref(),
+                text.as_ref().as_bytes(),
             )?,
             Event::CData(text) => observe_point_coordinate_text(
                 &self.element_stack,
                 &mut self.open_points_with_coordinates,
-                text.as_ref(),
+                text.as_ref().as_bytes(),
             )?,
             Event::GeneralRef(_) => observe_point_coordinate_text(
                 &self.element_stack,
@@ -702,7 +753,7 @@ impl PlacemarkStream {
                 b"x",
             )?,
             Event::End(element) => {
-                if !valid_xml_name(element.name().as_ref()) {
+                if !valid_xml_name(element.name().as_ref().as_bytes()) {
                     return Err(err(&PublicMessage::Curated(
                         "nome di chiusura XML non valido",
                     )));
@@ -712,12 +763,12 @@ impl PlacemarkStream {
                         "chiusura XML senza elemento aperto",
                     ))
                 })?;
-                if opened.as_slice() != element.name().as_ref() {
+                if opened.as_slice() != element.name().as_ref().as_bytes() {
                     return Err(err(&PublicMessage::Curated(
                         "elementi XML annidati in modo non valido",
                     )));
                 }
-                if element.local_name().as_ref() == b"Point" {
+                if element.local_name().as_ref() == "Point" {
                     let has_coordinates =
                         self.open_points_with_coordinates.pop().ok_or_else(|| {
                             err(&PublicMessage::Curated("chiusura Point KML senza apertura"))
@@ -758,10 +809,7 @@ impl PlacemarkStream {
         {
             return Ok(character.to_string());
         }
-        let name = reference
-            .decode()
-            .map_err(|_| err(&PublicMessage::Curated("riferimento XML non valido")))?;
-        quick_xml::escape::resolve_xml_entity(&name)
+        quick_xml::escape::resolve_xml_entity(reference)
             .map(str::to_owned)
             // Il nome dell'entita' non esce: e' letto dal file. Fino a qui
             // veniva scappato in ASCII e messo nel messaggio — un modo per
@@ -773,17 +821,16 @@ impl PlacemarkStream {
         let mut output = String::new();
         loop {
             match self.next_event(cancellation)? {
-                Event::Text(text) => output.push_str(&text.decode().map_or_else(
-                    |_| text.escape_ascii().to_string(),
-                    std::borrow::Cow::into_owned,
-                )),
+                // In `quick-xml 0.42` il contenuto e' gia' `&str`: la
+                // validazione UTF-8 avviene nel lettore, e la transcodifica
+                // dalla codifica dichiarata in `DecodingReader`. Il ripiego su
+                // `escape_ascii` che stava qui non era un comportamento voluto:
+                // era cio' che restava quando `decode()` falliva.
+                Event::Text(text) => output.push_str(&text),
                 Event::GeneralRef(reference) => {
                     output.push_str(&Self::decode_general_ref(&reference)?);
                 }
-                Event::CData(text) => output.push_str(
-                    &String::from_utf8(text.to_vec())
-                        .unwrap_or_else(|_| text.escape_ascii().to_string()),
-                ),
+                Event::CData(text) => output.push_str(&text),
                 Event::End(_) => return Ok(output),
                 // Il `Debug` di un `Event` di quick_xml contiene i byte
                 // grezzi dell'elemento: era il payload, per intero.
@@ -817,13 +864,13 @@ impl PlacemarkStream {
         let mut coordinates = Vec::new();
         loop {
             match self.next_event(cancellation)? {
-                Event::Start(element) if element.local_name().as_ref() == b"coordinates" => {
+                Event::Start(element) if element.local_name().as_ref() == "coordinates" => {
                     let text = self.read_text(cancellation)?;
                     coordinates = coords_from_str(&text)
                         .map_err(|_| err(&PublicMessage::Curated("coordinate KML non valide")))?;
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
-                Event::End(element) if element.local_name().as_ref() == end_tag => {
+                Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
                     return Ok(coordinates)
                 }
                 Event::Eof => {
@@ -844,13 +891,13 @@ impl PlacemarkStream {
         let mut rings = Vec::new();
         loop {
             match self.next_event(cancellation)? {
-                Event::Start(element) if element.local_name().as_ref() == b"LinearRing" => {
+                Event::Start(element) if element.local_name().as_ref() == "LinearRing" => {
                     rings.push(LinearRing::from(
                         self.read_geometry_coordinates(b"LinearRing", cancellation)?,
                     ));
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
-                Event::End(element) if element.local_name().as_ref() == end_tag => {
+                Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
                     return Ok(rings)
                 }
                 Event::Eof => {
@@ -868,15 +915,15 @@ impl PlacemarkStream {
         let mut inner = Vec::new();
         loop {
             match self.next_event(cancellation)? {
-                Event::Start(element) if element.local_name().as_ref() == b"outerBoundaryIs" => {
+                Event::Start(element) if element.local_name().as_ref() == "outerBoundaryIs" => {
                     let rings = self.read_boundary(b"outerBoundaryIs", cancellation)?;
                     outer = rings.into_iter().next();
                 }
-                Event::Start(element) if element.local_name().as_ref() == b"innerBoundaryIs" => {
+                Event::Start(element) if element.local_name().as_ref() == "innerBoundaryIs" => {
                     inner.extend(self.read_boundary(b"innerBoundaryIs", cancellation)?);
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
-                Event::End(element) if element.local_name().as_ref() == b"Polygon" => {
+                Event::End(element) if element.local_name().as_ref() == "Polygon" => {
                     let outer = outer.ok_or_else(|| {
                         err(&PublicMessage::Curated("Polygon KML senza anello esterno"))
                     })?;
@@ -898,12 +945,12 @@ impl PlacemarkStream {
             match self.next_event(cancellation)? {
                 Event::Start(element) => {
                     if let Some(geometry) =
-                        self.read_geometry(element.local_name().as_ref(), cancellation)?
+                        self.read_geometry(element.local_name().as_ref().as_bytes(), cancellation)?
                     {
                         geometries.push(geometry);
                     }
                 }
-                Event::End(element) if element.local_name().as_ref() == b"MultiGeometry" => {
+                Event::End(element) if element.local_name().as_ref() == "MultiGeometry" => {
                     return Ok(MultiGeometry::new(geometries))
                 }
                 Event::Eof => {
@@ -956,7 +1003,7 @@ impl PlacemarkStream {
         let mut placemark = Placemark::default();
         loop {
             match self.next_event(cancellation)? {
-                Event::Start(element) => match element.local_name().as_ref() {
+                Event::Start(element) => match element.local_name().as_ref().as_bytes() {
                     b"name" => placemark.name = Some(self.read_text(cancellation)?),
                     b"description" => placemark.description = Some(self.read_text(cancellation)?),
                     name => {
@@ -970,7 +1017,7 @@ impl PlacemarkStream {
                         }
                     }
                 },
-                Event::End(element) if element.local_name().as_ref() == b"Placemark" => {
+                Event::End(element) if element.local_name().as_ref() == "Placemark" => {
                     return Ok(placemark)
                 }
                 Event::Eof => {
@@ -992,7 +1039,7 @@ impl PlacemarkStream {
             let event = self.next_event(cancellation)?;
             match event {
                 Event::Start(element)
-                    if element.local_name().as_ref() == b"Placemark"
+                    if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
                     return self
@@ -1008,13 +1055,14 @@ impl PlacemarkStream {
                         });
                 }
                 Event::Empty(element)
-                    if element.local_name().as_ref() == b"Placemark"
+                    if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
                     return Ok(Some(Placemark::default()));
                 }
                 Event::Start(element) => {
-                    self.ancestors.push(element.name().as_ref().to_vec());
+                    self.ancestors
+                        .push(element.name().as_ref().as_bytes().to_vec());
                 }
                 Event::End(_) => {
                     self.ancestors.pop();
@@ -1851,68 +1899,105 @@ mod tests {
         })
     }
 
-    /// Le codifiche che il driver accetta **oggi**, fissate una per una.
+    /// Le codifiche che il driver accetta, fissate una per una.
     ///
     /// # Perche' questo test esiste
     ///
-    /// Il supporto alle codifiche non UTF-8 non e' dichiarato da nessuna parte
-    /// nel driver, e non e' nemmeno chiesto da noi: arriva dalla feature
-    /// `encoding` di `quick-xml`, che nel nostro grafo e' accesa da
-    /// **`calamine`**. Il nostro manifesto dichiara `quick-xml = "=0.41.0"` e
-    /// basta. Se un giorno `calamine` smettesse di accenderla, o se cambiasse
-    /// il modo in cui `quick-xml` decodifica, un documento ISO-8859-1 che oggi
-    /// leggiamo correttamente smetterebbe di funzionare **in silenzio** -- e
-    /// nessun test se ne sarebbe accorto.
+    /// Il supporto alle codifiche non UTF-8 non e' dichiarato in nessun
+    /// documento del prodotto, e per un periodo non era nemmeno dichiarato nel
+    /// manifesto: arrivava dalla feature `encoding` di `quick-xml`, che nel
+    /// nostro grafo la accendeva **`calamine`**. Il risultato era che
+    /// `cargo test -p driver-kml` e il binario spedito dicevano cose diverse
+    /// sullo stesso file. Corretto il 2026-09-08 dichiarando la feature; questo
+    /// test e' cio' che impedisce che torni a succedere in silenzio.
     ///
-    /// Il caso concreto e' gia' davanti a noi: `quick-xml 0.42.0` toglie la
-    /// decodifica dal lettore -- «Reader now validates that input is valid
-    /// UTF-8 when constructing events» -- e la sposta in un `DecodingReader`
-    /// esplicito. Aggiornare senza adottarlo restringerebbe gli ingressi
-    /// supportati, e questo test lo farebbe vedere invece di lasciarlo passare.
+    /// # Che cosa fissa
     ///
-    /// Il test fissa il comportamento **misurato**, non quello desiderato: se
-    /// una riga qui va cambiata, e' una decisione da prendere e da dichiarare,
-    /// non un dettaglio da aggiornare.
+    /// Il comportamento **misurato**, non quello desiderato. Ogni riga qui e'
+    /// stata verificata contro il prodotto costruito, prima e dopo
+    /// l'aggiornamento a `quick-xml 0.42`. Se una va cambiata, e' una decisione
+    /// da prendere e da dichiarare.
+    ///
+    /// # L'aggiornamento alla 0.42, e che cosa ha spostato
+    ///
+    /// La `0.42` pretende UTF-8 dal lettore e sposta la transcodifica in
+    /// `DecodingReader`, che rileva dal BOM; la codifica **dichiarata** la
+    /// applica il chiamante, ed e' `applica_codifica_dichiarata`.
+    ///
+    /// Confrontando i sette casi qui sotto contro la 0.41 e contro la 0.42:
+    /// nessun ingresso accettato prima e' stato perso, e **nessun valore e'
+    /// cambiato**. L'unica differenza e' un allargamento: UTF-16, con e senza
+    /// BOM, prima era rifiutato con «nome di elemento XML non valido» e ora si
+    /// legge, restituendo il valore giusto. E' un cambiamento, e sta scritto
+    /// qui perche' si veda.
     #[test]
     fn le_codifiche_accettate_restano_quelle() {
-        // UTF-8: il caso normale, e il valore si conserva.
+        // UTF-8: il caso di riferimento.
         let utf8 = kml_con_accento("UTF-8").into_bytes();
         assert_eq!(
             primo_nome(&utf8).expect("un KML UTF-8 si legge"),
-            Some("città".to_owned()),
-            "UTF-8 e' il caso di riferimento"
+            Some("città".to_owned())
         );
 
-        // ISO-8859-1 dichiarata **e** reale: il driver la accetta e conserva il
-        // valore. E' il caso che l'aggiornamento a quick-xml 0.42 metterebbe a
-        // rischio.
+        // Con il BOM davanti, uguale.
+        let mut utf8_bom = vec![0xEF, 0xBB, 0xBF];
+        utf8_bom.extend_from_slice(&utf8);
+        assert_eq!(
+            primo_nome(&utf8_bom).expect("il BOM UTF-8 non cambia niente"),
+            Some("città".to_owned())
+        );
+
+        // ISO-8859-1 dichiarata **e** reale: accettata, e il valore si
+        // conserva. E' il caso che l'aggiornamento avrebbe potuto perdere, e
+        // che `applica_codifica_dichiarata` tiene.
         let latin1: Vec<u8> = kml_con_accento("ISO-8859-1")
             .chars()
             .map(|c| u8::try_from(c as u32).expect("il documento sta in latin-1"))
             .collect();
         assert_eq!(
-            primo_nome(&latin1).expect("un KML ISO-8859-1 si legge oggi"),
+            primo_nome(&latin1).expect("un KML ISO-8859-1 si legge"),
             Some("città".to_owned()),
             "la codifica dichiarata viene onorata, e il valore si conserva"
         );
 
         // Una dichiarazione che mente: byte UTF-8, intestazione ISO-8859-1.
-        // Passa, perche' i byte sono validi in entrambe le letture.
+        // Passa, e il valore esce **trasformato** -- la dichiarazione viene
+        // creduta. Non e' un difetto introdotto dall'aggiornamento: la 0.41
+        // dava esattamente lo stesso, ed e' fissato qui perche' un giorno
+        // qualcuno non lo scambi per una regressione.
         let mentitore = kml_con_accento("ISO-8859-1").into_bytes();
-        assert!(
-            primo_nome(&mentitore).is_ok(),
-            "una dichiarazione sbagliata su byte validi non e' un motivo di rifiuto"
+        assert_eq!(
+            primo_nome(&mentitore).expect("byte validi in entrambe le letture si leggono"),
+            Some("cittÃ\u{a0}".to_owned()),
+            "la dichiarazione viene creduta, e il valore ne porta il segno"
         );
 
-        // UTF-16: **rifiutato** oggi. Fissato per la stessa ragione degli
-        // altri: se un giorno passasse, e' un cambiamento da dichiarare.
+        // Una codifica dichiarata che nessuno conosce: si ripiega su UTF-8,
+        // che e' cio' che faceva la 0.41. Un nome sconosciuto non e' un motivo
+        // di rifiuto.
+        let sconosciuta = kml_con_accento("X-INVENTATA").into_bytes();
+        assert_eq!(
+            primo_nome(&sconosciuta).expect("una codifica sconosciuta non ferma la lettura"),
+            Some("città".to_owned())
+        );
+
+        // UTF-16: **allargamento**. Con la 0.41 era rifiutato; con la 0.42 e
+        // `DecodingReader` si legge, e il valore torna giusto. Vale con e senza
+        // BOM.
         let utf16: Vec<u8> = kml_con_accento("UTF-16")
             .encode_utf16()
             .flat_map(u16::to_le_bytes)
             .collect();
-        assert!(
-            primo_nome(&utf16).is_err(),
-            "UTF-16 non e' fra gli ingressi supportati, e il rifiuto e' il comportamento fissato"
+        assert_eq!(
+            primo_nome(&utf16).expect("UTF-16 senza BOM si legge, dalla 0.42"),
+            Some("città".to_owned()),
+            "l'aggiornamento allarga gli ingressi accettati invece di restringerli"
+        );
+        let mut utf16_bom = vec![0xFF, 0xFE];
+        utf16_bom.extend_from_slice(&utf16);
+        assert_eq!(
+            primo_nome(&utf16_bom).expect("UTF-16 con BOM si legge"),
+            Some("città".to_owned())
         );
     }
 
