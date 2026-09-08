@@ -1076,11 +1076,14 @@
     "nota": "cose che restano da verificare e che nessuna corsa di questo repository puo' chiudere. Stanno qui perche' altrove finirebbero fra le risolte.",
     "interoperabilita_arrow_con_data_tools": {
       "che_cosa": "lo scambio effettivo di Arrow IPC fra `plenora-IO-tools` e `plenora-data-tools`: un file scritto dall'uno e riletto dall'altro, nelle due direzioni, con le quindici proprieta' del contratto di sistema -- fra cui `srid`, `crs_resolution`, `axis_order`, `native_metadata` -- confrontate ai due capi.",
-      "stato": "**aperta**. Non eseguita, non tentata.",
+      "stato": "**rinviata per decisione del titolare**, il 2026-09-08. Non e' completata e non e' un requisito bloccante della 3.0.0.",
       "perche_ora": "dal 2026-09-07 i due componenti dichiarano versioni diverse della famiglia del confine: IO-tools 59.3.0, data-tools 59.2.0. Prima la divergenza era di due minor con IO-tools indietro; ora e' di uno con IO-tools avanti. In entrambi i casi non e' dimostrato che il confine tenga -- e la versione della **libreria** non e' la versione del **formato**: `MetadataVersion::V5` e' la stessa, il che toglie un motivo presunto di incompatibilita' e non prova il confine.",
       "che_cosa_non_la_soddisfa": "la CI del solo IO-tools. I dieci job verdi su `e7388c6` dimostrano che IO-tools legge e scrive Arrow 59.3.0 conservando cio' che dichiara; non dicono niente su che cosa un altro componente ne faccia. Nessuna corsa interna a questo repository puo' chiuderla, per costruzione.",
       "dove_e_gia_registrata": "invariante `sistema.qualifica-cross-component` del contratto di release, stato `differita`, prova esterna con owner `plenora-contracts/conformance` e artefatto `release/system-rc-gate.json` in `not_run`. Questa voce non ne crea una seconda: la nomina perche' l'aggiornamento di Arrow le ha aggiunto una ragione concreta e recente.",
-      "come_si_chiude": "l'owner esterno consegna harness e fixture, la corsa produce evidenza, e l'artefatto passa a `passed`. Fino ad allora la catena non e' qualificata in nessuna direzione."
+      "come_si_chiude": "l'owner esterno consegna harness e fixture, la corsa produce evidenza, e l'artefatto passa a `passed`. Fino ad allora la catena non e' qualificata in nessuna direzione.",
+      "la_decisione": "il titolare ha deciso di rinviarla finche' la libreria dall'altra parte sara' pronta. E' un rinvio, non una chiusura: la verifica resta da fare e la voce resta aperta. Va letta come le altre differite del contratto -- il perimetro e' una scelta, non un giudizio sull'esito, e cio' che non e' stato verificato continua a non essere promesso.",
+      "che_cosa_non_cambia": "la 3.0.0 continua a **non** promettere interoperabilita' end-to-end certificata con `plenora-data-tools` e `plenora-database-tools`. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Il rinvio sposta la data, non la promessa.",
+      "che_cosa_resta_interno": "le verifiche IPC e GeoParquet restano dentro IO-tools e vanno avanti come sempre: prevalidazione, regressioni, replay del corpus, confronto dei file prodotti prima e dopo ogni aggiornamento. Non dipendono dall'altra libreria e non aspettano nessuno."
     }
   },
   "gruppo_base64_0_23_1": {
@@ -1174,7 +1177,18 @@
           "le cinque misure che `Cargo.lock` invalida"
         ],
         "il_confine_gia_verificato": "nessun tipo di `quick-xml` attraversa il confine con `kml`: chiamiamo `KmlWriter::from_writer(&mut W)` con uno scrittore normale, passiamo valori di `kml::types`, facciamo il nostro parsing con un `Reader` nostro, e l'errore di `kml` lo scartiamo con `map_err(|_| ...)`. E' la condizione che rende le due versioni compatibili, ed e' gia' misurata.",
-        "stato": "**aperto**, nell'elenco degli aggiornamenti residui."
+        "stato": "**aperto**, nell'elenco degli aggiornamenti residui.",
+        "valutazione": {
+          "fatta_il": "2026-09-08",
+          "metodo": "cambiato il pin e lasciato parlare il compilatore, invece di leggere un diff di 67 000 righe. Poi riletto il loro changelog per capire il perche'.",
+          "la_duplicazione": "c'e', ma non dove l'avevo prevista. A tenere la 0.41.0 non e' `kml` da solo: e' **`calamine 0.36.1`**, che e' gia' all'ultima stabile. Alzando il nostro pin il grafo passa da una a **due** versioni di `quick-xml`: la 0.41.0 sotto `calamine` e `kml`, la 0.42.0 sotto `driver-kml` e `driver-xls`.",
+          "il_costo_di_codice": "**42 errori di compilazione**, 49 punti in `driver-kml` e 4 in `driver-xls`. Non e' un adattamento di firme sparse: e' il ciclo di parsing del driver KML.",
+          "perche_cosi_tanti": "la 0.42.0 e' una riscrittura ergonomica: i tipi degli eventi passano da `Cow<[u8]>` a `Cow<str>`, `QName` e `LocalName` avvolgono `&str`, `AsRef<[u8]>` **e' stato rimosso**, e `Deref` punta a `str` invece che a `[u8]`. Il loro changelog lo dice da se': «This requires significant refactoring of downstream code».",
+          "il_cambiamento_di_comportamento": "e' la parte che conta piu' del conteggio degli errori. «Reader now validates that input is valid UTF-8 when constructing events. Non-UTF-8 input passed to `Reader::from_reader()` without `DecodingReader` will now produce `Error::Encoding` instead of silently passing through invalid bytes.» E il `Decoder` e' stato tolto dai tipi degli eventi. Un KML in una codifica non UTF-8 che oggi leggiamo verrebbe **rifiutato**, a meno di passare da `DecodingReader`.",
+          "conseguenza": "l'aggiornamento resta da fare ed e' suo un intervento a se': va deciso e verificato che cosa succede ai file non UTF-8 -- se rifiutarli sia il comportamento che vogliamo, o se serva `DecodingReader` -- e la decisione va presa guardando il contratto del driver, non il compilatore. Non e' un aggiornamento da infilare in coda a un altro.",
+          "msrv_ed_edizione": "la 0.42.0 sale a `rust-version = 1.86` ed edizione 2024. Nessun problema: la nostra MSRV e' 1.98.1 e il pavimento del grafo era gia' 1.88.",
+          "stato": "**valutato, non eseguito.** Il pin e' stato riportato a `=0.41.0` e l'albero e' pulito."
+        }
       }
     }
   },
@@ -1245,7 +1259,12 @@
         "e_una_decisione_separata": "quale versione di `gdal` usi il **nostro** prodotto -- oggi 0.17.1, ultima stabile 0.19.0 -- non c'entra con la base del contributo. Confonderle era un errore del rapporto precedente, che parlava di «decidere se proporre contro la 0.19 o contro master»: non c'e' niente da decidere.",
         "la_premessa_riletta": "le due modifiche non aggiungono FFI: le funzioni C **sono gia' legate** in `gdal-sys`. `OGR_L_SetIgnoredFields` e `OSRSetPROJSearchPaths` compaiono nei binding pre-generati di ogni versione, dalla 3_8 alla 3_13. Quello che manca e' il **wrapper sicuro** nel crate `gdal`, che e' esattamente cio' per cui quel crate esiste. Detta cosi' la proposta e' piu' piccola e piu' facile da accettare di come l'aveva descritta il censimento.",
         "attenzione_al_metodo": "cercare i due nomi in `layer.rs` e in `srs.rs` non ne trova nessuno, e da soli quei due file avrebbero fatto concludere «assenti dal progetto». La ricerca sul repository intero li trova in `gdal-sys/prebuilt-bindings`. E' la stessa regola gia' imparata due volte: l'assenza da un file non e' l'assenza dal progetto.",
-        "da_fare": "portare i due wrapper del nostro fork su `master`, con la prova nello stile del progetto. Serve un ambiente con libgdal e gli header, che il container di sviluppo ha."
+        "da_fare": "portare i due wrapper del nostro fork su `master`, con la prova nello stile del progetto. Serve un ambiente con libgdal e gli header, che il container di sviluppo ha.",
+        "stato": "**preparato, non compilato qui.** La patch si applica su un albero pulito di `master`; la verifica di compilazione manca.",
+        "che_cosa_contiene": "i due wrapper sicuri portati dal nostro fork: `set_ignored_fields` come metodo del tratto `LayerAccess`, accanto a `clear_attribute_filter`; `set_proj_search_paths` e `get_proj_search_paths` in fondo a `srs.rs`, riesportati da `spatial_ref/mod.rs`. Novantadue righe di diff, nessuna FFI nuova.",
+        "perche_non_compilata": "il container di sviluppo ha **GDAL 3.6.2**, e il `build.rs` di `gdal` master si ferma da se': «The GDAL crate requires a GDAL version >= 3.8.0». Non e' un difetto della patch, e' il nostro ambiente. Nemmeno la feature `bindgen` aggira il controllo, perche' il rifiuto sta nel build script del crate `gdal`, non in `gdal-sys`.",
+        "come_si_verifica": "serve un ambiente con GDAL 3.8 o successiva. Il job `gdal-linux-matrix (ubuntu-24.04)` della nostra CI ne ha uno; in alternativa un container costruito su `ubuntu:24.04`. Lo script `contributi-upstream/prova-gdal.sh` fa gia' il giro completo -- applica, compila, esercita le due API, esegue i test -- e basta eseguirlo dove GDAL e' abbastanza recente.",
+        "che_cosa_e_gia_evidenza": "i due wrapper sono compilati e usati ogni giorno nel nostro fork contro GDAL 3.9.3, e `tests/radici_di_proj.rs` esercita i percorsi di PROJ. E' evidenza che il codice funziona, **non** che compili contro l'API di `master`: sono due cose diverse e non vanno confuse."
       },
       "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
       "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."
