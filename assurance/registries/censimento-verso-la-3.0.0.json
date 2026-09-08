@@ -710,7 +710,24 @@
         "registrato_in": "fuzz-findings/2026-09-07-ipc-reader-footer-metadata-arrow/",
         "natura_della_protezione": "difesa dalla **versione di arrow che leghiamo**, non un requisito della grammatica flatbuffer. Un file che omette uno dei due campi e' conforme al formato: rifiutarlo e' una nostra decisione, presa perche' la libreria con cui lo apriamo va in panico invece di deciderne il significato.",
         "non_introduce_un_fork": "`arrow-rs` non e' forkato e non lo diventa. La proposta si aggiunge ai contributi upstream in preparazione per DXF, Shapefile e GDAL: quattro assi di contributo, tre fork.",
-        "quando_si_toglie": "non quando esce una versione nuova, ma quando esce una versione **corretta** e le regressioni di `driver-ipc` passano contro quella. Fino ad allora la protezione va portata attraverso l'aggiornamento a 59.3.0 senza toglierla."
+        "quando_si_toglie": "non quando esce una versione nuova, ma quando esce una versione **corretta** e le regressioni di `driver-ipc` passano contro quella. Fino ad allora la protezione va portata attraverso l'aggiornamento a 59.3.0 senza toglierla.",
+        "stato": "**superata upstream, non ancora rilasciata.** Riletto in `main` il 2026-09-08: l'`unwrap` non c'e' piu'. Al suo posto c'e' un `let ... else` che restituisce «Custom metadata in the IPC footer is missing a key or a value» -- la stessa scelta che avevamo fatto noi, cioe' errore e non salto silenzioso. Nessuna segnalazione da mandare.",
+        "quando_toglieremo_la_prevalidazione": "non ora. L'ultima stabile e' ancora la 59.3.0 e non contiene la correzione: `valida_metadati_del_footer` resta finche' una versione **pubblicata** la porta e le nostre regressioni passano contro quella. E' la condizione gia' scritta nel commento della funzione, e ora ha una data possibile invece di nessuna."
+      },
+      {
+        "difetto": "`arrow-ipc` fa `unwrap` sui dati del batch di dizionario",
+        "dove": "`arrow-ipc/src/reader.rs`, `get_dictionary_values`: `batch.data().unwrap()`",
+        "perche_e_un_difetto": "`DictionaryBatch.data` e' facoltativo nella grammatica flatbuffer e obbligatorio nel formato. Un messaggio che lo omette fa panicare la libreria invece di produrre un errore.",
+        "trovato_da": "la campagna fuzz della CI su `ipc_reader`, il 2026-09-07",
+        "presente_in": [
+          "59.3.0 (ultima stabile)",
+          "main, riletto il 2026-09-08"
+        ],
+        "dimostrato": "il riproduttore fa panicare `main` non modificato; con la patch restituisce «Parser error: Dictionary batch is missing its data», e i test di `arrow-ipc` -- 131, 7 e 11 -- passano.",
+        "perche_e_facile_da_proporre": "la correzione ha gia' un precedente **nello stesso file**: i metadati del footer sono appena passati da `unwrap` a `let ... else` con `ParseError`. La patch usa la stessa forma.",
+        "difeso_da_noi": "`driver_common::prevalida_arrow`, dal 2026-09-07",
+        "file": "contributi-upstream/arrow-dizionario-senza-dati/",
+        "stato": "**pronto da inviare**, non inviato"
       }
     ],
     "kml": [
@@ -1146,7 +1163,19 @@
       "il_vincolo_vero": "nel manifesto di `kml 0.14.0` c'e' `version = \"0.41.0\"`, che in cargo e' un **caret**: `>=0.41.0, <0.42.0`. `\"0.41.0\"` e `\"=0.41.0\"` sono vincoli diversi, e solo il secondo e' esatto. Il nostro pin, quello si', e' `=0.41.0`.",
       "conseguenza": "`kml` vincola **la versione che usa lui**, non la nostra. La nostra dipendenza diretta puo' avanzare per conto suo: alzandola a `=0.42.0`, cargo risolverebbe **due** versioni di `quick-xml`, la 0.41.x sotto `kml` e la 0.42.0 sotto `driver-kml` e `driver-xls`. Non e' bloccato: e' un costo da valutare.",
       "i_tipi_al_confine": "due versioni convivono solo se nessun tipo di `quick-xml` attraversa il confine fra il nostro codice e `kml` -- altrimenti i tipi sono nominalmente diversi e non compilano. `kml` **espone** `quick_xml` nella propria API pubblica: `KmlWriter::new(quick_xml::Writer<W>)`, `KmlReader::from_xml_reader(quick_xml::Reader<B>)`, e la variante d'errore `MalformedXml(quick_xml::Error)`. Noi pero' non ne usiamo nessuna: chiamiamo `KmlWriter::from_writer(&mut W)` con uno scrittore normale, passiamo valori di `kml::types`, facciamo il nostro parsing con un `quick_xml::Reader` **nostro**, e l'errore di `kml` lo scartiamo con `map_err(|_| ...)`. Al confine non passa niente di `quick-xml`.",
-      "giudizio": "tecnicamente possibile, non fatto e non proposto qui. Aggiungerebbe una duplicazione proprio mentre ne abbiamo tolta una, e `quick-xml 0.42.0` non risolve per noi nessun problema noto. Da riprendere se la 0.42 portera' una ragione -- una correzione che ci serve, o un advisory."
+      "giudizio": "**corretto il 2026-09-08.** Avevo scritto «tecnicamente possibile, non fatto e non proposto qui», rinviandolo a quando la 0.42 avesse portato «una ragione». E' un criterio sbagliato: l'obiettivo concordato per la 3.0.0 e' aggiornare le dipendenze, quindi la ragione c'e' gia' ed e' quella. Una duplicazione temporanea nel grafo e' un **costo da misurare**, non un motivo per escludere l'aggiornamento.",
+      "resta_da_fare": {
+        "che_cosa": "valutare e verificare `quick-xml` `=0.41.0` -> `=0.42.0` sulla nostra dipendenza diretta, come gli altri gruppi indipendenti.",
+        "che_cosa_va_misurato": [
+          "che cosa cambia fra 0.41.0 e 0.42.0 nei percorsi che usiamo -- `Reader`, `events::{BytesStart, Event, BytesRef}`, `escape::resolve_xml_entity` -- letto nel codice",
+          "se `kml` resti sulla 0.41.x, e quindi se la duplicazione ci sia davvero: `kml` dichiara un caret `>=0.41.0, <0.42.0`, non un `=`",
+          "il costo della duplicazione, se c'e': quanti nodi in piu' nel grafo, e se `quick-xml` porti codice C o solo Rust",
+          "i percorsi di lettura e scrittura di KML e XLSX, che sono i due driver che lo usano",
+          "le cinque misure che `Cargo.lock` invalida"
+        ],
+        "il_confine_gia_verificato": "nessun tipo di `quick-xml` attraversa il confine con `kml`: chiamiamo `KmlWriter::from_writer(&mut W)` con uno scrittore normale, passiamo valori di `kml::types`, facciamo il nostro parsing con un `Reader` nostro, e l'errore di `kml` lo scartiamo con `map_err(|_| ...)`. E' la condizione che rende le due versioni compatibili, ed e' gia' misurata.",
+        "stato": "**aperto**, nell'elenco degli aggiornamenti residui."
+      }
     }
   },
   "censimento_unwrap_arrow_ipc": {
@@ -1195,14 +1224,39 @@
         "dimostrazione": "sul crate non modificato: per la via dell'iteratore il caso e' gia' `InvalidShapeRecordSize`; per `read_nth_shape_as` **e' accettato** e torna come `NullShape`. Con la patch entrambe le vie rifiutano.",
         "come_l_ho_scoperto": "il primo riproduttore era rifiutato **anche senza patch**, cioe' non dimostrava niente. Ha costretto a capire perche', e il perche' era la protezione che c'e' gia' su una via sola.",
         "file": "contributi-upstream/shapefile-lunghezza-negativa/"
+      },
+      {
+        "id": "arrow.dizionario-senza-dati",
+        "progetto": "apache/arrow-rs, licenza Apache-2.0",
+        "base_del_contributo": "**`main`**: e' il ramo di default e tutti i PR uniti che ho guardato hanno `base=main`. Il loro `CONTRIBUTING.md` chiede di aprire un ticket prima per una funzionalita' nuova; questo e' un difetto, ma la prassi del progetto resta di legare il PR a un issue.",
+        "classe": "panico su ingresso ostile",
+        "il_difetto": "`get_dictionary_values` apre `DictionaryBatch.data` con `unwrap`. Il campo e' facoltativo nella grammatica flatbuffer e obbligatorio nel formato: un messaggio che lo omette panica invece di produrre un errore.",
+        "verifica_upstream": "riletto in `main` il 2026-09-08: `batch.data().unwrap()` e' ancora li'.",
+        "dimostrazione": "il riproduttore -- il seme della nostra campagna, 2169 byte -- fa panicare `main` non modificato. Con la patch: «Parser error: Dictionary batch is missing its data». I test di `arrow-ipc` restano verdi.",
+        "il_precedente_che_aiuta": "i metadati del footer, nello stesso file, sono appena passati da `unwrap` a `let ... else` con `ParseError`. La patch usa quella forma, e la proposta e' «finite il giro».",
+        "file": "contributi-upstream/arrow-dizionario-senza-dati/"
       }
     ],
     "da_preparare": [
-      "**GDAL**: le proposte di API in `fork.gdal.modifiche`. E' il fork col salto di versione piu' netto -- 0.17.1 contro 0.19.0 -- quindi va deciso prima se proporre contro la 0.19 o contro `master`.",
+      {
+        "id": "gdal.api-mancanti",
+        "progetto": "georust/gdal, licenza MIT",
+        "base_del_contributo": "**`master`**, e non e' una nostra scelta: e' il ramo che il progetto usa. Il README ha una sezione `Contributing` che dice solo «PRs are always welcome», senza nominare rami di manutenzione, e tutti i PR uniti che ho guardato hanno `base=master`. Verificato il 2026-09-08.",
+        "e_una_decisione_separata": "quale versione di `gdal` usi il **nostro** prodotto -- oggi 0.17.1, ultima stabile 0.19.0 -- non c'entra con la base del contributo. Confonderle era un errore del rapporto precedente, che parlava di «decidere se proporre contro la 0.19 o contro master»: non c'e' niente da decidere.",
+        "la_premessa_riletta": "le due modifiche non aggiungono FFI: le funzioni C **sono gia' legate** in `gdal-sys`. `OGR_L_SetIgnoredFields` e `OSRSetPROJSearchPaths` compaiono nei binding pre-generati di ogni versione, dalla 3_8 alla 3_13. Quello che manca e' il **wrapper sicuro** nel crate `gdal`, che e' esattamente cio' per cui quel crate esiste. Detta cosi' la proposta e' piu' piccola e piu' facile da accettare di come l'aveva descritta il censimento.",
+        "attenzione_al_metodo": "cercare i due nomi in `layer.rs` e in `srs.rs` non ne trova nessuno, e da soli quei due file avrebbero fatto concludere «assenti dal progetto». La ricerca sul repository intero li trova in `gdal-sys/prebuilt-bindings`. E' la stessa regola gia' imparata due volte: l'assenza da un file non e' l'assenza dal progetto.",
+        "da_fare": "portare i due wrapper del nostro fork su `master`, con la prova nello stile del progetto. Serve un ambiente con libgdal e gli header, che il container di sviluppo ha."
+      },
       "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
-      "**`arrow-rs`**: l'`unwrap` sui metadati del footer, in `proposte_upstream_oltre_i_fork`. Non richiede un fork: il prodotto si difende prevalidando.",
       "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."
     ],
-    "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due."
+    "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due.",
+    "tre_passaggi_distinti": {
+      "nota": "preparare un contributo, vederlo accettato, e togliere il fork sono tre cose diverse, e solo la prima dipende da noi. Confonderle farebbe sembrare vicino un traguardo che non lo e'.",
+      "preparato": "tre contributi, verificati contro i progetti veri. Fatto.",
+      "inviato": "**nessuno.** Finche' restano qui, il tempo di attesa dei manutentori non e' nemmeno cominciato. E' il passaggio che costa meno a noi e che sblocca tutto il resto.",
+      "accettato_e_rilasciato": "non dipende da noi, e non ha una data. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' aperto e nemmeno quando e' unito.",
+      "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo."
+    }
   }
 }

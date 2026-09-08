@@ -1,0 +1,22 @@
+--- a/arrow-ipc/src/reader.rs
++++ b/arrow-ipc/src/reader.rs
+@@ -923,9 +923,18 @@
+             let value = value_type.as_ref().clone();
+             let schema = Schema::new(vec![Field::new("", value, true)]);
+             // Read a single column
++            // `DictionaryBatch.data` is optional in the flatbuffer grammar and
++            // required by the format, so a message that omits it panics here
++            // rather than producing an error.  This mirrors the check the footer
++            // metadata already got: report it, don't unwrap it.
++            let Some(data) = batch.data() else {
++                return Err(ArrowError::ParseError(
++                    "Dictionary batch is missing its data".to_string(),
++                ));
++            };
+             let record_batch = RecordBatchDecoder::try_new(
+                 buf,
+-                batch.data().unwrap(),
++                data,
+                 Arc::new(schema),
+                 dictionaries_by_id,
+                 metadata,
