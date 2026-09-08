@@ -1240,7 +1240,7 @@
     "quando_va_rifatto": "a ogni aggiornamento di arrow: l'elenco vale per la 59.3.0 e per nessun'altra versione."
   },
   "contributi_upstream": {
-    "nota": "il materiale per riportare le nostre correzioni nei progetti originali. **Niente e' stato ancora inviato.** I file -- patch, riproduttori, script di verifica -- stanno in `contributi-upstream/`; la segnalazione sta qui, perche' il docset del repository e' minimo per scelta e cinque documenti sono cinque.",
+    "nota": "il materiale per riportare le nostre correzioni nei progetti originali. **Cinque contributi inviati** il 2026-09-08. I file -- patch, riproduttori, script di verifica -- stanno in `contributi-upstream/`; la segnalazione sta qui, perche' il docset del repository e' minimo per scelta.",
     "aggiornare_non_e_eliminare": "gli aggiornamenti dei fork possono procedere conservando le patch ancora necessarie. A dipendere da una release ufficiale che le sostituisca e' l'**eliminazione**, che non e' la stessa cosa e non dipende da noi.",
     "come_si_verifica": "due script fanno il giro completo: riproducono il difetto sul crate **non modificato**, applicano la patch su un albero pulito, mostrano che corregge, e rieseguono la suite di test del progetto. `contributi-upstream/dxf-block-senza-endblk/prova-upstream.sh` e `contributi-upstream/prova-shapefile.sh`, nel container di sviluppo perche' servono rete e cargo.",
     "pronti": [
@@ -1315,9 +1315,7 @@
           "fatto": "tutti e cinque. Il test ora costruisce il `DictionaryBatch` malformato con `FlatBufferBuilder` e chiama `read_dictionary` direttamente, sul modello di `test_missing_buffer_metadata_error`: niente file, niente byte da rattoppare. La PR tocca ora il solo `arrow-ipc/src/reader.rs`.",
           "un_errore_mio_da_registrare": "il primo tentativo di riscontro ha cancellato, insieme al mio blocco, gli **import del modulo di test**: 636 errori di compilazione, e li ho spinti perche' lo script non si fermava sui test rossi. Ricostruito il ramo da `main` e rifatto con uno script che si ferma prima di spingere se test o clippy non passano. La lezione e' quella: uno script che spinge deve avere il cancello prima del push, non dopo."
         }
-      }
-    ],
-    "da_preparare": [
+      },
       {
         "id": "gdal.api-mancanti",
         "progetto": "georust/gdal, licenza MIT",
@@ -1326,7 +1324,7 @@
         "la_premessa_riletta": "le due modifiche non aggiungono FFI: le funzioni C **sono gia' legate** in `gdal-sys`. `OGR_L_SetIgnoredFields` e `OSRSetPROJSearchPaths` compaiono nei binding pre-generati di ogni versione, dalla 3_8 alla 3_13. Quello che manca e' il **wrapper sicuro** nel crate `gdal`, che e' esattamente cio' per cui quel crate esiste. Detta cosi' la proposta e' piu' piccola e piu' facile da accettare di come l'aveva descritta il censimento.",
         "attenzione_al_metodo": "cercare i due nomi in `layer.rs` e in `srs.rs` non ne trova nessuno, e da soli quei due file avrebbero fatto concludere «assenti dal progetto». La ricerca sul repository intero li trova in `gdal-sys/prebuilt-bindings`. E' la stessa regola gia' imparata due volte: l'assenza da un file non e' l'assenza dal progetto.",
         "da_fare": "portare i due wrapper del nostro fork su `master`, con la prova nello stile del progetto. Serve un ambiente con libgdal e gli header, che il container di sviluppo ha.",
-        "stato": "**compilato e provato** il 2026-09-08. Non ancora proposto: l'invio non e' fra i quattro autorizzati.",
+        "stato": "**inviato** il 2026-09-08",
         "che_cosa_contiene": "i due wrapper sicuri portati dal nostro fork: `set_ignored_fields` come metodo del tratto `LayerAccess`, accanto a `clear_attribute_filter`; `set_proj_search_paths` e `get_proj_search_paths` in fondo a `srs.rs`, riesportati da `spatial_ref/mod.rs`. Novantadue righe di diff, nessuna FFI nuova.",
         "perche_non_compilata": "il container di sviluppo ha **GDAL 3.6.2**, e il `build.rs` di `gdal` master si ferma da se': «The GDAL crate requires a GDAL version >= 3.8.0». Non e' un difetto della patch, e' il nostro ambiente. Nemmeno la feature `bindgen` aggira il controllo, perche' il rifiuto sta nel build script del crate `gdal`, non in `gdal-sys`.",
         "come_si_verifica": "serve un ambiente con GDAL 3.8 o successiva. Il job `gdal-linux-matrix (ubuntu-24.04)` della nostra CI ne ha uno; in alternativa un container costruito su `ubuntu:24.04`. Lo script `contributi-upstream/prova-gdal.sh` fa gia' il giro completo -- applica, compila, esercita le due API, esegue i test -- e basta eseguirlo dove GDAL e' abbastanza recente.",
@@ -1339,16 +1337,26 @@
           "i test del crate": "279 + 1 + 1 + 57, tutti verdi"
         },
         "una_correzione_trovata_compilando": "la prima stesura non compilava: `get_proj_search_paths` usa `_string_array`, che upstream **ha** in `utils.rs` ma non importa in `srs.rs`. Il nostro fork lo importava gia', quindi il difetto si vedeva solo contro l'albero di upstream. E' esattamente la ragione per cui «la patch si applica» e «le prove girano sul nostro fork» non bastavano a dichiararlo pronto.",
-        "che_cosa_manca_ancora": "una prova per `set_ignored_fields` dentro il patch: compila ed e' usata ogni giorno dal nostro `driver-filegdb`, ma nel contributo non c'e' un test che la eserciti. Serve una fixture vettoriale e le loro convenzioni di test. Da fare prima di aprire la PR, non dopo."
-      },
+        "che_cosa_manca_ancora": "una prova per `set_ignored_fields` dentro il patch: compila ed e' usata ogni giorno dal nostro `driver-filegdb`, ma nel contributo non c'e' un test che la eserciti. Serve una fixture vettoriale e le loro convenzioni di test. Da fare prima di aprire la PR, non dopo.",
+        "pr": "https://github.com/georust/gdal/pull/731",
+        "identita": "PlenoraETL <4678670+PlenoraETL@users.noreply.github.com>",
+        "le_prove": {
+          "set_ignored_fields": "asserisce l'**effetto** sulla lettura, non che la chiamata torni `Ok`: il campo c'e', sparisce mentre e' ignorato, e torna quando la lista viene svuotata. Il terzo passo e' cio' che rende l'asserzione su **quel** campo invece che sul layer.",
+          "la_fixture_e_costruita_dal_test": "ed e' una scelta che porta peso. `SetIgnoredFields` e' **facoltativa per driver**: il GeoJSON la ignora. La prima stesura usava `roads.geojson` e passava sia con il wrapper attivo sia senza -- cioe' non provava niente. La versione buona costruisce un GeoPackage, che la implementa.",
+          "percorsi_di_proj": "`get` riporta i default, `set` li sostituisce, la rilettura torna cio' che e' stato impostato. I percorsi sono **globali di processo**: il test ripristina cio' che ha trovato e gira dietro un mutex, perche' due test che scrivono un globale insieme si rendono instabili a vicenda invece di fallire onestamente.",
+          "suite": "281 + 1 + 1 + 57 verdi, clippy e `fmt --check` puliti, contro GDAL 3.8.4 coi binding pre-generati"
+        }
+      }
+    ],
+    "da_preparare": [
       "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
       "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."
     ],
     "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due.",
     "tre_passaggi_distinti": {
       "nota": "preparare un contributo, vederlo accettato, e togliere il fork sono tre cose diverse, e solo la prima dipende da noi. Confonderle farebbe sembrare vicino un traguardo che non lo e'.",
-      "preparato": "tre contributi, verificati contro i progetti veri. Fatto.",
-      "inviato": "**nessuno.** Finche' restano qui, il tempo di attesa dei manutentori non e' nemmeno cominciato. E' il passaggio che costa meno a noi e che sblocca tutto il resto.",
+      "preparato": "cinque contributi, tutti verificati contro i progetti veri.",
+      "inviato": "**cinque, tutti.** DXF #105, Shapefile #56 e #57, Arrow #11020 con l'issue #11019, GDAL #731. Il tempo di attesa dei manutentori e' cominciato.",
       "accettato_e_rilasciato": "non dipende da noi, e non ha una data. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' aperto e nemmeno quando e' unito.",
       "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo."
     },
@@ -1358,5 +1366,63 @@
       "come_e_stato_determinato": "**recuperato, non costruito.** Nel repository non c'e' nessuna configurazione git -- `user.name` e `user.email` sono assenti a livello locale, globale e di sistema -- e i commit di questo lavoro passano l'identita' per riga di comando. L'indirizzo e' stato trovato in uso: la ricerca dei commit di GitHub lo mostra in sette commit su `PlenoraETL/plenora-rest-tools` e `PlenoraETL/plenora-runtime-tools`, tutti attribuiti all'account `PlenoraETL`. Non e' stato composto dalla convenzione `id+login`.",
       "storia_non_riscritta": "i commit gia' in `plenora-IO-tools` restano com'erano. L'identita' e' applicata ai soli commit nuovi nei fork."
     }
+  },
+  "dipendenze_ancora_da_migrare": {
+    "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
+    "allineate": 22,
+    "indietro": 6,
+    "voci": [
+      {
+        "crate": "ctrlc",
+        "in_uso": "3.5.0",
+        "ultima": "3.5.2",
+        "passo": "due patch",
+        "giudizio": "il piu' piccolo dei sei e il primo da cui partire. Interno alla CLI, non attraversa nessun confine."
+      },
+      {
+        "crate": "geo-types",
+        "in_uso": "0.7.19",
+        "ultima": "0.7.20",
+        "passo": "una patch su 0.x",
+        "giudizio": "attraversa **ogni** driver ed e' il tipo geometrico condiviso con gli altri componenti. Piccolo di numero, largo di superficie: va fatto da solo."
+      },
+      {
+        "crate": "rusqlite",
+        "in_uso": "0.39.0",
+        "ultima": "0.40.2",
+        "passo": "un minor su 0.x, cioe' una barriera",
+        "giudizio": "tocca solo `driver-gpkg`, ma porta `bundled` -- SQLite compilato dai sorgenti -- quindi cambia anche cio' che finisce negli artefatti. Da guardare insieme alla duplicazione di `hashbrown`, che entra da `hashlink` sotto `rusqlite`."
+      },
+      {
+        "crate": "jsonschema",
+        "in_uso": "0.51.0",
+        "ultima": "0.55.0",
+        "passo": "quattro minor su 0.x",
+        "giudizio": "e' il crate che il lotto S10 ha portato dentro per validare gli schemi GeoParquet e PROJJSON, e da solo aggiunge 63 crate alla closure. Ogni minor su 0.x e' una barriera: quattro sono quattro."
+      },
+      {
+        "crate": "geojson",
+        "in_uso": "0.24.2",
+        "ultima": "1.0.0",
+        "passo": "**da 0.x a 1.0**",
+        "giudizio": "il salto piu' grosso rimasto. Una 1.0 e' normalmente il momento in cui un progetto rompe cio' che voleva rompere: va trattato come l'aggiornamento di `quick-xml`, cioe' come un intervento a se' con il contratto del driver misurato prima e dopo."
+      },
+      {
+        "crate": "gdal",
+        "in_uso": "0.17.1",
+        "ultima": "0.19.0",
+        "passo": "due minor su 0.x",
+        "giudizio": "**e' un fork.** Aggiornarlo significa portare `vendor/gdal` alla 0.19.0 riapplicando le sole modifiche ancora necessarie -- che ora sono due, ed entrambe proposte upstream in #731. Aggiornare il fork e eliminarlo restano due cose diverse."
+      }
+    ],
+    "i_due_fork_non_in_elenco": "`dxf 0.6.1` e' gia' all'ultima stabile; `shapefile 0.6.0` e' indietro di tre minor sulla 0.9.0 e compare sopra. Per entrambi vale la stessa distinzione: aggiornare la copia in `vendor/` si puo' fare quando vogliamo, eliminarla dipende da una release ufficiale che contenga le correzioni.",
+    "ordine_suggerito": [
+      "`ctrlc`, che e' due patch",
+      "`geo-types`, da solo per via della superficie",
+      "`rusqlite`, con la duplicazione di `hashbrown` sotto gli occhi",
+      "`jsonschema`, quattro barriere",
+      "`geojson`, da 0.x a 1.0, come intervento a se'",
+      "i fork, che sono un'altra categoria"
+    ]
   }
 }
