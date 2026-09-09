@@ -52,7 +52,7 @@ tempfile = "=3.27.0"
 # thread dedicato, che poi chiama la nostra chiusura. E' cio' che rende lecito
 # prendere un lock nel gestore, dove un handler vero ammetterebbe solo funzioni
 # async-signal-safe.
-ctrlc = "=3.5.0"
+ctrlc = "=3.5.2"
 libc = "=0.2.189"
 rustix = { version = "=1.1.4", features = ["fs"] }
 atomicwrites = "=0.4.4"

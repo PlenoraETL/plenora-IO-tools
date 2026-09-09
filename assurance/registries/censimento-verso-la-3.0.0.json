@@ -1369,15 +1369,29 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 22,
-    "indietro": 6,
+    "allineate": 23,
+    "indietro": 5,
     "voci": [
       {
         "crate": "ctrlc",
-        "in_uso": "3.5.0",
+        "in_uso": "3.5.2",
         "ultima": "3.5.2",
-        "passo": "due patch",
-        "giudizio": "il piu' piccolo dei sei e il primo da cui partire. Interno alla CLI, non attraversa nessun confine."
+        "passo": "allineato",
+        "giudizio": "il piu' piccolo dei sei e il primo da cui partire. Interno alla CLI, non attraversa nessun confine.",
+        "esito": {
+          "eseguito_il": "2026-09-08",
+          "che_cosa_cambia_nel_crate": "diciassette righe in un file solo, `platform/unix/mod.rs`: su macOS il semaforo passa dal crate `dispatch` a `dispatch2`, e i confronti sui gestori installati passano da `!=` a `!matches!`. MSRV ed edizione invariate.",
+          "che_cosa_cambia_nel_grafo": "piu' di quanto le diciassette righe lascino intendere, e **solo su macOS**: `dispatch 0.2.0` esce, ed entrano `dispatch2 0.3.1`, `objc2 0.6.4`, `objc2-encode 4.1.0` e `block2 0.6.2`. Su tutte le piattaforme `nix` sale da 0.30.1 a 0.31.3, tirato da `ctrlc`. Nodi: linux 200, windows 202, macos 205.",
+          "il_giudizio": "uno contro quattro non e' un affare in astratto, ma il crate che esce e' fermo al **2020-01-19**, e quello che entra e' del 2026-02. **Nessun advisory RUSTSEC** su `dispatch`: e' manutenzione, non sicurezza, e va detto cosi'. I tre crate in piu' pesano su una piattaforma che compiliamo e non distribuiamo.",
+          "verifiche": [
+            "clippy pulito con `-D warnings`",
+            "40 suite verdi",
+            "replay su sette bersagli, nessun crash",
+            "quattro profondita' rimisurate coi numeri invariati",
+            "ASan a 179433, quindi `current-state.json` non si tocca"
+          ],
+          "il_percorso_provato": "`installa_gestore_dei_segnali` in `plenora-io-cli/src/segnali.rs`, l'unico punto che chiama `ctrlc::set_handler`. La decisione che il gestore prende sta in `reagisci_al_segnale`, che e' provata senza segnali: quei test restano verdi."
+        }
       },
       {
         "crate": "geo-types",
@@ -1417,7 +1431,7 @@
     ],
     "i_due_fork_non_in_elenco": "`dxf 0.6.1` e' gia' all'ultima stabile; `shapefile 0.6.0` e' indietro di tre minor sulla 0.9.0 e compare sopra. Per entrambi vale la stessa distinzione: aggiornare la copia in `vendor/` si puo' fare quando vogliamo, eliminarla dipende da una release ufficiale che contenga le correzioni.",
     "ordine_suggerito": [
-      "`ctrlc`, che e' due patch",
+      "~~`ctrlc`~~ fatto il 2026-09-08",
       "`geo-types`, da solo per via della superficie",
       "`rusqlite`, con la duplicazione di `hashbrown` sotto gli occhi",
       "`jsonschema`, quattro barriere",
