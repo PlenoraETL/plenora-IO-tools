@@ -1399,8 +1399,8 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 24,
-    "indietro": 4,
+    "allineate": 25,
+    "indietro": 3,
     "voci": [
       {
         "crate": "ctrlc",
@@ -1445,10 +1445,29 @@
       },
       {
         "crate": "rusqlite",
-        "in_uso": "0.39.0",
+        "in_uso": "0.40.2",
         "ultima": "0.40.2",
-        "passo": "un minor su 0.x, cioe' una barriera",
-        "giudizio": "tocca solo `driver-gpkg`, ma porta `bundled` -- SQLite compilato dai sorgenti -- quindi cambia anche cio' che finisce negli artefatti. Da guardare insieme alla duplicazione di `hashbrown`, che entra da `hashlink` sotto `rusqlite`."
+        "passo": "allineato",
+        "giudizio": "tocca solo `driver-gpkg`, ma porta `bundled` -- SQLite compilato dai sorgenti -- quindi cambia anche cio' che finisce negli artefatti. Da guardare insieme alla duplicazione di `hashbrown`, che entra da `hashlink` sotto `rusqlite`.",
+        "esito": {
+          "eseguito_il": "2026-09-09",
+          "che_cosa_cambia_nell_api": "niente, per noi. Le rotture della 0.40.0 stanno tutte nel modulo `vtab` -- costruttori al posto delle macro, `VTab::best_index`, `VTab::connect`/`create`, `vtab::dequote` -- e il prodotto non usa tabelle virtuali: `grep` su `crates/` non trova un solo `vtab`. `driver-gpkg` usa `Connection`, `Statement`, `params!`, `params_from_iter`, `ToSql`/`ToSqlOutput`/`ValueRef` e `query_row`, tutte invariate. La compilazione e' passata senza toccare una riga di codice.",
+          "sqlite_incorporata": "3.51.3 -> 3.53.2. Non e' una deduzione dal changelog: e' letta dal binario, sia con `rusqlite::version()` sia con `SELECT sqlite_version()` eseguita su una connessione aperta dal driver. Le due concordano.",
+          "che_cosa_cambia_nel_grafo": "`rusqlite` 0.39.0 -> 0.40.2, `libsqlite3-sys` 0.37.0 -> 0.38.2, `hashlink` 0.11.1 -> 0.12.2. Tre nodi, nessuno nuovo e nessuno in uscita.",
+          "la_duplicazione_misurata": "eliminata, e misurata sul grafo compilato invece che dedotta. Prima: `cargo tree -d` elencava `hashbrown` 0.16.1 e 0.17.1, e `cargo tree -i hashbrown@0.16.1` dava la catena `hashlink 0.11.1 <- rusqlite 0.39.0 <- driver-gpkg`. Dopo: `hashbrown` non compare piu' fra i duplicati e `cargo tree -i hashbrown@0.16.1` risponde «nothing to print». Resta una sola versione compilata, la 0.17.1, che ora arriva anche da `hashlink 0.12.2`.",
+          "un_avvertimento_sul_lock": "`Cargo.lock` contiene **ancora** `hashbrown 0.16.1`, trattenuta da `rsqlite-vfs 0.1.1` via `sqlite-wasm-rs`, che `libsqlite3-sys` tira solo per `wasm32`. Guardando il lock si concluderebbe che la duplicazione e' rimasta: e' l'ennesima volta che il lock non e' il grafo compilato. `rsqlite-vfs` e' fermo alla 0.1.1, quindi quella riga non se ne va aggiornando qualcosa.",
+          "il_file_prodotto_prima_e_dopo": "un GPKG riscritto dallo stesso ingresso canonico differisce per **otto byte** su 32768, e sono tutti spiegati. Due stanno all'offset 96 dell'intestazione SQLite, il campo `SQLITE_VERSION_NUMBER`: 3051003 -> 3053002, cioe' la libreria che ha scritto il file che si firma. Sei stanno all'offset 12278 e sono dentro `gpkg_contents.last_change` -- `2026-09-09T10:57:36.315Z` contro `...10:55:53.708Z` -- cioe' il nostro orologio, che differisce fra due corse qualsiasi dello stesso binario. Tutti e cento gli altri campi dell'intestazione coincidono, compresi `application id`, `user version`, `page size` e `text encoding`.",
+          "che_cosa_e_conservato": "lo schema (sette oggetti in `sqlite_master`, stesso sha256), le tabelle di metadati (`gpkg_contents` 1 riga, `gpkg_geometry_columns` 1, `gpkg_spatial_ref_sys` 4) e i dati (5 righe, stesso sha256). Le buste di `convert`, `read` e `inspect` sono identiche byte per byte. Il contratto dichiarato dai dieci driver e' `semantic` in lettura e scrittura -- `docs/PRODUCT.md` dice esplicitamente che riconvertire due volte puo' dare byte diversi e ugualmente corretti -- quindi otto byte spiegati non sono una regressione.",
+          "un_effetto_di_sicurezza_che_arriva_con_l_aggiornamento": "la 0.40.1 corregge una SQL injection quando il nome di un SAVEPOINT e' contaminato (#1854). Non ci riguardava -- il prodotto non usa savepoint, e non usa nemmeno `transaction()` -- ma vale la pena registrarlo: e' arrivato senza che lo cercassimo.",
+          "verifiche": [
+            "compilazione del workspace `--all-targets` senza modifiche al codice",
+            "32 prove di `driver-gpkg` verdi",
+            "l'intera suite del workspace verde",
+            "quattro profondita' rimisurate: 35/35, 9/9, 9/9, 12/12, numeri invariati",
+            "ASan a 179433 contatori, invariato, quindi `current-state.json` non si tocca",
+            "L1 85/85"
+          ]
+        }
       },
       {
         "crate": "jsonschema",
