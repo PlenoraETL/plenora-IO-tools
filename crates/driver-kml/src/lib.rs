@@ -159,11 +159,29 @@ fn observe_point_coordinate_text(
 /// avanzare; inoltre `kml 0.14.0` rimuove senza controllo la prima coordinata
 /// di un `Point`. Una scansione XML limitata evita di consegnargli input
 /// ambigui o punti senza coordinate.
+/// Rifiuta prima del parser di `kml` cio' che quel parser non sa rifiutare.
+///
+/// # Perche' legge i byte cosi' come sono
+///
+/// Questa funzione protegge **un** consumatore: `Kml::from_str`, che riceve
+/// UTF-8 e basta. Deve percio' leggere gli stessi identici byte, senza
+/// rilevare codifiche -- ed e' l'opposto di cio' che serve al lettore del
+/// prodotto, che usa `DecodingReader` per onorare le codifiche dichiarate.
+///
+/// Averle date `DecodingReader` e' stato un difetto vero, non un dettaglio.
+/// L'ha trovato il fuzzing della CI il 2026-09-09 con 314 byte che cominciano
+/// per `3C 00 3F 00`: per l'appendice F della specifica XML quella e' la firma
+/// di UTF-16LE senza BOM, e `DecodingReader` fa la cosa giusta a transcodificare.
+/// Il documento transcodificato e' due eventi e uno stack vuoto, quindi la
+/// guardia passava; `Kml::from_str` leggeva invece gli stessi byte come UTF-8,
+/// ci trovava quattro `<xjA:Point>` mai chiusi, e `read_geom_props` -- che esce
+/// solo su `End`, senza un ramo `Eof` -- girava per sempre.
+///
+/// La lezione sta nella forma, non nel caso: una guardia che analizza un
+/// documento diverso da quello che il protetto analizzera' non e' una guardia
+/// indebolita, e' un'altra guardia.
 fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
-    // `quick-xml 0.42` pretende UTF-8 dal lettore e sposta la transcodifica
-    // qui: senza `DecodingReader` un documento che dichiara ISO-8859-1 --
-    // che oggi leggiamo e i cui valori conserviamo -- verrebbe rifiutato.
-    let mut reader = XmlReader::from_reader(DecodingReader::new(input));
+    let mut reader = XmlReader::from_reader(input);
     let mut event_buffer = Vec::new();
     let mut stack = Vec::<Vec<u8>>::new();
     let mut open_points_with_coordinates = Vec::<bool>::new();
@@ -188,11 +206,6 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
         previous_position = position;
 
         match event {
-            // Va applicata prima che il prefisso del `DecodingReader` si esaurisca,
-            // cioe' subito: e' il primo evento del documento.
-            Event::Decl(ref dichiarazione) => {
-                applica_codifica_dichiarata(&mut reader, dichiarazione);
-            }
             Event::Start(element) => {
                 validate_element(&element)?;
                 if stack.len() >= MAX_XML_DEPTH {
@@ -1731,6 +1744,43 @@ mod tests {
     const FUZZ_TIMEOUT_REGRESSION: &[u8] = br#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeomgis.net/kml/2.2"><Placemark><MultiGeometry>></LikeString></MultiGww.opengis.net/kml/2.2etry>></LikeString></MultiGww.opengis.net/kml/2.2"><>"#;
     const FUZZ_EMPTY_POINT_REGRESSION: &[u8] =
         br#"<kml xmlns="httpw.opengis.net/kml/2.2"><Placemark><Point></Point></Placemark></kml>"#;
+
+    /// Il caso del 2026-09-09: 314 byte che la guardia leggeva in un'altra
+    /// codifica rispetto al parser che protegge.
+    ///
+    /// I primi quattro byte sono `3C 00 3F 00`, cioe' `<?` in UTF-16LE, e
+    /// l'appendice F della specifica XML dice proprio di dedurne quella
+    /// codifica in assenza di BOM. Letto cosi' il documento e' due eventi con
+    /// lo stack vuoto, e la guardia lo lasciava passare; `Kml::from_str` lo
+    /// leggeva come UTF-8, ci trovava quattro `<xjA:Point>` mai chiusi, e non
+    /// tornava piu' -- oltre centodieci secondi in locale, contro i ventuno
+    /// del tetto della CI.
+    ///
+    /// Come per la regressione qui sotto, il budget di un secondo e' la meta'
+    /// della prova: senza, un difetto di non terminazione non fa fallire il
+    /// test, lo fa scadere.
+    const FUZZ_UTF16_SNIFF_REGRESSION: &[u8] =
+        b"<\x00?\x00<\x00?\x00:\x00\x00\x00%%%%(%%e%%%%%%%%%\x00\x00\x00\x00\
+         \x00\x00\x00>5<j:k___________>\x00\x00\x00\x00\x00\x00\x00%%%%%%\
+         \x00\x00\x00\x00\x00\x00\x00>5<j:k______xx<?<x?m?>?>^<?mx\x00\x00\
+         \x00?>x<?mx>?>x<?mx)?>x-?mx__\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+         \x00\x00<xjA:Point>0j><xjA:Point>\x00\x00\x00<xjA:Point>0j><xjA:Po\
+         int>\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+         \x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\
+         \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\
+         \x00\x00<___>\x00\x00\x00\x00\x00\x00\x00\x00\x00N\x00\x00\x00\x00\
+         \x00\x00\x00)\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+         \x00\x00\"$\" <>?\x00>\x00\"$\" i\x00?\x00>\x00\x00\x0d\"&;\x00\
+         \x00/>\x00\x00\x0d";
+
+    #[test]
+    fn rejects_input_the_guard_and_the_parser_read_differently() {
+        {
+            let started = std::time::Instant::now();
+            assert!(__fuzz_read_kml(FUZZ_UTF16_SNIFF_REGRESSION).is_err());
+            assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        }
+    }
 
     #[test]
     fn rejects_malformed_xml_that_stalled_the_kml_parser() {

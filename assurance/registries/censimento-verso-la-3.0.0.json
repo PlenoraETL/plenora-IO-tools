@@ -1230,6 +1230,15 @@
           "quattro profondita' invariate, ASan a 179433"
         ]
       }
+    },
+    "un_difetto_introdotto_dalla_0_42": {
+      "trovato_il": "2026-09-09, dal fuzzing della nostra CI su `kml_reader`. Non un crash: un timeout, 314 byte oltre i ventuno secondi del tetto, e oltre centodieci in locale.",
+      "la_causa": "e' mia, e sta nell'aggiornamento a quick-xml 0.42. Avevo dato `DecodingReader` anche a `validate_kml_xml`, che e' la guardia davanti a `Kml::from_str`. Il riproduttore comincia per `3C 00 3F 00`, cioe' `<?` in UTF-16LE: per l'appendice F della specifica XML quella e' la firma di UTF-16 senza BOM, e `DecodingReader` fa la cosa giusta a transcodificare. Solo che il protetto non transcodifica niente.",
+      "che_cosa_vedevano_i_due": "misurato, non dedotto: con `DecodingReader` la guardia vede due eventi -- un PI e un testo -- e uno stack vuoto, quindi passa; senza, la stessa quick-xml 0.42 vede ventisette eventi fra cui quattro `<xjA:Point>` mai chiusi, e la guardia rifiuta con «documento XML troncato».",
+      "dove_girava": "`kml::reader::KmlReader::read_geom_props`, nel crate `kml` 0.14.0. Esce solo su `End(end_tag)` e non ha un ramo `Eof`: a fine file `next_event` restituisce `Eof` all'infinito e il ciclo gira a vuoto. Nel file ci sono ventinove `loop` e **un** solo `Event::Eof => break`.",
+      "la_correzione": "`validate_kml_xml` legge di nuovo i byte cosi' come sono. La forma della lezione conta piu' del caso: una guardia che analizza un documento diverso da quello che il protetto analizzera' non e' una guardia indebolita, e' un'altra guardia.",
+      "che_cosa_NON_era_toccato": "il percorso di lettura del prodotto. `Kml::from_str` e' chiamata solo da `__fuzz_read_kml` e da un test; il lettore vero e' `KmlStream`, che usa `DecodingReader` -- e li' serve, perche' e' anche il suo consumatore -- e che ha un ramo `Eof` in ognuno dei suoi cicli, piu' il controllo di avanzamento e quello di profondita'. Il crate `kml` nel prodotto serve a **scrivere**, non a leggere. Le sette codifiche accettate restano quelle: `le_codifiche_accettate_restano_quelle` passa dal lettore del prodotto e non e' toccata.",
+      "la_controprova": "rimesso `DecodingReader` nella guardia, la regressione non fallisce: **si blocca**. E' esattamente cio' che il commento del test dichiara, ed e' la ragione del budget di un secondo -- un difetto di non terminazione non fa fallire un test, lo fa scadere. Con la correzione il bersaglio del fuzzer esegue il riproduttore in 5 ms."
     }
   },
   "censimento_unwrap_arrow_ipc": {
@@ -1386,7 +1395,16 @@
     ],
     "da_preparare": [
       "**`shapefile`, `write_null_shape`**: non e' una correzione difensiva ma una **funzionalita'** che upstream non ha. Va proposta separatamente, e con la domanda aperta se al progetto interessi.",
-      "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi."
+      "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi.",
+      {
+        "id": "kml.cicli-senza-eof",
+        "progetto": "georust/kml",
+        "classe": "lettura che non termina su ingresso troncato -- la stessa del difetto DXF",
+        "trovato_da": "il fuzzing della nostra CI, il 2026-09-09",
+        "il_fatto": "in `src/reader.rs` ci sono ventinove `loop` e un solo `Event::Eof => break`, in `read_elements`. Tutti gli altri -- `read_geom_props` per primo, ma anche i fratelli -- escono solo su un `End` atteso, e a fine file `next_event` restituisce `Eof` all'infinito.",
+        "stato": "da preparare: serve la stessa disciplina degli altri contributi, cioe' verificare prima se upstream abbia gia' una soluzione equivalente, poi modifica minima, riproduttore e regressione con la loro toolchain.",
+        "una_scelta_di_comportamento": "come per DXF: terminare non dice **come**. Rifiutare con errore e recuperare cio' che si e' letto sono due contratti diversi, e la scelta e' del manutentore. Da non presentare come ovvia."
+      }
     ],
     "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due.",
     "tre_passaggi_distinti": {
