@@ -1375,6 +1375,12 @@
           "la_fixture_e_costruita_dal_test": "ed e' una scelta che porta peso. `SetIgnoredFields` e' **facoltativa per driver**: il GeoJSON la ignora. La prima stesura usava `roads.geojson` e passava sia con il wrapper attivo sia senza -- cioe' non provava niente. La versione buona costruisce un GeoPackage, che la implementa.",
           "percorsi_di_proj": "`get` riporta i default, `set` li sostituisce, la rilettura torna cio' che e' stato impostato. I percorsi sono **globali di processo**: il test ripristina cio' che ha trovato e gira dietro un mutex, perche' due test che scrivono un globale insieme si rendono instabili a vicenda invece di fallire onestamente.",
           "suite": "281 + 1 + 1 + 57 verdi, clippy e `fmt --check` puliti, contro GDAL 3.8.4 coi binding pre-generati"
+        },
+        "la_ci_del_progetto": {
+          "primo_esito": "rossa su tutti e nove i job di build, il 2026-09-09. Un lint solo: `clippy::items_after_test_module`, `src/spatial_ref/srs.rs:638`. `patch -p1` aveva appeso i due wrapper in fondo al file, quindi dopo `mod tests`, e georust/gdal nega quel lint.",
+          "perche_non_l_avevo_visto": "la mia verifica lanciava `cargo clippy -p gdal --all-targets` e guardava solo il codice d'uscita. Senza `-D warnings` il lint resta un avviso e l'uscita e' zero. E' la stessa lezione gia' registrata sul clippy dell'L1, applicata questa volta a un progetto altrui: la severita' del controllo va presa da chi lo esegue, non da noi.",
+          "correzione": "e280c595646ee7af4793e31c3ef011b209c4af4f -- gli stessi due wrapper spostati sopra `mod tests`, nessun'altra modifica. Riverificato con `-D warnings`, piu' le due prove nuove e le 281+57 della suite.",
+          "esito_dopo_la_correzione": "dieci controlli su dieci verdi il 2026-09-09: i sei job versionati (GDAL 3.8.5, 3.9.3, 3.10.3, 3.11.5, 3.12.1, 3.13.1), i tre `gdal-static` (ubuntu, macos, windows) e il controllo ortografico. La PR resta OPEN e MERGEABLE, in attesa del manutentore."
         }
       }
     ],
