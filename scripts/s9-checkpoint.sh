@@ -728,6 +728,7 @@ passo sonde_filegdb python3 -m unittest scripts.test_check_filegdb_catalog
 passo sonde_wkb_condiviso python3 -m unittest scripts.test_compare_shared_wkb_observations
 passo corpus_condiviso python3 scripts/generate_shared_wkb_corpus.py --check
 passo sonde_audit_ignores python3 -m unittest scripts.test_audit_ignores
+passo sonde_dependency_pins python3 -m unittest scripts.test_check_dependency_pins
 passo check_dependency_pins python3 scripts/check_dependency_pins.py
 passo check_gdal_fork python3 scripts/check_gdal_fork.py
 passo sonde_fork python3 -m unittest scripts.test_fork_comune

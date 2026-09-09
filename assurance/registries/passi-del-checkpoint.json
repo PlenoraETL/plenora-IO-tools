@@ -270,6 +270,10 @@
       "log": true
     },
     {
+      "id": "sonde_dependency_pins",
+      "log": true
+    },
+    {
       "id": "check_dependency_pins",
       "log": true
     },

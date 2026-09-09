@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fail if a direct dependency is not reproducibly declared."""
+"""Fail if a direct dependency is not reproducibly declared, or if the
+product and the fuzzing project pin a shared dependency differently."""
 
 from __future__ import annotations
 
@@ -55,6 +56,80 @@ def validate_dependency(
     return []
 
 
+def versione_dichiarata(specification: Any) -> str | None:
+    """La versione fissata da una dichiarazione, se ne fissa una."""
+    if isinstance(specification, str):
+        return specification
+    if isinstance(specification, dict):
+        version = specification.get("version")
+        if isinstance(version, str):
+            return version
+    return None
+
+
+def pin_condivisi(radice: dict, fuzz: dict) -> list[str]:
+    """I pin dichiarati da entrambi i manifesti devono coincidere.
+
+    Perche' esiste
+    --------------
+    `fuzz/Cargo.toml` e' un workspace *detached*: `workspace = true` non puo'
+    ereditare niente, perche' cercherebbe una `[workspace.dependencies]` nella
+    propria sezione, che e' vuota. Le poche dipendenze condivise col prodotto il
+    progetto di fuzzing le dichiara percio' per conto suo, e le due
+    dichiarazioni possono separarsi senza che niente lo dica.
+
+    Il 2026-09-09 si sono separate: alzato `geo-types` a `=0.7.20` nel
+    workspace, `fuzz/` e' rimasto a `=0.7.19`. Ciascun manifesto restava coerente
+    col proprio lockfile -- quindi `cargo metadata --locked` passava su entrambi
+    -- e a fermarsi e' stata la build strumentata, molto piu' tardi e con un
+    messaggio che parlava d'altro. Questo confronto dice la stessa cosa subito.
+
+    Che cosa confronta
+    ------------------
+    Le versioni, e solo quando entrambi i lati ne dichiarano una. Non le feature
+    ne' i percorsi: una divergenza li' e' un fatto diverso, e mescolarla qui
+    renderebbe il messaggio piu' vago invece che piu' utile.
+    """
+    condivisi = radice.get("workspace", {}).get("dependencies", {})
+    if not condivisi:
+        return ["Cargo.toml: nessuna [workspace.dependencies] da confrontare"]
+
+    errori: list[str] = []
+    for table, dependencies in dependency_tables(fuzz):
+        for name, specification in sorted(dependencies.items()):
+            if name not in condivisi:
+                continue
+            nostra = versione_dichiarata(condivisi[name])
+            loro = versione_dichiarata(specification)
+            if nostra is None or loro is None:
+                continue
+            if nostra != loro:
+                errori.append(
+                    f"{name}: pin condiviso divergente - "
+                    f"Cargo.toml [workspace.dependencies] lo fissa a "
+                    f"'{nostra}', fuzz/Cargo.toml [{'.'.join(table)}] a "
+                    f"'{loro}'. Va alzato in entrambi i manifesti: il progetto "
+                    "di fuzzing e' detached e non eredita."
+                )
+    return errori
+
+
+def pin_condivisi_del_repository() -> tuple[list[str], int]:
+    """Le divergenze fra i due manifesti sul disco, e quanti pin ha confrontato."""
+    with (ROOT / "Cargo.toml").open("rb") as stream:
+        radice = tomllib.load(stream)
+    with (ROOT / "fuzz" / "Cargo.toml").open("rb") as stream:
+        fuzz = tomllib.load(stream)
+    condivisi = set(radice.get("workspace", {}).get("dependencies", {}))
+    quanti = sum(
+        1
+        for _, dependencies in dependency_tables(fuzz)
+        for name in dependencies
+        if name in condivisi
+    )
+    return pin_condivisi(radice, fuzz), quanti
+
+
 def main() -> int:
     manifests = [ROOT / "Cargo.toml"]
     manifests.extend(sorted((ROOT / "crates").glob("*/Cargo.toml")))
@@ -70,12 +145,18 @@ def main() -> int:
                     validate_dependency(manifest, table, name, specification)
                 )
 
+    divergenze, condivisi = pin_condivisi_del_repository()
+    errors.extend(divergenze)
+
     if errors:
         print("Dependency pin gate failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"Dependency pin gate passed ({len(manifests)} manifests).")
+    print(
+        f"Dependency pin gate passed ({len(manifests)} manifests, "
+        f"{condivisi} pin condivisi con fuzz/ e coerenti)."
+    )
     return 0
 
 
