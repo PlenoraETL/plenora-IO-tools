@@ -1266,7 +1266,7 @@
             "e, in tal caso, un **recupero** invece di un rifiuto: su `0/ENDSEC` o `0/EOF` non consumare la coppia e chiudere il blocco, cosi' che risalvando il file si corregga da se'"
           ],
           "la_risposta_sulla_provenienza": "**no, non l'abbiamo visto in natura.** Il caso viene dalla nostra CI di fuzzing, che genera ingressi invece di raccoglierli: non c'e' evidenza che un file reale sia scritto cosi', e dirlo e' preferibile a lasciare che la correzione poggi su un'affermazione che non si puo' sostenere. Chiesto se, sapendolo, preferisca comunque il recupero.",
-          "fatto": "il recupero e' stato implementato e spinto lo stesso, perche' e' migliore a prescindere dalla provenienza: costa niente, e un lettore che ripara al giro di salvataggio serve piu' di uno che rifiuta.",
+          "fatto": "il recupero e' stato implementato e spinto, **come proposta**: la scelta di accettarlo resta al manutentore.",
           "due_cose_trovate_implementando": [
             "**`EOF` non e' fra le coppie che causano il difetto.** `Entity::read` restituisce `Ok(None)` senza consumare per esattamente due stringhe -- `ENDSEC` e `ENDBLK` -- e la seconda e' gia' gestita dall'arm precedente. A far girare il ciclo e' `ENDSEC` da solo. `EOF` resta nella guardia perche' e' innocuo e si legge come intenzionale, ma la meta' che porta peso e' l'altra.",
             "**recuperare il blocco non salva un file senza `ENDSEC`.** La coppia torna indietro e il lettore della sezione rifiuta `0/EOF` un livello sopra, che e' dove quel giudizio sta bene. C'e' un test che fissa la terminazione con errore invece del giro a vuoto."
@@ -1277,7 +1277,15 @@
             "`recovered_block_round_trips_with_its_endblk`: salva il disegno recuperato, verifica che l'`ENDBLK` venga scritto, rilegge e ritrova lo stesso blocco -- e' cio' che rende il recupero piu' utile di un errore"
           ],
           "suite": "296 + 3 verdi, clippy e fmt puliti",
-          "sha": "21bbe61b6ca5d7ecf3f2010b71081bf21e21f407"
+          "sha": "21bbe61b6ca5d7ecf3f2010b71081bf21e21f407",
+          "una_frase_da_correggere": "avevo scritto che il recupero e' «migliore a prescindere dalla provenienza». E' un'affermazione troppo forte, e l'ho ritirata con lui. Recuperare e rifiutare sono due **comportamenti**, ciascuno col suo costo: il recupero ripara al giro di salvataggio, e insieme accetta un file malformato senza dirlo a chi chiama. Quale sia giusto dipende da come sono fatti i file dei loro utenti, ed e' un giudizio loro.",
+          "che_cosa_le_regressioni_mostrano": "una cosa piu' stretta, ed e' l'unica che si puo' sostenere: il recupero **funziona nei casi provati**. Non mostrano che il recupero sia la politica giusta."
+        },
+        "la_divergenza_col_nostro_fork": {
+          "la_pr": "recupera: su `0/ENDSEC` o `0/EOF` chiude il blocco con cio' che ha letto.",
+          "il_nostro_fork": "**rifiuta**, con `UnexpectedCodePair` e una guardia che pretende un avanzamento senza nominare nessuna coppia in particolare.",
+          "non_si_trasferisce": "se la PR entra come recupero, il comportamento **non** arriva automaticamente nel prodotto. Cambiare cio' che il nostro lettore fa di un `BLOCK` troncato e' un cambiamento di **contratto del driver**, e va verificato per conto suo: oggi un DXF troncato e' un errore in lettura, e chi chiama lo sa. Accettarlo in silenzio sarebbe una promessa diversa.",
+          "quando_si_decidera": "all'aggiornamento del fork `vendor/dxf`, che e' il momento in cui si sceglie quali modifiche riapplicare. Fino ad allora le due cose restano separate, e questa voce esiste perche' non si confondano."
         }
       },
       {
