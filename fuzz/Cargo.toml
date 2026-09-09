@@ -28,7 +28,7 @@ driver-ipc = { path = "../crates/driver-ipc" }
 driver-kml = { path = "../crates/driver-kml" }
 driver-shp = { path = "../crates/driver-shp" }
 driver-xls = { path = "../crates/driver-xls" }
-geo-types = "=0.7.19"
+geo-types = "=0.7.20"
 # I driver di file leggono da `Source::Path`: l'input del fuzzer va
 # materializzato in un file temporaneo prima di raggiungerli.
 tempfile = "=3.27.0"

@@ -1399,8 +1399,8 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 23,
-    "indietro": 5,
+    "allineate": 24,
+    "indietro": 4,
     "voci": [
       {
         "crate": "ctrlc",
@@ -1425,10 +1425,23 @@
       },
       {
         "crate": "geo-types",
-        "in_uso": "0.7.19",
+        "in_uso": "0.7.20",
         "ultima": "0.7.20",
-        "passo": "una patch su 0.x",
-        "giudizio": "attraversa **ogni** driver ed e' il tipo geometrico condiviso con gli altri componenti. Piccolo di numero, largo di superficie: va fatto da solo."
+        "passo": "allineato",
+        "giudizio": "attraversa **ogni** driver ed e' il tipo geometrico condiviso con gli altri componenti. Piccolo di numero, largo di superficie: va fatto da solo.",
+        "esito": {
+          "eseguito_il": "2026-09-09",
+          "perche_isolato": "attraversa **nove** crate del workspace -- geojson, geoparquet, gpkg, ipc, kml, shp, bench, fuzz e il modello -- ed e' il tipo geometrico condiviso con gli altri componenti. Piccolo di numero, largo di superficie.",
+          "che_cosa_cambia_nel_crate": "l'errore passa da un `Display` scritto a mano al derive di `thiserror`, e arriva una feature opzionale `rstar_0_13`. MSRV ed edizione invariate.",
+          "che_cosa_cambia_nel_grafo": "**niente**: 200 nodi su linux, 202 su windows, 205 su macos, gli stessi di prima. Nel lockfile entra `rstar 0.13.0` -- il **sesto** -- e `cargo tree -i rstar@0.13.0` risponde «nothing to print»: e' dietro una feature che nessuno attiva, come gli altri cinque.",
+          "verifiche": [
+            "clippy pulito con `-D warnings`",
+            "40 suite verdi",
+            "replay su **nove** bersagli, nessun crash, compresi `from_wkb` e `gpkg_geometry` che sono i percorsi geometrici piu' diretti",
+            "quattro profondita' rimisurate coi numeri invariati",
+            "ASan a 179433, quindi `current-state.json` non si tocca"
+          ]
+        }
       },
       {
         "crate": "rusqlite",
@@ -1468,5 +1481,13 @@
       "`geojson`, da 0.x a 1.0, come intervento a se'",
       "i fork, che sono un'altra categoria"
     ]
+  },
+  "due_manifesti_due_pin": {
+    "trovato_il": "2026-09-09, aggiornando `geo-types`",
+    "il_fatto": "`fuzz/Cargo.toml` dichiara **per conto suo** due dipendenze che il workspace gia' fissa: `geo-types` e `tempfile`. Non le eredita con `.workspace = true`, e non puo': il progetto di fuzzing e' un workspace **detached**, quindi `workspace = true` cercherebbe una `[workspace.dependencies]` nella propria sezione, che e' vuota. La duplicazione e' strutturale.",
+    "che_cosa_e_successo": "alzando il pin del workspace a `=0.7.20` il progetto di fuzzing e' rimasto a `=0.7.19`. `cargo metadata` in `fuzz/` e' fallito -- «failed to select a version for geo-types» -- e io non ne ho controllato l'esito, quindi il lock non si e' rigenerato e la divergenza e' rimasta.",
+    "che_cosa_l_ha_presa": "la build strumentata: tutti e nove i replay e tutte e quattro le profondita' sono usciti «build strumentata fallita». E' fail-closed e ha funzionato -- ma ha funzionato **tardi**, dopo una corsa lunga, e solo perche' quella corsa c'era.",
+    "la_lezione": "`cargo metadata` in `fuzz/` non e' una formalita' da eseguire e dimenticare: e' il punto in cui una divergenza fra i due manifesti si manifesta, e il suo esito va guardato. Alzare un pin condiviso significa alzarlo **due volte**.",
+    "un_gate_che_manca": "un controllo che confronti i pin dichiarati nei due manifesti e fallisca sulla divergenza direbbe la stessa cosa in un secondo invece che in mezz'ora. Oggi la superficie e' di due nomi soli, e l'aggiunta e' stata lasciata fuori da questo aggiornamento per tenerlo isolato: e' un intervento a se', piccolo e ben definito."
   }
 }
