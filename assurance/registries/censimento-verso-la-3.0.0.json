@@ -1235,10 +1235,15 @@
       "trovato_il": "2026-09-09, dal fuzzing della nostra CI su `kml_reader`. Non un crash: un timeout, 314 byte oltre i ventuno secondi del tetto, e oltre centodieci in locale.",
       "la_causa": "e' mia, e sta nell'aggiornamento a quick-xml 0.42. Avevo dato `DecodingReader` anche a `validate_kml_xml`, che e' la guardia davanti a `Kml::from_str`. Il riproduttore comincia per `3C 00 3F 00`, cioe' `<?` in UTF-16LE: per l'appendice F della specifica XML quella e' la firma di UTF-16 senza BOM, e `DecodingReader` fa la cosa giusta a transcodificare. Solo che il protetto non transcodifica niente.",
       "che_cosa_vedevano_i_due": "misurato, non dedotto: con `DecodingReader` la guardia vede due eventi -- un PI e un testo -- e uno stack vuoto, quindi passa; senza, la stessa quick-xml 0.42 vede ventisette eventi fra cui quattro `<xjA:Point>` mai chiusi, e la guardia rifiuta con «documento XML troncato».",
-      "dove_girava": "`kml::reader::KmlReader::read_geom_props`, nel crate `kml` 0.14.0. Esce solo su `End(end_tag)` e non ha un ramo `Eof`: a fine file `next_event` restituisce `Eof` all'infinito e il ciclo gira a vuoto. Nel file ci sono ventinove `loop` e **un** solo `Event::Eof => break`.",
+      "dove_girava": "`kml::reader::KmlReader::read_geom_props`, nel crate `kml` 0.14.0, raggiunta da `read_point`. Esce solo su `End(end_tag)`: a fine file `next_event` restituisce `Eof` all'infinito e il ciclo gira a vuoto.",
       "la_correzione": "`validate_kml_xml` legge di nuovo i byte cosi' come sono. La forma della lezione conta piu' del caso: una guardia che analizza un documento diverso da quello che il protetto analizzera' non e' una guardia indebolita, e' un'altra guardia.",
       "che_cosa_NON_era_toccato": "il percorso di lettura del prodotto. `Kml::from_str` e' chiamata solo da `__fuzz_read_kml` e da un test; il lettore vero e' `KmlStream`, che usa `DecodingReader` -- e li' serve, perche' e' anche il suo consumatore -- e che ha un ramo `Eof` in ognuno dei suoi cicli, piu' il controllo di avanzamento e quello di profondita'. Il crate `kml` nel prodotto serve a **scrivere**, non a leggere. Le sette codifiche accettate restano quelle: `le_codifiche_accettate_restano_quelle` passa dal lettore del prodotto e non e' toccata.",
-      "la_controprova": "rimesso `DecodingReader` nella guardia, la regressione non fallisce: **si blocca**. E' esattamente cio' che il commento del test dichiara, ed e' la ragione del budget di un secondo -- un difetto di non terminazione non fa fallire un test, lo fa scadere. Con la correzione il bersaglio del fuzzer esegue il riproduttore in 5 ms."
+      "la_controprova": "rimesso `DecodingReader` nella guardia, la regressione non fallisce: **si blocca**. E' esattamente cio' che il commento del test dichiara, ed e' la ragione del budget di un secondo -- un difetto di non terminazione non fa fallire un test, lo fa scadere. Con la correzione il bersaglio del fuzzer esegue il riproduttore in 5 ms.",
+      "una_frase_da_correggere": {
+        "che_cosa_avevo_scritto": "«nel file ci sono ventinove `loop` e un solo `Event::Eof => break`», detto in un contesto che lasciava intendere ventotto cicli difettosi.",
+        "perche_e_sbagliata": "l'assenza di un ramo `Eof` non prova un ciclo infinito. Il ciclo puo' essere irraggiungibile a fine file, oppure qualcosa piu' a monte puo' restituire un errore prima.",
+        "la_misura": "un banco che apre trentuno elementi e li lascia tronchi, ciascuno in un thread con un tetto di tre secondi, contro il crate di crates.io non modificato **e** contro `georust/kml` main @ 5fdf2de. Non tornano in **sei**: `Point`, `LineString`, `LinearRing`, `Placemark`, `Data`, `SchemaData`. Gli altri venticinque tornano, e la maggior parte non ha un ramo `Eof` nemmeno lei. Piu' la controprova: un documento ben formato torna, altrimenti il banco direbbe «non torna» per qualunque cosa."
+      }
     }
   },
   "censimento_unwrap_arrow_ipc": {
@@ -1398,12 +1403,39 @@
       "**`kml`**: l'ammodernamento a `zip` 8.x, derubricato il 2026-09-08. Da quando prendiamo `kml` senza le sue default feature quel ramo non lo compiliamo piu': serve a loro, non a noi.",
       {
         "id": "kml.cicli-senza-eof",
-        "progetto": "georust/kml",
+        "progetto": "georust/kml, ramo di default `main`",
         "classe": "lettura che non termina su ingresso troncato -- la stessa del difetto DXF",
         "trovato_da": "il fuzzing della nostra CI, il 2026-09-09",
-        "il_fatto": "in `src/reader.rs` ci sono ventinove `loop` e un solo `Event::Eof => break`, in `read_elements`. Tutti gli altri -- `read_geom_props` per primo, ma anche i fratelli -- escono solo su un `End` atteso, e a fine file `next_event` restituisce `Eof` all'infinito.",
-        "stato": "da preparare: serve la stessa disciplina degli altri contributi, cioe' verificare prima se upstream abbia gia' una soluzione equivalente, poi modifica minima, riproduttore e regressione con la loro toolchain.",
-        "una_scelta_di_comportamento": "come per DXF: terminare non dice **come**. Rifiutare con errore e recuperare cio' che si e' letto sono due contratti diversi, e la scelta e' del manutentore. Da non presentare come ovvia."
+        "che_cosa_e_dimostrato": "sei elementi su trentuno: `Point`, `LineString`, `LinearRing`, `Placemark`, `Data`, `SchemaData`. Aperti e lasciati tronchi, il parse non torna -- misurato con un tetto di tre secondi per caso, sia sul crate di crates.io sia su `main` @ 5fdf2de, quindi upstream non ha gia' una soluzione.",
+        "che_cosa_NON_e_dimostrato": "che gli altri cicli siano difettosi. Venticinque elementi tornano pur avendo la stessa forma di ciclo senza ramo `Eof`: la forma non e' il difetto, e la proposta non li tocca.",
+        "i_cicli_toccati": "quattro, non sei: `read_geom_props` copre `Point`, `LineString` e `LinearRing`; poi `read_placemark`, `read_data`, `read_schema_data`.",
+        "una_strada_scartata_e_perche": "prima avevo provato la modifica in un posto solo: un `at_eof` in `next_event`, con errore al secondo `Eof`. Sembrava piu' elegante e rompeva quattro prove del crate -- `read_elements` e' rientrante e un documento **legittimo** consuma piu' di un `Eof`. Rifiutata dalla loro suite prima che da me.",
+        "verifica_sul_ramo_upstream": "clone di `georust/kml` main @ 5fdf2de, patch applicata: 48+4+12 prove verdi, `cargo clippy --all-targets -- -D warnings` pulito, `cargo fmt --check` pulito.",
+        "le_regressioni": "tre: i sei elementi tronchi devono essere rifiutati; il riproduttore del fuzzer ridotto (`<xjA:Point>0j><xjA:Point>`); e la controprova che i documenti ben formati continuano a leggersi -- senza la quale una modifica che rifiuta tutto passerebbe le prime due.",
+        "una_scelta_di_comportamento": "come per DXF: terminare non dice **come**. La proposta rifiuta con `Error::InvalidInput`, che esiste gia' e non rompe l'enum; recuperare cio' che si e' letto sarebbe un contratto diverso, e la scelta e' del manutentore. Da non presentare come ovvia.",
+        "il_prodotto_non_e_toccato": "verificato per enumerazione, non per `grep` di un nome: del crate `kml` la via di lettura del prodotto usa solo i tipi e `coords_from_str`, che e' `split_whitespace().map(...).collect()` e termina per costruzione. Un valore `Kml` da byte lo costruiscono solo `__fuzz_read_kml` e un test; il lettore vero e' `KmlStream`, che ha un ramo `Eof` in ognuno dei suoi cicli. Nel prodotto il crate `kml` serve a **scrivere**. Quindi niente da correggere prima.",
+        "stato": "**preparato e verificato, non inviato.** L'invio e' una decisione separata.",
+        "materiali": "contributi-upstream/kml-cicli-senza-eof/"
+      },
+      {
+        "id": "dxf.drawing-entity-reader",
+        "progetto": "ixmilia/dxf-rs",
+        "classe": "API nuova, non una correzione",
+        "gia_registrato_in": "`fork.dxf.modifiche`, voce «DrawingEntityReader», stato «ancora necessaria», e in `assurance/registries/vendor-dxf-fork.json` sotto `delta_funzionale`. Compare qui perche' un contributo cercato in `contributi_upstream` non si trova guardando il registro dei fork.",
+        "che_cos_e": "un reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta, raggruppando POLYLINE/VERTEX, gli attributi di INSERT e MTEXT come fa il loader upstream. Piu' l'esportazione pubblica del tipo.",
+        "perche_serve_a_noi": "`crates/driver-dxf/src/lib.rs` legge in streaming; il loader upstream materializza l'intero disegno.",
+        "seguito_previsto": "e' una delle due «proposte API» della `sequenza_proposta`, insieme ai wrapper GDAL: si aprono presto **perche'** discutono, e la discussione col manutentore e' il tempo lungo. Da preparare con la stessa disciplina delle altre: verificare che upstream non abbia un equivalente, modifica minima, prove con la loro toolchain. Il rapporto con dxf-rs#105 gia' aperto e' un vantaggio, non un vincolo.",
+        "stato": "da preparare"
+      },
+      {
+        "id": "dxf.lettura-progressiva-ascii",
+        "progetto": "ixmilia/dxf-rs",
+        "classe": "cambiamento di consumo, non una correzione di difetto",
+        "gia_registrato_in": "`fork.dxf.modifiche`, voce «lettura progressiva delle righe ASCII», stato «ancora necessaria», misura «upstream non usa `read_until`». In `vendor-dxf-fork.json` e' il delta sui code pair.",
+        "che_cos_e": "le righe ASCII lette con `BufRead::read_until` e un buffer da 1 KiB invece di `read_to_end`, conservando BOM, CRLF e codifica senza anticipare l'intero input. Il percorso progressivo rifiuta DXB; DXF ASCII e binary DXF restano supportati.",
+        "perche_serve_a_noi": "un file grande non deve entrare tutto in memoria prima che si legga la prima entita'.",
+        "seguito_previsto": "insieme a `DrawingEntityReader`: sono due meta' dello stesso discorso -- una lettura che non materializza -- e vanno portate insieme o l'una senza l'altra non si motiva. Stessa disciplina, e la domanda aperta se al progetto la cosa interessi, come per `write_null_shape`.",
+        "stato": "da preparare"
       }
     ],
     "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due.",
@@ -1423,8 +1455,8 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 25,
-    "indietro": 3,
+    "allineate": 26,
+    "indietro": 2,
     "voci": [
       {
         "crate": "ctrlc",
@@ -1495,10 +1527,32 @@
       },
       {
         "crate": "jsonschema",
-        "in_uso": "0.51.0",
-        "ultima": "0.55.0",
-        "passo": "quattro minor su 0.x",
-        "giudizio": "e' il crate che il lotto S10 ha portato dentro per validare gli schemi GeoParquet e PROJJSON, e da solo aggiunge 63 crate alla closure. Ogni minor su 0.x e' una barriera: quattro sono quattro."
+        "in_uso": "0.55.1",
+        "ultima": "0.55.1",
+        "passo": "allineato",
+        "giudizio": "e' il crate che il lotto S10 ha portato dentro per validare gli schemi GeoParquet e PROJJSON, e da solo aggiunge 63 crate alla closure. Ogni minor su 0.x e' una barriera: quattro sono quattro.",
+        "esito": {
+          "eseguito_il": "2026-09-09",
+          "che_cosa_cambia_nell_api": "niente, per noi. Le due rotture dichiarate sono la variante `PatternValueFails` aggiunta a `canonical::ObjectViolationView` nella 0.55.0 -- e non usiamo il modulo `canonical` -- e la 0.52.0, che tocca invece proprio la nostra configurazione. La superficie che usiamo e' `jsonschema::options`, `Draft`, `Registry`, `Resource` e `Validator`, tutte invariate: nessuna riga di codice cambiata.",
+          "la_rottura_che_ci_riguardava": "dalla 0.52.0, con `default-features = false` -- che e' come prendiamo la crate -- i formati `idn-hostname` e `idn-email` richiedono una feature `idna` nuova; senza, diventano formati sconosciuti, e un formato sconosciuto e' accettato per definizione. Misurato che non ci tocca: camminando i quattro schemi incorporati -- GeoParquet 1.0.0 e 1.1.0, PROJJSON 0.5 e 0.7 -- la parola chiave `format` non compare **mai**. Non c'e' niente da validare per formato, quindi non c'e' niente da perdere.",
+          "che_cosa_cambia_nel_grafo": "la riduzione piu' grande finora, e viene proprio da quella rottura: escono ventitre crate, cioe' l'intera pila ICU con `idna` -- `icu_collections`, `icu_locale_core`, `icu_normalizer`(+`_data`), `icu_properties`(+`_data`), `icu_provider`, `idna`, `idna_adapter`, `litemap`, `potential_utf`, `tinystr`, `utf8_iter`, `writeable`, `yoke`(+`-derive`), `zerofrom`(+`-derive`), `zerotrie`, `zerovec`(+`-derive`), `displaydoc`, `synstructure`. La closure di `driver-geoparquet` passa da 177 a 154 crate. Salgono `jsonschema`, `jsonschema-regex`, `jsonschema-value` e `referencing` a 0.55.1, e `fraction` a 0.17.0. Nessun duplicato nuovo e nessuno tolto: `cargo tree -d` da' lo stesso elenco di prima.",
+          "i_metadati_validi_e_non_conformi": "un banco differenziale di cinquantuno casi -- documento conforme in 1.0.0 e 1.1.0, dieci codifiche per due versioni, dieci forme di `geometry_types`, campi mancanti e di tipo sbagliato, `bbox`, `orientation`, `edges`, quattro forme di `crs` e quattro versioni fuori elenco -- eseguito con 0.51.0 su un clone a HEAD e con 0.55.1 sull'albero corrente. **I verdetti coincidono su tutti e cinquantuno**: diciannove accettati, trentadue rifiutati, e l'unica differenza fra i due elenchi e' la riga del tempo di esecuzione.",
+          "il_percorso_piu_esposto": "il `crs`, che dalla 1.1.0 arriva allo schema PROJJSON 0.7 per `$ref`, cioe' passa da `referencing` -- la crate che l'aggiornamento muove di quattro minor. Un `$ref` che smettesse di risolversi non darebbe errore: renderebbe valido qualunque `crs`. Il banco pretende che accetti un PROJJSON valido **e** che rifiuti uno invalido, e la seconda meta' e' quella che conta.",
+          "che_cosa_resta_in_repository": "il banco e' diventato permanente, diviso per tema in `verdetti_sulle_codifiche`, `verdetti_sui_tipi_geometrici`, `verdetti_sulla_forma_del_documento` e `verdetti_sul_crs_referenziato`. Il prossimo aggiornamento trovera' la domanda gia' posta invece di doversela porre.",
+          "due_cose_rotte_dall_aggiornamento_e_riparate": [
+            "il censimento della closure nominava le ventitre crate uscite. Realineato **chiamando** `check_schemi_geoparquet.closure_dal_lock`, cioe' l'attraversamento del gate: replicarlo a mano e' l'errore che il 2026-09-07 produsse diciannove voci inventate. Cambiate le sole cinque versioni misurate.",
+            "tre sonde di `test_check_schemi_geoparquet` scrivevano `\"=0.51.0\"` a mano per costruire un manifesto divergente. Col pin nuovo la sostituzione non mordeva piu': il manifesto «mutato» tornava identico e le sonde fallivano dicendo che il gate non vede una divergenza che nessuno gli aveva messo davanti. Ora la riga la ricavano dal manifesto con una regex, e una quarta sonda verifica che la sostituzione sia avvenuta davvero."
+          ],
+          "una_deriva_trovata_e_non_corretta": "il gate confronta la closure per **nome**, non per versione, e in ventiquattro voci del censimento la versione e' vecchia -- `driver-common` a 1.0.1 quando il workspace e' alla 2.0.0, per dirne una. Non l'ho corretta qui: nel lock ci sono nomi presenti in piu' versioni, e riscriverle senza distinguere il nodo giusto e' esattamente il modo in cui si inventano voci. Va chiusa a se', probabilmente facendo controllare le versioni al gate.",
+          "verifiche": [
+            "compilazione del workspace `--all-targets` senza modifiche al codice di produzione",
+            "dodici prove di `schema_ufficiale` verdi, quattro delle quali nuove",
+            "ventiquattro sonde di `test_check_schemi_geoparquet` verdi",
+            "`check_schemi_geoparquet.py` verde: closure a 154 crate, nessun resolver, nessuna crate di rete",
+            "quattro profondita' rimisurate: 35/35, 9/9, 9/9, 12/12, invariate",
+            "ASan a 179433 contatori, invariato"
+          ]
+        }
       },
       {
         "crate": "geojson",

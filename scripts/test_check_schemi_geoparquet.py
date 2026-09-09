@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import unittest
 from unittest import mock
 
@@ -112,30 +113,57 @@ class SondeDelGate(unittest.TestCase):
     def test_la_dipendenza_reale_e_fissata_e_senza_resolver(self) -> None:
         self.assertEqual(gate.supply_chain(), [])
 
-    def test_senza_default_features_false_e_rosso(self) -> None:
+    @staticmethod
+    def _manifesto_con(dichiarazione: str) -> str:
+        """Il manifesto vero, con la sola riga di `jsonschema` sostituita.
+
+        Le tre sonde qui sotto scrivevano il numero di versione a mano, preso
+        dal manifesto del giorno in cui furono scritte. Il 2026-09-09, alzando
+        il pin a `=0.55.1`, la sostituzione ha smesso di mordere: il manifesto
+        «mutato» tornava identico all'originale, il gate non trovava niente da
+        segnalare e le sonde fallivano dicendo che il gate non vede una
+        divergenza che nessuno gli aveva messo davanti.
+
+        Una sonda che conosce il numero di versione misura anche quello, e non
+        e' cio' che deve misurare.
+        """
         manifesto = (gate.ROOT / "Cargo.toml").read_text(encoding="utf-8")
-        riacceso = manifesto.replace(
-            'jsonschema = { version = "=0.51.0", default-features = false }',
-            'jsonschema = "=0.51.0"',
+        nuovo, quante = re.subn(
+            r"^jsonschema\s*=.+$", dichiarazione, manifesto, count=1, flags=re.M
         )
-        errori = gate.supply_chain(riacceso)
+        assert quante == 1, "la riga di `jsonschema` non e' nel manifesto"
+        return nuovo
+
+    def test_senza_default_features_false_e_rosso(self) -> None:
+        errori = gate.supply_chain(self._manifesto_con('jsonschema = "=9.9.9"'))
         self.assertTrue(any("default-features" in e for e in errori), errori)
 
     def test_una_feature_di_resolver_riaccesa_e_rossa(self) -> None:
-        manifesto = (gate.ROOT / "Cargo.toml").read_text(encoding="utf-8")
-        riacceso = manifesto.replace(
-            'jsonschema = { version = "=0.51.0", default-features = false }',
-            'jsonschema = { version = "=0.51.0", default-features = false, '
-            'features = ["resolve-http"] }',
+        errori = gate.supply_chain(
+            self._manifesto_con(
+                'jsonschema = { version = "=9.9.9", default-features = false, '
+                'features = ["resolve-http"] }'
+            )
         )
-        errori = gate.supply_chain(riacceso)
         self.assertTrue(any("resolve-http" in e for e in errori), errori)
 
     def test_una_versione_non_esatta_e_rossa(self) -> None:
-        manifesto = (gate.ROOT / "Cargo.toml").read_text(encoding="utf-8")
-        molle = manifesto.replace('"=0.51.0"', '"0.51"')
-        errori = gate.supply_chain(molle)
+        errori = gate.supply_chain(
+            self._manifesto_con(
+                'jsonschema = { version = "9.9", default-features = false }'
+            )
+        )
         self.assertTrue(any("versione esatta" in e for e in errori), errori)
+
+    def test_la_riga_sostituita_e_davvero_quella_reale(self) -> None:
+        """La controprova delle tre sopra: senza, passerebbero anche se
+        `_manifesto_con` restituisse un manifesto inventato."""
+        vero = (gate.ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        sostituito = self._manifesto_con(
+            'jsonschema = { version = "=9.9.9", default-features = false }'
+        )
+        self.assertNotEqual(vero, sostituito)
+        self.assertEqual(gate.supply_chain(sostituito), [])
 
     # --- la closure del driver ----------------------------------------
 

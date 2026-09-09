@@ -3,7 +3,7 @@
   "descrizione": "La closure di `driver-geoparquet`: ogni crate che quel driver raggiunge, con la versione fissata e la licenza dichiarata. E' un **censimento**, non un'istantanea: il gate lo ricalcola dal `Cargo.lock` e pretende che coincida, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
   "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa: un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. Cio' che conta e' che cosa **questo** driver puo' eseguire.",
   "radice": "driver-geoparquet",
-  "crate_totali": 177,
+  "crate_totali": 154,
   "licenze": {
     "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
     "0BSD OR MIT OR Apache-2.0": 1,
@@ -534,11 +534,6 @@
       "licenza": "MIT"
     },
     {
-      "crate": "displaydoc",
-      "versione": "0.2.6",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
       "crate": "driver-common",
       "versione": "1.0.1",
       "licenza": "interna-al-workspace"
@@ -600,7 +595,7 @@
     },
     {
       "crate": "fraction",
-      "versione": "0.16.0",
+      "versione": "0.17.0",
       "licenza": "MIT OR Apache-2.0"
     },
     {
@@ -669,51 +664,6 @@
       "licenza": "MIT OR Apache-2.0"
     },
     {
-      "crate": "icu_collections",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_locale_core",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_normalizer",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_normalizer_data",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_properties",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_properties_data",
-      "versione": "2.3.0",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "icu_provider",
-      "versione": "2.3.1",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "idna",
-      "versione": "1.1.0",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "idna_adapter",
-      "versione": "1.2.2",
-      "licenza": "Apache-2.0 OR MIT"
-    },
-    {
       "crate": "itoa",
       "versione": "1.0.18",
       "licenza": "MIT OR Apache-2.0"
@@ -730,17 +680,17 @@
     },
     {
       "crate": "jsonschema",
-      "versione": "0.51.0",
+      "versione": "0.55.1",
       "licenza": "MIT"
     },
     {
       "crate": "jsonschema-regex",
-      "versione": "0.51.0",
+      "versione": "0.55.1",
       "licenza": "MIT"
     },
     {
       "crate": "jsonschema-value",
-      "versione": "0.51.0",
+      "versione": "0.55.1",
       "licenza": "MIT"
     },
     {
@@ -757,11 +707,6 @@
       "crate": "linux-raw-sys",
       "versione": "0.12.1",
       "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
-    },
-    {
-      "crate": "litemap",
-      "versione": "0.8.3",
-      "licenza": "Unicode-3.0"
     },
     {
       "crate": "lock_api",
@@ -884,11 +829,6 @@
       "licenza": "interna-al-workspace"
     },
     {
-      "crate": "potential_utf",
-      "versione": "0.1.6",
-      "licenza": "Unicode-3.0"
-    },
-    {
       "crate": "proc-macro2",
       "versione": "1.0.107",
       "licenza": "MIT OR Apache-2.0"
@@ -920,7 +860,7 @@
     },
     {
       "crate": "referencing",
-      "versione": "0.51.0",
+      "versione": "0.55.1",
       "licenza": "MIT"
     },
     {
@@ -1039,11 +979,6 @@
       "licenza": "MIT OR Apache-2.0"
     },
     {
-      "crate": "synstructure",
-      "versione": "0.13.2",
-      "licenza": "MIT"
-    },
-    {
       "crate": "tempfile",
       "versione": "3.27.0",
       "licenza": "MIT OR Apache-2.0"
@@ -1064,11 +999,6 @@
       "licenza": "CC0-1.0"
     },
     {
-      "crate": "tinystr",
-      "versione": "0.8.4",
-      "licenza": "Unicode-3.0"
-    },
-    {
       "crate": "twox-hash",
       "versione": "2.1.3",
       "licenza": "MIT"
@@ -1082,11 +1012,6 @@
       "crate": "unicode-ident",
       "versione": "1.0.24",
       "licenza": "(MIT OR Apache-2.0) AND Unicode-3.0"
-    },
-    {
-      "crate": "utf8_iter",
-      "versione": "1.0.4",
-      "licenza": "Apache-2.0 OR MIT"
     },
     {
       "crate": "uuid-simd",
@@ -1164,21 +1089,6 @@
       "licenza": "MIT OR Apache-2.0"
     },
     {
-      "crate": "writeable",
-      "versione": "0.6.4",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "yoke",
-      "versione": "0.8.3",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "yoke-derive",
-      "versione": "0.8.2",
-      "licenza": "Unicode-3.0"
-    },
-    {
       "crate": "zerocopy",
       "versione": "0.8.55",
       "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT"
@@ -1187,31 +1097,6 @@
       "crate": "zerocopy-derive",
       "versione": "0.8.55",
       "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT"
-    },
-    {
-      "crate": "zerofrom",
-      "versione": "0.1.8",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "zerofrom-derive",
-      "versione": "0.1.7",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "zerotrie",
-      "versione": "0.2.5",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "zerovec",
-      "versione": "0.11.8",
-      "licenza": "Unicode-3.0"
-    },
-    {
-      "crate": "zerovec-derive",
-      "versione": "0.11.6",
-      "licenza": "Unicode-3.0"
     },
     {
       "crate": "zlib-rs",
@@ -1251,5 +1136,46 @@
     "ragione": "il pin `base64` da `=0.22.1` a `=0.23.1`, il 2026-09-07, come gruppo a se'.",
     "effetto": "la duplicazione introdotta dall'aggiornamento Arrow si chiude: `base64` torna a una versione sola nel grafo, su tutte e tre le piattaforme. La closure resta di 177 crate e nessun nome cambia.",
     "perche_proprio_la_0_23_1": "non per inseguire l'ultima: e' la versione che `parquet 59.3.0` porta comunque nel grafo, ed e' quella su cui `plenora-database-tools` gia' sta. Alzarla toglie una duplicazione **e** una divergenza fra componenti."
+  },
+  "variazione_jsonschema_0_55_1": {
+    "quando": "2026-09-09, aggiornando `jsonschema` da 0.51.0 a 0.55.1",
+    "da": 177,
+    "a": 154,
+    "uscite": [
+      "displaydoc",
+      "icu_collections",
+      "icu_locale_core",
+      "icu_normalizer",
+      "icu_normalizer_data",
+      "icu_properties",
+      "icu_properties_data",
+      "icu_provider",
+      "idna",
+      "idna_adapter",
+      "litemap",
+      "potential_utf",
+      "synstructure",
+      "tinystr",
+      "utf8_iter",
+      "writeable",
+      "yoke",
+      "yoke-derive",
+      "zerofrom",
+      "zerofrom-derive",
+      "zerotrie",
+      "zerovec",
+      "zerovec-derive"
+    ],
+    "entrate": [],
+    "perche": "la 0.52.0 ha spostato i formati `idn-hostname` e `idn-email` dietro una feature `idna` nuova. Prendiamo `jsonschema` con `default-features = false`, quindi quella feature non si accende e l'intera pila ICU esce dalla closure: ventitre crate, fra cui `icu_normalizer`, `icu_properties`, `zerovec`, `yoke` e `idna`.",
+    "che_cosa_si_perde": "niente, e non e' una deduzione: nessuno dei quattro schemi incorporati -- GeoParquet 1.0.0 e 1.1.0, PROJJSON 0.5 e 0.7 -- usa la parola chiave `format`. Verificato camminando i quattro documenti, non cercando una stringa.",
+    "versioni_cambiate": [
+      "fraction 0.16.0 -> 0.17.0",
+      "jsonschema 0.51.0 -> 0.55.1",
+      "jsonschema-regex 0.51.0 -> 0.55.1",
+      "jsonschema-value 0.51.0 -> 0.55.1",
+      "referencing 0.51.0 -> 0.55.1"
+    ],
+    "come_e_stato_realineato": "chiamando `check_schemi_geoparquet.closure_dal_lock`, cioe' l'attraversamento del gate stesso. Replicarlo a mano e' l'errore che il 2026-09-07 produsse diciannove voci inventate."
   }
 }
