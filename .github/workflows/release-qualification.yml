@@ -30,6 +30,17 @@ jobs:
           # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
           # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+      # `--release` **riesegue** la prova di ogni invariante, e una di esse --
+      # `check_asan_filegdb.py` -- rimisura la `libgdal` di questa macchina.
+      # Non e' un dettaglio del gate: rileggere l'artefatto direbbe soltanto che
+      # cosa fu misurato altrove, mentre l'affermazione da provare e' che GDAL
+      # **qui** non e' strumentata. Senza la libreria la prova non e' eseguibile,
+      # e un invariante la cui verifica non gira non e' verificato.
+      #
+      # Il job della 2.0.0 fu saltato, quindi questa via non era mai stata
+      # esercitata: e' emersa alla prima qualifica che la percorre davvero.
+      - name: GDAL, che una prova di invariante rimisura
+        run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Test release qualification semantics
         run: |
           python3 -m unittest scripts.test_check_release_contract
