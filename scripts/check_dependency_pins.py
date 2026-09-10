@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Fail if a direct dependency is not reproducibly declared, or if the
-product and the fuzzing project pin a shared dependency differently."""
+"""Fail if a direct dependency is not reproducibly declared, if the product
+and the fuzzing project pin a shared dependency differently, or if the
+migration census counts a set of dependencies and describes another."""
 
 from __future__ import annotations
 
+import json
 import sys
 import tomllib
 from pathlib import Path
@@ -114,6 +116,83 @@ def pin_condivisi(radice: dict, fuzz: dict) -> list[str]:
     return errori
 
 
+CENSIMENTO = ROOT / "assurance" / "registries" / "censimento-verso-la-3.0.0.json"
+
+
+def censimento_riconciliato(registro: dict | None = None) -> list[str]:
+    """L'elenco della migrazione e quello dei fork descrivono lo stesso insieme.
+
+    # Perche' esiste
+
+    Il 2026-09-10, rimisurando le dipendenze dirette invece di rileggere il
+    censimento, `shapefile` e' risultato indietro di tre minor -- e non era fra
+    le voci di `dipendenze_ancora_da_migrare`. Il conteggio diceva «27 allineate
+    su 28» e l'elenco ne descriveva sei: nessuno dei due era falso da solo, e
+    insieme nascondevano una dipendenza.
+
+    La causa e' strutturale, non una svista. I tre fork governati sono **sia**
+    dipendenze dirette del workspace **sia** voci della sezione `fork`, e chi
+    compilava l'elenco della migrazione ne ha portata una sola. Un elenco tenuto
+    a mano accanto a un manifesto diverge, e la sola difesa e' che qualcosa li
+    confronti.
+
+    # Che cosa pretende
+
+    Tre cose, tutte verificabili senza rete:
+
+    * ogni crate nominato in `fork` compare anche fra le voci della migrazione:
+      e' esattamente il buco che si e' aperto;
+    * ogni voce della migrazione e' una dipendenza diretta vera, perche' un
+      elenco puo' divergere anche nell'altro senso;
+    * `allineate + indietro` uguaglia il numero di dipendenze dirette, cosi' il
+      conteggio non puo' descrivere un insieme diverso da quello che c'e'.
+
+    Non pretende invece che ogni dipendenza compaia fra le voci: quell'elenco
+    nomina cio' che ha richiesto lavoro, ed elencarne ventotto lo renderebbe
+    illeggibile senza dire niente di piu'.
+    """
+    if registro is None:
+        with CENSIMENTO.open("rb") as stream:
+            registro = json.load(stream)
+
+    with (ROOT / "Cargo.toml").open("rb") as stream:
+        radice = tomllib.load(stream)
+    dirette = set(radice.get("workspace", {}).get("dependencies", {}))
+    if not dirette:
+        return ["Cargo.toml: nessuna [workspace.dependencies] da riconciliare"]
+
+    sezione = registro.get("dipendenze_ancora_da_migrare") or {}
+    voci = {v["crate"] for v in sezione.get("voci", []) if isinstance(v, dict)}
+    fork = set(registro.get("fork") or {})
+
+    errori: list[str] = []
+
+    mancanti = sorted((fork & dirette) - voci)
+    if mancanti:
+        errori.append(
+            f"fork che sono dipendenze dirette e non stanno fra le voci della "
+            f"migrazione: {mancanti}. E' il modo in cui `shapefile` e' rimasto "
+            "fuori dal conteggio pur essendo indietro di tre minor."
+        )
+
+    inventate = sorted(voci - dirette)
+    if inventate:
+        errori.append(
+            f"voci della migrazione che non sono dipendenze dirette del "
+            f"workspace: {inventate}"
+        )
+
+    somma = sezione.get("allineate", 0) + sezione.get("indietro", 0)
+    if somma != len(dirette):
+        errori.append(
+            f"il conteggio della migrazione descrive {somma} dipendenze, il "
+            f"workspace ne dichiara {len(dirette)}: un conteggio che non "
+            "corrisponde all'insieme puo' essere vero e nascondere una voce."
+        )
+
+    return errori
+
+
 def pin_condivisi_del_repository() -> tuple[list[str], int]:
     """Le divergenze fra i due manifesti sul disco, e quanti pin ha confrontato."""
     with (ROOT / "Cargo.toml").open("rb") as stream:
@@ -147,15 +226,19 @@ def main() -> int:
 
     divergenze, condivisi = pin_condivisi_del_repository()
     errors.extend(divergenze)
+    errors.extend(censimento_riconciliato())
 
     if errors:
         print("Dependency pin gate failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
+    with (ROOT / "Cargo.toml").open("rb") as stream:
+        dirette = len(tomllib.load(stream).get("workspace", {}).get("dependencies", {}))
     print(
         f"Dependency pin gate passed ({len(manifests)} manifests, "
-        f"{condivisi} pin condivisi con fuzz/ e coerenti)."
+        f"{condivisi} pin condivisi con fuzz/ e coerenti, "
+        f"{dirette} dipendenze dirette riconciliate col censimento)."
     )
     return 0
 

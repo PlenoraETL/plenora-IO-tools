@@ -1414,8 +1414,9 @@
         "le_regressioni": "tre: i sei elementi tronchi devono essere rifiutati; il riproduttore del fuzzer ridotto (`<xjA:Point>0j><xjA:Point>`); e la controprova che i documenti ben formati continuano a leggersi -- senza la quale una modifica che rifiuta tutto passerebbe le prime due.",
         "una_scelta_di_comportamento": "come per DXF: terminare non dice **come**. La proposta rifiuta con `Error::InvalidInput`, che esiste gia' e non rompe l'enum; recuperare cio' che si e' letto sarebbe un contratto diverso, e la scelta e' del manutentore. Da non presentare come ovvia.",
         "il_prodotto_non_e_toccato": "verificato per enumerazione, non per `grep` di un nome: del crate `kml` la via di lettura del prodotto usa solo i tipi e `coords_from_str`, che e' `split_whitespace().map(...).collect()` e termina per costruzione. Un valore `Kml` da byte lo costruiscono solo `__fuzz_read_kml` e un test; il lettore vero e' `KmlStream`, che ha un ramo `Eof` in ognuno dei suoi cicli. Nel prodotto il crate `kml` serve a **scrivere**. Quindi niente da correggere prima.",
-        "stato": "**preparato e verificato, non inviato.** L'invio e' una decisione separata.",
-        "materiali": "contributi-upstream/kml-cicli-senza-eof/"
+        "stato": "**inviato**: georust/kml#78, il 2026-09-10, su `main`. Il progetto non ha `CONTRIBUTING` ne' template di issue: PR diretta, come per gli altri georust.",
+        "materiali": "contributi-upstream/kml-cicli-senza-eof/",
+        "pr": "https://github.com/georust/kml/pull/78"
       },
       {
         "id": "dxf.drawing-entity-reader",
@@ -1441,11 +1442,11 @@
     "regola_di_metodo": "cercare il **nome** di un'API o di un errore nel sorgente upstream non decide se una correzione sia gia' integrata, in nessuna delle due direzioni. `InvalidShapeRecordSize` esiste per altri usi -- falso positivo, gia' noto -- e la protezione contro una lunghezza negativa esiste su una via **senza chiamarsi in nessun modo**, perche' e' un effetto del cast a `usize` -- falso negativo, scoperto il 2026-09-08. Vanno rilette nel codice, tutte e due.",
     "tre_passaggi_distinti": {
       "nota": "preparare un contributo, vederlo accettato, e togliere il fork sono tre cose diverse, e solo la prima dipende da noi. Confonderle farebbe sembrare vicino un traguardo che non lo e'.",
-      "preparato": "cinque contributi, tutti verificati contro i progetti veri.",
-      "inviato": "**cinque, tutti.** DXF #105, Shapefile #56 e #57, Arrow #11020 con l'issue #11019, GDAL #731. Il tempo di attesa dei manutentori e' cominciato.",
+      "preparato": "sei contributi, tutti verificati contro i progetti veri.",
+      "inviato": "**sei, tutti.** DXF #105, Shapefile #56 e #57, Arrow #11020 con l'issue #11019, GDAL #731, e KML #78 il 2026-09-10. Il tempo di attesa dei manutentori e' cominciato.",
       "accettato_e_rilasciato": "**due uniti, zero rilasciati.** `arrow-rs#11020` il 2026-09-09 e `ixmilia/dxf-rs#105` entro il 2026-09-10. Nessuno dei due toglie niente oggi: `arrow-rs` non era forkato, e la correzione DXF non e' in una versione pubblicata -- l'ultima release resta la 0.6.1, che non la porta. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' unito, e la prevalidazione Arrow resta finche' una release la porta e le regressioni passano contro quella. I tre fork sono ancora tutti presenti.",
       "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo.",
-      "aperte": "tre: `tmontaigu/shapefile-rs#56` e `#57`, `georust/gdal#731`, tutte MERGEABLE."
+      "aperte": "quattro: `tmontaigu/shapefile-rs#56` e `#57`, `georust/gdal#731`, `georust/kml#78`."
     },
     "identita_degli_invii": {
       "nome": "PlenoraETL",
@@ -1632,6 +1633,22 @@
             "ASan a 179805 contatori, invariato"
           ]
         }
+      },
+      {
+        "crate": "dxf",
+        "in_uso": "0.6.1",
+        "ultima": "0.6.1",
+        "passo": "allineato",
+        "giudizio": "l'unico fork gia' alla propria ultima release: qui non c'e' un salto di versione da affrontare, solo modifiche da proporre.",
+        "perche_compare_qui": {
+          "trovato_da": "il gate di riconciliazione, alla sua prima corsa, il 2026-09-10",
+          "il_fatto": "come `shapefile`, `dxf` e' **sia** dipendenza diretta del workspace **sia** voce della sezione `fork`, e stava solo nella seconda. Non era indietro -- e' alla sua ultima release -- quindi la sua assenza non nascondeva niente **oggi**. Ma era esclusa dal conteggio per la stessa ragione strutturale, e il giorno in cui `dxf` pubblichera' una release nuova sarebbe rimasta fuori come lo era `shapefile`.",
+          "la_lezione": "una lacuna che non fa danno oggi non e' una lacuna diversa: e' la stessa, in attesa. Il gate la chiude per costruzione invece di correggerla una volta."
+        },
+        "esito": {
+          "stato": "allineato dal principio; nessun aggiornamento eseguito perche' non ce n'e' uno da fare",
+          "i_delta": "tre, tutti ancora necessari. `read_block` che pretende un avanzamento e' **unito upstream** in ixmilia/dxf-rs#105, ma unito non e' rilasciato: la 0.6.1 non lo porta, quindi il delta resta finche' una release ufficiale lo sostituisce. `DrawingEntityReader` e la lettura progressiva delle righe ASCII sono API nostre, ancora da proporre."
+        }
       }
     ],
     "i_due_fork_non_in_elenco": "`dxf 0.6.1` e' gia' all'ultima stabile; `shapefile 0.6.0` e' indietro di tre minor sulla 0.9.0 e compare sopra. Per entrambi vale la stessa distinzione: aggiornare la copia in `vendor/` si puo' fare quando vogliamo, eliminarla dipende da una release ufficiale che contenga le correzioni.",
@@ -1682,15 +1699,24 @@
   },
   "quadro_verso_la_candidate": {
     "misurato_il": "2026-09-10, rimisurando invece di rileggere",
-    "dipendenze": "**28 allineate su 28.** L'ultima era `shapefile`, chiusa il 2026-09-10 dalla 0.6.0 alla 0.9.0.",
+    "dipendenze": "**28 allineate su 28**, e il conteggio e' ora riconciliato con l'elenco dei fork da un gate: vedi `riconciliazione_delle_dipendenze`.",
     "fork": {
       "gdal": "0.19.0, allineato. Due delta ancora necessari, entrambi in `georust/gdal#731`, aperta.",
       "dxf": "0.6.1, allineato alla sua ultima release. Tre delta: `read_block` e' **unito upstream** (#105) ma non rilasciato, quindi resta; `DrawingEntityReader` e la lettura progressiva sono API nostre ancora da proporre.",
       "shapefile": "0.9.0, allineato. Tre delta ancora necessari -- il quarto, l'`allow(deprecated)`, e' caduto perche' upstream usa `Coord`. Due sono proposti (#56, #57, aperte) e uno e' una funzionalita' (`write_null_shape`)."
     },
-    "contributi": "cinque inviati, **due uniti** (arrow-rs#11020, dxf-rs#105), tre aperte. Nessuno toglie un fork oggi, perche' nessuno e' in una release pubblicata.",
-    "da_preparare": "cinque: i cicli senza `Eof` di `georust/kml` (**preparato e verificato su `main`, non inviato**: l'invio e' una decisione da prendere), `write_null_shape` per shapefile, `DrawingEntityReader` e la lettura progressiva ASCII per DXF, e l'ammodernamento zip di kml, derubricato.",
+    "contributi": "sei inviati, **due uniti** (arrow-rs#11020, dxf-rs#105), quattro aperte. Nessuno toglie un fork oggi, perche' nessuno e' in una release pubblicata.",
+    "da_preparare": "quattro: `write_null_shape` per shapefile, `DrawingEntityReader` e la lettura progressiva ASCII per DXF, e l'ammodernamento zip di kml, derubricato.",
     "verifiche_aperte": "una: l'interoperabilita' Arrow con data-tools, rinviata per decisione del titolare e non bloccante.",
     "che_cosa_manca_per_la_candidate": "una decisione su `shapefile`, che e' l'unico residuo tecnico: aggiornarlo di tre minor prima della 3.0.0, oppure dichiararlo indietro con la ragione. Non e' una domanda che il repository possa rispondere da solo."
+  },
+  "riconciliazione_delle_dipendenze": {
+    "quando": "2026-09-10",
+    "perche": "il conteggio diceva «27 allineate su 28» e l'elenco ne descriveva sei. Nessuno dei due era falso da solo, e insieme nascondevano `shapefile`, indietro di tre minor.",
+    "la_causa_e_strutturale": "i tre fork governati sono **sia** dipendenze dirette del workspace **sia** voci della sezione `fork`, e chi compilava l'elenco della migrazione ne aveva portata una sola. Un elenco tenuto a mano accanto a un manifesto diverge: la sola difesa e' che qualcosa li confronti.",
+    "il_gate": "`check_dependency_pins.py` pretende ora tre cose, tutte senza rete: ogni crate nominato in `fork` compare fra le voci della migrazione; ogni voce e' una dipendenza diretta vera, perche' l'elenco puo' divergere anche nell'altro senso; e `allineate + indietro` uguaglia il numero di dipendenze dirette.",
+    "che_cosa_NON_pretende": "che ogni dipendenza compaia fra le voci: quell'elenco nomina cio' che ha richiesto lavoro, ed elencarne ventotto lo renderebbe illeggibile senza dire niente di piu'.",
+    "la_seconda_lacuna": "alla prima corsa il gate ha trovato anche `dxf`, fork e dipendenza diretta, fuori dall'elenco per la stessa ragione. Non era indietro -- e' alla sua ultima release -- quindi non nascondeva niente **oggi**; ma il giorno in cui `dxf` pubblichera' una release nuova sarebbe rimasto fuori come lo era `shapefile`. Una lacuna che non fa danno oggi non e' una lacuna diversa: e' la stessa, in attesa.",
+    "le_sonde": "cinque: le tre direzioni del controllo, il registro reale, e la controprova che un registro coerente passa -- senza la quale le tre passerebbero anche se il controllo rifiutasse qualunque cosa."
   }
 }

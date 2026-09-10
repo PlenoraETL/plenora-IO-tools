@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import tomllib
 import unittest
 
 from scripts.check_dependency_pins import (
+    ROOT,
+    censimento_riconciliato,
     pin_condivisi,
     pin_condivisi_del_repository,
     versione_dichiarata,
@@ -136,6 +139,85 @@ class RepositoryTests(unittest.TestCase):
             condivisi,
             0,
             "nessun pin condiviso trovato: il confronto non sta guardando niente",
+        )
+
+
+class RiconciliazioneTests(unittest.TestCase):
+    """L'elenco della migrazione e quello dei fork descrivono lo stesso insieme.
+
+    Il 2026-09-10 non lo facevano: `shapefile` era indietro di tre minor e non
+    stava fra le voci, e il conteggio diceva «27 su 28». Nessuno dei due era
+    falso da solo. Alla prima corsa questo controllo ha trovato anche `dxf`,
+    escluso per la stessa ragione strutturale senza nascondere niente -- una
+    lacuna che non fa danno oggi e' la stessa lacuna, in attesa.
+    """
+
+    @staticmethod
+    def _registro(voci: list[str], fork: list[str], allineate: int, indietro: int) -> dict:
+        return {
+            "dipendenze_ancora_da_migrare": {
+                "allineate": allineate,
+                "indietro": indietro,
+                "voci": [{"crate": n} for n in voci],
+            },
+            "fork": {n: {} for n in fork},
+        }
+
+    def _dirette(self) -> list[str]:
+        with (ROOT / "Cargo.toml").open("rb") as stream:
+            return sorted(tomllib.load(stream)["workspace"]["dependencies"])
+
+    def test_il_censimento_reale_e_riconciliato(self) -> None:
+        self.assertEqual(censimento_riconciliato(), [])
+
+    def test_un_fork_fuori_dalle_voci_e_rosso(self) -> None:
+        """Il caso vero: `shapefile` era fork, dipendenza diretta, e non c'era."""
+        dirette = self._dirette()
+        errori = censimento_riconciliato(
+            self._registro(
+                voci=[d for d in dirette if d != "shapefile"],
+                fork=["shapefile"],
+                allineate=len(dirette),
+                indietro=0,
+            )
+        )
+        self.assertTrue(any("shapefile" in e for e in errori), errori)
+
+    def test_una_voce_che_non_e_una_dipendenza_diretta_e_rossa(self) -> None:
+        """L'elenco puo' divergere anche nell'altro senso."""
+        dirette = self._dirette()
+        errori = censimento_riconciliato(
+            self._registro(
+                voci=[*dirette, "crate-mai-dipesa"],
+                fork=[],
+                allineate=len(dirette),
+                indietro=0,
+            )
+        )
+        self.assertTrue(any("crate-mai-dipesa" in e for e in errori), errori)
+
+    def test_un_conteggio_che_non_torna_e_rosso(self) -> None:
+        """Il conteggio non puo' descrivere un insieme diverso da quello che c'e'."""
+        dirette = self._dirette()
+        errori = censimento_riconciliato(
+            self._registro(voci=dirette, fork=[], allineate=3, indietro=0)
+        )
+        self.assertTrue(any("conteggio" in e for e in errori), errori)
+
+    def test_un_registro_coerente_e_verde(self) -> None:
+        """La controprova: senza, le tre sopra passerebbero anche se il
+        controllo rifiutasse qualunque registro."""
+        dirette = self._dirette()
+        self.assertEqual(
+            censimento_riconciliato(
+                self._registro(
+                    voci=["shapefile"],
+                    fork=["shapefile"],
+                    allineate=len(dirette),
+                    indietro=0,
+                )
+            ),
+            [],
         )
 
 
