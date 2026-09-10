@@ -1759,9 +1759,12 @@ mod tests {
     /// `plenora-io-model`, dove lo svuotamento non maschera la misura.
     #[test]
     fn wkb_from_gj_value_lascia_il_buffer_vuoto_su_errore() {
-        let coordinate: Vec<geojson::Position> =
-            (0..10).map(|indice| vec![f64::from(indice), 2.0]).collect();
-        let valore = geojson::Value::LineString(coordinate);
+        let coordinate: Vec<geojson::Position> = (0..10)
+            .map(|indice| geojson::Position::from([f64::from(indice), 2.0]))
+            .collect();
+        let valore = geojson::GeometryValue::LineString {
+            coordinates: coordinate,
+        };
 
         for soglia in [1_usize, 9, 40, 168] {
             let mut buffer = Vec::new();
@@ -1779,8 +1782,14 @@ mod tests {
         // l'errore e' nato.
         let mut buffer = vec![0xAA; 8];
         assert!(
-            wkb_from_gj_value(&geojson::Value::LineString(vec![]), &mut buffer, usize::MAX)
-                .is_err(),
+            wkb_from_gj_value(
+                &geojson::GeometryValue::LineString {
+                    coordinates: vec![]
+                },
+                &mut buffer,
+                usize::MAX
+            )
+            .is_err(),
             "una LineString vuota e' rifiutata dalla conversione"
         );
         assert!(buffer.is_empty(), "il buffer preesistente non sopravvive");
@@ -2053,7 +2062,9 @@ mod tests {
             "a"
         );
         match &features[0].geometry.as_ref().unwrap().value {
-            geojson::Value::Point(c) => assert!((c[0] - 12.5).abs() < 1e-9),
+            geojson::GeometryValue::Point { coordinates } => {
+                assert!((coordinates[0] - 12.5).abs() < 1e-9);
+            }
             other => panic!("atteso Point, {other:?}"),
         }
     }
@@ -2306,7 +2317,7 @@ mod tests {
         let feats = parse_features(&std::fs::read_to_string(&out).unwrap()).unwrap();
         assert_eq!(feats.len(), 2);
         match &feats[0].geometry.as_ref().unwrap().value {
-            geojson::Value::Polygon(rings) => {
+            geojson::GeometryValue::Polygon { coordinates: rings } => {
                 assert_eq!(rings.len(), 2); // esterno + 1 buco
                 assert_eq!(rings[0].len(), 5);
                 assert_eq!(rings[1].len(), 5);
@@ -2315,7 +2326,9 @@ mod tests {
             other => panic!("atteso Polygon, {other:?}"),
         }
         match &feats[1].geometry.as_ref().unwrap().value {
-            geojson::Value::MultiPolygon(polys) => assert_eq!(polys.len(), 2),
+            geojson::GeometryValue::MultiPolygon { coordinates: polys } => {
+                assert_eq!(polys.len(), 2);
+            }
             other => panic!("atteso MultiPolygon, {other:?}"),
         }
     }
@@ -2388,7 +2401,9 @@ mod tests {
     fn fourth_geojson_ordinate_is_rejected() {
         let mut output = Vec::new();
         let result = wkb_from_gj_value(
-            &geojson::Value::Point(vec![1.0, 2.0, 3.0, 4.0]),
+            &geojson::GeometryValue::Point {
+                coordinates: geojson::Position::from(vec![1.0, 2.0, 3.0, 4.0]),
+            },
             &mut output,
             usize::MAX,
         );
@@ -2398,12 +2413,16 @@ mod tests {
     #[test]
     fn empty_geometry_does_not_invent_xy_dimensions() {
         let mut output = Vec::new();
-        assert!(
-            wkb_from_gj_value(&geojson::Value::LineString(vec![]), &mut output, usize::MAX)
-                .is_err()
-        );
         assert!(wkb_from_gj_value(
-            &geojson::Value::GeometryCollection(vec![]),
+            &geojson::GeometryValue::LineString {
+                coordinates: vec![]
+            },
+            &mut output,
+            usize::MAX
+        )
+        .is_err());
+        assert!(wkb_from_gj_value(
+            &geojson::GeometryValue::GeometryCollection { geometries: vec![] },
             &mut output,
             usize::MAX
         )
@@ -2420,7 +2439,7 @@ mod tests {
         write_geo_geojson(&mut buf, &g).unwrap();
         let parsed: geojson::Geometry = serde_json::from_slice(&buf).unwrap();
         match parsed.value {
-            geojson::Value::Point(c) => {
+            geojson::GeometryValue::Point { coordinates: c } => {
                 // Il round-trip deve restituire f64::MAX identico bit a bit:
                 // il confronto esatto è il contratto della regressione.
                 #[allow(clippy::float_cmp)]

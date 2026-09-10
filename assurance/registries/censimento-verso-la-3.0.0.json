@@ -1455,8 +1455,8 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 26,
-    "indietro": 2,
+    "allineate": 27,
+    "indietro": 1,
     "voci": [
       {
         "crate": "ctrlc",
@@ -1556,10 +1556,31 @@
       },
       {
         "crate": "geojson",
-        "in_uso": "0.24.2",
+        "in_uso": "1.0.0",
         "ultima": "1.0.0",
-        "passo": "**da 0.x a 1.0**",
-        "giudizio": "il salto piu' grosso rimasto. Una 1.0 e' normalmente il momento in cui un progetto rompe cio' che voleva rompere: va trattato come l'aggiornamento di `quick-xml`, cioe' come un intervento a se' con il contratto del driver misurato prima e dopo."
+        "passo": "allineato",
+        "giudizio": "il salto piu' grosso rimasto. Una 1.0 e' normalmente il momento in cui un progetto rompe cio' che voleva rompere: va trattato come l'aggiornamento di `quick-xml`, cioe' come un intervento a se' con il contratto del driver misurato prima e dopo.",
+        "esito": {
+          "eseguito_il": "2026-09-10",
+          "che_cosa_cambia_nell_api": "le due rotture che ci toccano non erano le due che il changelog mette in evidenza. `geojson::Value` e' diventato un alias `#[deprecated(note = \"Renamed to GeometryValue\")]`, quindi rosso col `-D warnings` dell'L1 anche dove compilerebbe; e le varianti sono passate da tuple a **struct**: `Point { coordinates }` invece di `Point(..)`. Piu' `Position`, che da `Vec<f64>` diventa una struct su `tinyvec` senza `Deref` -- ha `as_slice`, e gli aiutanti che prendono `&[f64]` restano ignari.",
+          "dove_e_cambiato_il_codice": "`driver-geojson/src/geometry.rs` (le firme di `convert`, `positions`, `line_geometry`, `polygon_geometry`, `wkb_from_gj_value` e i pattern del match) e `plenora-fuzz/src/main.rs` (il generatore casuale). Nessun cambiamento di logica: gli stessi rami, con i nomi dei campi nei pattern.",
+          "che_cosa_cambia_nel_grafo": "`geojson` 0.24.2 -> 1.0.0, ed entrano `tinyvec` 1.13.2 e `tinyvec_macros` 0.1.1, che sono cio' che rende `Position` senza allocazione nel caso 2D.",
+          "il_confronto_prima_e_dopo": "un banco di ventitre documenti sulla CLI vera -- otto validi, sei sui casi che il changelog dichiara cambiati, nove ostili -- eseguito prima e dopo. Guarda quattro cose: che cosa si legge e con quante righe; lo sha256 di ogni file riscritto; il messaggio pubblico di ogni rifiuto; e il contenuto per intero di tre uscite. **Sessantacinque righe identiche**: nessuna differenza.",
+          "le_quattro_rotture_dichiarate_e_perche_non_ci_toccano": [
+            "«`type` primo in serializzazione»: il nostro `write_geo_geojson` serializza a mano con `serde_json::to_writer` e non passa dal crate. L'uscita aveva gia' `type` per primo, ed e' identica byte per byte.",
+            "«`POLYGON EMPTY` da `[[]]` a `[]`»: stessa ragione, e i due casi -- poligono senza anelli e con un anello vuoto -- restano rifiutati prima e dopo, con lo stesso messaggio.",
+            "«`id: null` ora accettato»: da noi era **gia'** accettato con la 0.24.2. Misurato, non dedotto: il driver legge con `FeatureReader` e non consuma `id`.",
+            "«`geojson::Error` con casi rimossi e aggiunti, e messaggi con riga e colonna»: i nove messaggi pubblici dei rifiuti sono invariati. Il testo di terze parti non trapelava e continua a non trapelare -- `check_errori_redatti` resta verde."
+          ],
+          "un_caso_che_resta_aperto_e_non_e_una_regressione": "`{\"id\":{}}` -- un id che non e' ne' stringa ne' numero -- e' accettato prima e dopo. Non e' un effetto dell'aggiornamento e non lo introduce: e' che il nostro lettore non guarda `id`. Registrato perche' si sappia, non perche' cambi qualcosa oggi.",
+          "verifiche": [
+            "compilazione `--all-targets` pulita, senza avvisi di deprecazione",
+            "clippy del workspace con `-D warnings` e `--all-features`: pulito",
+            "l'intera suite verde",
+            "quattro profondita' rimisurate: 35/35, 9/9, 9/9, 12/12, invariate",
+            "ASan a 179433 contatori, invariato"
+          ]
+        }
       },
       {
         "crate": "gdal",

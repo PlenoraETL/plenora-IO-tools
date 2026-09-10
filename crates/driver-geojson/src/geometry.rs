@@ -42,12 +42,15 @@ pub fn position(
 }
 
 fn positions(
-    values: &[Vec<f64>],
+    values: &[geojson::Position],
 ) -> std::result::Result<(Vec<WkbCoordinate>, CoordinateDimensions), PublicMessage> {
     let mut coordinates = Vec::with_capacity(values.len());
     let mut dimensions = None;
     for value in values {
-        let (coordinate, current) = position(value)?;
+        // `geojson::Position` dalla 1.0.0 e' una struct su `tinyvec`, non un
+        // `Vec<f64>`: niente `Deref`, ma `as_slice` da' la stessa fetta, e
+        // `position` continua a non sapere da dove arrivi.
+        let (coordinate, current) = position(value.as_slice())?;
         require_uniform_dimensions(&mut dimensions, current)?;
         coordinates.push(coordinate);
     }
@@ -57,7 +60,7 @@ fn positions(
 }
 
 fn polygon_coordinates(
-    values: &[Vec<Vec<f64>>],
+    values: &[Vec<geojson::Position>],
 ) -> std::result::Result<(Vec<Vec<WkbCoordinate>>, CoordinateDimensions), PublicMessage> {
     let mut rings = Vec::with_capacity(values.len());
     let mut dimensions = None;
@@ -105,7 +108,7 @@ pub fn geometry_dimensions(
     Ok(dimensions)
 }
 
-fn line_geometry(values: &[Vec<f64>]) -> std::result::Result<WkbGeometry, PublicMessage> {
+fn line_geometry(values: &[geojson::Position]) -> std::result::Result<WkbGeometry, PublicMessage> {
     let (coordinates, dimensions) = positions(values)?;
     Ok(WkbGeometry {
         value: WkbValue::LineString(coordinates),
@@ -114,7 +117,9 @@ fn line_geometry(values: &[Vec<f64>]) -> std::result::Result<WkbGeometry, Public
     })
 }
 
-fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry, PublicMessage> {
+fn polygon_geometry(
+    values: &[Vec<geojson::Position>],
+) -> std::result::Result<WkbGeometry, PublicMessage> {
     let (rings, dimensions) = polygon_coordinates(values)?;
     Ok(WkbGeometry {
         value: WkbValue::Polygon(rings),
@@ -131,23 +136,28 @@ fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry
 /// crate `geojson` resta una dipendenza -- la scrittura la usa -- tenerla come
 /// oracolo costa nulla e prova qualcosa che nessun'altra sonda prova.
 #[cfg(test)]
-pub fn converti_per_confronto(value: &geojson::Value) -> Result<WkbGeometry> {
+pub fn converti_per_confronto(value: &geojson::GeometryValue) -> Result<WkbGeometry> {
     convert(value).map_err(|messaggio| format_error(&messaggio))
 }
 
-fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMessage> {
-    use geojson::Value::{
+fn convert(value: &geojson::GeometryValue) -> std::result::Result<WkbGeometry, PublicMessage> {
+    // Dalla 1.0.0 le varianti sono **struct**: `Point { coordinates }` invece
+    // di `Point(..)`. Il nome del campo entra nei pattern, e la conversione
+    // resta la stessa.
+    use geojson::GeometryValue::{
         GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
     };
 
     let (value, dimensions) = match value {
-        Point(value) => {
-            let (coordinate, dimensions) = position(value)?;
+        Point { coordinates } => {
+            let (coordinate, dimensions) = position(coordinates.as_slice())?;
             (WkbValue::Point(coordinate), dimensions)
         }
-        LineString(values) => return line_geometry(values),
-        Polygon(values) => return polygon_geometry(values),
-        MultiPoint(values) => {
+        LineString { coordinates } => return line_geometry(coordinates),
+        Polygon { coordinates } => return polygon_geometry(coordinates),
+        MultiPoint {
+            coordinates: values,
+        } => {
             let (coordinates, dimensions) = positions(values)?;
             let geometries = coordinates
                 .into_iter()
@@ -159,7 +169,9 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMes
                 .collect();
             (WkbValue::MultiPoint(geometries), dimensions)
         }
-        MultiLineString(values) => {
+        MultiLineString {
+            coordinates: values,
+        } => {
             let geometries = values
                 .iter()
                 .map(|value| line_geometry(value))
@@ -167,7 +179,9 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMes
             let dimensions = geometry_dimensions(&geometries, "MultiLineString GeoJSON vuota")?;
             (WkbValue::MultiLineString(geometries), dimensions)
         }
-        MultiPolygon(values) => {
+        MultiPolygon {
+            coordinates: values,
+        } => {
             let geometries = values
                 .iter()
                 .map(|value| polygon_geometry(value))
@@ -175,7 +189,7 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMes
             let dimensions = geometry_dimensions(&geometries, "MultiPolygon GeoJSON vuota")?;
             (WkbValue::MultiPolygon(geometries), dimensions)
         }
-        GeometryCollection(values) => {
+        GeometryCollection { geometries: values } => {
             let geometries = values
                 .iter()
                 .map(|geometry| convert(&geometry.value))
@@ -191,7 +205,8 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMes
     })
 }
 
-/// Emette WKB ISO XY/XYZ little-endian da una `geojson::Value` (lettura), senza
+/// Emette WKB ISO XY/XYZ little-endian da una `geojson::GeometryValue`
+/// (lettura), senza
 /// passare da geo_types. Le posizioni devono avere dimensionalità uniforme:
 /// una quarta ordinata è rifiutata perché GeoJSON non le assegna una semantica
 /// M interoperabile.
@@ -208,7 +223,7 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMes
 /// contiene una codifica completa oppure niente. Vale anche quando a fallire
 /// e' la conversione, prima che venga scritto un solo byte.
 pub fn wkb_from_gj_value(
-    value: &geojson::Value,
+    value: &geojson::GeometryValue,
     out: &mut Vec<u8>,
     max_bytes: usize,
 ) -> Result<()> {

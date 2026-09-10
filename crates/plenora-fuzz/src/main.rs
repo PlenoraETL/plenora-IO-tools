@@ -602,9 +602,9 @@ fn geojson_geom_roundtrip(g: &Geometry<f64>) -> Result<(), String> {
     Ok(())
 }
 
-/// `wkb_from_gj_value` su un `geojson::Value` sintetico: non deve panic, e se
-/// produce WKB dev'essere decodificabile.
-fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
+/// `wkb_from_gj_value` su una `geojson::GeometryValue` sintetica: non deve
+/// panic, e se produce WKB dev'essere decodificabile.
+fn check_gj_value(v: &geojson::GeometryValue) -> Result<(), String> {
     let mut wkb = Vec::new();
     // Se produce WKB (Ok), dev'essere decodificabile; Err = rifiuto pulito.
     if driver_geojson::wkb_from_gj_value(v, &mut wkb, LIM.max_cell_bytes).is_ok() {
@@ -636,35 +636,57 @@ fn check_wkt(s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `geojson::Value` casuale, profondità limitata (≤4, come il limite serde reale).
+/// `geojson::GeometryValue` casuale, profondità limitata (≤4, come il limite
+/// serde reale).
 // `ring`/`rng` differiscono di una lettera ma sono i nomi naturali di "anello"
 // e "generatore": rinominarli non aggiungerebbe chiarezza.
 #[allow(clippy::similar_names)]
-fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::Value {
-    use geojson::Value::{
+fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::GeometryValue {
+    // Dalla 1.0.0 le varianti sono struct e le posizioni sono
+    // `geojson::Position`, non `Vec<f64>`. Il generatore continua a produrre
+    // anche posizioni con zero, una o quattro ordinate: e' proprio cio' che il
+    // bersaglio deve rifiutare senza panic, e `Position::from(Vec<f64>)` le
+    // conserva tutte.
+    use geojson::GeometryValue::{
         GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
     };
-    let pos = |rng: &mut Rng| -> Vec<f64> { (0..rng.below(4)).map(|_| rng.f64()).collect() };
-    let ring = |rng: &mut Rng| -> Vec<Vec<f64>> { (0..rng.below(6)).map(|_| pos(rng)).collect() };
-    let poly =
-        |rng: &mut Rng| -> Vec<Vec<Vec<f64>>> { (0..rng.below(3)).map(|_| ring(rng)).collect() };
+    let pos = |rng: &mut Rng| -> geojson::Position {
+        geojson::Position::from((0..rng.below(4)).map(|_| rng.f64()).collect::<Vec<f64>>())
+    };
+    let ring =
+        |rng: &mut Rng| -> Vec<geojson::Position> { (0..rng.below(6)).map(|_| pos(rng)).collect() };
+    let poly = |rng: &mut Rng| -> Vec<Vec<geojson::Position>> {
+        (0..rng.below(3)).map(|_| ring(rng)).collect()
+    };
     let n = if depth >= 4 {
         rng.below(6)
     } else {
         rng.below(7)
     };
     match n {
-        0 => Point(pos(rng)),
-        1 => MultiPoint((0..rng.below(5)).map(|_| pos(rng)).collect()),
-        2 => LineString(ring(rng)),
-        3 => MultiLineString((0..rng.below(3)).map(|_| ring(rng)).collect()),
-        4 => Polygon(poly(rng)),
-        5 => MultiPolygon((0..rng.below(3)).map(|_| poly(rng)).collect()),
-        _ => GeometryCollection(
-            (0..rng.below(3))
+        0 => Point {
+            coordinates: pos(rng),
+        },
+        1 => MultiPoint {
+            coordinates: (0..rng.below(5)).map(|_| pos(rng)).collect(),
+        },
+        2 => LineString {
+            coordinates: ring(rng),
+        },
+        3 => MultiLineString {
+            coordinates: (0..rng.below(3)).map(|_| ring(rng)).collect(),
+        },
+        4 => Polygon {
+            coordinates: poly(rng),
+        },
+        5 => MultiPolygon {
+            coordinates: (0..rng.below(3)).map(|_| poly(rng)).collect(),
+        },
+        _ => GeometryCollection {
+            geometries: (0..rng.below(3))
                 .map(|_| geojson::Geometry::new(rand_gj_value(rng, depth + 1)))
                 .collect(),
-        ),
+        },
     }
 }
 
