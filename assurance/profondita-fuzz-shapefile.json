@@ -5,7 +5,7 @@
   "corpus": {
     "input": 32
   },
-  "impronta_perimetro": "bda56570e9f55d824d38a87d491da06621f5276ba7e4482d3b9653acb5f95ddf",
+  "impronta_perimetro": "76e78e5746cb46ea04484eb8230a1fe5045b6cbec92ffbdba9d9eb6aeaa1e7eb",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
@@ -24,13 +24,13 @@
     {
       "id": "dbf.descrittori-di-campo",
       "famiglia": "funzione",
-      "simboli": 2,
+      "simboli": 4,
       "raggiunto": true
     },
     {
       "id": "dbf.intestazione",
       "famiglia": "funzione",
-      "simboli": 2,
+      "simboli": 4,
       "raggiunto": true
     },
     {
@@ -186,19 +186,19 @@
     {
       "id": "shp.geometria-multipunto",
       "famiglia": "funzione",
-      "simboli": 6,
+      "simboli": 12,
       "raggiunto": true
     },
     {
       "id": "shp.geometria-polilinea",
       "famiglia": "funzione",
-      "simboli": 18,
+      "simboli": 24,
       "raggiunto": true
     },
     {
       "id": "shp.geometria-punto",
       "famiglia": "funzione",
-      "simboli": 10,
+      "simboli": 16,
       "raggiunto": true
     },
     {
@@ -216,7 +216,7 @@
     {
       "id": "shx.indice",
       "famiglia": "funzione",
-      "simboli": 2,
+      "simboli": 6,
       "raggiunto": true
     }
   ]

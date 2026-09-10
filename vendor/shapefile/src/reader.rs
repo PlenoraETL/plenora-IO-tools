@@ -86,8 +86,14 @@ impl ShapeIndex {
 fn read_index_file<T: Read>(mut source: T) -> Result<Vec<ShapeIndex>, Error> {
     let header = header::Header::read_from(&mut source)?;
 
-    let num_shapes = ((header.file_length * 2) - header::HEADER_SIZE) / INDEX_RECORD_SIZE as i32;
-    let mut shapes_index = Vec::<ShapeIndex>::with_capacity(num_shapes as usize);
+    let content_length = header
+        .file_length
+        .checked_mul(2)
+        .and_then(|len| len.checked_sub(header::HEADER_SIZE))
+        .filter(|len| *len >= 0)
+        .ok_or(Error::InvalidShapeRecordSize)?;
+    let num_shapes = content_length / INDEX_RECORD_SIZE as i32;
+    let mut shapes_index = record::io::vec_with_capacity_safe::<ShapeIndex>(num_shapes as usize)?;
     for _ in 0..num_shapes {
         let offset = source.read_i32::<BigEndian>()?;
         let record_size = source.read_i32::<BigEndian>()?;
@@ -100,23 +106,17 @@ fn read_index_file<T: Read>(mut source: T) -> Result<Vec<ShapeIndex>, Error> {
 }
 
 /// Reads and returns one shape and its header from the source
-fn read_one_shape_as<T: Read, S: ReadableShape>(
+fn read_one_shape_as<T: Read + Seek, S: ReadableShape>(
     mut source: &mut T,
 ) -> Result<(record::RecordHeader, S), Error> {
     let hdr = record::RecordHeader::read_from(&mut source)?;
-    // Changed by the plenora fork: the doubling is checked.
+    // Changed by the plenora fork: the sign is rejected before the doubling.
     //
-    // `record_size` is a length in 16-bit words read straight from the file,
-    // so its value is whatever the file says: an i32, negative values
-    // included. Doubling it to get bytes overflows for anything above
-    // `i32::MAX / 2`, which panics where overflow checks are on and silently
-    // wraps to a wrong -- possibly negative -- length where they are not. The
-    // second is worse than the first: the read continues on a length nobody
-    // wrote.
-    //
-    // A negative length is rejected before the multiplication rather than
-    // after it, because `-1 * 2` does not overflow and would flow on as a
-    // valid-looking `-2`.
+    // Upstream now checks the multiplication -- `checked_mul` above is theirs
+    // -- but a negative length never reaches it: `-1 * 2` does not overflow,
+    // and would flow on as a valid-looking `-2`. `record_size` is a length in
+    // 16-bit words read straight from the file, so its value is whatever the
+    // file says, negative values included.
     //
     // This also guards `ShapeIterator::next`, which advances `current_pos` by
     // `hdr.record_size as usize * 2` -- a cast that turns a negative length
@@ -148,7 +148,7 @@ pub struct ShapeIterator<'a, T: Read, S: ReadableShape> {
     shapes_indices: Option<std::slice::Iter<'a, ShapeIndex>>,
 }
 
-impl<'a, T: Read + Seek, S: ReadableShape> Iterator for ShapeIterator<'a, T, S> {
+impl<T: Read + Seek, S: ReadableShape> Iterator for ShapeIterator<'_, T, S> {
     type Item = Result<S, crate::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -159,20 +159,35 @@ impl<'a, T: Read + Seek, S: ReadableShape> Iterator for ShapeIterator<'a, T, S> 
                 // Its 'safer' to seek to the shape offset when we have the `shx` file
                 // as some shapes may not be stored sequentially and may contain 'garbage'
                 // bytes between them
-                let start_pos = shapes_indices.next()?.offset * 2;
-                if let Err(err) = self.source.seek(SeekFrom::Start(start_pos as u64)) {
-                    return Some(Err(err.into()));
+                let start_pos = match shapes_indices.next()?.offset.checked_mul(2) {
+                    Some(pos) if pos >= 0 => pos,
+                    _ => return Some(Err(Error::InvalidShapeRecordSize)),
+                };
+                if start_pos != self.current_pos as i32 {
+                    if let Err(err) = self.source.seek(SeekFrom::Start(start_pos as u64)) {
+                        return Some(Err(err.into()));
+                    }
+                    self.current_pos = start_pos as usize;
                 }
-                self.current_pos = start_pos as usize;
             }
             let (hdr, shape) = match read_one_shape_as::<T, S>(self.source) {
                 Err(e) => return Some(Err(e)),
                 Ok(hdr_and_shape) => hdr_and_shape,
             };
             self.current_pos += record::RecordHeader::SIZE;
-            self.current_pos += hdr.record_size as usize * 2;
+            match (hdr.record_size as usize).checked_mul(2) {
+                Some(record_bytes) => self.current_pos += record_bytes,
+                None => return Some(Err(Error::InvalidShapeRecordSize)),
+            }
             Some(Ok(shape))
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.shapes_indices
+            .as_ref()
+            .map(|s| s.size_hint())
+            .unwrap_or((0, None))
     }
 }
 
@@ -187,8 +202,8 @@ pub struct ShapeRecordIterator<
     record_iter: dbase::RecordIterator<'a, D, R>,
 }
 
-impl<'a, T: Read + Seek, D: Read + Seek, S: ReadableShape, R: dbase::ReadableRecord> Iterator
-    for ShapeRecordIterator<'a, T, D, S, R>
+impl<T: Read + Seek, D: Read + Seek, S: ReadableShape, R: dbase::ReadableRecord> Iterator
+    for ShapeRecordIterator<'_, T, D, S, R>
 {
     type Item = Result<(S, R), Error>;
 
@@ -370,7 +385,7 @@ impl<T: Read + Seek> ShapeReader<T> {
             _shape: std::marker::PhantomData,
             source: &mut self.source,
             current_pos: header::HEADER_SIZE as usize,
-            file_length: (self.header.file_length * 2) as usize,
+            file_length: (self.header.file_length as usize) * 2,
             shapes_indices: self.shapes_index.as_ref().map(|s| s.iter()),
         }
     }
@@ -470,10 +485,11 @@ impl<T: Read + Seek> ShapeReader<T> {
         if let Some(ref shapes_index) = self.shapes_index {
             let offset = shapes_index
                 .get(index)
-                .map(|shape_idx| (shape_idx.offset * 2) as u64);
+                .map(|shape_idx| shape_idx.offset.checked_mul(2).filter(|pos| *pos >= 0));
 
             match offset {
-                Some(n) => self.source.seek(SeekFrom::Start(n)),
+                Some(Some(n)) => self.source.seek(SeekFrom::Start(n as u64)),
+                Some(None) => return Err(Error::InvalidShapeRecordSize),
                 None => self.source.seek(SeekFrom::End(0)),
             }?;
             Ok(())
@@ -663,19 +679,49 @@ impl Reader<BufReader<File>, BufReader<File>> {
     /// ```
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let shape_path = path.as_ref().to_path_buf();
-        let dbf_path = shape_path.with_extension("dbf");
+        let shape_reader = ShapeReader::from_path(path)?;
 
-        if dbf_path.exists() {
-            let shape_reader = ShapeReader::from_path(path)?;
-            let dbf_source = BufReader::new(File::open(dbf_path)?);
-            let dbf_reader = dbase::Reader::new(dbf_source)?;
-            Ok(Self {
-                shape_reader,
-                dbase_reader: dbf_reader,
+        let dbf_path = shape_path.with_extension("dbf");
+        let dbf_source = File::open(dbf_path)
+            .map_err(|err| {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    Error::MissingDbf
+                } else {
+                    err.into()
+                }
             })
-        } else {
-            Err(Error::MissingDbf)
-        }
+            .map(BufReader::new)?;
+
+        #[cfg(any(feature = "encoding_rs", feature = "yore"))]
+        let dbf_reader = {
+            let cpg_enc = {
+                let cpg_path = shape_path.with_extension("cpg");
+                File::open(cpg_path).ok().and_then(|cpg_file| {
+                    let mut label = String::new();
+                    if cpg_file.take(1026).read_to_string(&mut label).is_ok() && label.len() <= 1025
+                    {
+                        let name = label.trim().trim_start_matches('\u{feff}');
+
+                        dbase::encoding::DynEncoding::from_name(name)
+                    } else {
+                        None
+                    }
+                })
+            };
+            match cpg_enc {
+                Some(encoding) => dbase::ReaderBuilder::new()
+                    .with_encoding(encoding)
+                    .build(dbf_source),
+                None => dbase::Reader::new(dbf_source),
+            }
+        };
+        #[cfg(all(not(feature = "encoding_rs"), not(feature = "yore")))]
+        let dbf_reader = { dbase::Reader::new(dbf_source) };
+
+        Ok(Self {
+            shape_reader,
+            dbase_reader: dbf_reader?,
+        })
     }
 }
 

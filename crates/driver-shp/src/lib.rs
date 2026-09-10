@@ -4748,7 +4748,7 @@ mod tests {
     /// anche il panico di un altro test in parallelo, e un messaggio in piu'
     /// nel log costa meno di un fallimento altrui reso muto.
     #[test]
-    fn senza_la_difesa_il_campo_di_controllo_fa_panicare_dbase() {
+    fn senza_la_difesa_dbase_accetta_quei_byte_senza_dire_niente() {
         let bundle = seme("dbf-record-oltre-il-conteggio.bundle");
         let parti = __fuzz_dividi_bundle(&bundle).expect("il seme e' un bundle");
         let dbf = parti.dbf.to_vec();
@@ -4757,16 +4757,35 @@ mod tests {
         let percorso = temporanea.path().join("solo.dbf");
         std::fs::write(&percorso, &dbf).expect("il DBF si scrive");
 
+        // Riscritta il 2026-09-10, aggiornando il fork a shapefile 0.9.0 e
+        // con esso `dbase` da 0.5.0 a 0.8.0.
+        //
+        // Diceva «senza la difesa questi byte fanno panicare `dbase`», e
+        // avvertiva che il giorno in cui la crate avesse restituito un
+        // `Err` la controprova sarebbe caduta e la difesa andava
+        // riconsiderata invece che tenuta per abitudine. Quel giorno e'
+        // arrivato, e l'esito e' **peggiore** di un `Err`: la 0.8.0 non
+        // panica e non rifiuta, restituisce `Ok` con zero record. Cioe'
+        // presenta come un file vuoto dei byte che non lo sono.
+        //
+        // La difesa quindi non e' meno necessaria di prima: e' piu'
+        // necessaria. Prima intercettava un panico -- rumoroso, e comunque
+        // catturato dalla barriera; ora intercetta un silenzio, che nessuna
+        // barriera puo' vedere.
         let esito = std::panic::catch_unwind(|| {
             let mut lettore =
                 shapefile::dbase::Reader::from_path(&percorso).expect("il DBF si apre");
             lettore.read()
         });
+        let letti = esito
+            .expect("`dbase` 0.8.0 non panica piu' su questi byte")
+            .expect("e non li rifiuta nemmeno");
         assert!(
-            esito.is_err(),
-            "senza la difesa del driver questi byte devono far panicare `dbase`: \
-             se un giorno restituisse un `Err`, questa controprova cade e la \
-             difesa va riconsiderata invece che tenuta per abitudine"
+            letti.is_empty(),
+            "senza la difesa del driver `dbase` non dice niente di questi byte: \
+             ne restituisce zero record, cioe' li presenta come un file vuoto. \
+             Se un giorno li rifiutasse con un `Err`, questa controprova cade \
+             e la difesa va riconsiderata invece che tenuta per abitudine"
         );
 
         // E lo stesso file, attraverso il driver, e' un rifiuto: la difesa sta

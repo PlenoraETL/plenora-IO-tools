@@ -49,6 +49,7 @@ pub struct ShapeWriter<T: Write + Seek> {
     shx_dest: Option<T>,
     header: header::Header,
     rec_num: u32,
+    dirty: bool,
 }
 
 impl<T: Write + Seek> ShapeWriter<T> {
@@ -61,6 +62,7 @@ impl<T: Write + Seek> ShapeWriter<T> {
             shx_dest: None,
             header: header::Header::default(),
             rec_num: 1,
+            dirty: true,
         }
     }
 
@@ -70,6 +72,7 @@ impl<T: Write + Seek> ShapeWriter<T> {
             shx_dest: Some(shx_dest),
             header: Default::default(),
             rec_num: 1,
+            dirty: true,
         }
     }
 
@@ -102,10 +105,9 @@ impl<T: Write + Seek> ShapeWriter<T> {
         if self.rec_num != 1 {
             return Ok(());
         }
-        use std::f64::{MAX, MIN};
         self.header.bbox = BBoxZ {
-            max: PointZ::new(MIN, MIN, MIN, MIN),
-            min: PointZ::new(MAX, MAX, MAX, MAX),
+            max: PointZ::new(f64::MIN, f64::MIN, f64::MIN, f64::MIN),
+            min: PointZ::new(f64::MAX, f64::MAX, f64::MAX, f64::MAX),
         };
         self.header.write_to(&mut self.shp_dest)?;
         if let Some(shx_dest) = &mut self.shx_dest {
@@ -119,20 +121,22 @@ impl<T: Write + Seek> ShapeWriter<T> {
     /// Added by the plenora fork. The shapefile specification allows a record
     /// whose shape type is Null (0) inside a file whose header declares another
     /// type: it is how a feature without geometry is stored, and it is what
-    /// every other implementation writes. The upstream API cannot express it —
+    /// every other implementation writes. The upstream API cannot express it --
     /// `Shape::NullShape` carries no value and implements neither
-    /// `WritableShape` nor `EsriShape` — so a reader could read such a file and
+    /// `WritableShape` nor `EsriShape` -- so a reader could read such a file and
     /// a writer could not reproduce it.
     ///
     /// This is deliberately **not** a generic "write a raw record" entry point:
-    /// it writes one shape, the null one, with the record size the format
-    /// fixes for it.
+    /// it writes one shape, the null one, with the record size the format fixes
+    /// for it. A raw-record entry point would give the caller a way to
+    /// misalign the .shp, the .shx and the .dbf, which is exactly what this
+    /// exists to make impossible.
     pub fn write_null_shape(&mut self) -> Result<(), Error> {
         self.reserve_header()?;
 
         // A null record's content is its shape type and nothing else: four
         // bytes, which the record header counts as two 16-bit words.
-        let record_size = (std::mem::size_of::<i32>() / 2) as i32;
+        let record_size = (size_of::<i32>() / 2) as i32;
 
         RecordHeader {
             record_number: self.rec_num as i32,
@@ -163,8 +167,8 @@ impl<T: Write + Seek> ShapeWriter<T> {
             // its type. The header itself is reserved by `reserve_header`,
             // which a preceding null record may already have done.
             (ShapeType::NullShape, t) => {
-                self.reserve_header()?;
                 self.header.shape_type = t;
+                self.reserve_header()?;
             }
             (t1, t2) if t1 != t2 => {
                 return Err(Error::MismatchShapeType {
@@ -196,6 +200,7 @@ impl<T: Write + Seek> ShapeWriter<T> {
         self.header.file_length += record_size as i32 + RecordHeader::SIZE as i32 / 2;
         self.header.bbox.grow_from_shape(shape);
         self.rec_num += 1;
+        self.dirty = true;
 
         Ok(())
     }
@@ -240,13 +245,20 @@ impl<T: Write + Seek> ShapeWriter<T> {
         Ok(())
     }
 
-    fn close(&mut self) -> Result<(), Error> {
-        if self.header.bbox.max.m == std::f64::MIN && self.header.bbox.min.m == std::f64::MAX {
+    /// Finalizes the file by updating the header
+    ///
+    /// * Also flushes the destinations
+    pub fn finalize(&mut self) -> Result<(), Error> {
+        if !self.dirty {
+            return Ok(());
+        }
+
+        if self.header.bbox.max.m == f64::MIN && self.header.bbox.min.m == f64::MAX {
             self.header.bbox.max.m = 0.0;
             self.header.bbox.min.m = 0.0;
         }
 
-        if self.header.bbox.max.z == std::f64::MIN && self.header.bbox.min.z == std::f64::MAX {
+        if self.header.bbox.max.z == f64::MIN && self.header.bbox.min.z == f64::MAX {
             self.header.bbox.max.z = 0.0;
             self.header.bbox.min.z = 0.0;
         }
@@ -254,21 +266,25 @@ impl<T: Write + Seek> ShapeWriter<T> {
         self.shp_dest.seek(SeekFrom::Start(0))?;
         self.header.write_to(&mut self.shp_dest)?;
         self.shp_dest.seek(SeekFrom::End(0))?;
+        self.shp_dest.flush()?;
+
         if let Some(shx_dest) = &mut self.shx_dest {
             let mut shx_header = self.header;
             shx_header.file_length = header::HEADER_SIZE / 2
-                + ((self.rec_num - 1) as i32 * 2 * std::mem::size_of::<i32>() as i32 / 2);
+                + ((self.rec_num - 1) as i32 * 2 * size_of::<i32>() as i32 / 2);
             shx_dest.seek(SeekFrom::Start(0))?;
             shx_header.write_to(shx_dest)?;
             shx_dest.seek(SeekFrom::End(0))?;
+            shx_dest.flush()?;
         }
+        self.dirty = false;
         Ok(())
     }
 }
 
 impl<T: Write + Seek> Drop for ShapeWriter<T> {
     fn drop(&mut self) {
-        let _ = self.close();
+        let _ = self.finalize();
     }
 }
 

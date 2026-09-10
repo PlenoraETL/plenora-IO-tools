@@ -1,19 +1,17 @@
 {
   "schema_version": 1,
   "package": "shapefile",
-  "version": "0.6.0",
+  "version": "0.9.0",
   "source": "crates.io",
-  "crate_sha256": "79d5472e932503059d02779ad2c1b96258980940c6923e49f427fbe80eb3053c",
-  "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
+  "crate_sha256": "92fedc0c44dc53a02655cd8dccd2fdf3159c372c0f6eb59115e889f11325e4f0",
+  "upstream_revision": "4a8a491a13349393571cf00491836c1e51bf7134",
   "vendor_path": "vendor/shapefile",
-  "file_count": 25,
-  "tree_sha256": "dcb12d9a858640214db2323843c2da2edba4a9856e72d139132455f1177d0b16",
+  "file_count": 29,
+  "tree_sha256": "509ad92a61ae39732ff0b74ee859cf5bf4d9bf8bcfef3e6e77973e4b015a2386",
   "functional_delta_files": [
     "src/reader.rs",
     "src/record/mod.rs",
     "src/writer.rs"
   ],
-  "packaging_delta_files": [
-    "src/lib.rs"
-  ]
+  "packaging_delta_files": []
 }

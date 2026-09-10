@@ -2,7 +2,7 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 
 use super::io::*;
@@ -29,7 +29,7 @@ enum PatchType {
 impl PatchType {
     pub fn read_from<T: Read>(source: &mut T) -> Result<PatchType, Error> {
         let code = source.read_i32::<LittleEndian>()?;
-        Self::from(code).ok_or_else(|| Error::InvalidPatchType(code))
+        Self::from(code).ok_or(Error::InvalidPatchType(code))
     }
 
     pub fn from(code: i32) -> Option<PatchType> {
@@ -233,7 +233,7 @@ impl HasShapeType for Multipatch {
 }
 
 impl ConcreteReadableShape for Multipatch {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
         let reader = MultiPartShapeReader::<PointZ, T>::new(source)?;
 
         let record_size_with_m =
@@ -241,34 +241,44 @@ impl ConcreteReadableShape for Multipatch {
         let record_size_without_m =
             Self::size_of_record(reader.num_points, reader.num_parts, false) as i32;
 
-        if (record_size != record_size_with_m) & (record_size != record_size_without_m) {
-            Err(Error::InvalidShapeRecordSize)
+        let size_read = if record_size >= record_size_with_m {
+            record_size_with_m
         } else {
-            let mut patch_types = vec![PatchType::Ring; reader.num_parts as usize];
-            let mut patches = Vec::<Patch>::with_capacity(reader.num_parts as usize);
-            for i in 0..reader.num_parts {
-                patch_types[i as usize] = PatchType::read_from(reader.source)?;
-            }
-            let (bbox, patches_points) = reader
-                .read_xy()
-                .and_then(|rdr| rdr.read_zs())
-                .and_then(|rdr| rdr.read_ms_if(record_size == record_size_with_m))
-                .map_err(Error::IoError)
-                .map(|rdr| (rdr.bbox, rdr.parts))?;
+            record_size_without_m
+        };
 
-            for (patch_type, points) in patch_types.iter().zip(patches_points) {
-                let patch = match patch_type {
-                    PatchType::TriangleStrip => Patch::TriangleStrip(points),
-                    PatchType::TriangleFan => Patch::TriangleFan(points),
-                    PatchType::OuterRing => Patch::OuterRing(points),
-                    PatchType::InnerRing => Patch::InnerRing(points),
-                    PatchType::FirstRing => Patch::FirstRing(points),
-                    PatchType::Ring => Patch::Ring(points),
-                };
-                patches.push(patch);
-            }
-            Ok(Self { bbox, patches })
+        let diff = record_size
+            .checked_sub(size_read)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
+
+        let mut patch_types = vec_with_capacity_safe::<PatchType>(reader.num_parts as usize)?;
+        let mut patches = vec_with_capacity_safe::<Patch>(reader.num_parts as usize)?;
+        for _ in 0..reader.num_parts {
+            patch_types.push(PatchType::read_from(reader.source)?);
         }
+        let (bbox, patches_points) = reader
+            .read_xy()
+            .and_then(|rdr| rdr.read_zs())
+            .and_then(|rdr| rdr.read_ms_if(record_size >= record_size_with_m))
+            .map(|rdr| (rdr.bbox, rdr.parts))?;
+
+        for (patch_type, points) in patch_types.iter().zip(patches_points) {
+            let patch = match patch_type {
+                PatchType::TriangleStrip => Patch::TriangleStrip(points),
+                PatchType::TriangleFan => Patch::TriangleFan(points),
+                PatchType::OuterRing => Patch::OuterRing(points),
+                PatchType::InnerRing => Patch::InnerRing(points),
+                PatchType::FirstRing => Patch::FirstRing(points),
+                PatchType::Ring => Patch::Ring(points),
+            };
+            patches.push(patch);
+        }
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
+        }
+        Ok(Self { bbox, patches })
     }
 }
 
@@ -336,7 +346,7 @@ impl EsriShape for Multipatch {
 }
 /// Converts a Multipatch to Multipolygon
 ///
-/// For simplicity,reasons, Triangle Fan & Triangle Strip are considered
+/// For simplicity,reasons, Triangle Fan & Triangle Strip are not considered
 /// to be valid polygons
 /// `
 /// When the individual types of rings in a collection of rings representing a polygonal patch with holes
@@ -346,26 +356,22 @@ impl EsriShape for Multipatch {
 /// `
 #[cfg(feature = "geo-types")]
 impl TryFrom<Multipatch> for geo_types::MultiPolygon<f64> {
-    type Error = &'static str;
+    type Error = Error;
 
     fn try_from(mp: Multipatch) -> Result<Self, Self::Error> {
-        use geo_types::{Coordinate, LineString};
+        use geo_types::{Coord, LineString};
 
         let mut polygons = Vec::<geo_types::Polygon<f64>>::new();
         let mut last_poly = None;
         for patch in mp.patches {
             match patch {
-                Patch::TriangleStrip(_) => {
-                    return Err("Cannot convert Multipatch::TriangleStrip to Multipolygon")
-                }
-                Patch::TriangleFan(_) => {
-                    return Err("Cannot convert Multipatch::TriangleFan to Multipolygon")
-                }
+                Patch::TriangleStrip(_) => return Err(Error::UnsupportedConversion),
+                Patch::TriangleFan(_) => return Err(Error::UnsupportedConversion),
                 Patch::OuterRing(points) | Patch::FirstRing(points) => {
                     let exterior = points
                         .into_iter()
-                        .map(Coordinate::<f64>::from)
-                        .collect::<Vec<Coordinate<f64>>>();
+                        .map(Coord::<f64>::from)
+                        .collect::<Vec<Coord<f64>>>();
 
                     if let Some(poly) = last_poly.take() {
                         polygons.push(poly);
@@ -375,17 +381,13 @@ impl TryFrom<Multipatch> for geo_types::MultiPolygon<f64> {
                 Patch::InnerRing(points) | Patch::Ring(points) => {
                     let interior = points
                         .into_iter()
-                        .map(Coordinate::<f64>::from)
-                        .collect::<Vec<Coordinate<f64>>>();
+                        .map(Coord::<f64>::from)
+                        .collect::<Vec<Coord<f64>>>();
 
                     if let Some(poly) = last_poly.as_mut() {
                         poly.interiors_push(interior);
                     } else {
-                        // This is the strange (?) case: inner ring without a previous outer ring
-                        polygons.push(geo_types::Polygon::<f64>::new(
-                            LineString::<f64>::from(Vec::<Coordinate<f64>>::new()),
-                            vec![LineString::from(interior)],
-                        ));
+                        return Err(Error::OrphanedInnerRing);
                     }
                 }
             }

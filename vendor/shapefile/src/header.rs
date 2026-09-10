@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 pub(crate) const HEADER_SIZE: i32 = 100;
 const FILE_CODE: i32 = 9994;
 /// Size of reserved bytes in the header, that have do defined use
-const SIZE_OF_SKIP: usize = std::mem::size_of::<i32>() * 5;
+const SIZE_OF_SKIP: usize = size_of::<i32>() * 5;
 
 /// struct representing the Header of a shapefile
 /// can be retrieved via the reader used to read
@@ -50,6 +50,9 @@ impl Header {
         source.read_exact(&mut skip)?;
 
         let file_length = source.read_i32::<BigEndian>()?;
+        if file_length < 0 {
+            return Err(Error::InvalidShapeRecordSize);
+        }
         let version = source.read_i32::<LittleEndian>()?;
         let shape_type = ShapeType::read_from(&mut source)?;
 

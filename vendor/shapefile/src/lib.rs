@@ -1,18 +1,3 @@
-// Compatibility delta added by the plenora fork.
-//
-// This snapshot is shapefile 0.6.0, which spells the geo-types coordinate as
-// `geo_types::Coordinate`. The workspace pins geo-types 0.7.19, where that name
-// is a deprecated alias of `Coord`, and CI compiles every crate -- path
-// dependencies included -- with `-D warnings`: thirty-two deprecation warnings
-// become thirty-two errors, and the fork does not build.
-//
-// The fork exists to add a write path for null shapes, not to modernize
-// upstream. Renaming the alias in five files would make a future re-vendor
-// redo a cosmetic edit; this line states the same fact once, and the frozen
-// `tree_sha256` in `scripts/shapefile-fork-lock.json` keeps the snapshot from
-// drifting behind it.
-#![allow(deprecated)]
-
 //! Read & Write [Shapefile](http://downloads.esri.com/support/whitepapers/mo_/shapefile.pdf) in Rust
 //!
 //! A _shapefile_ is in reality a collection of 3 mandatory files:
@@ -26,7 +11,16 @@
 //!
 //! 1) Reading as [Shape](record/enum.Shape.html) and then do a `match` to handle the different shapes
 //! 2) Reading directly as concrete shapes (ie Polyline, PolylineZ, Point, etc) this of course only
-//! works if the file actually contains shapes that matches the requested type
+//!    works if the file actually contains shapes that matches the requested type
+//!
+//! # dBase
+//!
+//! The attributes (stored in the .dbg) files are read and written using the dbase crate
+//! which is re-exported so you can use `use shapefile::dbase`.
+//! dBase files may have different encoding which may only be supported if either one of the
+//! following features is enabled:
+//! - `encoding_rs` (notably supports GBK encoding)
+//! - `yore`
 //!
 //! # Shapefiles shapes
 //!
@@ -52,6 +46,9 @@
 //! implementations allowing to convert (or try to) back and forth between shapefile's type and
 //! the one in `geo_types`
 //!
+//! The `yore` or `encoding_rs` feature can be activated to allows the dbase crate
+//! to handle files with special encodings.
+//!
 //! [`Point`]: record/point/struct.Point.html
 //! [`PointM`]: record/point/struct.PointM.html
 //! [`PointZ`]: record/point/struct.PointZ.html
@@ -66,6 +63,9 @@ pub mod header;
 pub mod reader;
 pub mod record;
 pub mod writer;
+
+#[cfg(feature = "geo-traits")]
+mod geo_traits_impl;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
@@ -106,6 +106,21 @@ pub enum Error {
         actual: ShapeType,
     },
     InvalidShapeRecordSize,
+    /// A file declared a number of points/parts/shapes that would require
+    /// allocating more memory than could be reserved.
+    ///
+    /// This guards against crafted files that declare huge counts to trigger
+    /// an out-of-memory abort.
+    AllocationLimitExceeded {
+        /// The number of bytes the declared count would have required.
+        requested_bytes: usize,
+    },
+    /// The Polygon shape read from the file contains an orphaned inner ring,
+    /// which doesn't have the corresponding outer ring.
+    #[cfg(feature = "geo-types")]
+    OrphanedInnerRing,
+    #[cfg(feature = "geo-types")]
+    UnsupportedConversion,
     DbaseError(dbase::Error),
     MissingDbf,
     MissingIndexFile,
@@ -126,23 +141,32 @@ impl From<dbase::Error> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::IoError(e) => write!(f, "{}", e),
+            Error::IoError(e) => write!(f, "{e}"),
             Error::InvalidFileCode(code) => write!(
                 f,
-                "The file code ' {} ' is invalid, is this a Shapefile ?",
-                code
+                "The file code ' {code} ' is invalid, is this a Shapefile ?"
             ),
             Error::InvalidShapeType(code) => write!(
                 f,
-                "The code ' {} ' does not correspond to any of the ShapeType code defined by ESRI",
-                code
+                "The code ' {code} ' does not correspond to any of the ShapeType code defined by ESRI"
             ),
             Error::MismatchShapeType { requested, actual } => write!(
                 f,
-                "The requested type: '{}' does not correspond to the actual shape type: '{}'",
-                requested, actual
+                "The requested type: '{requested}' does not correspond to the actual shape type: '{actual}'"
             ),
-            e => write!(f, "{:?}", e),
+            Error::InvalidShapeRecordSize => write!(
+                f,
+                "The record size declared in the file is inconsistent or invalid"
+            ),
+            Error::AllocationLimitExceeded { requested_bytes } => write!(
+                f,
+                "The file declares data requiring {requested_bytes} bytes, which could not be allocated"
+            ),
+            #[cfg(feature = "geo-types")]
+            Error::OrphanedInnerRing => write!(f, "Inner ring without a previous outer ring"),
+            #[cfg(feature = "geo-types")]
+            Error::UnsupportedConversion => writeln!(f, "The conversion is not supported"),
+            e => write!(f, "{e:?}"),
         }
     }
 }
@@ -175,7 +199,7 @@ pub enum ShapeType {
 impl ShapeType {
     pub(crate) fn read_from<T: Read>(source: &mut T) -> Result<ShapeType, Error> {
         let code = source.read_i32::<LittleEndian>()?;
-        Self::from(code).ok_or_else(|| Error::InvalidShapeType(code))
+        Self::from(code).ok_or(Error::InvalidShapeType(code))
     }
 
     pub(crate) fn write_to<T: Write>(self, dest: &mut T) -> Result<(), std::io::Error> {

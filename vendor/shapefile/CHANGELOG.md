@@ -1,3 +1,32 @@
+# 0.9.0
+- Hardened the reader against malformed or malicious files: 
+  'Safe' allocation method try_reserve is used to avoid panics if the file
+  makes the crate do a big allocation, the new `Error::AllocationLimitExceeded` variant,
+  is returned when it happens
+- Fixed integer-overflow panics (in builds with overflow checks) when reading,
+  rejected with `Error::InvalidShapeRecordSize`.
+- Bumped `dbase` to 0.8.0, which also hardens against panics on bad input.
+- Bumped `byteorder` to 1.5.
+
+# 0.8.0
+- Added `serde` feature which is forwarded to `dbase`, enabling serde support for dbase record field types.
+- Added reading of `.cpg` files to detect the encoding of `.dbf` files.
+- Fixed overly strict size-checks for shapes; shapes with a record size larger than
+  expected are now read successfully (extra bytes are skipped) instead of returning an error.
+- Updated `geo-traits` dependency to 0.3.
+- Added `Polygon::try_into_geo_traits()`, which converts a polygon to an object that implements
+  `geo_traits::PolygonTrait`.
+- Converting to `geo_types::Polygon` is now fallible (i.e. `TryFrom`, not `From`).
+
+# 0.7.0
+ - Bumped dbase to 0.6
+ - Added `yore` and `encoding_rs` features which are forwarded to `dbase`
+   allowing to read dbf files with special encodings.
+ - Added `finalize` method to writer, to be able to explicitly handle errors when the file
+   is finalized (instead of  silently ignoring errors by relying on the drop mechanism)
+ - Fixed overflow that could happen on large files
+ - Fixes performance issue for shapefiles which had a .shx index file
+
 # 0.6.0
  - Bumped dbase to 0.5.0
 

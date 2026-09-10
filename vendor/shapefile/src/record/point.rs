@@ -1,6 +1,6 @@
 //! Module with the definition of Point, PointM and PointZ
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use super::EsriShape;
 use super::{ShapeType, NO_DATA};
@@ -15,7 +15,7 @@ use std::fmt;
 #[cfg(feature = "geo-types")]
 use geo_types;
 
-/// Point with only `x` and `y` coordinates
+/// Point with only `x` and `y` Coords
 #[derive(PartialEq, Debug, Default, Copy, Clone)]
 pub struct Point {
     pub x: f64,
@@ -52,14 +52,21 @@ impl HasShapeType for Point {
 }
 
 impl ConcreteReadableShape for Point {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
-        if record_size == 2 * size_of::<f64>() as i32 {
-            let x = source.read_f64::<LittleEndian>()?;
-            let y = source.read_f64::<LittleEndian>()?;
-            Ok(Self { x, y })
-        } else {
-            Err(Error::InvalidShapeRecordSize)
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+        const EXPECTED_SIZE: i32 = 2 * size_of::<f64>() as i32;
+        let diff = record_size
+            .checked_sub(EXPECTED_SIZE)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
+
+        let x = source.read_f64::<LittleEndian>()?;
+        let y = source.read_f64::<LittleEndian>()?;
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
         }
+
+        Ok(Self { x, y })
     }
 }
 
@@ -106,16 +113,16 @@ impl From<geo_types::Point<f64>> for Point {
 }
 
 #[cfg(feature = "geo-types")]
-impl From<geo_types::Coordinate<f64>> for Point {
-    fn from(c: geo_types::Coordinate<f64>) -> Self {
+impl From<geo_types::Coord<f64>> for Point {
+    fn from(c: geo_types::Coord<f64>) -> Self {
         Point::new(c.x, c.y)
     }
 }
 
 #[cfg(feature = "geo-types")]
-impl From<Point> for geo_types::Coordinate<f64> {
+impl From<Point> for geo_types::Coord<f64> {
     fn from(p: Point) -> Self {
-        geo_types::Coordinate { x: p.x, y: p.y }
+        geo_types::Coord { x: p.x, y: p.y }
     }
 }
 
@@ -163,15 +170,22 @@ impl HasShapeType for PointM {
 }
 
 impl ConcreteReadableShape for PointM {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
-        if record_size == 3 * size_of::<f64>() as i32 {
-            let x = source.read_f64::<LittleEndian>()?;
-            let y = source.read_f64::<LittleEndian>()?;
-            let m = source.read_f64::<LittleEndian>()?;
-            Ok(Self { x, y, m })
-        } else {
-            Err(Error::InvalidShapeRecordSize)
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+        const EXPECTED_SIZE: i32 = 3 * size_of::<f64>() as i32;
+        let diff = record_size
+            .checked_sub(EXPECTED_SIZE)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
+
+        let x = source.read_f64::<LittleEndian>()?;
+        let y = source.read_f64::<LittleEndian>()?;
+        let m = source.read_f64::<LittleEndian>()?;
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
         }
+
+        Ok(Self { x, y, m })
     }
 }
 
@@ -245,16 +259,16 @@ impl From<geo_types::Point<f64>> for PointM {
 }
 
 #[cfg(feature = "geo-types")]
-impl From<geo_types::Coordinate<f64>> for PointM {
-    fn from(c: geo_types::Coordinate<f64>) -> Self {
+impl From<geo_types::Coord<f64>> for PointM {
+    fn from(c: geo_types::Coord<f64>) -> Self {
         PointM::new(c.x, c.y, NO_DATA)
     }
 }
 
 #[cfg(feature = "geo-types")]
-impl From<PointM> for geo_types::Coordinate<f64> {
+impl From<PointM> for geo_types::Coord<f64> {
     fn from(p: PointM) -> Self {
-        geo_types::Coordinate { x: p.x, y: p.y }
+        geo_types::Coord { x: p.x, y: p.y }
     }
 }
 
@@ -308,17 +322,34 @@ impl HasShapeType for PointZ {
 }
 
 impl ConcreteReadableShape for PointZ {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
-        if record_size == 3 * size_of::<f64>() as i32 {
-            let point = Self::read_xyz(source)?;
-            Ok(point)
-        } else if record_size == 4 * size_of::<f64>() as i32 {
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+        let (point, diff) = if record_size >= 4 * size_of::<f64>() as i32 {
+            let expected = 4 * size_of::<f64>() as i32;
             let mut point = Self::read_xyz(source)?;
             point.m = source.read_f64::<LittleEndian>()?;
-            Ok(point)
+            (
+                point,
+                record_size
+                    .checked_sub(expected)
+                    .ok_or(Error::InvalidShapeRecordSize)?,
+            )
+        } else if record_size >= 3 * size_of::<f64>() as i32 {
+            let expected = 3 * size_of::<f64>() as i32;
+            let point = Self::read_xyz(source)?;
+            (
+                point,
+                record_size
+                    .checked_sub(expected)
+                    .ok_or(Error::InvalidShapeRecordSize)?,
+            )
         } else {
-            Err(Error::InvalidShapeRecordSize)
+            return Err(Error::InvalidShapeRecordSize);
+        };
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
         }
+        Ok(point)
     }
 }
 
@@ -406,16 +437,16 @@ impl From<geo_types::Point<f64>> for PointZ {
 }
 
 #[cfg(feature = "geo-types")]
-impl From<geo_types::Coordinate<f64>> for PointZ {
-    fn from(c: geo_types::Coordinate<f64>) -> Self {
+impl From<geo_types::Coord<f64>> for PointZ {
+    fn from(c: geo_types::Coord<f64>) -> Self {
         PointZ::new(c.x, c.y, 0.0, NO_DATA)
     }
 }
 
 #[cfg(feature = "geo-types")]
-impl From<PointZ> for geo_types::Coordinate<f64> {
+impl From<PointZ> for geo_types::Coord<f64> {
     fn from(p: PointZ) -> Self {
-        geo_types::Coordinate { x: p.x, y: p.y }
+        geo_types::Coord { x: p.x, y: p.y }
     }
 }
 

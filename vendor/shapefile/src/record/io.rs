@@ -5,6 +5,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use super::traits::{HasM, HasMutM, HasMutXY, HasMutZ, HasXY, HasZ};
 use super::{GenericBBox, PointZ, NO_DATA};
 use super::{Point, PointM};
+use crate::Error;
 
 pub(crate) fn bbox_read_xy_from<PointType: HasMutXY, R: Read>(
     bbox: &mut GenericBBox<PointType>,
@@ -64,15 +65,26 @@ pub(crate) fn bbox_write_z_range_to<PointType: HasZ, W: Write>(
     Ok(())
 }
 
+/// Allocates a `Vec` with the requested capacity, returning an error instead
+/// of aborting the process when the allocation cannot be satisfied.
+pub(crate) fn vec_with_capacity_safe<T>(capacity: usize) -> Result<Vec<T>, Error> {
+    let mut vec = Vec::<T>::new();
+    vec.try_reserve_exact(capacity)
+        .map_err(|_| Error::AllocationLimitExceeded {
+            requested_bytes: capacity.saturating_mul(std::mem::size_of::<T>()),
+        })?;
+    Ok(vec)
+}
+
 pub(crate) fn read_xy_in_vec_of<PointType, T>(
     source: &mut T,
     num_points: i32,
-) -> Result<Vec<PointType>, std::io::Error>
+) -> Result<Vec<PointType>, Error>
 where
     PointType: HasMutXY + Default,
     T: Read,
 {
-    let mut points = Vec::<PointType>::with_capacity(num_points as usize);
+    let mut points = vec_with_capacity_safe::<PointType>(num_points as usize)?;
     for _ in 0..num_points {
         let mut p = PointType::default();
         *p.x_mut() = source.read_f64::<LittleEndian>()?;
@@ -102,11 +114,8 @@ pub(crate) fn read_zs_into<T: Read>(
     Ok(())
 }
 
-pub(crate) fn read_parts<T: Read>(
-    source: &mut T,
-    num_parts: i32,
-) -> Result<Vec<i32>, std::io::Error> {
-    let mut parts = Vec::<i32>::with_capacity(num_parts as usize);
+pub(crate) fn read_parts<T: Read>(source: &mut T, num_parts: i32) -> Result<Vec<i32>, Error> {
+    let mut parts = vec_with_capacity_safe::<i32>(num_parts as usize)?;
     for _ in 0..num_parts {
         parts.push(source.read_i32::<LittleEndian>()?);
     }
@@ -157,7 +166,7 @@ impl<'a> PartIndexIter<'a> {
     }
 }
 
-impl<'a> Iterator for PartIndexIter<'a> {
+impl Iterator for PartIndexIter<'_> {
     type Item = (i32, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -169,10 +178,18 @@ impl<'a> Iterator for PartIndexIter<'a> {
                 .copied()
                 .unwrap_or(self.num_points);
             self.current_part_index += 1;
-            debug_assert!(end_of_part_index >= start_of_part_index);
             Some((start_of_part_index, end_of_part_index))
         } else {
             None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.num_points < 0 {
+            (0, None)
+        } else {
+            let remaining = self.parts_indices.len() - self.current_part_index;
+            (remaining, Some(remaining))
         }
     }
 }
@@ -187,13 +204,16 @@ pub(crate) struct MultiPartShapeReader<'a, PointType, R: Read> {
 }
 
 impl<'a, PointType: Default + HasMutXY, R: Read> MultiPartShapeReader<'a, PointType, R> {
-    pub(crate) fn new(source: &'a mut R) -> std::io::Result<Self> {
+    pub(crate) fn new(source: &'a mut R) -> Result<Self, Error> {
         let mut bbox = GenericBBox::<PointType>::default();
         bbox_read_xy_from(&mut bbox, source)?;
         let num_parts = source.read_i32::<LittleEndian>()?;
         let num_points = source.read_i32::<LittleEndian>()?;
+        if num_parts < 0 || num_points < 0 {
+            return Err(Error::InvalidShapeRecordSize);
+        }
         let parts_array = read_parts(source, num_parts)?;
-        let parts = Vec::<Vec<PointType>>::with_capacity(num_parts as usize);
+        let parts = vec_with_capacity_safe::<Vec<PointType>>(num_parts as usize)?;
         Ok(Self {
             num_points,
             num_parts,
@@ -204,9 +224,12 @@ impl<'a, PointType: Default + HasMutXY, R: Read> MultiPartShapeReader<'a, PointT
         })
     }
 
-    pub(crate) fn read_xy(mut self) -> std::io::Result<Self> {
+    pub(crate) fn read_xy(mut self) -> Result<Self, Error> {
         for (start_index, end_index) in PartIndexIter::new(&self.parts_array, self.num_points) {
-            let num_points_in_part = end_index - start_index;
+            let num_points_in_part = end_index
+                .checked_sub(start_index)
+                .filter(|n| *n >= 0)
+                .ok_or(Error::InvalidShapeRecordSize)?;
             self.parts
                 .push(read_xy_in_vec_of(self.source, num_points_in_part)?);
         }
@@ -214,8 +237,8 @@ impl<'a, PointType: Default + HasMutXY, R: Read> MultiPartShapeReader<'a, PointT
     }
 }
 
-impl<'a, PointType: HasMutM, R: Read> MultiPartShapeReader<'a, PointType, R> {
-    pub(crate) fn read_ms(mut self) -> std::io::Result<Self> {
+impl<PointType: HasMutM, R: Read> MultiPartShapeReader<'_, PointType, R> {
+    pub(crate) fn read_ms(mut self) -> Result<Self, Error> {
         bbox_read_m_range_from(&mut self.bbox, &mut self.source)?;
         for part_points in self.parts.iter_mut() {
             read_ms_into(self.source, part_points)?;
@@ -223,7 +246,7 @@ impl<'a, PointType: HasMutM, R: Read> MultiPartShapeReader<'a, PointType, R> {
         Ok(self)
     }
 
-    pub(crate) fn read_ms_if(self, condition: bool) -> std::io::Result<Self> {
+    pub(crate) fn read_ms_if(self, condition: bool) -> Result<Self, Error> {
         if condition {
             self.read_ms()
         } else {
@@ -232,8 +255,8 @@ impl<'a, PointType: HasMutM, R: Read> MultiPartShapeReader<'a, PointType, R> {
     }
 }
 
-impl<'a, R: Read> MultiPartShapeReader<'a, PointZ, R> {
-    pub(crate) fn read_zs(mut self) -> std::io::Result<Self> {
+impl<R: Read> MultiPartShapeReader<'_, PointZ, R> {
+    pub(crate) fn read_zs(mut self) -> Result<Self, Error> {
         bbox_read_z_range_from(&mut self.bbox, &mut self.source)?;
         for part_points in self.parts.iter_mut() {
             read_zs_into(self.source, part_points)?;
@@ -388,5 +411,26 @@ where
             .and_then(|wrt| wrt.write_zs())
             .and_then(|wrt| wrt.write_bbox_m_range())
             .and_then(|wrt| wrt.write_ms())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vec_with_capacity_safe_returns_error_on_overflow() {
+        // A count read from an untrusted file could be absurdly large.
+        // Reserving it must fail gracefully instead of aborting the process.
+        let result = vec_with_capacity_safe::<u8>(usize::MAX);
+        let err = result.expect_err("reserving usize::MAX bytes must fail");
+        assert!(matches!(err, crate::Error::AllocationLimitExceeded { .. }));
+    }
+
+    #[test]
+    fn vec_with_capacity_safe_allocates_when_reasonable() {
+        let vec = vec_with_capacity_safe::<i32>(8).expect("small allocation must succeed");
+        assert!(vec.capacity() >= 8);
+        assert!(vec.is_empty());
     }
 }

@@ -4,7 +4,7 @@
 //! are specialization of the `GenericMultipoint`
 //!
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::ops::Index;
 use std::slice::SliceIndex;
@@ -101,7 +101,6 @@ impl<PointType: ShrinkablePoint + GrowablePoint + Copy> GenericMultipoint<PointT
     /// ];
     /// let multipointz = MultipointZ::new(points);
     /// ```
-
     pub fn new(points: Vec<PointType>) -> Self {
         let bbox = GenericBBox::<PointType>::from_points(&points);
         Self { bbox, points }
@@ -254,17 +253,27 @@ impl HasShapeType for Multipoint {
 }
 
 impl ConcreteReadableShape for Multipoint {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
         let mut bbox = GenericBBox::<Point>::default();
         bbox_read_xy_from(&mut bbox, source)?;
 
         let num_points = source.read_i32::<LittleEndian>()?;
-        if record_size == Self::size_of_record(num_points) as i32 {
-            let points = read_xy_in_vec_of::<Point, T>(source, num_points)?;
-            Ok(Self { bbox, points })
-        } else {
-            Err(Error::InvalidShapeRecordSize)
+        if num_points < 0 {
+            return Err(Error::InvalidShapeRecordSize);
         }
+        let expected = Self::size_of_record(num_points) as i32;
+        let diff = record_size
+            .checked_sub(expected)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
+
+        let points = read_xy_in_vec_of::<Point, T>(source, num_points)?;
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
+        }
+
+        Ok(Self { bbox, points })
     }
 }
 
@@ -330,27 +339,41 @@ impl HasShapeType for MultipointM {
 }
 
 impl ConcreteReadableShape for MultipointM {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
         let mut bbox = GenericBBox::<PointM>::default();
         bbox_read_xy_from(&mut bbox, source)?;
 
         let num_points = source.read_i32::<LittleEndian>()?;
+        if num_points < 0 {
+            return Err(Error::InvalidShapeRecordSize);
+        }
 
         let size_with_m = Self::size_of_record(num_points, true) as i32;
         let size_without_m = Self::size_of_record(num_points, false) as i32;
 
-        if (record_size != size_with_m) & (record_size != size_without_m) {
-            Err(Error::InvalidShapeRecordSize)
+        let size_read = if record_size >= size_with_m {
+            size_with_m
         } else {
-            let m_is_used = size_with_m == record_size;
-            let mut points = read_xy_in_vec_of::<PointM, T>(source, num_points)?;
+            size_without_m
+        };
 
-            if m_is_used {
-                bbox_read_m_range_from(&mut bbox, source)?;
-                read_ms_into(source, &mut points)?;
-            }
-            Ok(Self { bbox, points })
+        let diff = record_size
+            .checked_sub(size_read)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
+
+        let mut points = read_xy_in_vec_of::<PointM, T>(source, num_points)?;
+
+        if record_size >= size_with_m {
+            bbox_read_m_range_from(&mut bbox, source)?;
+            read_ms_into(source, &mut points)?;
         }
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
+        }
+
+        Ok(Self { bbox, points })
     }
 }
 
@@ -425,30 +448,43 @@ impl HasShapeType for MultipointZ {
 }
 
 impl ConcreteReadableShape for MultipointZ {
-    fn read_shape_content<T: Read>(source: &mut T, record_size: i32) -> Result<Self, Error> {
+    fn read_shape_content<T: Read + Seek>(source: &mut T, record_size: i32) -> Result<Self, Error> {
         let mut bbox = GenericBBox::<PointZ>::default();
         bbox_read_xy_from(&mut bbox, source)?;
         let num_points = source.read_i32::<LittleEndian>()?;
+        if num_points < 0 {
+            return Err(Error::InvalidShapeRecordSize);
+        }
 
         let size_with_m = Self::size_of_record(num_points, true) as i32;
         let size_without_m = Self::size_of_record(num_points, false) as i32;
 
-        if (record_size != size_with_m) & (record_size != size_without_m) {
-            Err(Error::InvalidShapeRecordSize)
+        let size_read = if record_size >= size_with_m {
+            size_with_m
         } else {
-            let m_is_used = size_with_m == record_size;
-            let mut points = read_xy_in_vec_of::<PointZ, T>(source, num_points)?;
+            size_without_m
+        };
 
-            bbox_read_z_range_from(&mut bbox, source)?;
-            read_zs_into(source, &mut points)?;
+        let diff = record_size
+            .checked_sub(size_read)
+            .filter(|n| *n >= 0)
+            .ok_or(Error::InvalidShapeRecordSize)?;
 
-            if m_is_used {
-                bbox_read_m_range_from(&mut bbox, source)?;
-                read_ms_into(source, &mut points)?;
-            }
+        let mut points = read_xy_in_vec_of::<PointZ, T>(source, num_points)?;
 
-            Ok(Self { bbox, points })
+        bbox_read_z_range_from(&mut bbox, source)?;
+        read_zs_into(source, &mut points)?;
+
+        if record_size >= size_with_m {
+            bbox_read_m_range_from(&mut bbox, source)?;
+            read_ms_into(source, &mut points)?;
         }
+
+        if diff > 0 {
+            source.seek(SeekFrom::Current(i64::from(diff)))?;
+        }
+
+        Ok(Self { bbox, points })
     }
 }
 
@@ -502,7 +538,7 @@ impl EsriShape for MultipointZ {
 mod test_geo_types_conversions {
     use super::*;
     use crate::{geo_types, NO_DATA};
-    use geo_types::Coordinate;
+    use geo_types::Coord;
 
     #[test]
     fn test_multipoint_to_geo_types_multipoint() {
@@ -510,8 +546,8 @@ mod test_geo_types_conversions {
         let geo_types_coords = shapefile_points
             .iter()
             .copied()
-            .map(Coordinate::<f64>::from)
-            .collect::<Vec<Coordinate<f64>>>();
+            .map(Coord::<f64>::from)
+            .collect::<Vec<Coord<f64>>>();
 
         let expected_shapefile_multipoint = Multipoint::new(shapefile_points);
         let expected_geo_types_multipoint = geo_types::MultiPoint::from(geo_types_coords);

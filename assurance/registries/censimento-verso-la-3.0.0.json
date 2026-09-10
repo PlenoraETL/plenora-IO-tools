@@ -171,7 +171,7 @@
       ]
     },
     "shapefile": {
-      "in_uso": "0.6.0",
+      "in_uso": "0.9.0",
       "ultima_stabile": "0.9.0",
       "upstream_git": "tmontaigu/shapefile-rs @ 646ec58",
       "nota": "il fork col salto piu' ampio, e il solo in cui una nostra correzione e' gia' arrivata a valle",
@@ -181,7 +181,7 @@
           "file": "src/reader.rs",
           "stato": "gia' integrata e distribuita",
           "misura": "la 0.9.0 fa `hdr.record_size.checked_mul(2).ok_or(Error::InvalidShapeRecordSize)?` dentro `read_one_shape_as`, riletto nel sorgente",
-          "conseguenza": "non va riproposta"
+          "conseguenza": "confermato nella 0.9.0: `read_one_shape_as` fa `checked_mul(2).ok_or(Error::InvalidShapeRecordSize)?`. Non va riproposta."
         },
         {
           "nome": "rifiuto di una lunghezza negativa",
@@ -1456,8 +1456,8 @@
   },
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
-    "allineate": 27,
-    "indietro": 1,
+    "allineate": 28,
+    "indietro": 0,
     "voci": [
       {
         "crate": "ctrlc",
@@ -1608,6 +1608,30 @@
             "trentanove sonde del docset verdi"
           ]
         }
+      },
+      {
+        "crate": "shapefile",
+        "in_uso": "0.9.0",
+        "ultima": "0.9.0",
+        "passo": "allineato",
+        "giudizio": "era la voce che mancava all'elenco: fork governato, tre minor di salto, 15122 righe cambiate sotto.",
+        "esito": {
+          "eseguito_il": "2026-09-10",
+          "i_delta_riletti_nel_codice": "non cercando un nome, che non decide in nessuna delle due direzioni. `checked_mul` **e' arrivato upstream** e cade; il rifiuto della lunghezza **negativa** resta, perche' `-1 * 2` non trabocca e passerebbe oltre come un `-2` dall'aspetto legittimo; il ramo `NullShape` e' ancora `=> Shape::NullShape,` senza guardare `record_size`; `write_shape` pretende ancora `S: EsriShape`, che `Shape::NullShape` non implementa. Tre delta avanti su quattro.",
+          "un_delta_che_cade": "`#![allow(deprecated)]` in `src/lib.rs`. Era li' perche' la 0.6.0 scriveva `geo_types::Coordinate`, alias deprecato, e la CI compila con `-D warnings`. La 0.9.0 usa `Coord`: `packaging_delta_files` diventa vuoto.",
+          "che_cosa_cambia_nel_grafo": "`shapefile` 0.6.0 -> 0.9.0, `dbase` 0.5.0 -> 0.8.0, entra `bufrw` 0.2.0. Il prodotto **compila senza adattamenti**: la superficie che usa e' invariata attraverso i tre minor.",
+          "una_controprova_caduta_e_riscritta": "`senza_la_difesa_il_campo_di_controllo_fa_panicare_dbase` avvertiva che il giorno in cui la crate avesse restituito un `Err` la controprova sarebbe caduta e la difesa andava riconsiderata invece che tenuta per abitudine. Quel giorno e' arrivato, e l'esito misurato e' **peggiore** di un `Err`: `dbase` 0.8.0 non panica e non rifiuta, restituisce `Ok` con **zero record** -- presenta come vuoto un file che non lo e'. La difesa e' quindi piu' necessaria di prima: intercettava un panico, rumoroso e comunque catturato dalla barriera; ora intercetta un silenzio, che nessuna barriera puo' vedere. Il test e' stato riscritto sul comportamento misurato, con lo stesso avvertimento per la prossima volta.",
+          "due_file_entrati_con_la_release": "`examples/` resta, perche' e' contenuto del crate. `Cargo.lock` e' potato, e la ragione la dichiara il crate stesso: il suo `.gitignore` lo ignora, quindi in un albero governato non potrebbe essere versionato e il gate lo nominerebbe come artefatto estraneo. La 0.9.0 spedisce entrambi e si contraddice.",
+          "una_cosa_preesistente_e_invariata": "le prove d'integrazione del crate (`read_as_point` e simili) falliscono nell'albero vendorizzato perche' ne' la 0.6.0 ne' la 0.9.0 spediscono `tests/data`. Verificato su entrambe: non e' un effetto dell'aggiornamento, e nessun gate vi si appoggia.",
+          "verifiche": [
+            "gate di provenienza verde: shapefile 0.9.0, 29 file, sha256 509ad92a",
+            "99 prove di `driver-shp` verdi, fra cui **otto** sul record nullo: `il_fork_rifiuta_un_record_nullo_sovradimensionato`, `un_record_nullo_conforme_non_disallinea_quello_dopo` e le due controprove che mostrano che cosa accade senza le verifiche portate",
+            "quarantuno suite verdi con `--all-features`",
+            "clippy del workspace con `-D warnings` e `--all-features`: pulito",
+            "quattro profondita' rimisurate dopo il `fmt`: 35/35, 9/9, 9/9, 12/12, invariate",
+            "ASan a 179805 contatori, invariato"
+          ]
+        }
       }
     ],
     "i_due_fork_non_in_elenco": "`dxf 0.6.1` e' gia' all'ultima stabile; `shapefile 0.6.0` e' indietro di tre minor sulla 0.9.0 e compare sopra. Per entrambi vale la stessa distinzione: aggiornare la copia in `vendor/` si puo' fare quando vogliamo, eliminarla dipende da una release ufficiale che contenga le correzioni.",
@@ -1658,11 +1682,11 @@
   },
   "quadro_verso_la_candidate": {
     "misurato_il": "2026-09-10, rimisurando invece di rileggere",
-    "dipendenze": "27 allineate su 28 dirette. L'unica indietro e' `shapefile`, `=0.6.0` contro 0.9.0: tre minor, e non era in `dipendenze_ancora_da_migrare` -- vedi `una_lacuna_del_censimento`.",
+    "dipendenze": "**28 allineate su 28.** L'ultima era `shapefile`, chiusa il 2026-09-10 dalla 0.6.0 alla 0.9.0.",
     "fork": {
       "gdal": "0.19.0, allineato. Due delta ancora necessari, entrambi in `georust/gdal#731`, aperta.",
       "dxf": "0.6.1, allineato alla sua ultima release. Tre delta: `read_block` e' **unito upstream** (#105) ma non rilasciato, quindi resta; `DrawingEntityReader` e la lettura progressiva sono API nostre ancora da proporre.",
-      "shapefile": "0.6.0 contro 0.9.0. Tre delta ancora necessari: due proposti (#56, #57, aperte) e `write_null_shape`, che e' una funzionalita' e non una correzione."
+      "shapefile": "0.9.0, allineato. Tre delta ancora necessari -- il quarto, l'`allow(deprecated)`, e' caduto perche' upstream usa `Coord`. Due sono proposti (#56, #57, aperte) e uno e' una funzionalita' (`write_null_shape`)."
     },
     "contributi": "cinque inviati, **due uniti** (arrow-rs#11020, dxf-rs#105), tre aperte. Nessuno toglie un fork oggi, perche' nessuno e' in una release pubblicata.",
     "da_preparare": "cinque: i cicli senza `Eof` di `georust/kml` (**preparato e verificato su `main`, non inviato**: l'invio e' una decisione da prendere), `write_null_shape` per shapefile, `DrawingEntityReader` e la lettura progressiva ASCII per DXF, e l'ammodernamento zip di kml, derubricato.",
