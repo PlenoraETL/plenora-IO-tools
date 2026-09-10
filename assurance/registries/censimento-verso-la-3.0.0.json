@@ -1584,10 +1584,29 @@
       },
       {
         "crate": "gdal",
-        "in_uso": "0.17.1",
+        "in_uso": "0.19.0",
         "ultima": "0.19.0",
-        "passo": "due minor su 0.x",
-        "giudizio": "**e' un fork.** Aggiornarlo significa portare `vendor/gdal` alla 0.19.0 riapplicando le sole modifiche ancora necessarie -- che ora sono due, ed entrambe proposte upstream in #731. Aggiornare il fork e eliminarlo restano due cose diverse."
+        "passo": "allineato",
+        "giudizio": "**e' un fork.** Aggiornarlo significa portare `vendor/gdal` alla 0.19.0 riapplicando le sole modifiche ancora necessarie -- che ora sono due, ed entrambe proposte upstream in #731. Aggiornare il fork e eliminarlo restano due cose diverse.",
+        "esito": {
+          "eseguito_il": "2026-09-10",
+          "perche_le_patch_restano": "`georust/gdal#731` e' aperta e verde su dieci controlli, ma una PR accettata non basta: togliere un delta richiede una release **pubblicata** che lo sostituisca. Le due patch si portano avanti.",
+          "come_e_stato_fatto_il_delta": "misurato, non riscritto a memoria: `vendor/gdal` confrontato con la 0.17.1 originale scaricata da crates.io e verificata contro il checksum del lock. La 0.19.0 e' stata verificata contro il checksum **pubblicato** da crates.io, non contro se stessa. Restano 23+37+2 righe su tre file, mentre sotto upstream ne cambiava 442, 139 e 0.",
+          "la_riconciliazione": "la 0.19.0 ha ristrutturato la testa di `src/spatial_ref/srs.rs`: `c_char` arriva ora da `std::ffi` ed e' gia' importato, quindi la riga `use libc::c_char` del fork sparisce; resta da aggiungere `_string_array`, che upstream ha in `utils.rs` ma non importa qui. E' lo stesso punto su cui la nostra PR upstream non compilava, e per la stessa ragione: il fork lo importava e cosi' nascondeva il difetto.",
+          "che_cosa_cambia_nell_api_del_prodotto": "tre rotture, tutte in `driver-filegdb`. `field_as_*` e `set_field`/`set_field_null` prendono un `usize` invece di un `i32` e di un nome: l'adattamento **semplifica**, perche' `ogr_index` diventa `usize` e spariscono tre conversioni e due rami d'errore che non descrivono piu' niente di possibile. Gli indici per la scrittura si risolvono una volta per layer invece che per cella. E `auth_name()` restituisce `Option` invece di `Result` -- l'assenza di un'autorita' non e' un guasto -- mentre `auth_code` resta `Result`, che upstream segnala come da correggere.",
+          "che_cosa_cambia_nel_grafo": "`gdal` 0.17.1 -> 0.19.0 e `gdal-sys` 0.10.0 -> 0.12.0. `gdal-sys` non e' vendorizzato: arriva da crates.io. La 0.19.0 dichiara di supportare GDAL da 3.4 a 3.11 e `gdal-sys` 0.12.0 porta i binding precompilati per la 3.6, che e' quella del nostro contenitore: la GDAL di sistema non e' un vincolo.",
+          "un_numero_che_cambia": "i contatori ASan passano da 179433 a **179805**, perche' il wrapper vendorizzato e' cresciuto. Riallineato `current-state.json`, che e' l'anello che si dimentica: gli altri quattro artefatti tornano verdi da soli e quello resta rosso in disparte.",
+          "un_gate_corretto_lungo_la_strada": "`check_docset.py` confrontava i README di `vendor/dxf` e `vendor/gdal` byte per byte con una revisione fissa. Quei file cambiano legittimamente a ogni aggiornamento di fork -- infatti ha reso rosso questo -- ed era una difesa piu' debole di quella che c'e' gia': i tre gate dei fork imprimono l'albero intero, README compreso. Sostituito con la verifica che la **delega** sia reale, cioe' che i tre README stiano dentro l'insieme che il digest copre. E' la ragione, gia' scritta in quel file, per cui `vendor/shapefile` non c'era mai entrato.",
+          "verifiche": [
+            "gate di provenienza verde: gdal 0.19.0, 63 file, sha256 5d5b5120",
+            "dodici sonde del fork verdi",
+            "quarantuno suite verdi con `--all-features`",
+            "`radici_di_proj` verde: e' la prova che tiene la patch PROJ, cioe' la ragione per cui il fork esiste",
+            "clippy del workspace con `-D warnings` e `--all-features`: pulito",
+            "quattro profondita' rimisurate dopo il `fmt`: 35/35, 9/9, 9/9, 12/12, invariate",
+            "trentanove sonde del docset verdi"
+          ]
+        }
       }
     ],
     "i_due_fork_non_in_elenco": "`dxf 0.6.1` e' gia' all'ultima stabile; `shapefile 0.6.0` e' indietro di tre minor sulla 0.9.0 e compare sopra. Per entrambi vale la stessa distinzione: aggiornare la copia in `vendor/` si puo' fare quando vogliamo, eliminarla dipende da una release ufficiale che contenga le correzioni.",
@@ -1598,7 +1617,13 @@
       "`jsonschema`, quattro barriere",
       "`geojson`, da 0.x a 1.0, come intervento a se'",
       "i fork, che sono un'altra categoria"
-    ]
+    ],
+    "una_lacuna_del_censimento": {
+      "trovata_il": "2026-09-10, rimisurando l'elenco invece di fidarsi di quello del 2026-09-08",
+      "il_fatto": "`shapefile` non era fra le sei voci di questo elenco, ed e' l'unica dipendenza diretta ancora indietro: `=0.6.0` contro una 0.9.0 upstream, tre minor. Chiuso `gdal`, il residuo della migrazione non e' zero: e' quello.",
+      "perche_era_sfuggita": "i tre fork governati sono dipendenze dirette del workspace **e** voci della sezione `fork`. La prima misura ne aveva portato in questo elenco solo `gdal`; `dxf` non compare perche' e' gia' alla sua ultima, e `shapefile` e' rimasto fuori senza che il conteggio lo dicesse.",
+      "che_cosa_comporta": "non e' un aggiornamento come gli altri: `shapefile` porta tre delta ancora necessari, due gia' proposti upstream -- tmontaigu/shapefile-rs#56 e #57, aperte -- e uno che e' una funzionalita' (`write_null_shape`) e non una correzione. Il salto di tre minor va misurato prima di decidere se entra nella 3.0.0 o resta dichiarato."
+    }
   },
   "due_manifesti_due_pin": {
     "trovato_il": "2026-09-09, aggiornando `geo-types`",

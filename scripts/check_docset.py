@@ -15,7 +15,9 @@ restano per quello, non come documentazione.
 
 1. l'allowlist e' **esatta**: nessun `.md` tracciato fuori da essa, e nessuno
    dei sette mancante;
-2. i due README vendorizzati sono **byte-identici** alla baseline: sono
+2. i README vendorizzati stanno dentro l'albero che il lock del fork
+   impronta -- non si confrontano con una baseline, che sarebbe una difesa
+   piu' debole e romperebbe ogni aggiornamento di fork. Sono
    contenuto di terzi e input del packaging Cargo, non nostri da riscrivere;
 3. nessun gate legge un Markdown come input macchina;
 4. ogni collegamento relativo risolve;
@@ -62,11 +64,11 @@ OPERATIVI = {
     "vendor/dxf/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
     "vendor/gdal/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
     # Il terzo fork ridistribuisce anche un CHANGELOG e la propria licenza in
-    # Markdown. Non entrano in `vendor_intatti`, e non per dimenticanza:
-    # l'integrita' dell'albero `vendor/shapefile` e' verificata per intero --
-    # venticinque file, un digest solo -- da `scripts/check_shapefile_fork.py`
-    # contro il lock del fork, che e' una difesa piu' forte del confronto di un
-    # file con una baseline.
+    # Markdown. L'integrita' dell'albero `vendor/shapefile` e' verificata per
+    # intero -- venticinque file, un digest solo -- da
+    # `scripts/check_shapefile_fork.py` contro il lock del fork, che e' una
+    # difesa piu' forte del confronto di un file con una baseline. Dal
+    # 2026-09-10 vale per tutti e tre i fork: vedi `vendor_coperti_dai_lock`.
     "vendor/shapefile/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
     "vendor/shapefile/CHANGELOG.md": "cronaca upstream ridistribuita; contenuto di terzi",
     "vendor/shapefile/LICENSE.md": "licenza MIT upstream ridistribuita; contenuto di terzi",
@@ -112,9 +114,6 @@ VALIDATORI = {
 TRASCRITTORI = {
     "scripts/costruisci-pacchetto-python.py",
 }
-
-# La baseline dei README vendorizzati: sono ridistribuiti, non nostri.
-BASELINE_VENDOR = "2fe9b54"
 
 # I nomi della cronaca eliminata, **derivati** dalla baseline invece che
 # scritti a mano.
@@ -225,25 +224,50 @@ def allowlist() -> list[str]:
     return errori
 
 
-def vendor_intatti() -> list[str]:
-    """I README vendorizzati sono byte-identici alla baseline."""
+def vendor_coperti_dai_lock() -> list[str]:
+    """I README vendorizzati stanno dentro l'albero che il lock del fork copre.
+
+    # Perche' non un confronto con una baseline
+
+    Fino al 2026-09-10 questa prova confrontava `vendor/dxf/README.md` e
+    `vendor/gdal/README.md` byte per byte con una revisione fissa. Era una
+    difesa piu' debole di quella che c'e' gia', e in piu' era **sbagliata**:
+    quei file cambiano legittimamente quando si aggiorna un fork, e infatti ha
+    reso rosso l'aggiornamento di `gdal` alla 0.19.0, che ne porta uno nuovo.
+
+    L'integrita' dei tre alberi vendorizzati e' verificata per intero dai
+    rispettivi gate -- un digest solo su tutto l'insieme versionato, README
+    compreso -- contro il lock del fork. E' esattamente la ragione, gia'
+    scritta qui sopra, per cui `vendor/shapefile` non era mai entrato in questa
+    prova.
+
+    Resta pero' qualcosa da verificare, ed e' la delega: che quei file siano
+    davvero **dentro** l'insieme che il digest copre. Una delega non
+    controllata e' un buco con l'aria di una difesa.
+    """
+    import sys
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from fork_comune import insieme_versionato  # noqa: E402
+
     errori: list[str] = []
-    for relativo in ("vendor/dxf/README.md", "vendor/gdal/README.md"):
-        atteso = subprocess.run(
-            ["git", "show", f"{BASELINE_VENDOR}:{relativo}"],
-            cwd=ROOT,
-            capture_output=True,
-            check=False,
-        )
-        if atteso.returncode != 0:
-            errori.append(f"{relativo}: baseline {BASELINE_VENDOR} non leggibile")
+    for relativo, lock in (
+        ("vendor/dxf/README.md", "scripts/dxf-fork-lock.json"),
+        ("vendor/gdal/README.md", "scripts/gdal-fork-lock.json"),
+        ("vendor/shapefile/README.md", "scripts/shapefile-fork-lock.json"),
+    ):
+        percorso = ROOT / relativo
+        if not percorso.is_file():
+            errori.append(f"{relativo}: assente")
             continue
-        corrente = (ROOT / relativo).read_bytes()
-        if corrente != atteso.stdout:
+        radice = percorso.parent
+        coperti = {p.resolve() for p in insieme_versionato(radice)}
+        if percorso.resolve() not in coperti:
             errori.append(
-                f"{relativo}: differisce dalla baseline {BASELINE_VENDOR}. E' "
-                "contenuto di terzi e input del packaging Cargo: riscriverlo "
-                "altera materiale ridistribuito."
+                f"{relativo}: fuori dall'insieme versionato che "
+                f"`{lock}` impronta. E' contenuto di terzi ridistribuito, e "
+                "senza il digest del fork nessuno si accorgerebbe di una "
+                "riscrittura."
             )
     return errori
 
@@ -437,7 +461,7 @@ def cronaca_residua() -> list[str]:
 
 CONTROLLI = (
     ("allowlist", allowlist),
-    ("README vendorizzati intatti", vendor_intatti),
+    ("README vendorizzati coperti dai lock", vendor_coperti_dai_lock),
     ("nessun Markdown come database", nessun_markdown_come_database),
     ("collegamenti relativi", collegamenti),
     ("raggiungibilita' da README", raggiungibili),

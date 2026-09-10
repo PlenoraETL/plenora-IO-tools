@@ -1216,6 +1216,21 @@ mod backend {
                         NumeroStrutturale::Indice(driver_common::saturating_u64(gidx)),
                     ))
                 })?;
+            // Dalla 0.19 `set_field` prende l'indice OGR invece del nome. Si
+            // risolve **una volta** per layer e non per cella: la definizione
+            // non cambia durante la scrittura, e chiedere lo stesso nome a
+            // ogni riga per ogni campo sarebbe una ricerca per stringa dentro
+            // il ciclo piu' interno.
+            let indici_ogr = fields
+                .iter()
+                .map(|field| {
+                    gl.defn().field_index(&field.name).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "campo assente nella definizione del layer FileGDB",
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<usize>>>()?;
             for row in 0..batch.num_rows() {
                 let mut feature = Feature::new(gl.defn())
                     .map_err(|_| err(&PublicMessage::Curated("creazione della feature fallita")))?;
@@ -1231,12 +1246,12 @@ mod backend {
                         ))
                     })?;
                 }
-                for field in &fields {
+                for (field, ogr_index) in fields.iter().zip(&indici_ogr) {
                     match field_value(field.kind, batch.column(field.index), row)? {
-                        Some(value) => feature.set_field(&field.name, &value).map_err(|_| {
+                        Some(value) => feature.set_field(*ogr_index, &value).map_err(|_| {
                             err(&PublicMessage::Curated("scrittura di un campo fallita"))
                         })?,
-                        None => feature.set_field_null(&field.name).map_err(|_| {
+                        None => feature.set_field_null(*ogr_index).map_err(|_| {
                             err(&PublicMessage::Curated(
                                 "scrittura di un campo nullo fallita",
                             ))
@@ -1295,8 +1310,14 @@ mod backend {
     }
 
     fn authority_id(spatial_ref: &SpatialRef) -> Option<String> {
+        // Dalla 0.19 `auth_name` restituisce `Option`, non `Result`: l'assenza
+        // di un'autorita' non e' un guasto, ed e' giusto che il tipo lo dica.
+        // `auth_code` resta un `Result` -- upstream lo segnala come da
+        // correggere -- quindi il quartetto non e' simmetrico.
         match (spatial_ref.auth_name(), spatial_ref.auth_code()) {
-            (Ok(authority), Ok(code)) => Some(format!("{}:{code}", authority.to_ascii_uppercase())),
+            (Some(authority), Ok(code)) => {
+                Some(format!("{}:{code}", authority.to_ascii_uppercase()))
+            }
             _ => None,
         }
     }
@@ -1584,7 +1605,13 @@ mod backend {
     }
 
     struct ProjectedField {
-        ogr_index: i32,
+        /// L'indice OGR del campo.
+        ///
+        /// Era un `i32`, come lo voleva `gdal` fino alla 0.18: da li' venivano
+        /// una conversione all'andata, due al ritorno e due rami d'errore per
+        /// un indice negativo. Dalla 0.19 gli accessor prendono un `usize`, e
+        /// quei rami non descrivono piu' niente di possibile.
+        ogr_index: usize,
         name: String,
         data_type: DataType,
         ogr_type: gdal::vector::OGRFieldType::Type,
@@ -1663,14 +1690,8 @@ mod backend {
                         NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
                     ))
                 })?;
-                let ogr_index = i32::try_from(field_index).map_err(|_| {
-                    err(&PublicMessage::CuratedWith(
-                        "indice OGR fuori intervallo i32, indice",
-                        NumeroStrutturale::Indice(driver_common::saturating_u64(field_index)),
-                    ))
-                })?;
                 fields.push(ProjectedField {
-                    ogr_index,
+                    ogr_index: field_index,
                     name: field.name.clone(),
                     data_type: field.data_type.clone(),
                     ogr_type: field.ogr_type,
@@ -1717,16 +1738,14 @@ mod backend {
         fields: &[ProjectedField],
     ) -> Result<()> {
         for field in fields {
-            let index = usize::try_from(field.ogr_index)
-                .map_err(|_| err(&PublicMessage::Curated("indice OGR negativo")))?;
-            let actual = actual_fields.get(index);
+            let actual = actual_fields.get(field.ogr_index);
             if !matches!(
                 actual,
                 Some((name, ogr_type)) if name == &field.name && *ogr_type == field.ogr_type
             ) {
                 return Err(err(&PublicMessage::CuratedWith(
                     "schema FileGDB cambiato fra apertura e lettura, campo di indice",
-                    NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(field.ogr_index)),
                 )));
             }
         }
@@ -1762,15 +1781,8 @@ mod backend {
                     .map(|field| (field.name(), field.field_type()))
                     .collect();
                 verifica_schema_invariato(&actual_fields, &fields)?;
-                let selected_fields = fields
-                    .iter()
-                    .map(|field| usize::try_from(field.ogr_index))
-                    .collect::<std::result::Result<HashSet<_>, _>>()
-                    .map_err(|_| {
-                        err(&PublicMessage::Curated(
-                            "indice OGR negativo nella projection FileGDB",
-                        ))
-                    })?;
+                let selected_fields: HashSet<usize> =
+                    fields.iter().map(|field| field.ogr_index).collect();
                 let mut ignored_fields = actual_fields
                     .iter()
                     .enumerate()
@@ -1888,12 +1900,11 @@ mod backend {
                     "lettura di un campo FileGDB fallita, indice OGR",
                     // `unsigned_abs` rende la conversione **totale**: nessun ramo
                     // di riserva, quindi niente da registrare come fallback.
-                    // L'indice OGR e' gia' verificato non negativo a monte.
                     //
                     // (Il commento evita di nominare la forma alternativa: il
                     // registro dei fallback conta il testo, e citarla qui la
                     // farebbe contare come se ci fosse davvero.)
-                    NumeroStrutturale::Indice(u64::from(field.ogr_index.unsigned_abs())),
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(field.ogr_index)),
                 ))
             };
             match self {

@@ -1,18 +1,20 @@
+use std::{
+    ffi::{c_char, c_int, CString, NulError},
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ptr::null_mut,
+};
+
+use gdal_sys::{GDALMajorObjectH, OGRErr, OGRFieldDefnH, OGRFieldType, OGRLayerH};
+
+use crate::errors::*;
 use crate::metadata::Metadata;
 use crate::spatial_ref::SpatialRef;
 use crate::utils::{_last_null_pointer_err, _string};
 use crate::vector::defn::Defn;
-use crate::vector::{Envelope, Feature, FieldValue, Geometry, LayerOptions};
-use crate::{dataset::Dataset, gdal_major_object::MajorObject};
-use gdal_sys::{self, GDALMajorObjectH, OGRErr, OGRFieldDefnH, OGRFieldType, OGRLayerH};
-use libc::c_int;
-use std::ffi::NulError;
-use std::mem::MaybeUninit;
-use std::ptr::null_mut;
-use std::{ffi::CString, marker::PhantomData};
-
-use crate::errors::*;
 use crate::vector::feature::{FeatureIterator, OwnedFeatureIterator};
+use crate::vector::{Envelope, Feature, Geometry, LayerOptions};
+use crate::{dataset::Dataset, gdal_major_object::MajorObject};
 
 /// Layer capabilities
 #[allow(clippy::upper_case_acronyms)]
@@ -39,7 +41,7 @@ pub enum LayerCaps {
     OLCAlterFieldDefn,
     /// Layer capability for transactions
     OLCTransactions,
-    /// Layer capability for feature deletiond
+    /// Layer capability for feature deletion
     OLCDeleteFeature,
     /// Layer capability for setting next feature index
     OLCFastSetNextByIndex,
@@ -105,15 +107,15 @@ pub struct Layer<'a> {
     phantom: PhantomData<&'a Dataset>,
 }
 
-impl<'a> MajorObject for Layer<'a> {
+impl MajorObject for Layer<'_> {
     fn gdal_object_ptr(&self) -> GDALMajorObjectH {
         self.c_layer
     }
 }
 
-impl<'a> Metadata for Layer<'a> {}
+impl Metadata for Layer<'_> {}
 
-impl<'a> LayerAccess for Layer<'a> {
+impl LayerAccess for Layer<'_> {
     unsafe fn c_layer(&self) -> OGRLayerH {
         self.c_layer
     }
@@ -193,13 +195,10 @@ impl OwnedLayer {
         }
     }
 
-    /// Returns iterator over the features in this layer.
+    /// Returns an iterator over the features in this layer.
     ///
-    /// **Note.** This method resets the current index to
-    /// the beginning before iteration. It also borrows the
-    /// layer mutably, preventing any overlapping borrows.
-    pub fn owned_features(mut self) -> OwnedFeatureIterator {
-        self.reset_feature_reading();
+    /// This method doesn't reset the layer, but the returned iterator does so when dropped.
+    pub fn owned_features(self) -> OwnedFeatureIterator {
         OwnedFeatureIterator::_with_layer(self)
     }
 
@@ -235,7 +234,7 @@ pub trait LayerAccess: Sized {
     /// Not all drivers support this efficiently; however, the call should always work if the
     /// feature exists, as a fallback implementation just scans all the features in the layer
     /// looking for the desired feature.
-    fn feature(&self, fid: u64) -> Option<Feature> {
+    fn feature(&self, fid: u64) -> Option<Feature<'_>> {
         let c_feature = unsafe { gdal_sys::OGR_L_GetFeature(self.c_layer(), fid as i64) };
         if c_feature.is_null() {
             None
@@ -244,13 +243,12 @@ pub trait LayerAccess: Sized {
         }
     }
 
-    /// Returns iterator over the features in this layer.
+    /// Returns an iterator over the features in this layer.
     ///
-    /// **Note.** This method resets the current index to
-    /// the beginning before iteration. It also borrows the
-    /// layer mutably, preventing any overlapping borrows.
-    fn features(&mut self) -> FeatureIterator {
-        self.reset_feature_reading();
+    /// This method doesn't reset the layer, but the returned iterator does so when dropped.
+    ///
+    /// The iterator also borrows the layer mutably, preventing other overlapping borrows.
+    fn features(&mut self) -> FeatureIterator<'_> {
         FeatureIterator::_with_layer(self)
     }
 
@@ -282,7 +280,7 @@ pub trait LayerAccess: Sized {
     /// Get the name of this layer.
     fn name(&self) -> String {
         let rv = unsafe { gdal_sys::OGR_L_GetName(self.c_layer()) };
-        _string(rv)
+        _string(rv).unwrap_or_default()
     }
 
     fn has_capability(&self, capability: LayerCaps) -> bool {
@@ -316,21 +314,6 @@ pub trait LayerAccess: Sized {
                 method_name: "OGR_L_CreateFeature",
             });
         }
-        Ok(())
-    }
-
-    fn create_feature_fields(
-        &mut self,
-        geometry: Geometry,
-        field_names: &[&str],
-        values: &[FieldValue],
-    ) -> Result<()> {
-        let mut ft = Feature::new(self.defn())?;
-        ft.set_geometry(geometry)?;
-        for (fd, val) in field_names.iter().zip(values.iter()) {
-            ft.set_field(fd, val)?;
-        }
-        ft.create(self)?;
         Ok(())
     }
 
@@ -544,7 +527,7 @@ impl<'a> Iterator for LayerIterator<'a> {
         if idx < self.count {
             self.idx += 1;
             let c_layer =
-                unsafe { gdal_sys::OGR_DS_GetLayer(self.dataset.c_dataset(), idx as c_int) };
+                unsafe { gdal_sys::GDALDatasetGetLayer(self.dataset.c_dataset(), idx as c_int) };
             if !c_layer.is_null() {
                 let layer = unsafe { Layer::from_c_layer(self.dataset, c_layer) };
                 return Some(layer);
@@ -613,7 +596,7 @@ impl FieldDefn {
 
 /// [Layer] related methods for [Dataset].
 impl Dataset {
-    fn child_layer(&self, c_layer: OGRLayerH) -> Layer {
+    fn child_layer(&self, c_layer: OGRLayerH) -> Layer<'_> {
         unsafe { Layer::from_c_layer(self, c_layer) }
     }
 
@@ -623,18 +606,18 @@ impl Dataset {
 
     /// Get the number of layers in this dataset.
     pub fn layer_count(&self) -> usize {
-        (unsafe { gdal_sys::OGR_DS_GetLayerCount(self.c_dataset()) }) as usize
+        (unsafe { gdal_sys::GDALDatasetGetLayerCount(self.c_dataset()) }) as usize
     }
 
     /// Fetch a layer by index.
     ///
     /// Applies to vector datasets, and fetches by the given
     /// _0-based_ index.
-    pub fn layer(&self, idx: usize) -> Result<Layer> {
-        let idx = libc::c_int::try_from(idx)?;
-        let c_layer = unsafe { gdal_sys::OGR_DS_GetLayer(self.c_dataset(), idx) };
+    pub fn layer(&self, idx: usize) -> Result<Layer<'_>> {
+        let idx = c_int::try_from(idx)?;
+        let c_layer = unsafe { gdal_sys::GDALDatasetGetLayer(self.c_dataset(), idx) };
         if c_layer.is_null() {
-            return Err(_last_null_pointer_err("OGR_DS_GetLayer"));
+            return Err(_last_null_pointer_err("GDALDatasetGetLayer"));
         }
         Ok(self.child_layer(c_layer))
     }
@@ -644,20 +627,21 @@ impl Dataset {
     /// Applies to vector datasets, and fetches by the given
     /// _0-based_ index.
     pub fn into_layer(self, idx: usize) -> Result<OwnedLayer> {
-        let idx = libc::c_int::try_from(idx)?;
-        let c_layer = unsafe { gdal_sys::OGR_DS_GetLayer(self.c_dataset(), idx) };
+        let idx = c_int::try_from(idx)?;
+        let c_layer = unsafe { gdal_sys::GDALDatasetGetLayer(self.c_dataset(), idx) };
         if c_layer.is_null() {
-            return Err(_last_null_pointer_err("OGR_DS_GetLayer"));
+            return Err(_last_null_pointer_err("GDALDatasetGetLayer"));
         }
         Ok(self.into_child_layer(c_layer))
     }
 
     /// Fetch a layer by name.
-    pub fn layer_by_name(&self, name: &str) -> Result<Layer> {
+    pub fn layer_by_name(&self, name: &str) -> Result<Layer<'_>> {
         let c_name = CString::new(name)?;
-        let c_layer = unsafe { gdal_sys::OGR_DS_GetLayerByName(self.c_dataset(), c_name.as_ptr()) };
+        let c_layer =
+            unsafe { gdal_sys::GDALDatasetGetLayerByName(self.c_dataset(), c_name.as_ptr()) };
         if c_layer.is_null() {
-            return Err(_last_null_pointer_err("OGR_DS_GetLayerByName"));
+            return Err(_last_null_pointer_err("GDALDatasetGetLayerByName"));
         }
         Ok(self.child_layer(c_layer))
     }
@@ -665,15 +649,16 @@ impl Dataset {
     /// Fetch a layer by name.
     pub fn into_layer_by_name(self, name: &str) -> Result<OwnedLayer> {
         let c_name = CString::new(name)?;
-        let c_layer = unsafe { gdal_sys::OGR_DS_GetLayerByName(self.c_dataset(), c_name.as_ptr()) };
+        let c_layer =
+            unsafe { gdal_sys::GDALDatasetGetLayerByName(self.c_dataset(), c_name.as_ptr()) };
         if c_layer.is_null() {
-            return Err(_last_null_pointer_err("OGR_DS_GetLayerByName"));
+            return Err(_last_null_pointer_err("GDALDatasetGetLayerByName"));
         }
         Ok(self.into_child_layer(c_layer))
     }
 
     /// Returns an iterator over the layers of the dataset.
-    pub fn layers(&self) -> LayerIterator {
+    pub fn layers(&self) -> LayerIterator<'_> {
         LayerIterator::with_dataset(self)
     }
 
@@ -706,7 +691,7 @@ impl Dataset {
     ///     ..Default::default()
     /// }).unwrap();
     /// ```
-    pub fn create_layer(&mut self, options: LayerOptions<'_>) -> Result<Layer> {
+    pub fn create_layer(&mut self, options: LayerOptions<'_>) -> Result<Layer<'_>> {
         let c_name = CString::new(options.name)?;
         let c_srs = match options.srs {
             Some(srs) => srs.to_c_hsrs(),
@@ -737,18 +722,42 @@ impl Dataset {
             // The C function takes `char **papszOptions` without mention of `const`, and this is
             // propagated to the gdal_sys wrapper. The lack of `const` seems like a mistake in the
             // GDAL API, so we just do a cast here.
-            gdal_sys::OGR_DS_CreateLayer(
+            gdal_sys::GDALDatasetCreateLayer(
                 self.c_dataset(),
                 c_name.as_ptr(),
                 c_srs,
                 options.ty,
-                c_options_ptr as *mut *mut libc::c_char,
+                c_options_ptr as *mut *mut c_char,
             )
         };
         if c_layer.is_null() {
-            return Err(_last_null_pointer_err("OGR_DS_CreateLayer"));
+            return Err(_last_null_pointer_err("GDALDatasetCreateLayer"));
         };
         Ok(self.child_layer(c_layer))
+    }
+
+    /// Deletes the layer at given index
+    ///
+    /// ```
+    /// # use gdal::DriverManager;
+    /// # let driver = DriverManager::get_driver_by_name("GPKG").unwrap();
+    /// # let mut dataset = driver.create_vector_only("/vsimem/example.gpkg").unwrap();
+    /// let blank_layer = dataset.create_layer(Default::default()).unwrap();
+    /// assert!(dataset.delete_layer(1).is_err());
+    /// dataset.delete_layer(0).unwrap();
+    /// assert_eq!(dataset.layers().count(), 0);
+    /// ```
+    pub fn delete_layer(&mut self, idx: usize) -> Result<()> {
+        let idx = c_int::try_from(idx)?;
+        let err = unsafe { gdal_sys::GDALDatasetDeleteLayer(self.c_dataset(), idx) };
+        if err != OGRErr::OGRERR_NONE {
+            Err(GdalError::OgrError {
+                err,
+                method_name: "GDALDatasetDeleteLayer",
+            })
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -759,12 +768,13 @@ mod tests {
     use crate::spatial_ref::AxisMappingStrategy;
     use crate::test_utils::{fixture, open_gpkg_for_update, SuppressGDALErrorLog, TempFixture};
     use crate::vector::feature::FeatureIterator;
+    use crate::vector::FieldValue;
     use crate::{assert_almost_eq, Dataset, DriverManager, GdalOpenFlags};
     use gdal_sys::OGRwkbGeometryType;
 
     fn ds_with_layer<F>(ds_name: &str, layer_name: &str, f: F)
     where
-        F: Fn(Layer),
+        F: Fn(Layer<'_>),
     {
         let ds = Dataset::open(fixture(ds_name)).unwrap();
         let layer = ds.layer_by_name(layer_name).unwrap();
@@ -773,7 +783,7 @@ mod tests {
 
     fn with_layer<F>(name: &str, f: F)
     where
-        F: Fn(Layer),
+        F: Fn(Layer<'_>),
     {
         let ds = Dataset::open(fixture(name)).unwrap();
         let layer = ds.layer(0).unwrap();
@@ -791,14 +801,14 @@ mod tests {
 
     fn with_features<F>(name: &str, f: F)
     where
-        F: Fn(FeatureIterator),
+        F: Fn(FeatureIterator<'_>),
     {
         with_layer(name, |mut layer| f(layer.features()));
     }
 
     fn with_feature<F>(name: &str, fid: u64, f: F)
     where
-        F: Fn(Feature),
+        F: Fn(Feature<'_>),
     {
         with_layer(name, |layer| f(layer.feature(fid).unwrap()));
     }
@@ -933,7 +943,8 @@ mod tests {
 
         {
             let feature = layer.features().next().unwrap();
-            assert_eq!(feature.field("id").unwrap(), None);
+            let id_idx = feature.field_index("id").unwrap();
+            assert_eq!(feature.field(id_idx).unwrap(), None);
         }
 
         // convert back to dataset
@@ -967,16 +978,18 @@ mod tests {
     #[test]
     fn test_string_field() {
         with_feature("roads.geojson", 236194095, |feature| {
+            let highway_idx = feature.field_index("highway").unwrap();
             assert_eq!(
-                feature.field("highway").unwrap().unwrap().into_string(),
+                feature.field(highway_idx).unwrap().unwrap().into_string(),
                 Some("footway".to_string())
             );
         });
         with_features("roads.geojson", |features| {
             assert_eq!(
                 features
-                    .filter(|field| {
-                        let highway = field.field("highway").unwrap().unwrap().into_string();
+                    .filter(|feature| {
+                        let highway_idx = feature.field_index("highway").unwrap();
+                        let highway = feature.field(highway_idx).unwrap().unwrap().into_string();
                         highway == Some("residential".to_string())
                     })
                     .count(),
@@ -989,11 +1002,13 @@ mod tests {
     fn test_null_field() {
         with_features("null_feature_fields.geojson", |mut features| {
             let feature = features.next().unwrap();
+            let some_int_idx = feature.field_index("some_int").unwrap();
+            let some_string_idx = feature.field_index("some_string").unwrap();
             assert_eq!(
-                feature.field("some_int").unwrap(),
+                feature.field(some_int_idx).unwrap(),
                 Some(FieldValue::IntegerValue(0))
             );
-            assert_eq!(feature.field("some_string").unwrap(), None);
+            assert_eq!(feature.field(some_string_idx).unwrap(), None);
         });
     }
 
@@ -1001,8 +1016,9 @@ mod tests {
     fn test_string_list_field() {
         with_features("soundg.json", |mut features| {
             let feature = features.next().unwrap();
+            let a_string_list_idx = feature.field_index("a_string_list").unwrap();
             assert_eq!(
-                feature.field("a_string_list").unwrap().unwrap(),
+                feature.field(a_string_list_idx).unwrap().unwrap(),
                 FieldValue::StringListValue(vec![
                     String::from("a"),
                     String::from("list"),
@@ -1017,13 +1033,14 @@ mod tests {
     fn test_set_string_list_field() {
         with_features("soundg.json", |mut features| {
             let mut feature = features.next().unwrap();
+            let a_string_list_idx = feature.field_index("a_string_list").unwrap();
             let value = FieldValue::StringListValue(vec![
                 String::from("the"),
                 String::from("new"),
                 String::from("strings"),
             ]);
-            feature.set_field("a_string_list", &value).unwrap();
-            assert_eq!(feature.field("a_string_list").unwrap().unwrap(), value);
+            feature.set_field(a_string_list_idx, &value).unwrap();
+            assert_eq!(feature.field(a_string_list_idx).unwrap().unwrap(), value);
         });
     }
 
@@ -1033,50 +1050,36 @@ mod tests {
         with_features("roads.geojson", |mut features| {
             let feature = features.next().unwrap();
 
+            let sort_key_idx = feature.field_index("sort_key").unwrap();
+            let highway_idx = feature.field_index("highway").unwrap();
+            let railway_idx = feature.field_index("railway").unwrap();
+
             assert_eq!(
-                feature.field_as_string_by_name("highway").unwrap(),
+                feature.field_as_string(highway_idx).unwrap(),
                 Some("footway".to_owned())
             );
 
             assert_eq!(
-                feature.field_as_string_by_name("sort_key").unwrap(),
+                feature.field_as_string(sort_key_idx).unwrap(),
                 Some("-9".to_owned())
             );
-            assert_eq!(
-                feature.field_as_integer_by_name("sort_key").unwrap(),
-                Some(-9)
-            );
-            assert_eq!(
-                feature.field_as_integer64_by_name("sort_key").unwrap(),
-                Some(-9)
-            );
-            assert_eq!(
-                feature.field_as_double_by_name("sort_key").unwrap(),
-                Some(-9.)
-            );
+            assert_eq!(feature.field_as_integer(sort_key_idx).unwrap(), Some(-9));
+            assert_eq!(feature.field_as_integer64(sort_key_idx).unwrap(), Some(-9));
+            assert_eq!(feature.field_as_double(sort_key_idx).unwrap(), Some(-9.));
 
             // test failed conversions
-            assert_eq!(
-                feature.field_as_integer_by_name("highway").unwrap(),
-                Some(0)
-            );
-            assert_eq!(
-                feature.field_as_integer64_by_name("highway").unwrap(),
-                Some(0)
-            );
-            assert_eq!(
-                feature.field_as_double_by_name("highway").unwrap(),
-                Some(0.)
-            );
+            assert_eq!(feature.field_as_integer(highway_idx).unwrap(), Some(0));
+            assert_eq!(feature.field_as_integer64(highway_idx).unwrap(), Some(0));
+            assert_eq!(feature.field_as_double(highway_idx).unwrap(), Some(0.));
 
             // test nulls
-            assert_eq!(feature.field_as_string_by_name("railway").unwrap(), None);
-            assert_eq!(feature.field_as_integer_by_name("railway").unwrap(), None);
-            assert_eq!(feature.field_as_integer64_by_name("railway").unwrap(), None);
-            assert_eq!(feature.field_as_double_by_name("railway").unwrap(), None);
+            assert_eq!(feature.field_as_string(railway_idx).unwrap(), None);
+            assert_eq!(feature.field_as_integer(railway_idx).unwrap(), None);
+            assert_eq!(feature.field_as_integer64(railway_idx).unwrap(), None);
+            assert_eq!(feature.field_as_double(railway_idx).unwrap(), None);
 
             assert!(matches!(
-                feature.field_as_string_by_name("not_a_field").unwrap_err(),
+                feature.field_index("not_a_field").unwrap_err(),
                 GdalError::InvalidFieldName {
                     field_name,
                     method_name: "OGR_F_GetFieldIndex",
@@ -1153,13 +1156,11 @@ mod tests {
                 .with_ymd_and_hms(2018, 1, 4, 0, 0, 0)
                 .unwrap();
 
-            assert_eq!(feature.field_as_datetime_by_name("dt").unwrap(), Some(dt));
+            let dt_idx = feature.field_index("dt").unwrap();
+            let d_idx = feature.field_index("d").unwrap();
 
-            assert_eq!(feature.field_as_datetime(0).unwrap(), Some(dt));
-
-            assert_eq!(feature.field_as_datetime_by_name("d").unwrap(), Some(d));
-
-            assert_eq!(feature.field_as_datetime(1).unwrap(), Some(d));
+            assert_eq!(feature.field_as_datetime(dt_idx).unwrap(), Some(dt));
+            assert_eq!(feature.field_as_datetime(d_idx).unwrap(), Some(d));
         });
 
         with_features("roads.geojson", |mut features| {
@@ -1168,13 +1169,12 @@ mod tests {
             let railway_field = 5;
 
             // test null
-            assert_eq!(feature.field_as_datetime_by_name("railway").unwrap(), None);
+            assert_eq!(feature.field_as_datetime(railway_field).unwrap(), None);
             assert_eq!(feature.field_as_datetime(railway_field).unwrap(), None);
 
             // test error
             assert!(matches!(
-                feature
-                    .field_as_datetime_by_name("not_a_field")
+                feature.field_index("not_a_field")
                     .unwrap_err(),
                 GdalError::InvalidFieldName {
                     field_name,
@@ -1195,7 +1195,8 @@ mod tests {
     fn test_field_in_layer() {
         ds_with_layer("three_layer_ds.s3db", "layer_0", |mut layer| {
             let feature = layer.features().next().unwrap();
-            assert_eq!(feature.field("id").unwrap(), None);
+            let id_idx = feature.field_index("id").unwrap();
+            assert_eq!(feature.field(id_idx).unwrap(), None);
         });
     }
 
@@ -1203,8 +1204,9 @@ mod tests {
     fn test_int_list_field() {
         with_features("soundg.json", |mut features| {
             let feature = features.next().unwrap();
+            let an_int_list_idx = feature.field_index("an_int_list").unwrap();
             assert_eq!(
-                feature.field("an_int_list").unwrap().unwrap(),
+                feature.field(an_int_list_idx).unwrap().unwrap(),
                 FieldValue::IntegerListValue(vec![1, 2])
             );
         });
@@ -1215,8 +1217,9 @@ mod tests {
         with_features("soundg.json", |mut features| {
             let mut feature = features.next().unwrap();
             let value = FieldValue::IntegerListValue(vec![3, 4, 5]);
-            feature.set_field("an_int_list", &value).unwrap();
-            assert_eq!(feature.field("an_int_list").unwrap().unwrap(), value);
+            let an_int_list_idx = feature.field_index("an_int_list").unwrap();
+            feature.set_field(an_int_list_idx, &value).unwrap();
+            assert_eq!(feature.field(an_int_list_idx).unwrap().unwrap(), value);
         });
     }
 
@@ -1224,8 +1227,9 @@ mod tests {
     fn test_real_list_field() {
         with_features("soundg.json", |mut features| {
             let feature = features.next().unwrap();
+            let a_real_list_idx = feature.field_index("a_real_list").unwrap();
             assert_eq!(
-                feature.field("a_real_list").unwrap().unwrap(),
+                feature.field(a_real_list_idx).unwrap().unwrap(),
                 FieldValue::RealListValue(vec![0.1, 0.2])
             );
         });
@@ -1235,9 +1239,10 @@ mod tests {
     fn test_set_real_list_field() {
         with_features("soundg.json", |mut features| {
             let mut feature = features.next().unwrap();
+            let a_real_list_idx = feature.field_index("a_real_list").unwrap();
             let value = FieldValue::RealListValue(vec![2.5, 3.0, 4.75]);
-            feature.set_field("a_real_list", &value).unwrap();
-            assert_eq!(feature.field("a_real_list").unwrap().unwrap(), value);
+            feature.set_field(a_real_list_idx, &value).unwrap();
+            assert_eq!(feature.field(a_real_list_idx).unwrap().unwrap(), value);
         });
     }
 
@@ -1245,8 +1250,9 @@ mod tests {
     fn test_long_list_field() {
         with_features("soundg.json", |mut features| {
             let feature = features.next().unwrap();
+            let a_long_list_idx = feature.field_index("a_long_list").unwrap();
             assert_eq!(
-                feature.field("a_long_list").unwrap().unwrap(),
+                feature.field(a_long_list_idx).unwrap().unwrap(),
                 FieldValue::Integer64ListValue(vec![5000000000, 6000000000])
             );
         });
@@ -1256,18 +1262,20 @@ mod tests {
     fn test_set_long_list_field() {
         with_features("soundg.json", |mut features| {
             let mut feature = features.next().unwrap();
+            let a_long_list_idx = feature.field_index("a_long_list").unwrap();
             let value = FieldValue::Integer64ListValue(vec![7000000000, 8000000000]);
-            feature.set_field("a_long_list", &value).unwrap();
-            assert_eq!(feature.field("a_long_list").unwrap().unwrap(), value);
+            feature.set_field(a_long_list_idx, &value).unwrap();
+            assert_eq!(feature.field(a_long_list_idx).unwrap().unwrap(), value);
         });
     }
 
     #[test]
     fn test_float_field() {
         with_feature("roads.geojson", 236194095, |feature| {
+            let sort_key_idx = feature.field_index("sort_key").unwrap();
             assert_almost_eq(
                 feature
-                    .field("sort_key")
+                    .field(sort_key_idx)
                     .unwrap()
                     .unwrap()
                     .into_real()
@@ -1278,18 +1286,12 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_field() {
-        with_feature("roads.geojson", 236194095, |feature| {
-            assert!(feature.field("no such field").is_err());
-        });
-    }
-
-    #[test]
     fn test_geom_accessors() {
         with_feature("roads.geojson", 236194095, |feature| {
             let geom = feature.geometry().unwrap();
             assert_eq!(geom.geometry_type(), OGRwkbGeometryType::wkbLineString);
-            let coords = geom.get_point_vec();
+            let mut coords: Vec<(f64, f64, f64)> = Vec::new();
+            geom.get_points(&mut coords);
             assert_eq!(
                 coords,
                 [
@@ -1303,11 +1305,14 @@ mod tests {
             let geom = feature.geometry_by_index(0).unwrap();
             assert_eq!(geom.geometry_type(), OGRwkbGeometryType::wkbLineString);
             assert!(feature.geometry_by_index(1).is_err());
-            let geom = feature.geometry_by_name("");
+            let geom = feature.geometry_by_index(0);
             assert!(geom.is_ok());
-            let geom = feature.geometry_by_name("").unwrap();
+            let geom = feature.geometry_by_index(0).unwrap();
             assert_eq!(geom.geometry_type(), OGRwkbGeometryType::wkbLineString);
-            assert!(feature.geometry_by_name("FOO").is_err());
+            assert!(feature.geometry_by_index(1).is_err());
+
+            assert_eq!(feature.geometry_field_index("").unwrap(), 0);
+            assert!(feature.geometry_field_index("FOO").is_err());
         });
     }
 
@@ -1340,49 +1345,61 @@ mod tests {
     }
 
     #[test]
-    fn test_write_features() {
+    fn test_write_features() -> Result<()> {
         use std::fs;
+
+        let name_idx = 0;
+        let value_idx = 1;
+        let int_value_idx = 2;
 
         {
             let driver = DriverManager::get_driver_by_name("GeoJSON").unwrap();
             let mut ds = driver
                 .create_vector_only(fixture("output.geojson"))
                 .unwrap();
-            let mut layer = ds.create_layer(Default::default()).unwrap();
-            layer
-                .create_defn_fields(&[
-                    ("Name", OGRFieldType::OFTString),
-                    ("Value", OGRFieldType::OFTReal),
-                    ("Int_value", OGRFieldType::OFTInteger),
-                ])
-                .unwrap();
-            layer
-                .create_feature_fields(
-                    Geometry::from_wkt("POINT (1 2)").unwrap(),
-                    &["Name", "Value", "Int_value"],
-                    &[
-                        FieldValue::StringValue("Feature 1".to_string()),
-                        FieldValue::RealValue(45.78),
-                        FieldValue::IntegerValue(1),
-                    ],
-                )
-                .unwrap();
+            let layer = ds.create_layer(Default::default()).unwrap();
+            layer.create_defn_fields(&[
+                ("Name", OGRFieldType::OFTString),
+                ("Value", OGRFieldType::OFTReal),
+                ("Int_value", OGRFieldType::OFTInteger),
+            ])?;
+
+            let mut feature = Feature::new(layer.defn())?;
+            let geometry = Geometry::from_wkt("POINT (1 2)")?;
+            feature.set_geometry(geometry)?;
+            feature.set_field_string(name_idx, "Feature 1")?;
+            feature.set_field_double(value_idx, 45.78)?;
+            feature.set_field_integer(int_value_idx, 1)?;
+            feature.create(&layer)?;
+
             // dataset is closed here
         }
 
         {
             let ds = Dataset::open(fixture("output.geojson")).unwrap();
             let mut layer = ds.layer(0).unwrap();
+            assert_eq!(
+                layer.defn.geometry_type(),
+                gdal_sys::OGRwkbGeometryType::wkbPoint
+            );
             let ft = layer.features().next().unwrap();
             assert_eq!(ft.geometry().unwrap().wkt().unwrap(), "POINT (1 2)");
             assert_eq!(
-                ft.field("Name").unwrap().unwrap().into_string(),
+                ft.field(name_idx).unwrap().unwrap().into_string(),
                 Some("Feature 1".to_string())
             );
-            assert_eq!(ft.field("Value").unwrap().unwrap().into_real(), Some(45.78));
-            assert_eq!(ft.field("Int_value").unwrap().unwrap().into_int(), Some(1));
+            assert_eq!(
+                ft.field(value_idx).unwrap().unwrap().into_real(),
+                Some(45.78)
+            );
+            assert_eq!(
+                ft.field(int_value_idx).unwrap().unwrap().into_int(),
+                Some(1)
+            );
         }
         fs::remove_file(fixture("output.geojson")).unwrap();
+
+        Ok(())
     }
 
     #[test]
@@ -1406,12 +1423,13 @@ mod tests {
             layer.set_attribute_filter("highway = 'primary'").unwrap();
 
             assert_eq!(layer.features().count(), 1);
+            let highway_idx = layer.defn().field_index("highway").unwrap();
             assert_eq!(
                 layer
                     .features()
                     .next()
                     .unwrap()
-                    .field_as_string_by_name("highway")
+                    .field_as_string(highway_idx)
                     .unwrap()
                     .unwrap(),
                 "primary"
@@ -1448,15 +1466,21 @@ mod tests {
         let mut layer = ds.layer(0).unwrap();
         let fids: Vec<u64> = layer.features().map(|f| f.fid().unwrap()).collect();
         let mut feature = layer.feature(fids[0]).unwrap();
+        let id_index = feature.field_index("id").unwrap();
         // to original value of the id field in fid 0 is null; we will set it to 1.
-        feature.set_field_integer("id", 1).ok();
+        feature.set_field_integer(id_index, 1).ok();
         layer.set_feature(feature).ok();
 
         // now we check that the field is 1.
         let ds = Dataset::open(&tmp_file).unwrap();
         let layer = ds.layer(0).unwrap();
         let feature = layer.feature(fids[0]).unwrap();
-        let value = feature.field("id").unwrap().unwrap().into_int().unwrap();
+        let value = feature
+            .field(id_index)
+            .unwrap()
+            .unwrap()
+            .into_int()
+            .unwrap();
         assert_eq!(value, 1);
     }
     #[test]
@@ -1483,6 +1507,14 @@ mod tests {
         .map(|s| (s.0.to_string(), s.1))
         .collect::<Vec<_>>();
         assert_eq!(name_list, ok_names_types);
+
+        let field = layer.defn().fields().next().unwrap();
+        assert_eq!(field.alternative_name(), "");
+        assert_eq!(field.width(), 0);
+        assert_eq!(field.precision(), 0);
+        assert!(field.is_nullable());
+        assert!(!field.is_unique());
+        assert_eq!(field.default_value(), None);
     }
 
     #[test]
@@ -1502,10 +1534,29 @@ mod tests {
 
         let geom_field = layer.defn().geom_fields().next().unwrap();
         let mut spatial_ref2 = SpatialRef::from_epsg(4326).unwrap();
-        #[cfg(major_ge_3)]
         spatial_ref2.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
 
         assert_eq!(geom_field.spatial_ref().unwrap(), spatial_ref2);
+    }
+
+    #[test]
+    fn test_two_geom_fields() -> Result<()> {
+        let ds = Dataset::open(fixture("two_geoms.csv"))?;
+        let mut layer = ds.layer(0)?;
+
+        let geom_field_2_idx = layer
+            .defn()
+            .geometry_field_index("geom__WKTanother_geometry")
+            .unwrap();
+        assert_eq!(geom_field_2_idx, 1);
+
+        let feature = layer.features().next().unwrap();
+        let geom_1 = feature.geometry_by_index(0)?;
+        let geom_2 = feature.geometry_by_index(1)?;
+        assert_eq!(geom_1.get_point(0), (1.0, 2.0, 0.0));
+        assert_eq!(geom_2.get_point(0), (10.0, 20.0, 0.0));
+
+        Ok(())
     }
 
     #[test]
@@ -1536,5 +1587,66 @@ mod tests {
         // test filter as rectangle
         layer.set_spatial_filter_rect(26.1017, 44.4297, 26.1025, 44.4303);
         assert_eq!(layer.features().count(), 7);
+    }
+
+    #[test]
+    fn test_database_lock_issue() {
+        use gdal_sys::OGRwkbGeometryType;
+
+        fn edit_dataset(test_file: &str, create: bool) {
+            let mut dataset = if !create {
+                Dataset::open_ex(
+                    test_file,
+                    DatasetOptions {
+                        open_flags: GdalOpenFlags::GDAL_OF_UPDATE,
+                        ..Default::default()
+                    },
+                )
+                .expect("open dataset")
+            } else {
+                let driver = DriverManager::get_driver_by_name("GPKG").expect("get driver");
+                driver
+                    .create_vector_only(test_file)
+                    .expect("create dataset")
+            };
+
+            const RIVERS: &str = "rivers";
+            let mut rivers = dataset
+                .create_layer(LayerOptions {
+                    name: RIVERS,
+                    ty: OGRwkbGeometryType::wkbNone,
+                    srs: None,
+                    options: Some(&["OVERWRITE=YES"]),
+                })
+                .expect("create layer");
+            rivers.create_defn_fields(&[]).expect("define fields");
+
+            {
+                let feature = Feature::new(rivers.defn()).expect("new feature");
+                feature.create(&rivers).expect("create feature");
+            }
+
+            // start reading the layer
+            rivers.features().next();
+
+            const COASTLINES: &str = "coastlines";
+            let coastlines = dataset
+                .create_layer(LayerOptions {
+                    name: COASTLINES,
+                    ty: OGRwkbGeometryType::wkbPolygon,
+                    srs: Some(&SpatialRef::from_epsg(4326).expect("srs")),
+                    options: Some(&["OVERWRITE=YES"]),
+                })
+                .expect("create layer");
+
+            coastlines.create_defn_fields(&[]).expect("defn_fields");
+
+            let feature = Feature::new(coastlines.defn()).expect("new feature");
+            feature.create(&coastlines).expect("create feature");
+        }
+
+        let test_file = "/vsimem/test_database_locked.gpkg";
+        edit_dataset(test_file, true);
+        edit_dataset(test_file, false)
     }
 }

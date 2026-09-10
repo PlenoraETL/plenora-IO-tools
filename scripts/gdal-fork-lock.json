@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "package": "gdal",
-  "version": "0.17.1",
+  "version": "0.19.0",
   "source": "crates.io",
-  "crate_sha256": "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f",
-  "upstream_revision": "a324724c60dbf1e9bf0fb05203c4e0a1eefbf312",
+  "crate_sha256": "e26906e99e54000acd7f6328f85d161e6280390b9b596e06dbed0637a6e29717",
+  "upstream_revision": "0b06a50a7d19ddd44f77e8c91599fd2d4384b12a",
   "vendor_path": "vendor/gdal",
   "file_count": 63,
-  "tree_sha256": "98d5fa77d0efaf3ab4232a84018aeddfaf47ace60c0664b8430089f7dcee22dd",
+  "tree_sha256": "5d5b5120e34989195f84d7f00ce06a8bcbe2ab308e217c44d554a6092ec714ff",
   "functional_delta_files": [
     "src/spatial_ref/mod.rs",
     "src/spatial_ref/srs.rs",

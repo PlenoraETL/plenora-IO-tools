@@ -41,7 +41,7 @@ def main() -> None:
     if (
         lock["schema_version"] != 1
         or lock["package"] != "gdal"
-        or lock["version"] != "0.17.1"
+        or lock["version"] != "0.19.0"
         or lock["source"] != "crates.io"
     ):
         fail("identità upstream inattesa")
@@ -109,7 +109,7 @@ def main() -> None:
         if item.get("name") == lock["package"] and item.get("version") == lock["version"]
     ]
     if len(matches) != 1 or "source" in matches[0] or "checksum" in matches[0]:
-        fail("Cargo.lock non risolve un'unica dipendenza path gdal 0.17.1")
+        fail("Cargo.lock non risolve un'unica dipendenza path gdal 0.19.0")
 
     # Registro di provenienza **strutturato**. Era un Markdown letto come
     # database: un gate non deve dipendere dalla prosa, che nessuno puo'
