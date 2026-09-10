@@ -46,17 +46,19 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `a61a081` |
-| candidate, versione del manifesto | `2.0.0` |
-| candidate, revisione congelata | `a61a0815b000f2856594375a2858c41e32a1fff7` |
-| candidate, versione del workspace | `2.0.0` |
-| candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v2.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `a61a0815b000f2856594375a2858c41e32a1fff7` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `3.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `3.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v3.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release_authorized | `true` |
+| release pubblicate | 1 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)

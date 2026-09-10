@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -76,7 +76,82 @@
       "file_sorgente_gdal_strumentati": 0,
       "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
       "simboli_asan_nella_libreria": 0
-    }
+    },
+    "release_pubblicate": [
+      {
+        "versione_manifesto": "2.0.0",
+        "revisione_candidate": "a61a0815b000f2856594375a2858c41e32a1fff7",
+        "tag_previsto": "v2.0.0",
+        "tag_creato": true,
+        "tag_revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+        "tag_sulla_candidate": true,
+        "assurance_entro_l_allowlist": true,
+        "artefatti": [
+          {
+            "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "b1df054da018bd4933f98d982ca202fce97eaeba1e08a43873b74022f1538c34",
+            "dimensione": 8593654,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "linux-x86_64",
+            "profilo": "base",
+            "classe": "nativo"
+          },
+          {
+            "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "d12c66b365dcb95829f21ad23841b8d1b89e7f533f658764b1280b280021a99b",
+            "dimensione": 64455950,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "linux-x86_64",
+            "profilo": "filegdb",
+            "classe": "nativo"
+          },
+          {
+            "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
+            "sha256": "8a66e9a4817d4ef14275de1123a86b4fb74347c8490c7d2bcb38d0d118d7ac82",
+            "dimensione": 8732323,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "windows-x86_64",
+            "profilo": "base",
+            "classe": "nativo"
+          },
+          {
+            "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "95bf5d035c860ff6d2825b4f7ca592179589d2250197e9d40f65dda26ba7f0de",
+            "dimensione": 47800908,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "windows-x86_64",
+            "profilo": "filegdb",
+            "classe": "nativo"
+          },
+          {
+            "nome": "plenora_io-2.0.0-py3-none-any.whl",
+            "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7",
+            "dimensione": 33787,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "any",
+            "profilo": "wheel",
+            "classe": "python-puro"
+          },
+          {
+            "nome": "plenora_io-2.0.0.tar.gz",
+            "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214",
+            "dimensione": 48171,
+            "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
+            "piattaforma": "any",
+            "profilo": "sdist",
+            "classe": "python-puro"
+          }
+        ],
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "# Release 2.0.0 su `a61a081`\n\nIl titolare ha autorizzato esplicitamente la pubblicazione su GitHub Releases nel repository attuale. La visibilita del repository resta una sua decisione; non e stata modificata. Nessuna pubblicazione su PyPI e nessuna nuova licenza first-party sono state autorizzate.\n\nLa candidate resta congelata su `a61a0815b000f2856594375a2858c41e32a1fff7`: checkpoint L2 e distribuzione 34030548057 qualificano quella revisione. Il tag `v2.0.0` punta alla candidate, non al commit di assurance. I sei archivi non sono stati ricostruiti.\n\nI venti asset sono stati riscaricati dalla bozza e verificati con `scripts/check-deliverable.py --contro-la-candidate assurance/current-state.json`. I digest e le dimensioni sono stati ricalcolati sui byte scaricati e confrontati anche con i metadati degli asset di GitHub. Comando, output e manifest completo sono nella sezione release_verification di `assurance/evidence/checkpoint-a61a081.json`, distinta dalle misure del checkpoint originale.\n\nRelease pubblicata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0. I venti asset sono stati nuovamente riscaricati dalla release pubblicata: identici alla bozza verificata; i sei archivi coincidono con i digest congelati. Il referto successivo alla pubblicazione e conservato separatamente nello stesso file di evidenza.",
+        "commit_di_assurance": "bd768ba",
+        "evidenza": "assurance/evidence/checkpoint-a61a081.json",
+        "perche_e_qui": "la 2.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 3.0.0. Il superamento riguarda quale candidate sia corrente, non la validita' di cio' che e' stato pubblicato: tag, digest, evidenza e commit di registrazione restano verificati a ogni corsa da `verifica_release_storiche`, e alterarli e' ancora un errore.",
+        "versione_pacchetto_python": "2.0.0"
+      }
+    ]
   },
   "aperto": {
     "assurance_n1": {
@@ -107,75 +182,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "2.0.0",
-      "revisione_candidate": "a61a0815b000f2856594375a2858c41e32a1fff7",
-      "versione_workspace": "2.0.0",
-      "tag_previsto": "v2.0.0",
-      "tag_creato": true,
-      "tag_revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-      "tag_sulla_candidate": true,
-      "assurance_entro_l_allowlist": true,
-      "artefatti": [
-        {
-          "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "b1df054da018bd4933f98d982ca202fce97eaeba1e08a43873b74022f1538c34",
-          "dimensione": 8593654,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "linux-x86_64",
-          "profilo": "base",
-          "classe": "nativo"
-        },
-        {
-          "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "d12c66b365dcb95829f21ad23841b8d1b89e7f533f658764b1280b280021a99b",
-          "dimensione": 64455950,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "linux-x86_64",
-          "profilo": "filegdb",
-          "classe": "nativo"
-        },
-        {
-          "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
-          "sha256": "8a66e9a4817d4ef14275de1123a86b4fb74347c8490c7d2bcb38d0d118d7ac82",
-          "dimensione": 8732323,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "windows-x86_64",
-          "profilo": "base",
-          "classe": "nativo"
-        },
-        {
-          "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "95bf5d035c860ff6d2825b4f7ca592179589d2250197e9d40f65dda26ba7f0de",
-          "dimensione": 47800908,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "windows-x86_64",
-          "profilo": "filegdb",
-          "classe": "nativo"
-        },
-        {
-          "nome": "plenora_io-2.0.0-py3-none-any.whl",
-          "sha256": "347c03d31741edc50a7ebe87cac7e8cf977a708cffb6a5779f7ce8e3af6fdea7",
-          "dimensione": 33787,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "any",
-          "profilo": "wheel",
-          "classe": "python-puro"
-        },
-        {
-          "nome": "plenora_io-2.0.0.tar.gz",
-          "sha256": "ccb60fd64e1a1b560d4ef6395f1cccf83fc259a3ba63932eaf0c1e7f139a0214",
-          "dimensione": 48171,
-          "revisione": "a61a0815b000f2856594375a2858c41e32a1fff7",
-          "piattaforma": "any",
-          "profilo": "sdist",
-          "classe": "python-puro"
-        }
-      ],
+      "versione_manifesto": "3.0.0",
+      "versione_workspace": "3.0.0",
+      "tag_previsto": "v3.0.0",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "# Release 2.0.0 su `a61a081`\n\nIl titolare ha autorizzato esplicitamente la pubblicazione su GitHub Releases nel repository attuale. La visibilita del repository resta una sua decisione; non e stata modificata. Nessuna pubblicazione su PyPI e nessuna nuova licenza first-party sono state autorizzate.\n\nLa candidate resta congelata su `a61a0815b000f2856594375a2858c41e32a1fff7`: checkpoint L2 e distribuzione 34030548057 qualificano quella revisione. Il tag `v2.0.0` punta alla candidate, non al commit di assurance. I sei archivi non sono stati ricostruiti.\n\nI venti asset sono stati riscaricati dalla bozza e verificati con `scripts/check-deliverable.py --contro-la-candidate assurance/current-state.json`. I digest e le dimensioni sono stati ricalcolati sui byte scaricati e confrontati anche con i metadati degli asset di GitHub. Comando, output e manifest completo sono nella sezione release_verification di `assurance/evidence/checkpoint-a61a081.json`, distinta dalle misure del checkpoint originale.\n\nRelease pubblicata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v2.0.0. I venti asset sono stati nuovamente riscaricati dalla release pubblicata: identici alla bozza verificata; i sei archivi coincidono con i digest congelati. Il referto successivo alla pubblicazione e conservato separatamente nello stesso file di evidenza.",
-      "commit_di_assurance": "bd768ba"
+      "stato": "iniziale",
+      "nota": "# Candidate 3.0.0, iniziale\n\nNon e' ancora congelata: non ha `revisione_candidate` ne' i digest degli artefatti, e non li avra' finche' il congelamento non li produce. Scriverli prima vorrebbe dire inventarli.\n\n`tag_creato` e' **falso**, non assente: che il tag non ci sia e' un fatto noto, e ometterlo direbbe «non lo so» dove sappiamo.\n\nChe cosa la separa dalla 2.0.0, oltre alla versione: ventotto dipendenze dirette allineate contro le ventisette di allora, tre fork aggiornati alle loro ultime release -- gdal 0.19.0, shapefile 0.9.0, dxf gia' alla propria -- e sei contributi inviati upstream, due dei quali uniti. Nessun fork e' stato tolto: unito non e' rilasciato."
     }
   },
   "docset": {

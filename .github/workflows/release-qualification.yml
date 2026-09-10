@@ -25,7 +25,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          # La revisione **chiesta**, non quella che `main` ha adesso. Il passo
+          # sotto verificava gia' che coincidessero, ma fallire e' peggio che
+          # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
+          # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
       - name: Test release qualification semantics
         run: |
           python3 -m unittest scripts.test_check_release_contract

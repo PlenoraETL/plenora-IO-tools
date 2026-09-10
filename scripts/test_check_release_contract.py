@@ -898,6 +898,12 @@ class SondeCondizioni(unittest.TestCase):
         radice = gate._git("rev-list", "--max-parents=0", "HEAD")
         self.assertTrue(radice, "la storia deve avere una radice")
         stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        # `stato` a «attiva»: queste due sonde descrivono una candidate che
+        # **dichiara** un congelamento, e nel modello a due release quello
+        # e' lo stato `attiva`. Su una `iniziale` la revisione congelata non
+        # c'e' per costruzione, e pretenderne una rotta non direbbe niente.
+        stato["aperto"]["candidate_release"]["stato"] = "attiva"
+        stato["aperto"]["candidate_release"]["artefatti"] = []
         stato["aperto"]["candidate_release"]["revisione_candidate"] = (
             radice.splitlines()[0].strip()
         )
@@ -913,6 +919,12 @@ class SondeCondizioni(unittest.TestCase):
         risultava coerente con la revisione corrente.
         """
         stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        # `stato` a «attiva»: queste due sonde descrivono una candidate che
+        # **dichiara** un congelamento, e nel modello a due release quello
+        # e' lo stato `attiva`. Su una `iniziale` la revisione congelata non
+        # c'e' per costruzione, e pretenderne una rotta non direbbe niente.
+        stato["aperto"]["candidate_release"]["stato"] = "attiva"
+        stato["aperto"]["candidate_release"]["artefatti"] = []
         stato["aperto"]["candidate_release"]["revisione_candidate"] = ""
         with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
             motivi = gate.condizione_candidate_coerente(self.registro())
@@ -2994,18 +3006,48 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     def test_l_elenco_reale_copre_il_manifest(self) -> None:
         """La controprova positiva, sui numeri della corsa **corrente**.
 
-        I due numeri sono scritti a mano di proposito: se venissero dall'evidenza
-        stessa la sonda direbbe che un file e' uguale a se' stesso. Cambiano a
-        ogni corsa che aggiunge o toglie un passo, e cambiarli e' il modo in cui
-        chi rilegge l'evidenza si accorge di quanti passi ha misurato.
+        # Perche' i due numeri non sono piu' letterali
+
+        Erano scritti a mano di proposito, perche' se venissero dall'evidenza
+        stessa la sonda direbbe che un file e' uguale a se' stesso. La ragione
+        era buona; l'effetto no.
+
+        Un letterale qui dev'essere uguale al conteggio dell'evidenza che lo
+        stato indica, e quei due file cambiano in momenti diversi: l'evidenza
+        sta in `assurance/evidence/`, che l'allowlist del congelamento ammette,
+        e questa sonda sta in `scripts/`, che l'allowlist **vieta**. Un rilascio
+        che aggiunge o toglie un passo non era percio' congelabile: cambiare il
+        numero dopo il congelamento lo invalida, e cambiarlo prima rende rossa
+        la sonda contro l'evidenza vecchia. Misurato il 2026-09-10, portando il
+        registro da 95 passi a 96.
+
+        E' lo stesso nodo che `registro_della_revisione` scioglie per il gate --
+        «aggiungere un passo rendeva rosso questo gate, quindi rossi livello 1 e
+        livello 2, quindi impossibile produrre l'evidenza nuova che avrebbe
+        sciolto il nodo» -- e che qui era rimasto, perche' la correzione del
+        gate non aveva raggiunto la sua sonda.
+
+        La fonte giusta e' quella che il gate usa gia': il registro dei passi
+        **alla revisione dell'evidenza**. Non e' l'evidenza che si conferma da
+        sola -- il registro e' la dichiarazione, l'elenco e' la misura -- e non
+        e' il registro di HEAD, che descrive un insieme che quella corsa non
+        poteva aver eseguito.
         """
         evidenza = self.evidenza()
         passi, errori = gate._passi_dichiarati(evidenza)
         self.assertEqual(errori, [], errori)
-        self.assertEqual(len(passi), 95)
+
+        dichiarati, senza_log, guasto = gate.registro_della_revisione(
+            evidenza["corsa"]["revisione_iniziale"]
+        )
+        self.assertIsNone(guasto, guasto)
+        # Non e' vuoto: due insiemi vuoti coinciderebbero, e il confronto direbbe
+        # «uguali» senza aver confrontato niente.
+        self.assertGreater(len(dichiarati), 50, dichiarati)
+        self.assertEqual(len(passi), len(dichiarati))
         self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
         con_log = {v["log"] for v in passi if v["log"]}
-        self.assertEqual(len(con_log), 93)
+        self.assertEqual(len(con_log), len(dichiarati) - len(senza_log))
         # L'insieme atteso si **deriva**: il risultato della corsa, gli
         # artefatti dei passi che ci sono, e i log della diagnostica se la base
         # c'era. Ripeterlo qui come costante rifarebbe l'errore che ha reso il
@@ -3025,6 +3067,169 @@ class SondeEvidenzaCoerente(unittest.TestCase):
                 if passo in identita
             }
         self.assertEqual(set(evidenza["artefatti"]["manifest"]), attesi)
+
+    # --- due release: una corrente, una in archivio -------------------------
+
+    def stato_reale(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def test_l_archivio_reale_e_verificato(self) -> None:
+        """La 2.0.0 resta verificabile mentre la 3.0.0 avanza.
+
+        E' la prova centrale del modello a due release. Il superamento riguarda
+        **quale candidate sia corrente**, non la validita' di cio' che e' stato
+        pubblicato: se questo test diventasse rosso perche' la candidate e'
+        cambiata, il modello sarebbe sbagliato.
+        """
+        stato = self.stato_reale()
+        self.assertEqual(gate.verifica_release_storiche(stato), [])
+        archivio = stato["chiuso"]["release_pubblicate"]
+        # Non e' vuoto: un archivio vuoto passerebbe senza aver guardato niente.
+        self.assertTrue(archivio, archivio)
+        self.assertEqual({v["versione_manifesto"] for v in archivio}, {"2.0.0"})
+
+    def test_la_candidate_corrente_e_un_altra_versione(self) -> None:
+        """Le due convivono: e' cio' che la migrazione doveva rendere possibile."""
+        stato = self.stato_reale()
+        corrente = stato["aperto"]["candidate_release"]["versione_manifesto"]
+        archiviate = {
+            v["versione_manifesto"] for v in stato["chiuso"]["release_pubblicate"]
+        }
+        self.assertNotIn(corrente, archiviate)
+        self.assertEqual(corrente, gate.versione_workspace())
+
+    def _archivio_alterato(self, **campi) -> dict:
+        stato = self.stato_reale()
+        verbale = dict(stato["chiuso"]["release_pubblicate"][0])
+        verbale.update(campi)
+        stato["chiuso"]["release_pubblicate"] = [verbale]
+        return stato
+
+    def test_un_digest_storico_alterato_e_rosso(self) -> None:
+        """Alterare la registrazione storica deve ancora produrre un errore.
+
+        Che cosa il gate puo' dimostrare, e che cosa no. I byte degli artefatti
+        non stanno nel repository -- sono su GitHub Releases -- quindi un digest
+        **ben formato** e sbagliato e' indistinguibile da uno giusto: a
+        distinguerli e' `check-deliverable.py --contro-la-candidate`, che ha gli
+        archivi sotto mano. Qui si verifica cio' che si puo': che il digest sia
+        un digest, che due artefatti non ne condividano uno, e che la revisione
+        sia quella congelata.
+        """
+        stato = self.stato_reale()
+        originali = stato["chiuso"]["release_pubblicate"][0]["artefatti"]
+
+        malformato = [dict(a) for a in originali]
+        malformato[0]["sha256"] = "non-un-digest"
+        self.assertTrue(
+            gate.verifica_release_storiche(self._archivio_alterato(artefatti=malformato))
+        )
+
+        ripetuto = [dict(a) for a in originali]
+        ripetuto[1]["sha256"] = ripetuto[0]["sha256"]
+        self.assertTrue(
+            gate.verifica_release_storiche(self._archivio_alterato(artefatti=ripetuto))
+        )
+
+        altra_revisione = [dict(a) for a in originali]
+        altra_revisione[0]["revisione"] = "0" * 40
+        self.assertTrue(
+            gate.verifica_release_storiche(
+                self._archivio_alterato(artefatti=altra_revisione)
+            )
+        )
+
+        mancante = [dict(a) for a in originali[1:]]
+        self.assertTrue(
+            gate.verifica_release_storiche(self._archivio_alterato(artefatti=mancante))
+        )
+
+    def test_una_revisione_storica_alterata_e_rossa(self) -> None:
+        errori = gate.verifica_release_storiche(
+            self._archivio_alterato(revisione_candidate="HEAD")
+        )
+        self.assertTrue(any("tag" in e or "artefat" in e for e in errori), errori)
+
+    def test_un_evidenza_storica_che_non_e_la_sua_e_rossa(self) -> None:
+        """Un verbale che rimanda alla misura di un'altra revisione non registra
+        la propria."""
+        errori = gate.verifica_release_storiche(
+            self._archivio_alterato(evidenza="assurance/registries/passi-del-checkpoint.json")
+        )
+        self.assertTrue(any("evidenza" in e for e in errori), errori)
+
+    def test_un_evidenza_storica_assente_e_rossa(self) -> None:
+        errori = gate.verifica_release_storiche(
+            self._archivio_alterato(evidenza="assurance/evidence/mai-esistita.json")
+        )
+        self.assertTrue(any("evidenza" in e for e in errori), errori)
+
+    def test_un_commit_di_registrazione_alterato_e_rosso(self) -> None:
+        """Senza `commit_di_assurance` il controllo si riferirebbe a HEAD, che
+        dopo un rilascio si muove."""
+        errori = gate.verifica_release_storiche(
+            self._archivio_alterato(commit_di_assurance="non-un-commit")
+        )
+        self.assertTrue(any("commit_di_assurance" in e for e in errori), errori)
+
+    def test_due_verbali_della_stessa_versione_sono_rossi(self) -> None:
+        stato = self.stato_reale()
+        verbale = stato["chiuso"]["release_pubblicate"][0]
+        stato["chiuso"]["release_pubblicate"] = [verbale, dict(verbale)]
+        errori = gate.verifica_release_storiche(stato)
+        self.assertTrue(any("due volte" in e for e in errori), errori)
+
+    def test_senza_release_pubblicate_la_verifica_non_tace(self) -> None:
+        """Un verde senza niente da guardare direbbe che cio' che e' stato
+        rilasciato e' ancora quello, senza aver guardato niente."""
+        stato = self.stato_reale()
+        stato["chiuso"]["release_pubblicate"] = []
+        errori = gate.verifica_release_pubblicata(stato)
+        self.assertTrue(any("nessuna release" in e for e in errori), errori)
+
+    # --- la candidate iniziale ---------------------------------------------
+
+    def test_la_candidate_reale_e_iniziale_e_coerente(self) -> None:
+        candidate = self.stato_reale()["aperto"]["candidate_release"]
+        self.assertEqual(candidate["stato"], "iniziale")
+        self.assertIs(candidate["tag_creato"], False)
+        for campo in ("revisione_candidate", "artefatti", "commit_di_assurance"):
+            self.assertNotIn(campo, candidate)
+
+    def test_una_candidate_iniziale_con_artefatti_e_rossa(self) -> None:
+        """I digest sono un prodotto del congelamento: prima si inventerebbero."""
+        candidate = dict(self.stato_reale()["aperto"]["candidate_release"])
+        candidate["artefatti"] = []
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("artefatti" in e for e in errori), errori)
+
+    def test_una_candidate_iniziale_senza_tag_creato_e_rossa(self) -> None:
+        """`tag_creato: false` e' un fatto noto, non un campo da omettere."""
+        candidate = {
+            k: v
+            for k, v in self.stato_reale()["aperto"]["candidate_release"].items()
+            if k != "tag_creato"
+        }
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("tag_creato" in e for e in errori), errori)
+
+    def test_una_candidate_attiva_senza_revisione_e_rossa(self) -> None:
+        """Dallo stato `iniziale` in poi il congelamento l'ha prodotta: le sonde
+        devono rifiutare i campi mancanti quando lo stato li richiede."""
+        candidate = dict(self.stato_reale()["aperto"]["candidate_release"])
+        candidate["stato"] = "attiva"
+        errori = gate.condizione_candidate_coerente({"aperto": {"candidate_release": candidate}})
+        self.assertTrue(any("revisione_candidate" in e for e in errori), errori)
+
+    def test_una_candidate_attiva_senza_artefatti_e_rossa(self) -> None:
+        stato = self.stato_reale()
+        candidate = dict(stato["aperto"]["candidate_release"])
+        candidate["stato"] = "attiva"
+        candidate["revisione_candidate"] = stato["chiuso"]["release_pubblicate"][0][
+            "revisione_candidate"
+        ]
+        errori = gate.condizione_candidate_coerente({"aperto": {"candidate_release": candidate}})
+        self.assertTrue(any("artefatti" in e for e in errori), errori)
 
     # --- artefatti ---------------------------------------------------------
 

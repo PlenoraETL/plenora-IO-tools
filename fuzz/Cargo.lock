@@ -455,7 +455,7 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "driver-common"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "driver-csv"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "driver-dxf"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "driver-filegdb"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geojson"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geoparquet"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -541,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "driver-gpkg"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "driver-ipc"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "driver-kml"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "driver-shp"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "driver-xls"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-core"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-model"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",

@@ -40,8 +40,23 @@ trap 'rm -rf "$LAVORO"' EXIT
 # fuori dal repository -- e' il suo mestiere -- e un percorso relativo li' non
 # indica piu' niente.
 DIST="$(cd "$DIST" && pwd)"
-WHEEL="$(ls "$DIST"/*.whl)"
-SDIST="$(ls "$DIST"/*.tar.gz)"
+# Uno per tipo, e non uno **qualsiasi**: con due wheel nella stessa directory
+# `ls` ne restituisce due righe, e chi verifica sceglierebbe per caso quale
+# pacchetto sta provando. Un verificatore che indovina non verifica.
+uno_solo() {
+  local tipo="$1" trovati
+  trovati="$(find "$DIST" -maxdepth 1 -name "$tipo" | sort)"
+  if [ "$(printf '%s
+' "$trovati" | grep -c .)" -ne 1 ]; then
+    echo "in $DIST non c'e' esattamente un $tipo:" >&2
+    printf '  %s
+' $trovati >&2
+    exit 1
+  fi
+  printf '%s' "$trovati"
+}
+WHEEL="$(uno_solo '*.whl')"
+SDIST="$(uno_solo '*.tar.gz')"
 ATTESA="$(python3 -c "
 import re, pathlib
 testo = pathlib.Path('$RADICE/sdk/python/src/plenora_io/__init__.py').read_text(encoding='utf-8')

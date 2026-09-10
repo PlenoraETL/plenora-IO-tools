@@ -397,6 +397,16 @@ def main(argv: list[str] | None = None) -> int:
     argomenti.add_argument("--referti", type=pathlib.Path, default=None)
     opzioni = argomenti.parse_args(argv)
 
+    # L'uscita e' **di questo costruttore**: cio' che ci trova di suo va tolto.
+    #
+    # Il 2026-09-10, alzando la versione a 3.0.0, la wheel 2.0.0 di una corsa
+    # precedente e' rimasta accanto alla nuova, e `ls *.whl` nello smoke ne ha
+    # restituite due su due righe: pip ha ricevuto un percorso con un ritorno a
+    # capo dentro e ha detto che il file non esiste. Il difetto era qui, e il
+    # messaggio arrivava tre passi piu' in la'.
+    for modello in ("*.whl", "*.tar.gz", "*.whl.sha256", "*.tar.gz.sha256"):
+        for vecchio in sorted(opzioni.uscita.glob(modello)):
+            vecchio.unlink()
     opzioni.uscita.mkdir(parents=True, exist_ok=True)
     versione_pacchetto = versione()
 

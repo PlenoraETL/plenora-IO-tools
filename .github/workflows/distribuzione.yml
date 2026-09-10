@@ -54,6 +54,10 @@ on:
         description: "la versione nel nome dell'artefatto"
         type: string
         default: "0.0.0-prova"
+      revisione:
+        description: "SHA completo (40 caratteri) da cui costruire"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -61,6 +65,14 @@ permissions:
 env:
   CANALE: ${{ inputs.canale || 'prova' }}
   VERSIONE: ${{ inputs.versione || '0.0.0-prova' }}
+  # La revisione da cui costruire, chiesta e non risolta.
+  #
+  # Senza, ogni job faceva il checkout di cio' che `github.sha` risolveva al
+  # momento della corsa: se `main` avanzava fra il dispatch e l'avvio -- o fra
+  # un job e l'altro -- gli artefatti uscivano da alberi diversi, e nessuno
+  # avrebbe potuto dire da quale. La qualifica misura **una** revisione, e gli
+  # artefatti devono uscire da quella.
+  REVISIONE: ${{ inputs.revisione }}
 
 jobs:
   linux:
@@ -76,6 +88,22 @@ jobs:
         profilo: [base, filegdb]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ inputs.revisione }}
+      - name: La revisione e' quella chiesta, non quella che main ha adesso
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$REVISIONE" ]]; then
+            echo "HEAD $head non e' la revisione attesa $REVISIONE" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: gli artefatti non sarebbero same-SHA" >&2
+            exit 1
+          fi
+          echo "revisione verificata: $head"
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -193,6 +221,22 @@ jobs:
         profilo: [base, filegdb]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ inputs.revisione }}
+      - name: La revisione e' quella chiesta, non quella che main ha adesso
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$REVISIONE" ]]; then
+            echo "HEAD $head non e' la revisione attesa $REVISIONE" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: gli artefatti non sarebbero same-SHA" >&2
+            exit 1
+          fi
+          echo "revisione verificata: $head"
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -410,6 +454,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ inputs.revisione }}
+      - name: La revisione e' quella chiesta, non quella che main ha adesso
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$REVISIONE" ]]; then
+            echo "HEAD $head non e' la revisione attesa $REVISIONE" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: gli artefatti non sarebbero same-SHA" >&2
+            exit 1
+          fi
+          echo "revisione verificata: $head"
       # L'interprete si dichiara. L'immagine `ubuntu-22.04` porta Python 3.10, e
       # il pacchetto ne pretende almeno 3.11: l'installazione falliva con
       # «requires a different Python», che e' il `Requires-Python` che fa
@@ -512,6 +572,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ inputs.revisione }}
+      - name: La revisione e' quella chiesta, non quella che main ha adesso
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$REVISIONE" ]]; then
+            echo "HEAD $head non e' la revisione attesa $REVISIONE" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: gli artefatti non sarebbero same-SHA" >&2
+            exit 1
+          fi
+          echo "revisione verificata: $head"
       # `needs` con `if: always()` fa girare questo job anche quando un
       # costruttore fallisce, ed e' voluto: il gate deve poter dire **che cosa**
       # manca. Ma un costruttore rosso non puo' diventare una distribuzione

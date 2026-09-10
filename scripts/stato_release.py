@@ -91,6 +91,7 @@ CAMPI_RICHIESTI = (
     "capacità differite",
     "S9, qualificato su",
     "candidate, versione del manifesto",
+    "candidate, stato",
     "candidate, revisione congelata",
     "candidate, versione del workspace",
     "candidate, artefatti congelati",
@@ -100,6 +101,7 @@ CAMPI_RICHIESTI = (
     "candidate, tag sulla candidate",
     "candidate, assurance entro l'allowlist",
     "candidate, release_action consentita",
+    "release pubblicate",
     "release_authorized",
 )
 
@@ -170,23 +172,47 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
         "capacità differite": _intero(len(_differite(registro))),
         "S9, qualificato su": f"`{s9['qualificato_su']}`",
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
-        "candidate, revisione congelata": f"`{candidate['revisione_candidate']}`",
+        "candidate, stato": candidate["stato"],
+        # I campi del congelamento esistono da quando il congelamento c'e'
+        # stato. Su una candidate `iniziale` mancano, e la tabella lo **dice**
+        # invece di non nominarli: una riga assente si legge come una
+        # dimenticanza, e una tabella che tace su cio' che non c'e' ancora non
+        # e' piu' prudente di una che lo dichiara.
+        "candidate, revisione congelata": _non_ancora(
+            candidate.get("revisione_candidate"), "non congelata"
+        ),
         "candidate, versione del workspace": f"`{candidate['versione_workspace']}`",
-        "candidate, artefatti congelati": _intero(len(candidate["artefatti"])),
+        "candidate, artefatti congelati": (
+            _intero(len(candidate["artefatti"]))
+            if "artefatti" in candidate
+            else "non congelati"
+        ),
         "candidate, tag previsto": f"`{candidate['tag_previsto']}`",
         "candidate, tag creato": _booleano(candidate["tag_creato"]),
-        "candidate, revisione del tag": f"`{candidate['tag_revisione']}`",
+        "candidate, revisione del tag": _non_ancora(
+            candidate.get("tag_revisione"), "nessun tag"
+        ),
         "candidate, tag sulla candidate": _booleano(
             candidate["tag_sulla_candidate"]
         ),
-        "candidate, assurance entro l'allowlist": _booleano(
-            candidate["assurance_entro_l_allowlist"]
+        "candidate, assurance entro l'allowlist": (
+            _booleano(candidate["assurance_entro_l_allowlist"])
+            if "assurance_entro_l_allowlist" in candidate
+            else "non derivabile senza congelamento"
         ),
         "candidate, release_action consentita": _booleano(
             candidate["release_action_allowed"]
         ),
+        "release pubblicate": _intero(
+            len(stato.get("chiuso", {}).get("release_pubblicate", []))
+        ),
         "release_authorized": _letterale(stato["release_authorized"]),
     }
+
+
+def _non_ancora(valore, assente: str) -> str:
+    """Un valore che c'e', oppure la ragione per cui non c'e' ancora."""
+    return f"`{valore}`" if valore is not None else assente
 
 
 def _bloccanti(registro: dict) -> list[dict]:

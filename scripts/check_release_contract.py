@@ -399,9 +399,7 @@ FOGLIE_LEGATE = frozenset(
         "aperto.candidate_release.versione_workspace",
         "aperto.candidate_release.tag_previsto",
         "aperto.candidate_release.tag_creato",
-        "aperto.candidate_release.tag_revisione",
         "aperto.candidate_release.tag_sulla_candidate",
-        "aperto.candidate_release.assurance_entro_l_allowlist",
         # il registro del contratto corrente
         "aperto.assurance_n1.release_blocking",
 
@@ -457,6 +455,42 @@ FOGLIE_LEGATE = frozenset(
 #: sottratta al controllo, che e' esattamente cio' che la classificazione esiste
 #: per impedire.
 FOGLIE_CONDIZIONATE = {
+    "chiuso.release_pubblicate": (
+        "l'archivio delle release gia' pubblicate. E' una foglia sola perche' "
+        "una lista lo e', ma non e' per questo fuori controllo: "
+        "`verifica_release_storiche` ne rilegge ogni verbale contro git, gli "
+        "artefatti attesi e l'evidenza, con gli stessi controlli della "
+        "candidate. Assente finche' nessuna release e' stata pubblicata."
+    ),
+    "aperto.candidate_release.tag_revisione": (
+        "esiste da quando il tag esiste: su una candidate `iniziale` non c'e' "
+        "tag, e scrivere la revisione di un tag che non c'e' sarebbe inventarla"
+    ),
+    "aperto.candidate_release.revisione_candidate": (
+        "lo SHA **congelato** della candidate. E' una decisione -- si congela -- "
+        "e non si deriva da nessuna fonte viva: git puo' dire che esiste, non "
+        "che sia quello scelto. Assente su una candidate `iniziale`, dove il "
+        "congelamento non e' ancora avvenuto e scriverla sarebbe inventarla"
+    ),
+    "aperto.candidate_release.artefatti": (
+        "gli archivi congelati, con nome, digest, dimensione e revisione. "
+        "Vengono dalla corsa che li ha costruiti, non da un file del "
+        "repository, e la loro coerenza la verifica `_artefatti_fissati`. "
+        "Assenti su una candidate `iniziale`: prima del congelamento gli "
+        "artefatti non esistono"
+    ),
+    "aperto.candidate_release.commit_di_assurance": (
+        "il commit fino a cui la registrazione della release doveva restare "
+        "dentro l'allowlist. Lo scrive chi registra, leggendolo dalla storia; "
+        "non si deriva, perche' git puo' dire che un commit esiste, non che sia "
+        "quello in cui la registrazione si e' chiusa. Assente finche' la "
+        "registrazione non e' avvenuta"
+    ),
+    "aperto.candidate_release.assurance_entro_l_allowlist": (
+        "si **deriva** dalla diff fra la revisione congelata e il riferimento "
+        "previsto per lo stato della candidate. Su una `iniziale` non c'e' "
+        "revisione congelata, quindi non c'e' niente da derivare"
+    ),
     "aperto.candidate_release.motivo_del_ritiro": (
         "esiste solo su una candidate `ritirata`, dove il gate lo pretende non "
         "vuoto: una candidate attiva non ha un ritiro da motivare"
@@ -489,19 +523,6 @@ FOGLIE_DICHIARATE = {
         "fatto del manifesto della candidate, che non e' piu' nel repository: "
         "resta in git, e non c'e' una fonte viva che lo riscriva"
     ),
-    "aperto.candidate_release.revisione_candidate": (
-        "lo SHA **congelato** della candidate. E' una decisione -- si congela --"
-        " e non si deriva da nessuna fonte viva: git puo' dire che esiste, non "
-        "che sia quello scelto"
-    ),
-    "aperto.candidate_release.artefatti": (
-        "i quattro archivi congelati, con nome, digest, dimensione e revisione. "
-        "Vengono dalla corsa che li ha costruiti, non da un file del "
-        "repository: la loro coerenza interna la verifica "
-        "`_artefatti_fissati`, e che i byte pubblicati siano **questi** lo "
-        "verifica `check-deliverable.py --contro-la-candidate` dopo la "
-        "pubblicazione"
-    ),
     "aperto.candidate_release.release_action_allowed": (
         "fatto del manifesto della candidate; vedi `versione_manifesto`"
     ),
@@ -510,12 +531,6 @@ FOGLIE_DICHIARATE = {
         "rilascia, `ritirata` quando il perimetro della versione l'ha superata. "
         "E' una decisione e non si deriva: git puo' dire che una revisione "
         "esiste, non che qualcuno abbia smesso di rilasciarla"
-    ),
-    "aperto.candidate_release.commit_di_assurance": (
-        "il commit fino a cui la registrazione della release doveva restare "
-        "dentro l'allowlist. Lo scrive chi registra, leggendolo dalla storia; "
-        "non si deriva, perche' git puo' dire che un commit esiste, non che sia "
-        "quello in cui la registrazione si e' chiusa"
     ),
     "aperto.candidate_release.nota": "prosa",
     "blocchi.nota": "prosa",
@@ -1330,7 +1345,7 @@ def versione_del_pacchetto_python() -> str:
     return trovato.group(1)
 
 
-def artefatti_attesi(versione: str) -> list[str]:
+def artefatti_attesi(versione: str, versione_python: str | None = None) -> list[str]:
     """I nomi degli artefatti del perimetro, derivati dalla matrice.
 
     Il perimetro viene da `perimetro.distribuite` e dalle classi dichiarate, non
@@ -1364,7 +1379,11 @@ def artefatti_attesi(versione: str) -> list[str]:
         for piattaforma in piattaforme
         for profilo in profili
     ]
-    versione_python = versione_del_pacchetto_python()
+    # Per un verbale **storico** la versione del pacchetto Python e' quella
+    # di allora, non quella viva: chiedere al sorgente di oggi che nomi
+    # avesse una release passata darebbe i nomi di oggi, e il confronto
+    # direbbe che la release pubblicata e' sbagliata.
+    versione_python = versione_python or versione_del_pacchetto_python()
     python = [
         voce["nome"].replace("<versione>", versione_python)
         for voce in matrice.get("artefatti_python", {}).get("elenco", [])
@@ -1399,7 +1418,10 @@ def _tag_sulla_candidate(
 
 
 def _artefatti_fissati(
-    candidate: dict[str, Any], congelata: str, versione: str
+    candidate: dict[str, Any],
+    congelata: str,
+    versione: str,
+    versione_python: str | None = None,
 ) -> list[str]:
     """I quattro archivi congelati: nomi del perimetro, digest, revisione.
 
@@ -1412,7 +1434,7 @@ def _artefatti_fissati(
     visibile invece che opinabile.
     """
     fissati = candidate.get("artefatti")
-    attesi = artefatti_attesi(versione)
+    attesi = artefatti_attesi(versione, versione_python)
     if not isinstance(fissati, list) or not fissati:
         return [
             "la candidate non fissa nessun artefatto. Un elenco vuoto non e' "
@@ -1544,7 +1566,31 @@ def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
             f"il workspace e' a «{versione}»"
         )
 
+    if candidate.get("stato") == "iniziale":
+        motivi.append(
+            "la candidate e' **iniziale**: non e' ancora congelata, quindi non "
+            "qualifica alcuna revisione. Il congelamento le dara' "
+            "`revisione_candidate` e i digest degli artefatti, e da li' questa "
+            "condizione avra' qualcosa da verificare."
+        )
+        return motivi
+
     dichiarata = candidate.get("revisione_candidate")
+    if dichiarata is None:
+        motivi.append(
+            "`candidate_release.revisione_candidate` assente su una candidate "
+            f"«{candidate.get('stato')}»: dallo stato `iniziale` in poi il "
+            "congelamento l'ha prodotta, e senza di essa non c'e' niente da "
+            "qualificare"
+        )
+        return motivi + _coda_della_candidate(candidate)
+    if "artefatti" not in candidate:
+        motivi.append(
+            "`candidate_release.artefatti` assente su una candidate "
+            f"«{candidate.get('stato')}»: i digest fissati al congelamento sono "
+            "l'unico riferimento che distingue gli artefatti misurati da una "
+            "ricostruzione equivalente"
+        )
     congelata = revisione_risolta(dichiarata)
     if congelata is None:
         motivi.append(
@@ -2787,7 +2833,209 @@ def _conteggi_n1_legati_al_registro(stato: dict[str, Any]) -> list[str]:
 #: portano i propri digest, l'evidenza c'e', e la registrazione che l'accompagna
 #: e' rimasta dentro l'allowlist. Cio' che non si pretende piu' e' che HEAD stia
 #: fermo: il movimento successivo di `main` non tocca byte gia' pubblicati.
-STATI_DELLA_CANDIDATE = ("attiva", "ritirata", "pubblicata")
+#: Gli stati di una candidate, in ordine di vita.
+#:
+#: `iniziale` e' stato aggiunto il 2026-09-10, preparando la 3.0.0. Il modello
+#: ne aveva tre, e nessuno descriveva una candidate **prima** del congelamento:
+#: `attiva` pretendeva gia' una revisione congelata e i digest degli artefatti,
+#: cioe' fatti che al momento in cui una candidate nasce non esistono ancora.
+#: Per la prima release non si era visto, perche' quella candidate e' stata
+#: scritta quando quei fatti c'erano gia'.
+#:
+#: La distinzione non e' cosmetica: e' quella fra «non ancora congelata» e
+#: «congelata male», che senza uno stato apposta si dicono con lo stesso
+#: silenzio.
+STATI_DELLA_CANDIDATE = ("iniziale", "attiva", "ritirata", "pubblicata")
+
+
+RELEASE_STORICHE = ("chiuso", "release_pubblicate")
+
+
+def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
+    """Le release gia' pubblicate restano verificate mentre la seguente avanza.
+
+    # Perche' un archivio, e perche' **verificato**
+
+    `aperto.candidate_release` descrive **una** candidate. Fino alla 2.0.0 ne
+    esisteva una sola e la domanda non si poneva; alla seconda si pone, e ha due
+    risposte sbagliate. Sovrascrivere il verbale della 2.0.0 perderebbe la
+    registrazione di una release pubblicata. Lasciarlo come candidate corrente
+    impedirebbe alla 3.0.0 di nascere -- il gate pretende che la candidate
+    corrente sia coerente col workspace, e due versioni non possono esserlo
+    insieme.
+
+    Il verbale si sposta quindi qui, e conserva **gli stessi nomi di campo**
+    della candidate. Non e' un dettaglio di forma: e' cio' che permette di
+    riverificarlo con `_tag_sulla_candidate` e `_artefatti_fissati`, cioe' con
+    gli stessi controlli di prima, invece che con una copia che potrebbe
+    divergere da loro senza che nessuno se ne accorga.
+
+    Superare una candidate riguarda **quale sia corrente**, non la validita' di
+    cio' che e' stato pubblicato: la 3.0.0 puo' avanzare, e la 2.0.0 resta
+    verificabile. Alterare il verbale storico -- un digest, un tag, la revisione
+    -- e' ancora un errore, e questo e' il controllo che lo rende tale.
+
+    # Che cosa verifica, per ciascuna
+
+    * il tag esiste e punta alla revisione congelata;
+    * i sei artefatti sono quelli attesi per quella versione, con nome, digest,
+      dimensione e revisione, e la revisione e' quella congelata;
+    * l'evidenza nominata esiste, ed e' la corsa **di quella revisione**: senza,
+      un verbale potrebbe rimandare alla misura di un'altra;
+    * il commit di registrazione discende dalla revisione congelata e non ha
+      toccato altro che l'allowlist dell'assurance.
+
+    L'ultimo e' il motivo per cui `commit_di_assurance` esiste: riferirsi a HEAD
+    renderebbe rossa una release i cui byte nessuno ha toccato, al primo commit
+    di sviluppo.
+    """
+    nodo: Any = stato
+    for chiave in RELEASE_STORICHE:
+        nodo = (nodo or {}).get(chiave) if isinstance(nodo, dict) else None
+    if nodo is None:
+        return []
+    if not isinstance(nodo, list):
+        return [
+            f"`{'.'.join(RELEASE_STORICHE)}` non e' un elenco: le release "
+            "pubblicate sono zero o piu', e una forma diversa non si scorre"
+        ]
+
+    errori: list[str] = []
+    viste: set[str] = set()
+    for indice, verbale in enumerate(nodo):
+        dove = f"{'.'.join(RELEASE_STORICHE)}[{indice}]"
+        if not isinstance(verbale, dict):
+            errori.append(f"`{dove}` non e' un oggetto")
+            continue
+
+        versione = verbale.get("versione_manifesto")
+        if not isinstance(versione, str) or not versione.strip():
+            errori.append(f"`{dove}.versione_manifesto` assente")
+            continue
+        if versione in viste:
+            errori.append(
+                f"`{dove}`: la versione «{versione}» compare due volte "
+                "nell'archivio, e due verbali della stessa release non possono "
+                "essere entrambi il suo"
+            )
+        viste.add(versione)
+
+        congelata = revisione_risolta(verbale.get("revisione_candidate"))
+        if congelata is None:
+            errori.append(
+                f"`{dove}.revisione_candidate` non si risolve a un commit: un "
+                "verbale che non nomina una revisione non registra una release"
+            )
+            continue
+
+        errori.extend(
+            f"{dove}: {motivo}"
+            for motivo in _tag_sulla_candidate(verbale, congelata, versione)
+        )
+        errori.extend(
+            f"{dove}: {motivo}"
+            for motivo in _artefatti_fissati(
+                verbale, congelata, versione, verbale.get("versione_pacchetto_python")
+            )
+        )
+
+        relativo = verbale.get("evidenza")
+        if not isinstance(relativo, str) or not (ROOT / relativo).is_file():
+            errori.append(
+                f"`{dove}.evidenza` non nomina un file esistente: la qualifica "
+                "di una release pubblicata dev'essere ancora leggibile"
+            )
+        else:
+            misurata = json.loads(
+                (ROOT / relativo).read_text(encoding="utf-8")
+            ).get("corsa", {}).get("revisione_iniziale")
+            if revisione_risolta(misurata) != congelata:
+                errori.append(
+                    f"`{dove}.evidenza` e' la corsa di «{str(misurata)[:7]}», la "
+                    f"release e' congelata su «{congelata[:7]}»: un verbale che "
+                    "rimanda alla misura di un'altra revisione non registra la "
+                    "propria"
+                )
+
+        registrazione = revisione_risolta(verbale.get("commit_di_assurance"))
+        if registrazione is None:
+            errori.append(
+                f"`{dove}.commit_di_assurance` non si risolve a un commit: e' il "
+                "commit fino a cui la registrazione doveva restare dentro "
+                "l'allowlist, e senza il controllo si riferirebbe a HEAD"
+            )
+        elif registrazione != congelata:
+            if not _discende_da(congelata, registrazione):
+                errori.append(
+                    f"`{dove}.commit_di_assurance` «{registrazione[:7]}» non "
+                    f"discende dalla revisione congelata «{congelata[:7]}»"
+                )
+            else:
+                fuori, guasti = cambiamenti_dopo_il_congelamento(
+                    congelata, registrazione
+                )
+                if fuori or guasti:
+                    errori.append(
+                        f"`{dove}`: fra il congelamento «{congelata[:7]}» e la "
+                        f"registrazione «{registrazione[:7]}» e' cambiato cio' "
+                        f"che l'allowlist non ammette: {sorted(fuori)[:5]}"
+                        f"{guasti[:2]}"
+                    )
+    return errori
+
+
+def _forma_della_iniziale(candidate: dict[str, Any], motivo: Any) -> list[str]:
+    """Una candidate che non e' ancora stata congelata.
+
+    Che cosa **non** ha, e non per dimenticanza: una revisione congelata e i
+    digest degli artefatti. Sono il prodotto del congelamento, e scriverli prima
+    vorrebbe dire inventarli -- una cifra inventata accanto a una qualifica e'
+    cio' che questo registro esiste per impedire.
+
+    Che cosa invece **ha**: `tag_creato: false`. Non e' un campo da omettere,
+    perche' non e' un fatto ignoto: e' noto, ed e' falso. Ometterlo direbbe «non
+    lo so» dove sappiamo, e le due cose non si confondono.
+
+    E `release_action_allowed` e' falso: nessuno autorizza la pubblicazione di
+    una candidate che non ha ancora artefatti.
+    """
+    errori: list[str] = []
+    if motivo is not None:
+        errori.append(
+            "`candidate_release.motivo_del_ritiro` e' presente su una candidate "
+            "iniziale: non e' stata ritirata, non e' ancora stata congelata"
+        )
+    for campo in (
+        "revisione_candidate",
+        "artefatti",
+        "tag_revisione",
+        "commit_di_assurance",
+        "assurance_entro_l_allowlist",
+    ):
+        if campo in candidate:
+            errori.append(
+                f"`candidate_release.{campo}` e' presente su una candidate "
+                "iniziale: e' un prodotto del congelamento, e prima del "
+                "congelamento non si puo' che inventarlo"
+            )
+    if candidate.get("tag_creato") is not False:
+        errori.append(
+            "`candidate_release.tag_creato` dev'essere **falso** su una "
+            "candidate iniziale, non assente: che il tag non ci sia e' un fatto "
+            "noto, e ometterlo direbbe «non lo so» dove sappiamo"
+        )
+    if candidate.get("tag_sulla_candidate") is not False:
+        errori.append(
+            "`candidate_release.tag_sulla_candidate` dev'essere falso su una "
+            "candidate iniziale: non c'e' ne' un tag ne' una candidate su cui stia"
+        )
+    if candidate.get("release_action_allowed") is not False:
+        errori.append(
+            "`candidate_release.release_action_allowed` deve essere falso su "
+            "una candidate iniziale: nessuno autorizza la pubblicazione di cio' "
+            "che non ha ancora artefatti"
+        )
+    return errori
 
 
 def _forma_della_pubblicata(
@@ -2865,6 +3113,24 @@ def verifica_release_pubblicata(stato: dict[str, Any]) -> list[str]:
     il repository per sempre -- che e' quanto e' successo, e la ragione per cui
     questo stato esiste.
     """
+    # Dove vive la risposta, dopo che le release sono diventate due.
+    #
+    # Finche' ce n'era una sola, `aperto.candidate_release` era insieme la
+    # candidate corrente e il verbale della release pubblicata. Dalla seconda le
+    # due cose si separano: la corrente e' quella che avanza, il verbale sta in
+    # archivio. La domanda di questo invariante -- «cio' che e' stato rilasciato
+    # e' ancora quello?» -- segue il verbale, non la corrente.
+    if stato.get("aperto", {}).get("candidate_release", {}).get("stato") != "pubblicata":
+        storiche = stato.get("chiuso", {}).get("release_pubblicate")
+        if not isinstance(storiche, list) or not storiche:
+            return [
+                "nessuna release pubblicata da verificare: la candidate corrente "
+                "non lo e' e `chiuso.release_pubblicate` e' vuoto o assente. Un "
+                "verde qui senza niente da guardare direbbe che cio' che e' "
+                "stato rilasciato e' ancora quello, senza aver guardato niente."
+            ]
+        return verifica_release_storiche(stato)
+
     candidate = stato.get("aperto", {}).get("candidate_release")
     if not isinstance(candidate, dict):
         return ["`aperto.candidate_release` assente: non c'e' release da verificare"]
@@ -2954,6 +3220,8 @@ def _stato_del_manifesto(candidate: dict[str, Any]) -> list[str]:
     motivo = candidate.get("motivo_del_ritiro")
     if stato == "pubblicata":
         return _forma_della_pubblicata(candidate, motivo)
+    if stato == "iniziale":
+        return _forma_della_iniziale(candidate, motivo)
     if stato == "attiva":
         if motivo is not None:
             return [
@@ -3011,7 +3279,8 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
     head = revisione_risolta("HEAD")
     dichiarata = candidate.get("revisione_candidate")
     congelata = revisione_risolta(dichiarata)
-    if congelata is None:
+    iniziale = candidate.get("stato") == "iniziale"
+    if congelata is None and not iniziale:
         errori.append(
             f"`candidate_release.revisione_candidate` vale «{dichiarata}», che "
             "git non risolve a un commit. Una candidate congelata su una "
@@ -3032,6 +3301,20 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
             f"`candidate_release.tag_creato` vale «{candidate.get('tag_creato')}» "
             f"ma git {'trova' if puntato else 'non trova'} il tag «{atteso}»"
         )
+
+    if iniziale:
+        # Da qui in poi si verifica il **congelamento**: dove punta il tag,
+        # quali artefatti sono fissati, e se la diff dalla revisione congelata
+        # sta nell'allowlist. Una candidate iniziale non ne ha ancora nessuno, e
+        # `assurance_entro_l_allowlist` non ha niente da derivare -- si ricava
+        # dalla diff fra la revisione congelata e il riferimento previsto per lo
+        # stato, e la prima meta' non esiste. La sua **assenza** e' il fatto, e
+        # `_forma_della_iniziale` la pretende.
+        #
+        # Cio' che resta verificato sopra non e' poco: la versione del
+        # manifesto contro `Cargo.toml`, `tag_previsto` derivato da essa, e
+        # `tag_creato` contro cio' che git trova davvero.
+        return errori
     dichiarato = candidate.get("tag_revisione")
     if puntato is None:
         if dichiarato is not None:
@@ -3451,6 +3734,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _misura_legata_all_evidenza(stato)
         + _conteggi_n1_legati_al_registro(stato)
         + _candidate_legata_alle_fonti(stato)
+        + verifica_release_storiche(stato)
         + _registro_legato(stato)
         + _censimento_s9_legato(stato)
         + _profondita_legata(stato)

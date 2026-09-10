@@ -86,7 +86,7 @@ from .process import Runner
 #: nuovo puo' funzionare con un SDK vecchio finche' il protocollo regge. Che
 #: qui dica `2.0.0` come il prodotto e' la scelta di partire allineati, non un
 #: vincolo: chi vuole la versione del prodotto la chiede a `Client.version()`.
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e

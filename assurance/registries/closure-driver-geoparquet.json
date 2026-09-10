@@ -520,13 +520,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "2.0.0",
+      "versione": "3.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "2.0.0",
+      "versione": "3.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -820,13 +820,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "2.0.0",
+      "versione": "3.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "2.0.0",
+      "versione": "3.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1286,5 +1286,15 @@
     "non_e_equivalente": "e' una domanda diversa, non una versione piu' prudente della stessa. Il censimento dichiara il perimetro distribuito; questo numero sta qui misurato -- il gate lo verifica, non lo ricorda -- perche' la differenza fra i due resti visibile invece di dover essere ricalcolata da chi se lo chiede."
   },
   "di_prodotto": 119,
-  "di_build": 9
+  "di_build": 9,
+  "variazione_versione_3_0_0": {
+    "quando": "2026-09-10, portando il workspace da 2.0.0 a 3.0.0",
+    "che_cosa_cambia": "le sole versioni dei crate interni. Il censimento le porta perche' il gate confronta le coppie nome/versione, e la versione di un crate del workspace e' quella del workspace: alzarla e' un cambiamento della closure come un altro.",
+    "versioni_cambiate": [
+      "driver-common 2.0.0 -> 3.0.0",
+      "driver-geoparquet 2.0.0 -> 3.0.0",
+      "plenora-io-core 2.0.0 -> 3.0.0",
+      "plenora-io-model 2.0.0 -> 3.0.0"
+    ]
+  }
 }
