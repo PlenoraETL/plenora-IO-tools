@@ -1443,8 +1443,9 @@
       "nota": "preparare un contributo, vederlo accettato, e togliere il fork sono tre cose diverse, e solo la prima dipende da noi. Confonderle farebbe sembrare vicino un traguardo che non lo e'.",
       "preparato": "cinque contributi, tutti verificati contro i progetti veri.",
       "inviato": "**cinque, tutti.** DXF #105, Shapefile #56 e #57, Arrow #11020 con l'issue #11019, GDAL #731. Il tempo di attesa dei manutentori e' cominciato.",
-      "accettato_e_rilasciato": "**uno unito**: arrow-rs#11020, il 2026-09-09. E non toglie nessun fork -- `arrow-rs` non era forkato -- e non e' ancora in una versione pubblicata: la nostra prevalidazione resta finche' una release la porta e le regressioni passano contro quella. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' unito. I tre fork sono ancora tutti presenti.",
-      "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo."
+      "accettato_e_rilasciato": "**due uniti, zero rilasciati.** `arrow-rs#11020` il 2026-09-09 e `ixmilia/dxf-rs#105` entro il 2026-09-10. Nessuno dei due toglie niente oggi: `arrow-rs` non era forkato, e la correzione DXF non e' in una versione pubblicata -- l'ultima release resta la 0.6.1, che non la porta. Un fork si toglie quando una release **ufficiale** contiene la correzione, non quando il PR e' unito, e la prevalidazione Arrow resta finche' una release la porta e le regressioni passano contro quella. I tre fork sono ancora tutti presenti.",
+      "non_e_un_requisito_di_rilascio": "l'assenza totale di fork **non** e' un requisito della 3.0.0, e non va trasformata in tale senza una decisione esplicita del titolare. Oggi i fork sono tre, e ognuno porta modifiche che il prodotto usa: la 3.0.0 puo' uscire con i fork, se e' quello che si decide. Questa voce esiste perche' un obiettivo ripetuto abbastanza spesso finisce per sembrare un vincolo.",
+      "aperte": "tre: `tmontaigu/shapefile-rs#56` e `#57`, `georust/gdal#731`, tutte MERGEABLE."
     },
     "identita_degli_invii": {
       "nome": "PlenoraETL",
@@ -1654,5 +1655,18 @@
       "che_cosa_resta_del_perimetro_esteso": "il numero, misurato dal gate e non ricordato: `perimetro_esteso.coppie` = 170, con la dichiarazione esplicita che non e' equivalente. Cosi' la differenza fra i due resta visibile senza doverla ricalcolare."
     },
     "prodotto_e_build_restano_distinti": "ogni voce porta `origine`, «prodotto» o «build», e il gate la **misura** confrontando gli archi `normal` con `normal,build` sugli stessi bersagli. Una crate che finisce nel binario e una che serve solo a costruirlo non pongono la stessa domanda a chi guarda una licenza, e un campo dichiarato e non verificato sarebbe invecchiato come tutto il resto di questo file."
+  },
+  "quadro_verso_la_candidate": {
+    "misurato_il": "2026-09-10, rimisurando invece di rileggere",
+    "dipendenze": "27 allineate su 28 dirette. L'unica indietro e' `shapefile`, `=0.6.0` contro 0.9.0: tre minor, e non era in `dipendenze_ancora_da_migrare` -- vedi `una_lacuna_del_censimento`.",
+    "fork": {
+      "gdal": "0.19.0, allineato. Due delta ancora necessari, entrambi in `georust/gdal#731`, aperta.",
+      "dxf": "0.6.1, allineato alla sua ultima release. Tre delta: `read_block` e' **unito upstream** (#105) ma non rilasciato, quindi resta; `DrawingEntityReader` e la lettura progressiva sono API nostre ancora da proporre.",
+      "shapefile": "0.6.0 contro 0.9.0. Tre delta ancora necessari: due proposti (#56, #57, aperte) e `write_null_shape`, che e' una funzionalita' e non una correzione."
+    },
+    "contributi": "cinque inviati, **due uniti** (arrow-rs#11020, dxf-rs#105), tre aperte. Nessuno toglie un fork oggi, perche' nessuno e' in una release pubblicata.",
+    "da_preparare": "cinque: i cicli senza `Eof` di `georust/kml` (**preparato e verificato su `main`, non inviato**: l'invio e' una decisione da prendere), `write_null_shape` per shapefile, `DrawingEntityReader` e la lettura progressiva ASCII per DXF, e l'ammodernamento zip di kml, derubricato.",
+    "verifiche_aperte": "una: l'interoperabilita' Arrow con data-tools, rinviata per decisione del titolare e non bloccante.",
+    "che_cosa_manca_per_la_candidate": "una decisione su `shapefile`, che e' l'unico residuo tecnico: aggiornarlo di tre minor prima della 3.0.0, oppure dichiararlo indietro con la ragione. Non e' una domanda che il repository possa rispondere da solo."
   }
 }
