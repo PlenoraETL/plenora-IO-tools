@@ -1,31 +1,28 @@
 {
   "schema_version": 1,
-  "descrizione": "La closure di `driver-geoparquet`: ogni crate che quel driver raggiunge, con la versione fissata e la licenza dichiarata. E' un **censimento**, non un'istantanea: il gate lo ricalcola dal `Cargo.lock` e pretende che coincida, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
-  "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa: un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. Cio' che conta e' che cosa **questo** driver puo' eseguire.",
+  "descrizione": "La closure di `driver-geoparquet` sulle piattaforme che distribuiamo: ogni crate che quel driver raggiunge, con la versione, la licenza e l'origine -- prodotto o build. E' un **censimento**, non un'istantanea: il gate lo ricalcola da `cargo tree` e pretende che coincida **coppia per coppia**, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
+  "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa, e per due ragioni. Un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. E il lock elenca anche le dipendenze **opzionali non abilitate**: `geo-types` vi dichiara sei versioni di `rstar`, una per feature, e non ne accendiamo nessuna. Cio' che conta e' che cosa **questo** driver puo' eseguire, e a dirlo e' il grafo con le feature risolte.",
   "radice": "driver-geoparquet",
-  "crate_totali": 154,
+  "crate_totali": 128,
   "licenze": {
     "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
     "0BSD OR MIT OR Apache-2.0": 1,
-    "Apache-2.0": 9,
+    "Apache-2.0": 8,
     "Apache-2.0 AND MIT": 1,
-    "Apache-2.0 OR MIT": 8,
+    "Apache-2.0 OR MIT": 5,
     "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT": 2,
     "Apache-2.0/MIT": 1,
     "BSD-2-Clause OR Apache-2.0 OR MIT": 2,
     "BSD-3-Clause": 3,
     "BSD-3-Clause AND MIT": 1,
     "BSD-3-Clause/MIT": 1,
-    "CC0-1.0": 1,
-    "MIT": 26,
-    "MIT OR Apache-2.0": 87,
-    "MIT OR Apache-2.0 OR LGPL-2.1-or-later": 1,
+    "MIT": 22,
+    "MIT OR Apache-2.0": 68,
     "MIT OR Zlib OR Apache-2.0": 1,
     "MIT-0": 1,
-    "MIT/Apache-2.0": 4,
-    "Unicode-3.0": 18,
-    "Unlicense OR MIT": 3,
-    "Zlib": 2,
+    "MIT/Apache-2.0": 3,
+    "Unlicense OR MIT": 2,
+    "Zlib": 1,
     "interna-al-workspace": 4
   },
   "variazione_s10": {
@@ -356,772 +353,770 @@
     {
       "crate": "adler2",
       "versione": "2.0.1",
-      "licenza": "0BSD OR MIT OR Apache-2.0"
+      "licenza": "0BSD OR MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "ahash",
       "versione": "0.8.12",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "aho-corasick",
       "versione": "1.1.5",
-      "licenza": "Unlicense OR MIT"
+      "licenza": "Unlicense OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "alloc-no-stdlib",
       "versione": "2.0.4",
-      "licenza": "BSD-3-Clause"
+      "licenza": "BSD-3-Clause",
+      "origine": "prodotto"
     },
     {
       "crate": "alloc-stdlib",
       "versione": "0.2.4",
-      "licenza": "BSD-3-Clause"
+      "licenza": "BSD-3-Clause",
+      "origine": "prodotto"
     },
     {
       "crate": "allocator-api2",
       "versione": "0.2.21",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "android_system_properties",
-      "versione": "0.1.5",
-      "licenza": "MIT/Apache-2.0"
-    },
-    {
-      "crate": "approx",
-      "versione": "0.5.1",
-      "licenza": "Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-array",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0 AND MIT"
+      "licenza": "Apache-2.0 AND MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-buffer",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-data",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-ipc",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-schema",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "arrow-select",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "atomicwrites",
       "versione": "0.4.4",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "autocfg",
       "versione": "1.5.1",
-      "licenza": "Apache-2.0 OR MIT"
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "build"
     },
     {
       "crate": "base64",
       "versione": "0.23.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "bit-set",
       "versione": "0.8.0",
-      "licenza": "Apache-2.0 OR MIT"
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "bit-vec",
       "versione": "0.8.0",
-      "licenza": "Apache-2.0 OR MIT"
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "bitflags",
       "versione": "2.13.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "borrow-or-share",
       "versione": "0.2.4",
-      "licenza": "MIT-0"
+      "licenza": "MIT-0",
+      "origine": "prodotto"
     },
     {
       "crate": "brotli",
       "versione": "8.0.4",
-      "licenza": "BSD-3-Clause AND MIT"
+      "licenza": "BSD-3-Clause AND MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "brotli-decompressor",
       "versione": "5.0.3",
-      "licenza": "BSD-3-Clause/MIT"
-    },
-    {
-      "crate": "bumpalo",
-      "versione": "3.20.3",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "BSD-3-Clause/MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "bytecount",
       "versione": "0.6.9",
-      "licenza": "Apache-2.0/MIT"
-    },
-    {
-      "crate": "byteorder",
-      "versione": "1.5.0",
-      "licenza": "Unlicense OR MIT"
+      "licenza": "Apache-2.0/MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "bytes",
       "versione": "1.12.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "cc",
       "versione": "1.4.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "cfg-if",
       "versione": "1.0.4",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "chrono",
       "versione": "0.4.45",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "const-random",
-      "versione": "0.1.18",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "const-random-macro",
-      "versione": "0.1.16",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "core-foundation-sys",
-      "versione": "0.8.7",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "crc32fast",
       "versione": "1.5.0",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "crunchy",
-      "versione": "0.2.4",
-      "licenza": "MIT"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "data-encoding",
       "versione": "2.11.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "driver-common",
-      "versione": "1.0.1",
-      "licenza": "interna-al-workspace"
+      "versione": "2.0.0",
+      "licenza": "interna-al-workspace",
+      "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "1.0.1",
-      "licenza": "interna-al-workspace"
+      "versione": "2.0.0",
+      "licenza": "interna-al-workspace",
+      "origine": "prodotto"
     },
     {
       "crate": "email_address",
       "versione": "0.2.9",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "equivalent",
       "versione": "1.0.2",
-      "licenza": "Apache-2.0 OR MIT"
-    },
-    {
-      "crate": "errno",
-      "versione": "0.3.14",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "fancy-regex",
       "versione": "0.19.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "fastrand",
       "versione": "2.5.0",
-      "licenza": "Apache-2.0 OR MIT"
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "find-msvc-tools",
       "versione": "0.1.9",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "flatbuffers",
       "versione": "25.12.19",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "flate2",
       "versione": "1.1.9",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "fluent-uri",
       "versione": "0.4.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "foldhash",
       "versione": "0.2.0",
-      "licenza": "Zlib"
+      "licenza": "Zlib",
+      "origine": "prodotto"
     },
     {
       "crate": "fraction",
       "versione": "0.17.0",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "futures-core",
-      "versione": "0.3.33",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "futures-task",
-      "versione": "0.3.33",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "futures-util",
-      "versione": "0.3.33",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "geo-traits",
       "versione": "0.3.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "geo-types",
-      "versione": "0.7.19",
-      "licenza": "MIT OR Apache-2.0"
+      "versione": "0.7.20",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "getrandom",
+      "versione": "0.3.4",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "getrandom",
       "versione": "0.4.3",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "half",
       "versione": "2.7.1",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "hash32",
-      "versione": "0.3.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "hashbrown",
       "versione": "0.17.1",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "heapless",
-      "versione": "0.8.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "heck",
       "versione": "0.5.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "iana-time-zone",
       "versione": "0.1.65",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "iana-time-zone-haiku",
-      "versione": "0.1.2",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "itoa",
       "versione": "1.0.18",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "jobserver",
       "versione": "0.1.35",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "js-sys",
-      "versione": "0.3.103",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "jsonschema",
       "versione": "0.55.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "jsonschema-regex",
       "versione": "0.55.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "jsonschema-value",
       "versione": "0.55.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "libc",
       "versione": "0.2.189",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "libm",
       "versione": "0.2.16",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "linux-raw-sys",
       "versione": "0.12.1",
-      "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
+      "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "lock_api",
       "versione": "0.4.14",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "log",
       "versione": "0.4.33",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "lz4_flex",
       "versione": "0.14.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "memchr",
       "versione": "2.8.3",
-      "licenza": "Unlicense OR MIT"
+      "licenza": "Unlicense OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "micromap",
       "versione": "0.3.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "miniz_oxide",
       "versione": "0.8.9",
-      "licenza": "MIT OR Zlib OR Apache-2.0"
+      "licenza": "MIT OR Zlib OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num",
       "versione": "0.4.3",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-bigint",
-      "versione": "0.4.8 e 0.5.1",
-      "licenza": "MIT OR Apache-2.0"
+      "versione": "0.4.8",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "num-bigint",
+      "versione": "0.5.1",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-cmp",
       "versione": "0.1.0",
-      "licenza": "MIT/Apache-2.0"
+      "licenza": "MIT/Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-complex",
       "versione": "0.4.6",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-integer",
       "versione": "0.1.46",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-iter",
       "versione": "0.1.46",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-rational",
       "versione": "0.4.2",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "num-traits",
       "versione": "0.2.19",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "once_cell",
       "versione": "1.21.4",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "outref",
       "versione": "0.5.2",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "parking_lot",
       "versione": "0.12.5",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "parking_lot_core",
       "versione": "0.9.12",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "parquet",
       "versione": "59.3.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "percent-encoding",
       "versione": "2.3.2",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "pin-project-lite",
-      "versione": "0.2.17",
-      "licenza": "Apache-2.0 OR MIT"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "pkg-config",
       "versione": "0.3.33",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "plenora-io-core",
-      "versione": "1.0.1",
-      "licenza": "interna-al-workspace"
+      "versione": "2.0.0",
+      "licenza": "interna-al-workspace",
+      "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "1.0.1",
-      "licenza": "interna-al-workspace"
+      "versione": "2.0.0",
+      "licenza": "interna-al-workspace",
+      "origine": "prodotto"
     },
     {
       "crate": "proc-macro2",
       "versione": "1.0.107",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "quote",
       "versione": "1.0.47",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "r-efi",
-      "versione": "6.0.0",
-      "licenza": "MIT OR Apache-2.0 OR LGPL-2.1-or-later"
-    },
-    {
-      "crate": "redox_syscall",
-      "versione": "0.5.18",
-      "licenza": "MIT"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "ref-cast",
       "versione": "1.0.27",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "ref-cast-impl",
       "versione": "1.0.27",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "referencing",
       "versione": "0.55.1",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "regex",
       "versione": "1.13.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "regex-automata",
       "versione": "0.4.18",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "regex-syntax",
       "versione": "0.8.11",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.12.2",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "rustc_version",
       "versione": "0.4.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "rustix",
       "versione": "1.1.4",
-      "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
-    },
-    {
-      "crate": "rustversion",
-      "versione": "1.0.23",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "scopeguard",
       "versione": "1.2.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "semver",
       "versione": "1.0.28",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "seq-macro",
       "versione": "0.3.6",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "serde",
       "versione": "1.0.229",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "serde_core",
       "versione": "1.0.229",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "serde_derive",
       "versione": "1.0.229",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "serde_json",
       "versione": "1.0.151",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "shlex",
       "versione": "2.0.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "simd-adler32",
       "versione": "0.3.10",
-      "licenza": "MIT"
-    },
-    {
-      "crate": "slab",
-      "versione": "0.4.12",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "smallvec",
       "versione": "1.15.2",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "snap",
       "versione": "1.1.2",
-      "licenza": "BSD-3-Clause"
-    },
-    {
-      "crate": "stable_deref_trait",
-      "versione": "1.2.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "BSD-3-Clause",
+      "origine": "prodotto"
     },
     {
       "crate": "strum",
       "versione": "0.28.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "strum_macros",
       "versione": "0.28.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "syn",
+      "versione": "2.0.119",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "syn",
       "versione": "3.0.3",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "tempfile",
       "versione": "3.27.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "thiserror",
+      "versione": "1.0.69",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "thiserror",
       "versione": "2.0.19",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "thiserror-impl",
+      "versione": "1.0.69",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "thiserror-impl",
       "versione": "2.0.19",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "tiny-keccak",
-      "versione": "2.0.2",
-      "licenza": "CC0-1.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "twox-hash",
       "versione": "2.1.3",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "unicode-general-category",
       "versione": "1.1.0",
-      "licenza": "Apache-2.0"
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "unicode-ident",
       "versione": "1.0.24",
-      "licenza": "(MIT OR Apache-2.0) AND Unicode-3.0"
+      "licenza": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "origine": "prodotto"
     },
     {
       "crate": "uuid-simd",
       "versione": "0.8.0",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "version_check",
       "versione": "0.9.5",
-      "licenza": "MIT/Apache-2.0"
+      "licenza": "MIT/Apache-2.0",
+      "origine": "build"
     },
     {
       "crate": "vsimd",
       "versione": "0.8.0",
-      "licenza": "MIT"
-    },
-    {
-      "crate": "wasm-bindgen",
-      "versione": "0.2.126",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "wasm-bindgen-macro",
-      "versione": "0.2.126",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "wasm-bindgen-macro-support",
-      "versione": "0.2.126",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "wasm-bindgen-shared",
-      "versione": "0.2.126",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "windows-core",
-      "versione": "0.62.2",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "windows-implement",
-      "versione": "0.60.2",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "windows-interface",
-      "versione": "0.59.3",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "windows-link",
       "versione": "0.2.1",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
-      "crate": "windows-result",
-      "versione": "0.4.1",
-      "licenza": "MIT OR Apache-2.0"
-    },
-    {
-      "crate": "windows-strings",
-      "versione": "0.5.1",
-      "licenza": "MIT OR Apache-2.0"
+      "crate": "windows-sys",
+      "versione": "0.52.0",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "windows-sys",
       "versione": "0.61.2",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "windows-targets",
+      "versione": "0.52.6",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "windows_x86_64_msvc",
+      "versione": "0.52.6",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "wkt",
       "versione": "0.14.0",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "zerocopy",
       "versione": "0.8.55",
-      "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT"
+      "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "zerocopy-derive",
       "versione": "0.8.55",
-      "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT"
-    },
-    {
-      "crate": "zlib-rs",
-      "versione": "0.6.6",
-      "licenza": "Zlib"
+      "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "zmij",
       "versione": "1.0.23",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "zstd",
       "versione": "0.13.3",
-      "licenza": "MIT"
+      "licenza": "MIT",
+      "origine": "prodotto"
     },
     {
       "crate": "zstd-safe",
       "versione": "7.2.4",
-      "licenza": "MIT OR Apache-2.0"
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "zstd-sys",
       "versione": "2.0.16+zstd.1.5.7",
-      "licenza": "MIT/Apache-2.0"
+      "licenza": "MIT/Apache-2.0",
+      "origine": "prodotto"
     }
   ],
   "variazione_arrow_59_3_0": {
@@ -1177,5 +1172,119 @@
       "referencing 0.51.0 -> 0.55.1"
     ],
     "come_e_stato_realineato": "chiamando `check_schemi_geoparquet.closure_dal_lock`, cioe' l'attraversamento del gate stesso. Replicarlo a mano e' l'errore che il 2026-09-07 produsse diciannove voci inventate."
-  }
+  },
+  "come_si_misura": "`cargo tree -p driver-geoparquet --edges normal,build --target all`. `normal,build` perche' conta cio' che il driver esegue e cio' che serve a costruirlo, non le `dev-dependencies`, che non arrivano a chi riceve l'artefatto. `--target all` perche' distribuiamo per Linux e per Windows, e una licenza da guardare non smette di esserlo perche' la guardiamo da Linux.",
+  "coppie_totali": 128,
+  "nomi_distinti": 122,
+  "variazione_confronto_per_coppie": {
+    "quando": "2026-09-09",
+    "perche": "il gate confrontava i **nomi**: una versione vecchia nel censimento restava verde, e la licenza censita e' quella della versione dichiarata. Passando alle coppie sono emerse due cose piu' grandi del difetto che cercavo.",
+    "primo_difetto": "l'attraversamento del lock indicizzava i pacchetti per nome, e `pacchi[nome] = ...` cancellava la voce precedente quando il lock ne portava due versioni. Sparivano le versioni **e** gli archi: le dipendenze dei pacchetti sovrascritti non venivano piu' seguite.",
+    "secondo_difetto": "il lock elenca le dipendenze opzionali non abilitate, quindi la closure comprendeva crate che non compiliamo.",
+    "entrate": [],
+    "entrate_perche": "erano raggiunte davvero e l'attraversamento le perdeva per via del primo difetto: sono le dipendenze dei pacchetti che venivano sovrascritti, `windows-sys` per prima.",
+    "uscite": [
+      "android_system_properties",
+      "bumpalo",
+      "const-random",
+      "const-random-macro",
+      "core-foundation-sys",
+      "crunchy",
+      "errno",
+      "futures-core",
+      "futures-task",
+      "futures-util",
+      "iana-time-zone-haiku",
+      "js-sys",
+      "pin-project-lite",
+      "r-efi",
+      "redox_syscall",
+      "rustversion",
+      "slab",
+      "tiny-keccak",
+      "wasi",
+      "wasip2",
+      "wasm-bindgen",
+      "wasm-bindgen-macro",
+      "wasm-bindgen-macro-support",
+      "wasm-bindgen-shared",
+      "windows-core",
+      "windows-implement",
+      "windows-interface",
+      "windows-result",
+      "windows-strings",
+      "windows_aarch64_gnullvm",
+      "windows_aarch64_msvc",
+      "windows_i686_gnu",
+      "windows_i686_gnullvm",
+      "windows_i686_msvc",
+      "windows_x86_64_gnu",
+      "windows_x86_64_gnullvm",
+      "wit-bindgen"
+    ],
+    "uscite_perche": "opzionali non abilitate: `rstar` con le sue sei versioni e cio' che ne discende (`heapless`, `hash32`), piu' `approx`, `byteorder`, `stable_deref_trait`, `zlib-rs`. Nel lock ci sono; non le compiliamo.",
+    "nomi_in_piu_versioni": {
+      "getrandom": [
+        "0.2.17",
+        "0.3.4",
+        "0.4.3"
+      ],
+      "linux-raw-sys": [
+        "0.12.1",
+        "0.4.15"
+      ],
+      "num-bigint": [
+        "0.4.8",
+        "0.5.1"
+      ],
+      "r-efi": [
+        "5.3.0",
+        "6.0.0"
+      ],
+      "rustix": [
+        "0.38.44",
+        "1.1.4"
+      ],
+      "syn": [
+        "2.0.119",
+        "3.0.3"
+      ],
+      "thiserror": [
+        "1.0.69",
+        "2.0.19"
+      ],
+      "thiserror-impl": [
+        "1.0.69",
+        "2.0.19"
+      ],
+      "windows-sys": [
+        "0.52.0",
+        "0.59.0",
+        "0.61.2"
+      ]
+    },
+    "da_nomi": 154,
+    "a_coppie": 128,
+    "a_nomi": 122,
+    "correzione_del_perimetro": "2026-09-10. La prima stesura di questa correzione usava `--target all`, motivandolo con «distribuiamo per Linux e per Windows»: un non-sequitur, perche' `all` ne comprende molte altre. Sono 42 coppie in piu' delle 128 distribuite. Il censimento torna sul perimetro che il suo titolo promette, e il numero esteso resta misurato accanto, dichiarato diverso."
+  },
+  "perimetro_dichiarato": {
+    "archi": "`normal,build`. Cio' che il driver esegue e cio' che serve a costruirlo; non le `dev-dependencies`, che non arrivano a chi riceve l'artefatto. Le due classi restano distinguibili voce per voce nel campo `origine`, e il gate le **misura**: una dipendenza di build e una che finisce nel binario non pongono la stessa domanda a chi guarda una licenza.",
+    "feature": "quelle che la build vera risolve: nessun `--features`, nessun `--all-features`. La configurazione predefinita di questo pacchetto nel workspace, cioe' la stessa con cui si costruisce l'artefatto. `--all-features` farebbe entrare rami che non compiliamo, che e' l'errore che il `Cargo.lock` faceva dall'altro lato includendo le opzionali non abilitate.",
+    "bersagli": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ],
+    "perche_questi_due": "sono le piattaforme che `distribuzione-matrice.json` dichiara distribuite. `aarch64-apple-darwin` sta fra le `piattaforme_non_distribuite`: la CI lo costruisce, ma non se ne promette artefatto ne' supporto, e una licenza si guarda per cio' che si spedisce.",
+    "comando": "cargo tree -p driver-geoparquet --edges normal,build --target <bersaglio>, unito sui due bersagli"
+  },
+  "perimetro_esteso": {
+    "che_cos_e": "lo stesso conto con `--target all`, cioe' ogni piattaforma che Cargo riconosce.",
+    "coppie": 170,
+    "quante_in_piu": 42,
+    "che_cosa_aggiunge": "redox, haiku, wasm, wasi, android, apple e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
+    "non_e_equivalente": "e' una domanda diversa, non una versione piu' prudente della stessa. Il censimento dichiara il perimetro distribuito; questo numero sta qui misurato -- il gate lo verifica, non lo ricorda -- perche' la differenza fra i due resti visibile invece di dover essere ricalcolata da chi se lo chiede."
+  },
+  "di_prodotto": 119,
+  "di_build": 9
 }

@@ -204,28 +204,176 @@ class SondeDelGate(unittest.TestCase):
 
     # --- il censimento della closure ----------------------------------
 
+    @staticmethod
+    def _closure() -> set[tuple[str, str]]:
+        osservate = gate.closure_con_versioni()
+        assert osservate is not None, "la closure non si ricava dal lock"
+        return osservate
+
+    @staticmethod
+    def _coppia(osservate: set[tuple[str, str]], nome: str) -> tuple[str, str]:
+        """La coppia di quel nome, presa dalla closure invece che scritta a mano.
+
+        Scriverla a mano legherebbe la sonda al numero di versione del giorno,
+        ed e' l'errore che il 2026-09-09 ha reso rosse tre sonde della supply
+        chain quando il pin di `jsonschema` e' passato da 0.51.0 a 0.55.1.
+        """
+        trovate = [c for c in osservate if c[0] == nome]
+        assert len(trovate) == 1, f"{nome}: {trovate}"
+        return trovate[0]
+
     def test_il_censimento_reale_nomina_la_closure(self) -> None:
         self.assertEqual(gate.censimento_della_closure(), [])
-        osservate = gate.closure_dal_lock()
-        self.assertIsNotNone(osservate)
+        osservate = self._closure()
         # Non e' vuota: due insiemi vuoti coinciderebbero, e il confronto
         # direbbe «uguali» senza aver confrontato niente.
         self.assertGreater(len(osservate), 100)
-        self.assertIn("jsonschema", osservate)
+        self.assertIn("jsonschema", {n for n, _ in osservate})
+        # Ogni voce porta una versione: senza, il confronto per coppie
+        # degenererebbe in un confronto per nomi senza dirlo.
+        for nome, versione in osservate:
+            self.assertTrue(nome, osservate)
+            self.assertRegex(versione, r"^\d", f"{nome}: «{versione}»")
 
     def test_una_crate_entrata_senza_censimento_e_rossa(self) -> None:
         """Una dipendenza che entra senza essere censita entra senza che
         nessuno ne abbia guardato la licenza."""
-        osservate = gate.closure_dal_lock() | {"crate-mai-censita"}
+        osservate = self._closure() | {("crate-mai-censita", "1.0.0")}
         errori = gate.censimento_della_closure(osservate)
         self.assertTrue(any("crate-mai-censita" in e for e in errori), errori)
 
     def test_una_crate_censita_e_sparita_e_rossa(self) -> None:
         """Un censimento che nomina cio' che non c'e' piu' e' un elenco che
         nessuno rilegge."""
-        osservate = gate.closure_dal_lock() - {"jsonschema"}
-        errori = gate.censimento_della_closure(osservate)
+        osservate = self._closure()
+        errori = gate.censimento_della_closure(
+            osservate - {self._coppia(osservate, "jsonschema")}
+        )
         self.assertTrue(any("jsonschema" in e for e in errori), errori)
+
+    # --- il perimetro: quale, e dichiarato ------------------------------
+
+    def test_il_perimetro_e_quello_distribuito(self) -> None:
+        """I bersagli sono quelli che la matrice dichiara distribuiti.
+
+        Non tutti quelli che Cargo conosce: `--target all` comprende redox,
+        haiku, wasm, android e le architetture i686 e aarch64 di Windows, che
+        non spediamo. Sono due domande diverse, e il censimento risponde a
+        quella che il suo titolo promette.
+        """
+        matrice = json.loads(
+            (gate.ROOT / "assurance/registries/distribuzione-matrice.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        distribuite = {p["id"] for p in matrice["piattaforme"]}
+        non_distribuite = {p["id"] for p in matrice["piattaforme_non_distribuite"]}
+        self.assertEqual(len(gate.TARGET_DISTRIBUITI), len(distribuite), distribuite)
+        # `macos-aarch64` e' fra le non distribuite: nessun bersaglio apple.
+        self.assertIn("macos-aarch64", non_distribuite)
+        self.assertFalse(
+            [t for t in gate.TARGET_DISTRIBUITI if "apple" in t],
+            gate.TARGET_DISTRIBUITI,
+        )
+
+    def test_il_perimetro_esteso_e_piu_largo_e_dichiarato_tale(self) -> None:
+        """Il registro non presenta i due perimetri come equivalenti."""
+        self.assertEqual(gate.perimetro_esteso_misurato(), [])
+        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        self.assertGreater(
+            registro["perimetro_esteso"]["coppie"], len(registro["crate"])
+        )
+        self.assertTrue(registro["perimetro_esteso"]["non_e_equivalente"])
+
+    def test_un_perimetro_esteso_ricordato_male_e_rosso(self) -> None:
+        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro["perimetro_esteso"]["coppie"] = 1
+        errori = gate.perimetro_esteso_misurato(registro)
+        self.assertTrue(any("perimetro esteso" in e for e in errori), errori)
+
+    # --- prodotto e build restano distinguibili -------------------------
+
+    def test_le_origini_reali_sono_misurate(self) -> None:
+        self.assertEqual(gate.origini_misurate(), [])
+        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        origini = {v["origine"] for v in registro["crate"]}
+        self.assertEqual(origini, {"prodotto", "build"})
+        # Entrambe popolate: se una fosse vuota il campo distinguerebbe nulla.
+        for attesa in ("prodotto", "build"):
+            self.assertTrue(
+                [v for v in registro["crate"] if v["origine"] == attesa], attesa
+            )
+
+    def test_una_dipendenza_di_build_spacciata_per_prodotto_e_rossa(self) -> None:
+        """La distinzione serve a chi guarda una licenza: una crate che finisce
+        nel binario e una che serve solo a costruirlo non pongono la stessa
+        domanda."""
+        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        vittima = next(v for v in registro["crate"] if v["origine"] == "build")
+        vittima["origine"] = "prodotto"
+        errori = gate.origini_misurate(registro)
+        self.assertTrue(any(vittima["crate"] in e for e in errori), errori)
+        self.assertTrue(any("build" in e and "prodotto" in e for e in errori), errori)
+
+    def test_una_versione_sbagliata_col_nome_giusto_e_rossa(self) -> None:
+        """Il caso per cui il confronto e' passato dai nomi alle coppie.
+
+        Fino al 2026-09-09 il gate confrontava i soli nomi, e ventiquattro voci
+        del censimento portavano una versione vecchia restando verdi. La licenza
+        censita e' quella della versione dichiarata: una versione sbagliata
+        censisce la licenza di un'altra crate.
+        """
+        osservate = self._closure()
+        vera = self._coppia(osservate, "jsonschema")
+        falsata = (osservate - {vera}) | {(vera[0], "0.0.1")}
+        errori = gate.censimento_della_closure(falsata)
+        self.assertTrue(any("jsonschema" in e for e in errori), errori)
+        # Nomina entrambi i valori: chi legge nel registro della CI non ha il
+        # censimento sott'occhio.
+        self.assertTrue(
+            any(vera[1] in e and "0.0.1" in e for e in errori),
+            errori,
+        )
+        # E non lo racconta come una crate entrata o uscita, che sarebbe una
+        # diagnosi diversa dal fatto.
+        self.assertFalse(
+            any("non nel censimento" in e or "non piu' nella closure" in e for e in errori),
+            errori,
+        )
+
+    def test_una_crate_in_due_versioni_va_censita_due_volte(self) -> None:
+        """Se una crate e' raggiungibile in due versioni, il censimento deve
+        dirle entrambe: sono due licenze da guardare, non una."""
+        osservate = self._closure()
+        vera = self._coppia(osservate, "jsonschema")
+        errori = gate.censimento_della_closure(osservate | {(vera[0], "0.0.1")})
+        self.assertTrue(any("jsonschema" in e for e in errori), errori)
+
+    def test_la_closure_distingue_due_versioni_dello_stesso_nome(self) -> None:
+        """L'attraversamento risolve `nome versione`, non solo `nome`.
+
+        `Cargo.lock` scrive la versione in una voce di `dependencies` soltanto
+        quando il nome da solo sarebbe ambiguo. Indicizzando per nome, come
+        faceva prima, la seconda voce del pacchetto sovrascriveva la prima e la
+        distinzione spariva gia' nell'attraversamento.
+        """
+        lock = (gate.ROOT / "Cargo.lock").read_text(encoding="utf-8")
+        nomi_del_lock: dict[str, set[str]] = {}
+        for blocco in lock.split("[[package]]")[1:]:
+            nome = re.search(r'^name = "([^"]+)"', blocco, re.M)
+            versione = re.search(r'^version = "([^"]+)"', blocco, re.M)
+            if nome and versione:
+                nomi_del_lock.setdefault(nome.group(1), set()).add(versione.group(1))
+        doppi = {n for n, v in nomi_del_lock.items() if len(v) > 1}
+        self.assertTrue(doppi, "il lock non ha nomi in piu' versioni: sonda muta")
+
+        # Delle crate in piu' versioni, questa closure deve portare esattamente
+        # le versioni che l'attraversamento raggiunge -- e ognuna deve essere una
+        # di quelle che il lock dichiara per quel nome, non una inventata.
+        osservate = self._closure()
+        for nome, versione in osservate:
+            if nome in doppi:
+                self.assertIn(versione, nomi_del_lock[nome], nome)
 
     def test_il_censimento_registra_la_variazione_e_le_licenze(self) -> None:
         """Non soltanto un numero: quali crate e con quale licenza."""

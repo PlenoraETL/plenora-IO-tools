@@ -385,7 +385,57 @@ def closure_del_driver() -> list[str]:
     return errori
 
 
-def censimento_della_closure(nomi: set[str] | None = None) -> list[str]:
+def origini_misurate(registro: dict | None = None) -> list[str]:
+    """`origine` dice se una crate finisce nell'artefatto o serve solo a costruirlo.
+
+    E' una distinzione che chi guarda una licenza usa davvero, e qui si
+    **misura** confrontando gli archi `normal` con `normal,build` sugli stessi
+    bersagli. Dichiararla senza verificarla la farebbe invecchiare come le
+    versioni e come l'istogramma, e per la stessa ragione: nessuno la ricalcola.
+    """
+    registro = registro if registro is not None else _censimento()
+    prodotto = closure_del_prodotto()
+    if prodotto is None:
+        return ["le dipendenze di prodotto non si misurano: `cargo tree` non risponde"]
+    sbagliate = [
+        f"{voce['crate']} {voce['versione']}: dichiarata «{voce.get('origine')}», "
+        f"misurata «{'prodotto' if (voce['crate'], voce['versione']) in prodotto else 'build'}»"
+        for voce in registro["crate"]
+        if voce.get("origine")
+        != ("prodotto" if (voce["crate"], voce["versione"]) in prodotto else "build")
+    ]
+    return [f"origine dichiarata e non misurata: {sbagliate}"] if sbagliate else []
+
+
+def perimetro_esteso_misurato(registro: dict | None = None) -> list[str]:
+    """Il numero del perimetro esteso e' verificato, non ricordato.
+
+    Il censimento dichiara i bersagli **distribuiti**. Il perimetro con
+    `--target all` e' una domanda diversa, non una versione piu' prudente della
+    stessa, e sta nel registro perche' la differenza resti visibile. Un numero
+    scritto e non ricalcolato invecchia: e' successo all'istogramma delle
+    licenze, che sommava 178 voci su un elenco di 154.
+    """
+    registro = registro if registro is not None else _censimento()
+    esteso = closure_estesa()
+    if esteso is None:
+        return ["il perimetro esteso non si misura: `cargo tree` non risponde"]
+    dichiarato = registro.get("perimetro_esteso", {}).get("coppie")
+    if dichiarato != len(esteso):
+        return [
+            "il numero del perimetro esteso non e' quello misurato: dichiara "
+            f"{dichiarato}, `cargo tree --target all` ne da' {len(esteso)}"
+        ]
+    return []
+
+
+def _censimento() -> dict:
+    return json.loads(CENSIMENTO.read_text(encoding="utf-8"))
+
+
+def censimento_della_closure(
+    coppie: set[tuple[str, str]] | None = None,
+) -> list[str]:
     """Il censimento nomina **esattamente** la closure, con le licenze.
 
     Un censimento che si limitasse a un numero -- «sono entrate 63 crate» --
@@ -393,22 +443,33 @@ def censimento_della_closure(nomi: set[str] | None = None) -> list[str]:
     diverse e nessuno se ne accorgerebbe. Qui il gate ricalcola l'insieme dal
     `Cargo.lock` e pretende che coincida voce per voce, cosi' una dipendenza
     nuova entra solo passando di qui, con la sua licenza sotto gli occhi.
+
+    Il confronto e' su **coppie** nome/versione. Farlo sui soli nomi lasciava
+    passare il caso che conta di piu' fra quelli silenziosi: il nome resta
+    giusto e la versione invecchia, e con essa la licenza che le sta accanto.
     """
     if not CENSIMENTO.is_file():
         return [f"{CENSIMENTO.name}: censimento della closure assente"]
     registro = json.loads(CENSIMENTO.read_text(encoding="utf-8"))
-    dichiarate = {voce["crate"] for voce in registro["crate"]}
+    dichiarate = {(voce["crate"], voce["versione"]) for voce in registro["crate"]}
 
-    if nomi is None:
-        osservate = closure_dal_lock()
+    if coppie is None:
+        osservate = closure_con_versioni()
         if osservate is None:
-            return ["la closure non si ricava dal `Cargo.lock`"]
+            return [
+                "la closure di "
+                f"{CRATE} non si misura: `cargo tree` non risponde. Non si "
+                "ripiega sul `Cargo.lock`, che elenca anche le dipendenze "
+                "opzionali non abilitate e risponderebbe a un'altra domanda."
+            ]
     else:
-        osservate = nomi
+        osservate = coppie
 
     errori: list[str] = []
-    entrate = sorted(osservate - dichiarate)
-    uscite = sorted(dichiarate - osservate)
+    nomi_osservati = {n for n, _ in osservate}
+    nomi_dichiarati = {n for n, _ in dichiarate}
+    entrate = sorted(nomi_osservati - nomi_dichiarati)
+    uscite = sorted(nomi_dichiarati - nomi_osservati)
     if entrate:
         errori.append(
             f"crate nella closure di {CRATE} e non nel censimento: {entrate}. "
@@ -420,49 +481,156 @@ def censimento_della_closure(nomi: set[str] | None = None) -> list[str]:
             f"crate censite e non piu' nella closure: {uscite}. Un censimento "
             "che nomina cio' che non c'e' piu' e' un elenco che nessuno rilegge."
         )
+
+    # Il nome giusto con la versione sbagliata: e' il caso che il confronto per
+    # soli nomi lasciava passare. Un nome raggiungibile in piu' versioni deve
+    # averle **tutte** censite, una voce per versione, perche' la licenza e' una
+    # proprieta' della versione e non del nome.
+    for nome in sorted(nomi_osservati & nomi_dichiarati):
+        nella_closure = sorted(v for n, v in osservate if n == nome)
+        nel_censimento = sorted(v for n, v in dichiarate if n == nome)
+        if nella_closure != nel_censimento:
+            errori.append(
+                f"{nome}: il censimento dichiara {nel_censimento}, la closure "
+                f"porta {nella_closure}. La licenza censita e' quella della "
+                "versione dichiarata, quindi una versione sbagliata censisce "
+                "la licenza di un'altra crate."
+            )
+
+    doppioni = sorted(
+        {
+            f"{voce['crate']} {voce['versione']}"
+            for voce in registro["crate"]
+            if sum(
+                1
+                for altra in registro["crate"]
+                if (altra["crate"], altra["versione"])
+                == (voce["crate"], voce["versione"])
+            )
+            > 1
+        }
+    )
+    if doppioni:
+        errori.append(f"voci ripetute nel censimento: {doppioni}")
     if registro.get("crate_totali") != len(registro["crate"]):
         errori.append("il conteggio del censimento non coincide con il suo elenco")
     senza = [v["crate"] for v in registro["crate"] if not v.get("licenza")]
     if senza:
         errori.append(f"crate censite senza licenza: {senza}")
+
+    if coppie is None:
+        errori.extend(origini_misurate(registro))
+        errori.extend(perimetro_esteso_misurato(registro))
+
+    # L'istogramma e' stato derivato una volta e poi mai piu' guardato: al
+    # 2026-09-09 sommava 178 voci su un elenco di 154. Un riassunto che nessuno
+    # ricalcola invecchia come le versioni, e per la stessa ragione.
+    atteso: dict[str, int] = {}
+    for voce in registro["crate"]:
+        atteso[voce["licenza"]] = atteso.get(voce["licenza"], 0) + 1
+    if registro.get("licenze") != atteso:
+        errori.append(
+            "l'istogramma `licenze` non riassume l'elenco: dichiara "
+            f"{sum(registro.get('licenze', {}).values())} voci su "
+            f"{len(registro['crate'])} crate censite"
+        )
     return errori
 
 
-def closure_dal_lock() -> set[str] | None:
-    """La closure di `driver-geoparquet`, per attraversamento del lock.
+#: I bersagli su cui il prodotto viene **distribuito**, non quelli su cui
+#: compila. `assurance/registries/distribuzione-matrice.json` ne dichiara due,
+#: e mette `aarch64-apple-darwin` fra le `piattaforme_non_distribuite`: la CI lo
+#: costruisce, ma non se ne promette artefatto ne' supporto.
+TARGET_DISTRIBUITI = ("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc")
 
-    Dal lock e non da `cargo tree`: cosi' il censimento si verifica anche dove
-    `cargo` non c'e', e la risposta non dipende da quali feature sono attive nel
-    momento in cui si guarda.
-    """
-    testo = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
-    pacchi: dict[str, list[str]] = {}
-    for blocco in testo.split("[[package]]")[1:]:
-        nome = re.search(r'^name = "([^"]+)"', blocco, re.M)
-        if not nome:
-            continue
-        dipendenze = re.search(r"^dependencies = \[(.*?)\]", blocco, re.M | re.S)
-        elenco = (
+
+def _albero(archi: str, bersaglio: str) -> set[tuple[str, str]] | None:
+    """Le coppie nome/versione che `cargo tree` risolve, o `None` se non risponde."""
+    import subprocess
+
+    try:
+        esito = subprocess.run(
             [
-                d.strip().strip('",').split()[0]
-                for d in dipendenze.group(1).splitlines()
-                if d.strip()
-            ]
-            if dipendenze
-            else []
+                "cargo", "tree",
+                "-p", CRATE,
+                "--edges", archi,
+                "--target", bersaglio,
+                "--prefix", "none",
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        pacchi[nome.group(1)] = [d for d in elenco if d]
-    if CRATE not in pacchi:
+    except OSError:
         return None
-    visti: set[str] = set()
-    coda = [CRATE]
-    while coda:
-        nome = coda.pop()
-        if nome in visti or nome not in pacchi:
-            continue
-        visti.add(nome)
-        coda.extend(pacchi[nome])
-    return visti
+    if esito.returncode != 0:
+        return None
+    coppie: set[tuple[str, str]] = set()
+    for riga in esito.stdout.splitlines():
+        parti = riga.split()
+        if len(parti) >= 2 and re.fullmatch(r"v[0-9][^ ]*", parti[1]):
+            coppie.add((parti[0], parti[1][1:]))
+    return coppie or None
+
+
+def _unione(archi: str) -> set[tuple[str, str]] | None:
+    """Lo stesso, unito sui bersagli distribuiti."""
+    unione: set[tuple[str, str]] = set()
+    for bersaglio in TARGET_DISTRIBUITI:
+        parziale = _albero(archi, bersaglio)
+        if parziale is None:
+            return None
+        unione |= parziale
+    return unione
+
+
+def closure_con_versioni() -> set[tuple[str, str]] | None:
+    """Il perimetro che il censimento dichiara, per intero e senza scorciatoie.
+
+    Tre scelte, e nessuna e' neutra:
+
+    * **archi `normal,build`** -- cio' che il driver esegue e cio' che serve a
+      costruirlo. Non le `dev-dependencies`: non arrivano a chi riceve
+      l'artefatto. Le due classi restano distinguibili voce per voce, nel campo
+      `origine`, perche' una dipendenza di build e una che finisce nel binario
+      non pongono la stessa domanda a chi guarda una licenza.
+    * **feature come le risolve la build vera** -- nessun `--features`, nessun
+      `--all-features`: la configurazione predefinita di questo pacchetto nel
+      workspace. Con `--all-features` entrerebbero rami che non compiliamo, ed
+      e' l'errore che il `Cargo.lock` faceva dall'altro lato includendo le
+      opzionali non abilitate.
+    * **i due bersagli distribuiti**, non tutti quelli che Cargo conosce.
+
+    L'ultima e' una correzione del 2026-09-10. Prima qui c'era `--target all`,
+    motivato con «distribuiamo per Linux e per Windows»: un non-sequitur, perche'
+    `all` comprende anche redox, haiku, wasm, android, apple e le architetture
+    i686 e aarch64 di Windows. Sono quarantadue coppie in piu' -- da
+    `wasm-bindgen` a `iana-time-zone-haiku` -- che descrivono un perimetro
+    piu' largo di cio' che spediamo. Un censimento di licenze che le comprende
+    non e' piu' prudente: dice una cosa diversa da quella che il suo titolo
+    promette, e quarantadue voci che nessuno deve rivedere rendono meno
+    riconoscibili le centoventotto che invece si'.
+
+    Il perimetro esteso resta misurato in `perimetro_esteso`, perche' sia un
+    numero verificato e non un ricordo -- ma i due non sono la stessa domanda e
+    il registro non li presenta come equivalenti.
+
+    Serve `cargo`. Se manca, la funzione non ripiega sul lock: un ripiego che
+    risponde a un'altra domanda e' peggio di un rifiuto, ed e' esattamente cio'
+    che teneva questo censimento sbagliato senza farlo notare.
+    """
+    return _unione("normal,build")
+
+
+def closure_del_prodotto() -> set[tuple[str, str]] | None:
+    """Il sottoinsieme che finisce nell'artefatto: senza le dipendenze di build."""
+    return _unione("normal")
+
+
+def closure_estesa() -> set[tuple[str, str]] | None:
+    """Ogni piattaforma che Cargo riconosce, non solo quelle distribuite."""
+    return _albero("normal,build", "all")
 
 
 def verifica() -> tuple[list[str], dict[str, dict]]:
@@ -499,8 +667,9 @@ def main() -> int:
         "chiusi del codice ricavati **dagli schemi**, non dal codice. La closure "
         f"di {CRATE} non contiene {list(VIETATE_NELLA_CLOSURE)}, e `jsonschema` "
         f"resta senza i resolver; il censimento nomina le sue "
-        f"{len(json.loads(CENSIMENTO.read_text(encoding='utf-8'))['crate'])} crate "
-        "con le loro licenze. Il catalogo dichiara "
+        f"{len(_censimento()['crate'])} coppie nome/versione su "
+        f"{len({c['crate'] for c in _censimento()['crate']})} nomi, con le loro "
+        "licenze. Il catalogo dichiara "
         f"«{versione_dichiarata()}», la massima che gli schemi definiscono. "
         f"{len(PROVE_DI_CONFORMITA)} prove di conformita' eseguite -- fra cui il "
         "metadato di un Parquet realmente scritto e la forma fisica della "
