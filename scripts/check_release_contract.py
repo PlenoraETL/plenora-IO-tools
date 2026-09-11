@@ -1754,56 +1754,134 @@ def percorso_canonico(valore: Any) -> str | None:
     return valore
 
 
-def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
-    """`assurance/evidence/` contiene **la sola** evidenza citata dallo stato.
+def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+    """`{nome del file: chi lo cita}` per ogni evidenza che lo stato riferisce.
 
-    Le evidenze precedenti restavano nell'albero senza che alcun gate le
-    leggesse. Costavano piu' di quanto rendessero: la loro sola presenza
-    invitava a confronti fra corse — e un confronto fra corse **non e'
-    ricostruibile** da un albero in cui quelle corse non ci sono piu' o non
-    sono verificabili. Una di esse portava un digest anteriore alla forma
-    canonica, quindi non ricalcolabile; un'altra dichiarava di non fornire
-    numeri e veniva citata lo stesso.
-
-    Git conserva la storia. L'albero di lavoro dice che cosa vale **oggi**.
+    Sono due le fonti, e non una: la misura corrente e **ogni release
+    pubblicata**. Tenerle separate darebbe due controlli che si contraddicono,
+    ed e' esattamente cio' che e' successo.
     """
-    relativo = percorso_canonico(_dentro(stato, ("ultima_misura", "evidenza")))
-    if relativo is None:
-        return [
+    riferite: dict[str, str] = {}
+    errori: list[str] = []
+
+    corrente = percorso_canonico(_dentro(stato, ("ultima_misura", "evidenza")))
+    if corrente is None:
+        errori.append(
             "`ultima_misura.evidenza` assente o non canonico: non c'e' "
             "un'evidenza corrente che si possa nominare in un modo solo"
-        ]
-    if Path(relativo).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
-        return [
-            f"`ultima_misura.evidenza` vale «{relativo}», che non sta in "
+        )
+    elif Path(corrente).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
+        errori.append(
+            f"`ultima_misura.evidenza` vale «{corrente}», che non sta in "
             f"`{CARTELLA_DELLE_EVIDENZE}/`"
-        ]
+        )
+    else:
+        riferite[Path(corrente).name] = "`ultima_misura.evidenza`"
 
-    attesa = Path(relativo).name
-    # `iterdir` e non `glob("*.json")`: filtrare per estensione e' una
-    # whitelist travestita da controllo di contenuto. Un `checkpoint-old.json.bak`,
-    # una sottodirectory o un `.orig` lasciato da un merge restavano invisibili,
-    # e «contiene la corrente e nient'altro» era vero solo dei `.json`.
+    storiche = _dentro(stato, RELEASE_STORICHE) or []
+    if isinstance(storiche, list):
+        for indice, verbale in enumerate(storiche):
+            if not isinstance(verbale, dict):
+                continue
+            dove = f"`{'.'.join(RELEASE_STORICHE)}[{indice}].evidenza`"
+            relativo = percorso_canonico(verbale.get("evidenza"))
+            if relativo is None:
+                errori.append(f"{dove} assente o non canonico")
+                continue
+            if Path(relativo).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
+                errori.append(
+                    f"{dove} vale «{relativo}», che non sta in "
+                    f"`{CARTELLA_DELLE_EVIDENZE}/`. Una release pubblicata "
+                    "conserva la propria qualifica dove stanno le altre: un "
+                    "percorso a parte sarebbe fuori dall'allowlist del "
+                    "congelamento, e registrarla diventerebbe impossibile."
+                )
+                continue
+            riferite.setdefault(Path(relativo).name, dove)
+    return riferite, errori
+
+
+def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
+    """`assurance/evidence/` contiene **esattamente** le evidenze riferite.
+
+    # Il difetto che chiude
+
+    La regola diceva «una sola»: il file citato da `ultima_misura.evidenza`, e
+    nient'altro. Alla prima release era vera per coincidenza -- la release
+    pubblicata e la misura corrente erano la **stessa** corsa, e un file solo
+    serviva a entrambe.
+
+    Alla seconda le due divergono, e la regola entra in contraddizione con
+    `verifica_release_storiche`, che pretende la qualifica di ogni release
+    pubblicata «ancora leggibile». Tre mosse, tutte rosse: tenere entrambi i
+    file rompeva questa; cancellare quello della release pubblicata rompeva
+    quella; spostarlo altrove usciva dall'allowlist del congelamento, e
+    registrare una release sarebbe diventato impossibile.
+
+    Non era una regola sbagliata: era una regola **incompleta**, scritta quando
+    le evidenze da conservare erano una. Il confronto e' ora fra l'insieme dei
+    file presenti e l'**unione** dei riferimenti -- la misura corrente piu' ogni
+    release pubblicata -- e le due meta' non possono piu' contraddirsi, perche'
+    sono la stessa.
+
+    # Che cosa **non** cambia
+
+    Il confronto resta esatto e per insieme, non per contenimento: un file in
+    piu' e' rosso come uno in meno. Un'evidenza che nessuno cita resta un
+    documento che nessuno rilegge, e la sua presenza invita ancora a confronti
+    fra corse che l'albero non permette di ricostruire.
+
+    Resta `iterdir` e non `glob("*.json")`: filtrare per estensione e' una
+    whitelist travestita da controllo di contenuto, e un `.orig` lasciato da un
+    merge tornerebbe invisibile.
+
+    Restano i controlli su esistenza, revisione e integrita' storica: li fa
+    `verifica_release_storiche`, che rilegge ogni verbale contro git e contro la
+    corsa che dichiara. Qui si guarda **la directory**; li' si guarda che cosa
+    ogni file dice.
+    """
+    riferite, errori = _evidenze_riferite(stato)
+    if errori:
+        # Senza sapere che cosa lo stato riferisce non c'e' un insieme atteso:
+        # proseguire confronterebbe la directory con una lista monca, e il
+        # messaggio parlerebbe di file estranei invece che del riferimento
+        # illeggibile che li ha resi tali.
+        return errori
+
     presenti = sorted(voce.name for voce in DIRECTORY_EVIDENZE.iterdir())
-    if presenti != [attesa]:
+    attese = sorted(riferite)
+    if presenti != attese:
+        estranei = sorted(set(presenti) - set(attese))
+        mancanti = sorted(set(attese) - set(presenti))
+        dettaglio = []
+        if estranei:
+            dettaglio.append(
+                f"in piu' {estranei}, che nessuna fonte dello stato cita"
+            )
+        if mancanti:
+            dettaglio.append(
+                "mancano "
+                + str([f"{n} ({riferite[n]})" for n in mancanti])
+            )
         return [
-            f"assurance/evidence contiene {presenti}, e deve contenere "
-            f"esattamente [{attesa!r}]. Un'evidenza che nessun gate legge e' un "
-            "documento che nessuno rilegge, e la sua presenza invita a "
-            "confronti fra corse che l'albero non permette di ricostruire. La "
-            "storia sta in git."
+            f"assurance/evidence contiene {presenti}, e le fonti dello stato "
+            f"riferiscono {attese}: " + "; ".join(dettaglio) + ". "
+            "L'insieme e' esatto: un'evidenza che nessuno cita e' un documento "
+            "che nessuno rilegge, e una citata che manca e' una qualifica non "
+            "piu' leggibile."
         ]
 
-    percorso = DIRECTORY_EVIDENZE / attesa
-    if percorso.is_symlink():
-        return [
-            f"assurance/evidence/{attesa} e' un link. Un'evidenza deve essere "
-            "il file che dichiara di essere: un link punta a un contenuto che "
-            "l'albero non registra, e che puo' cambiare senza che il repository "
-            "lo mostri."
-        ]
-    if not percorso.is_file():
-        return [f"assurance/evidence/{attesa} non e' un file regolare"]
+    for nome in attese:
+        percorso = DIRECTORY_EVIDENZE / nome
+        if percorso.is_symlink():
+            return [
+                f"assurance/evidence/{nome} e' un link. Un'evidenza deve essere "
+                "il file che dichiara di essere: un link punta a un contenuto "
+                "che l'albero non registra, e che puo' cambiare senza che il "
+                "repository lo mostri."
+            ]
+        if not percorso.is_file():
+            return [f"assurance/evidence/{nome} non e' un file regolare"]
     return []
 
 

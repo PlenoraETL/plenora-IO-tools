@@ -3314,16 +3314,29 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         )
 
 
-class SondeSolaEvidenza(unittest.TestCase):
-    """L'albero di lavoro conserva la sola evidenza corrente."""
+class SondeInsiemeDelleEvidenze(unittest.TestCase):
+    """`assurance/evidence/` contiene **esattamente** le evidenze riferite.
+
+    La regola diceva «una sola», ed era vera per coincidenza: alla prima
+    release la release pubblicata e la misura corrente erano la stessa corsa.
+    Alla seconda divergono, e l'insieme atteso e' l'**unione** dei riferimenti.
+    """
 
     def stato(self) -> dict:
         return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
-    def test_l_albero_reale_ne_ha_una_sola(self) -> None:
-        self.assertEqual(gate._sola_evidenza_corrente(self.stato()), [])
-        presenti = sorted(p.name for p in gate.DIRECTORY_EVIDENZE.glob("*.json"))
-        self.assertEqual(len(presenti), 1, presenti)
+    def test_l_albero_reale_contiene_esattamente_le_riferite(self) -> None:
+        """Non piu' «una sola»: **quelle riferite**, quante che siano.
+
+        Contare qui un numero fisso rimetterebbe il vincolo che la regola ha
+        smesso di imporre, e tornerebbe rosso alla release seguente.
+        """
+        stato = self.stato()
+        self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+        riferite, errori = gate._evidenze_riferite(stato)
+        self.assertEqual(errori, [], errori)
+        presenti = sorted(v.name for v in gate.DIRECTORY_EVIDENZE.iterdir())
+        self.assertEqual(presenti, sorted(riferite), presenti)
 
     def test_un_evidenza_precedente_rimasta_e_rossa(self) -> None:
         """Una corsa vecchia nell'albero invita a un confronto fra corse.
@@ -3398,6 +3411,107 @@ class SondeSolaEvidenza(unittest.TestCase):
             (radice / attesa).write_text("{}", encoding="utf-8")
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+
+
+    # --- la transizione fra due release, con fixture isolate ---------------
+    #
+    # Il caso che ha rotto il modello: una release pubblicata da conservare e
+    # una candidate nuova da qualificare. Le fixture vivono **fuori** dal
+    # repository -- scriverne dentro lascerebbe file non tracciati, e
+    # l'impronta dell'albero li vedrebbe.
+
+    STORICA = "checkpoint-a61a081.json"
+    CORRENTE = "checkpoint-aa86f5f.json"
+    REV_STORICA = "a61a0815b000f2856594375a2858c41e32a1fff7"
+
+    def scenario(self, radice: pathlib.Path, *, file: tuple[str, ...]) -> dict:
+        """Release 2.0.0 archiviata piu' candidate 3.0.0 con evidenza propria."""
+        for nome in file:
+            (radice / nome).write_text("{}", encoding="utf-8")
+        return {
+            "ultima_misura": {"evidenza": f"assurance/evidence/{self.CORRENTE}"},
+            "chiuso": {
+                "release_pubblicate": [
+                    {
+                        "versione_manifesto": "2.0.0",
+                        "revisione_candidate": self.REV_STORICA,
+                        "evidenza": f"assurance/evidence/{self.STORICA}",
+                    }
+                ]
+            },
+        }
+
+    def test_due_release_con_evidenze_distinte_passano(self) -> None:
+        """Il caso valido, che con la regola vecchia era rosso.
+
+        E' la controprova positiva della correzione: senza, «sempre rosso»
+        sarebbe stata una difesa.
+        """
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            stato = self.scenario(radice, file=(self.STORICA, self.CORRENTE))
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+
+    def test_l_evidenza_storica_mancante_e_rossa(self) -> None:
+        """Cancellarla e' la mossa che la regola vecchia **imponeva**.
+
+        La qualifica di una release pubblicata deve restare leggibile: il
+        messaggio nomina il file e chi lo cita, perche' «manca un file» senza
+        dire quale fonte lo pretende non dice dove guardare.
+        """
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            stato = self.scenario(radice, file=(self.CORRENTE,))
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+        self.assertTrue(any(self.STORICA in m for m in errori), errori)
+        self.assertTrue(any("release_pubblicate" in m for m in errori), errori)
+
+    def test_un_file_estraneo_resta_rosso(self) -> None:
+        """L'insieme e' esatto anche verso l'alto: un file che nessuna fonte
+        cita e' un documento che nessuno rilegge, e due release non lo
+        legittimano."""
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            stato = self.scenario(
+                radice, file=(self.STORICA, self.CORRENTE, "checkpoint-0000000.json")
+            )
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+        self.assertTrue(any("checkpoint-0000000.json" in m for m in errori), errori)
+
+    def test_una_storica_fuori_dalla_cartella_e_rossa(self) -> None:
+        """Spostarla altrove era la terza uscita, e usciva dall'allowlist.
+
+        Ammetterla qui renderebbe verde un albero in cui registrare una
+        release e' impossibile: il percorso nuovo non e' fra quelli che
+        l'assurance puo' toccare dopo il congelamento.
+        """
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            stato = self.scenario(radice, file=(self.CORRENTE,))
+            stato["chiuso"]["release_pubblicate"][0]["evidenza"] = (
+                f"assurance/release-pubblicate/{self.STORICA}"
+            )
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+        self.assertTrue(any("allowlist" in m for m in errori), errori)
+
+    def test_la_revisione_sbagliata_la_coglie_il_verbale(self) -> None:
+        """La revisione non la guarda questa regola, e non e' una lacuna.
+
+        Qui si guarda **la directory**; che ogni verbale rimandi alla corsa
+        della propria revisione lo verifica `verifica_release_storiche`,
+        rileggendo il file. Due controlli, due domande: questa sonda dice che
+        la seconda esiste ancora e morde.
+        """
+        stato = self.stato()
+        storiche = stato.get("chiuso", {}).get("release_pubblicate")
+        self.assertTrue(storiche, "serve una release pubblicata da alterare")
+        storiche[0]["revisione_candidate"] = "0" * 40
+        errori = gate.verifica_release_storiche(stato)
+        self.assertTrue(errori, "una revisione inesistente deve essere rossa")
 
 
 class SondePercorsiCanonici(unittest.TestCase):
