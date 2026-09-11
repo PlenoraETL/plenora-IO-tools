@@ -959,6 +959,14 @@
         "assurance/current-state.json"
       ],
       "confronto_atteso": "i venti asset riscaricati dalla release devono avere gli stessi digest registrati qui sopra in `prepublish.assets`: e' cio' che rende verificabile «pubblicazione immutata». Se un digest differisse, la bozza non e' stata pubblicata immutata."
+    },
+    "authorization": {
+      "instruction": "Autorizzo esplicitamente il rilascio della versione 3.0.0 e l'intera sequenza necessaria.",
+      "channel": "GitHub Releases nel repository attuale; visibilita' gestita dal titolare; nessuna pubblicazione su PyPI",
+      "candidate_revision": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "che_cosa_autorizza": "la pubblicazione della bozza 386842189 **immutata**, con i venti asset gia' qualificati. Non autorizza una ricostruzione degli artefatti: i byte pubblicati devono essere quelli congelati, e il confronto dopo la pubblicazione lo verifica.",
+      "che_cosa_non_autorizza": "una release successiva. Il permesso e' speso dalla pubblicazione, e `release_action_allowed` torna falso quando la candidate passa a `pubblicata`.",
+      "perche_sta_qui_e_non_nello_stato": "l'avevo scritta in `aperto.candidate_release.autorizzazione`, e il gate l'ha rifiutata: in `current-state.json` ogni foglia dev'essere legata a una fonte che la riscrive, oppure dichiarata con la ragione per cui non ne ha una. La prosa di un'autorizzazione non ha una fonte che la rigeneri -- e' una decisione -- e il suo posto e' il verbale, che e' dove la 2.0.0 la teneva."
     }
   }
 }

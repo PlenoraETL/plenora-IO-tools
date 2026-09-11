@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -185,8 +185,8 @@
       "versione_manifesto": "3.0.0",
       "versione_workspace": "3.0.0",
       "tag_previsto": "v3.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": true,
       "release_blocking": false,
       "stato": "attiva",
@@ -230,7 +230,8 @@
           "dimensione": 47753870,
           "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
         }
-      ]
+      ],
+      "tag_revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
     }
   },
   "docset": {
