@@ -21,42 +21,42 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `a61a081` |
-| revisione misurata | `a61a081` |
-| passi del checkpoint | 95 |
-| passi verdi | 95 |
+| ultima qualificata | `28bf62c` |
+| revisione misurata | `28bf62c` |
+| passi del checkpoint | 96 |
+| passi verdi | 96 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 80 672 |
+| input di replay | 82 092 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 89,72% |
-| righe coperte LCOV | 39 317 |
-| righe strumentate LCOV | 43 824 |
-| copertura cargo | 88,13% |
+| copertura LCOV | 91,02% |
+| righe coperte LCOV | 40 004 |
+| righe strumentate LCOV | 43 953 |
+| copertura cargo | 89,40% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `131ff9c` |
-| esito differenziale | n/d |
+| baseline differenziale | `a61a081` |
+| esito differenziale | 94.99% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 0 |
+| blocchi | 1 |
 | capacità differite | 2 |
-| S9, qualificato su | `a61a081` |
+| S9, qualificato su | `28bf62c` |
 | candidate, versione del manifesto | `3.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `28bf62ccba49d47bda0797b9892e373c49ebea61` |
 | candidate, versione del workspace | `3.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v3.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
-| candidate, release_action consentita | no |
+| candidate, assurance entro l'allowlist | sì |
+| candidate, release_action consentita | sì |
 | release pubblicate | 1 |
 | release_authorized | `false` |
 
@@ -66,6 +66,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
+| `distribuzione.artefatti-qualificati` | sei archivi qualificati su `28bf62c`; manca il confronto dei byte riscaricati dal canale |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

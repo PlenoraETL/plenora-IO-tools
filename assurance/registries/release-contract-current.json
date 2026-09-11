@@ -685,14 +685,14 @@
       "id": "distribuzione.artefatti-qualificati",
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "I sei archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
-      "stato": "verified",
-      "sintesi": "sei archivi qualificati su a61a081; byte riscaricati dalla release pubblicata identici ai digest congelati",
+      "stato": "release_blocking",
+      "sintesi": "sei archivi qualificati su `28bf62c`; manca il confronto dei byte riscaricati dal canale",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
       "prova": {
         "tipo": "esterna",
         "owner": "GitHub Actions distribuzione 34030548057 e verifica dei byte scaricati da GitHub Releases",
-        "artefatto": "assurance/evidence/checkpoint-a61a081.json",
-        "stato": "passed"
+        "artefatto": "assurance/evidence/checkpoint-28bf62c.json",
+        "stato": "not_run"
       },
       "macchina_di_qualifica": {
         "tipo": "workflow",
@@ -701,7 +701,8 @@
         "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_release_pubblicata",
         "ultima_corsa_verde": "a61a081",
         "corsa": 34030548057
-      }
+      },
+      "manca": "i sei archivi sono costruiti dalla revisione congelata `28bf62c`, verificati installati da trentadue referti verdi, e i loro digest sono ricalcolati sui byte scaricati e congelati nello stato.\n\nManca il confronto **dal canale di release**, che l'invariante pretende due volte: sui byte riscaricati dalla bozza prima di pubblicare, e su quelli riscaricati dalla release dopo una pubblicazione immutata. Per la 3.0.0 non esiste ancora una bozza.\n\nEra `verified` sulla 2.0.0, e lo resta **per quella**: il verbale con i suoi sei artefatti e la sua verifica post-pubblicazione sta in `chiuso.release_pubblicate`. Portarlo avanti sulla 3.0.0 avrebbe attribuito a questi archivi una verifica fatta su altri."
     },
     {
       "id": "distribuzione.licenza-first-party",

@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "a61a081",
+      "sha": "28bf62c",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "a61a081",
+    "sha": "28bf62c",
     "checkpoint": {
-      "passi_eseguiti": 95,
-      "passi_verdi": 95,
+      "passi_eseguiti": 96,
+      "passi_verdi": 96,
       "passi_omessi": 0,
       "passi_falliti": 0,
       "riconciliazione": "95 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 80672,
+      "replay_input": 82092,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 89.72,
-      "lcov_righe_coperte": 39317,
-      "lcov_righe_strumentate": 43824,
-      "cargo_lines_percentuale": 88.13,
+      "lcov_percentuale": 91.02,
+      "lcov_righe_coperte": 40004,
+      "lcov_righe_strumentate": 43953,
+      "cargo_lines_percentuale": 89.4,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
       "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "131ff9c",
-      "esito": "n/d",
-      "righe_cambiate_eseguibili": 0,
-      "coperte": 0,
-      "scoperte": 0,
-      "cambiate_non_eseguibili": 0,
-      "ragione": "misurata **dentro** la corsa, con `S9_CHECKPOINT_BASE` impostata alla revisione dell'ultimo checkpoint superato. Cio' che e' cambiato fra le due sta nel gate del contratto e nelle sue sonde, non nei driver: la percentuale dice quanto di quel poco e' attraversato dai test.",
-      "che_cosa_sono_le_scoperte": "righe cambiate fra le due revisioni che nessun test attraversa. Non sono un difetto ne' un debito: sono il punto in cui la copertura complessiva, che resta alta, non dice niente sul codice **nuovo**. L'elenco e' integrale e non troncato: i numeri dicono quante, e senza i nomi nessun artefatto direbbe quali."
+      "baseline": "a61a081",
+      "esito": "94.99%",
+      "righe_cambiate_eseguibili": 738,
+      "coperte": 701,
+      "scoperte": 37,
+      "cambiate_non_eseguibili": 771,
+      "ragione": "misurata: 738 righe cambiate ed eseguibili fra `a61a081` e `28bf62c` nel perimetro di libreria, 701 coperte e 37 no. Le 771 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
+      "che_cosa_sono_le_scoperte": "trentasette righe fra le settecentotrentotto cambiate ed eseguibili, elencate una per una nell'evidenza sotto `misure.diagnostica_differenziale.righe_scoperte`. Non e' un blocco e non e' un difetto noto: e' superficie dichiarata e non provata, ed e' cio' che questa diagnostica esiste per rendere visibile."
     },
-    "evidenza": "assurance/evidence/checkpoint-a61a081.json"
+    "evidenza": "assurance/evidence/checkpoint-28bf62c.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "a61a081"
+      "qualificato_su": "28bf62c"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -187,10 +187,50 @@
       "tag_previsto": "v3.0.0",
       "tag_creato": false,
       "tag_sulla_candidate": false,
-      "release_action_allowed": false,
+      "release_action_allowed": true,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "# Candidate 3.0.0, iniziale\n\nNon e' ancora congelata: non ha `revisione_candidate` ne' i digest degli artefatti, e non li avra' finche' il congelamento non li produce. Scriverli prima vorrebbe dire inventarli.\n\n`tag_creato` e' **falso**, non assente: che il tag non ci sia e' un fatto noto, e ometterlo direbbe «non lo so» dove sappiamo.\n\nChe cosa la separa dalla 2.0.0, oltre alla versione: ventotto dipendenze dirette allineate contro le ventisette di allora, tre fork aggiornati alle loro ultime release -- gdal 0.19.0, shapefile 0.9.0, dxf gia' alla propria -- e sei contributi inviati upstream, due dei quali uniti. Nessun fork e' stato tolto: unito non e' rilasciato."
+      "stato": "attiva",
+      "nota": "La candidate 3.0.0 e' **congelata** su `28bf62c`. Da quella revisione escono i sei artefatti -- quattro nativi piu' wheel e sdist -- nella corsa `Distribuzione` 34558542834 in canale `candidate`, con trentadue referti verdi. I digest qui sotto sono ricalcolati sui byte scaricati, non copiati dai sommari della corsa.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' andra' il tag. La revisione di assurance e' HEAD finche' la candidate e' attiva, e non si scrive: un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive.\n\n# Perche' non `abd39c6`\n\nLa prima candidate chiesta era `abd39c6`, e non e' congelabile. La toolchain di `distribuzione.yml` e' passata da 1.92.0 a 1.98.1 -- allineandosi a `rust-toolchain.toml` e alla CI, che la usavano gia' -- e con la 1.98.1 `ld-linux-x86-64.so.2` compare fra i `DT_NEEDED` diretti del profilo `base`. L'insieme atteso dal lock ne dichiarava tre e la chiusura ne trovava quattro: un job rosso su quattro, e il gate ha fatto il proprio mestiere. Il lock e' stato aggiornato in `aa86f5f`, e quella correzione tocca `scripts/`, quindi invalida `abd39c6` per costruzione.\n\n`release_action_allowed` dice che la **candidate** permette all'azione di rilascio di procedere: gli artefatti esistono, sono qualificati e non verranno ricostruiti. Non e' l'autorizzazione, che e' `release_authorized` e resta `false`, e non e' il tag, che non esiste.",
+      "revisione_candidate": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-3.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "b4d2e663469cec161fb57ff82baa08d2729fecd28e28c25faffe567a6d0fee37",
+          "dimensione": 8554767,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        },
+        {
+          "nome": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "9e25262598170dff0af212e7d51bc8d2682b860ea15c399b174b254c0e1916a3",
+          "dimensione": 64398154,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        },
+        {
+          "nome": "plenora_io-3.0.0-py3-none-any.whl",
+          "sha256": "30d39743d2af7d171cd46b096063558bd34d1aa911bbafc7cea5e274aef509e5",
+          "dimensione": 33794,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        },
+        {
+          "nome": "plenora_io-3.0.0.tar.gz",
+          "sha256": "fc34e92614de1bb03b7642b4d1e52954e5589c38b1c38e8dce3abb05aafbc1fa",
+          "dimensione": 48178,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        },
+        {
+          "nome": "plenora-io-3.0.0-windows-x86_64-base.zip",
+          "sha256": "25b1209a7ed2ed27fb1c67edf04630f4de07dcf8c90bfac02e72ea6457386efd",
+          "dimensione": 8687668,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        },
+        {
+          "nome": "plenora-io-3.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "cc35490274cb2e7290f4d0dbcebac6c110d14f5172d02b020baab512f4b002a3",
+          "dimensione": 47753870,
+          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+        }
+      ]
     }
   },
   "docset": {
