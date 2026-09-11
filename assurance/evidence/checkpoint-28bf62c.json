@@ -761,7 +761,7 @@
   "open_blockers": [],
   "evidence": {
     "status": "passed",
-    "scope": "Integrita' dei sei archivi qualificati e dei quattordici file di accompagnamento **riscaricati dalla bozza**, confrontati con i digest congelati dalla candidate su `28bf62c`.\n\nLa verifica prima della pubblicazione riguarda la bozza; quella successiva riguarda la release pubblicata. Questa e' la **prima**: e' il confronto che l'invariante pretende prima di pubblicare, ed e' eseguito. Il secondo confronto non ha ancora un oggetto su cui girare -- la release non e' pubblicata -- e resta **pendente**: lo registra il blocco `published` di `release_verification`, che qui e' assente perche' non e' stato eseguito."
+    "scope": "Integrita' dei sei archivi qualificati e dei quattordici file di accompagnamento, verificata **due volte**: sui byte riscaricati dalla bozza prima della pubblicazione, e sui byte riscaricati dalla release dopo. La verifica prima della pubblicazione riguarda la bozza; quella successiva riguarda la release pubblicata.\n\nEntrambe sono eseguite e verdi, e i venti digest coincidono fra le due: la bozza e' stata pubblicata immutata."
   },
   "release_verification": {
     "schema_version": 1,
@@ -930,25 +930,44 @@
       ]
     },
     "preflight": {
-      "stato": "da_eseguire",
+      "timestamp_utc": "2026-09-11T09:02:05.453443+00:00",
       "command": [
         "python3",
         "scripts/check_release_contract.py",
         "--release"
       ],
-      "nota": "il controllo da eseguire immediatamente prima di pubblicare. Pretende le cinque condizioni dell'autorizzazione insieme, e due di esse dipendono da decisioni non ancora prese: `decisione-scritta` (`release_authorized` e' false) e `candidate-coerente` (il tag `v3.0.0` non esiste)."
+      "exit_code": 0,
+      "stdout": "release autorizzabile: 37 invarianti, nessun blocco, 5 condizioni verificate.\n  DIFFERITO sistema.qualifica-cross-component: NON verificato. la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.\n  DIFFERITO distribuzione.licenza-first-party: NON verificato. La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI.\n",
+      "revisione_di_assurance": "e3e1e61",
+      "nota": "il controllo eseguito **prima** di pubblicare, con le cinque condizioni dell'autorizzazione insieme. Le due righe `DIFFERITO` che seguono la riga verde non sono un dettaglio: la corsa che autorizza e' l'ultima in cui convenga tacere che due capacita' restano non verificate.",
+      "un_rosso_prima_del_verde": "la prima corsa e' uscita rossa su `stato.fonti-legate`: avevo scritto la prosa dell'autorizzazione in `aperto.candidate_release.autorizzazione`, e in `current-state.json` ogni foglia dev'essere legata a una fonte che la riscrive. Una decisione non ne ha una. Spostata qui nel verbale -- dove la 2.0.0 la teneva -- e il commit corretto con `--amend` prima che entrasse in storia."
     },
     "publication": {
-      "stato": "da_eseguire"
+      "timestamp_utc": "2026-09-11T09:02:05.453443+00:00",
+      "published_at": "2026-09-11T08:59:34Z",
+      "release_id": 386842189,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v3.0.0",
+      "tag_name": "v3.0.0",
+      "target_commitish": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "command": [
+        "gh",
+        "api",
+        "-X",
+        "PATCH",
+        "repos/PlenoraETL/plenora-IO-tools/releases/386842189",
+        "-F",
+        "draft=false"
+      ],
+      "che_cosa_e_cambiato": "**soltanto** `draft`, da true a false. Nessun asset e' stato caricato, sostituito o rimosso, e nessun archivio e' stato ricostruito: i venti file pubblicati sono gli stessi oggetti che la bozza portava, e il confronto qui sotto lo verifica sui byte.",
+      "il_tag_esisteva_gia": "creato su `28bf62c` e spinto **prima** del preflight, perche' la condizione `candidate-coerente` pretende che il tag punti alla revisione congelata. GitHub ha quindi associato la release al tag esistente invece di crearne uno alla pubblicazione, e l'URL e' passato da `untagged-...` a `tag/v3.0.0`."
     },
     "published": {
-      "stato": "pendente",
-      "perche_e_assente": "il confronto sui byte riscaricati dalla **release pubblicata** non e' stato eseguito, perche' la release non esiste. Registrarlo ora -- anche come «atteso verde» -- sarebbe portare avanti su artefatti non pubblicati una verifica che riguarda il canale. Il blocco si scrive dopo averlo eseguito, non prima.",
-      "command_previsto": [
+      "timestamp_utc": "2026-09-11T09:02:05.453443+00:00",
+      "command": [
         "python3",
         "scripts/check-deliverable.py",
         "--directory",
-        "<riscaricati dalla release>",
+        ".s9-checkpoint/release-3.0.0/published",
         "--versione",
         "3.0.0",
         "--canale",
@@ -958,7 +977,18 @@
         "--contro-la-candidate",
         "assurance/current-state.json"
       ],
-      "confronto_atteso": "i venti asset riscaricati dalla release devono avere gli stessi digest registrati qui sopra in `prepublish.assets`: e' cio' che rende verificabile «pubblicazione immutata». Se un digest differisse, la bozza non e' stata pubblicata immutata."
+      "exit_code": 0,
+      "stdout": "deliverable verificati: 6 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 6 artefatti congelati dalla candidate\n",
+      "stderr": "",
+      "i_byte_vengono_dalla_release": "i venti asset sono stati **riscaricati da GitHub Releases dopo la pubblicazione**, in un direttorio nuovo, e non riusati da quello della bozza. Riusarli avrebbe confrontato una copia con se stessa.",
+      "confronto_con_prepublish": {
+        "asset_confrontati": 20,
+        "insieme_dei_nomi": "identico",
+        "digest_divergenti": 0,
+        "dimensioni_divergenti": 0,
+        "esito": "venti su venti: ogni digest e ogni dimensione coincidono con `prepublish.assets`. E' la prova che la pubblicazione e' stata **immutata**: se la bozza fosse stata modificata prima di pubblicare, o un asset ricostruito, un digest differirebbe."
+      },
+      "che_cosa_verifica_il_deliverable": "i sei archivi con i rispettivi checksum, i digest e le dimensioni contro `aperto.candidate_release.artefatti`, la revisione di ogni provenance, e SBOM, manifesto e nota del canale dentro i quattro archivi nativi. E' la seconda delle due fasi che l'invariante nomina: la prima riguardava la bozza, questa la release pubblicata."
     },
     "authorization": {
       "instruction": "Autorizzo esplicitamente il rilascio della versione 3.0.0 e l'intera sequenza necessaria.",

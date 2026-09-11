@@ -676,8 +676,8 @@
       "stato": "differita",
       "sintesi": "differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette",
       "differita": {
-        "decisione": "la 2.0.0 rilascia plenora-IO-tools come componente autonomo. Il perimetro della release e' il confine sui file di questo componente -- lettura, scrittura, protocollo della CLI, artefatti di distribuzione -- e non la catena di sistema. Il rinvio e' una scelta di perimetro, non un giudizio sull'esito: la qualifica non e' stata tentata e fallita, non e' stata eseguita.",
-        "non_promette": "la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.",
+        "decisione": "la 2.0.0 rilascia plenora-IO-tools come componente autonomo, e la 3.0.0 e' stata autorizzata con questo rinvio ancora in essere. Il perimetro della release e' il confine sui file di questo componente -- lettura, scrittura, protocollo della CLI, artefatti di distribuzione -- e non la catena di sistema. Il rinvio e' una scelta di perimetro, non un giudizio sull'esito: la qualifica non e' stata tentata e fallita, non e' stata eseguita.",
+        "non_promette": "la 3.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.",
         "condizione_di_ripristino": "l'owner esterno consegna harness e fixture e la corsa produce evidenza. Allora `release/system-rc-gate.json` passa a `status: satisfied`, `evidence.status: passed`, `open_blockers: []` e le tre revisioni fissate, e la voce torna `verified` per derivazione dall'artefatto -- mai per riscrittura di questo campo. Finche' l'artefatto non dice `passed`, `verified` e' rosso; quando lo dira', `differita` sara' rosso a sua volta. Gli input esatti da consegnare sono elencati in docs/RELEASE.md, sezione «Qualifica cross-component»."
       }
     },
@@ -686,11 +686,11 @@
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "I sei archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
       "stato": "verified",
-      "sintesi": "sei archivi qualificati su `28bf62c`; byte riscaricati dalla bozza identici ai digest congelati -- il confronto che precede la pubblicazione e' eseguito e verde. Quello sulla release pubblicata si ripete e si registra dopo",
+      "sintesi": "sei archivi qualificati su `28bf62c` e pubblicati come `v3.0.0`; i venti asset riscaricati dalla release hanno i digest della bozza, e i sei archivi quelli congelati dalla candidate. Entrambi i confronti che l'invariante nomina sono eseguiti",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
       "prova": {
         "tipo": "esterna",
-        "owner": "GitHub Actions distribuzione 34558542834 e verifica dei byte riscaricati dalla bozza 386842189 in GitHub Releases",
+        "owner": "GitHub Actions distribuzione 34558542834 e verifica dei byte riscaricati dalla release 386842189 (`v3.0.0`) in GitHub Releases",
         "artefatto": "assurance/evidence/checkpoint-28bf62c.json",
         "stato": "passed"
       },
@@ -698,10 +698,10 @@
         "tipo": "workflow",
         "artefatto": ".github/workflows/distribuzione.yml, job `gate`",
         "comando": "python3 scripts/check-distribuzione-completa.py --referti <referti> --canale <canale>",
-        "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_bozza",
+        "stato": "qualifica_candidate_completata_e_byte_verificati_dalla_release_pubblicata",
         "ultima_corsa_verde": "28bf62c",
         "corsa": 34558542834,
-        "resta_da_ripetere_dopo_la_pubblicazione": "lo stesso confronto sui byte riscaricati dalla release. Non e' una precondizione dell'autorizzazione -- lo dice il verbo dell'invariante, «viene ripetuto e registrato» -- ma un obbligo di verbale, e finche' non e' eseguito il blocco `published` dell'evidenza resta assente."
+        "i_due_confronti": "eseguiti entrambi e registrati in `assurance/evidence/checkpoint-28bf62c.json`, blocchi `prepublish` e `published` di `release_verification`. Il secondo confronta i venti asset riscaricati dalla release con i digest registrati prima di pubblicare: e' cio' che rende verificabile «pubblicazione immutata», e non lo direbbe un confronto coi soli sidecar."
       }
     },
     {
@@ -717,7 +717,7 @@
       "stato": "differita",
       "sintesi": "differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale",
       "differita": {
-        "decisione": "Il titolare ha successivamente accettato la visibilita pubblica attuale e autorizzato esplicitamente la pubblicazione della 2.0.0 su GitHub Releases. Questa decisione sostituisce il precedente vincolo operativo di consegna esclusivamente privata per questa release. Non autorizza una licenza first-party, una pubblicazione su PyPI o un cambio di visibilita del repository. I metadati e la matrice congelati conservano la precedente dichiarazione di canale riservato; questa nota registra esplicitamente la decisione successiva senza modificare i byte qualificati.",
+        "decisione": "Il titolare ha successivamente accettato la visibilita pubblica attuale e autorizzato esplicitamente la pubblicazione della 2.0.0 e poi della 3.0.0 su GitHub Releases. Questa decisione sostituisce il precedente vincolo operativo di consegna esclusivamente privata per questa release. Non autorizza una licenza first-party, una pubblicazione su PyPI o un cambio di visibilita del repository. I metadati e la matrice congelati conservano la precedente dichiarazione di canale riservato; questa nota registra esplicitamente la decisione successiva senza modificare i byte qualificati.",
         "non_promette": "La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI.",
         "condizione_di_ripristino": "Quando il titolare fornira il testo della licenza first-party e la denominazione legale esatta, una nuova revisione potra includerli nei propri artefatti e qualificare quella consegna. La presente autorizzazione alla pubblicazione non inventa questi termini e non modifica gli artefatti congelati."
       }
