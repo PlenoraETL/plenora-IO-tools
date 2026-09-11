@@ -1561,6 +1561,37 @@
           ],
           "sempre": true
         },
+        ".result.delivered": {
+          "tipi": [
+            "null",
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.delivered.bytes_written": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.delivered.content_type": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.delivered.interchange_contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.delivered.publish_outcome": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
         ".result.fidelity": {
           "tipi": [
             "object"
@@ -1767,6 +1798,72 @@
           ],
           "sempre": true
         },
+        ".result.loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.loss.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
         ".result.rows_read": {
           "tipi": [
             "integer"
@@ -1811,8 +1908,11 @@
         "layer",
         "rows_read",
         "batches",
-        "truncated"
-      ]
+        "truncated",
+        "loss",
+        "delivered"
+      ],
+      "delivered_nota": "`delivered` e sempre presente e vale null quando non c e consegna: un consumatore non deve dedurre dall assenza di un campo se i dati esistano."
     },
     "convert": {
       "contract": "plenora-io-convert-v2",

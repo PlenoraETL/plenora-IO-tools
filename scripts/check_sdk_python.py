@@ -70,6 +70,14 @@ NON_SONO_TETTI = frozenset(
         "--opt",
         "--durable",
         "--version",
+        # Il selettore del modo macchina: l'SDK parla JSON e non ha un'altra
+        # modalita' da scegliere. Offrirlo come parametro vorrebbe dire offrire
+        # un valore solo.
+        "--format",
+        # La destinazione della consegna di `read`. Non e' un tetto: e'
+        # l'argomento che distingue le due forme dell'operazione, e l'SDK lo
+        # offre come parametro posizionale di `Client.read(source, output)`.
+        "--output",
     }
 )
 

@@ -325,5 +325,86 @@ class ControIlBinarioVero(unittest.TestCase):
         self.assertTrue(self.cliente.cancellable)
 
 
+@serve_le_fixture
+class LaConsegnaDiRead(unittest.TestCase):
+    """`read()` consegna un dataset Arrow, e la prova apre il file.
+
+    Gira **contro il binario vero**: una consegna verificata su un finto
+    proverebbe che l'SDK sa leggere una busta che gli abbiamo scritto noi, non
+    che i dati escono.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        indicato = os.environ.get(VARIABILE)
+        cls.binario = indicato or shutil.which(NOME)
+        if cls.binario is None:
+            costruito = RADICE / "target" / "debug" / NOME
+            cls.binario = str(costruito) if costruito.is_file() else None
+
+    def setUp(self) -> None:
+        if self.binario is None:
+            self.skipTest("nessun binario plenora-io da esercitare")
+        self.temporanea = tempfile.TemporaryDirectory(prefix="plenora-sdk-read-")
+        self.tmp = Path(self.temporanea.name)
+        self.cliente = Client(binary=self.binario)
+
+    def tearDown(self) -> None:
+        self.temporanea.cleanup()
+
+    def sorgente(self) -> Path:
+        return RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche" / "canonico.geojson"
+
+    def test_read_consegna_e_lo_dichiara(self) -> None:
+        uscita = self.tmp / "consegnato.arrow"
+        esito = self.cliente.read(self.sorgente(), uscita)
+
+        self.assertGreater(esito.rows_read, 0)
+        self.assertIsNotNone(esito.delivered, "la consegna c'e' stata, e si legge")
+        self.assertEqual(
+            esito.delivered.content_type, "application/vnd.apache.arrow.file"
+        )
+        self.assertEqual(
+            esito.delivered.interchange_contract, "plenora-arrow-interchange-v1"
+        )
+        self.assertEqual(esito.delivered.publish_outcome, "published")
+        self.assertTrue(uscita.is_file(), "il file esiste davvero")
+        self.assertEqual(
+            uscita.stat().st_size,
+            esito.delivered.bytes_written,
+            "i byte dichiarati sono quelli scritti",
+        )
+
+    def test_i_byte_consegnati_sono_arrow(self) -> None:
+        """Il magic number, senza pretendere una libreria Arrow nell'ambiente.
+
+        Un file Arrow IPC comincia con `ARROW1`. Non e' una validazione
+        completa -- quella la fanno le sonde Rust, che aprono il file con
+        `arrow-ipc` -- ma distingue «un file c'e'» da «c'e' un file Arrow», che
+        e' la differenza che conta qui.
+        """
+        uscita = self.tmp / "magico.arrow"
+        self.cliente.read(self.sorgente(), uscita)
+        with uscita.open("rb") as flusso:
+            self.assertEqual(flusso.read(6), b"ARROW1")
+
+    def test_validate_non_consegna_e_lo_dichiara(self) -> None:
+        """La controprova: senza, «delivered c'e'» sarebbe vero sempre."""
+        esito = self.cliente.validate(self.sorgente())
+        self.assertGreater(esito.rows_read, 0)
+        self.assertIsNone(
+            esito.delivered,
+            "senza consegna il campo c'e' e vale None: l'assenza si legge",
+        )
+
+    def test_una_destinazione_occupata_e_un_errore_tipizzato(self) -> None:
+        uscita = self.tmp / "occupata.arrow"
+        uscita.write_bytes(b"non toccarmi")
+        with self.assertRaises(CommandFailed) as preso:
+            self.cliente.read(self.sorgente(), uscita)
+        self.assertEqual(preso.exception.envelope.category, "conflict")
+        self.assertEqual(uscita.read_bytes(), b"non toccarmi")
+
+
 if __name__ == "__main__":
     unittest.main()

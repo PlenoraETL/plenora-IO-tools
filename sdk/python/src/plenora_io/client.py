@@ -188,6 +188,53 @@ class Client:
             argomenti += limits.to_argv()
         return Validation.from_json(self._runner.run(argomenti))
 
+    def read(
+        self,
+        source: str | os.PathLike[str],
+        output: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+    ) -> Validation:
+        """Legge un layer e lo **consegna** come dataset Arrow.
+
+        # Perche' esiste, ora
+
+        Fino alla 3.0.0 questo metodo non c'era, e `validate()` portava il nome
+        che porta proprio per questo: il comando `read` della CLI leggeva il
+        file per intero e buttava via le righe, quindi chiamarlo `read()` avrebbe
+        promesso dati che non arrivavano. Ora arrivano, e il nome torna suo.
+
+        `validate()` resta, e non e' un residuo: leggere senza materializzare e'
+        il modo in cui si risponde a «questo file si legge?» su una sorgente
+        grande, pagando la lettura vera senza pagare il disco.
+
+        # Che cosa si ottiene
+
+        Lo stesso `Validation` di `validate()`, con `delivered` valorizzato: il
+        content type prodotto, il contratto d'interscambio, i byte scritti e
+        l'esito della pubblicazione. Il file e' Arrow IPC, e si apre con
+        qualunque libreria Arrow -- non serve questo SDK per rileggerlo, ed e'
+        il punto.
+
+        # `limit` non c'e', e non e' una dimenticanza
+
+        Il prodotto rifiuta `--limit` insieme alla consegna: il writer deve
+        conoscere la cardinalita' esatta dell'ingresso, e una consegna troncata
+        renderebbe falso il totale su cui poggiano le diagnostiche di riga.
+        Esporre il parametro qui avrebbe offerto una combinazione che fallisce
+        sempre.
+        """
+        argomenti = self._argomenti("read", source, assume_crs, options)
+        argomenti += ["--output", os.fspath(output)]
+        if layer is not None:
+            argomenti += ["--layer", str(layer)]
+        if limits is not None:
+            argomenti += limits.to_argv()
+        return Validation.from_json(self._runner.run(argomenti))
+
 
     def convert(
         self,

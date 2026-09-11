@@ -91,6 +91,8 @@ class ITettiEsistonoNellaCli(unittest.TestCase):
             "--assume-crs",  # parametro di ogni metodo che legge
             "--layer",  # parametro di validate()
             "--limit",  # parametro di validate()
+            "--format",  # l'SDK parla JSON: non c'e' un'altra modalita' da scegliere
+            "--output",  # la destinazione della consegna: argomento di read()
             "--in-opt",  # il dizionario `options`
             "--out-opt",  # servira' a convert()
             "--opt",  # idem

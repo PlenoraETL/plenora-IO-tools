@@ -63,13 +63,66 @@ class ArtefattoFinto:
         self.risposte = risposte
         self.chieste: list[tuple[str, ...]] = []
         self.guasti: list[str] = []
+        #: Se il finto sappia consegnare. Spento per i finti che provano un
+        #: artefatto rotto: li' `read --output` deve fallire come tutto il resto.
+        self.consegna_attiva = False
 
     def invoca(self, *argomenti: str) -> gate.Invocazione:
         self.chieste.append(argomenti)
-        corsa = self.risposte.get(argomenti, invocazione(exit_code=2))
+        corsa = self.risposte.get(argomenti) or self._consegna(argomenti)
+        if corsa is None:
+            corsa = invocazione(exit_code=2)
         if corsa.guasto:
             self.guasti.append(f"{' '.join(argomenti) or '(nessun argomento)'}: {corsa.guasto}")
         return corsa
+
+    def _consegna(self, argomenti: tuple[str, ...]) -> gate.Invocazione | None:
+        """Le due forme di `read`, su percorsi che il chiamante sceglie.
+
+        Il percorso lo crea la sonda in una directory temporanea, quindi il
+        finto non lo puo' avere in tabella: deve **rispondere** all'argomento
+        invece di riconoscerlo.
+
+        Scrivere davvero i byte e' cio' che rende la sonda della consegna una
+        prova: un finto che dichiarasse una consegna senza produrre il file la
+        farebbe passare a vuoto, che e' lo stesso difetto che quella sonda esiste
+        per cogliere. E senza `--output` `delivered` vale `None`, perche' e'
+        l'altra meta' di cio' che la sonda verifica.
+        """
+        if not self.consegna_attiva or argomenti[:1] != ("read",):
+            return None
+
+        consegna = None
+        if "--output" in argomenti:
+            percorso = pathlib.Path(argomenti[argomenti.index("--output") + 1])
+            byte = b"ARROW1" + b"\x00" * 58
+            percorso.write_bytes(byte)
+            consegna = {
+                "content_type": "application/vnd.apache.arrow.file",
+                "interchange_contract": "plenora-arrow-interchange-v1",
+                "bytes_written": len(byte),
+                "publish_outcome": "published",
+            }
+
+        busta = {
+            "status": "ok",
+            "protocol_version": 2,
+            "component": "plenora-io-tools",
+            "component_version": "4.0.0",
+            "contract": "plenora-io-read-v2",
+            "command": "read",
+            "result": {
+                "format": "geojson",
+                "fidelity": {"level": "lossless"},
+                "loss": {"counts": []},
+                "layer": {"name": "x"},
+                "rows_read": 5,
+                "batches": 1,
+                "truncated": False,
+                "delivered": consegna,
+            },
+        }
+        return invocazione(json.dumps(busta) + "\n")
 
 
 BUSTA_CONFORME = json.dumps(
@@ -279,7 +332,7 @@ CAPABILITY_CONFORME = {
 
 def artefatto_conforme() -> ArtefattoFinto:
     """Un artefatto che soddisfa ogni requisito del registro."""
-    return ArtefattoFinto(
+    finto = ArtefattoFinto(
         {
             ("catalog",): invocazione(BUSTA_CONFORME + "\n"),
             ("catalog", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
@@ -321,6 +374,8 @@ def artefatto_conforme() -> ArtefattoFinto:
             ),
         }
     )
+    finto.consegna_attiva = True
+    return finto
 
 
 class SondeDellAmbiente(unittest.TestCase):

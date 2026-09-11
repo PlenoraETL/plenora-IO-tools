@@ -70,6 +70,7 @@ from .models import (
     LossExample,
     LossReport,
     Omissions,
+    Delivered,
     Validation,
     Version,
 )
@@ -143,6 +144,7 @@ __all__ = [
     "TimeoutError",
     "TransientError",
     "UnsupportedError",
+    "Delivered",
     "Validation",
     "Version",
     "__version__",

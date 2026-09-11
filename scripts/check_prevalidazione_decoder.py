@@ -116,6 +116,23 @@ CRATE_AMMESSE = {
 INIZIO_FUNZIONE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)")
 
 
+def e_un_file_di_prova(relativo: str) -> bool:
+    """Un file che Cargo compila **solo** sotto `cargo test`.
+
+    `crates/<nome>/tests/…` e' un target di test per definizione di Cargo: non
+    entra in nessun artefatto spedito, e l'input che vi passa e' quello che la
+    prova costruisce da se'. La stessa ragione per cui il gate esclude i moduli
+    `#[cfg(test)]` inline vale qui, e la mancava soltanto perche' fino alla
+    4.0.0 nessuna prova d'integrazione costruiva un decoder.
+
+    L'esclusione e' per **percorso** e non per contenuto: un file sotto `src/`
+    che si chiamasse `tests.rs` non passa di qui, e deve continuare a non
+    passare -- il nome non lo rende un target di test.
+    """
+    parti = relativo.split("/")
+    return len(parti) > 2 and parti[0] == "crates" and parti[2] == "tests"
+
+
 def righe_di_test(testo: str) -> set[int]:
     """Le righe che stanno dentro un modulo `#[cfg(test)]`.
 
@@ -243,6 +260,15 @@ def verifica(radice: Path) -> list[str]:
         for sorgente in sorted((radice / "crates").rglob("*.rs")):
             relativo = sorgente.relative_to(radice).as_posix()
             if any(relativo.startswith(f"{crate}/") for crate in ammesse):
+                continue
+            if e_un_file_di_prova(relativo):
+                # Contato come escluso, non ignorato: se un giorno la parte
+                # esclusa crescesse, si vedrebbe nel numero dell'esito.
+                esclusi_di_test += sum(
+                    1
+                    for riga in sorgente.read_text(encoding="utf-8").splitlines()
+                    if costruttore in riga and not riga.lstrip().startswith("//")
+                )
                 continue
             testo = sorgente.read_text(encoding="utf-8")
             solo_test = righe_di_test(testo)

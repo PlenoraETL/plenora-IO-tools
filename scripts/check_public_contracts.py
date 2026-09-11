@@ -75,6 +75,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -729,6 +730,79 @@ def sonda_ogni_comando_mappa_un_operazione(
     return Esito(True)
 
 
+def sonda_read_consegna(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """`read --output` consegna byte Arrow, e senza `--output` lo dichiara.
+
+    # Perche' il gate guarda i byte e non la busta
+
+    Fino alla 4.0.0 la busta di `read` diceva righe e batch mentre i dati non
+    uscivano affatto: il riassunto era giusto e la consegna non c'era. Guardare
+    di nuovo il riassunto sarebbe misurare la stessa cosa che non bastava.
+
+    Qui si guarda il **magic number** del file prodotto -- `ARROW1`, i primi sei
+    byte di un IPC file -- e la coerenza fra i byte scritti e quelli dichiarati.
+    Non e' una validazione Arrow completa: quella la fanno le sonde Rust, che
+    aprono il file con `arrow-ipc`. E' il minimo che distingua «c'e' un file» da
+    «c'e' un file Arrow», ed e' verificabile dal confine senza dipendenze.
+    """
+    with tempfile.TemporaryDirectory(prefix="plenora-consegna-") as temporanea:
+        uscita = Path(temporanea) / "consegnato.arrow"
+        # La sorgente e' una fixture del repository: il gate gira accanto ad
+        # essa, e una sorgente sintetica proverebbe meno.
+        sorgente = (
+            ROOT
+            / "crates"
+            / "plenora-io-cli"
+            / "tests"
+            / "fixtures"
+            / "canoniche"
+            / "canonico.geojson"
+        )
+        if not sorgente.is_file():
+            return Esito(False, f"la fixture «{sorgente.name}» non c'e'")
+
+        corsa = artefatto.invoca(
+            "read", str(sorgente), "--output", str(uscita), "--format", "json"
+        )
+        if corsa.exit_code != 0:
+            return Esito(False, f"`read --output` esce {corsa.exit_code}")
+        risultato = (corsa.documento() or {}).get("result") or {}
+        consegna = risultato.get("delivered")
+        if not isinstance(consegna, dict):
+            return Esito(False, "la busta non dichiara una consegna")
+        if not uscita.is_file():
+            return Esito(False, "la busta dichiara una consegna e il file non c'e'")
+
+        byte = uscita.read_bytes()
+        if byte[:6] != b"ARROW1":
+            return Esito(
+                False,
+                f"i byte consegnati non cominciano con `ARROW1`: {byte[:6]!r}",
+            )
+        if consegna.get("bytes_written") != len(byte):
+            return Esito(
+                False,
+                f"la busta dichiara {consegna.get('bytes_written')} byte e il "
+                f"file ne ha {len(byte)}",
+            )
+        if consegna.get("content_type") != "application/vnd.apache.arrow.file":
+            return Esito(
+                False, f"content type «{consegna.get('content_type')}»"
+            )
+
+    # E senza `--output` la consegna non c'e', e il campo lo dice: un
+    # consumatore non deve dedurre dall'assenza di un campo se i dati esistano.
+    senza = artefatto.invoca("read", str(sorgente), "--format", "json")
+    if senza.exit_code != 0:
+        return Esito(False, f"`read` senza consegna esce {senza.exit_code}")
+    corpo = (senza.documento() or {}).get("result") or {}
+    if "delivered" not in corpo:
+        return Esito(False, "senza consegna il campo `delivered` manca del tutto")
+    if corpo["delivered"] is not None:
+        return Esito(False, "senza `--output` non ci puo' essere una consegna")
+    return Esito(True)
+
+
 SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "errore.quattro-assi": sonda_quattro_assi,
     "errore.categoria-nel-vocabolario": sonda_categoria,
@@ -742,6 +816,7 @@ SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "cli.aiuto": sonda_aiuto,
     "cli.versione-json": sonda_versione_json,
     "cli.capabilities": sonda_capabilities,
+    "read.consegna-arrow": sonda_read_consegna,
     "capabilities.forma": sonda_capability_forma,
     "capabilities.copre-il-catalogo": sonda_capability_copre_il_catalogo,
     "capabilities.non-duplica-i-formati": sonda_capability_non_duplica_i_formati,

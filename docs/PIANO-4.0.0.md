@@ -112,7 +112,8 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B8 | Identificatore di contratto del catalogo | catalogo io-tools | `contract: plenora-io-catalog-v2` | il catalogo comune fissa `plenora-io-catalog-v1` per `io.catalog@1` | allineare l'identificatore, oppure dichiarare la deviazione e la ragione | l'identificatore emesso coincide con quello del catalogo comune al pin |
 | B9 | `--format json` come selettore esplicito | CLI-2.0 §2 | `catalog --format json` esce **2**: il flag non è accettato | la modalità macchina non è selezionabile come il contratto prescrive | `--format json` su tutti i comandi; formato umano esplicito e mai implicito | ogni entrypoint del binding CLI è invocabile **letteralmente** come scritto in `bindings/cli-v1.json` |
 | B10 | Comando `write` | catalogo io-tools, `io.write` | il binario espone `catalog, inspect, layers, read, convert` | `io.write` è **richiesto** e non esiste come comando | esporre `write --input INPUT.arrow --output SINK --format json` | l'entrypoint del binding risponde e dichiara esito di pubblicazione e fedeltà |
-| B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-011, binding `read SOURCE --output OUTPUT.arrow` | `cmd_read` apre il reader, **drena i batch contandoli e li scarta**, e rende `rows_read`, `batches`, `truncated`, `fidelity`, `layer`. Nessun `--output`, nessun byte Arrow prodotto | non è una consegna incompleta: è un'operazione **di conteggio**. Il catalogo dichiara per `io.read` i content type `application/vnd.apache.arrow.stream` e `.file` e l'interchange `plenora-arrow-interchange-v1`; oggi non ne esce nessuno | migrare `read` da validatore a operazione di consegna: `--output`, scrittura Arrow IPC, e il risultato JSON che descrive ciò che è stato consegnato | un consumatore legge il file Arrow prodotto senza il nostro codice, e ne ritrova schema, righe e metadati; la busta JSON dichiara il content type effettivamente prodotto |
+| B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | sedici prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel |
+| B12b | Il limite non si combina con la consegna | contratto di scrittura, `declare_input_total` | **chiusa.** `--limit` insieme a `--output` è rifiutato con `invalid_plan` | il difetto che le prove hanno trovato: `--limit 2 --output` riusciva e consegnava **tutte** le righe, con `truncated: true` accanto. La busta diceva una cosa e il file un'altra | rifiuto chiuso: il writer deve conoscere la cardinalità esatta dell'ingresso, e una consegna troncata renderebbe falso il totale su cui poggiano le diagnostiche di riga | il comando esce `invalid_plan` con codice `LIMIT_WITH_DELIVERY` e non lascia un file; `--limit` da solo continua a valere |
 | B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
 | B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
 
@@ -295,18 +296,31 @@ ma la precede.
 CLI e quello delle capability:
 
 ```
-profilo pubblico: 22 requisiti verificati e protetti su 23, 1 ancora da implementare.
-  DA IMPLEMENTARE capabilities.ogni-comando-mappa-un-operazione (CLI-2.0 §10):
-    comandi che invocano il dominio senza un'operazione disponibile: `read` -> io.read
+profilo pubblico: 24 requisiti verificati e protetti su 24.
 ```
 
-Era 8 su 19 quando il verificatore è nato. L'unico residuo è la tensione che
-`io.read` crea: il comando esiste, l'operazione no, perché conta i batch invece
-di consegnarli. Dichiararla disponibile per far tornare la sonda sarebbe
-annunciare una consegna che non c'è — ed è esattamente ciò che il documento
-capability esiste per impedire. Si chiude con B12.
+Era 8 su 19 quando il verificatore è nato.
 
-I ventitré requisiti stanno in `contracts/requisiti-pubblici.json`, ciascuno
+### Ventiquattro su ventiquattro non è l'adozione
+
+È il momento in cui quel numero inganna di più, e va detto qui prima che altrove.
+Dice che i requisiti **elencati in quel registro** sono verificati sul confine
+pubblico. Fuori restano:
+
+* **BB1–BB5** — i dodici schemi delle coppie di ingresso e uscita con i loro
+  esempi, `plenora-io-error-details-v1`, e le prove sui metadati Arrow oltre
+  quelle che `io.read` ora copre;
+* **C1–C4** — la superficie Rust, la sua mappatura versionata e il consumatore
+  esterno che la importa;
+* **B10** — `io.write`;
+* **A3, A6, I1** — il manifesto di adozione con le sue deviazioni, e la qualifica.
+
+Un registro completo misura tutto ciò che gli è stato chiesto di misurare, non
+tutto ciò che serve: il gate non sa che cosa manchi al registro stesso.
+Aggiungere una riga lì è il modo in cui la misura cresce, e ogni blocco che
+segue ne aggiunge.
+
+I ventiquattro requisiti stanno in `contracts/requisiti-pubblici.json`, ciascuno
 con la propria regola, lo stato, e — quando manca — la ragione scritta. Le tre
 regole che lo rendono incrementale:
 
@@ -371,12 +385,11 @@ qui perché è la precondizione di C1.
 **Priorità 5 — la superficie Rust.** C1, C2, C3, C4, dopo la decisione D1. È il
 punto con più incertezza e più costo, e non blocca nulla di ciò che precede.
 
-**Priorità 6 — le due operazioni sui dati.** B10 e B12. `io.write` manca del
-tutto; `io.read` esiste ma **non consegna**: conta i batch e li scarta. Sono la
-stessa famiglia di lavoro — muovere dati Arrow attraverso il confine pubblico —
-e la seconda è più grande della prima, perché trasforma un validatore in
-un'operazione di consegna. B13 segue da B12. Ha senso solo dopo che la busta e
-la scoperta sono stabili.
+**Priorità 6 — le due operazioni sui dati.** B12 ✅ **chiusa**: `io.read`
+consegna, e le prove aprono i byte. Resta **B10**, `io.write`, che userà lo
+stesso contratto del dataset Arrow — l'ingresso di `write` è l'uscita di `read`,
+ed è la ragione per cui questo ordine è quello giusto. B13, lo streaming senza
+materializzazione completa, segue da lì.
 
 **Priorità 7 — i contratti di confine.** BB1–BB5. Dodici schemi, i loro esempi,
 lo schema di `details` e le prove sui metadati Arrow consegnati. Vengono **dopo**

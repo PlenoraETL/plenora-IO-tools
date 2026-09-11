@@ -608,6 +608,40 @@ class Layers:
 
 
 @dataclass(frozen=True, kw_only=True)
+class Delivered:
+    """Che cosa `read(output=...)` ha consegnato.
+
+    Esiste perche' la consegna e' **facoltativa**, e la sua assenza deve essere
+    leggibile: `Validation.delivered` vale `None` quando non c'e' stata, e non
+    si deduce dall'assenza di un campo.
+    """
+
+    OBBLIGATORI = (
+        "content_type",
+        "interchange_contract",
+        "bytes_written",
+        "publish_outcome",
+    )
+
+    content_type: str
+    interchange_contract: str
+    bytes_written: int
+    publish_outcome: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Delivered":
+        _pretendi(documento, cls.OBBLIGATORI, "read.delivered")
+        return cls(
+            content_type=documento["content_type"],
+            interchange_contract=documento["interchange_contract"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class Validation:
     """L'esito di `validate()`, cioe' della busta `plenora-io-read-v2`.
 
@@ -636,6 +670,8 @@ class Validation:
     batches: int
     truncated: bool
     fidelity: Fidelity
+    loss: "LossReport"
+    delivered: "Delivered | None"
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = (
@@ -645,11 +681,14 @@ class Validation:
         "batches",
         "truncated",
         "fidelity",
+        "loss",
+        "delivered",
     )
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Validation":
         _pretendi(documento, cls.OBBLIGATORI, "read")
+        consegna = documento["delivered"]
         return cls(
             format=documento["format"],
             layer=Layer.from_json(documento["layer"]),
@@ -657,6 +696,10 @@ class Validation:
             batches=documento["batches"],
             truncated=documento["truncated"],
             fidelity=Fidelity.from_json(documento["fidelity"]),
+            loss=LossReport.from_json(documento["loss"]),
+            # `None` quando non c'e' stata consegna, e il campo c'e' comunque:
+            # l'assenza si legge, non si deduce.
+            delivered=Delivered.from_json(consegna) if consegna is not None else None,
             raw=dict(documento),
         )
 

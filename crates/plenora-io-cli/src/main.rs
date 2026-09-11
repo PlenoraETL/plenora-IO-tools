@@ -43,7 +43,7 @@ const ESTENSIONI_AMMESSE: &str =
     "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
 
 /// I flag che la CLI riconosce. Stessa ragione.
-const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt, --out-opt,      --version";
+const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --version";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -378,6 +378,13 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
 #[derive(Default)]
 struct Cli {
     positionals: Vec<String>,
+    /// Dove `read` consegna il dataset Arrow.
+    ///
+    /// E' un flag e non un posizionale perche' la consegna e' **facoltativa**:
+    /// `read SORGENTE` legge e riporta senza materializzare, ed e' il modo in
+    /// cui si valida una sorgente grande. Un secondo posizionale avrebbe reso
+    /// la consegna obbligatoria o la sua assenza indistinguibile da un refuso.
+    output: Option<PathBuf>,
     assume_crs: Option<String>,
     layer: Option<u32>,
     limit: Option<usize>,
@@ -520,6 +527,25 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                         })?
                         .clone(),
                 );
+            }
+            // Il selettore del modo macchina e' accettato da ogni comando, ed
+            // e' l'unico valore ammesso: `--format` con altro non e' una
+            // modalita' che non abbiamo, e' un refuso che fallisce chiuso.
+            FLAG_FORMATO => {
+                let v = it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--format richiede un valore"))
+                })?;
+                if v != FORMATO_JSON {
+                    return Err(usage_err(&PublicMessage::Curated(
+                        "--format ammette soltanto json",
+                    )));
+                }
+            }
+            "--output" => {
+                let v = it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--output richiede un percorso"))
+                })?;
+                cli.output = Some(PathBuf::from(v));
             }
             "--layer" => {
                 let v = it.next().ok_or_else(|| {
@@ -795,20 +821,35 @@ fn capabilities_document() -> Value {
                 "none",
                 true,
             ),
-            operazione_assente(
-                "io.read",
-                "plenora-io-read-input-v1",
-                "plenora-io-read-result-v1",
-                &[
-                    "application/vnd.apache.arrow.stream",
-                    "application/vnd.apache.arrow.file",
-                ],
-                "none",
-                "il comando `read` esiste e riporta fedelta', layer e conteggi, \
-                 ma non **consegna** i dati: legge i batch e li scarta. \
-                 `io.read` e' definita dalla consegna di un dataset Arrow, e \
-                 finche' quella manca l'operazione non e' selezionabile.",
-            ),
+            // `io.read` consegna, e la sua uscita non e' JSON: e' l'unica
+            // operazione disponibile che produce Arrow, ed e' la ragione per
+            // cui non passa da `operazione_esposta`.
+            //
+            // `side_effect` e' `local` e non `none`: con `--output` scrive un
+            // file, e un effetto che il documento tacesse sarebbe un effetto
+            // che chi orchestra non si aspetta. La forma senza consegna non
+            // scrive niente, ma il descrittore dichiara il **massimo** rischio,
+            // non quello del caso migliore.
+            json!({
+                "id": "io.read",
+                "version": 1,
+                "status": "available",
+                "surfaces": ["cli"],
+                "input": {
+                    "contract": "plenora-io-read-input-v1",
+                    "content_types": ["application/json"],
+                },
+                "output": {
+                    "contract": "plenora-io-read-v2",
+                    "content_types": ["application/vnd.apache.arrow.file"],
+                },
+                "side_effect": "local",
+                "controls": {
+                    "cancellation": true,
+                    "deadline": true,
+                    "idempotency_key": false,
+                },
+            }),
             operazione_assente(
                 "io.write",
                 "plenora-io-write-input-v1",
@@ -975,11 +1016,83 @@ fn read_request(cli: &Cli, layer_id: u32, scope: ReadScope) -> ReadRequest {
     }
 }
 
+/// Il nome pubblico di un esito di pubblicazione.
+///
+/// Una funzione e non due `match`: erano due, uno in `convert` e uno in `read`,
+/// e due `match` sullo stesso enum divergono al primo variante nuovo -- il
+/// compilatore li obbliga entrambi a coprirlo, non a dargli lo stesso nome.
+const fn esito_di_pubblicazione(esito: PublishOutcome) -> &'static str {
+    match esito {
+        PublishOutcome::Published => "published",
+        PublishOutcome::PublishedButDurabilityUnconfirmed => "published_durability_unconfirmed",
+    }
+}
+
+/// La forma di `io.read` che legge e **non** consegna.
+///
+/// Non e' una lettura a meta': e' una lettura completa di cui si conserva il
+/// giudizio invece dei dati, ed e' il modo in cui si risponde a «questa
+/// sorgente si legge?» senza pagare il disco.
+fn legge_senza_consegnare(
+    cli: &Cli,
+    ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
+    driver: &dyn FormatDriver,
+    contract: &LayerContract,
+    fidelity_iniziale: &FidelityAssessment,
+    layer_id: u32,
+    scopo: ReadScope,
+) -> CliResult {
+    let mut reader = ds
+        .open_layer_reader(&read_request(cli, layer_id, scopo))
+        .map_err(map_err)?;
+    let (mut rows, mut batches) = (0usize, 0usize);
+    while let Some(batch) = reader.next_batch().map_err(map_err)? {
+        rows += batch.num_rows();
+        batches += 1;
+        if cli.limit.is_some_and(|l| rows >= l) {
+            break;
+        }
+    }
+    let perdita = reader.loss_report();
+    Ok(json!({
+        "format": driver.descriptor().id(),
+        "fidelity": fidelity_doc(&fidelity_iniziale.clone().with_loss_report(&perdita))?,
+        "loss": loss_doc(fidelity_iniziale, &perdita)?,
+        "layer": layer_json(contract),
+        "rows_read": rows,
+        "batches": batches,
+        "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "delivered": Value::Null,
+    }))
+}
+
+/// `io.read`: legge un layer e, quando glielo si chiede, lo **consegna**.
+///
+/// # Che cosa e' cambiato, e perche' era un difetto
+///
+/// Fino alla 3.0.0 questo comando apriva il lettore, drenava i batch contandoli
+/// e li **scartava**. Rendeva righe, batch e fedelta': informazione vera e
+/// utile, ma non i dati. Il catalogo comune definisce `io.read` come la lettura
+/// di un layer «as an Arrow dataset plus structured fidelity evidence», e
+/// dichiara per la sua uscita i content type Arrow: un'operazione che non
+/// consegna non e' quell'operazione, ed e' la ragione per cui il documento
+/// capability la dichiarava non disponibile.
+///
+/// # Le due forme, e perche' restano due
+///
+/// Senza `--output` il comportamento e' quello di prima: si legge, si conta, si
+/// riporta la fedelta'. Serve a chi vuole **sapere** senza materializzare, ed e'
+/// il modo in cui si validano sorgenti grandi. Con `--output` si consegna.
+///
+/// Le due forme si distinguono nel risultato: `delivered` porta il content type
+/// prodotto, i byte e il percorso quando c'e' una consegna, ed e' assente
+/// quando non c'e'. Un consumatore non deve dedurre dall'assenza di un campo se
+/// i dati esistano: glielo dice `delivered`.
 fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    let fidelity = ds.fidelity_assessment();
+    let fidelity_iniziale = ds.fidelity_assessment();
     let layer_id = cli.layer.unwrap_or(0);
     let contract = ds
         .layers()
@@ -997,31 +1110,106 @@ fn cmd_read(cli: &Cli) -> CliResult {
             )
         })?
         .clone();
-    let mut reader = ds
-        .open_layer_reader(&read_request(
-            cli,
-            layer_id,
-            cli.limit.map_or(ReadScope::Complete, |limit| {
-                ReadScope::AcceptedRows(limit as u64)
-            }),
-        ))
-        .map_err(map_err)?;
-    let (mut rows, mut batches) = (0usize, 0usize);
-    while let Some(batch) = reader.next_batch().map_err(map_err)? {
-        rows += batch.num_rows();
-        batches += 1;
-        if cli.limit.is_some_and(|l| rows >= l) {
-            break;
-        }
-    }
-    Ok(json!({
 
+    let scopo = cli.limit.map_or(ReadScope::Complete, |limit| {
+        ReadScope::AcceptedRows(limit as u64)
+    });
+
+    // `--limit` e `--output` insieme sono rifiutati, e non per pigrizia.
+    //
+    // Il contratto di scrittura pretende che il writer conosca la cardinalita'
+    // **esatta** dell'ingresso -- `declare_input_total` -- perche' e' cio' su
+    // cui poggiano le diagnostiche di riga. Consegnare un dataset troncato
+    // lasciando dichiarato il totale della sorgente direbbe una cosa falsa
+    // proprio nel campo che serve a interpretare gli scarti; dichiarare il
+    // totale troncato direbbe che la sorgente ne aveva meno.
+    //
+    // «Le prime N righe come Arrow» e' un'operazione legittima e **diversa**:
+    // e' una proiezione, e il contratto d'ingresso di `io.read` non la descrive.
+    // Inventarne la semantica qui la fisserebbe prima che qualcuno la decida.
+    if cli.limit.is_some() && cli.output.is_some() {
+        return Err(local_err_doc(
+            "LIMIT_WITH_DELIVERY",
+            ErrorCategory::InvalidPlan,
+            ErrorPhase::Validate,
+            &PublicMessage::Curated(
+                "--limit e --output insieme non sono ammessi: una consegna                  troncata renderebbe falso il totale d'ingresso su cui                  poggiano le diagnostiche di riga. Senza --output il limite                  vale, e la lettura riporta quante righe ha visto.",
+            ),
+        ));
+    }
+
+    let Some(uscita) = cli.output.clone() else {
+        return legge_senza_consegnare(
+            cli,
+            ds.as_ref(),
+            driver.as_ref(),
+            &contract,
+            &fidelity_iniziale,
+            layer_id,
+            scopo,
+        );
+    };
+
+    // La consegna. Il sink e' **sempre** Arrow IPC: `io.read` consegna un
+    // dataset Arrow, e lasciare che l'estensione scegliesse il formato avrebbe
+    // reso `read` un secondo `convert` con un nome diverso.
+    let sink = driver_ipc::IpcDriver;
+    let piano = WritePlan {
+        layers: vec![WriteLayer {
+            name: contract.name.clone(),
+            contract: DataContract {
+                schema: contract.contract.schema.clone(),
+                geometry: contract.contract.geometry.clone(),
+            },
+        }],
+    };
+    // Le quote vengono dal budget unificato, come per `convert`: costruirne un
+    // altro qui darebbe a `read` limiti diversi da quelli che il chiamante ha
+    // chiesto.
+    let (_, mut wopts) = convert_pipeline(cli).map_err(map_err)?;
+    wopts.durable = cli.durable;
+    wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
+    let mut writer = sink
+        .create(Sink::Path(uscita.clone()), &piano, &wopts)
+        .map_err(map_err)?;
+
+    let mut reader = ds
+        .open_layer_reader(&read_request(cli, layer_id, scopo))
+        .map_err(map_err)?;
+    let (rows, batches) = trasferisci_layer(
+        reader.as_mut(),
+        writer.as_mut(),
+        plenora_io_model::contract::LayerId(0),
+    )
+    .map_err(map_err)?;
+    let perdita = reader.loss_report();
+    let pubblicato = writer.finish().map_err(map_err)?;
+
+    // La fedelta' della **lettura**, non della conversione.
+    //
+    // `io.read` legge: cio' che il sink IPC potrebbe perdere non e' una perdita
+    // di questa operazione, ed e' anche il caso che non si presenta -- Arrow e'
+    // la rappresentazione, non una traduzione. Riportare una fedelta' combinata
+    // attribuirebbe alla lettura qualcosa che la lettura non ha fatto.
+    let fedelta = fidelity_iniziale.clone().with_loss_report(&perdita);
+    // I byte del file consegnato. `map_or` e non `map().unwrap_or()`: la
+    // seconda forma costruisce un `Result` intermedio per buttarlo via.
+    let byte = std::fs::metadata(&uscita).map_or(0, |m| m.len());
+
+    Ok(json!({
         "format": driver.descriptor().id(),
-        "fidelity": fidelity_doc(&fidelity)?,
+        "fidelity": fidelity_doc(&fedelta)?,
+        "loss": loss_doc(&fidelity_iniziale, &perdita)?,
         "layer": layer_json(&contract),
         "rows_read": rows,
         "batches": batches,
         "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "delivered": {
+            "content_type": "application/vnd.apache.arrow.file",
+            "interchange_contract": "plenora-arrow-interchange-v1",
+            "bytes_written": byte,
+            "publish_outcome": esito_di_pubblicazione(pubblicato.outcome),
+        },
     }))
 }
 
@@ -1214,10 +1402,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let read_fidelity = initial_read_fidelity.with_loss_report(&read_loss);
     let conversion_fidelity = combined_fidelity(&read_fidelity, &published.fidelity);
 
-    let outcome = match published.outcome {
-        PublishOutcome::Published => "published",
-        PublishOutcome::PublishedButDurabilityUnconfirmed => "published_durability_unconfirmed",
-    };
+    let outcome = esito_di_pubblicazione(published.outcome);
     // Le cinque sezioni si costruiscono prima, perche' il tetto complessivo si
     // verifica sull'insieme: i tetti per sezione non delimitano l'aggregato.
     let lettura = fidelity_doc(&read_fidelity)?;

@@ -387,6 +387,37 @@ class LaBustaDiLayers(unittest.TestCase):
 
 
 
+def perdita_sana(**modifiche):
+    """Un rapporto di perdita vuoto, nella forma del protocollo corrente."""
+    documento = {
+        "lossless": True,
+        "counts": [],
+        "esempi": [],
+        "troncato": False,
+        "omesse_esatte": True,
+        "omesse": {
+            "categorie_omesse": 0,
+            "ragioni_omesse": 0,
+            "esempi_omessi": 0,
+            "omesse_per_byte": 0,
+        },
+    }
+    documento.update(modifiche)
+    return documento
+
+
+def consegna_sana(**modifiche):
+    """Una consegna Arrow riuscita."""
+    documento = {
+        "content_type": "application/vnd.apache.arrow.file",
+        "interchange_contract": "plenora-arrow-interchange-v1",
+        "bytes_written": 5138,
+        "publish_outcome": "published",
+    }
+    documento.update(modifiche)
+    return documento
+
+
 def validazione_sana(**modifiche):
     documento = {
         "status": "ok",
@@ -398,6 +429,10 @@ def validazione_sana(**modifiche):
         "batches": 1,
         "truncated": False,
         "fidelity": fedelta_sana(),
+        "loss": perdita_sana(),
+        # `delivered` c'e' sempre, e vale `None` quando non c'e' stata
+        # consegna: l'assenza si legge, non si deduce.
+        "delivered": None,
     }
     documento.update(modifiche)
     return documento

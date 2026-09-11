@@ -224,6 +224,22 @@ MATRICE: tuple[dict[str, Any], ...] = (
         "perche": "una lettura intera: `truncated` falso.",
     },
     {
+        "nome": "read-con-consegna",
+        "busta": "plenora-io-read-v2",
+        "argomenti": [
+            "read",
+            "{canoniche}/canonico.geojson",
+            "--output",
+            "{uscita}/consegnato.arrow",
+        ],
+        "perche": (
+            "la forma che **consegna**: e' l'unico caso che porta `delivered` "
+            "non nullo, e senza di esso il contratto descriverebbe una lettura "
+            "che non restituisce mai i dati -- che e' cio' che `io.read` era "
+            "fino alla 4.0.0."
+        ),
+    },
+    {
         "nome": "read-troncato",
         "busta": "plenora-io-read-v2",
         "argomenti": ["read", "{canoniche}/canonico.geojson", "--limit", "1"],

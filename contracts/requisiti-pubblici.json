@@ -168,8 +168,15 @@
       "regola": "CLI-2.0 §10",
       "riga_del_piano": "B12",
       "descrizione": "ogni comando che invoca il dominio mappa un'operazione **disponibile**",
-      "stato": "non_ancora",
-      "perche": "il comando `read` esiste e `io.read` e' dichiarata non disponibile: legge i batch e li scarta invece di consegnare un dataset Arrow. La tensione e' deliberata e resta finche' `io.read` non consegna -- dichiararla disponibile per far tornare la sonda sarebbe annunciare una consegna che non c'e'."
+      "stato": "implementato"
+    },
+    {
+      "id": "read.consegna-arrow",
+      "regola": "catalogo io-tools, ARROW-001, ARROW-005",
+      "riga_del_piano": "B12",
+      "descrizione": "`read --output` consegna un file Arrow IPC leggibile da una libreria Arrow, con i metadati del contratto nello schema; senza `--output` non consegna e lo dichiara",
+      "stato": "implementato"
     }
-  ]
+  ],
+  "che_cosa_questo_registro_non_misura": "l'adozione. Ventiquattro su ventiquattro dice che i requisiti **qui elencati** sono verificati sul confine pubblico, e nient'altro. Fuori da questo registro restano: i dodici schemi delle coppie di ingresso e uscita con i loro esempi, `plenora-io-error-details-v1`, le prove sui metadati Arrow oltre quelle di `io.read`, la superficie Rust con la sua mappatura e il consumatore esterno, `io.write`, e la qualifica finale col manifesto di adozione. Sono le righe BB1-BB5, C1-C4, B10 e I1 del piano.\n\nIl numero e' seducente proprio quando e' pieno: un registro completo misura tutto cio' che gli e' stato chiesto di misurare, non tutto cio' che serve. Aggiungere qui un requisito e' il modo in cui la misura cresce, e il gate non sa che cosa manca al registro stesso."
 }
