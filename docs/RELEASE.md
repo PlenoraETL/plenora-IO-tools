@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 94.99% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 1 |
+| blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `28bf62c` |
 | candidate, versione del manifesto | `3.0.0` |
@@ -66,7 +66,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `distribuzione.artefatti-qualificati` | sei archivi qualificati su `28bf62c`; byte riscaricati dalla bozza identici ai digest congelati; manca la pubblicazione |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

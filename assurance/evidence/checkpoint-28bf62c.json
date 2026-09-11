@@ -751,19 +751,214 @@
     "perche_la_revisione_e_cambiata": "`abd39c6` non e' congelabile: la toolchain di distribuzione e' passata a 1.98.1 e `ld-linux-x86-64.so.2` e' entrato fra i `DT_NEEDED` diretti del profilo `base`, che il lock non dichiarava. Il gate ha rifiutato, il lock e' stato aggiornato in `aa86f5f`, e il congelamento e' su quella. La correzione tocca `scripts/`, quindi invalidava `abd39c6` per costruzione."
   },
   "esito": "S9 checkpoint level 2 passed",
-  "status": "in_qualifica",
+  "status": "satisfied",
   "components": [
     {
       "name": "plenora-IO-tools",
       "revision": "28bf62ccba49d47bda0797b9892e373c49ebea61"
     }
   ],
-  "open_blockers": [
-    "nessuna bozza esiste per la 3.0.0: il confronto dei byte riscaricati dalla bozza contro i digest congelati -- che l'invariante pretende **prima** della pubblicazione -- non e' stato eseguito.",
-    "la release 3.0.0 non e' pubblicata: il confronto sui byte riscaricati dalla release, che l'invariante pretende dopo una pubblicazione immutata, non ha ancora un oggetto su cui girare."
-  ],
+  "open_blockers": [],
   "evidence": {
-    "status": "not_run",
-    "scope": "I sei archivi della candidate 3.0.0 sono costruiti dalla revisione congelata `28bf62c`, verificati installati dalla corsa di distribuzione 34558542834 con trentadue referti verdi in canale `candidate`, e accompagnati da checksum, SBOM, provenance e manifesto. I sei digest sono stati **ricalcolati** sui byte scaricati dalla corsa -- sei su sei coincidenti con i sidecar -- e ogni provenance nomina la revisione congelata.\n\nCio' che manca non e' la qualifica degli artefatti: e' il confronto **dal canale**. L'invariante lo pretende due volte -- sui byte riscaricati dalla bozza prima di pubblicare, e su quelli riscaricati dalla release dopo -- e per la 3.0.0 non esiste ne' l'una ne' l'altra. Registrare `passed` qui porterebbe avanti la verifica della 2.0.0 su artefatti che non sono i suoi."
+    "status": "passed",
+    "scope": "Integrita' dei sei archivi qualificati e dei quattordici file di accompagnamento **riscaricati dalla bozza**, confrontati con i digest congelati dalla candidate su `28bf62c`.\n\nLa verifica prima della pubblicazione riguarda la bozza; quella successiva riguarda la release pubblicata. Questa e' la **prima**: e' il confronto che l'invariante pretende prima di pubblicare, ed e' eseguito. Il secondo confronto non ha ancora un oggetto su cui girare -- la release non e' pubblicata -- e resta **pendente**: lo registra il blocco `published` di `release_verification`, che qui e' assente perche' non e' stato eseguito."
+  },
+  "release_verification": {
+    "schema_version": 1,
+    "le_due_fasi": "L'invariante `distribuzione.artefatti-qualificati` nomina due confronti con verbi diversi. **Prima della pubblicazione il gate richiede** quello sui byte riscaricati dalla bozza: e' una precondizione dell'autorizzazione. **Dopo la pubblicazione immutata il confronto viene ripetuto e registrato** sui byte riscaricati dalla release: e' un obbligo di verbale, non una precondizione -- se lo fosse, il gate non potrebbe mai essere verde prima di pubblicare, e l'ordine sarebbe impossibile.\n\nE' l'ordine che la 2.0.0 ha percorso, e il suo verbale lo mostra: `prepublish` sulla bozza, `preflight` del contratto verde, pubblicazione, `published` sui byte della release.",
+    "distribution": {
+      "run_id": 34558542834,
+      "revision": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "channel": "candidate",
+      "checkpoint_evidence": "assurance/evidence/checkpoint-28bf62c.json"
+    },
+    "prepublish": {
+      "timestamp_utc": "2026-09-11T07:47:11.825417+00:00",
+      "release_id": 386842189,
+      "draft": true,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-b57a0a8097f2b3174eb5",
+      "tag_name_dichiarato": "v3.0.0",
+      "target_commitish": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "command": [
+        "python3",
+        "scripts/check-deliverable.py",
+        "--directory",
+        ".s9-checkpoint/release-3.0.0/prepublish",
+        "--versione",
+        "3.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "28bf62ccba49d47bda0797b9892e373c49ebea61",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "stdout": "deliverable verificati: 6 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 6 artefatti congelati dalla candidate\n",
+      "stderr": "",
+      "che_cosa_ha_verificato": [
+        "sei archivi con altrettanti checksum, di cui due Python, e le rispettive provenance",
+        "il digest di ogni archivio riscaricato coincide con quello congelato in `aperto.candidate_release.artefatti`",
+        "la dimensione di ogni archivio coincide con quella congelata",
+        "la revisione di ogni provenance e' quella congelata",
+        "SBOM, manifesto e nota del canale dentro i quattro archivi nativi: `SPDX-2.3`, `firma.stato: non_richiesta`, `canale: candidate`, e la revisione del manifesto uguale a quella della provenance"
+      ],
+      "perche_non_basta_il_confronto_coi_sidecar": "un insieme ricostruito da capo e' internamente coerente e passerebbe: ogni checksum descrive fedelmente l'archivio che gli sta accanto. Il confronto con i digest congelati e' l'unico che distingue gli artefatti qualificati da una ricostruzione equivalente.",
+      "il_direttorio_e_stato_riscaricato": "la prima corsa di questo confronto scaricava in un direttorio temporaneo, che non esiste piu'. Invece di ricostruirne a memoria l'uscita, i venti asset sono stati **riscaricati** dalla bozza e il confronto rieseguito: `exit_code` e `stdout` qui sopra sono quelli letterali di questa corsa. Un esito ricordato non e' un esito misurato.",
+      "un_falso_rosso_da_conoscere": "la prima corsa del confronto e' stata **rossa** su `provenance.lock` dei due archivi Linux, e non per un difetto degli artefatti: `scripts/linux-gdal-lock.json` era stato riscritto da Windows con fine riga CRLF, mentre `.gitattributes` impone `eol=lf` e git normalizza al commit. Il runner ha costruito dal file LF -- digest `96d8c138` -- e il controllo locale digeriva la copia CRLF -- `6e2483bf`. `git status` non lo mostrava, perche' normalizza anche lui. Riallineato l'albero ai byte di git, il confronto e' verde. Vale per qualunque gate che digerisca un file del repository su Windows.",
+      "assets": [
+        {
+          "id": 556701602,
+          "name": "MANIFEST.json",
+          "size": 1392,
+          "sha256": "c69e7f3d32ec2d126bd8570b6c45990ced92c9d57af150d44e72de970b3bc653"
+        },
+        {
+          "id": 556701635,
+          "name": "licenze.json",
+          "size": 2162,
+          "sha256": "81b32b4c0efef22880f86394c8c637532717a36822cbf52fd02607931e31bd51"
+        },
+        {
+          "id": 556701276,
+          "name": "plenora-io-3.0.0-linux-x86_64-base.tar.gz",
+          "size": 8554767,
+          "sha256": "b4d2e663469cec161fb57ff82baa08d2729fecd28e28c25faffe567a6d0fee37"
+        },
+        {
+          "id": 556701325,
+          "name": "plenora-io-3.0.0-linux-x86_64-base.tar.gz.provenance.json",
+          "size": 2582,
+          "sha256": "1dc55beaa7ec1a260f04878ce57d9e741f88e357e60c1f281d1dd0735a0a06a9"
+        },
+        {
+          "id": 556701364,
+          "name": "plenora-io-3.0.0-linux-x86_64-base.tar.gz.sha256",
+          "size": 108,
+          "sha256": "1918af68beab98eda0d224c8ad727ba6317ca51b6e2485d50abc629a8b735044"
+        },
+        {
+          "id": 556701403,
+          "name": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz",
+          "size": 64398154,
+          "sha256": "9e25262598170dff0af212e7d51bc8d2682b860ea15c399b174b254c0e1916a3"
+        },
+        {
+          "id": 556701559,
+          "name": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz.provenance.json",
+          "size": 2589,
+          "sha256": "d1ee30a5fed15e142095a7c5ea0c93e828721560ec236cb2647481442ac06c95"
+        },
+        {
+          "id": 556701582,
+          "name": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz.sha256",
+          "size": 111,
+          "sha256": "683b8e7cde2285c1938c56ce04917d27fea9a52135a59c02f82150a9c174b4c6"
+        },
+        {
+          "id": 556701821,
+          "name": "plenora-io-3.0.0-windows-x86_64-base.zip",
+          "size": 8687668,
+          "sha256": "25b1209a7ed2ed27fb1c67edf04630f4de07dcf8c90bfac02e72ea6457386efd"
+        },
+        {
+          "id": 556701870,
+          "name": "plenora-io-3.0.0-windows-x86_64-base.zip.provenance.json",
+          "size": 2435,
+          "sha256": "69d925b3ea1a1adf3358a38299dbb303e2767177a3b552e413203786effe64d4"
+        },
+        {
+          "id": 556701903,
+          "name": "plenora-io-3.0.0-windows-x86_64-base.zip.sha256",
+          "size": 108,
+          "sha256": "50097bc1b27c6ce5da25ae968bd7bc6d57d3572762af206b46610b3a19b50e68"
+        },
+        {
+          "id": 556701922,
+          "name": "plenora-io-3.0.0-windows-x86_64-filegdb.zip",
+          "size": 47753870,
+          "sha256": "cc35490274cb2e7290f4d0dbcebac6c110d14f5172d02b020baab512f4b002a3"
+        },
+        {
+          "id": 556702069,
+          "name": "plenora-io-3.0.0-windows-x86_64-filegdb.zip.provenance.json",
+          "size": 2442,
+          "sha256": "f9d4668e6b9542b32aaca70afb2ef579c1b27579188861b4e29f2131533daff7"
+        },
+        {
+          "id": 556702099,
+          "name": "plenora-io-3.0.0-windows-x86_64-filegdb.zip.sha256",
+          "size": 111,
+          "sha256": "cabe9b88f4a1c08a12a376d9d1d9616e97f7273c16672ed4e146998eb818eb26"
+        },
+        {
+          "id": 556701659,
+          "name": "plenora_io-3.0.0-py3-none-any.whl",
+          "size": 33794,
+          "sha256": "30d39743d2af7d171cd46b096063558bd34d1aa911bbafc7cea5e274aef509e5"
+        },
+        {
+          "id": 556701681,
+          "name": "plenora_io-3.0.0-py3-none-any.whl.sha256",
+          "size": 100,
+          "sha256": "d71917dffa4d35b27537e02ba274b2f6a83aed05489f90beeeb2dd885b1fe7fe"
+        },
+        {
+          "id": 556701699,
+          "name": "plenora_io-3.0.0.tar.gz",
+          "size": 48178,
+          "sha256": "fc34e92614de1bb03b7642b4d1e52954e5589c38b1c38e8dce3abb05aafbc1fa"
+        },
+        {
+          "id": 556701718,
+          "name": "plenora_io-3.0.0.tar.gz.sha256",
+          "size": 90,
+          "sha256": "4113693ebf38e97d1e809c3723ec5b070c3a930a4925e8f86900e53e0dd19351"
+        },
+        {
+          "id": 556701736,
+          "name": "provenance.json",
+          "size": 769,
+          "sha256": "b7a99b4e8d98fa37163b18c9ee22c929457cf64117f4eee06406c697529034b1"
+        },
+        {
+          "id": 556701786,
+          "name": "sbom.json",
+          "size": 973,
+          "sha256": "71f0dfae6daef8f0c712ae23d7e5c07a754aa9e87f59e56e82bd61b511f6a553"
+        }
+      ]
+    },
+    "preflight": {
+      "stato": "da_eseguire",
+      "command": [
+        "python3",
+        "scripts/check_release_contract.py",
+        "--release"
+      ],
+      "nota": "il controllo da eseguire immediatamente prima di pubblicare. Pretende le cinque condizioni dell'autorizzazione insieme, e due di esse dipendono da decisioni non ancora prese: `decisione-scritta` (`release_authorized` e' false) e `candidate-coerente` (il tag `v3.0.0` non esiste)."
+    },
+    "publication": {
+      "stato": "da_eseguire"
+    },
+    "published": {
+      "stato": "pendente",
+      "perche_e_assente": "il confronto sui byte riscaricati dalla **release pubblicata** non e' stato eseguito, perche' la release non esiste. Registrarlo ora -- anche come «atteso verde» -- sarebbe portare avanti su artefatti non pubblicati una verifica che riguarda il canale. Il blocco si scrive dopo averlo eseguito, non prima.",
+      "command_previsto": [
+        "python3",
+        "scripts/check-deliverable.py",
+        "--directory",
+        "<riscaricati dalla release>",
+        "--versione",
+        "3.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "28bf62ccba49d47bda0797b9892e373c49ebea61",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "confronto_atteso": "i venti asset riscaricati dalla release devono avere gli stessi digest registrati qui sopra in `prepublish.assets`: e' cio' che rende verificabile «pubblicazione immutata». Se un digest differisse, la bozza non e' stata pubblicata immutata."
+    }
   }
 }
