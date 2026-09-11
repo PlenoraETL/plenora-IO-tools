@@ -73,7 +73,8 @@ possa eseguirle senza chiedere che cosa intendessero.
 | A2 | Pin immutabile del repository dei contratti | ADOPTION §1.2 | assente | nessun pin: nulla lega il prodotto a una revisione dei contratti | `contracts/adoption-source.json` sul modello di database-tools, con `contracts_source.revision` a 40 esadecimali | il gate rifiuta un checkout dei contratti la cui `HEAD` non coincide col pin, come fa `check_public_contracts.py` di database-tools |
 | A3 | Manifesto di adozione validato dallo schema v4 | ADOPTION §1.5, `adoption-manifest-v4.schema.json` | assente | nessuna dichiarazione di conformità pubblicabile | manifesto con `artifacts`, `contracts`, `deviations`; ogni artefatto porta `version` e `digest` `sha256:<64 hex>` | il manifesto valida contro lo schema v4 al pin; i digest coincidono con quelli congelati in `assurance/current-state.json` |
 | A4 | Identità immutabile dell'artefatto | ADOPTION §2 | i sei digest sono già congelati nella candidate e verificati due volte | **nessuno** — la macchina di rilascio produce già esattamente ciò che il manifesto richiede | riusare i digest esistenti invece di ricalcolarli | i digest del manifesto sono gli stessi di `aperto.candidate_release.artefatti` |
-| A5 | Prova black-box, non test interni | ADOPTION §3 | i gate attuali girano nell'albero di build | i test misurano il codice, non l'artefatto | un gate che lancia il **binario estratto dall'archivio pubblicato** | il gate fallisce se gli si passa il binario di `target/debug` invece di quello dell'archivio |
+| A5 | Prova black-box: il verificatore invoca un binario, non ispetta lo stato privato | ADOPTION §3 | i gate attuali girano nell'albero di build e leggono strutture interne | i test misurano il codice, non un artefatto invocato dall'esterno | un verificatore che riceve **il percorso di un binario** e lo interroga dal confine di processo, senza sapere da dove venga | il verificatore passa sul binario appena costruito in CI, e fallisce se una risposta viola un contratto |
+| A5b | Identità dell'artefatto qualificato | ADOPTION §2 | i digest sono congelati e verificati, ma nessun controllo lega il **binario interrogato** a un digest | il verificatore da solo non dice quale artefatto ha interrogato | in **qualifica** il binario si estrae dall'archivio identificato dal digest, e il verificatore riceve quel percorso | l'estrazione ricalcola il digest dell'archivio e lo confronta con `aperto.candidate_release.artefatti` **prima** di invocare; un digest diverso ferma la qualifica |
 | A6 | Deviazioni dichiarate con regola, osservabilità e tracking | ADOPTION §5 | assente | una conformità parziale non dichiarata si legge come completa | ogni riga di questa matrice non chiusa alla 4.0.0 diventa una `deviation` con il proprio identificatore | ogni deviazione cita un identificatore esistente (`SURF-001`, `CLI-2.4`, …) e dichiara `detectable_before_invocation` |
 
 ### B — API pubbliche: CLI
@@ -93,7 +94,30 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B8 | Identificatore di contratto del catalogo | catalogo io-tools | `contract: plenora-io-catalog-v2` | il catalogo comune fissa `plenora-io-catalog-v1` per `io.catalog@1` | allineare l'identificatore, oppure dichiarare la deviazione e la ragione | l'identificatore emesso coincide con quello del catalogo comune al pin |
 | B9 | `--format json` come selettore esplicito | CLI-2.0 §2 | `catalog --format json` esce **2**: il flag non è accettato | la modalità macchina non è selezionabile come il contratto prescrive | `--format json` su tutti i comandi; formato umano esplicito e mai implicito | ogni entrypoint del binding CLI è invocabile **letteralmente** come scritto in `bindings/cli-v1.json` |
 | B10 | Comando `write` | catalogo io-tools, `io.write` | il binario espone `catalog, inspect, layers, read, convert` | `io.write` è **richiesto** e non esiste come comando | esporre `write --input INPUT.arrow --output SINK --format json` | l'entrypoint del binding risponde e dichiara esito di pubblicazione e fedeltà |
+| B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-011, binding `read SOURCE --output OUTPUT.arrow` | `cmd_read` apre il reader, **drena i batch contandoli e li scarta**, e rende `rows_read`, `batches`, `truncated`, `fidelity`, `layer`. Nessun `--output`, nessun byte Arrow prodotto | non è una consegna incompleta: è un'operazione **di conteggio**. Il catalogo dichiara per `io.read` i content type `application/vnd.apache.arrow.stream` e `.file` e l'interchange `plenora-arrow-interchange-v1`; oggi non ne esce nessuno | migrare `read` da validatore a operazione di consegna: `--output`, scrittura Arrow IPC, e il risultato JSON che descrive ciò che è stato consegnato | un consumatore legge il file Arrow prodotto senza il nostro codice, e ne ritrova schema, righe e metadati; la busta JSON dichiara il content type effettivamente prodotto |
+| B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
 | B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
+
+### B-bis — I contratti di confine di proprietà nostra
+
+Il profilo non chiede solo che le sei operazioni esistano: chiede che IO-tools
+**pubblichi** gli schemi delle dodici forme di ingresso e uscita, con esempi di
+conformità, prima che un artefatto reclami il profilo. Sono schemi nostri — il
+repository comune ne fissa gli identificatori pubblici e il significato
+incrociato, non l'implementazione. Mancava ogni riga operativa.
+
+| # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
+|---|---|---|---|---|---|---|
+| BB1 | Dodici schemi immutabili per le sei coppie | profilo io-tools, «Component-owned wire contracts» | nessuno dei dodici identificatori esiste come schema pubblicato; il CLI emette `plenora-io-catalog-v2` senza uno schema che lo definisca | dodici schemi da scrivere: `…-catalog-query-v1`/`…-catalog-v1`, `…-inspect-input-v1`/`…-inspect-v1`, `…-layers-input-v1`/`…-layers-v1`, `…-read-input-v1`/`…-read-result-v1`, `…-write-input-v1`/`…-write-result-v1`, `…-convert-input-v1`/`…-convert-v1` | pubblicarli sotto `contracts/`, versionati e immutabili | ogni busta emessa dal binario valida contro lo schema del proprio `contract`; uno schema modificato in modo che cambi la validazione richiede un identificatore nuovo |
+| BB2 | Esempi di conformità validi e invalidi | profilo io-tools | assenti | senza esempi, uno schema è una dichiarazione che nessuno prova | un esempio valido e uno invalido per ciascuna delle dodici forme | il gate valida i «validi» e **rifiuta** gli «invalidi»; un invalido che passa è rosso |
+| BB3 | `plenora-io-error-details-v1` | profilo io-tools, ERR-013 | `details` non ha una forma dichiarata; il vocabolario delle perdite esiste ma non come schema di `details` | quando un errore IO porta `details`, il valore **deve** conformarsi a uno schema nostro pubblicato | definire lo schema e i suoi esempi limitati; omettere `details` resta valido quando i quattro assi bastano | un errore con `details` valida contro lo schema; un `details` che viola i limiti di ERR-012 è rifiutato dal produttore, non solo dal validatore |
+| BB4 | Limiti semantici di ERR-011 e ERR-012 | ERRORS-1.0 §6 | il v2 ha un proprio sistema di budget molto più dettagliato — 64 KiB totali, 12 KiB per sezione, tetti per voce | i due sistemi non sono confrontati: i nostri limiti potrebbero essere più stretti o più larghi di `524 288` byte per l'errore e `262 144` per `details`, e di profondità 8 / 128 proprietà / 2 048 nodi | confrontare i due insiemi di limiti e dichiarare quale governa | una prova costruisce il caso peggiore dichiarato e misura i byte JSON effettivi contro **entrambi** i tetti |
+| BB5 | Verifica dei metadati Arrow al confine | ARROW-001…ARROW-012 | il vocabolario è implementato per intero nel codice; nessuna prova lo verifica **sui byte prodotti da un'invocazione pubblica** | l'implementazione non è la prova: ARROW-001 (versione di contratto nello schema), ARROW-003/004 (identità dei campi preservata), ARROW-006 (metadati non contraddittori), ARROW-007 (CRS risolto, dichiarato-non-risolto e assente distinti) vanno letti dall'artefatto Arrow consegnato | una prova che legge il file prodotto da `io.read` e verifica ciascun identificatore | la prova fallisce se `plenora.contract.version` manca, se un `plenora.field_id` cambia in un round-trip che non lo doveva cambiare, o se un CRS non risolto viene presentato come risolto |
+
+Le righe BB1–BB3 hanno una dipendenza che vale la pena dire: gli schemi si
+scrivono **dopo** aver deciso la forma della busta (B6, B7) e **prima** di
+dichiarare l'adozione (A3). Scriverli ora significherebbe versionare una forma
+che sta per cambiare.
 
 #### La proiezione dei codici d'uscita, misurata
 
@@ -139,7 +163,8 @@ Quel documento porta anche una domanda aperta, che diventa **D8**.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| C1 | Superficie Rust **richiesta** dal profilo | profilo io-tools, «Public surfaces» | tutti e sedici i crate hanno `publish = false`; `release/cli-protocol-v2.json` dichiara `rust_api.status: internal_unstable`, `semver_guarantee: false` | il profilo richiede una superficie Rust pubblica; oggi è dichiarata interna e instabile | decidere fra due strade — vedi «Decisioni necessarie», D1 | l'esito della decisione è scritto nel manifesto: superficie esposta, oppure deviazione dichiarata su `SURF-016` |
+| C1 | Superficie Rust **richiesta** dal profilo | profilo io-tools, «Public surfaces» | `release/cli-protocol-v2.json` dichiara `rust_api.status: internal_unstable`, `semver_guarantee: false`: nessun export è documentato come pubblico e nessuna compatibilità è promessa | manca ciò che il profilo chiede — export documentati, regole di compatibilità, prova da un consumatore esterno | dichiarare la superficie: elenco degli export, contratto di compatibilità, mappatura verso le operazioni | un crate consumatore importa **solo** gli export documentati e compila; il test è rosso se uno di essi diventa privato |
+| C1b | Il canale di distribuzione è una scelta separata | SURFACE-BINDINGS §2, ADOPTION §2 | tutti e sedici i crate hanno `publish = false` | `publish = false` riguarda **crates.io**, non l'esistenza di una superficie pubblica: un workspace sorgente è già consumabile per path o per dipendenza git | scegliere il canale — crates.io, sorgente versionato, dipendenza git su tag — **dopo** aver deciso la superficie, non insieme | il manifesto di adozione identifica l'artefatto crate per versione e digest, qualunque sia il canale |
 | C2 | Mappatura operazione → export pubblico | SURFACE-BINDINGS §2 | assente | nessuno può sapere quale simbolo serve `io.read` | mappatura versionata, sul modello di `rust_surface_bindings()` di database-tools | un crate consumatore importa **solo** gli export documentati e compila |
 | C3 | Verifica da un consumatore esterno | SURFACE-BINDINGS §2 | i test vivono dentro i crate | un test interno non prova che l'API sia usabile da fuori | test di integrazione che importa il crate come dipendenza | il test fallisce se un export documentato diventa privato |
 | C4 | Equivalenza fra superfici | SURF-017, CLI-2.0 §10 | non verificabile: una delle due superfici non esiste ancora | — | verifica di equivalenza fra CLI e Rust sulla stessa operazione | stessi input rifiutati, stessi assi d'errore, stesso significato del risultato |
@@ -159,7 +184,7 @@ Quel documento porta anche una domanda aperta, che diventa **D8**.
 | E2 | Niente cronaca del processo nei commenti | `check_comments.py` | **167 violazioni su 274 file**, da 13 marcatori distinti: vedi la ripartizione qui sotto | adottare il gate così com'è significa 167 riscritture, molte delle quali toglierebbero prosa che spiega **perché** | decidere marcatore per marcatore — D6 | il gate gira su tutto l'albero; ogni violazione o è corretta o il marcatore è escluso con la ragione scritta |
 | E3 | I documenti non ripetono fatti che vivono nel codice | `AGENTS.md` di database-tools, regola 3 | parzialmente adottato: il blocco di stato di `docs/RELEASE.md` è **generato** e un gate lo verifica | il resto della prosa non è generato | estendere la generazione dove il fatto esiste già strutturato | rigenerare non produce differenze, come già per `docs/RELEASE.md` |
 | E4 | Docset minimo ed esatto | `check_docset.py` (nostro) | cinque canonici più sette operativi, allowlist esatta | **nessuno**: la regola esiste ed è più severa di quella di database-tools | ammettere questo documento e collegarlo, senza toccare gli altri controlli | `check_docset.py` verde con `docs/PIANO-4.0.0.md` in `CANONICI` e linkato da `README.md` |
-| E6 | Un cambiamento editoriale non deve pretendere una rimisura completa | osservato scrivendo questo piano | aggiungere un documento canonico cambia `docset.markdown_canonici` in `assurance/current-state.json`, e le sonde del contratto di release diventano rosse — dentro L1 | un documento in più costa una corsa di checkpoint. Il conteggio è **derivato** dall'allowlist e **duplicato** nello stato: due posti per lo stesso fatto | valutare se il conteggio vada **letto** dall'allowlist invece che copiato, oppure se la sonda che li confronta debba vivere fuori da L1 | una modifica di solo Markdown richiede i controlli del docset e nient'altro; una modifica di codice continua a richiedere L1 |
+| E6 | Un cambiamento editoriale non deve pretendere una rimisura completa | osservato scrivendo questo piano | aggiungere un documento canonico cambia `docset.markdown_canonici` in `assurance/current-state.json`, e le sonde del contratto di release diventano rosse — dentro L1 | un documento in più costa una corsa di checkpoint. Il conteggio è **derivato** dall'allowlist e **duplicato** nello stato: due posti per lo stesso fatto | **derivare** il conteggio dall'allowlist invece di copiarlo nello stato. Togliere la sonda da L1 non elimina la duplicazione: la nasconde, e i due valori tornerebbero a divergere senza che nessuno lo veda | `docset.markdown_canonici` non esiste più come valore scritto: si legge da `CANONICI`. Aggiungere un documento non tocca `assurance/current-state.json`, e i controlli del docset bastano |
 | E5 | Un `AGENTS.md` che dica ciò che non è negoziabile | `AGENTS.md` di database-tools | assente | i vincoli vivono sparsi fra `README.md`, i gate e i messaggi di commit | valutarne uno nostro, **non** copiato: le regole devono essere le nostre | ogni regola scritta è citabile e almeno un gate la presidia |
 
 #### I marcatori di «cronaca obsoleta», misurati
@@ -208,16 +233,30 @@ La decisione è **D6**, e ora ha un numero sotto.
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | G1 | Il grafo compilato è l'autorità, non il lockfile | memoria di progetto, `cargo tree` | **266** nel lock; **173** compilati (`plenora-io-cli`, feature predefinite, `--edges normal`), **175** con `gdal-backend`, **186** includendo le build-dependencies | il lock sovrastima di **93 pacchetti**: il 35 % di ciò che dichiara non entra in nessun artefatto spedito | partire da 173, non da 266: ridurre il lock non riduce ciò che spediamo | il censimento nomina feature e target; due feature diverse danno due numeri diversi |
-| G2 | Un `cargo deny` che gira | `deny.toml` di database-tools | `scripts/check_dependency_pins.py` e `audit_ignores.py` esistono; non c'è un `deny.toml` | licenze e advisory non sono presidiate da uno strumento dedicato | valutare `cargo deny` accanto ai gate esistenti, senza duplicarli | il gate entra in un workflow che gira, altrimenti non serve |
-| G3 | Ridurre senza toccare ciò che è qualificato | questo piano | i sei artefatti della 3.0.0 sono congelati | rimuovere una dipendenza cambia i byte: è lavoro da 4.0.0, mai retroattivo | ogni rimozione è un commit suo, con il checkpoint suo | nessuna riduzione tocca `assurance/evidence/` né i digest della 2.0.0 e della 3.0.0 |
+| G2 | Advisory e licenze presidiate da un gate che gira | `AGENTS.md` di database-tools, regola 6 | **presidiate**: `cargo audit --deny warnings` gira in CI (`ci.yml:314`) con una lista di deroghe governata da `audit_ignores.py` e dal suo test; `check-licenze-artefatto.py` verifica le licenze **per artefatto** nella distribuzione, Linux e Windows, con referto | nessuno sugli advisory. L'assenza di `deny.toml` non è una lacuna: è un altro strumento per un lavoro in parte già fatto | identificare che cosa `cargo deny` aggiungerebbe che oggi manca — ad esempio una allowlist di licenze a livello di **dipendenza** e non di artefatto, un divieto su crate nominati, una politica sulle versioni duplicate, una allowlist delle sorgenti | se un controllo aggiuntivo serve, entra in un workflow che gira; se non serve, la riga si chiude dichiarando che il presidio esiste già |
+| G3 | Ridurre senza toccare ciò che è qualificato | questo piano | i sei artefatti della 3.0.0 sono congelati | rimuovere una dipendenza cambia i byte: è lavoro da 4.0.0, mai retroattivo | verifiche **proporzionate**: test mirati durante il lavoro, L1 alla chiusura dell'intervento, L2 solo quando si qualifica una candidate | nessuna riduzione tocca `assurance/evidence/` né i digest della 2.0.0 e della 3.0.0; il costo di verifica è scelto in base a ciò che l'intervento tocca, non per abitudine |
 
 ### H — Seguito dei fork
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | H1 | Ogni fork dichiara i propri delta | `scripts/*-fork-lock.json` | `dxf 0.6.1` (59 file, 4 delta funzionali), `gdal 0.19.0` (63 file, 3), `shapefile 0.9.0` (29 file, 3) | **nessuno**: i lock sono già la forma giusta | mantenerli | il digest dell'albero versionato coincide col lock |
-| H2 | Sapere se upstream ha assorbito un delta | pratica già in uso (`1d6454b`: «tre delta avanti, uno che upstream ha assorbito») | i tre fork sono **allineati** all'upstream corrente — `dxf 0.6.1`, `gdal 0.19.0`, `shapefile 0.9.0`, verificato su crates.io | nessuna deriva oggi. Manca il **controllo**: l'allineamento è il frutto di una revisione manuale, e la prossima potrebbe non esserci | un controllo che confronti la versione del lock con quella pubblicata upstream | il controllo nomina versione locale e versione upstream e dichiara la distanza; è rosso quando upstream avanza |
+| H2 | Sapere se upstream ha assorbito un delta | pratica già in uso (`1d6454b`: «tre delta avanti, uno che upstream ha assorbito») | i tre fork sono **allineati** all'upstream corrente — `dxf 0.6.1`, `gdal 0.19.0`, `shapefile 0.9.0`, verificato su crates.io | nessuna deriva oggi. Manca il **controllo**: l'allineamento è il frutto di una revisione manuale, e la prossima potrebbe non esserci | un **monitoraggio periodico** che confronti la versione del lock con quella pubblicata upstream e riporti la distanza | il monitoraggio nomina versione locale e versione upstream; una nuova versione upstream produce una **segnalazione**, non una CI rossa. Una pubblicazione di terzi non è un difetto nostro, e rendere rossa la CI ordinaria per un evento che non controlliamo trasforma un avviso in un blocco |
 | H3 | Un delta che upstream ha assorbito si ritira | pratica già in uso | applicata alla 0.9.0 di `shapefile` | nessuno oggi; il rischio è dimenticarlo al prossimo giro | ogni aggiornamento di fork rivede i delta uno per uno | il messaggio di commit dice per ciascun delta se resta, e perché |
+
+### H-bis — Ciò che va cambiato nel repository comune
+
+Una riga sola, e non è nostra da applicare: vive in `plenora-contracts` e segue
+il processo di modifica dei contratti, non il nostro ciclo di rilascio.
+
+| # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
+|---|---|---|---|---|---|---|
+| HB1 | Il profilo nomina la prima release conforme | `profiles/io-tools.md`, «First conforming release and cutover» | il profilo dice «The first release claiming this profile is IO-tools `2.0.0` or a later `2.x` release» e che «The existing `1.x` line remains historical» | la 2.0.0 e la 3.0.0 sono uscite **senza** reclamare il profilo, e la linea storica non è più la 1.x. Il riferimento è legato a un cutover che non è avvenuto | proporre a `plenora-contracts` l'aggiornamento del riferimento alla **4.0.0**, con la dichiarazione che le linee 2.x e 3.x restano storiche e non reclamano il profilo | il profilo aggiornato nomina la release che reclama davvero il profilo; il nostro pin punta a una revisione che contiene quella correzione |
+
+Va proposta **prima** di fissare il pin (A2): fissare una revisione che dice la
+cosa sbagliata, e correggerla dopo, significherebbe cambiare pin a metà
+adozione. È anche la ragione per cui questa riga non appartiene alla priorità 1
+ma la precede.
 
 ### I — Qualifica finale
 
@@ -236,9 +275,23 @@ La decisione è **D6**, e ora ha un numero sotto.
 L'ordine non è l'importanza: è la **dipendenza**. Una riga che ne abilita altre
 viene prima anche quando è piccola.
 
+**Priorità 0 — la correzione nel repository comune.** HB1. Il profilo dice
+ancora che la prima release conforme è una `2.x`. Va proposta prima di fissare
+il pin, altrimenti si fissa una revisione che dice la cosa sbagliata e la si
+cambia a metà adozione. Non dipende da noi quanto le altre: segue il processo di
+modifica dei contratti.
+
 **Priorità 1 — il pin e la misura.** A2, A3, A5, I2. Senza un pin e un
 verificatore black-box che gira, ogni riga successiva è un'opinione. Sono anche
 le righe più economiche, e rendono misurabili tutte le altre.
+
+A5 e A5b si fanno insieme ma restano distinte: il verificatore riceve **un
+percorso** e interroga ciò che trova, senza giudicarne la provenienza; è
+l'estrazione a legare quel percorso a un digest, e solo in qualifica. In CI si
+interroga il binario appena costruito, perché lì la domanda è «il codice di
+questo commit rispetta i contratti»; in qualifica si interroga quello estratto
+dall'archivio, perché lì la domanda è «l'artefatto che spediamo li rispetta».
+Due domande, due fasi, un verificatore solo.
 
 **Priorità 2 — la busta CLI e i codici d'uscita.** B1, B2, B5, B6, B7, B9,
 B11 e la rimozione della coesistenza B4. Sono la rottura incompatibile che giustifica la major, ed è
@@ -259,14 +312,25 @@ qui perché è la precondizione di C1.
 **Priorità 5 — la superficie Rust.** C1, C2, C3, C4, dopo la decisione D1. È il
 punto con più incertezza e più costo, e non blocca nulla di ciò che precede.
 
-**Priorità 6 — `io.write`.** B10. È l'unica operazione richiesta che manca del
-tutto, ed è lavoro di prodotto, non di confine: ha senso solo dopo che la busta
-e la scoperta sono stabili.
+**Priorità 6 — le due operazioni sui dati.** B10 e B12. `io.write` manca del
+tutto; `io.read` esiste ma **non consegna**: conta i batch e li scarta. Sono la
+stessa famiglia di lavoro — muovere dati Arrow attraverso il confine pubblico —
+e la seconda è più grande della prima, perché trasforma un validatore in
+un'operazione di consegna. B13 segue da B12. Ha senso solo dopo che la busta e
+la scoperta sono stabili.
 
-**Priorità 7 — standard, dipendenze, fork.** E1–E5, G1–G3, H2, H3. Migliorano il
-repository senza essere precondizioni di nessuna riga di conformità.
+**Priorità 7 — i contratti di confine.** BB1–BB5. Dodici schemi, i loro esempi,
+lo schema di `details` e le prove sui metadati Arrow consegnati. Vengono **dopo**
+la busta e le due operazioni sui dati, e **prima** di dichiarare l'adozione:
+scriverli mentre la forma cambia significherebbe versionare qualcosa che sta per
+cambiare, e dichiarare l'adozione senza di essi è ciò che il profilo vieta.
 
-**Priorità 8 — la qualifica.** I1, I4. Si chiudono per ultime perché misurano
+**Priorità 8 — standard, dipendenze, fork.** E1–E6, G1–G3, H2, H3. Migliorano il
+repository senza essere precondizioni di nessuna riga di conformità. G2 potrebbe
+chiudersi senza lavoro: il presidio su advisory e licenze esiste già, e resta
+solo da dire se manca qualcosa.
+
+**Priorità 9 — la qualifica.** I1, I4. Si chiudono per ultime perché misurano
 tutto il resto.
 
 ---
@@ -276,14 +340,21 @@ tutto il resto.
 Sono quelle che non posso prendere leggendo il codice, e su cui il piano si
 ferma.
 
-**D1 — la superficie Rust è pubblica o dichiarata deviante?** Il profilo la
-richiede. Oggi ogni crate è `publish = false` e il protocollo dichiara l'API
-Rust `internal_unstable`. Le strade sono due e non sono equivalenti: esporre una
-superficie Rust pubblica e stabile — con un crate pubblicabile, un contratto di
-compatibilità e la mappatura verso gli export — oppure dichiarare una deviazione
-su `SURF-016` che dice che l'artefatto non espone la superficie Rust, e vivere
-con una conformità parziale. La prima è la più costosa di tutto il piano; la
-seconda è onesta ma limita chi può comporci.
+**D1 — esponiamo una superficie Rust pubblica?** Il profilo la richiede. Oggi
+il protocollo dichiara l'API Rust `internal_unstable`, senza export documentati
+né promessa di compatibilità. Le strade sono due: dichiarare la superficie —
+elenco degli export, regole di compatibilità, mappatura verso le operazioni,
+prova da un consumatore esterno — oppure dichiarare una deviazione su `SURF-016`
+e vivere con una conformità parziale, che è onesta ma limita chi può comporci.
+
+**D1b — su quale canale la distribuiamo?** È una decisione **separata**, e
+tenerle unite è un errore che avevo fatto: `publish = false` riguarda crates.io,
+non l'esistenza di una superficie pubblica. Un workspace sorgente versionato è
+già consumabile — per path, per dipendenza git su tag, o per un archivio con
+digest — e il manifesto di adozione chiede di identificare l'artefatto crate per
+versione e digest, non di trovarlo su un registro. Si può quindi esporre una
+superficie Rust pubblica e stabile restando `publish = false`. Il canale si
+sceglie dopo, e non condiziona D1.
 
 **D2 — che cosa succede al protocollo v1.** Il profilo vieta la coesistenza. Il
 flag `--legacy-protocol-v1-unsafe` esiste per non rompere chi lo usa. Le scelte
@@ -307,11 +378,18 @@ requisito non si applica e va dichiarato `not_applicable`; se qualcuna lo è,
 del componente vicino rende confrontabili le due adozioni; fissare `main` prende
 le correzioni successive. Va scelta una sola revisione e scritta.
 
-**D6 — quanto dello standard di database-tools adottare.** I loro gate sui
-commenti nascono dalla loro storia: i marcatori di «cronaca obsoleta» colpiscono
-frasi che qui potrebbero essere prosa legittima. Prima di adottare `E2` va
-**misurato** quante violazioni produrrebbe sul nostro albero, e deciso se il
-criterio è nostro o solo loro.
+**D6 — come chiudere le 167 occorrenze di cronaca.** La misura c'è; resta la
+scelta del metodo. Non è fra «cancellare il perché» ed «escludere il marcatore»:
+c'è una terza strada, ed è la migliore. La motivazione si **riscrive al
+presente**, e perde la cronaca senza perdere il contenuto — «la prima stesura la
+trattava come un difetto, e sbagliava» diventa «non è un difetto: è il
+comportamento dichiarato del formato». Il perché resta, il riferimento al
+momento in cui qualcuno ha sbagliato se ne va, e la frase smette di invecchiare.
+
+Resta da decidere solo il **perimetro**: riscrivere tutte e 167 in un intervento
+solo, o marcatore per marcatore lungo il ciclo. Due dei tredici marcatori
+colpiscono i gate stessi, che citano documenti eliminati, e quelli si chiudono
+da sé quando la cronaca viene tolta.
 
 **D8 — un driver di formato è un `provider`?** La domanda è già registrata in
 `docs/contracts/handoff-plenora-error.json` con identificatore
@@ -322,9 +400,12 @@ intende `provider` nel primo senso, il valore appartiene a un `details`
 component-owned come `format_id`. Il documento dice che il DTO è l'unico punto
 che dovrà cambiare quando la risposta arriva.
 
-**D7 — il tetto di dimensione del codice.** F3 chiede un numero. Fissarlo sul
-valore corrente non impedisce nulla; fissarlo più in basso impegna a ridurre.
-Il numero è una decisione, non una misura.
+**D7 — dove fissare il tetto di dimensione.** F3 chiede un numero, e la scelta
+non è fra «un vincolo» e «nessun vincolo»: un tetto fissato al valore corrente —
+47 930 righe di prodotto — **impedisce la crescita**, ed è già un vincolo utile
+anche se non obbliga a ridurre. Fissarlo più in basso impegna anche a ridurre, e
+va scelto sapendo che l'intervento sulla busta CLI e su `io.read` aggiungerà
+codice prima di toglierne. Il numero è una decisione, non una misura.
 
 ---
 
