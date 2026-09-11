@@ -187,10 +187,10 @@
       "tag_previsto": "v3.0.0",
       "tag_creato": true,
       "tag_sulla_candidate": true,
-      "release_action_allowed": true,
+      "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "attiva",
-      "nota": "La candidate 3.0.0 e' **congelata** su `28bf62c`. Da quella revisione escono i sei artefatti -- quattro nativi piu' wheel e sdist -- nella corsa `Distribuzione` 34558542834 in canale `candidate`, con trentadue referti verdi. I digest qui sotto sono ricalcolati sui byte scaricati, non copiati dai sommari della corsa.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' andra' il tag. La revisione di assurance e' HEAD finche' la candidate e' attiva, e non si scrive: un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive.\n\n# Perche' non `abd39c6`\n\nLa prima candidate chiesta era `abd39c6`, e non e' congelabile. La toolchain di `distribuzione.yml` e' passata da 1.92.0 a 1.98.1 -- allineandosi a `rust-toolchain.toml` e alla CI, che la usavano gia' -- e con la 1.98.1 `ld-linux-x86-64.so.2` compare fra i `DT_NEEDED` diretti del profilo `base`. L'insieme atteso dal lock ne dichiarava tre e la chiusura ne trovava quattro: un job rosso su quattro, e il gate ha fatto il proprio mestiere. Il lock e' stato aggiornato in `aa86f5f`, e quella correzione tocca `scripts/`, quindi invalida `abd39c6` per costruzione.\n\n`release_action_allowed` dice che la **candidate** permette all'azione di rilascio di procedere: gli artefatti esistono, sono qualificati e non verranno ricostruiti. Non e' l'autorizzazione, che e' `release_authorized` e resta `false`, e non e' il tag, che non esiste.",
+      "stato": "pubblicata",
+      "nota": "La 3.0.0 e' **pubblicata**. Il tag `v3.0.0` punta a `28bf62c`, la revisione congelata, e i sei artefatti fissati al congelamento sono gli stessi byte che la release porta: verificato due volte, sui byte riscaricati dalla bozza prima di pubblicare e su quelli riscaricati dalla release dopo, con i venti digest coincidenti fra le due.\n\n`release_action_allowed` torna **falso**: il permesso autorizzava **quella** pubblicazione ed e' stato speso. Lasciarlo vero lo farebbe valere per la successiva, che nessuno ha autorizzato.\n\n`commit_di_assurance` nomina `789853b`, il commit che ha registrato la verifica dopo la pubblicazione. E' fin li' che la diff dalla revisione qualificata deve stare nell'allowlist: riferirsi a HEAD renderebbe questo campo falso al primo commit di sviluppo, su una release i cui byte nessuno ha toccato.",
       "revisione_candidate": "28bf62ccba49d47bda0797b9892e373c49ebea61",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -231,7 +231,8 @@
           "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
         }
       ],
-      "tag_revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+      "tag_revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "commit_di_assurance": "789853b"
     }
   },
   "docset": {
