@@ -66,7 +66,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `distribuzione.artefatti-qualificati` | sei archivi qualificati su `28bf62c`; manca il confronto dei byte riscaricati dal canale |
+| `distribuzione.artefatti-qualificati` | sei archivi qualificati su `28bf62c`; byte riscaricati dalla bozza identici ai digest congelati; manca la pubblicazione |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

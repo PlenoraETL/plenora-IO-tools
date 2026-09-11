@@ -705,6 +705,30 @@
       "referti_attesi": 32,
       "referti_trovati": 32,
       "checksum_ricalcolati": "6 su 6, sui byte scaricati e non sui sommari della corsa"
+    },
+    "bozza": {
+      "release_id": 386842189,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-b57a0a8097f2b3174eb5",
+      "tag_dichiarato": "v3.0.0",
+      "target": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "pubblicata": false,
+      "asset": 20,
+      "asset_nota": "i sei archivi qualificati piu' i quattordici di accompagnamento -- checksum, provenance e, per i due Python, manifesto, licenze, SBOM e provenance -- caricati **cosi' come scaricati** dalla corsa 34558542834. Nessun archivio e' stato ricostruito.",
+      "il_tag_non_e_materializzato": "una bozza dichiara il proprio `tag_name` senza creare il tag: GitHub lo crea alla pubblicazione. Verificato sul remoto -- diciassette tag prima e diciassette dopo, nessun `v3.0.0` -- e l'URL della bozza e' infatti `untagged-...`.",
+      "verifica_dei_byte_riscaricati": {
+        "quando": "2026-09-11T07:10:38.122464+00:00",
+        "comando": "python3 scripts/check-deliverable.py --directory <scaricati> --versione 3.0.0 --canale candidate --revisione 28bf62ccba49d47bda0797b9892e373c49ebea61 --contro-la-candidate assurance/current-state.json",
+        "esito": "verde",
+        "che_cosa_ha_verificato": [
+          "sei archivi con altrettanti checksum, di cui due Python, e le rispettive provenance",
+          "il digest di ogni archivio riscaricato coincide con quello congelato in `aperto.candidate_release.artefatti`",
+          "la dimensione di ogni archivio coincide con quella congelata",
+          "la revisione di ogni provenance e' quella congelata",
+          "SBOM, manifesto e nota del canale dentro i quattro archivi nativi: `SPDX-2.3`, `firma.stato: non_richiesta`, `canale: candidate`, e la revisione del manifesto uguale a quella della provenance"
+        ],
+        "perche_non_basta_il_confronto_coi_sidecar": "un insieme ricostruito da capo e' internamente coerente e passerebbe: ogni checksum descrive fedelmente l'archivio che gli sta accanto. Il confronto con i digest congelati e' l'unico che distingue gli artefatti qualificati da una ricostruzione equivalente."
+      },
+      "un_falso_rosso_da_conoscere": "la prima corsa del confronto e' stata **rossa** su `provenance.lock` dei due archivi Linux, e non per un difetto degli artefatti: `scripts/linux-gdal-lock.json` era stato riscritto da Windows con fine riga CRLF, mentre `.gitattributes` impone `eol=lf` e git normalizza al commit. Il runner ha costruito dal file LF -- digest `96d8c138` -- e il controllo locale digeriva la copia CRLF -- `6e2483bf`. `git status` non lo mostrava, perche' normalizza anche lui. Riallineato l'albero ai byte di git, il confronto e' verde. Vale per qualunque gate che digerisca un file del repository su Windows."
     }
   },
   "campagne_mirate": {
