@@ -76,34 +76,42 @@ NON_SONO_TETTI = frozenset(
 #: Dove ciascun modello va confrontato: la busta e il prefisso nella sua
 #: struttura. Il livello e' quello **immediato**: la profondita' la governano i
 #: modelli annidati, che compaiono qui con il proprio prefisso.
+#: Dove ogni modello vive nel manifesto: la busta, e il percorso dentro di
+#: essa.
+#:
+#: I percorsi scendono tutti dentro `.result`, che dalla 4.0.0 e' dove il
+#: protocollo mette i dati dell'operazione. Prima partivano dal primo
+#: livello, accanto ai campi della busta, e un modello del risultato
+#: finiva per pretendere `status` e `contract` -- che appartengono a chi
+#: lo trasporta, non a lui.
 POSTI: dict[str, tuple[str, str]] = {
-    "Catalog": ("catalog", ""),
-    "Driver": ("catalog", ".drivers[]"),
-    "FormatDescriptor": ("inspect", ".format"),
-    "Inspect": ("inspect", ""),
-    "Layer": ("inspect", ".layers[]"),
-    "Field": ("inspect", ".layers[].fields[]"),
-    "Geometry": ("inspect", ".layers[].geometry"),
-    "CrsResolution": ("inspect", ".layers[].geometry.crs_resolution"),
-    "Layers": ("layers", ""),
-    "LayerSummary": ("layers", ".layers[]"),
-    "Validation": ("read", ""),
-    "ConvertResult": ("convert", ""),
-    "ConvertedLayer": ("convert", ".layers[]"),
+    "Catalog": ("catalog", ".result"),
+    "Driver": ("catalog", ".result.drivers[]"),
+    "FormatDescriptor": ("inspect", ".result.format"),
+    "Inspect": ("inspect", ".result"),
+    "Layer": ("inspect", ".result.layers[]"),
+    "Field": ("inspect", ".result.layers[].fields[]"),
+    "Geometry": ("inspect", ".result.layers[].geometry"),
+    "CrsResolution": ("inspect", ".result.layers[].geometry.crs_resolution"),
+    "Layers": ("layers", ".result"),
+    "LayerSummary": ("layers", ".result.layers[]"),
+    "Validation": ("read", ".result"),
+    "ConvertResult": ("convert", ".result"),
+    "ConvertedLayer": ("convert", ".result.layers[]"),
     # La perdita si confronta con `write_loss`: e' l'unica delle due che la
     # matrice del gate delle buste raggiunge non vuota, e su `read_loss` i
     # percorsi interni di `counts` ed `esempi` non compaiono affatto. Il tipo e'
     # lo stesso -- e' il caso che cambia.
-    "LossReport": ("convert", ".write_loss"),
-    "LossCount": ("convert", ".write_loss.counts[]"),
-    "LossExample": ("convert", ".write_loss.esempi[]"),
-    "Fidelity": ("layers", ".fidelity"),
-    "Omissions": ("layers", ".fidelity.omesse"),
+    "LossReport": ("convert", ".result.write_loss"),
+    "LossCount": ("convert", ".result.write_loss.counts[]"),
+    "LossExample": ("convert", ".result.write_loss.esempi[]"),
+    "Fidelity": ("layers", ".result.fidelity"),
+    "Omissions": ("layers", ".result.fidelity.omesse"),
     # Le ragioni si confrontano con quelle di `convert`, non con quelle di
     # `layers`: sono le sole che la matrice del gate delle buste raggiunge con
     # gli indici opzionali, e un confronto altrove direbbe che `field_index`
     # non esiste. Il tipo e' lo stesso -- e' il caso che cambia.
-    "FidelityReason": ("convert", ".conversion_fidelity.reasons[]"),
+    "FidelityReason": ("convert", ".result.conversion_fidelity.reasons[]"),
 }
 
 #: I modelli che dichiarano campi **propri** oltre a quelli ereditati.
@@ -113,12 +121,12 @@ EREDITA: dict[str, str] = {"Driver": "FormatDescriptor"}
 
 #: Le sottostrutture che l'SDK lascia grezze, e perche'.
 GREZZE: dict[str, str] = {
-    ".drivers[].write_capabilities": (
+    ".result.drivers[].write_capabilities": (
         "undici sottostrutture e un vocabolario chiuso per ciascuna, che "
         "servono a `convert`. Modellarle in un ciclo che non copre `convert` "
         "le lascerebbe scritte e non esercitate."
     ),
-    ".drivers[].format_options": (
+    ".result.drivers[].format_options": (
         "il valore di un'opzione e' una somma -- testo, carattere, enum, "
         "intervallo di interi -- e la sua forma dipende dall'opzione. La "
         "modellazione ha senso quando qualcuno dovra' **passarle** per nome, "
@@ -349,12 +357,13 @@ def main() -> int:
         if base is not None:
             campi = list(obbligatori.get(base, [])) + list(propri.get(nome, []))
         struttura = manifesto["envelopes"][busta]["struttura"]
+        attesi = campi_del_protocollo(struttura, prefisso)
         problemi.extend(
             confronta(
                 nome,
                 campi,
                 list(opzionali.get(nome, [])),
-                campi_del_protocollo(struttura, prefisso),
+                attesi,
                 prefisso or busta,
             )
         )
@@ -376,16 +385,19 @@ def main() -> int:
                     "`models.py`: se e' rinominato, va comunque letto da li'."
                 )
 
-    # La busta di bootstrap ha uno schema **chiuso**, e il modello lo rifiuta
-    # anche per eccesso: il confronto qui e' con `schema_esatto`.
+    # Il risultato di `--version` ha uno schema **chiuso**, e il modello lo
+    # rifiuta anche per eccesso: il confronto qui e' coi campi che il manifesto
+    # dichiara obbligatori per quel risultato.
     sorgente = MODELLI.read_text(encoding="utf-8")
-    for percorso in manifesto["busta_di_bootstrap"]["schema_esatto"]:
-        campo = percorso.lstrip(".")
-        if f'"{campo}"' not in sorgente:
-            problemi.append(
-                f"la busta di bootstrap dichiara «{campo}» e `models.py` non lo "
-                "nomina."
-            )
+    for nome, voce in manifesto["envelopes"].items():
+        if not voce.get("risultato_a_schema_chiuso"):
+            continue
+        for campo in voce["required_result_fields"]:
+            if f'"{campo}"' not in sorgente:
+                problemi.append(
+                    f"la busta «{nome}» dichiara «{campo}» a schema chiuso e "
+                    "`models.py` non lo nomina."
+                )
 
     catalogo = manifesto["envelopes"]["catalog"]["struttura"]
     for percorso in GREZZE:

@@ -70,24 +70,21 @@
       "regola": "CLI-2.0 §4",
       "riga_del_piano": "B5",
       "descrizione": "in modo JSON la busta d'errore esce su **stdout**, e stderr resta vuoto",
-      "stato": "non_ancora",
-      "perche": "oggi la busta d'errore esce su stderr e stdout resta vuoto. E' una selezione di stream incompatibile: un consumatore che legge stdout non vede il fallimento."
+      "stato": "implementato"
     },
     {
       "id": "cli.aiuto",
       "regola": "CLI-2.0 §3",
       "riga_del_piano": "B1",
       "descrizione": "`--help` esiste, esce 0 e descrive soltanto i comandi compilati nel binario",
-      "stato": "non_ancora",
-      "perche": "`--help` non e' riconosciuto: esce 2 con l'errore d'uso. La superficie di scoperta richiesta non esiste."
+      "stato": "implementato"
     },
     {
       "id": "cli.versione-json",
       "regola": "CLI-2.0 §3",
       "riga_del_piano": "B2",
       "descrizione": "`--version --format json` risponde nella busta comune, con `component_version` e la versione di protocollo dentro `result`",
-      "stato": "non_ancora",
-      "perche": "`--format json` non e' accettato accanto a `--version`, e `--version` da solo rende `{\"status\":\"ok\",\"version\":\"3.0.0\"}`, che non e' la busta comune."
+      "stato": "implementato"
     },
     {
       "id": "cli.capabilities",
@@ -95,63 +92,56 @@
       "riga_del_piano": "B3",
       "descrizione": "`capabilities --format json` risponde e descrive il binario che sta rispondendo",
       "stato": "non_ancora",
-      "perche": "il comando non esiste. Senza, nessun orchestratore puo' selezionare le operazioni dell'artefatto."
+      "perche": "il comando non esiste. E' la scoperta delle operazioni, e appartiene al blocco successivo: senza, nessun orchestratore puo' sapere quali operazioni questo artefatto espone, ne' distinguere la build `base` da quella `filegdb`."
     },
     {
       "id": "cli.formato-json-esplicito",
       "regola": "CLI-2.0 §2",
       "riga_del_piano": "B9",
       "descrizione": "`--format json` e' accettato da ogni comando del binding",
-      "stato": "non_ancora",
-      "perche": "nessun comando accetta il flag; `catalog --format json` esce 2."
+      "stato": "implementato"
     },
     {
       "id": "cli.identita-nella-busta",
       "regola": "CLI-2.0 §5",
       "riga_del_piano": "B6",
       "descrizione": "ogni busta porta `component`, `component_version` e `command`",
-      "stato": "non_ancora",
-      "perche": "la busta di successo porta `status`, `protocol_version`, `contract` e i dati; i tre campi d'identita' non ci sono."
+      "stato": "implementato"
     },
     {
       "id": "cli.dati-dentro-result",
       "regola": "CLI-2.0 §5",
       "riga_del_piano": "B7",
       "descrizione": "i dati dell'operazione stanno dentro `result` e non creano campi di primo livello",
-      "stato": "non_ancora",
-      "perche": "`catalog` mette `drivers` e `determinism` al primo livello, e non esiste un `result`."
+      "stato": "implementato"
     },
     {
       "id": "cli.una-sola-versione-di-protocollo",
       "regola": "profilo io-tools, cutover",
       "riga_del_piano": "B4",
       "descrizione": "ogni risposta dell'artefatto porta la stessa `protocol_version`, e vale 2",
-      "stato": "non_ancora",
-      "perche": "il successo rende 2 e ogni percorso d'errore rende 1: le due versioni coesistono nello stesso binario, che il profilo vieta."
+      "stato": "implementato"
     },
     {
       "id": "cli.proiezione-dei-codici",
       "regola": "CLI-2.0 §8",
       "riga_del_piano": "B11",
       "descrizione": "il codice d'uscita e' la proiezione stabile della `category`, secondo la tabella del contratto",
-      "stato": "non_ancora",
-      "perche": "la proiezione e' agganciata a `IoErrorCode`, il codice interno, invece che alla categoria: `io` esce 1 dove il contratto vuole 5, `unsupported` esce 4 dove vuole 3. Solo `cancelled` coincide."
+      "stato": "implementato"
     },
     {
       "id": "superficie.identificatore-del-componente",
       "regola": "SURF-001",
       "riga_del_piano": "A1",
       "descrizione": "l'artefatto espone `plenora-io-tools` come identificatore di componente",
-      "stato": "non_ancora",
-      "perche": "nessuna busta porta un campo `component`, e il manifesto di protocollo scrive `plenora-IO-tools`, che la forma `plenora-<domain>-tools` non ammette."
+      "stato": "implementato"
     },
     {
       "id": "superficie.versione-dell-artefatto",
       "regola": "SURF-002",
       "riga_del_piano": "B2",
       "descrizione": "ogni superficie capace di scoperta espone la versione del componente",
-      "stato": "non_ancora",
-      "perche": "`--version` la espone fuori dalla busta comune, e non esiste un documento capability che la porti."
+      "stato": "implementato"
     }
   ]
 }

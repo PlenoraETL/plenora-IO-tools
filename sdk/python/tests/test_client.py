@@ -76,23 +76,23 @@ class ConUnFinto(unittest.TestCase):
     @saltabile
     def test_la_busta_di_successo_arriva_da_stdout(self) -> None:
         client = self.client(
-            'print(json.dumps({"status": "ok", "version": "9.9.9"}))\n'
+            'print(json.dumps({"status": "ok", "result": {"component_version": "9.9.9", "cli_protocol_version": 2}}))\n'
         )
         self.assertEqual(client.version().version, "9.9.9")
 
     @saltabile
-    def test_una_busta_d_errore_su_stderr_diventa_un_eccezione(self) -> None:
+    def test_una_busta_d_errore_diventa_un_eccezione(self) -> None:
         client = self.client(
-            'print(json.dumps({"status": "error", "protocol_version": 1,'
+            'print(json.dumps({"status": "error", "protocol_version": 2,'
             ' "contract": "plenora-io-error-v1", "error": {"code": "FORMAT_ERROR",'
             ' "category": "io", "phase": "read", "remote_effect": "none",'
-            ' "retry": {"kind": "never"}, "message": "niente da leggere"}}),'
-            " file=sys.stderr)\nsys.exit(1)\n"
+            ' "retry": {"kind": "never"}, "message": "niente da leggere"}}))'
+            "\nsys.exit(5)\n"
         )
         with self.assertRaises(CommandFailed) as preso:
             client.catalog()
         errore = preso.exception
-        self.assertEqual(errore.exit_code, 1)
+        self.assertEqual(errore.exit_code, 5)
         self.assertEqual(errore.envelope.category, "io")
         self.assertEqual(errore.envelope.phase, "read")
         self.assertFalse(errore.retryable)
@@ -105,8 +105,8 @@ class ConUnFinto(unittest.TestCase):
         client = self.client(
             'print(json.dumps({"status": "error", "error": {"code": "X",'
             ' "category": "transient", "phase": "connect", "remote_effect": "none",'
-            ' "retry": {"kind": "after", "delay_ms": 2750}, "message": "riprova"}}),'
-            " file=sys.stderr)\nsys.exit(1)\n"
+            ' "retry": {"kind": "after", "delay_ms": 2750}, "message": "riprova"}}))'
+            "\nsys.exit(5)\n"
         )
         with self.assertRaises(CommandFailed) as preso:
             client.catalog()
@@ -124,7 +124,7 @@ class ConUnFinto(unittest.TestCase):
         client = self.client('print("non sono JSON")\nsys.exit(3)\n')
         with self.assertRaises(ProtocolError) as preso:
             client.version()
-        self.assertIn("su stderr", str(preso.exception))
+        self.assertIn("su stdout", str(preso.exception))
         self.assertIn("non sono JSON", str(preso.exception))
 
     @saltabile
@@ -145,7 +145,7 @@ class ConUnFinto(unittest.TestCase):
 
     @saltabile
     def test_il_manifesto_e_none_per_un_binario_nudo(self) -> None:
-        client = self.client('print(json.dumps({"status": "ok", "version": "1"}))\n')
+        client = self.client('print(json.dumps({"status": "ok", "result": {"component_version": "1.0.0", "cli_protocol_version": 2}}))\n')
         self.assertIsNone(client.manifest)
 
 
@@ -170,13 +170,10 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_la_versione_si_decodifica(self) -> None:
         versione = Client(binary=self.binario).version()
-        self.assertEqual(versione.status, "ok")
         self.assertTrue(versione.version)
 
     def test_il_catalogo_si_decodifica_intero(self) -> None:
         catalogo = Client(binary=self.binario).catalog()
-        self.assertEqual(catalogo.contract, "plenora-io-catalog-v2")
-        self.assertEqual(catalogo.protocol_version, 2)
         self.assertTrue(catalogo.drivers)
         # I dieci driver del prodotto: il numero non e' fissato qui -- lo fissa
         # il catalogo -- ma che ce ne sia piu' d'uno e che ciascuno si
@@ -190,9 +187,6 @@ class ContrIlBinarioVero(unittest.TestCase):
         cliente = Client(binary=self.binario)
         fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.inspect(fixture)
-
-        self.assertEqual(esito.contract, "plenora-io-inspect-v2")
-        self.assertEqual(esito.protocol_version, 2)
         self.assertEqual(esito.format.id, "geojson")
         self.assertTrue(esito.format.readable and esito.format.writable)
 
@@ -218,8 +212,6 @@ class ContrIlBinarioVero(unittest.TestCase):
         cliente = Client(binary=self.binario)
         fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
         esito = cliente.layers(fixture)
-
-        self.assertEqual(esito.contract, "plenora-io-layers-v2")
         self.assertEqual(esito.format, "gpkg")
         self.assertTrue(esito.layers)
         for riassunto in esito.layers:
@@ -285,8 +277,6 @@ class ContrIlBinarioVero(unittest.TestCase):
         cliente = Client(binary=self.binario)
         fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.validate(fixture)
-
-        self.assertEqual(esito.contract, "plenora-io-read-v2")
         self.assertGreater(esito.rows_read, 0)
         self.assertGreater(esito.batches, 0)
         self.assertTrue(esito.complete)

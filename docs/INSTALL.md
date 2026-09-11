@@ -237,6 +237,99 @@ Il controllo legge `MANIFEST.json` accanto al binario. Un binario costruito da
 errore. Un manifesto **presente e illeggibile** lo è, perché vuol dire che
 l'artefatto è rotto.
 
+## Migrazione 3.x → 4.0.0 — il protocollo pubblico
+
+La 4.0.0 adotta i contratti pubblici di `plenora-contracts`. Il cambiamento si
+vede tutto sul confine del processo, ed è **incompatibile**: chi automatizza la
+CLI deve toccare il proprio codice.
+
+### Le cinque differenze che richiedono di toccare il codice
+
+**1. I dati dell'operazione stanno in `result`.** Prima uscivano al primo
+livello, accanto a `status` e `contract`.
+
+```diff
+- jq '.drivers'            # 3.x
++ jq '.result.drivers'     # 4.0.0
+```
+
+Vale per ogni comando: `catalog`, `inspect`, `layers`, `read`, `convert`.
+
+**2. La busta d'errore esce su `stdout`.** Usciva su `stderr`, e `stdout`
+restava vuoto. Ora è il contrario: **un** documento su `stdout`, `stderr`
+vuoto, sempre — riuscita o fallita che sia l'invocazione.
+
+```diff
+- if ! out=$(plenora-io inspect x.shp 2>err.json); then jq . err.json; fi
++ out=$(plenora-io inspect x.shp); echo "$out" | jq '.status'
+```
+
+Chi leggeva `stderr` per il fallimento oggi non trova nulla. È la differenza che
+rompe più silenziosamente, perché un consumatore che ignora `stdout` sui
+fallimenti vede un errore senza diagnostica invece di un errore.
+
+**3. I codici d'uscita proiettano la categoria.** Erano agganciati al codice
+interno `IoErrorCode`; ora vengono dalla tabella di CLI 2.0 §8.
+
+| categoria | 3.x | 4.0.0 |
+|---|---:|---:|
+| `invalid_plan`, `invalid_configuration` | 2 | **2** |
+| `schema`, `data_mapping`, `crs`, `unsupported` | 2, 4, 5, 6 | **3** |
+| `resource_limit` | 7 | **4** |
+| `io`, `not_found`, `conflict`, `protocol`, `authentication`, `authorization`, `timeout`, `transient` | 1, 3, 8 | **5** |
+| `execution` | 1 | **6** |
+| `internal` | 2 | **70** |
+| `cancelled` | 130 | **130** |
+
+I valori `7` e `8` non esistono più. Chi decide in base al numero deve rifarsi
+la tabella; chi decide in base a `.error.category` — che è ciò che il contratto
+chiede — non deve cambiare niente.
+
+**4. Ogni busta porta l'identità.** Quattro campi nuovi al primo livello:
+`component` (`plenora-io-tools`), `component_version`, `command`, e
+`protocol_version` che vale `2` anche sugli errori — prima valeva `1`.
+
+**5. `--version` risponde nella busta comune.**
+
+```diff
+- plenora-io --version
+- {"status":"ok","version":"3.0.0"}
++ plenora-io --version --format json
++ {"status":"ok","protocol_version":2,"component":"plenora-io-tools",…,
++  "result":{"component_version":"4.0.0","cli_protocol_version":2}}
+```
+
+`--version` da solo continua a rispondere, nella stessa busta.
+
+### Il protocollo v1 non è più raggiungibile
+
+`--legacy-protocol-v1-unsafe` è stato rimosso. Non è deprecato: non esiste, e
+un flag sconosciuto fallisce chiuso come ogni altro.
+
+Il profilo pubblico vieta a un artefatto di servire due versioni del protocollo
+JSON — un consumatore che ne trovava due nello stesso binario non poteva sapere
+quale gli sarebbe arrivata senza leggere il comando. La 3.0.0 resta scaricabile
+e continua a emettere il v1 quando glielo si chiede: chi non può migrare subito
+resta su quella, che è pubblicata e verificabile, invece di ottenere il v1 da un
+binario che dichiara di parlare v2.
+
+`release/cli-protocol-v1.json` resta nel repository come record di quei byte, e
+un invariante del contratto di release ne presidia l'immutabilità: descrive
+artefatti pubblicati, e quelli non cambiano.
+
+### Che cosa non cambia
+
+I nomi dei comandi, i loro argomenti, i formati supportati, la semantica delle
+conversioni, i metadati Arrow e le categorie di perdita. La migrazione riguarda
+**come** si legge la risposta, non che cosa il prodotto fa.
+
+### Lo SDK Python
+
+Aggiornato insieme al CLI: `plenora_io` legge la busta nuova e restituisce il
+risultato. Chi usa lo SDK non vede nessuna delle cinque differenze, tranne che
+`Version` ora espone `component_version` e `cli_protocol_version` — `.version`
+resta leggibile e significa la stessa cosa.
+
 ## Migrazione 1.x → 2.0.0
 
 Il perimetro di compatibilità del prodotto è dichiarato e stretto:

@@ -57,8 +57,12 @@ const RIEMPIMENTO: usize = 320;
 const CRS: &str = "EPSG:4326";
 const OPZIONE_WKT: &str = "wkt_column=geom";
 
-/// Exit code storico di `LIMIT_EXCEEDED` nella CLI.
-const EXIT_LIMITE: i32 = 7;
+/// La proiezione di `resource_limit`, secondo CLI 2.0 §8.
+///
+/// Era `7`, il codice storico di `LIMIT_EXCEEDED`. Nel contratto il `7` non
+/// esiste: i codici d'uscita proiettano la **categoria**, e `resource_limit`
+/// proietta `4`.
+const EXIT_LIMITE: i32 = 4;
 
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
 ///
@@ -115,20 +119,20 @@ fn comando_convert(ingresso: &Path, uscita: &Path, deadline_ms: Option<&str>) ->
     comando
 }
 
-/// `stderr` e' la busta d'errore: **un solo documento JSON**, e nient'altro.
+/// `stdout` e' la busta d'errore: **un solo documento JSON**, e nient'altro.
 ///
 /// Non e' una comodita' della sonda, e' il contratto. Un consumatore che legge
-/// `stderr` con un parser JSON lo fa sull'intero flusso -- lo fa anche
+/// `stdout` con un parser JSON lo fa sull'intero flusso -- lo fa anche
 /// `tests/ostili.rs` -- e qualunque riga di testo prima della busta lo rompe.
 /// Analizzare soltanto l'ultima riga renderebbe questa sonda **compatibile**
 /// con una riga di troppo invece di rifiutarla, che e' il modo in cui un
 /// contratto si perde senza che nessun gate lo dica.
-fn busta(stderr: &str) -> serde_json::Value {
+fn busta(stdout: &str) -> serde_json::Value {
     // Un `match` e non un `unwrap_or_else`: non c'e' un valore di ripiego, e il
     // censimento dei fallback conta la forma sintattica.
-    match serde_json::from_str(stderr.trim()) {
+    match serde_json::from_str(stdout.trim()) {
         Ok(busta) => busta,
-        Err(errore) => panic!("stderr non e' un solo documento JSON ({errore}): «{stderr}»"),
+        Err(errore) => panic!("stdout non e' un solo documento JSON ({errore}): «{stdout}»"),
     }
 }
 
@@ -153,7 +157,7 @@ fn una_deadline_di_un_millisecondo_ferma_la_conversione_prima_del_publish() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let documento = busta(&String::from_utf8_lossy(&output.stderr));
+    let documento = busta(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(documento["error"]["code"], "LIMIT_EXCEEDED");
     assert!(
         !uscita.exists(),
@@ -187,7 +191,7 @@ fn una_deadline_generosa_lascia_finire_la_stessa_conversione() {
         String::from_utf8_lossy(&output.stderr)
     );
     let documento: serde_json::Value = serde_json::from_slice(&output.stdout).expect("busta JSON");
-    assert_eq!(documento["total_rows"], RIGHE);
+    assert_eq!(documento["result"]["total_rows"], RIGHE);
     assert!(uscita.is_file());
 }
 
@@ -202,7 +206,7 @@ fn una_deadline_a_zero_e_rifiutata() {
 
     assert_eq!(output.status.code(), Some(EXIT_LIMITE));
     assert_eq!(
-        busta(&String::from_utf8_lossy(&output.stderr))["error"]["code"],
+        busta(&String::from_utf8_lossy(&output.stdout))["error"]["code"],
         "LIMIT_EXCEEDED"
     );
     assert!(!uscita.exists());
@@ -218,7 +222,7 @@ fn una_deadline_non_intera_e_un_errore_d_uso() {
         .expect("il binario si esegue");
 
     assert!(!output.status.success());
-    let documento = busta(&String::from_utf8_lossy(&output.stderr));
+    let documento = busta(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(documento["error"]["code"], "CLI_USAGE");
     assert!(!uscita.exists());
 }
@@ -350,18 +354,26 @@ mod segnale {
             "stderr: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(busta(&stderr)["error"]["code"], "CANCELLED");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(busta(&stdout)["error"]["code"], "CANCELLED");
         // La regressione. `busta` gia' pretende che l'intero flusso sia un
         // documento solo, ma il messaggio che darebbe direbbe «JSON non
         // valido», e chi legge cercherebbe un difetto nella serializzazione.
         // Questa riga dice invece che cosa e' successo davvero: qualcuno ha
-        // scritto su `stderr` prima della busta. E' capitato, e la sonda che
-        // avrebbe dovuto accorgersene era stata resa compatibile con la riga
-        // di troppo invece di rifiutarla.
+        // scritto prima della busta. E' capitato, e la sonda che avrebbe dovuto
+        // accorgersene era stata resa compatibile con la riga di troppo invece
+        // di rifiutarla.
         assert!(
-            stderr.trim_start().starts_with('{'),
-            "prima della busta non ci va nient'altro, nemmeno una diagnostica: «{stderr}»"
+            stdout.trim_start().starts_with('{'),
+            "prima della busta non ci va nient'altro, nemmeno una diagnostica: «{stdout}»"
+        );
+        // E l'altro flusso resta **vuoto**: in modo JSON il contratto vuole un
+        // documento su stdout e niente su stderr, e una cancellazione non e'
+        // l'eccezione.
+        assert!(
+            output.stderr.is_empty(),
+            "stderr deve restare vuoto: «{}»",
+            String::from_utf8_lossy(&output.stderr)
         );
         assert!(!uscita.exists(), "la destinazione non deve esistere");
         assert!(

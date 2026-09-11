@@ -97,8 +97,16 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                 catalog[field] = replacement
                 self.assertTrue(self.validate(catalog))
 
-    def test_rejects_missing_required_top_level_field(self) -> None:
-        for field in ("status", "protocol_version", "contract", "determinism"):
+    def test_rejects_missing_required_body_field(self) -> None:
+        """I campi del **corpo**: e' li' che vivono i dati del catalogo.
+
+        Il referto puo' essere di due epoche -- avvolto in `result` dalla 4.0.0,
+        al primo livello prima -- e questo elenco vale per entrambe, perche' e'
+        il corpo a non essere cambiato. I campi d'identita' li pretende la
+        busta, e solo quando c'e' una busta: su un referto storico non
+        esistevano, e un referto non si riscrive.
+        """
+        for field in ("determinism", "drivers"):
             with self.subTest(field=field):
                 catalog = copy.deepcopy(self.catalog)
                 del catalog[field]

@@ -699,13 +699,16 @@ passo canale_privato python3 scripts/check_canale_privato.py
 # versi. Una riga piu' larga della matrice promette un Python su cui nessuno ha
 # guardato; una piu' stretta rifiuta installazioni che funzionano.
 passo check_requires_python python3 scripts/check_requires_python.py
-# Il confine del v1: `detail_v1()` restituisce i nomi presi dal file, e li
-# pubblica **un solo** adattatore. La visibilita' di Rust non sa dire «questo
-# modulo e nessun altro», e un accessore pubblico e' pubblico: senza questo
-# passo la prima chiamata fuori posto rimetterebbe sul filo del v2 cio' che il
-# v2 esiste per togliere.
-passo sonde_confine_v1 python3 -m unittest scripts.test_check_confine_v1
-passo check_confine_v1 python3 scripts/check_confine_v1.py
+# Il confine del v1 non c'e' piu' da presidiare.
+#
+# `check_confine_v1.py` verificava che l'adattatore del protocollo congelato
+# vivesse in un modulo suo e che nessuno lo chiamasse da fuori: la condivisione
+# era il difetto, perche' una funzione sola per i due protocolli avrebbe fatto
+# uscire dal v2 cio' che il v2 toglie. Con la 4.0.0 l'artefatto serve **un**
+# protocollo, il modulo `legacy_v1` non esiste, e un gate che cerca un confine
+# fra due cose di cui una manca non presidia niente -- resterebbe rosso, o
+# peggio verde per assenza di soggetto.
+#
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

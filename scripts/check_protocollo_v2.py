@@ -189,13 +189,31 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
             "da qualcuno, e nessuno lo ha approvato."
         )
 
-    bootstrap = manifesto.get("busta_di_bootstrap")
-    if not isinstance(bootstrap, dict) or not bootstrap.get("schema_esatto"):
+    # `--version` non e' piu' una busta a parte: risponde nella busta comune
+    # come ogni altro comando, e cio' che resta a **schema chiuso** e' il suo
+    # risultato. Chi lo consuma non ha una versione su cui appoggiarsi per
+    # capire che cosa sia cambiato, quindi deve accorgersi di un campo nuovo
+    # subito -- ed e' la ragione per cui lo schema chiuso sopravvive al
+    # trasloco.
+    chiusi = [
+        nome
+        for nome, voce in (manifesto.get("envelopes") or {}).items()
+        if voce.get("risultato_a_schema_chiuso")
+    ]
+    if not chiusi:
         errori.append(
-            "cli-protocol-v2: `ratificato` senza una busta di bootstrap con "
-            "schema esatto. `--version` esce su stdout come le altre, e una "
-            "busta non censita e' cio' che la ratifica esiste per escludere."
+            "cli-protocol-v2: `ratificato` e nessuna busta dichiara un "
+            "risultato a schema chiuso. `--version` si legge prima di sapere "
+            "con che cosa si sta parlando, e senza uno schema chiuso un campo "
+            "nuovo vi entrerebbe senza che nessuno lo decida."
         )
+    for nome in chiusi:
+        if not manifesto["envelopes"][nome].get("required_result_fields"):
+            errori.append(
+                f"cli-protocol-v2: la busta «{nome}» dichiara un risultato a "
+                "schema chiuso senza `required_result_fields`: lo schema "
+                "sarebbe chiuso su niente."
+            )
     for nome, voce in (manifesto.get("envelopes") or {}).items():
         if not voce.get("struttura"):
             errori.append(
@@ -203,10 +221,13 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
                 "dichiara la propria struttura: il primo livello da solo non "
                 "descrive cio' che un consumatore deve leggere."
             )
-    if not (manifesto.get("busta_degli_errori") or {}).get("struttura"):
+    if "error" not in (manifesto.get("envelopes") or {}):
         errori.append(
-            "cli-protocol-v2: `ratificato` e la busta d'errore non dichiara la "
-            "propria struttura."
+            "cli-protocol-v2: `ratificato` e la busta d'errore non e' fra le "
+            "buste dichiarate. Stava in una sezione propria perche' il v2 la "
+            "riusava dal v1 senza modifiche; dalla 4.0.0 porta i sei campi "
+            "d'identita' ed esce su stdout, quindi e' una busta come le altre e "
+            "il ciclo qui sopra ne pretende la struttura."
         )
     return errori
 

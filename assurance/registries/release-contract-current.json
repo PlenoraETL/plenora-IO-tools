@@ -16,7 +16,7 @@
         "crate": "plenora-io-cli",
         "configurazione": "default",
         "test": [
-          "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1"
+          "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi"
         ],
         "bersaglio": "bins"
       },
@@ -359,10 +359,6 @@
         "comandi_aggiuntivi": [
           [
             "python3",
-            "scripts/check_confine_v1.py"
-          ],
-          [
-            "python3",
             "scripts/check_categorie_di_perdita.py"
           ],
           [
@@ -370,12 +366,6 @@
             "-m",
             "unittest",
             "scripts.test_check_protocollo_v2"
-          ],
-          [
-            "python3",
-            "-m",
-            "unittest",
-            "scripts.test_check_confine_v1"
           ],
           [
             "python3",

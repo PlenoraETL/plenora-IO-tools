@@ -711,22 +711,26 @@ fn la_busta_del_binario_ha_le_sei_chiavi_e_non_porta_il_payload() {
         "la fixture ostile e' stata accettata"
     );
     assert!(
-        uscita.stdout.is_empty(),
-        "un errore non deve produrre uscita su stdout: {}",
-        String::from_utf8_lossy(&uscita.stdout)
+        uscita.stderr.is_empty(),
+        "in modo JSON stderr resta vuoto, anche su un errore: {}",
+        String::from_utf8_lossy(&uscita.stderr)
     );
 
-    let testo = String::from_utf8(uscita.stderr).expect("stderr e' UTF-8");
+    let testo = String::from_utf8(uscita.stdout).expect("stdout e' UTF-8");
     assert!(
         !testo.contains(MARCATORE),
         "il payload e' uscito dal binario: {testo}"
     );
 
     let documento: serde_json::Value =
-        serde_json::from_str(testo.trim()).expect("stderr e' un documento JSON");
+        serde_json::from_str(testo.trim()).expect("stdout e' un documento JSON");
     assert_eq!(documento["status"], "error");
-    assert_eq!(documento["protocol_version"], 1);
+    assert_eq!(documento["protocol_version"], 2);
     assert_eq!(documento["contract"], "plenora-io-error-v1");
+    // L'identita' c'e', e viene dal processo: e' l'unica prova che attraversa
+    // anche il punto in cui `main` la aggiunge.
+    assert_eq!(documento["component"], "plenora-io-tools");
+    assert_eq!(documento["command"], "inspect");
 
     let chiavi: std::collections::BTreeSet<&str> = documento["error"]
         .as_object()

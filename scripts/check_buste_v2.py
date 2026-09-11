@@ -290,11 +290,14 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "versione",
-        "busta": "senza-contratto:--version",
-        "argomenti": ["--version"],
+        "busta": "plenora-io-version-v2",
+        "argomenti": ["--version", "--format", "json"],
         "perche": (
-            "la sesta busta su stdout, e la sola senza `contract` ne' "
-            "`protocol_version`. Non la censiva nessuno."
+            "la sesta busta su stdout. Era l'unica **senza** `contract` ne' "
+            "`protocol_version`: si leggeva prima di sapere con quale "
+            "protocollo si stesse parlando, e il manifesto la dichiarava a "
+            "schema chiuso proprio per questo. CLI 2.0 chiede invece che anche "
+            "la scoperta passi dalla busta comune, e ora ce l'ha come le altre."
         ),
     },
 )
@@ -405,7 +408,7 @@ def raggruppa(osservazioni: list[dict[str, Any]]) -> tuple[dict[str, dict], list
                 f"nessuno dei due flussi (exit {osservazione['exit']})"
             )
             continue
-        nome = documento.get("contract") or "senza-contratto:--version"
+        nome = documento.get("contract") or "senza-contratto"
         if nome != osservazione["attesa"]:
             problemi.append(
                 f"il caso «{osservazione['caso']}» doveva produrre "
@@ -443,33 +446,48 @@ def _schema_esatto(bootstrap: dict[str, Any], stato: dict | None) -> list[str]:
     consuma non sa ancora con che cosa sta parlando, e non ha una versione su
     cui appoggiarsi per capire che cosa sia cambiato.
     """
-    atteso = set(bootstrap["schema_esatto"])
+    # Lo schema chiuso riguarda il **risultato**, non la busta che lo avvolge:
+    # i sei campi d'identita' sono gli stessi di ogni altra busta, e fissarli
+    # anche qui direbbe due volte la stessa cosa.
+    atteso = set(bootstrap["required_result_fields"])
     problemi: list[str] = []
 
-    dichiarati = set(bootstrap["struttura"])
+    dichiarati = {
+        percorso[len(".result.") :]
+        for percorso in bootstrap["struttura"]
+        if percorso.startswith(".result.")
+    }
     if dichiarati != atteso:
         problemi.append(
-            "busta di bootstrap: `schema_esatto` dice "
+            "risultato a schema chiuso: `required_result_fields` dice "
             f"{sorted(atteso)} e la struttura dichiara {sorted(dichiarati)}"
         )
     for percorso, voce in bootstrap["struttura"].items():
-        if voce["tipi"] != ["string"] or not voce["sempre"]:
+        if not percorso.startswith(".result."):
+            continue
+        if not voce["sempre"]:
             problemi.append(
-                f"busta di bootstrap: «{percorso}» dev'essere una stringa "
-                f"sempre presente, ed e' {voce['tipi']} sempre={voce['sempre']}"
+                f"risultato a schema chiuso: «{percorso}» dev'essere sempre "
+                "presente"
             )
 
     if stato is None:
         problemi.append(
-            "busta di bootstrap: nessun caso della matrice la produce, quindi "
-            "lo schema esatto non e' verificato su niente"
+            "risultato a schema chiuso: nessun caso della matrice lo produce, "
+            "quindi lo schema esatto non e' verificato su niente"
         )
         return problemi
-    osservati = set(stato["osservati"])
+    # Sul **risultato**: i campi della busta li confronta il controllo generale,
+    # e ripeterli qui direbbe due volte la stessa cosa.
+    osservati = {
+        percorso[len(".result.") :]
+        for percorso in stato["osservati"]
+        if percorso.startswith(".result.")
+    }
     if osservati != atteso:
         problemi.append(
-            f"busta di bootstrap: il binario emette {sorted(osservati)} e lo "
-            f"schema esatto dice {sorted(atteso)}"
+            f"risultato a schema chiuso: il binario emette {sorted(osservati)} "
+            f"e lo schema esatto dice {sorted(atteso)}"
         )
     return problemi
 
@@ -558,18 +576,21 @@ def main(argv: list[str] | None = None) -> int:
         for voce in manifesto.get("envelopes", {}).values()
         if "contract" in voce
     }
-    # La busta d'errore non sta in `envelopes`: il v2 la riusa dal v1 senza
-    # modifiche e la descrive in una sezione propria. Il gate la prende di li'
-    # invece di pretendere che il manifesto la ripeta dove non le compete.
-    errore = manifesto.get("busta_degli_errori")
-    if errore and "contract" in errore:
-        dichiarate[errore["contract"]] = errore
-    # La busta di bootstrap: `--version`, che non porta un contratto perche' si
-    # legge **prima** di sapere con quale protocollo si sta parlando.
-    bootstrap = manifesto.get("busta_di_bootstrap")
-    if bootstrap:
-        dichiarate["senza-contratto:--version"] = bootstrap
-        problemi.extend(_schema_esatto(bootstrap, per_busta.get("senza-contratto:--version")))
+    # I due casi speciali sono finiti, e non perche' il gate sia diventato piu'
+    # tollerante: perche' le due buste hanno smesso di essere speciali.
+    #
+    # La busta d'errore stava fuori da `envelopes` perche' il v2 la riusava dal
+    # v1 senza modifiche. Dalla 4.0.0 porta i sei campi d'identita', esce su
+    # stdout e proietta la categoria: e' una busta del v2 come le altre.
+    #
+    # La busta di bootstrap stava fuori perche' `--version` non portava un
+    # contratto -- si leggeva prima di sapere con quale protocollo si stesse
+    # parlando. Ora `--version --format json` risponde nella busta comune, e il
+    # suo risultato resta a schema chiuso: lo verifica `_schema_esatto` sulla
+    # voce che il manifesto dichiara tale.
+    for nome, voce in manifesto.get("envelopes", {}).items():
+        if voce.get("risultato_a_schema_chiuso"):
+            problemi.extend(_schema_esatto(voce, per_busta.get(voce["contract"])))
 
     for nome in sorted(set(per_busta) - set(dichiarate)):
         problemi.append(

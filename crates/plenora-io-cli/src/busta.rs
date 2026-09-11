@@ -60,72 +60,24 @@ pub const BYTE_DELLA_STRUTTURA: usize = 4 * 1024;
 /// Il tetto complessivo della diagnostica in una busta: 64 KiB.
 pub const MAX_BYTE_BUSTA: usize = SEZIONI * BYTE_PER_SEZIONE + BYTE_DELLA_STRUTTURA;
 
-/// Quale protocollo la busta JSON su stdout deve rispettare.
+/// La versione del protocollo che ogni busta dichiara.
 ///
-/// Il valore predefinito e' **v2**: e' quello con i tetti, la redazione e le
-/// dichiarazioni di troncamento, ed e' l'unico che i gate di release e la
-/// qualifica cross-component usano.
+/// Una sola, e per questo una costante invece di un tipo. Fino alla 3.0.0 era
+/// un enum con due varianti, e il binario sapeva consegnare entrambe: il
+/// profilo pubblico vieta a un artefatto di servire due versioni del protocollo
+/// JSON, e un consumatore che ne trovava due nello stesso binario non poteva
+/// sapere quale gli sarebbe arrivata senza leggere il comando.
+pub const PROTOCOLLO: u64 = 2;
+
+/// Il nome di contratto di una busta.
 ///
-/// `V1Legacy` esiste per compatibilita' esplicita e **rischiosa**, e si sceglie
-/// con un flag che lo dice. Non e' un v2 con qualche campo in meno: e' il
-/// protocollo congelato, byte per byte, difetti compresi -- fra cui una
-/// cardinalita' e una dimensione che le decide chi fornisce il file. Correggerlo
-/// a meta' produrrebbe un ibrido che si presenta come v1 e ne cambia il
-/// significato, che e' proprio cio' che l'ICD vieta.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Protocollo {
-    #[default]
-    V2,
-    V1Legacy,
-}
-
-impl Protocollo {
-    /// Il numero che la busta dichiara.
-    #[must_use]
-    pub const fn versione(self) -> u64 {
-        match self {
-            Self::V2 => 2,
-            Self::V1Legacy => 1,
-        }
-    }
-
-    /// Il suffisso dei nomi di contratto.
-    ///
-    /// Una versione sola per tutte le buste: un protocollo in cui
-    /// `protocol_version` dice 2 e i contratti dicono `-v1` non e' un
-    /// protocollo, sono due affermazioni che si contraddicono nello stesso
-    /// documento.
-    #[must_use]
-    pub const fn suffisso(self) -> &'static str {
-        match self {
-            Self::V2 => "v2",
-            Self::V1Legacy => "v1",
-        }
-    }
-
-    /// L'avviso che accompagna la scelta legacy, su stderr e mai su stdout.
-    ///
-    /// Su stdout non ci va perche' il v1 e' congelato **byte per byte**:
-    /// aggiungere un avviso al documento sarebbe cambiarlo.
-    #[must_use]
-    pub const fn avviso(self) -> Option<&'static str> {
-        match self {
-            Self::V2 => None,
-            Self::V1Legacy => Some(
-                "attenzione: protocollo v1 legacy selezionato esplicitamente. \
-                 La diagnostica di questa busta non e' limitata: `counts` puo' \
-                 riportare identificatori controllati dal file e produrre fino a \
-                 4096 chiavi di lunghezza libera. Il v2 e' il protocollo \
-                 predefinito e l'unico usato dai gate di release.",
-            ),
-        }
-    }
-}
-
-/// Il nome di contratto di una busta, nel protocollo scelto.
+/// Il suffisso e' quello del protocollo, e resta `v2` finche' gli schemi delle
+/// dodici forme di ingresso e uscita non sono pubblicati: allinearlo agli
+/// identificatori del catalogo comune senza gli schemi che li definiscono
+/// nominerebbe contratti che nessuno puo' validare.
 #[must_use]
-pub fn contratto(nome: &str, protocollo: Protocollo) -> String {
-    format!("plenora-io-{nome}-{}", protocollo.suffisso())
+pub fn contratto(nome: &str) -> String {
+    format!("plenora-io-{nome}-v2")
 }
 
 /// Che cosa e' rimasto fuori, e **per quale delle quattro ragioni**.
@@ -521,34 +473,6 @@ fn documento_della_classe(classe: ArrowTypeClass) -> Value {
     json!(classe.nome())
 }
 
-/// L'adattatore del protocollo congelato, e l'**unico** posto che legge
-/// l'identita' legacy.
-///
-/// Sta in un modulo suo perche' la condivisione era il difetto: una funzione
-/// sola per i due protocolli avrebbe fatto uscire dal v2 cio' che il v2
-/// toglie, alla prima modifica distratta. La visibilita' di Rust non sa dire
-/// «questo modulo e nessun altro», quindi a pretendere un solo chiamante di
-/// `detail_v1()` e' un gate.
-mod legacy_v1 {
-    use super::{documento_del_codice, documento_del_livello, json, FidelityAssessment, Value};
-
-    /// La sezione di fedelta' nella forma del 2026-08: livello e ragioni, senza
-    /// tetti e senza dichiarazioni.
-    pub fn sezione_di_fedelta(valutazione: &FidelityAssessment) -> Value {
-        json!({
-            "level": documento_del_livello(valutazione.level),
-            "reasons": valutazione
-                .ragioni_v1()
-                .iter()
-                .map(|ragione| json!({
-                    "code": documento_del_codice(ragione.code),
-                    "detail": ragione.detail_v1(),
-                }))
-                .collect::<Vec<_>>(),
-        })
-    }
-}
-
 /// La diagnostica di una busta sta nel tetto complessivo?
 ///
 /// I tetti per sezione non delimitano l'aggregato: cinque sezioni ciascuna
@@ -582,71 +506,37 @@ pub fn diagnostica_entro_il_totale(
     Ok(totale)
 }
 
-/// Il rapporto di perdita nella forma del protocollo scelto.
-///
-/// Le due forme non si assomigliano, e non devono: il v1 e' congelato -- due
-/// campi, nessun tetto, nessuna dichiarazione -- e il v2 e' la forma che quel
-/// congelamento impedisce di correggere. Scriverne una sola con qualche campo
-/// condizionale le farebbe divergere alla prima modifica distratta.
+/// Il rapporto di perdita, nella forma del protocollo corrente.
 ///
 /// # Errors
 ///
-/// `BudgetInsufficiente` quando, nel v2, nemmeno la dichiarazione di
-/// troncamento entra nel budget della sezione.
+/// `BudgetInsufficiente` quando nemmeno la dichiarazione di troncamento entra
+/// nel budget della sezione.
 pub fn documento_di_perdita(
     valutazione: &FidelityAssessment,
     rapporto: &LossReport,
-    protocollo: Protocollo,
 ) -> Result<Value, BudgetInsufficiente> {
-    match protocollo {
-        // La forma del 2026-08, riprodotta qui e non richiamata altrove:
-        // `lossless` piu' `counts` come mappa. Nessun tetto, nessuna
-        // dichiarazione, e le chiavi che il file decide.
-        Protocollo::V1Legacy => Ok(json!({
-            "lossless": valutazione.level == Fidelity::Lossless && rapporto.is_empty(),
-            "counts": mappa_dei_conteggi(rapporto),
-        })),
-        Protocollo::V2 => {
-            let (sezione, _) = sezione_di_perdita(rapporto, BYTE_PER_SEZIONE)?;
-            let mut documento = sezione;
-            if let Value::Object(campi) = &mut documento {
-                campi.insert(
-                    "lossless".to_owned(),
-                    json!(valutazione.level == Fidelity::Lossless && rapporto.is_empty()),
-                );
-            }
-            Ok(documento)
-        }
+    let (sezione, _) = sezione_di_perdita(rapporto, BYTE_PER_SEZIONE)?;
+    let mut documento = sezione;
+    if let Value::Object(campi) = &mut documento {
+        campi.insert(
+            "lossless".to_owned(),
+            json!(valutazione.level == Fidelity::Lossless && rapporto.is_empty()),
+        );
     }
+    Ok(documento)
 }
 
-/// I conteggi nella mappa che il v1 pubblica.
-///
-/// Scritta a mano invece di serializzare la `BTreeMap`: e' la forma congelata,
-/// e legarla al tipo Rust vorrebbe dire che cambiare il tipo cambia il
-/// protocollo.
-fn mappa_dei_conteggi(rapporto: &LossReport) -> Value {
-    let mut mappa = Map::new();
-    for (categoria, conteggio) in &rapporto.counts {
-        mappa.insert(categoria.clone(), json!(conteggio));
-    }
-    Value::Object(mappa)
-}
-
-/// La valutazione di fedelta' nella forma del protocollo scelto.
+/// La valutazione di fedelta', nella forma del protocollo corrente.
 ///
 /// # Errors
 ///
-/// `BudgetInsufficiente` quando, nel v2, nemmeno il livello con la sua
-/// dichiarazione entra nel budget della sezione.
+/// `BudgetInsufficiente` quando nemmeno il livello con la sua dichiarazione
+/// entra nel budget della sezione.
 pub fn documento_di_fedelta(
     valutazione: &FidelityAssessment,
-    protocollo: Protocollo,
 ) -> Result<Value, BudgetInsufficiente> {
-    match protocollo {
-        Protocollo::V1Legacy => Ok(legacy_v1::sezione_di_fedelta(valutazione)),
-        Protocollo::V2 => sezione_di_fedelta(valutazione, BYTE_PER_SEZIONE).map(|(v, _)| v),
-    }
+    sezione_di_fedelta(valutazione, BYTE_PER_SEZIONE).map(|(v, _)| v)
 }
 
 #[cfg(test)]
@@ -942,7 +832,7 @@ mod sonde {
         // ordinasse, quindi l'insieme pubblicato dipendeva da quali adattatori
         // fossero stati composti e in che ordine -- cioe' da qualcosa che ne'
         // chi fornisce il file ne' chi lo legge controlla.
-        let mut avanti = ragioni_distinte(u64::try_from(MAX_FIDELITY_REASONS).unwrap() + 1);
+        let avanti = ragioni_distinte(u64::try_from(MAX_FIDELITY_REASONS).unwrap() + 1);
         let indietro: Vec<_> = avanti.iter().rev().cloned().collect();
 
         let (v2_avanti, tr_avanti) =
@@ -961,18 +851,13 @@ mod sonde {
         );
         assert_eq!(v2_avanti["omesse_esatte"], json!(true));
 
-        // E il v1 **deve** invece differire: sono i primi 64 per inserimento,
-        // ed e' la semantica congelata. Asserirlo la rende deliberata invece
-        // che scoperta il giorno in cui qualcuno la cambia per sbaglio.
-        avanti.truncate(MAX_FIDELITY_REASONS + 1);
-        let v1_avanti =
-            documento_di_fedelta(&valutazione_con(&avanti), Protocollo::V1Legacy).expect("v1");
-        let v1_indietro =
-            documento_di_fedelta(&valutazione_con(&indietro), Protocollo::V1Legacy).expect("v1");
-        assert_ne!(
-            v1_avanti, v1_indietro,
-            "il v1 e' primi-64-per-inserimento: se non differisse, non sarebbe congelato"
-        );
+        // Qui c'era il controcanto: il v1 **doveva** differire fra i due
+        // ordini, perche' pubblicava i primi sessantaquattro per inserimento.
+        // Era una proprieta' del protocollo congelato, e con la 4.0.0 quel
+        // protocollo non esiste piu' nell'artefatto. Cio' che l'asserzione
+        // proteggeva -- che l'indipendenza dall'ordine fosse una scelta del v2
+        // e non un caso -- resta detto dal confronto qui sopra, che pretende
+        // l'uguaglianza invece di osservarla.
     }
 
     #[test]
@@ -1298,17 +1183,16 @@ mod sonde {
         );
         let valutazione = valutazione_con(&[a, b]);
         let (v2, _) = sezione_di_fedelta(&valutazione, BYTE_PER_SEZIONE).expect("budget");
-        let v1 = documento_di_fedelta(&valutazione, Protocollo::V1Legacy).expect("v1");
         assert_eq!(
             v2["reasons"].as_array().map(Vec::len),
             Some(2),
             "gli indici distinguono cio' che i nomi distinguevano"
         );
-        assert_eq!(
-            v1["reasons"].as_array().map(Vec::len),
-            Some(1),
-            "il v1 dedupica sulla propria frase, come ha sempre fatto"
-        );
+        // Il confronto col v1 -- che ne deduplicava una sola, sulla frase --
+        // misurava la differenza fra i due protocolli. Con un protocollo solo
+        // non c'e' piu' una differenza da misurare, e cio' che conta e'
+        // l'asserzione qui sopra: due ragioni che differiscono per **posizione**
+        // restano due, e non una.
     }
 
     #[test]

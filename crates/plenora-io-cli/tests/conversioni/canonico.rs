@@ -49,13 +49,28 @@ pub struct Esito {
 }
 
 impl Esito {
-    pub fn documento(&self) -> serde_json::Value {
+    /// La busta intera, come esce dal processo.
+    pub fn busta(&self) -> serde_json::Value {
         serde_json::from_str(self.stdout.trim()).expect("il comando emette un documento JSON")
     }
 
+    /// Il corpo dell'operazione.
+    ///
+    /// Sta dentro `result`, e prima stava al primo livello accanto ai campi
+    /// della busta. Chi legge un risultato vuole il risultato: la busta la
+    /// guarda `busta()`, e sono due domande diverse.
+    pub fn documento(&self) -> serde_json::Value {
+        self.busta()["result"].clone()
+    }
+
+    /// L'oggetto `error` di un rifiuto.
+    ///
+    /// Da **stdout**, e non piu' da stderr: in modo JSON il contratto vuole un
+    /// documento su stdout e niente su stderr, e un consumatore che leggesse
+    /// stderr oggi non troverebbe nulla.
     pub fn errore(&self) -> serde_json::Value {
         let busta: serde_json::Value =
-            serde_json::from_str(self.stderr.trim()).expect("il rifiuto emette una busta JSON");
+            serde_json::from_str(self.stdout.trim()).expect("il rifiuto emette una busta JSON");
         busta["error"].clone()
     }
 

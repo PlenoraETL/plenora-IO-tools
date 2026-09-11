@@ -39,12 +39,15 @@ def contratti() -> pathlib.Path | None:
     return None
 
 
-def invocazione(stdout: str = "", stderr: str = "", exit_code: int = 0) -> gate.Invocazione:
+def invocazione(
+    stdout: str = "", stderr: str = "", exit_code: int = 0, guasto: str | None = None
+) -> gate.Invocazione:
     return gate.Invocazione(
         argv=["finto"],
         exit_code=exit_code,
         stdout=stdout.encode("utf-8"),
         stderr=stderr.encode("utf-8"),
+        guasto=guasto,
     )
 
 
@@ -58,10 +61,14 @@ class ArtefattoFinto:
     def __init__(self, risposte: dict[tuple[str, ...], gate.Invocazione]) -> None:
         self.risposte = risposte
         self.chieste: list[tuple[str, ...]] = []
+        self.guasti: list[str] = []
 
     def invoca(self, *argomenti: str) -> gate.Invocazione:
         self.chieste.append(argomenti)
-        return self.risposte.get(argomenti, invocazione(exit_code=2))
+        corsa = self.risposte.get(argomenti, invocazione(exit_code=2))
+        if corsa.guasto:
+            self.guasti.append(f"{' '.join(argomenti) or '(nessun argomento)'}: {corsa.guasto}")
+        return corsa
 
 
 BUSTA_CONFORME = json.dumps(
@@ -366,6 +373,89 @@ class SondeDelleTreRegole(unittest.TestCase):
             self.tutti("implementato"), artefatto_conforme(), esigente=True
         )
         self.assertEqual(esito, 0)
+
+
+class SondeDeiGuasti(unittest.TestCase):
+    """Un guasto non e' un requisito non ancora implementato.
+
+    E' la regola che sta sopra le altre tre. Senza, un binario che va in crash
+    fa fallire ogni sonda, ogni fallimento e' «atteso» perche' il registro dice
+    `non_ancora`, e la CI resta verde su un prodotto che non e' nemmeno
+    misurabile -- il falso verde che si autoalimenta, perche' piu' l'artefatto
+    e' rotto, meno requisiti sembrano soddisfatti e piu' normale appare.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        trovato = contratti()
+        if trovato is None:
+            raise unittest.SkipTest(f"nessun checkout dei contratti fra {CANDIDATI}")
+        cls.contratti = trovato
+
+    def esegui(self, artefatto, stato: str = "non_ancora") -> int:
+        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        for voce in registro["requisiti"]:
+            voce["stato"] = stato
+            if stato == "non_ancora":
+                voce["perche"] = voce.get("perche") or "sonda finta"
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "registro.json"
+            percorso.write_text(json.dumps(registro), encoding="utf-8")
+            with mock.patch.object(gate, "REGISTRO", percorso), mock.patch.object(
+                gate, "Artefatto", lambda _: artefatto
+            ):
+                return gate.esegui(self.contratti, pathlib.Path("finto"), False)
+
+    def test_un_crash_e_rosso_anche_su_requisiti_non_ancora(self) -> None:
+        morto = ArtefattoFinto(
+            {("catalog",): invocazione(exit_code=-11, guasto="terminato dal segnale 11")}
+        )
+        self.assertEqual(self.esegui(morto), 1)
+
+    def test_un_timeout_e_rosso_anche_su_requisiti_non_ancora(self) -> None:
+        bloccato = ArtefattoFinto(
+            {("catalog",): invocazione(exit_code=-1, guasto="nessuna risposta entro 60s")}
+        )
+        self.assertEqual(self.esegui(bloccato), 1)
+
+    def test_un_eseguibile_che_non_parte_e_rosso(self) -> None:
+        assente = ArtefattoFinto(
+            {("catalog",): invocazione(exit_code=-1, guasto="il processo non e' partito")}
+        )
+        self.assertEqual(self.esegui(assente), 1)
+
+    def test_un_fallimento_dichiarato_non_e_un_guasto(self) -> None:
+        """La controprova: senza, ogni rosso sarebbe un guasto e la seconda
+        regola non esisterebbe piu'."""
+        vuoto = ArtefattoFinto({})
+        self.assertEqual(self.esegui(vuoto), 0)
+
+    def test_il_segnale_di_cancellazione_non_e_un_guasto(self) -> None:
+        """`130` e' `SIGINT`, e per il contratto e' la proiezione di `cancelled`.
+
+        Trattare ogni `128 + n` come guasto avrebbe reso non misurabile proprio
+        l'esito che CLI 2.0 §9 pretende osservabile.
+        """
+        self.assertIsNone(gate._guasto_dal_codice(130))
+
+    def test_i_segnali_veri_restano_guasti(self) -> None:
+        for codice in (134, 137, 139, 143, 127, 126, -9):
+            with self.subTest(codice=codice):
+                self.assertIsNotNone(gate._guasto_dal_codice(codice))
+
+    def test_un_codice_ordinario_non_e_un_guasto(self) -> None:
+        for codice in (0, 2, 3, 5, 70):
+            with self.subTest(codice=codice):
+                self.assertIsNone(gate._guasto_dal_codice(codice))
+
+    def test_un_processo_che_non_esiste_produce_un_guasto_vero(self) -> None:
+        """Non un finto: `Artefatto` deve classificarlo da se'."""
+        artefatto = gate.Artefatto(
+            pathlib.Path("/nessun-binario-con-questo-nome-per-la-sonda")
+        )
+        corsa = artefatto.invoca("catalog")
+        self.assertIsNotNone(corsa.guasto)
+        self.assertTrue(artefatto.guasti)
 
 
 class SondeDelPin(unittest.TestCase):

@@ -34,8 +34,25 @@ def validate_catalog_producer(
 
     errors: list[str] = []
     catalog_contract = catalog_envelope(protocol)
-    for field in catalog_contract.get("required_top_level", []):
-        if field not in document:
+
+    # Il corpo del catalogo sta in `result` dalla 4.0.0, e al primo livello
+    # prima. Questo gate legge **referti gia' prodotti**, e ne esistono di
+    # entrambe le epoche: cercare il corpo dove si trova non e' tolleranza, e'
+    # leggere un artefatto che non si puo' riscrivere. I campi della busta
+    # restano verificati al primo livello, dove sono sempre stati.
+    avvolto = isinstance(document.get("result"), dict)
+    body = document["result"] if avvolto else document
+    if avvolto:
+        # Una busta della 4.0.0 porta anche l'identita', e la si pretende: su un
+        # referto storico no, perche' quei campi non esistevano e il referto non
+        # si riscrive.
+        for field in catalog_contract.get("required_top_level", []):
+            if field not in document:
+                errors.append(
+                    f"catalog producer: required top-level field absent: {field}"
+                )
+    for field in catalog_contract.get("required_result_fields", []):
+        if field not in body:
             errors.append(f"catalog producer: required top-level field absent: {field}")
 
     if document.get("status", EXPECTED_STATUS) != EXPECTED_STATUS:
@@ -53,7 +70,7 @@ def validate_catalog_producer(
     if document.get("determinism", EXPECTED_DETERMINISM) != EXPECTED_DETERMINISM:
         errors.append("catalog producer: determinism is not byte_for_byte")
 
-    drivers = document.get("drivers")
+    drivers = body.get("drivers")
     if not isinstance(drivers, list):
         return [*errors, "catalog producer: drivers must be an array"]
     current_fields = catalog_contract.get("current_producer", {}).get(

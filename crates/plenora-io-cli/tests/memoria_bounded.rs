@@ -162,8 +162,11 @@ fn convert_regge_un_ingresso_molto_piu_grande_della_quota_di_memoria() {
         "convert fallito sotto quota stretta.\nstdout: {stdout}\nstderr: {stderr}"
     );
 
-    let doc = documento(&stdout);
-    assert_eq!(doc["status"], "ok");
+    let busta = documento(&stdout);
+    assert_eq!(busta["status"], "ok");
+    // I campi dell'operazione stanno in `result`: `status` e' della busta,
+    // `total_rows` e `publish_outcome` sono dell'operazione.
+    let doc = &busta["result"];
     assert_eq!(doc["total_rows"], RIGHE);
     assert_eq!(doc["publish_outcome"], "published");
     assert!(uscita.is_file(), "la destinazione non e' stata pubblicata");
@@ -185,5 +188,5 @@ fn la_stessa_conversione_riesce_anche_con_la_quota_di_default() {
         riuscita,
         "convert fallito con i default.\nstdout: {stdout}\nstderr: {stderr}"
     );
-    assert_eq!(documento(&stdout)["total_rows"], RIGHE_CONTROLLO);
+    assert_eq!(documento(&stdout)["result"]["total_rows"], RIGHE_CONTROLLO);
 }

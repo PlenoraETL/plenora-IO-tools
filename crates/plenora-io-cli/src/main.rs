@@ -57,8 +57,6 @@ const fn saturating_u64(value: usize) -> u64 {
 /// I tetti della diagnostica nella busta e il troncamento che li dichiara.
 mod busta;
 
-use busta::Protocollo;
-
 fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     let mut error_document = json!({
         "category": error.category,
@@ -85,19 +83,31 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     }
     json!({
         "status": "error",
-        "protocol_version": 1,
+        "protocol_version": busta::PROTOCOLLO,
         "contract": "plenora-io-error-v1",
         "error": error_document,
     })
 }
 
+/// Un errore costruito qui, col codice d'uscita **derivato dalla categoria**.
+///
+/// # Perche' rende la coppia
+///
+/// Rendeva il solo documento, e ogni sito d'uso scriveva il proprio codice
+/// d'uscita accanto: sei siti, sei numeri a mano, e tre di essi sbagliati
+/// rispetto alla tabella del contratto -- `unsupported` usciva `4` dove il
+/// contratto proietta `3`, e `not_found` usciva `1` dove proietta `5`.
+///
+/// Correggere i sei numeri avrebbe chiuso le istanze e lasciato la **classe**:
+/// il settimo sito sarebbe nato con lo stesso difetto. Rendendo la coppia, il
+/// codice non e' piu' una cosa che un sito puo' scrivere.
 fn local_err_doc(
     code: &str,
     category: ErrorCategory,
     phase: ErrorPhase,
     message: &PublicMessage,
-) -> Value {
-    err_doc(
+) -> (i32, Value) {
+    let documento = err_doc(
         code,
         // `redatto` con `Generic`, non un costruttore di famiglia: il sito
         // usava `PlenoraIoError::new`, che imposta `code = Generic`. Un
@@ -111,7 +121,98 @@ fn local_err_doc(
             RetryDisposition::Never,
             message,
         ),
-    )
+    );
+    (uscita_della_categoria(category), documento)
+}
+
+/// L'identificatore pubblico del componente.
+///
+/// La forma che `SURF-001` pretende e' `plenora-<domain>-tools`, tutta
+/// minuscola. Il manifesto di protocollo scriveva `plenora-IO-tools`, che quella
+/// forma non ammette, e nessuna busta lo esponeva affatto.
+const COMPONENTE: &str = "plenora-io-tools";
+
+/// Il `command` di una busta prodotta prima che un comando sia stato scelto.
+///
+/// Non e' un comando del binding, e non deve sembrarlo. Echeggiare cio' che il
+/// chiamante ha scritto sarebbe peggio: metterebbe in un campo d'identita' un
+/// valore che decide chi invoca.
+const COMANDO_IGNOTO: &str = "unknown";
+
+/// La busta comune di un esito riuscito, e l'unico posto che la costruisce.
+///
+/// I dati dell'operazione stanno **dentro** `result`. Prima uscivano al primo
+/// livello accanto a `status` e `contract`, e un consumatore non poteva
+/// distinguere un campo del protocollo da un campo del driver senza conoscerli
+/// tutti e due.
+fn busta_di_successo(comando: &str, risultato: Value) -> Value {
+    // La costruzione e' esplicita e non col macro: `json!` serializza il
+    // risultato per riferimento, e il corpo di una conversione porta cinque
+    // sezioni diagnostiche. Qui si **muove**.
+    let mut busta = serde_json::Map::new();
+    busta.insert("status".to_owned(), json!("ok"));
+    busta.insert("protocol_version".to_owned(), json!(busta::PROTOCOLLO));
+    busta.insert("component".to_owned(), json!(COMPONENTE));
+    busta.insert(
+        "component_version".to_owned(),
+        json!(env!("CARGO_PKG_VERSION")),
+    );
+    busta.insert("contract".to_owned(), json!(busta::contratto(comando)));
+    busta.insert("command".to_owned(), json!(comando));
+    busta.insert("result".to_owned(), risultato);
+    Value::Object(busta)
+}
+
+/// I campi d'identita' su una busta d'errore gia' costruita.
+///
+/// Si aggiungono qui e non in `err_doc` perche' il comando si conosce piu'
+/// tardi: `err_doc` e' chiamata anche da dentro le operazioni, che il proprio
+/// nome non lo sanno.
+fn con_identita(mut documento: Value, comando: &str) -> Value {
+    if let Value::Object(campi) = &mut documento {
+        campi.insert("component".to_owned(), json!(COMPONENTE));
+        campi.insert(
+            "component_version".to_owned(),
+            json!(env!("CARGO_PKG_VERSION")),
+        );
+        campi.insert("command".to_owned(), json!(comando));
+    }
+    documento
+}
+
+/// Il codice d'uscita di una categoria, secondo CLI 2.0 §8.
+///
+/// # Il difetto che chiude
+///
+/// La proiezione era agganciata a `IoErrorCode` -- il codice **interno** -- e
+/// non alla categoria, che e' l'asse che il contratto dichiara autoritativo.
+/// Produceva `1` dove il contratto vuole `5`, `4` dove vuole `3`, e i valori `7`
+/// e `8`, che nel contratto non esistono. L'unico ramo che coincideva era
+/// `cancelled`, ed era l'unico gia' agganciato alla categoria.
+///
+/// Una categoria nuova senza mappatura esplicita proietta a `70` e mai a
+/// successo: e' cio' che il contratto pretende, e il `match` esaustivo lo rende
+/// una scelta invece che un caso.
+const fn uscita_della_categoria(categoria: ErrorCategory) -> i32 {
+    match categoria {
+        ErrorCategory::InvalidPlan | ErrorCategory::InvalidConfiguration => 2,
+        ErrorCategory::Schema
+        | ErrorCategory::DataMapping
+        | ErrorCategory::Crs
+        | ErrorCategory::Unsupported => 3,
+        ErrorCategory::ResourceLimit => 4,
+        ErrorCategory::Io
+        | ErrorCategory::NotFound
+        | ErrorCategory::Conflict
+        | ErrorCategory::Protocol
+        | ErrorCategory::Authentication
+        | ErrorCategory::Authorization
+        | ErrorCategory::Timeout
+        | ErrorCategory::Transient => 5,
+        ErrorCategory::Execution => 6,
+        ErrorCategory::Internal => 70,
+        ErrorCategory::Cancelled => 130,
+    }
 }
 
 /// Un errore d'avvio come busta, con il codice d'uscita degli errori d'uso.
@@ -121,18 +222,18 @@ fn local_err_doc(
 /// -- il comando non ha prodotto niente, e chi lo script-a lo tratta come gli
 /// altri rifiuti che precedono il lavoro.
 fn errore_di_avvio(errore: &PlenoraIoError) -> (i32, Value) {
-    (2, err_doc("CLI_STARTUP", errore))
+    (
+        uscita_della_categoria(errore.category),
+        err_doc("CLI_STARTUP", errore),
+    )
 }
 
 fn usage_err(message: &PublicMessage) -> (i32, Value) {
-    (
-        2,
-        local_err_doc(
-            "CLI_USAGE",
-            ErrorCategory::InvalidConfiguration,
-            ErrorPhase::Validate,
-            message,
-        ),
+    local_err_doc(
+        "CLI_USAGE",
+        ErrorCategory::InvalidConfiguration,
+        ErrorPhase::Validate,
+        message,
     )
 }
 
@@ -142,31 +243,36 @@ fn usage_err(message: &PublicMessage) -> (i32, Value) {
 #[allow(clippy::needless_pass_by_value)]
 fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
     use plenora_io_model::IoErrorCode;
-    let (historical_exit, code) = match e.code {
-        IoErrorCode::OutputExists => (3, "OUTPUT_EXISTS"),
-        IoErrorCode::Unsupported | IoErrorCode::Capability => (4, "UNSUPPORTED"),
-        IoErrorCode::Crs => (5, "CRS_REQUIRED"),
-        IoErrorCode::Contract | IoErrorCode::Schema => (6, "CONTRACT"),
-        IoErrorCode::LimitExceeded => (7, "LIMIT_EXCEEDED"),
-        IoErrorCode::ReaderBusy => (8, "READER_BUSY"),
-        IoErrorCode::ProjectionUnsupported => (8, "PROJECTION_UNSUPPORTED"),
-        IoErrorCode::CrsUnresolved => (8, "CRS_UNRESOLVED"),
-        _ => (1, "FORMAT_ERROR"),
+    // Il `code` resta il nostro, e resta agganciato a `IoErrorCode`: e' un
+    // dettaglio strutturato accanto ai quattro assi, e il contratto lo ammette.
+    // Cio' che non doveva essere agganciato al codice interno e' il **codice
+    // d'uscita**, e ora non lo e' piu'.
+    let code = match e.code {
+        IoErrorCode::OutputExists => "OUTPUT_EXISTS",
+        IoErrorCode::Unsupported | IoErrorCode::Capability => "UNSUPPORTED",
+        IoErrorCode::Crs => "CRS_REQUIRED",
+        IoErrorCode::Contract | IoErrorCode::Schema => "CONTRACT",
+        IoErrorCode::LimitExceeded => "LIMIT_EXCEEDED",
+        IoErrorCode::ReaderBusy => "READER_BUSY",
+        IoErrorCode::ProjectionUnsupported => "PROJECTION_UNSUPPORTED",
+        IoErrorCode::CrsUnresolved => "CRS_UNRESOLVED",
+        _ => "FORMAT_ERROR",
     };
-    let (exit, code) = if e.category == ErrorCategory::Cancelled {
-        (130, "CANCELLED")
-    } else if e.category == ErrorCategory::DataMapping {
-        (2, code)
+    let code = if e.category == ErrorCategory::Cancelled {
+        "CANCELLED"
     } else {
-        (historical_exit, code)
+        code
     };
     let document = err_doc(code, &e);
-    let final_exit = if document["error"]["code"] == "INVALID_ROW_DIAGNOSTICS" {
-        1
+    // La diagnostica interna non conforme e' sostituita da un errore
+    // `internal`, e il suo codice d'uscita segue quella categoria come ogni
+    // altro: prima usciva `1`, che non e' la proiezione di niente.
+    let categoria = if document["error"]["code"] == "INVALID_ROW_DIAGNOSTICS" {
+        ErrorCategory::Internal
     } else {
-        exit
+        e.category
     };
-    (final_exit, document)
+    (uscita_della_categoria(categoria), document)
 }
 
 fn combined_fidelity(read: &FidelityAssessment, write: &FidelityAssessment) -> FidelityAssessment {
@@ -186,38 +292,28 @@ fn combined_fidelity(read: &FidelityAssessment, write: &FidelityAssessment) -> F
     combined
 }
 
-/// Il rapporto di perdita, nella forma del protocollo scelto.
+/// Il rapporto di perdita, nella forma del protocollo corrente.
 ///
 /// Un `BudgetInsufficiente` non degrada a una busta senza diagnostica: e' un
 /// errore, e la sola cosa peggiore di una diagnostica troncata e' una troncata
 /// che tace.
-fn loss_doc(
-    fidelity: &FidelityAssessment,
-    loss: &LossReport,
-    protocollo: Protocollo,
-) -> Result<Value, (i32, Value)> {
-    busta::documento_di_perdita(fidelity, loss, protocollo).map_err(|_| budget_err())
+fn loss_doc(fidelity: &FidelityAssessment, loss: &LossReport) -> Result<Value, (i32, Value)> {
+    busta::documento_di_perdita(fidelity, loss).map_err(|_| budget_err())
 }
 
-/// La valutazione di fedelta', nella forma del protocollo scelto.
-fn fidelity_doc(
-    fidelity: &FidelityAssessment,
-    protocollo: Protocollo,
-) -> Result<Value, (i32, Value)> {
-    busta::documento_di_fedelta(fidelity, protocollo).map_err(|_| budget_err())
+/// La valutazione di fedelta', nella forma del protocollo corrente.
+fn fidelity_doc(fidelity: &FidelityAssessment) -> Result<Value, (i32, Value)> {
+    busta::documento_di_fedelta(fidelity).map_err(|_| budget_err())
 }
 
 /// Il budget della sezione non basta nemmeno alla dichiarazione.
 fn budget_err() -> (i32, Value) {
-    (
-        5,
-        local_err_doc(
-            "DIAGNOSTIC_BUDGET_EXHAUSTED",
-            ErrorCategory::Internal,
-            ErrorPhase::Validate,
-            &PublicMessage::Curated(
-                "il budget della diagnostica non basta nemmeno alla dichiarazione di troncamento",
-            ),
+    local_err_doc(
+        "DIAGNOSTIC_BUDGET_EXHAUSTED",
+        ErrorCategory::Internal,
+        ErrorPhase::Validate,
+        &PublicMessage::Curated(
+            "il budget della diagnostica non basta nemmeno alla dichiarazione di troncamento",
         ),
     )
 }
@@ -246,9 +342,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         "kml" => Box::new(driver_kml::KmlDriver),
         "xlsx" => Box::new(driver_xls::XlsDriver),
         "xls" => {
-            return Err((
-                4,
-                local_err_doc(
+            return Err(local_err_doc(
                     "XLS_BINARY_UNSUPPORTED",
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
@@ -256,7 +350,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
                         "capability drop esplicita: il contenitore binario BIFF .xls                          non e' supportato; usare .xlsx",
                     ),
                 ),
-            ))
+            )
         }
         "dxf" => Box::new(driver_dxf::DxfDriver),
         "gdb" => Box::new(driver_filegdb::FileGdbDriver),
@@ -264,9 +358,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         // Legato a `_`: l'estensione non serve piu' a nessuno qui, ed e' la
         // prova — in forma di binding — che non entra nel messaggio.
         _ => {
-            return Err((
-                4,
-                local_err_doc(
+            return Err(local_err_doc(
                     "UNSUPPORTED",
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
@@ -275,7 +367,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
                         ESTENSIONI_AMMESSE,
                     ),
                 ),
-            ))
+            )
         }
     };
     Ok(d)
@@ -293,12 +385,6 @@ struct Cli {
     opts: BTreeMap<String, String>,
     in_opts: BTreeMap<String, String>,
     out_opts: BTreeMap<String, String>,
-    /// Quale protocollo la busta su stdout deve rispettare.
-    ///
-    /// Predefinito il v2. Il v1 si sceglie con un flag che dichiara di
-    /// prendersi una compatibilita' rischiosa, e non e' raggiungibile per
-    /// distrazione.
-    protocollo: Protocollo,
     /// I flag di quota, gia' nel tipo del modello unificato.
     ///
     /// Fino a S4.d atterravano in un `Limits` legacy e venivano tradotti piu'
@@ -455,7 +541,6 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             // Il nome dice che cosa si sta scegliendo. `--protocol 1` sarebbe
             // stato piu' corto e avrebbe fatto sembrare le due versioni due
             // opzioni pari: non lo sono.
-            FLAG_LEGACY => cli.protocollo = Protocollo::V1Legacy,
             "--opt" => {
                 let (k, v) = kv(it.next().ok_or_else(|| {
                     usage_err(&PublicMessage::Curated("--opt richiede chiave=valore"))
@@ -592,7 +677,7 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
 
 // --- comandi ----------------------------------------------------------------
 
-fn catalog_document_con(protocollo: Protocollo, filegdb_available: bool) -> Value {
+fn catalog_document_con(filegdb_available: bool) -> Value {
     let mut registry = DriverRegistry::new();
     registry.register(Box::new(driver_geoparquet::GeoParquetDriver));
     registry.register(Box::new(driver_geojson::GeoJsonDriver));
@@ -628,56 +713,30 @@ fn catalog_document_con(protocollo: Protocollo, filegdb_available: bool) -> Valu
         })
         .collect::<Vec<_>>();
     json!({
-        "status": "ok",
-        "protocol_version": protocollo.versione(),
-        "contract": busta::contratto("catalog", protocollo),
+
         "determinism": "byte_for_byte",
         "drivers": drivers,
     })
 }
 
-/// Il flag che sceglie il protocollo congelato.
+/// `catalog` accetta soltanto il selettore esplicito del modo macchina.
 ///
-/// In una costante perche' ora lo leggono due parser: quello dei comandi che
-/// aprono una sorgente e quello di `catalog`. Scritto due volte, sarebbe bastato
-/// correggerne uno per lasciare l'altro a rispondere a un flag che nessuno passa
-/// piu'.
-const FLAG_LEGACY: &str = "--legacy-protocol-v1-unsafe";
-
-/// Gli argomenti che `catalog` ammette: nessuno, o il solo flag legacy.
-///
-/// # Perche' un parser suo e non `parse`
-///
-/// `parse` conosce sorgenti, quote e opzioni di formato, e nessuna di quelle ha
-/// significato per un comando che non apre niente. Riusarla avrebbe fatto
-/// accettare `catalog --limit 5`: accettare e non farne niente, che e'
-/// esattamente il difetto da cui si viene.
-///
-/// # Perche' il duplicato e' un errore
-///
-/// `catalog --legacy… --legacy…` sceglierebbe lo stesso protocollo due volte, e
-/// tollerarlo non costerebbe niente **oggi**. E' il motivo per cui va rifiutato
-/// adesso: le tolleranze che non costano niente sono quelle che si concedono
-/// senza accorgersene, e a cui poi qualcuno si appoggia.
-fn parse_catalog(argomenti: &[String]) -> Result<Protocollo, (i32, Value)> {
+/// Fino alla 3.0.0 accettava anche `--legacy-protocol-v1-unsafe`, che sceglieva
+/// il protocollo congelato. Il profilo pubblico vieta a un artefatto di servire
+/// due versioni del protocollo JSON, e il flag e' stato tolto: ora e' un flag
+/// sconosciuto, e un flag sconosciuto fallisce chiuso come gli altri.
+fn parse_catalog(argomenti: &[String]) -> Result<(), (i32, Value)> {
     match argomenti {
-        [] => Ok(Protocollo::V2),
-        [solo] if solo == FLAG_LEGACY => Ok(Protocollo::V1Legacy),
+        [] => Ok(()),
+        [uno, due] if uno == FLAG_FORMATO && due == FORMATO_JSON => Ok(()),
         _ => Err(usage_err(&PublicMessage::Curated(
-            "catalog non prende argomenti, salvo --legacy-protocol-v1-unsafe",
+            "catalog non prende argomenti, salvo --format json",
         ))),
     }
 }
 
-// Firma uniforme con gli altri `cmd_*`: il dispatch in `run()` richiede
-// `CliResult` anche dove il comando non può fallire. La superficie CLI è
-// congelata dal contratto `release/cli-protocol-v1.json`.
-#[allow(clippy::unnecessary_wraps)]
-fn cmd_catalog(protocollo: Protocollo) -> CliResult {
-    Ok(catalog_document_con(
-        protocollo,
-        driver_filegdb::runtime_available(),
-    ))
+fn cmd_catalog() -> Value {
+    catalog_document_con(driver_filegdb::runtime_available())
 }
 
 fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Value)> {
@@ -691,24 +750,20 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
 }
 
 fn cmd_inspect(cli: &Cli) -> CliResult {
-    let protocollo = cli.protocollo;
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
     Ok(json!({
-        "status": "ok",
-        "protocol_version": protocollo.versione(),
-        "contract": busta::contratto("inspect", protocollo),
+
         "format": serde_json::to_value(driver.descriptor()).unwrap_or(Value::Null),
-        "fidelity": fidelity_doc(&fidelity, protocollo)?,
+        "fidelity": fidelity_doc(&fidelity)?,
         "layers": layers,
     }))
 }
 
 fn cmd_layers(cli: &Cli) -> CliResult {
-    let protocollo = cli.protocollo;
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
@@ -730,11 +785,9 @@ fn cmd_layers(cli: &Cli) -> CliResult {
         })
         .collect();
     Ok(json!({
-        "status": "ok",
-        "protocol_version": protocollo.versione(),
-        "contract": busta::contratto("layers", protocollo),
+
         "format": driver.descriptor().id(),
-        "fidelity": fidelity_doc(&fidelity, protocollo)?,
+        "fidelity": fidelity_doc(&fidelity)?,
         "layers": layers,
     }))
 }
@@ -759,7 +812,6 @@ fn read_request(cli: &Cli, layer_id: u32, scope: ReadScope) -> ReadRequest {
 }
 
 fn cmd_read(cli: &Cli) -> CliResult {
-    let protocollo = cli.protocollo;
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
@@ -770,16 +822,13 @@ fn cmd_read(cli: &Cli) -> CliResult {
         .iter()
         .find(|l| l.id.0 == layer_id)
         .ok_or_else(|| {
-            (
-                1,
-                local_err_doc(
-                    "NO_LAYER",
-                    ErrorCategory::NotFound,
-                    ErrorPhase::Prepare,
-                    &PublicMessage::CuratedWith(
-                        "layer inesistente all'indice",
-                        NumeroStrutturale::Indice(u64::from(layer_id)),
-                    ),
+            local_err_doc(
+                "NO_LAYER",
+                ErrorCategory::NotFound,
+                ErrorPhase::Prepare,
+                &PublicMessage::CuratedWith(
+                    "layer inesistente all'indice",
+                    NumeroStrutturale::Indice(u64::from(layer_id)),
                 ),
             )
         })?
@@ -802,11 +851,9 @@ fn cmd_read(cli: &Cli) -> CliResult {
         }
     }
     Ok(json!({
-        "status": "ok",
-        "protocol_version": protocollo.versione(),
-        "contract": busta::contratto("read", protocollo),
+
         "format": driver.descriptor().id(),
-        "fidelity": fidelity_doc(&fidelity, protocollo)?,
+        "fidelity": fidelity_doc(&fidelity)?,
         "layer": layer_json(&contract),
         "rows_read": rows,
         "batches": batches,
@@ -891,7 +938,6 @@ fn trasferisci_layer(
 // leggibile, con i fallimenti nell'ordine esatto in cui la CLI li espone.
 #[allow(clippy::too_many_lines)]
 fn cmd_convert(cli: &Cli) -> CliResult {
-    let protocollo = cli.protocollo;
     if cli.positionals.len() < 2 {
         return Err(usage_err(&PublicMessage::Curated(
             "convert richiede <ingresso> <uscita>",
@@ -926,16 +972,13 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let all: Vec<LayerContract> = ds.layers().to_vec();
     let selected: Vec<LayerContract> = match cli.layer {
         Some(id) => vec![all.iter().find(|l| l.id.0 == id).cloned().ok_or_else(|| {
-            (
-                1,
-                local_err_doc(
-                    "NO_LAYER",
-                    ErrorCategory::NotFound,
-                    ErrorPhase::Prepare,
-                    &PublicMessage::CuratedWith(
-                        "layer inesistente all'indice",
-                        NumeroStrutturale::Indice(u64::from(id)),
-                    ),
+            local_err_doc(
+                "NO_LAYER",
+                ErrorCategory::NotFound,
+                ErrorPhase::Prepare,
+                &PublicMessage::CuratedWith(
+                    "layer inesistente all'indice",
+                    NumeroStrutturale::Indice(u64::from(id)),
                 ),
             )
         })?],
@@ -943,9 +986,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     };
     // Multi-layer verso destinazione single-layer: vietato (fail-closed).
     if selected.len() > 1 && !dst.descriptor().multi_layer() {
-        return Err((
-            4,
-            local_err_doc(
+        return Err(local_err_doc(
                 "SINGLE_LAYER_SINK",
                 ErrorCategory::InvalidPlan,
                 ErrorPhase::Validate,
@@ -956,7 +997,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
                     )),
                 ),
             ),
-        ));
+        );
     }
 
     let plan = WritePlan {
@@ -1015,25 +1056,24 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     };
     // Le cinque sezioni si costruiscono prima, perche' il tetto complessivo si
     // verifica sull'insieme: i tetti per sezione non delimitano l'aggregato.
-    let lettura = fidelity_doc(&read_fidelity, protocollo)?;
-    let scrittura = fidelity_doc(&published.fidelity, protocollo)?;
-    let conversione = fidelity_doc(&conversion_fidelity, protocollo)?;
-    let perdita_in_lettura = loss_doc(&read_fidelity, &read_loss, protocollo)?;
-    let perdita_in_scrittura = loss_doc(&published.fidelity, &published.loss, protocollo)?;
-    if protocollo == Protocollo::V2 {
-        busta::diagnostica_entro_il_totale(&[
-            ("read_fidelity", &lettura),
-            ("write_fidelity", &scrittura),
-            ("conversion_fidelity", &conversione),
-            ("read_loss", &perdita_in_lettura),
-            ("write_loss", &perdita_in_scrittura),
-        ])
-        .map_err(|_| budget_err())?;
-    }
+    let lettura = fidelity_doc(&read_fidelity)?;
+    let scrittura = fidelity_doc(&published.fidelity)?;
+    let conversione = fidelity_doc(&conversion_fidelity)?;
+    let perdita_in_lettura = loss_doc(&read_fidelity, &read_loss)?;
+    let perdita_in_scrittura = loss_doc(&published.fidelity, &published.loss)?;
+    // Il tetto complessivo vale sempre: era condizionato al v2 perche' il v1
+    // congelato non aveva budget da rispettare, e con un protocollo solo la
+    // condizione non ha piu' un secondo caso.
+    busta::diagnostica_entro_il_totale(&[
+        ("read_fidelity", &lettura),
+        ("write_fidelity", &scrittura),
+        ("conversion_fidelity", &conversione),
+        ("read_loss", &perdita_in_lettura),
+        ("write_loss", &perdita_in_scrittura),
+    ])
+    .map_err(|_| budget_err())?;
     Ok(json!({
-        "status": "ok",
-        "protocol_version": protocollo.versione(),
-        "contract": busta::contratto("convert", protocollo),
+
         "from": src.descriptor().id(),
         "to": dst.descriptor().id(),
         "layers": layer_reports,
@@ -1059,14 +1099,49 @@ fn parse_legato(args: &[String], cancellazione: &CancellationToken) -> Result<Cl
     Ok(cli)
 }
 
-/// L'esito del comando, e il protocollo che ha prodotto il documento.
+/// Il selettore esplicito del modo macchina, e il suo unico valore.
 ///
-/// Il protocollo esce da `run` perche' l'avviso del v1 legacy **accompagna un
-/// output consegnato**, e chi lo consegna e' `main`. Dedurlo dagli argomenti
-/// direbbe un'altra cosa: un avviso su una busta v2 parlerebbe di una
-/// diagnostica illimitata che quel documento non ha, e `--version` non e' una
-/// busta di protocollo affatto.
-type EsitoDelComando = (CliResult, Protocollo);
+/// CLI 2.0 vuole che il modo JSON si scelga, e che non lo scelga un
+/// orchestratore per implicito. Accettarlo su ogni comando costa una riga e
+/// toglie l'ambiguita': senza, un consumatore non puo' dichiarare che cosa si
+/// aspetta.
+const FLAG_FORMATO: &str = "--format";
+const FORMATO_JSON: &str = "json";
+
+/// L'esito di un comando: il nome canonico e il documento, o l'errore.
+///
+/// Il nome viaggia con l'esito perche' la busta lo richiede e chi costruisce il
+/// corpo non lo sa: `cmd_inspect` produce il proprio `result`, non la propria
+/// identita'.
+type EsitoDelComando = (&'static str, CliResult);
+
+/// Il testo di `--help`.
+///
+/// Descrive **soltanto** i comandi compilati in questo binario. `catalog` dice
+/// che cosa c'e' davvero -- i driver e le capability della build -- e resta la
+/// via per saperlo con precisione; qui si elencano i comandi, non le capacita'.
+const AIUTO: &str = "\
+plenora-io — lettura, scrittura e conversione di dataset esterni.
+
+USO
+    plenora-io <comando> [argomenti] [--format json]
+
+COMANDI
+    catalog            i formati e le capability di questo binario
+    inspect SORGENTE   formato, layer, schemi e fedelta' dichiarati
+    layers SORGENTE    i layer indirizzabili della sorgente
+    read SORGENTE      legge un layer e riporta fedelta' e conteggi
+    convert IN OUT     converte fra due formati espliciti
+
+SCOPERTA
+    --help             questo testo
+    --version          la versione del componente, nella busta comune
+
+Ogni comando emette un documento JSON su stdout e niente su stderr. Il codice
+d'uscita e' la proiezione della categoria d'errore: 0 riuscito, 2 configurazione
+non valida, 3 schema, mappatura, CRS o non supportato, 4 limite di risorse, 5
+I/O e famiglia, 6 esecuzione, 70 interno, 130 annullato.
+";
 
 fn run() -> EsitoDelComando {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1079,54 +1154,83 @@ fn run() -> EsitoDelComando {
     // alla busta e romperebbe il contratto di `stderr`.
     let cancellazione = match installa_gestore_dei_segnali() {
         Ok(token) => token,
-        Err(errore) => return (Err(errore_di_avvio(&errore)), Protocollo::default()),
+        Err(errore) => return (COMANDO_IGNOTO, Err(errore_di_avvio(&errore))),
     };
-    // I quattro comandi che leggono il protocollo dagli argomenti stanno
-    // insieme: solo loro possono consegnare un documento legacy, e solo per
-    // loro l'avviso ha un oggetto.
+
     if let Some(nome @ ("inspect" | "layers" | "read" | "convert")) =
         args.first().map(String::as_str)
     {
         let cli = match parse_legato(&args[1..], &cancellazione) {
             Ok(cli) => cli,
-            Err(errore) => return (Err(errore), Protocollo::default()),
+            Err(errore) => return (nome_canonico(nome), Err(errore)),
         };
-        let protocollo = cli.protocollo;
         let esito = match nome {
             "inspect" => cmd_inspect(&cli),
             "layers" => cmd_layers(&cli),
             "read" => cmd_read(&cli),
             _ => cmd_convert(&cli),
         };
-        return (esito, protocollo);
+        return (nome_canonico(nome), esito);
     }
-    // `catalog` legge il protocollo come gli altri quattro. Stava fuori, e il
-    // v1 che `release/cli-protocol-v1.json` dichiara fra le sei buste era
-    // diventato irraggiungibile: `cmd_catalog` sapeva ancora produrlo, ma
-    // nessuno glielo chiedeva piu'.
+
     if args.first().map(String::as_str) == Some("catalog") {
-        return match parse_catalog(&args[1..]) {
-            Ok(protocollo) => (cmd_catalog(protocollo), protocollo),
-            Err(errore) => (Err(errore), Protocollo::default()),
-        };
+        return ("catalog", parse_catalog(&args[1..]).map(|()| cmd_catalog()));
     }
-    let esito = match args.first().map(String::as_str) {
-        // La busta di bootstrap non prende niente in coda. Il flag legacy e' il
-        // caso che inganna di piu': `--version` **non e'** una busta di
-        // protocollo, non ha un v1, e accettarlo li' farebbe credere il
-        // contrario a chi lo scrive.
-        Some("--version" | "-V") if args.len() == 1 => Ok(json!({
-            "status": "ok",
-            "version": env!("CARGO_PKG_VERSION"),
-        })),
-        Some("--version" | "-V") => Err(usage_err(&PublicMessage::Curated(
-            "--version non prende argomenti",
-        ))),
-        _ => Err(usage_err(&PublicMessage::Curated(
-            "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
-        ))),
-    };
-    (esito, Protocollo::default())
+
+    match args.first().map(String::as_str) {
+        Some("--help" | "-h") if args.len() == 1 => ("help", Ok(Value::Null)),
+        Some("--help" | "-h") => (
+            "help",
+            Err(usage_err(&PublicMessage::Curated(
+                "--help non prende argomenti",
+            ))),
+        ),
+        // `--version` accetta il selettore del modo macchina come gli altri, e
+        // risponde nella busta comune. Fino alla 3.0.0 rendeva
+        // `{"status":"ok","version":"…"}`, che busta non era: nessuna versione
+        // di protocollo, nessuna identita', e la versione fuori da `result`.
+        Some("--version" | "-V")
+            if args.len() == 1
+                || (args.len() == 3 && args[1] == FLAG_FORMATO && args[2] == FORMATO_JSON) =>
+        {
+            (
+                "version",
+                Ok(json!({
+                    "component_version": env!("CARGO_PKG_VERSION"),
+                    "cli_protocol_version": busta::PROTOCOLLO,
+                })),
+            )
+        }
+        Some("--version" | "-V") => (
+            "version",
+            Err(usage_err(&PublicMessage::Curated(
+                "--version prende al piu' --format json",
+            ))),
+        ),
+        _ => (
+            COMANDO_IGNOTO,
+            Err(usage_err(&PublicMessage::Curated(
+                "uso: plenora-io <catalog|inspect|layers|read|convert> [--format json] \
+                 | --help | --version",
+            ))),
+        ),
+    }
+}
+
+/// Il nome canonico di un comando, come lo dichiara il binding.
+///
+/// Oggi coincide con cio' che il chiamante scrive, e la funzione esiste perche'
+/// il campo `command` della busta e' un'**identita'** e non un'eco: il giorno in
+/// cui un alias deprecato sara' ammesso, dovra' risolvere al nome canonico qui e
+/// non finire nella busta come e' stato scritto.
+const fn nome_canonico(invocato: &str) -> &'static str {
+    match invocato.as_bytes() {
+        b"inspect" => "inspect",
+        b"layers" => "layers",
+        b"read" => "read",
+        b"convert" => "convert",
+        _ => COMANDO_IGNOTO,
+    }
 }
 
 // Impronta stabile e non invertibile del messaggio di un panico. Duplica per
@@ -1332,33 +1436,32 @@ fn main() {
     radici::radici_dell_artefatto();
     installa_hook_silenzioso();
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
-        // L'avviso del v1 legacy accompagna **una consegna riuscita**, e solo
-        // quella.
+        // `--help` e' l'unico esito che non e' una busta: e' testo per persone,
+        // e CLI 2.0 non vincola il formato umano. Esce 0 su stdout come ogni
+        // successo.
+        Ok(("help", Ok(Value::Null))) => print!("{AIUTO}"),
+        Ok((comando, Ok(corpo))) => println!("{}", busta_di_successo(comando, corpo)),
+        // La busta d'errore esce su **stdout**, e stderr resta vuoto.
         //
-        // Stava all'inizio di `run`, prima di qualunque esito. Su un comando
-        // che poi falliva finiva davanti alla busta, e chi legge `stderr` con
-        // un parser vi trovava due documenti dove il contratto ne promette
-        // uno. Sul percorso d'errore non c'e' nemmeno niente da avvertire: una
-        // busta v1 non e' stata consegnata, quindi la sua diagnostica
-        // illimitata non esiste.
-        //
-        // Su `stdout` non ci va: il v1 e' congelato byte per byte, e
-        // aggiungere un avviso al documento sarebbe cambiarlo.
-        Ok((Ok(doc), protocollo)) => {
-            if let Some(avviso) = protocollo.avviso() {
-                eprintln!("{avviso}");
-            }
-            println!("{doc}");
-        }
-        Ok((Err((exit, doc)), _)) => {
-            eprintln!("{doc}");
+        // Usciva su stderr, e stdout restava vuoto: un consumatore che legge
+        // stdout -- cioe' quello che il contratto descrive -- non vedeva il
+        // fallimento affatto. E' una selezione di stream, ed e' incompatibile
+        // cambiarla: per questo appartiene alla major.
+        Ok((comando, Err((exit, doc)))) => {
+            println!("{}", con_identita(doc, comando));
             std::process::exit(exit);
         }
+        // Un panico e' un errore `internal`, e la sua proiezione e' `70`.
+        //
+        // Usciva `2` su stderr, cioe' il codice della configurazione non valida:
+        // diceva a chi automatizza «correggi la richiesta» davanti a un difetto
+        // nostro. Il messaggio resta redatto e porta la sola impronta.
         Err(payload) => {
-            eprintln!("{}", envelope_panico(payload.as_ref()));
-            // Exit code 2 riservato agli errori di runtime del binario,
-            // distinto dagli errori tipizzati che scelgono il proprio exit.
-            std::process::exit(2);
+            println!(
+                "{}",
+                con_identita(envelope_panico(payload.as_ref()), COMANDO_IGNOTO)
+            );
+            std::process::exit(uscita_della_categoria(ErrorCategory::Internal));
         }
     }
 }
@@ -1981,14 +2084,31 @@ mod tests {
     }
 
     // --- il protocollo della busta ----------------------------------------
+    //
+    // Qui vivevano cinque sonde sul **doppio** protocollo: che il v2 fosse il
+    // predefinito, che il v1 restasse byte per byte quello che era, che le due
+    // forme differissero dove il protocollo lo diceva, che il v1 non si
+    // raggiungesse per distrazione, e che il suo avviso nominasse i due difetti
+    // senza finire nella busta.
+    //
+    // Erano sonde buone, e cio' che misuravano non esiste piu': l'artefatto
+    // serve un protocollo solo. Tenerle avrebbe voluto dire conservare il v1
+    // per poterlo provare -- cioe' tenere in vita la cosa che il profilo
+    // vieta, per amore della sua sonda.
+    //
+    // Cio' che di quelle sonde resta vero e' che la busta dichiara la propria
+    // versione e rispetta il manifesto, ed e' quanto verifica la sonda qui
+    // sotto. Che il flag legacy non sia piu' riconosciuto lo verifica il
+    // confine pubblico, in `check_public_contracts.py`, dove un flag
+    // sconosciuto fallisce chiuso come ogni altro.
 
-    /// Una conversione minima e deterministica, per confrontare le due buste.
-    fn busta_di_conversione(protocollo: Protocollo) -> Value {
+    /// Una conversione minima e deterministica, per guardare la busta.
+    fn busta_di_conversione() -> Value {
         let directory = tempfile::tempdir().unwrap();
         let input = directory.path().join("in.csv");
         let output = directory.path().join("out.geojson");
         std::fs::write(&input, "wkt,nome\nPOINT(1 2),alfa\n").unwrap();
-        let mut argomenti = vec![
+        let argomenti = vec![
             input.to_string_lossy().into_owned(),
             output.to_string_lossy().into_owned(),
             // GeoJSON impone CRS84: dichiarare EPSG:4326 farebbe fallire la
@@ -1998,153 +2118,137 @@ mod tests {
             "--in-opt".to_owned(),
             "wkt_column=wkt".to_owned(),
         ];
-        if protocollo == Protocollo::V1Legacy {
-            argomenti.push("--legacy-protocol-v1-unsafe".to_owned());
-        }
         let cli = parse(&argomenti).unwrap();
-        assert_eq!(cli.protocollo, protocollo);
         cmd_convert(&cli).unwrap()
     }
 
     #[test]
-    fn il_v2_e_il_protocollo_predefinito() {
-        // Non «disponibile»: predefinito. Chi non dice niente ottiene la busta
-        // con i tetti, e il v1 si raggiunge solo dicendolo.
-        let documento = busta_di_conversione(Protocollo::V2);
-        assert_eq!(documento["protocol_version"], serde_json::json!(2));
-        assert_eq!(documento["contract"], "plenora-io-convert-v2");
-        assert_candidate_envelope("convert", &documento);
-    }
-
-    #[test]
-    fn il_v1_resta_byte_per_byte_quello_che_era() {
-        // La forma del v1 e' congelata, e questa e' la prova che la selezione
-        // non l'ha sfiorata: il documento si confronta **come stringa**, non
-        // campo per campo, perche' «byte per byte» e' cio' che il contratto
-        // promette e un confronto strutturale non lo verificherebbe.
-        //
-        // Il testo atteso e' scritto qui e non prodotto dal codice: se un
-        // giorno il v1 cambiasse, questa sonda deve arrossare invece di
-        // adeguarsi.
-        let documento = busta_di_conversione(Protocollo::V1Legacy);
-        assert_eq!(documento["protocol_version"], serde_json::json!(1));
-        assert_eq!(documento["contract"], "plenora-io-convert-v1");
-        // I byte, non la struttura: «byte per byte» e' cio' che il contratto
-        // promette, e un confronto campo per campo non lo verificherebbe.
-        assert_eq!(
-            serde_json::to_string(&documento["read_loss"]).unwrap(),
-            r#"{"counts":{},"lossless":false}"#,
-            "la sezione di perdita del v1 ha due campi e una mappa, e resta cosi'"
-        );
-        // `crs_id_not_preserved_derived` e' una delle sei categorie che questo
-        // lotto ha reso costanti al posto di un `format!`: la stringa che esce
-        // e' identica a quella di prima, ed e' questa riga a dirlo.
-        assert_eq!(
-            serde_json::to_string(&documento["write_loss"]).unwrap(),
-            r#"{"counts":{"crs_id_not_preserved_derived":1},"lossless":false}"#
-        );
-        assert_eq!(
-            serde_json::to_string(&documento["read_fidelity"]).unwrap(),
-            r#"{"level":"conditional","reasons":[{"code":"format_constraint","detail":"csv: fedeltà condizionata ai tipi e alle semantiche del contratto"}]}"#,
-            "la valutazione di fedelta' del v1 non porta dichiarazioni di troncamento"
-        );
-        // E non acquista i campi del v2 per effetto collaterale.
-        for campo in ["troncato", "omesse"] {
-            assert!(
-                documento["read_loss"].get(campo).is_none(),
-                "il v1 non deve acquistare il campo {campo}"
-            );
-            assert!(documento["read_fidelity"].get(campo).is_none());
-        }
-        assert_candidate_envelope("convert", &documento);
-    }
-
-    #[test]
-    fn le_due_buste_differiscono_dove_il_protocollo_dice() {
-        // La controprova della sonda precedente: se le due forme fossero
-        // uguali, «byte per byte» sarebbe vero e vuoto.
-        let v1 = busta_di_conversione(Protocollo::V1Legacy);
-        let v2 = busta_di_conversione(Protocollo::V2);
-        assert_ne!(v1["read_loss"], v2["read_loss"]);
-        assert_ne!(v1["read_fidelity"], v2["read_fidelity"]);
-        assert_eq!(v2["read_loss"]["troncato"], serde_json::json!(false));
+    fn il_corpo_della_conversione_rispetta_il_manifesto() {
+        let corpo = busta_di_conversione();
+        // I campi dell'operazione stanno nel corpo, e la busta li avvolge: e'
+        // `main` a costruirla, e qui si guarda cio' che l'operazione produce.
+        assert!(corpo.get("read_loss").is_some());
+        assert_eq!(corpo["read_loss"]["troncato"], serde_json::json!(false));
         assert!(
-            v2["read_loss"]["counts"].is_array(),
-            "nel v2 `counts` e' un elenco con un ordine dichiarato"
+            corpo["read_loss"]["counts"].is_array(),
+            "`counts` e' un elenco con un ordine dichiarato"
         );
-        assert!(
-            v1["read_loss"]["counts"].is_object(),
-            "nel v1 resta la mappa che era"
-        );
+        assert_candidate_envelope("convert", &corpo);
     }
 
     #[test]
-    fn il_v1_non_si_raggiunge_per_distrazione() {
-        // Solo il flag esatto lo seleziona: un refuso lascia il v2, e un
-        // errore d'uso e' meglio di un protocollo scelto senza volerlo.
-        for argomento in [
-            "--legacy-protocol-v1",
-            "--protocol=1",
-            "--legacy",
-            "--unsafe",
+    fn la_busta_porta_identita_e_risultato() {
+        let busta = busta_di_successo("convert", serde_json::json!({"x": 1}));
+        assert_eq!(busta["status"], "ok");
+        assert_eq!(busta["protocol_version"], serde_json::json!(2));
+        assert_eq!(busta["component"], "plenora-io-tools");
+        assert_eq!(busta["component_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(busta["command"], "convert");
+        assert_eq!(busta["contract"], "plenora-io-convert-v2");
+        assert_eq!(busta["result"], serde_json::json!({"x": 1}));
+        // E i dati **non** escono al primo livello: era il difetto.
+        assert!(busta.get("x").is_none());
+    }
+
+    #[test]
+    fn ogni_categoria_proietta_il_codice_del_contratto() {
+        // La tabella di CLI 2.0 §8, scritta qui per esteso: e' una proiezione
+        // pubblica, e una sonda che la ricalcolasse dal codice non direbbe
+        // niente.
+        for (categoria, atteso) in [
+            (ErrorCategory::InvalidPlan, 2),
+            (ErrorCategory::InvalidConfiguration, 2),
+            (ErrorCategory::Schema, 3),
+            (ErrorCategory::DataMapping, 3),
+            (ErrorCategory::Crs, 3),
+            (ErrorCategory::Unsupported, 3),
+            (ErrorCategory::ResourceLimit, 4),
+            (ErrorCategory::Io, 5),
+            (ErrorCategory::NotFound, 5),
+            (ErrorCategory::Conflict, 5),
+            (ErrorCategory::Protocol, 5),
+            (ErrorCategory::Authentication, 5),
+            (ErrorCategory::Authorization, 5),
+            (ErrorCategory::Timeout, 5),
+            (ErrorCategory::Transient, 5),
+            (ErrorCategory::Execution, 6),
+            (ErrorCategory::Internal, 70),
+            (ErrorCategory::Cancelled, 130),
         ] {
-            let cli = parse(&[argomento.to_owned()]);
-            let protocollo = cli.map(|c| c.protocollo).unwrap_or_default();
             assert_eq!(
-                protocollo,
-                Protocollo::V2,
-                "«{argomento}» non deve selezionare il v1"
+                uscita_della_categoria(categoria),
+                atteso,
+                "{categoria:?} deve proiettare {atteso}"
             );
         }
-        let esatto = parse(&["--legacy-protocol-v1-unsafe".to_owned()]).unwrap();
-        assert_eq!(esatto.protocollo, Protocollo::V1Legacy);
     }
 
     #[test]
-    fn l_avviso_del_v1_nomina_i_due_difetti_e_non_esce_su_stdout() {
-        let avviso = Protocollo::V1Legacy.avviso().expect("il v1 avverte");
-        assert!(
-            avviso.contains("4096"),
-            "l'avviso dice quante chiavi: {avviso}"
-        );
-        assert!(
-            avviso.contains("controllati dal file"),
-            "l'avviso dice da chi dipendono gli identificatori: {avviso}"
-        );
-        assert!(
-            Protocollo::V2.avviso().is_none(),
-            "il v2 non ha di che avvertire"
-        );
-        // E non finisce nel documento: il v1 e' congelato byte per byte.
-        let documento = busta_di_conversione(Protocollo::V1Legacy);
-        let testo = serde_json::to_string(&documento).unwrap();
-        assert!(
-            !testo.contains("attenzione"),
-            "l'avviso non deve entrare nella busta"
-        );
+    fn nessuna_categoria_proietta_il_successo() {
+        // La regola che il contratto scrive per esteso: una categoria nuova
+        // proietta a 70, «never to success». Senza questa sonda, un ramo
+        // aggiunto per distrazione potrebbe far uscire 0 su un fallimento.
+        for categoria in [
+            ErrorCategory::InvalidPlan,
+            ErrorCategory::InvalidConfiguration,
+            ErrorCategory::Schema,
+            ErrorCategory::DataMapping,
+            ErrorCategory::Crs,
+            ErrorCategory::Unsupported,
+            ErrorCategory::ResourceLimit,
+            ErrorCategory::Io,
+            ErrorCategory::NotFound,
+            ErrorCategory::Conflict,
+            ErrorCategory::Protocol,
+            ErrorCategory::Authentication,
+            ErrorCategory::Authorization,
+            ErrorCategory::Timeout,
+            ErrorCategory::Transient,
+            ErrorCategory::Execution,
+            ErrorCategory::Internal,
+            ErrorCategory::Cancelled,
+        ] {
+            assert_ne!(uscita_della_categoria(categoria), 0, "{categoria:?}");
+        }
     }
 
     /// La busta rispetta il manifesto del protocollo che dichiara.
     ///
-    /// Il manifesto si sceglie dal documento, non dal chiamante: prendere
-    /// sempre quello del v1 -- come faceva la prima stesura -- avrebbe reso la
-    /// verifica muta proprio sul protocollo nuovo.
-    fn assert_candidate_envelope(name: &str, document: &Value) {
-        let manifest: Value = match document["protocol_version"].as_u64() {
-            Some(1) => {
-                serde_json::from_str(include_str!("../../../release/cli-protocol-v1.json")).unwrap()
-            }
-            Some(2) => {
-                serde_json::from_str(include_str!("../../../release/cli-protocol-v2.json")).unwrap()
-            }
-            altro => panic!("busta con `protocol_version` {altro:?}: non e' un protocollo noto"),
+    /// Il manifesto e' uno, e la busta deve dichiarare la sua versione.
+    ///
+    /// La stesura precedente sceglieva fra due manifesti leggendo
+    /// `protocol_version` dal documento. Serviva finche' l'artefatto ne serviva
+    /// due; ora una versione diversa da quella del manifesto non e' un
+    /// protocollo da cercare altrove, e' un difetto.
+    fn assert_candidate_envelope(name: &str, corpo_o_busta: &Value) {
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../../release/cli-protocol-v2.json")).unwrap();
+        // I comandi rendono il **corpo**, e `main` lo avvolge. Le sonde possono
+        // passare l'uno o l'altra: avvolgere qui cio' che non e' gia' avvolto
+        // evita di riscrivere venti chiamate per una differenza che non stanno
+        // misurando.
+        let avvolta;
+        let document = if corpo_o_busta.get("protocol_version").is_some() {
+            corpo_o_busta
+        } else {
+            avvolta = busta_di_successo(name, corpo_o_busta.clone());
+            &avvolta
         };
+        assert_eq!(
+            document["protocol_version"].as_u64(),
+            Some(busta::PROTOCOLLO),
+            "la busta deve dichiarare il protocollo del manifesto"
+        );
         let envelope = &manifest["envelopes"][name];
         assert_eq!(document["contract"], envelope["contract"]);
+        // I campi dell'operazione stanno in `result`, e quelli della busta al
+        // primo livello: il manifesto li elenca insieme perche' li' erano
+        // insieme, e qui si cercano dove sono adesso.
+        let corpo = document.get("result").unwrap_or(document);
         for field in envelope["required_top_level"].as_array().unwrap() {
             let field = field.as_str().unwrap();
             assert!(
-                document.get(field).is_some(),
+                document.get(field).is_some() || corpo.get(field).is_some(),
                 "{name}: campo {field} assente"
             );
         }
@@ -2152,13 +2256,13 @@ mod tests {
             for field in forbidden {
                 let field = field.as_str().unwrap();
                 assert!(
-                    document.get(field).is_none(),
+                    document.get(field).is_none() && corpo.get(field).is_none(),
                     "{name}: campo legacy {field} presente"
                 );
             }
         }
         if let Some(required) = envelope["current_producer"]["required_driver_fields"].as_array() {
-            for driver in document["drivers"].as_array().unwrap() {
+            for driver in corpo["drivers"].as_array().unwrap() {
                 for field in required {
                     let field = field.as_str().unwrap();
                     assert!(
@@ -2279,7 +2383,12 @@ mod tests {
         ])
         .unwrap();
         let error = cmd_convert(&convert).unwrap_err();
-        assert_eq!(error.0, 2, "{}", error.1);
+        assert_eq!(
+            error.0,
+            uscita_della_categoria(ErrorCategory::DataMapping),
+            "{}",
+            error.1
+        );
         assert_eq!(error.1["error"]["code"], "FORMAT_ERROR");
         assert_eq!(
             error.1["error"]["row_diagnostics"]["examples"][0]["source_index"],
@@ -2303,7 +2412,11 @@ mod tests {
         assert_eq!(summary["rows_read"], 0);
         assert_eq!(summary["batches"], 0);
         assert_eq!(summary["truncated"], true);
-        assert_eq!(summary["contract"], "plenora-io-read-v2");
+        // Il contratto sta nella **busta**, non nel corpo.
+        assert_eq!(
+            busta_di_successo("read", summary)["contract"],
+            "plenora-io-read-v2"
+        );
     }
 
     /// Due batch, tutti validi: dodici righe e una.
@@ -2509,7 +2622,7 @@ mod tests {
     #[test]
     fn reader_busy_has_stable_cli_error() {
         let (exit, document) = map_err(plenora_io_model::PlenoraIoError::reader_busy("kml", 0));
-        assert_eq!(exit, 8);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Conflict));
         assert_eq!(document["error"]["code"], "READER_BUSY");
         assert_eq!(document["error"]["category"], "conflict");
         assert_eq!(document["error"]["phase"], "prepare");
@@ -2524,7 +2637,7 @@ mod tests {
     #[test]
     fn output_exists_keeps_the_frozen_cli_exit_and_category() {
         let (exit, document) = map_err(PlenoraIoError::destinazione_esistente());
-        assert_eq!(exit, 3);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Conflict));
         assert_eq!(document["error"]["code"], "OUTPUT_EXISTS");
         assert_eq!(document["error"]["category"], "conflict");
     }
@@ -2562,9 +2675,9 @@ mod tests {
 
         let (exit, document) = map_err(error);
 
-        assert_eq!(exit, 2);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::DataMapping));
         assert_eq!(document["status"], "error");
-        assert_eq!(document["protocol_version"], 1);
+        assert_eq!(document["protocol_version"], busta::PROTOCOLLO);
         assert_eq!(document["contract"], "plenora-io-error-v1");
         assert_eq!(document["error"]["code"], "FORMAT_ERROR");
         assert_eq!(document["error"]["category"], "data_mapping");
@@ -2657,14 +2770,18 @@ mod tests {
     /// `map_err`: passa per `usage_err` -> `local_err_doc` -> `err_doc`, e fino
     /// alla tranche 14 nessun test ne verificava la forma.
     #[test]
-    fn la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1() {
+    fn la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi() {
         let (exit, documento) = usage_err(&PublicMessage::CuratedPair(
             "opzione sconosciuta; ammesse:",
             OPZIONI_AMMESSE,
         ));
 
-        assert_eq!(exit, 2, "l'exit degli errori d'uso e' 2");
-        assert_eq!(documento["protocol_version"], 1);
+        assert_eq!(
+            exit,
+            uscita_della_categoria(ErrorCategory::InvalidConfiguration),
+            "l'exit viene dalla categoria, non da un numero scritto qui"
+        );
+        assert_eq!(documento["protocol_version"], busta::PROTOCOLLO);
         assert_eq!(documento["contract"], "plenora-io-error-v1");
 
         let campi: std::collections::BTreeSet<&str> = documento["error"]
@@ -2687,6 +2804,10 @@ mod tests {
             campi, attesi,
             "plenora-io-error-v1 ha cambiato forma sulla via d'uso: {campi:?}"
         );
+        // I campi d'identita' stanno **fuori** dall'oggetto `error`, e li
+        // aggiunge `main` quando conosce il comando: un errore d'uso non ne ha
+        // uno, e la busta lo dira' `unknown` invece di inventarne uno.
+        assert!(documento.get("component").is_none());
 
         // Il quartetto della via d'uso, che nessuno snapshot puo' vedere: il
         // `code` sul wire non viene da `IoErrorCode` ma dal letterale passato a
@@ -2738,9 +2859,9 @@ mod tests {
 
         let (exit, document) = map_err(error);
 
-        assert_eq!(exit, 130);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Cancelled));
         assert_eq!(document["status"], "error");
-        assert_eq!(document["protocol_version"], 1);
+        assert_eq!(document["protocol_version"], busta::PROTOCOLLO);
         assert_eq!(document["contract"], "plenora-io-error-v1");
         assert_eq!(document["error"]["code"], "CANCELLED");
         assert_eq!(document["error"]["category"], "cancelled");
@@ -2770,7 +2891,7 @@ mod tests {
             ),
         ] {
             let (exit, document) = map_err(error);
-            assert_eq!(exit, 2);
+            assert_eq!(exit, uscita_della_categoria(ErrorCategory::DataMapping));
             assert_eq!(document["error"]["code"], expected_code);
             assert_eq!(document["error"]["category"], "data_mapping");
         }
@@ -2779,7 +2900,7 @@ mod tests {
     #[test]
     fn deadline_is_timeout_not_caller_cancellation() {
         let (exit, document) = map_err(PlenoraIoError::cancelled(ErrorPhase::Read, true));
-        assert_eq!(exit, 1);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Timeout));
         assert_eq!(document["error"]["code"], "FORMAT_ERROR");
         assert_eq!(document["error"]["category"], "timeout");
     }
@@ -2796,14 +2917,21 @@ mod tests {
         );
         let (exit, document) = map_err(error);
 
-        assert_eq!(exit, 1);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Transient));
+        // `main` aggiunge l'identita' quando conosce il comando: la sonda
+        // guarda cio' che esce dal processo, non cio' che `map_err` produce
+        // a meta' strada.
+        let document = con_identita(document, "convert");
         assert_candidate_envelope("error", &document);
         assert_eq!(
             document,
             serde_json::json!({
                 "status": "error",
-                "protocol_version": 1,
+                "protocol_version": 2,
+                "component": "plenora-io-tools",
+                "component_version": env!("CARGO_PKG_VERSION"),
                 "contract": "plenora-io-error-v1",
+                "command": "convert",
                 "error": {
                     "category": "transient",
                     "phase": "connect",
@@ -2839,15 +2967,36 @@ mod tests {
 
         assert_eq!(conversion.level, Fidelity::Approximating);
         assert_eq!(
-            loss_doc(&read, &read_loss, Protocollo::V1Legacy).expect("budget"),
+            loss_doc(&read, &read_loss).expect("budget"),
             serde_json::json!({
                 "lossless": false,
-                "counts": {"inconsistent_crs_representations": 1},
+                "counts": [{"categoria": "inconsistent_crs_representations", "conteggio": 1}],
+                "esempi": [],
+                "troncato": false,
+                "omesse_esatte": true,
+                "omesse": {
+                    "categorie_omesse": 0,
+                    "esempi_omessi": 0,
+                    "omesse_per_byte": 0,
+                    "ragioni_omesse": 0,
+                },
             })
         );
         assert_eq!(
-            loss_doc(&write, &LossReport::default(), Protocollo::V1Legacy).expect("budget"),
-            serde_json::json!({"lossless": true, "counts": {}})
+            loss_doc(&write, &LossReport::default()).expect("budget"),
+            serde_json::json!({
+                "lossless": true,
+                "counts": [],
+                "esempi": [],
+                "troncato": false,
+                "omesse_esatte": true,
+                "omesse": {
+                    "categorie_omesse": 0,
+                    "esempi_omessi": 0,
+                    "omesse_per_byte": 0,
+                    "ragioni_omesse": 0,
+                },
+            })
         );
     }
 
@@ -2973,7 +3122,7 @@ mod tests {
         ])
         .unwrap();
         let (exit, error) = cmd_convert(&cli).unwrap_err();
-        assert_eq!(exit, 4);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Unsupported));
         assert_eq!(error["error"]["category"], "unsupported");
         assert_eq!(error["error"]["phase"], "validate");
         assert_eq!(error["error"]["remote_effect"], "none");
@@ -3030,8 +3179,11 @@ mod tests {
             output.to_string_lossy().into_owned(),
         ])
         .unwrap();
+        // `cmd_convert` rende il **corpo**: lo `status` e' della busta, e chi
+        // la costruisce e' `main`. Che la conversione sia riuscita lo dice gia'
+        // l'`unwrap`.
         let document = cmd_convert(&cli).unwrap();
-        assert_eq!(document["status"], "ok");
+        assert!(document.get("publish_outcome").is_some());
 
         let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
             .unwrap()
@@ -3055,7 +3207,7 @@ mod tests {
         let (exit, document) = map_err(plenora_io_model::PlenoraIoError::projection_unsupported(
             "csv",
         ));
-        assert_eq!(exit, 8);
+        assert_eq!(exit, uscita_della_categoria(ErrorCategory::Unsupported));
         assert_eq!(document["error"]["code"], "PROJECTION_UNSUPPORTED");
     }
 
@@ -3109,7 +3261,7 @@ mod tests {
     #[cfg(not(feature = "gdal-backend"))]
     #[test]
     fn default_catalog_marks_filegdb_unavailable_and_names_the_required_feature() {
-        let document = cmd_catalog(Protocollo::default()).unwrap();
+        let document = cmd_catalog();
         let filegdb = document["drivers"]
             .as_array()
             .unwrap()
@@ -3123,7 +3275,7 @@ mod tests {
 
     #[test]
     fn catalog_fields_have_exact_types_and_semantics_for_every_driver() {
-        let document = catalog_document_con(Protocollo::default(), false);
+        let document = catalog_document_con(false);
         for driver in document["drivers"].as_array().unwrap() {
             assert!(
                 driver["available"].is_boolean(),
@@ -3164,7 +3316,7 @@ mod tests {
             ("shp", "streaming_sequential"),
             ("xls", "streaming_sequential"),
         ];
-        let document = catalog_document_con(Protocollo::default(), false);
+        let document = catalog_document_con(false);
         let drivers = document["drivers"].as_array().unwrap();
         assert_eq!(drivers.len(), ATTESI.len(), "driver aggiunti o rimossi");
         for (id, atteso) in ATTESI {
@@ -3201,7 +3353,7 @@ mod tests {
             ("shp", "streaming_sequential"),
             ("xls", "materialized"),
         ];
-        let document = catalog_document_con(Protocollo::default(), false);
+        let document = catalog_document_con(false);
         let drivers = document["drivers"].as_array().unwrap();
         assert_eq!(drivers.len(), ATTESI.len(), "driver aggiunti o rimossi");
         for (id, nativo) in ATTESI {
@@ -3237,7 +3389,7 @@ mod tests {
     /// esattamente il difetto L0.4 che INV-7 chiude.
     #[test]
     fn ogni_driver_dichiara_la_tripla_e_il_legacy_puo_divergere() {
-        let document = catalog_document_con(Protocollo::default(), false);
+        let document = catalog_document_con(false);
         let drivers = document["drivers"].as_array().unwrap();
         let mut divergenti = 0;
         for driver in drivers {
@@ -3323,7 +3475,7 @@ mod tests {
 
     #[test]
     fn feature_on_catalog_fails_closed_when_runtime_probe_is_unavailable() {
-        let document = catalog_document_con(Protocollo::default(), false);
+        let document = catalog_document_con(false);
         let filegdb = document["drivers"]
             .as_array()
             .unwrap()
@@ -3335,8 +3487,8 @@ mod tests {
 
     #[test]
     fn catalog_is_canonical_and_byte_for_byte_deterministic() {
-        let first = serde_json::to_vec(&cmd_catalog(Protocollo::default()).unwrap()).unwrap();
-        let second = serde_json::to_vec(&cmd_catalog(Protocollo::default()).unwrap()).unwrap();
+        let first = serde_json::to_vec(&cmd_catalog()).unwrap();
+        let second = serde_json::to_vec(&cmd_catalog()).unwrap();
         assert_eq!(first, second);
 
         let document: Value = serde_json::from_slice(&first).unwrap();
@@ -3381,7 +3533,7 @@ mod tests {
         let Err(error) = driver_for_path(Path::new("legacy.xls")) else {
             panic!(".xls non deve essere instradato")
         };
-        assert_eq!(error.0, 4);
+        assert_eq!(error.0, uscita_della_categoria(ErrorCategory::Unsupported));
         assert_eq!(error.1["error"]["code"], "XLS_BINARY_UNSUPPORTED");
         assert!(error.1["error"]["message"]
             .as_str()

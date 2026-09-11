@@ -310,9 +310,15 @@ class LoStatoDelManifesto(unittest.TestCase):
             "condizioni": ["una condizione scritta"],
             "cosa_non_afferma": "l'accettazione esterna",
         }
-        manifesto["busta_di_bootstrap"] = {"schema_esatto": [".status", ".version"]}
-        manifesto["envelopes"] = {"read": {"struttura": {".status": {}}}}
-        manifesto["busta_degli_errori"] = {"struttura": {".status": {}}}
+        manifesto["envelopes"] = {
+            "read": {"struttura": {".status": {}}},
+            "error": {"struttura": {".status": {}}},
+            "version": {
+                "struttura": {".status": {}},
+                "risultato_a_schema_chiuso": True,
+                "required_result_fields": ["component_version", "cli_protocol_version"],
+            },
+        }
         manifesto.update(modifiche)
         return manifesto
 
@@ -406,13 +412,28 @@ class LoStatoDelManifesto(unittest.TestCase):
         )
         self.assertTrue(any("vocabolario" in e for e in errori), errori)
 
-    def test_una_ratifica_senza_busta_di_bootstrap_e_rossa(self):
-        """`--version` esce su stdout come le altre, e una busta non censita e'
-        cio' che la ratifica esiste per escludere."""
+    def test_una_ratifica_senza_schema_chiuso_e_rossa(self):
+        """`--version` si legge prima di sapere con che cosa si sta parlando.
+
+        Era una busta a parte, senza contratto, e la ratifica ne pretendeva una.
+        Ora risponde nella busta comune come le altre, e cio' che sopravvive al
+        trasloco e' lo **schema chiuso del risultato**: senza, un campo nuovo vi
+        entrerebbe senza che nessuno lo decida, e chi lo consuma non ha una
+        versione su cui appoggiarsi per accorgersene.
+        """
         manifesto = self.ratificato()
-        del manifesto["busta_di_bootstrap"]
+        del manifesto["envelopes"]["version"]["risultato_a_schema_chiuso"]
         errori = gate.stato_del_manifesto(manifesto)
-        self.assertTrue(any("bootstrap" in e for e in errori), errori)
+        self.assertTrue(any("schema chiuso" in e for e in errori), errori)
+
+    def test_uno_schema_chiuso_senza_campi_e_rosso(self):
+        """Chiuso su niente non e' chiuso."""
+        manifesto = self.ratificato()
+        del manifesto["envelopes"]["version"]["required_result_fields"]
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(
+            any("required_result_fields" in e for e in errori), errori
+        )
 
     def test_una_busta_senza_struttura_impedisce_la_ratifica(self):
         errori = gate.stato_del_manifesto(
@@ -421,10 +442,27 @@ class LoStatoDelManifesto(unittest.TestCase):
         self.assertTrue(any("read" in e and "struttura" in e for e in errori), errori)
 
     def test_la_busta_degli_errori_senza_struttura_impedisce_la_ratifica(self):
-        errori = gate.stato_del_manifesto(
-            self.ratificato(busta_degli_errori={"contract": "plenora-io-error-v1"})
+        """Come ogni altra busta: e' il ciclo sugli `envelopes` a pretenderla.
+
+        Stava in una sezione propria, e il gate aveva un controllo suo. Dalla
+        4.0.0 la busta d'errore porta i sei campi d'identita' ed esce su stdout:
+        e' una busta come le altre, e il controllo separato sarebbe una seconda
+        regola per lo stesso fatto.
+        """
+        manifesto = self.ratificato()
+        manifesto["envelopes"]["error"] = {"contract": "plenora-io-error-v1"}
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(
+            any("error" in e and "struttura" in e for e in errori), errori
         )
-        self.assertTrue(any("errore" in e for e in errori), errori)
+
+    def test_la_busta_degli_errori_assente_impedisce_la_ratifica(self):
+        """Il verso opposto: non basta che le buste dichiarate abbiano una
+        struttura, ci dev'essere anche quella dell'errore."""
+        manifesto = self.ratificato()
+        del manifesto["envelopes"]["error"]
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(any("busta d'errore" in e for e in errori), errori)
 
     # --- e il manifesto vero ----------------------------------------------
 

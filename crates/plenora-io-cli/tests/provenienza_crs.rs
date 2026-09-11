@@ -94,7 +94,10 @@ impl Esito {
     /// Il documento di `convert`. Da chiamare solo dopo aver stabilito che la
     /// conversione e' riuscita.
     fn documento(&self) -> serde_json::Value {
-        serde_json::from_str(self.stdout.trim()).expect("convert emette un documento JSON")
+        let busta: serde_json::Value =
+            serde_json::from_str(self.stdout.trim()).expect("convert emette un documento JSON");
+        // Il corpo dell'operazione sta in `result`; la busta lo avvolge.
+        busta["result"].clone()
     }
 
     /// Il messaggio curato del rifiuto.
@@ -103,8 +106,10 @@ impl Esito {
     /// ragioni, e una prova che si accontentasse di un'uscita diversa da zero
     /// passerebbe anche il giorno in cui rifiuta per un motivo che non c'entra.
     fn messaggio_di_errore(&self) -> String {
+        // Da **stdout**: in modo JSON la busta d'errore esce di li', e stderr
+        // resta vuoto.
         let busta: serde_json::Value =
-            serde_json::from_str(self.stderr.trim()).expect("il rifiuto emette una busta JSON");
+            serde_json::from_str(self.stdout.trim()).expect("il rifiuto emette una busta JSON");
         busta["error"]["message"]
             .as_str()
             .expect("la busta d'errore porta un messaggio")

@@ -209,8 +209,6 @@ class ControIlBinarioVero(unittest.TestCase):
     def test_una_conversione_pubblica_e_conta(self) -> None:
         uscita = self.tmp / "da-geojson.csv"
         esito = self.cliente.convert(CANONICHE / "canonico.geojson", uscita)
-
-        self.assertEqual(esito.contract, "plenora-io-convert-v2")
         self.assertEqual(esito.from_, "geojson")
         self.assertEqual(esito.to, "csv")
         self.assertTrue(esito.published)

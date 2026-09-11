@@ -49,8 +49,8 @@ class LEsecutore(unittest.TestCase):
     # --- la strada che funziona -------------------------------------------
 
     def test_il_successo_si_legge_da_stdout(self) -> None:
-        runner = self.runner('print(json.dumps({"status": "ok", "a": 1}))\n')
-        self.assertEqual(runner.run(["catalog"]), {"status": "ok", "a": 1})
+        runner = self.runner('print(json.dumps({"status": "ok", "result": {"a": 1}}))\n')
+        self.assertEqual(runner.run(["catalog"]), {"a": 1})
 
     def test_qualunque_cosa_su_stderr_con_successo_e_una_violazione(self) -> None:
         """Il v2 tace su stderr quando riesce, e l'SDK parla v2.
@@ -74,7 +74,7 @@ class LEsecutore(unittest.TestCase):
             with self.subTest(rumore=rumore):
                 runner = self.runner(
                     f"print({rumore!r}, file=sys.stderr)\n"
-                    'print(json.dumps({"status": "ok"}))\n'
+                    'print(json.dumps({"status": "ok", "result": {}}))\n'
                 )
                 with self.assertRaises(ProtocolError) as preso:
                     runner.run(["convert"])
@@ -88,19 +88,19 @@ class LEsecutore(unittest.TestCase):
         protocollo ammette, e deve restare verde -- se no la regola sarebbe
         «nessun successo passa», che e' un'altra cosa.
         """
-        muto = self.runner('print(json.dumps({"status": "ok"}))\n')
-        self.assertEqual(muto.run(["catalog"]), {"status": "ok"})
+        muto = self.runner('print(json.dumps({"status": "ok", "result": {}}))\n')
+        self.assertEqual(muto.run(["catalog"]), {})
 
         un_a_capo = self.runner(
             'sys.stderr.write("\\n")\n'
-            'print(json.dumps({"status": "ok"}))\n'
+            'print(json.dumps({"status": "ok", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError):
             un_a_capo.run(["catalog"])
 
         uno_spazio = self.runner(
             'sys.stderr.write(" ")\n'
-            'print(json.dumps({"status": "ok"}))\n'
+            'print(json.dumps({"status": "ok", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError):
             uno_spazio.run(["catalog"])
@@ -108,24 +108,29 @@ class LEsecutore(unittest.TestCase):
     def test_il_successo_pulito_resta_un_successo(self) -> None:
         """La controprova: senza, «stderr sporco e' un errore» sarebbe vero
         anche di un esecutore che rifiuta ogni successo."""
-        runner = self.runner('print(json.dumps({"status": "ok", "a": 1}))\n')
-        self.assertEqual(runner.run(["catalog"]), {"status": "ok", "a": 1})
+        runner = self.runner('print(json.dumps({"status": "ok", "result": {"a": 1}}))\n')
+        self.assertEqual(runner.run(["catalog"]), {"a": 1})
 
-    def test_stderr_sporco_non_conta_quando_il_comando_fallisce(self) -> None:
-        """La regola vale sul **successo**: in caso d'errore stderr porta la
-        busta, ed e' li' che si legge."""
+    def test_stderr_sporco_e_rifiutato_anche_quando_il_comando_fallisce(self) -> None:
+        """La regola vale su **entrambi** gli esiti.
+
+        Valeva sul solo successo, perche' in caso d'errore la busta usciva
+        proprio su stderr e non si poteva pretenderlo vuoto. Ora la busta esce
+        su stdout in tutti e due i casi, e una diagnostica accanto rende il
+        flusso inutilizzabile esattamente come la rendeva su un successo.
+        """
         runner = self.runner(
-            f"print({BUSTA_ERRORE!r}, file=sys.stderr)\nsys.exit(5)\n"
+            f"print({BUSTA_ERRORE!r})\n"
+            'print("rumore", file=sys.stderr)\nsys.exit(5)\n'
         )
-        with self.assertRaises(NotFoundError):
+        with self.assertRaises(ProtocolError) as preso:
             runner.run(["read", "x"])
+        self.assertIn("non mette niente", str(preso.exception))
 
     # --- l'errore, e la sua busta -----------------------------------------
 
-    def test_l_errore_si_legge_da_stderr(self) -> None:
-        runner = self.runner(
-            f"print({BUSTA_ERRORE!r}, file=sys.stderr)\nsys.exit(5)\n"
-        )
+    def test_l_errore_si_legge_da_stdout(self) -> None:
+        runner = self.runner(f"print({BUSTA_ERRORE!r})\nsys.exit(5)\n")
         with self.assertRaises(NotFoundError) as preso:
             runner.run(["read", "x"])
         self.assertEqual(preso.exception.exit_code, 5)
@@ -148,10 +153,8 @@ class LEsecutore(unittest.TestCase):
             runner.run(["read", "x"])
         self.assertIn("stato «error»", str(preso.exception))
 
-    def test_un_successo_su_stderr_con_uscita_diversa_da_zero(self) -> None:
-        runner = self.runner(
-            'print(json.dumps({"status": "ok"}), file=sys.stderr)\nsys.exit(1)\n'
-        )
+    def test_un_successo_con_uscita_diversa_da_zero(self) -> None:
+        runner = self.runner('print(json.dumps({"status": "ok", "result": {}}))\nsys.exit(1)\n')
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
         self.assertIn("porta una busta d'errore", str(preso.exception))
@@ -159,19 +162,24 @@ class LEsecutore(unittest.TestCase):
     def test_un_output_parziale_prima_di_un_errore_e_rifiutato(self) -> None:
         """Un output parziale consegnato prima di un errore terminale e' cio'
         che i target di fuzzing cercano, e un SDK che lo ignorasse lo
-        lascerebbe consumare."""
+        lascerebbe consumare.
+
+        Con un flusso solo la prova cambia forma: la riga parziale e la busta
+        finiscono entrambe su stdout, e cio' che le distingue e' che il flusso
+        non e' **un** documento. E' la stessa violazione, vista da dove il
+        protocollo la rende visibile.
+        """
         runner = self.runner(
-            'print("riga parziale")\n'
-            f"print({BUSTA_ERRORE!r}, file=sys.stderr)\nsys.exit(1)\n"
+            'print("riga parziale")\n' f"print({BUSTA_ERRORE!r})\nsys.exit(5)\n"
         )
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["convert"])
-        self.assertIn("output parziale", str(preso.exception))
+        self.assertIn("non e' JSON", str(preso.exception))
 
     def test_il_silenzio_sul_flusso_atteso_e_nominato(self) -> None:
         for corpo, atteso in (
             ("pass\n", "stdout"),
-            ('print("x")\nsys.exit(1)\n', "stderr"),
+            ('print("x")\nsys.exit(1)\n', "stdout"),
         ):
             with self.subTest(flusso=atteso):
                 with self.assertRaises(ProtocolError) as preso:
@@ -234,7 +242,7 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         percorso = self.tmp / NOME
         percorso.write_text(
             "#!/usr/bin/env python3\nimport sys, json\n"
-            f"print(json.dumps({busta!r}), file=sys.stderr)\nsys.exit(1)\n",
+            f"print(json.dumps({busta!r}))\nsys.exit(5)\n",
             encoding="utf-8",
         )
         percorso.chmod(0o755)

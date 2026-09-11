@@ -57,6 +57,16 @@ binario qualunque.
 Con `--esigente` la seconda regola cade: qualunque `non_ancora` e' rosso. E' la
 forma che il gate assume quando si qualifica una candidate, dove la conformita'
 parziale non qualifica.
+
+# La regola che sta sopra le altre tre
+
+Crash, timeout e guasti d'ambiente sono **rossi sempre**, qualunque stato il
+registro attribuisca al requisito. Un artefatto che muore, che si blocca o che
+non parte non sta dicendo «questo requisito non e' ancora implementato»: non sta
+dicendo niente, e la seconda regola lo leggerebbe come un piano di lavoro. La
+CI resterebbe verde mentre il prodotto non e' nemmeno misurabile, che e' il
+peggiore dei falsi verdi -- quello che si autoalimenta, perche' piu' l'artefatto
+e' rotto, meno requisiti sembrano soddisfatti, e piu' «normale» appare.
 """
 
 from __future__ import annotations
@@ -85,14 +95,31 @@ class Esito:
     dettaglio: str = ""
 
 
+# Quanto si aspetta un'invocazione prima di chiamarla bloccata.
+#
+# Nessun comando di scoperta o di lettura di un file inesistente puo' onestamente
+# metterci tanto. Un timeout qui non e' una misura di prestazione: e' la
+# differenza fra «l'artefatto ha risposto qualcosa» e «l'artefatto non risponde»,
+# e la seconda non e' un requisito non soddisfatto.
+ATTESA_MASSIMA = 60
+
+
 @dataclass
 class Invocazione:
-    """Cio' che un processo ha prodotto, senza interpretazione."""
+    """Cio' che un processo ha prodotto, senza interpretazione.
+
+    `guasto` distingue **non conforme** da **non misurabile**. Un binario che
+    risponde male dice qualcosa sul contratto; uno che va in crash, che si blocca
+    o che non parte non dice niente, e trattare la sua assenza di risposta come
+    un requisito «non ancora implementato» sarebbe leggere un guasto come un
+    piano di lavoro.
+    """
 
     argv: list[str]
     exit_code: int
     stdout: bytes
     stderr: bytes
+    guasto: str | None = None
 
     def documento(self) -> dict[str, Any] | None:
         """Il JSON su stdout, o `None` se stdout non ne porta uno."""
@@ -127,6 +154,7 @@ class Artefatto:
     def __init__(self, percorso: Path) -> None:
         self.percorso = percorso
         self._cache: dict[tuple[str, ...], Invocazione] = {}
+        self.guasti: list[str] = []
 
     def invoca(self, *argomenti: str) -> Invocazione:
         """Esegue una volta per combinazione di argomenti.
@@ -137,17 +165,63 @@ class Artefatto:
         possibilita' di misurare esiti diversi e di contraddirsi.
         """
         chiave = argomenti
-        if chiave not in self._cache:
+        if chiave in self._cache:
+            return self._cache[chiave]
+
+        argv = [str(self.percorso), *argomenti]
+        try:
             completato = subprocess.run(
-                [str(self.percorso), *argomenti], capture_output=True, check=False
+                argv, capture_output=True, check=False, timeout=ATTESA_MASSIMA
             )
-            self._cache[chiave] = Invocazione(
-                argv=[str(self.percorso), *argomenti],
+        except subprocess.TimeoutExpired:
+            corsa = Invocazione(
+                argv=argv,
+                exit_code=-1,
+                stdout=b"",
+                stderr=b"",
+                guasto=f"nessuna risposta entro {ATTESA_MASSIMA}s",
+            )
+        except OSError as errore:
+            corsa = Invocazione(
+                argv=argv,
+                exit_code=-1,
+                stdout=b"",
+                stderr=b"",
+                guasto=f"il processo non e' partito: {errore.strerror or errore}",
+            )
+        else:
+            corsa = Invocazione(
+                argv=argv,
                 exit_code=completato.returncode,
                 stdout=completato.stdout,
                 stderr=completato.stderr,
+                guasto=_guasto_dal_codice(completato.returncode),
             )
-        return self._cache[chiave]
+        if corsa.guasto:
+            self.guasti.append(f"{' '.join(argomenti) or '(nessun argomento)'}: {corsa.guasto}")
+        self._cache[chiave] = corsa
+        return corsa
+
+
+def _guasto_dal_codice(codice: int) -> str | None:
+    """Distingue un fallimento **dichiarato** da un processo che e' morto.
+
+    Un codice d'uscita negativo e' un segnale su POSIX; `128 + n` e' la stessa
+    cosa vista attraverso una shell. `126` e `127` dicono che l'eseguibile non
+    era eseguibile o non c'era: sono guasti d'ambiente, non risposte.
+
+    Le due eccezioni sono deliberate. `130` e' `SIGINT`, e per il contratto e'
+    la proiezione di `cancelled`: una cancellazione cooperativa e' una risposta,
+    non un guasto. `137` e `143` -- `SIGKILL` e `SIGTERM` -- restano guasti:
+    nessuno dei due e' un esito che l'artefatto sceglie.
+    """
+    if codice < 0:
+        return f"terminato dal segnale {-codice}"
+    if codice in {126, 127}:
+        return f"eseguibile non avviabile (exit {codice})"
+    if codice > 128 and codice != 130:
+        return f"terminato dal segnale {codice - 128} (exit {codice})"
+    return None
 
 
 class Vocabolario:
@@ -575,6 +649,25 @@ def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
             avanzamenti.append(f"{identita} ({voce['regola']})")
         else:
             mancanti.append(f"{identita} ({voce['regola']}): {esito.dettaglio}")
+
+    # I guasti vengono prima di tutto, e valgono anche per i `non_ancora`.
+    #
+    # Un artefatto che va in crash, che si blocca o che non parte non sta
+    # dicendo «questo requisito non e' ancora implementato»: non sta dicendo
+    # niente. Classificarlo con lo stato del registro trasformerebbe un binario
+    # rotto in un piano di lavoro, e la CI resterebbe verde mentre il prodotto
+    # non e' misurabile.
+    if artefatto.guasti:
+        for riga in artefatto.guasti:
+            print(f"GUASTO {riga}", file=sys.stderr)
+        print(
+            f"l'artefatto non e' misurabile: {len(artefatto.guasti)} invocazioni "
+            "sono morte, si sono bloccate o non sono partite. Un guasto non e' "
+            "un requisito non ancora implementato, e non si classifica col "
+            "registro.",
+            file=sys.stderr,
+        )
+        return 1
 
     for riga in regressioni:
         print(f"REGRESSIONE {riga}", file=sys.stderr)

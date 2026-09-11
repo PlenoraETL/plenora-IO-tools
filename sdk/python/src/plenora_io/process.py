@@ -9,9 +9,13 @@ generalizzato in fretta, e il posto dove generalizzarlo e' questo.
 
 # I due flussi hanno ruoli diversi, e il protocollo lo dice
 
-`docs/PRODUCT.md` e' esplicito: in caso di **errore** `stderr` contiene sempre e
-soltanto la busta JSON; con il protocollo predefinito e **successo**, `stderr`
-resta vuoto. La busta di successo va su `stdout`.
+Un flusso solo: la busta va su **stdout**, riuscita o fallita che sia, e
+`stderr` resta vuoto in entrambi i casi. Lo `status` della busta dice quale dei
+due esiti si ha in mano, e il codice d'uscita lo proietta.
+
+Fino alla 3.0.0 la busta d'errore usciva su `stderr`, e questo esecutore la
+cercava li'. Chi leggeva `stdout` -- cioe' cio' che il contratto descrive -- non
+vedeva il fallimento affatto.
 
 La prima stesura cercava un JSON prima su stdout e poi su stderr, prendendo il
 primo che si decodificasse. Funzionava, e diceva una cosa piu' debole del vero:
@@ -249,27 +253,48 @@ class Runner:
                 f"ha scritto su stdout una busta di stato «{stato}»: il "
                 "protocollo non prevede questa combinazione."
             )
-        return documento
+        # Al chiamante interessa il **risultato**, non la busta che lo avvolge.
+        #
+        # Fino alla 3.0.0 i campi dell'operazione uscivano al primo livello,
+        # accanto a `status` e `contract`, e questo esecutore rendeva il
+        # documento intero. Ora stanno in `result`, e i modelli che li leggono
+        # non devono sapere dove la busta finisce e il risultato comincia.
+        #
+        # `--help` non passa di qui: non e' una busta, e il client non lo
+        # chiama.
+        risultato = documento.get("result")
+        if not isinstance(risultato, dict):
+            raise ProtocolError(
+                f"`plenora-io {' '.join(completed.argv)}` e' riuscito ma la sua "
+                "busta non porta un oggetto `result`: il protocollo mette li' i "
+                "dati dell'operazione, e senza non c'e' un risultato da "
+                "consegnare."
+            )
+        return risultato
 
     def _failure(self, completed: Completed) -> dict[str, Any]:
-        documento = self._decode(completed, "stderr")
+        # La busta d'errore esce su **stdout**, come quella di successo.
+        #
+        # Usciva su stderr, e l'SDK la leggeva di li'. CLI 2.0 vuole invece un
+        # documento su stdout e **niente** su stderr, qualunque sia l'esito: un
+        # consumatore che legge un flusso solo li trova entrambi, e lo `status`
+        # della busta gli dice quale dei due ha in mano.
+        documento = self._decode(completed, "stdout")
         if documento.get("status") != "error":
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' uscito con "
-                f"{completed.exit_code} e ha scritto su stderr una busta di "
+                f"{completed.exit_code} e ha scritto su stdout una busta di "
                 f"stato «{documento.get('status')}»: un'uscita diversa da zero "
                 "porta una busta d'errore."
             )
-        if completed.stdout.strip():
-            # Il protocollo scrive la busta d'errore su stderr **e nient'altro
-            # su stdout**: un output parziale consegnato prima di un errore
-            # terminale e' cio' che i target di fuzzing cercano, e un SDK che
-            # lo ignorasse lo lascerebbe consumare.
+        if completed.stderr != "":
+            # Vale anche sul percorso d'errore, e non solo su quello riuscito:
+            # una diagnostica scritta accanto alla busta e' esattamente cio'
+            # che rende il flusso inutilizzabile per chi lo analizza.
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' fallito e ha "
-                "comunque scritto su stdout: un output parziale prima di un "
-                f"errore terminale non e' consumabile.\n"
-                f"stdout: {completed.stdout[:200]!r}"
+                "scritto su stderr, dove il protocollo non mette niente.\n"
+                f"stderr: {completed.stderr[:200]!r}"
             )
         return documento
 

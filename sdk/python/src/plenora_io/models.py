@@ -52,33 +52,47 @@ def _pretendi(documento: dict[str, Any], campi: tuple[str, ...], dove: str) -> N
 
 @dataclass(frozen=True, kw_only=True)
 class Version:
-    """La busta di bootstrap: `plenora-io --version`.
+    """Il risultato di `plenora-io --version --format json`.
 
-    Non porta `contract` ne' `protocol_version`, e non e' una mancanza: si legge
-    **prima** di sapere con quale protocollo si sta parlando. Il manifesto la
-    dichiara con schema chiuso -- esattamente questi due campi -- proprio perche'
-    chi la consuma non ha una versione su cui appoggiarsi per capire che cosa
-    sia cambiato.
+    Non e' piu' una busta a parte. Fino alla 3.0.0 `--version` rendeva
+    `{"status": "ok", "version": "..."}` -- un documento che non era la busta
+    comune e che si leggeva **prima** di sapere con quale protocollo si stesse
+    parlando. CLI 2.0 chiede invece che anche la scoperta passi dalla busta:
+    l'identita' e la versione di protocollo stanno li', e qui resta il
+    risultato.
+
+    Lo schema del risultato e' **chiuso**: esattamente questi due campi. Chi lo
+    consuma deve accorgersi di un campo nuovo subito, non quando gli serviva.
     """
 
-    status: str
-    version: str
+    component_version: str
+    cli_protocol_version: int
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    #: La versione del componente, col nome che aveva prima della 4.0.0.
+    #:
+    #: Non e' un alias di comodo: e' la sola cosa che l'SDK puo' offrire a chi
+    #: leggeva `.version` senza costringerlo a cambiare riga per un campo che
+    #: significa esattamente lo stesso.
+    @property
+    def version(self) -> str:
+        return self.component_version
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Version":
-        _pretendi(documento, ("status", "version"), "busta di bootstrap")
-        # Lo schema e' **chiuso**: qui un campo in piu' non si ignora, si
-        # nomina. E' la meta' che rende utile una busta letta prima della
-        # negoziazione -- se cambia, chi la legge deve accorgersene subito
-        # invece di scoprirlo quando il campo nuovo gli serviva.
-        in_piu = sorted(set(documento) - {"status", "version"})
+        attesi = ("component_version", "cli_protocol_version")
+        _pretendi(documento, attesi, "risultato di --version")
+        in_piu = sorted(set(documento) - set(attesi))
         if in_piu:
             raise ProtocolError(
-                f"busta di bootstrap con i campi in piu' {in_piu}. Il suo schema "
-                "e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
+                f"risultato di --version con i campi in piu' {in_piu}. Il suo "
+                "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
             )
-        return cls(status=documento["status"], version=documento["version"], raw=dict(documento))
+        return cls(
+            component_version=documento["component_version"],
+            cli_protocol_version=documento["cli_protocol_version"],
+            raw=dict(documento),
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -213,14 +227,11 @@ class Catalog:
     perche' e' una proprieta' del documento intero.
     """
 
-    status: str
-    protocol_version: int
-    contract: str
     determinism: str
     drivers: list[Driver]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("status", "protocol_version", "contract", "determinism", "drivers")
+    OBBLIGATORI = ("determinism", "drivers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Catalog":
@@ -231,9 +242,6 @@ class Catalog:
                 f"catalog.drivers e' {type(elenco).__name__} e non un elenco."
             )
         return cls(
-            status=documento["status"],
-            protocol_version=documento["protocol_version"],
-            contract=documento["contract"],
             determinism=documento["determinism"],
             drivers=[Driver.from_json(voce) for voce in elenco],
             raw=dict(documento),
@@ -528,15 +536,12 @@ class LayerSummary:
 class Inspect:
     """La busta di `plenora-io inspect`: il descrittore e i layer con lo schema."""
 
-    status: str
-    protocol_version: int
-    contract: str
     format: FormatDescriptor
     fidelity: Fidelity
     layers: list[Layer]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("status", "protocol_version", "contract", "format", "fidelity", "layers")
+    OBBLIGATORI = ("format", "fidelity", "layers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Inspect":
@@ -547,9 +552,6 @@ class Inspect:
                 f"inspect.layers e' {type(elenco).__name__} e non un elenco."
             )
         return cls(
-            status=documento["status"],
-            protocol_version=documento["protocol_version"],
-            contract=documento["contract"],
             format=FormatDescriptor.from_json(documento["format"]),
             fidelity=Fidelity.from_json(documento["fidelity"]),
             layers=[Layer.from_json(voce) for voce in elenco],
@@ -575,15 +577,12 @@ class Layers:
     di inventare un descrittore che questa busta non porta.
     """
 
-    status: str
-    protocol_version: int
-    contract: str
     format: str
     fidelity: Fidelity
     layers: list[LayerSummary]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("status", "protocol_version", "contract", "format", "fidelity", "layers")
+    OBBLIGATORI = ("format", "fidelity", "layers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layers":
@@ -594,9 +593,6 @@ class Layers:
                 f"layers.layers e' {type(elenco).__name__} e non un elenco."
             )
         return cls(
-            status=documento["status"],
-            protocol_version=documento["protocol_version"],
-            contract=documento["contract"],
             format=documento["format"],
             fidelity=Fidelity.from_json(documento["fidelity"]),
             layers=[LayerSummary.from_json(voce) for voce in elenco],
@@ -634,9 +630,6 @@ class Validation:
     quante ne abbia, e la differenza non si vede da nessun'altra parte.
     """
 
-    status: str
-    protocol_version: int
-    contract: str
     format: str
     layer: Layer
     rows_read: int
@@ -646,9 +639,6 @@ class Validation:
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = (
-        "status",
-        "protocol_version",
-        "contract",
         "format",
         "layer",
         "rows_read",
@@ -661,9 +651,6 @@ class Validation:
     def from_json(cls, documento: dict[str, Any]) -> "Validation":
         _pretendi(documento, cls.OBBLIGATORI, "read")
         return cls(
-            status=documento["status"],
-            protocol_version=documento["protocol_version"],
-            contract=documento["contract"],
             format=documento["format"],
             layer=Layer.from_json(documento["layer"]),
             rows_read=documento["rows_read"],
@@ -841,9 +828,6 @@ class ConvertResult:
     di quello di destinazione -- che e' l'unica cosa da sapere per evitarla.
     """
 
-    status: str
-    protocol_version: int
-    contract: str
     from_: str
     to: str
     layers: list[ConvertedLayer]
@@ -858,9 +842,6 @@ class ConvertResult:
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = (
-        "status",
-        "protocol_version",
-        "contract",
         "from",
         "to",
         "layers",
@@ -887,9 +868,6 @@ class ConvertResult:
                 f"convert.layers e' {type(elenco).__name__} e non un elenco."
             )
         return cls(
-            status=documento["status"],
-            protocol_version=documento["protocol_version"],
-            contract=documento["contract"],
             from_=documento["from"],
             to=documento["to"],
             layers=[ConvertedLayer.from_json(v) for v in elenco],

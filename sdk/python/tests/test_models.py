@@ -69,14 +69,19 @@ def catalogo_sano(**modifiche):
 
 class LaBustaDiBootstrap(unittest.TestCase):
     def test_i_due_campi(self) -> None:
-        versione = Version.from_json({"status": "ok", "version": "2.0.0"})
+        versione = Version.from_json(
+            {"component_version": "2.0.0", "cli_protocol_version": 2}
+        )
+        self.assertEqual(versione.component_version, "2.0.0")
+        self.assertEqual(versione.cli_protocol_version, 2)
+        # `version` resta leggibile: significa la stessa cosa, e chi la
+        # usava non deve cambiare riga per un campo rinominato.
         self.assertEqual(versione.version, "2.0.0")
-        self.assertEqual(versione.status, "ok")
 
     def test_un_campo_mancante_e_un_errore(self) -> None:
         with self.assertRaises(ProtocolError) as preso:
-            Version.from_json({"status": "ok"})
-        self.assertIn("version", str(preso.exception))
+            Version.from_json({"component_version": "1.0.0"})
+        self.assertIn("cli_protocol_version", str(preso.exception))
 
     def test_un_campo_in_piu_e_un_errore(self) -> None:
         """Qui, e **solo** qui, un campo in piu' non si ignora.
@@ -88,16 +93,19 @@ class LaBustaDiBootstrap(unittest.TestCase):
         """
         with self.assertRaises(ProtocolError) as preso:
             Version.from_json(
-                {"status": "ok", "version": "2.0.0", "protocol_version": 2}
+                {
+                    "component_version": "2.0.0",
+                    "cli_protocol_version": 2,
+                    "campo_nuovo": True,
+                }
             )
-        self.assertIn("protocol_version", str(preso.exception))
+        self.assertIn("campo_nuovo", str(preso.exception))
         self.assertIn("chiuso", str(preso.exception))
 
 
 class IlCatalogo(unittest.TestCase):
     def test_letto_intero(self) -> None:
         catalogo = Catalog.from_json(catalogo_sano())
-        self.assertEqual(catalogo.contract, "plenora-io-catalog-v2")
         self.assertEqual(len(catalogo.drivers), 2)
         self.assertEqual([d.id for d in catalogo.available], ["geojson"])
 
@@ -455,7 +463,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         anche qui perche' l'SDK dev'essere verificabile da chi lo installa,
         senza gli script di questo repository.
         """
-        attesi = {c for c, sempre in self.struttura(".drivers[]").items() if sempre}
+        attesi = {c for c, sempre in self.struttura(".result.drivers[]").items() if sempre}
         self.assertEqual(set(FormatDescriptor.OBBLIGATORI) | set(Driver.PROPRI), attesi)
 
     @serve_il_repository
@@ -479,14 +487,16 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
                     fuori.add(resto)
             return fuori
 
-        del_catalogo = immediati("catalog", ".drivers[]")
-        di_inspect = immediati("inspect", ".format")
+        del_catalogo = immediati("catalog", ".result.drivers[]")
+        di_inspect = immediati("inspect", ".result.format")
         self.assertEqual(del_catalogo - di_inspect, set(Driver.PROPRI))
         self.assertEqual(di_inspect, set(FormatDescriptor.OBBLIGATORI))
 
     @serve_il_repository
     def test_il_catalogo_espone_i_campi_che_il_protocollo_dichiara(self) -> None:
-        attesi = {c for c, sempre in self.struttura("").items() if sempre}
+        # `.result`: e' li' che il protocollo mette i dati dell'operazione, e
+        # il modello descrive il risultato, non la busta che lo trasporta.
+        attesi = {c for c, sempre in self.struttura(".result").items() if sempre}
         self.assertEqual(set(Catalog.OBBLIGATORI), attesi)
 
 
