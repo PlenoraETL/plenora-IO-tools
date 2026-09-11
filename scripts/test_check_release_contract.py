@@ -3187,28 +3187,70 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         errori = gate.verifica_release_pubblicata(stato)
         self.assertTrue(any("nessuna release" in e for e in errori), errori)
 
-    # --- la candidate iniziale ---------------------------------------------
+    # --- gli stati della candidate, costruiti e non osservati ---------------
+    #
+    # Queste sonde leggevano la candidate **reale** e ne asserivano lo stato.
+    # Funzionavano finche' quella candidate era `iniziale`, e sono diventate
+    # rosse quando il congelamento l'ha portata ad `attiva` -- cioe' misuravano
+    # il momento del repository invece del comportamento del gate.
+    #
+    # Ora lo stato che serve si costruisce. La candidate reale resta sotto
+    # osservazione, ma per cio' che deve valere **sempre**: che sia uno degli
+    # stati dichiarati, e che sia coerente con la propria forma.
 
-    def test_la_candidate_reale_e_iniziale_e_coerente(self) -> None:
+    def candidate_finta(self, stato: str, **modifiche) -> dict:
+        base = {
+            "versione_manifesto": "9.9.9",
+            "versione_workspace": "9.9.9",
+            "tag_previsto": "v9.9.9",
+            "tag_creato": False,
+            "tag_sulla_candidate": False,
+            "release_action_allowed": False,
+            "release_blocking": False,
+            "stato": stato,
+        }
+        if stato == "attiva":
+            base.update(
+                {
+                    "revisione_candidate": "a" * 40,
+                    "artefatti": [],
+                    "assurance_entro_l_allowlist": True,
+                }
+            )
+        base.update(modifiche)
+        for campo, valore in list(modifiche.items()):
+            if valore is None and campo in base and valore is not base.get(campo):
+                pass
+        return base
+
+    def test_la_candidate_reale_ha_uno_stato_dichiarato_e_coerente(self) -> None:
+        """Cio' che deve valere qualunque sia il momento del rilascio.
+
+        Non «e' iniziale»: quello era vero ieri e falso oggi, e una sonda che
+        lo pretenda va aggiornata a ogni congelamento -- cioe' misura il
+        calendario. Qui si pretende che lo stato sia fra quelli dichiarati e
+        che la forma corrisponda, che e' la proprieta' vera.
+        """
         candidate = self.stato_reale()["aperto"]["candidate_release"]
-        self.assertEqual(candidate["stato"], "iniziale")
-        self.assertIs(candidate["tag_creato"], False)
-        for campo in ("revisione_candidate", "artefatti", "commit_di_assurance"):
-            self.assertNotIn(campo, candidate)
+        self.assertIn(candidate["stato"], gate.STATI_DELLA_CANDIDATE)
+        self.assertEqual(gate._stato_del_manifesto(candidate), [])
 
     def test_una_candidate_iniziale_con_artefatti_e_rossa(self) -> None:
         """I digest sono un prodotto del congelamento: prima si inventerebbero."""
-        candidate = dict(self.stato_reale()["aperto"]["candidate_release"])
-        candidate["artefatti"] = []
+        candidate = self.candidate_finta("iniziale", artefatti=[])
         errori = gate._stato_del_manifesto(candidate)
         self.assertTrue(any("artefatti" in e for e in errori), errori)
+
+    def test_una_candidate_iniziale_con_revisione_congelata_e_rossa(self) -> None:
+        """Anche la revisione e' un prodotto del congelamento."""
+        candidate = self.candidate_finta("iniziale", revisione_candidate="a" * 40)
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("revisione_candidate" in e for e in errori), errori)
 
     def test_una_candidate_iniziale_senza_tag_creato_e_rossa(self) -> None:
         """`tag_creato: false` e' un fatto noto, non un campo da omettere."""
         candidate = {
-            k: v
-            for k, v in self.stato_reale()["aperto"]["candidate_release"].items()
-            if k != "tag_creato"
+            k: v for k, v in self.candidate_finta("iniziale").items() if k != "tag_creato"
         }
         errori = gate._stato_del_manifesto(candidate)
         self.assertTrue(any("tag_creato" in e for e in errori), errori)
@@ -3216,19 +3258,36 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     def test_una_candidate_attiva_senza_revisione_e_rossa(self) -> None:
         """Dallo stato `iniziale` in poi il congelamento l'ha prodotta: le sonde
         devono rifiutare i campi mancanti quando lo stato li richiede."""
-        candidate = dict(self.stato_reale()["aperto"]["candidate_release"])
-        candidate["stato"] = "attiva"
-        errori = gate.condizione_candidate_coerente({"aperto": {"candidate_release": candidate}})
+        candidate = self.candidate_finta("attiva")
+        del candidate["revisione_candidate"]
+        with mock.patch.object(
+            gate,
+            "_stato_corrente",
+            return_value=({"aperto": {"candidate_release": candidate}}, []),
+        ):
+            errori = gate.condizione_candidate_coerente({})
         self.assertTrue(any("revisione_candidate" in e for e in errori), errori)
 
     def test_una_candidate_attiva_senza_artefatti_e_rossa(self) -> None:
-        stato = self.stato_reale()
-        candidate = dict(stato["aperto"]["candidate_release"])
-        candidate["stato"] = "attiva"
-        candidate["revisione_candidate"] = stato["chiuso"]["release_pubblicate"][0][
-            "revisione_candidate"
-        ]
-        errori = gate.condizione_candidate_coerente({"aperto": {"candidate_release": candidate}})
+        """Con una revisione che git risolve, cosi' il motivo non e' la revisione.
+
+        La stesura precedente prendeva la revisione dalla release pubblicata e
+        montava il resto sulla candidate reale: quando quella e' diventata
+        attiva e completa, l'errore che tornava era «il tag non esiste», e la
+        sonda cercava una parola che non c'era piu'.
+        """
+        radice = gate._git("rev-list", "--max-parents=0", "HEAD")
+        self.assertTrue(radice, "la storia deve avere una radice")
+        candidate = self.candidate_finta(
+            "attiva", revisione_candidate=radice.splitlines()[0].strip()
+        )
+        del candidate["artefatti"]
+        with mock.patch.object(
+            gate,
+            "_stato_corrente",
+            return_value=({"aperto": {"candidate_release": candidate}}, []),
+        ):
+            errori = gate.condizione_candidate_coerente({})
         self.assertTrue(any("artefatti" in e for e in errori), errori)
 
     # --- artefatti ---------------------------------------------------------
@@ -3389,9 +3448,15 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
     def test_un_evidenza_che_e_un_link_e_rossa(self) -> None:
         """Un link punta a un contenuto che l'albero non registra."""
         stato = self.stato()
+        riferite, _ = gate._evidenze_riferite(stato)
         attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
         with tempfile.TemporaryDirectory() as temporanea:
             radice = pathlib.Path(temporanea)
+            # Le altre riferite sono file veri: il link deve essere l'unica
+            # differenza, o il rosso parlerebbe dell'insieme invece che di lui.
+            for nome in riferite:
+                if nome != attesa:
+                    (radice / nome).write_text("{}", encoding="utf-8")
             bersaglio = radice.parent / "bersaglio.json"
             bersaglio.write_text("{}", encoding="utf-8")
             try:
@@ -3403,12 +3468,20 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
             bersaglio.unlink()
         self.assertTrue(any("e' un link" in m for m in errori), errori)
 
-    def test_la_sola_corrente_passa(self) -> None:
+    def test_l_insieme_riferito_passa(self) -> None:
+        """Tutte le riferite, non la sola corrente.
+
+        La stesura precedente ne scriveva una e si aspettava verde: con una
+        release pubblicata da conservare l'insieme atteso e' di due, e la sonda
+        chiedeva al gate di accettare un albero incompleto.
+        """
         stato = self.stato()
-        attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        riferite, errori = gate._evidenze_riferite(stato)
+        self.assertEqual(errori, [], errori)
         with tempfile.TemporaryDirectory() as temporanea:
             radice = pathlib.Path(temporanea)
-            (radice / attesa).write_text("{}", encoding="utf-8")
+            for nome in riferite:
+                (radice / nome).write_text("{}", encoding="utf-8")
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
 
