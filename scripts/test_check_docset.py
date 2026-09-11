@@ -63,7 +63,7 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_dodici_voci(self) -> None:
+    def test_l_allowlist_ha_tredici_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
         Cinque canonici e sette operativi. Sono cresciuti due volte il
@@ -81,9 +81,22 @@ class SondePerimetro(unittest.TestCase):
         a domande di chi ci lavora. Che questa sonda sia diventata rossa e'
         precisamente il suo mestiere: un quinto documento canonico e' una
         decisione, e passa di qui.
+
+        Il sesto e' `docs/PIANO-4.0.0.md`, ed e' il primo che non descrive il
+        prodotto: descrive lo **scostamento** fra il prodotto e i contratti
+        pubblici di `plenora-contracts`, e l'ordine in cui chiuderlo. Nessuno
+        dei cinque poteva ospitarlo -- RELEASE porta lo stato **generato** e non
+        si scrive a mano, ENGINEERING dice come siamo fatti e non dove andiamo --
+        e la sola alternativa sarebbe stata tenerlo fuori dal repository, cioe'
+        in un posto che nessun gate presidia.
+
+        A differenza degli altri cinque ha una **scadenza**: quando la 4.0.0 e'
+        qualificata, il piano ha finito il proprio lavoro ed esce dall'allowlist.
+        Un documento che resta dopo aver smesso di servire e' esattamente cio'
+        che questo gate esiste per impedire, e vale anche per questo.
         """
-        self.assertEqual(len(gate.AMMESSI), 12)
-        self.assertEqual(len(gate.CANONICI), 5)
+        self.assertEqual(len(gate.AMMESSI), 13)
+        self.assertEqual(len(gate.CANONICI), 6)
         self.assertEqual(len(gate.OPERATIVI), 7)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:

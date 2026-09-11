@@ -56,6 +56,14 @@ CANONICI = [
     # codice» e' un'altra cosa, e infilarla in uno dei quattro l'avrebbe resa
     # una sezione che chi la cerca non trova.
     "docs/INSTALL.md",
+    # Il sesto e' l'unico che non descrive il prodotto: descrive lo
+    # **scostamento** fra il prodotto e i contratti pubblici, e l'ordine in
+    # cui chiuderlo. Metterlo dentro RELEASE l'avrebbe confuso con lo stato
+    # misurato, che e' generato e non si scrive a mano; dentro ENGINEERING
+    # sarebbe diventato una sezione su come siamo fatti, mentre dice dove
+    # andiamo. Ha una scadenza: quando la 4.0.0 e' qualificata, questo
+    # documento esce dall'allowlist invece di restare a invecchiare.
+    "docs/PIANO-4.0.0.md",
 ]
 
 # Letti da una piattaforma o da Cargo per convenzione di percorso. Non sono
