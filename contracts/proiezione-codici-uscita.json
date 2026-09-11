@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract": "plenora-cli-v2",
+  "sezione": "CLI 2.0 §8 — Exit codes",
+  "perche_e_qui_e_non_letta_dal_contratto": "la proiezione vive in una tabella Markdown di `specs/cli/CLI-2.0.md`, e nel repository comune non esiste in forma macchina. Leggerla dalla prosa faceva rosso `check_docset.py`, che vieta a un gate di dipendere da un Markdown: una riformulazione della tabella -- una virgola, un backtick, una riga di intestazione diversa -- cambierebbe cio' che il gate crede, e nessuno se ne accorgerebbe. Qui e' **dato dichiarato e rivisto**, e il suo essere una copia e' il difetto che resta: vedi `come_finisce_la_duplicazione`.",
+  "come_si_verifica_che_sia_completa": "il verificatore confronta le chiavi qui sotto con l'enum chiuso di `category` letto da `schemas/error-v1.schema.json` del checkout fissato -- che e' dato macchina, e non prosa. Una categoria senza proiezione o una proiezione senza categoria sono **rosse**: la copia non puo' restare indietro rispetto al contratto senza che il gate lo dica.",
+  "come_finisce_la_duplicazione": "proponendo a `plenora-contracts` di pubblicare la proiezione in forma macchina, accanto agli schemi. Finche' non esiste, questa e' una seconda fonte, e una seconda fonte dello stesso fatto e' esattamente cio' che i gate di questo repository esistono per impedire. E' registrata come riga HB2 del piano 4.0.0.",
+  "proiezione": {
+    "invalid_plan": 2,
+    "invalid_configuration": 2,
+    "schema": 3,
+    "data_mapping": 3,
+    "crs": 3,
+    "unsupported": 3,
+    "resource_limit": 4,
+    "io": 5,
+    "not_found": 5,
+    "conflict": 5,
+    "concurrent_modification": 5,
+    "protocol": 5,
+    "authentication": 5,
+    "authorization": 5,
+    "timeout": 5,
+    "transient": 5,
+    "execution": 6,
+    "internal": 70,
+    "cancelled": 130
+  },
+  "il_successo_non_e_una_categoria": "il codice 0 appartiene al successo, che non ha una `category`: la tabella del contratto lo elenca per completezza, e qui non compare perche' la proiezione mappa categorie d'errore.",
+  "la_categoria_non_mappata": "il contratto dice che una categoria nuova proietta a 70 finche' non ha una mappatura esplicita, «never to success». Quella regola non e' una voce di questa tabella: e' la condizione di completezza qui sopra, che rende rossa una categoria priva di proiezione invece di lasciarla scivolare su un valore predefinito."
+}

@@ -549,6 +549,43 @@ jobs:
   # che si costruisca, si installi e si importi. L'integrazione contro un
   # artefatto vero sta nel workflow di distribuzione, dove un artefatto vero
   # esiste.
+  profilo-pubblico:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+
+      # Il checkout e' **immutabile** e non segue un ramo: verificare contro una
+      # revisione diversa da quella fissata direbbe che siamo conformi a
+      # qualcosa che non abbiamo dichiarato. Il gate lo ricontrolla comunque,
+      # confrontando la HEAD del checkout col pin di `contracts/adoption-source.json`:
+      # il `ref` qui e' comodita', la difesa sta nel gate.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          repository: PlenoraETL/plenora-contracts
+          ref: 453c8d1ff2eb260840e6cedc033a2b76b58a0b9e
+          path: .plenora-contracts
+
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.98.1"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+
+      - name: Le sonde del verificatore
+        run: python3 -m unittest scripts.test_check_public_contracts
+
+      # Qui la domanda e' «il codice di questo commit rispetta i contratti?», e
+      # si interroga il binario appena costruito. L'altra domanda -- «l'artefatto
+      # che spediamo li rispetta?» -- vuole il binario estratto dall'archivio che
+      # il digest identifica, e vive nella qualifica, non qui.
+      - name: Costruisce il confine CLI
+        run: cargo build --locked -p plenora-io-cli
+
+      - name: Verifica black-box contro il pin
+        run: >-
+          python3 scripts/check_public_contracts.py
+          --contracts .plenora-contracts
+          --cli target/debug/plenora-io
+
   python-sdk:
     runs-on: ubuntu-latest
     strategy:

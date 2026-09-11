@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "component": "plenora-io-tools",
+  "contracts_source": {
+    "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
+    "revision": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+  },
+  "profile": "plenora-io-tools-profile-v1",
+  "perche_questa_revisione": "e' la prima in cui il profilo io-tools nomina la 4.0.0 come release che esegue il cutover. Le revisioni precedenti dicevano `2.0.0` o una `2.x` successiva: la 2.0.0 e la 3.0.0 sono uscite senza reclamare il profilo, e fissare una di quelle avrebbe fissato la discordanza dentro il nostro manifesto. La correzione e' la PR #5 di plenora-contracts, integrata.",
+  "contracts": [
+    "plenora-public-surfaces-v1",
+    "plenora-public-catalog-v1",
+    "plenora-capabilities-v2",
+    "plenora-error-v1",
+    "plenora-public-security-v1",
+    "plenora-arrow-interchange-v1",
+    "plenora-row-diagnostics-v1",
+    "plenora-cli-v2",
+    "plenora-surface-bindings-v1",
+    "plenora-composition-v1"
+  ],
+  "not_applicable": {
+    "plenora-runtime-binding-v1": "nessuna operazione di IO-tools e' selezionata per l'orchestrazione in questa fase, e il contratto si applica soltanto a un'operazione il cui descrittore elenca la superficie `runtime`. Non esiste alcun binding runtime nell'artefatto, e dichiararlo applicabile significherebbe promettere una superficie che non c'e'.",
+    "plenora-python-sdk-v1": "il profilo io-tools dichiara `python_sdk: not_applicable`, e il contratto comune fissa le distribuzioni per database-tools e rest-tools. Lo SDK Python di IO-tools resta e viene spedito, ma non reclama questo contratto: e' verificato come artefatto nostro, dalla wheel installata, perche' avvolge il CLI e deve restare coerente con la sua busta."
+  },
+  "superfici": {
+    "rust": {
+      "stato": "adottata",
+      "canale": "archivio sorgente del workspace, identificato da versione e digest",
+      "nota": "`publish = false` riguarda crates.io, non l'esistenza di una superficie pubblica. Il manifesto di adozione chiede di identificare l'artefatto crate per versione e digest, non di trovarlo su un registro: un archivio sorgente versionato soddisfa quella richiesta. La pubblicazione su crates.io non e' richiesta."
+    },
+    "cli": {
+      "stato": "adottata",
+      "canale": "i quattro archivi nativi della distribuzione"
+    },
+    "python_sdk": {
+      "stato": "fuori dal profilo, spedita e verificata",
+      "canale": "wheel e sdist della distribuzione",
+      "nota": "aggiornata insieme al CLI e verificata dalla wheel **installata**, fuori dall'albero sorgente. Non reclama `plenora-python-sdk-v1`."
+    },
+    "runtime": {
+      "stato": "non applicabile in questa fase"
+    }
+  }
+}

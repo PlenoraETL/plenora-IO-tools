@@ -9,6 +9,22 @@ e l'ordine in cui chiuderlo.
 Nessuna API, specifica condivisa o versione di prodotto è modificata da questo
 documento. Tag, artefatti ed evidenze della 2.0.0 e della 3.0.0 restano intatti.
 
+## Il perimetro, deciso
+
+Quattro delle decisioni aperte sono state prese, e il piano smette di essere
+una proposta su quei punti.
+
+| decisione | esito |
+|---|---|
+| **D1** superficie Rust | **inclusa** nell'adozione: export documentati, compatibilità, prova da consumatore esterno |
+| **D1b** canale | archivio **sorgente** del workspace, identificato da versione e digest. crates.io non è richiesto |
+| **D4** runtime | **non applicabile** in questa fase, e dichiarato tale |
+| **D5** revisione dei contratti | `453c8d1ff2eb260840e6cedc033a2b76b58a0b9e`, la prima in cui il profilo nomina la 4.0.0 |
+| SDK Python | mantenuto e spedito, aggiornato insieme al CLI, verificato dalla **wheel installata**. Non reclama `plenora-python-sdk-v1`, che il profilo dichiara non applicabile |
+
+Il perimetro è scritto in `contracts/adoption-source.json`, che è la fonte: le
+righe qui sopra lo riassumono e non lo ridefiniscono.
+
 ## Le revisioni su cui il piano è costruito
 
 Un piano che non nomina le revisioni che ha letto invecchia senza che nessuno se
@@ -18,7 +34,8 @@ ne accorga. Queste sono le sei consultate.
 |---|---|---|
 | `plenora-IO-tools` | `29c78a79f325b9b1e2ce6daebe2798b34f474b0e` | `main` al momento dell'analisi |
 | `plenora-IO-tools` | `28bf62ccba49d47bda0797b9892e373c49ebea61` | revisione qualificata della 3.0.0, da cui esce l'artefatto misurato |
-| `plenora-contracts` | `73ba27dd456fab420d18b2a52013c7eea2040215` | `main`, riferimento normativo letto |
+| `plenora-contracts` | `73ba27dd456fab420d18b2a52013c7eea2040215` | `main` al momento dell'analisi, riferimento normativo letto |
+| `plenora-contracts` | `453c8d1ff2eb260840e6cedc033a2b76b58a0b9e` | **la revisione fissata**: `main` dopo l'integrazione della PR #5, che chiude HB1 |
 | `plenora-contracts` | `5d151078142e7ed49d831659ee8be92a4975f80b` | pin adottato da database-tools, precedente da imitare |
 | `plenora-database-tools` | `c82bbfa3dfc432f2293c87b596cfa09d007b3839` | `main`, riferimento ingegneristico — commit «adopt public contracts for 4.0.0 (#84)» |
 | `plenora-database-tools` | `2f35ca0c3a276c1c99b7562220f90b7a47fb3ae2` | copia locale, **indietro** rispetto al remoto: non usata, non aggiornata |
@@ -70,10 +87,10 @@ possa eseguirle senza chiedere che cosa intendessero.
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | A1 | Identificatore di componente `plenora-<domain>-tools` | SURF-001 | `release/cli-protocol-v2.json` dichiara `"component": "plenora-IO-tools"` | maiuscole non ammesse dalla forma | fissare `plenora-io-tools` come identificatore pubblico unico, in un solo punto del codice | il campo `component` di ogni busta JSON vale `plenora-io-tools`; una sonda confronta la costante con la forma `^plenora-[a-z]+-tools$` |
-| A2 | Pin immutabile del repository dei contratti | ADOPTION §1.2 | assente | nessun pin: nulla lega il prodotto a una revisione dei contratti | `contracts/adoption-source.json` sul modello di database-tools, con `contracts_source.revision` a 40 esadecimali | il gate rifiuta un checkout dei contratti la cui `HEAD` non coincide col pin, come fa `check_public_contracts.py` di database-tools |
+| A2 | Pin immutabile del repository dei contratti | ADOPTION §1.2 | **chiusa.** `contracts/adoption-source.json` fissa `453c8d1ff2eb…`, dichiara il perimetro delle superfici e la ragione di ciascun `not_applicable` | — | fatto | `scripts/check_public_contracts.py` rifiuta un checkout la cui `HEAD` non coincide col pin, e una sonda lo verifica |
 | A3 | Manifesto di adozione validato dallo schema v4 | ADOPTION §1.5, `adoption-manifest-v4.schema.json` | assente | nessuna dichiarazione di conformità pubblicabile | manifesto con `artifacts`, `contracts`, `deviations`; ogni artefatto porta `version` e `digest` `sha256:<64 hex>` | il manifesto valida contro lo schema v4 al pin; i digest coincidono con quelli congelati in `assurance/current-state.json` |
 | A4 | Identità immutabile dell'artefatto | ADOPTION §2 | i sei digest sono già congelati nella candidate e verificati due volte | **nessuno** — la macchina di rilascio produce già esattamente ciò che il manifesto richiede | riusare i digest esistenti invece di ricalcolarli | i digest del manifesto sono gli stessi di `aperto.candidate_release.artefatti` |
-| A5 | Prova black-box: il verificatore invoca un binario, non ispetta lo stato privato | ADOPTION §3 | i gate attuali girano nell'albero di build e leggono strutture interne | i test misurano il codice, non un artefatto invocato dall'esterno | un verificatore che riceve **il percorso di un binario** e lo interroga dal confine di processo, senza sapere da dove venga | il verificatore passa sul binario appena costruito in CI, e fallisce se una risposta viola un contratto |
+| A5 | Prova black-box: il verificatore invoca un binario, non ispetta lo stato privato | ADOPTION §3 | **chiusa.** `scripts/check_public_contracts.py` riceve un percorso e interroga il processo; nessuna sonda legge un sorgente o una struttura interna | — | fatto, col job CI `profilo-pubblico` che costruisce il binario e lo interroga contro il pin | il verificatore protegge **8 requisiti su 19** sull'artefatto 3.0.0 e ne mostra 11 da implementare; 32 sonde provano che le tre regole mordono |
 | A5b | Identità dell'artefatto qualificato | ADOPTION §2 | i digest sono congelati e verificati, ma nessun controllo lega il **binario interrogato** a un digest | il verificatore da solo non dice quale artefatto ha interrogato | in **qualifica** il binario si estrae dall'archivio identificato dal digest, e il verificatore riceve quel percorso | l'estrazione ricalcola il digest dell'archivio e lo confronta con `aperto.candidate_release.artefatti` **prima** di invocare; un digest diverso ferma la qualifica |
 | A6 | Deviazioni dichiarate con regola, osservabilità e tracking | ADOPTION §5 | assente | una conformità parziale non dichiarata si legge come completa | ogni riga di questa matrice non chiusa alla 4.0.0 diventa una `deviation` con il proprio identificatore | ogni deviazione cita un identificatore esistente (`SURF-001`, `CLI-2.4`, …) e dichiara `detectable_before_invocation` |
 
@@ -251,7 +268,8 @@ il processo di modifica dei contratti, non il nostro ciclo di rilascio.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| HB1 | Il profilo nomina la prima release conforme | `profiles/io-tools.md`, «First conforming release and cutover» | il profilo dice «The first release claiming this profile is IO-tools `2.0.0` or a later `2.x` release» e che «The existing `1.x` line remains historical» | la 2.0.0 e la 3.0.0 sono uscite **senza** reclamare il profilo, e la linea storica non è più la 1.x. Il riferimento è legato a un cutover che non è avvenuto | proporre a `plenora-contracts` l'aggiornamento del riferimento alla **4.0.0**, con la dichiarazione che le linee 2.x e 3.x restano storiche e non reclamano il profilo | il profilo aggiornato nomina la release che reclama davvero il profilo; il nostro pin punta a una revisione che contiene quella correzione |
+| HB1 | Il profilo nomina la prima release conforme | `profiles/io-tools.md`, «First conforming release and cutover» | **chiusa.** Il profilo nomina ora la `4.0.0`, e dichiara `2.x` e `3.x` storiche accanto a `1.x` | — | PR #5 di `plenora-contracts`, integrata in `453c8d1`. `CUTOVER.md` conserva la frase originale come record di ciò che fu deciso, e dice che è cambiata la release che porta la decisione, non la decisione | il pin di `contracts/adoption-source.json` punta a `453c8d1`, che contiene la correzione; `tools/validate_specs.py` passa su quella revisione |
+| HB2 | La proiezione dei codici d'uscita esiste in forma macchina | CLI-2.0 §8 | la proiezione vive **solo** come tabella Markdown; nel repository comune non c'è un file macchina che la porti | il nostro verificatore ha dovuto tenerne una copia in `contracts/proiezione-codici-uscita.json`, perché `check_docset.py` vieta a un gate di dipendere dalla prosa — e aveva ragione: il parser che leggeva il Markdown sbagliava già la riga del `70` | proporre a `plenora-contracts` di pubblicarla accanto agli schemi, come gli altri fatti macchina | la copia locale sparisce e il verificatore legge la proiezione dal checkout fissato; finché esiste, la sua completezza è verificata contro l'enum chiuso a ogni corsa |
 
 Va proposta **prima** di fissare il pin (A2): fissare una revisione che dice la
 cosa sbagliata, e correggerla dopo, significherebbe cambiare pin a metà
@@ -263,12 +281,42 @@ ma la precede.
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | I1 | Il gate del contratto di release copre i nuovi obblighi | `scripts/check_release_contract.py` | 37 invarianti, 35 verificati, 0 bloccanti, 2 differiti | i requisiti di questo piano non sono invarianti: nessuno li presidia | un invariante `contratti.profilo-pubblico` bloccante finché l'adozione non è verificata | il gate è **rosso** finché il black-box del profilo non passa |
-| I2 | Il black-box gira in CI su ogni push | `AGENTS.md` di database-tools, regola 6; il loro job `profilo pubblico v4` | assente | un gate che nessuno esegue non è un gate | job CI che fa il checkout immutabile dei contratti al pin e lancia il verificatore sul binario costruito | il job è rosso se il pin e il checkout divergono |
+| I2 | Il black-box gira in CI su ogni push | `AGENTS.md` di database-tools, regola 6 | **chiusa.** Il job `profilo-pubblico` fa il checkout immutabile dei contratti al pin, esegue le sonde del verificatore e lo lancia sul binario appena costruito | — | fatto | il job è rosso se il pin e il checkout divergono, e una sonda fallisce se in CI il checkout manca — senza, tutte le sonde salterebbero e il job sarebbe verde senza aver misurato niente |
 | I3 | La qualifica cross-component resta differita o si chiude | invariante `sistema.qualifica-cross-component` | differita e **non verificata** per decisione del titolare | la catena IO → data → database non è provata in nessuna direzione | l'adozione dei contratti comuni è la **precondizione**, non la prova | quando `release/system-rc-gate.json` passa a `satisfied`, l'invariante torna verificato da sé |
 | I4 | La 4.0.0 è una major, e lo è per ragioni dichiarate | COMPATIBILITY, «Incompatible changes» | la 3.0.0 è pubblicata e intatta | — | ogni riga incompatibile di questa matrice è elencata nelle note di rilascio | le note nominano B4, B5, B7 e ogni altra rottura osservabile |
 | I5 | Le evidenze precedenti restano leggibili | `verifica_release_storiche` | 2.0.0 in archivio, 3.0.0 in `aperto.candidate_release` come `pubblicata` | — | non toccare nulla di ciò che è registrato | i digest, i tag e le evidenze della 2.0.0 e della 3.0.0 sono identici a prima |
 
 ---
+
+## Lo stato del verificatore
+
+`scripts/check_public_contracts.py` esiste e gira. Oggi, sull'artefatto 3.0.0:
+
+```
+profilo pubblico: 8 requisiti verificati e protetti su 19, 11 ancora da implementare.
+```
+
+I diciannove requisiti stanno in `contracts/requisiti-pubblici.json`, ciascuno
+con la propria regola, lo stato, e — quando manca — la ragione scritta. Le tre
+regole che lo rendono incrementale:
+
+* un requisito **`implementato` che fallisce** è rosso: è ciò che la CI protegge;
+* un requisito **`non_ancora` che fallisce** è riportato e non blocca: è ciò che
+  la CI rende visibile, e l'alternativa sarebbe una CI rossa dal primo giorno
+  fino alla fine dell'adozione, cioè una CI che nessuno guarda;
+* un requisito **`non_ancora` che passa** è rosso. È la regola che tiene in
+  piedi le altre due: un requisito soddisfatto ma dichiarato mancante lascia il
+  registro a descrivere un artefatto che non esiste più, e da quel momento la
+  prima regola non lo protegge.
+
+Con `--esigente` la seconda regola cade e qualunque `non_ancora` è rosso: è la
+forma che il gate assume quando si qualifica una candidate. Oggi in quella forma
+è rosso su undici requisiti, ed è l'esito giusto.
+
+Gli otto già protetti sono i quattro assi d'errore, la categoria e la fase
+dentro gli enum chiusi, la coerenza di `retry`, e quattro proprietà della busta
+di successo. Non sono poco: sono la parte del contratto che il prodotto
+rispettava già prima di sapere di doverlo fare.
 
 ## Priorità
 
