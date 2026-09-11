@@ -103,7 +103,8 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 |---|---|---|---|---|---|---|
 | B1 | `--help` presente | CLI-2.0 §3 | `--help` esce **2** con `CLI_USAGE: uso: plenora-io <catalog\|inspect\|layers\|read\|convert>` | la superficie di scoperta richiesta non esiste: l'aiuto è un errore | implementare `--help` che descrive **solo** i comandi compilati nel binario | `--help` esce 0 e non nomina comandi assenti da quella build |
 | B2 | `--version --format json` nella busta comune | CLI-2.0 §3 | `--version` rende `{"status":"ok","version":"3.0.0"}`; con `--format json` esce **2**, «non prende argomenti» | busta non conforme e flag rifiutato | `--format json` accettato ovunque; `result` porta `component_version` e la versione di protocollo CLI | la risposta valida contro `cli-envelope-v2.schema.json` e `result.component_version` vale la versione del workspace |
-| B3 | `capabilities --format json` | CLI-2.0 §3, CAP-003…CAP-009 | il comando **non esiste** | manca la scoperta delle operazioni: nessun orchestratore può selezionarci | comando `capabilities` che descrive **il binario che risponde**, feature di compilazione comprese | la risposta valida contro `capabilities-v2.schema.json`; la build `base` e la build `filegdb` producono documenti **diversi** |
+| B3 | `capabilities --format json` | CLI-2.0 §3, CAP-003…CAP-009 | **chiusa.** Il comando risponde e dichiara sei operazioni: quattro disponibili, `io.read` e `io.write` **non** disponibili con la ragione | — | fatto | quattro requisiti la presidiano: forma, copertura del catalogo, nessuna matrice dei formati negli attributi, e la mappatura dei comandi |
+| B3b | La build non cambia le operazioni | profilo io-tools, «Interchange» | `base` e `gdal-backend` producono lo **stesso** documento capability | **nessuno**, ed è la correzione di una mia riga sbagliata: avevo scritto come prova d'accettazione che le due build dovessero produrre documenti **diversi** | niente da fare: la feature cambia quali formati `io.catalog` dichiara, non quali operazioni esistono, e il profilo vieta agli attributi di duplicare quella matrice | il documento capability è identico fra le due build; la differenza si legge nel risultato di `io.catalog` |
 | B4 | Una sola versione di protocollo nell'artefatto | profilo io-tools, «cutover» | `catalog` rende `protocol_version: 2`; **ogni percorso d'errore misurato** — uso, `io`, `unsupported` — rende `protocol_version: 1` | v1 e v2 **coesistono** nello stesso binario, che il profilo vieta. Non è il solo errore d'uso: è tutta la superficie d'errore | portare ogni percorso alla busta v2; `--legacy-protocol-v1-unsafe` va rimosso o isolato dietro un artefatto separato | nessuna risposta del binario conforme porta `protocol_version: 1`, successo **ed errore** |
 | B5 | Niente su stderr in modo JSON | CLI-2.0 §4 | gli errori escono **su stderr**, stdout vuoto | selezione dello stream non conforme; un consumatore che legge stdout non vede nulla | busta d'errore su **stdout**, un documento e una newline | per ogni comando, in fallimento: stdout è un documento JSON, stderr è vuoto, exit ≠ 0 |
 | B6 | Campi d'identità nella busta | CLI-2.0 §5 | busta di successo: `contract`, `determinism`, `drivers`, `protocol_version`, `status` | mancano `component`, `component_version`, `command` | aggiungerli a ogni busta, successo ed errore | ogni busta valida contro `cli-envelope-v2.schema.json`, che li richiede |
@@ -290,13 +291,22 @@ ma la precede.
 
 ## Lo stato del verificatore
 
-`scripts/check_public_contracts.py` esiste e gira. Oggi, sull'artefatto 3.0.0:
+`scripts/check_public_contracts.py` esiste e gira. Dopo il blocco della busta
+CLI e quello delle capability:
 
 ```
-profilo pubblico: 8 requisiti verificati e protetti su 19, 11 ancora da implementare.
+profilo pubblico: 22 requisiti verificati e protetti su 23, 1 ancora da implementare.
+  DA IMPLEMENTARE capabilities.ogni-comando-mappa-un-operazione (CLI-2.0 §10):
+    comandi che invocano il dominio senza un'operazione disponibile: `read` -> io.read
 ```
 
-I diciannove requisiti stanno in `contracts/requisiti-pubblici.json`, ciascuno
+Era 8 su 19 quando il verificatore è nato. L'unico residuo è la tensione che
+`io.read` crea: il comando esiste, l'operazione no, perché conta i batch invece
+di consegnarli. Dichiararla disponibile per far tornare la sonda sarebbe
+annunciare una consegna che non c'è — ed è esattamente ciò che il documento
+capability esiste per impedire. Si chiude con B12.
+
+I ventitré requisiti stanno in `contracts/requisiti-pubblici.json`, ciascuno
 con la propria regola, lo stato, e — quando manca — la ragione scritta. Le tre
 regole che lo rendono incrementale:
 
@@ -348,9 +358,10 @@ più cicli significherebbe romperla più volte. B11 è entrata qui dopo la
 misura: la proiezione dei codici è agganciata al codice interno invece che
 alla categoria, e cambiarla è incompatibile quanto cambiare la busta.
 
-**Priorità 3 — la scoperta.** B3 e A1. Il documento capability è ciò che rende
-selezionabile il componente da un orchestratore; l'identificatore va corretto
-prima, perché il documento lo contiene.
+**Priorità 3 — la scoperta.** ✅ **chiusa.** B3 e A1. Il documento capability
+rende selezionabile il componente da un orchestratore, e dichiara con la ragione
+le due operazioni che non serve. L'identificatore `plenora-io-tools` era la
+precondizione, perché il documento lo contiene.
 
 **Priorità 4 — la separazione dei test.** F1 e F2. Quarantaquattro moduli da
 spostare sono lavoro meccanico e voluminoso: conviene farlo quando la superficie

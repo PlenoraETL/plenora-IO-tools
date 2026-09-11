@@ -289,6 +289,18 @@ MATRICE: tuple[dict[str, Any], ...] = (
         "perche": "la via d'uso, che passa da `usage_err` e non da `map_err`.",
     },
     {
+        "nome": "capabilities",
+        "busta": "plenora-capabilities-v2",
+        "argomenti": ["capabilities", "--format", "json"],
+        "perche": (
+            "la settima busta, e la sola il cui contratto non e' nostro: lo "
+            "schema del documento capability vive in `plenora-contracts` e altri "
+            "componenti emettono lo stesso. E' la busta che dice quali "
+            "operazioni l'artefatto espone, e una busta non censita e' "
+            "precisamente cio' che questo gate esiste per escludere."
+        ),
+    },
+    {
         "nome": "versione",
         "busta": "plenora-io-version-v2",
         "argomenti": ["--version", "--format", "json"],

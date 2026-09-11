@@ -9,6 +9,7 @@ regole mordono davvero, e ciascuna ha la propria controprova positiva -- senza,
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import pathlib
@@ -101,12 +102,191 @@ ERRORE_CONFORME = json.dumps(
 )
 
 
+#: Un documento capability che soddisfa le quattro sonde: le sei operazioni
+#: del catalogo, tutte disponibili, sulla sola superficie dichiarata.
+CAPABILITY_CONFORME = {
+    "schema_version": 2,
+    "component": "plenora-io-tools",
+    "component_version": "4.0.0",
+    "interfaces": [
+        {
+            "kind": "cli",
+            "contract": "plenora-cli-v2",
+            "version": 2,
+            "artifact": "plenora-io"
+        }
+    ],
+    "operations": [
+        {
+            "id": "io.catalog",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-catalog-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-catalog-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "none",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        },
+        {
+            "id": "io.inspect",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-inspect-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-inspect-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "none",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        },
+        {
+            "id": "io.layers",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-layers-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-layers-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "none",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        },
+        {
+            "id": "io.read",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-read-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-read-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "none",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        },
+        {
+            "id": "io.write",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-write-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-write-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "local",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        },
+        {
+            "id": "io.convert",
+            "version": 1,
+            "status": "available",
+            "surfaces": [
+                "cli"
+            ],
+            "input": {
+                "contract": "plenora-io-convert-input-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "output": {
+                "contract": "plenora-io-convert-v1",
+                "content_types": [
+                    "application/json"
+                ]
+            },
+            "side_effect": "local",
+            "controls": {
+                "cancellation": True,
+                "deadline": True,
+                "idempotency_key": False
+            }
+        }
+    ]
+}
+
+
 def artefatto_conforme() -> ArtefattoFinto:
     """Un artefatto che soddisfa ogni requisito del registro."""
     return ArtefattoFinto(
         {
             ("catalog",): invocazione(BUSTA_CONFORME + "\n"),
             ("catalog", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
+            ("inspect", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
+            ("layers", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
+            ("read", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
+            ("convert", "--format", "json"): invocazione(BUSTA_CONFORME + "\n"),
             ("inspect", "/nessun-file-esistente-per-la-sonda.shp"): invocazione(
                 ERRORE_CONFORME + "\n", exit_code=5
             ),
@@ -134,7 +314,7 @@ def artefatto_conforme() -> ArtefattoFinto:
                         "component_version": "4.0.0",
                         "contract": "plenora-capabilities-v2",
                         "command": "capabilities",
-                        "result": {"operations": []},
+                        "result": CAPABILITY_CONFORME,
                     }
                 )
                 + "\n"
@@ -373,6 +553,172 @@ class SondeDelleTreRegole(unittest.TestCase):
             self.tutti("implementato"), artefatto_conforme(), esigente=True
         )
         self.assertEqual(esito, 0)
+
+
+class SondeDelleCapability(unittest.TestCase):
+    """Le quattro regole del documento capability, ciascuna con la controprova.
+
+    Un documento capability che mente e' peggio della sua assenza: chi non lo
+    trova cerca altrove, chi lo trova si fida. Le sonde qui sotto provano che le
+    quattro regole rifiutano un documento che mente in quattro modi diversi.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        trovato = contratti()
+        if trovato is None:
+            raise unittest.SkipTest(f"nessun checkout dei contratti fra {CANDIDATI}")
+        cls.vocabolario = gate.Vocabolario(trovato)
+
+    def artefatto(self, documento) -> ArtefattoFinto:
+        busta = {
+            "status": "ok",
+            "protocol_version": 2,
+            "component": "plenora-io-tools",
+            "component_version": "4.0.0",
+            "contract": "plenora-capabilities-v2",
+            "command": "capabilities",
+            "result": documento,
+        }
+        risposte = {("capabilities", "--format", "json"): invocazione(json.dumps(busta) + "\n")}
+        for comando in ("catalog", "inspect", "layers", "read", "convert"):
+            risposte[(comando, "--format", "json")] = invocazione(BUSTA_CONFORME + "\n")
+        return ArtefattoFinto(risposte)
+
+    def documento(self, **modifiche):
+        d = copy.deepcopy(CAPABILITY_CONFORME)
+        d.update(modifiche)
+        return d
+
+    # --- la forma ---------------------------------------------------------
+
+    def test_un_documento_conforme_passa(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        esito = gate.sonda_capability_forma(
+            self.artefatto(CAPABILITY_CONFORME), self.vocabolario
+        )
+        self.assertTrue(esito.passata, esito.dettaglio)
+
+    def test_un_campo_estraneo_e_rosso(self) -> None:
+        esito = gate.sonda_capability_forma(
+            self.artefatto(self.documento(roadmap=["io.write"])), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("roadmap", esito.dettaglio)
+
+    def test_una_superficie_non_dichiarata_e_rossa(self) -> None:
+        """CAP-007: un'operazione non puo' dirsi raggiungibile da una superficie
+        che l'artefatto non espone."""
+        d = self.documento()
+        d["operations"][0]["surfaces"] = ["cli", "runtime"]
+        esito = gate.sonda_capability_forma(self.artefatto(d), self.vocabolario)
+        self.assertFalse(esito.passata)
+        self.assertIn("runtime", esito.dettaglio)
+
+    def test_una_non_disponibile_senza_ragione_e_rossa(self) -> None:
+        """CAP-009: chi la legge deve sapere **perche'** non puo' invocarla."""
+        d = self.documento()
+        d["operations"][0]["status"] = "unavailable"
+        esito = gate.sonda_capability_forma(self.artefatto(d), self.vocabolario)
+        self.assertFalse(esito.passata)
+        self.assertIn("ragione", esito.dettaglio)
+
+    # --- la copertura del catalogo ----------------------------------------
+
+    def test_un_operazione_omessa_e_rossa(self) -> None:
+        """Omettere non e' dichiarare non disponibile.
+
+        Chi legge non distingue «non c'e'» da «non l'ho scritta», e il catalogo
+        comune dice quali operazioni il profilo pretende.
+        """
+        d = self.documento()
+        d["operations"] = [o for o in d["operations"] if o["id"] != "io.write"]
+        esito = gate.sonda_capability_copre_il_catalogo(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("io.write", esito.dettaglio)
+
+    def test_un_operazione_inventata_e_rossa(self) -> None:
+        """Il verso opposto: il catalogo fissa l'insieme."""
+        d = self.documento()
+        d["operations"] = d["operations"] + [
+            dict(d["operations"][0], id="io.trasmuta")
+        ]
+        esito = gate.sonda_capability_copre_il_catalogo(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("io.trasmuta", esito.dettaglio)
+
+    # --- la matrice dei formati -------------------------------------------
+
+    def test_un_attributo_che_ripete_i_formati_e_rosso(self) -> None:
+        """Il profilo assegna quella scoperta a `io.catalog`, e una sola."""
+        d = self.documento()
+        d["operations"][0]["attributes"] = {"formats": ["shp", "geojson"]}
+        esito = gate.sonda_capability_non_duplica_i_formati(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("formats", esito.dettaglio)
+
+    def test_un_attributo_di_selezione_non_e_la_matrice(self) -> None:
+        """La controprova: gli attributi servono a scegliere l'operazione.
+
+        Senza, «nessun attributo» sarebbe la regola, e il contratto invece li
+        ammette -- vieta solo che ripetano cio' che `io.catalog` possiede.
+        """
+        d = self.documento()
+        d["operations"][0]["attributes"] = {"max_concurrent_reads": 4}
+        esito = gate.sonda_capability_non_duplica_i_formati(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertTrue(esito.passata, esito.dettaglio)
+
+    def test_io_catalog_non_disponibile_e_rosso(self) -> None:
+        """Delegare a qualcosa che non c'e' non e' delegare."""
+        d = self.documento()
+        for operazione in d["operations"]:
+            if operazione["id"] == "io.catalog":
+                operazione["status"] = "unavailable"
+                operazione["reason"] = "x"
+        esito = gate.sonda_capability_non_duplica_i_formati(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("io.catalog", esito.dettaglio)
+
+    # --- la mappatura dei comandi -----------------------------------------
+
+    def test_un_comando_senza_operazione_disponibile_e_rosso(self) -> None:
+        """CLI 2.0 §10, ed e' la tensione che il prodotto ha oggi."""
+        d = self.documento()
+        for operazione in d["operations"]:
+            if operazione["id"] == "io.read":
+                operazione["status"] = "unavailable"
+                operazione["reason"] = "conta i batch invece di consegnarli"
+        esito = gate.sonda_ogni_comando_mappa_un_operazione(
+            self.artefatto(d), self.vocabolario
+        )
+        self.assertFalse(esito.passata)
+        self.assertIn("io.read", esito.dettaglio)
+
+    def test_il_documento_reale_e_veritiero(self) -> None:
+        """Il documento che il registro dichiara `implementato` regge davvero.
+
+        Non e' un doppione del gate: quello gira sul binario, questa sonda gira
+        sempre e coglie un documento diventato incoerente prima che qualcuno
+        costruisca un artefatto.
+        """
+        for sonda in (
+            gate.sonda_capability_forma,
+            gate.sonda_capability_copre_il_catalogo,
+            gate.sonda_capability_non_duplica_i_formati,
+        ):
+            with self.subTest(sonda=sonda.__name__):
+                esito = sonda(self.artefatto(CAPABILITY_CONFORME), self.vocabolario)
+                self.assertTrue(esito.passata, esito.dettaglio)
 
 
 class SondeDeiGuasti(unittest.TestCase):

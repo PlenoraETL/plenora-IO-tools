@@ -77,7 +77,14 @@ pub const PROTOCOLLO: u64 = 2;
 /// nominerebbe contratti che nessuno puo' validare.
 #[must_use]
 pub fn contratto(nome: &str) -> String {
-    format!("plenora-io-{nome}-v2")
+    match nome {
+        // Il documento capability e' un contratto **condiviso**, non nostro: il
+        // suo schema vive in `plenora-contracts` e altri componenti emettono lo
+        // stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo
+        // uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.
+        "capabilities" => "plenora-capabilities-v2".to_owned(),
+        _ => format!("plenora-io-{nome}-v2"),
+    }
 }
 
 /// Che cosa e' rimasto fuori, e **per quale delle quattro ragioni**.

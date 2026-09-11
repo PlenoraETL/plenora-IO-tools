@@ -91,8 +91,7 @@
       "regola": "CLI-2.0 §3, CAP-003",
       "riga_del_piano": "B3",
       "descrizione": "`capabilities --format json` risponde e descrive il binario che sta rispondendo",
-      "stato": "non_ancora",
-      "perche": "il comando non esiste. E' la scoperta delle operazioni, e appartiene al blocco successivo: senza, nessun orchestratore puo' sapere quali operazioni questo artefatto espone, ne' distinguere la build `base` da quella `filegdb`."
+      "stato": "implementato"
     },
     {
       "id": "cli.formato-json-esplicito",
@@ -142,6 +141,35 @@
       "riga_del_piano": "B2",
       "descrizione": "ogni superficie capace di scoperta espone la versione del componente",
       "stato": "implementato"
+    },
+    {
+      "id": "capabilities.forma",
+      "regola": "CAP-006, CAP-007, CAP-009",
+      "riga_del_piano": "B3",
+      "descrizione": "il documento ha i campi che lo schema comune pretende e nessun altro; ogni superficie nominata sta fra le interfacce; ogni operazione non disponibile porta la propria ragione",
+      "stato": "implementato"
+    },
+    {
+      "id": "capabilities.copre-il-catalogo",
+      "regola": "PUBLIC-CATALOGS-1.0 §5",
+      "riga_del_piano": "B3",
+      "descrizione": "ogni operazione del catalogo comune compare con uno stato dichiarato, e nessuna che il catalogo non conosca",
+      "stato": "implementato"
+    },
+    {
+      "id": "capabilities.non-duplica-i-formati",
+      "regola": "profilo io-tools, CAP-013",
+      "riga_del_piano": "B3",
+      "descrizione": "gli attributi non ripetono la matrice dei formati: la fonte e' il risultato versionato di `io.catalog`, che dev'essere disponibile",
+      "stato": "implementato"
+    },
+    {
+      "id": "capabilities.ogni-comando-mappa-un-operazione",
+      "regola": "CLI-2.0 §10",
+      "riga_del_piano": "B12",
+      "descrizione": "ogni comando che invoca il dominio mappa un'operazione **disponibile**",
+      "stato": "non_ancora",
+      "perche": "il comando `read` esiste e `io.read` e' dichiarata non disponibile: legge i batch e li scarta invece di consegnare un dataset Arrow. La tensione e' deliberata e resta finche' `io.read` non consegna -- dichiararla disponibile per far tornare la sonda sarebbe annunciare una consegna che non c'e'."
     }
   ]
 }

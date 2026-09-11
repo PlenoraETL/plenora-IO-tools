@@ -709,6 +709,8 @@ passo check_requires_python python3 scripts/check_requires_python.py
 # fra due cose di cui una manca non presidia niente -- resterebbe rosso, o
 # peggio verde per assenza di soggetto.
 #
+passo sonde_dettaglio_congelato python3 -m unittest scripts.test_check_dettaglio_congelato
+passo check_dettaglio_congelato python3 scripts/check_dettaglio_congelato.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

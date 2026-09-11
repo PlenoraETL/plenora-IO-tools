@@ -677,6 +677,170 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
 
 // --- comandi ----------------------------------------------------------------
 
+/// Che cosa questo binario espone, e che cosa non espone.
+///
+/// # La regola che governa questo documento
+///
+/// Descrive **l'artefatto che sta rispondendo**, non il perimetro che il
+/// catalogo comune definisce. Un'operazione che il catalogo dichiara richiesta e
+/// che questo binario non serve va dichiarata `unavailable` con una ragione
+/// leggibile da una macchina, non omessa e tantomeno annunciata: un documento
+/// che promette cio' che non c'e' e' peggio di nessun documento, perche' un
+/// orchestratore lo crede.
+///
+/// # Perche' non elenca i formati
+///
+/// Il profilo lo dice per esteso: il risultato versionato di `io.catalog` e' la
+/// **sola** fonte normativa per gli identificatori di formato, le opzioni
+/// ammesse, la disponibilita' in lettura e scrittura, il comportamento dei
+/// layer, la geometria, il CRS e i vincoli di fedelta'; e gli `attributes` non
+/// devono duplicare quella matrice. Qui si dice che `io.catalog` esiste e come
+/// si invoca, e il resto lo dice lui.
+///
+/// Ne segue una cosa che sorprende: la build `base` e quella `gdal-backend`
+/// producono lo **stesso** documento. La feature non cambia quali operazioni
+/// esistono -- cambia quali formati `io.catalog` dichiara disponibili, e quella
+/// e' una domanda sua.
+///
+/// # Perche' i contratti dicono `-v2`
+///
+/// Il catalogo comune fissa `plenora-io-catalog-v1` e le altre undici forme; il
+/// binario emette `-v2`. Qui si dichiara cio' che **esce davvero**: un documento
+/// capability che nominasse i contratti del catalogo mentre il binario ne emette
+/// altri sarebbe falso proprio nel punto in cui un consumatore si fida. La
+/// divergenza e' una deviazione da registrare nel manifesto di adozione, non da
+/// nascondere qui.
+/// Un'operazione che questo binario serve davvero.
+fn operazione_esposta(
+    id: &str,
+    ingresso: &str,
+    uscita: &str,
+    effetto: &str,
+    controlli: bool,
+) -> Value {
+    json!({
+        "id": id,
+        "version": 1,
+        "status": "available",
+        "surfaces": ["cli"],
+        "input": { "contract": ingresso, "content_types": ["application/json"] },
+        "output": { "contract": uscita, "content_types": ["application/json"] },
+        "side_effect": effetto,
+        "controls": {
+            "cancellation": controlli,
+            "deadline": controlli,
+            "idempotency_key": false,
+        },
+    })
+}
+
+/// Un'operazione che il catalogo comune pretende e che questo binario non serve.
+///
+/// La `reason` e' cio' che un consumatore legge per sapere **perche'** non puo'
+/// selezionarla, e i contratti dichiarati sono quelli del catalogo: non essendo
+/// esposta l'operazione, non c'e' un contratto emesso da riportare.
+fn operazione_assente(
+    id: &str,
+    ingresso: &str,
+    uscita: &str,
+    tipi_uscita: &[&str],
+    effetto: &str,
+    ragione: &str,
+) -> Value {
+    json!({
+        "id": id,
+        "version": 1,
+        "status": "unavailable",
+        "reason": ragione,
+        "surfaces": ["cli"],
+        "input": { "contract": ingresso, "content_types": ["application/json"] },
+        "output": { "contract": uscita, "content_types": tipi_uscita },
+        "side_effect": effetto,
+        "controls": { "cancellation": true, "deadline": true, "idempotency_key": false },
+    })
+}
+
+fn capabilities_document() -> Value {
+    json!({
+        "schema_version": 2,
+        "component": COMPONENTE,
+        "component_version": env!("CARGO_PKG_VERSION"),
+        "interfaces": [
+            {
+                "kind": "cli",
+                "contract": "plenora-cli-v2",
+                "version": busta::PROTOCOLLO,
+                "artifact": "plenora-io",
+            }
+        ],
+        "operations": [
+            operazione_esposta(
+                "io.catalog",
+                "plenora-io-catalog-query-v1",
+                "plenora-io-catalog-v2",
+                "none",
+                false,
+            ),
+            operazione_esposta(
+                "io.inspect",
+                "plenora-io-inspect-input-v1",
+                "plenora-io-inspect-v2",
+                "none",
+                true,
+            ),
+            operazione_esposta(
+                "io.layers",
+                "plenora-io-layers-input-v1",
+                "plenora-io-layers-v2",
+                "none",
+                true,
+            ),
+            operazione_assente(
+                "io.read",
+                "plenora-io-read-input-v1",
+                "plenora-io-read-result-v1",
+                &[
+                    "application/vnd.apache.arrow.stream",
+                    "application/vnd.apache.arrow.file",
+                ],
+                "none",
+                "il comando `read` esiste e riporta fedelta', layer e conteggi, \
+                 ma non **consegna** i dati: legge i batch e li scarta. \
+                 `io.read` e' definita dalla consegna di un dataset Arrow, e \
+                 finche' quella manca l'operazione non e' selezionabile.",
+            ),
+            operazione_assente(
+                "io.write",
+                "plenora-io-write-input-v1",
+                "plenora-io-write-result-v1",
+                &["application/json"],
+                "local",
+                "non implementata. Il binario sa scrivere -- `convert` lo fa -- \
+                 ma non espone la scrittura come operazione autonoma su un \
+                 ingresso Arrow.",
+            ),
+            operazione_esposta(
+                "io.convert",
+                "plenora-io-convert-input-v1",
+                "plenora-io-convert-v2",
+                "local",
+                true,
+            ),
+        ],
+    })
+}
+
+/// `capabilities` accetta soltanto il selettore esplicito del modo macchina.
+fn parse_capabilities(argomenti: &[String]) -> Result<(), (i32, Value)> {
+    match argomenti {
+        [] => Ok(()),
+        [uno, due] if uno == FLAG_FORMATO && due == FORMATO_JSON => Ok(()),
+        _ => Err(usage_err(&PublicMessage::Curated(
+            "capabilities non prende argomenti, salvo --format json",
+        ))),
+    }
+}
+
 fn catalog_document_con(filegdb_available: bool) -> Value {
     let mut registry = DriverRegistry::new();
     registry.register(Box::new(driver_geoparquet::GeoParquetDriver));
@@ -1127,6 +1291,7 @@ USO
     plenora-io <comando> [argomenti] [--format json]
 
 COMANDI
+    capabilities       le operazioni che questo binario espone, e quali no
     catalog            i formati e le capability di questo binario
     inspect SORGENTE   formato, layer, schemi e fedelta' dichiarati
     layers SORGENTE    i layer indirizzabili della sorgente
@@ -1175,6 +1340,13 @@ fn run() -> EsitoDelComando {
 
     if args.first().map(String::as_str) == Some("catalog") {
         return ("catalog", parse_catalog(&args[1..]).map(|()| cmd_catalog()));
+    }
+
+    if args.first().map(String::as_str) == Some("capabilities") {
+        return (
+            "capabilities",
+            parse_capabilities(&args[1..]).map(|()| capabilities_document()),
+        );
     }
 
     match args.first().map(String::as_str) {

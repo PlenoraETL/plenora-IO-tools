@@ -2692,6 +2692,251 @@
           "sempre": true
         }
       }
+    },
+    "capabilities": {
+      "contract": "plenora-capabilities-v2",
+      "perche_il_contratto_non_e_nostro": "e la sola busta il cui contratto vive in `plenora-contracts`: lo schema del documento capability e condiviso, e altri componenti emettono lo stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.",
+      "che_cosa_dichiara": "le operazioni che **questo** binario espone, e quelle che non espone con la ragione. Non i formati: il profilo assegna quella scoperta al risultato versionato di `io.catalog`, e gli attributi non devono duplicarla. Ne segue che la build `base` e quella `gdal-backend` producono lo stesso documento: la feature cambia quali formati `io.catalog` dichiara, non quali operazioni esistono.",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "component",
+        "component_version",
+        "contract",
+        "command",
+        "result"
+      ],
+      "required_result_fields": [
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations"
+      ],
+      "struttura": {
+        ".command": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].artifact": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.operations": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.cancellation": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.deadline": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.idempotency_key": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.content_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.content_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.content_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.content_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].side_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].surfaces": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].surfaces[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.schema_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
     }
   },
   "sezioni_diagnostiche": {

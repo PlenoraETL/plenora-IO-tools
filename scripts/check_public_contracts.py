@@ -235,6 +235,14 @@ class Vocabolario:
         self.fasi = frozenset(self._enum(schema, "phase"))
         self.effetti = frozenset(self._enum(schema, "remote_effect"))
         self.codici_di_uscita = self._tabella_dei_codici(contratti, self.categorie)
+        self.capability = json.loads(
+            (contratti / "schemas" / "capabilities-v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.catalogo = json.loads(
+            (contratti / "catalogs" / "io-tools-v1.json").read_text(encoding="utf-8")
+        )
 
     @staticmethod
     def _enum(nodo: Any, campo: str) -> list[str]:
@@ -532,6 +540,195 @@ def sonda_versione_dell_artefatto(artefatto: Artefatto, vocabolario: Vocabolario
     return Esito(False, "nessuna versione di componente nella busta")
 
 
+def _documento_capability(artefatto: Artefatto) -> dict[str, Any] | None:
+    """Il documento capability, o `None` se il comando non risponde."""
+    corsa = artefatto.invoca("capabilities", "--format", "json")
+    if corsa.exit_code != 0:
+        return None
+    busta = corsa.documento()
+    risultato = busta.get("result") if isinstance(busta, dict) else None
+    return risultato if isinstance(risultato, dict) else None
+
+
+def sonda_capability_forma(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """Il documento rispetta lo schema comune, e le due regole che lo rendono utile.
+
+    Non e' una validazione JSON Schema completa -- quella vuole una dipendenza
+    che questo gate non ha -- ma le proprieta' che un consumatore usa per
+    **selezionare**: i campi obbligatori, nessun campo estraneo, e le due regole
+    che il contratto scrive per esteso.
+
+    * `CAP-007`: ogni superficie nominata da un'operazione sta anche fra le
+      interfacce. Senza, un'operazione potrebbe dichiararsi raggiungibile da una
+      superficie che l'artefatto non espone.
+    * `CAP-009`: un'operazione `unavailable` porta una ragione. Senza, chi la
+      legge sa che non puo' invocarla e non sa se valga la pena aspettare.
+    """
+    documento = _documento_capability(artefatto)
+    if documento is None:
+        return Esito(False, "`capabilities --format json` non rende un documento")
+
+    schema = vocabolario.capability
+    mancanti = [c for c in schema["required"] if c not in documento]
+    if mancanti:
+        return Esito(False, f"campi obbligatori mancanti: {mancanti}")
+    estranei = sorted(set(documento) - set(schema["properties"]))
+    if estranei:
+        return Esito(False, f"campi estranei allo schema: {estranei}")
+    if documento.get("schema_version") != 2:
+        return Esito(False, f"`schema_version` vale {documento.get('schema_version')}")
+
+    forma = schema["$defs"]["operation"]
+    superfici = set(schema["$defs"]["surface"]["enum"])
+    interfacce = {
+        i.get("kind") for i in documento.get("interfaces", []) if isinstance(i, dict)
+    }
+    if not interfacce:
+        return Esito(False, "nessuna interfaccia dichiarata")
+
+    for operazione in documento.get("operations", []):
+        identita = operazione.get("id", "(senza id)")
+        mancanti = [c for c in forma["required"] if c not in operazione]
+        if mancanti:
+            return Esito(False, f"{identita}: campi mancanti {mancanti}")
+        estranei = sorted(set(operazione) - set(forma["properties"]))
+        if estranei:
+            return Esito(False, f"{identita}: campi estranei {estranei}")
+        if operazione["status"] not in forma["properties"]["status"]["enum"]:
+            return Esito(False, f"{identita}: stato «{operazione['status']}»")
+        if operazione["status"] == "unavailable" and not operazione.get("reason"):
+            return Esito(
+                False,
+                f"{identita}: dichiarata non disponibile senza una ragione "
+                "(CAP-009): chi la legge non sa perche'",
+            )
+        for superficie in operazione["surfaces"]:
+            if superficie not in superfici:
+                return Esito(False, f"{identita}: superficie «{superficie}» inventata")
+            if superficie not in interfacce:
+                return Esito(
+                    False,
+                    f"{identita}: dichiara la superficie «{superficie}», che non "
+                    "e' fra le interfacce dell'artefatto (CAP-007)",
+                )
+    return Esito(True)
+
+
+def sonda_capability_copre_il_catalogo(
+    artefatto: Artefatto, vocabolario: Vocabolario
+) -> Esito:
+    """Ogni operazione del catalogo comune compare, con uno stato dichiarato.
+
+    Ometterne una non e' la stessa cosa che dichiararla non disponibile: chi
+    legge non distingue «non c'e'» da «non l'ho scritta», e il catalogo comune
+    dice quali operazioni il profilo pretende. Dichiararle tutte, con lo stato
+    che ciascuna ha davvero, e' cio' che rende il documento leggibile.
+    """
+    documento = _documento_capability(artefatto)
+    if documento is None:
+        return Esito(False, "`capabilities --format json` non rende un documento")
+    attese = {o["id"] for o in vocabolario.catalogo["operations"]}
+    dichiarate = {o.get("id") for o in documento.get("operations", [])}
+    mancanti = sorted(attese - dichiarate)
+    if mancanti:
+        return Esito(False, f"operazioni del catalogo non dichiarate: {mancanti}")
+    inventate = sorted(dichiarate - attese)
+    if inventate:
+        return Esito(
+            False,
+            f"operazioni che il catalogo comune non conosce: {inventate}. Il "
+            "catalogo fissa l'insieme, e un'operazione in piu' non e' "
+            "un'operazione in piu' del profilo.",
+        )
+    return Esito(True)
+
+
+def sonda_capability_non_duplica_i_formati(
+    artefatto: Artefatto, vocabolario: Vocabolario
+) -> Esito:
+    """Gli `attributes` non ripetono la matrice dei formati.
+
+    Il profilo assegna a `io.catalog` la scoperta dettagliata, e lo dice per
+    esteso: il suo risultato versionato e' la **sola** fonte normativa per
+    formati, opzioni, disponibilita', layer, geometria, CRS e fedelta', e gli
+    attributi non devono duplicarla. Due fonti dello stesso fatto divergono, e la
+    seconda non ha nemmeno uno schema che la governi.
+    """
+    documento = _documento_capability(artefatto)
+    if documento is None:
+        return Esito(False, "`capabilities --format json` non rende un documento")
+
+    # `io.catalog` dev'esserci ed essere invocabile: e' la fonte a cui il
+    # documento delega, e delegare a qualcosa che non c'e' non e' delegare.
+    catalogo = next(
+        (o for o in documento.get("operations", []) if o.get("id") == "io.catalog"),
+        None,
+    )
+    if catalogo is None:
+        return Esito(False, "`io.catalog` non e' dichiarata")
+    if catalogo.get("status") != "available":
+        return Esito(
+            False,
+            "`io.catalog` non e' disponibile: il profilo le assegna la scoperta "
+            "dei formati, e senza di lei quel dettaglio non ha una fonte.",
+        )
+
+    sospette = ("format", "driver", "crs", "geometry", "layer", "extension", "codec")
+    for operazione in documento.get("operations", []):
+        attributi = operazione.get("attributes")
+        if not isinstance(attributi, dict):
+            continue
+        for chiave in attributi:
+            if any(s in str(chiave).lower() for s in sospette):
+                return Esito(
+                    False,
+                    f"{operazione.get('id')}: l'attributo «{chiave}» ripete la "
+                    "matrice che `io.catalog` possiede. Gli attributi "
+                    "descrivono la selezione dell'operazione, non le capacita' "
+                    "dei formati.",
+                )
+    return Esito(True)
+
+
+def sonda_ogni_comando_mappa_un_operazione(
+    artefatto: Artefatto, vocabolario: Vocabolario
+) -> Esito:
+    """Ogni comando che invoca il dominio mappa un'operazione **disponibile**.
+
+    E' CLI 2.0 §10. Oggi non e' vero, ed e' deliberato: `read` esiste come
+    comando e `io.read` e' dichiarata non disponibile, perche' conta i batch
+    invece di consegnarli. La sonda rende visibile la tensione invece di
+    nasconderla: finche' resta, il comando c'e' e l'operazione no.
+    """
+    documento = _documento_capability(artefatto)
+    if documento is None:
+        return Esito(False, "`capabilities --format json` non rende un documento")
+    disponibili = {
+        o["id"] for o in documento.get("operations", []) if o.get("status") == "available"
+    }
+    # I comandi di dominio, e l'operazione che ciascuno pretende di servire.
+    comandi = {
+        "catalog": "io.catalog",
+        "inspect": "io.inspect",
+        "layers": "io.layers",
+        "read": "io.read",
+        "convert": "io.convert",
+    }
+    scoperti = []
+    for comando, operazione in comandi.items():
+        corsa = artefatto.invoca(comando, "--format", "json")
+        esiste = corsa.exit_code == 0 or (corsa.documento() or {}).get("command") == comando
+        if esiste and operazione not in disponibili:
+            scoperti.append(f"`{comando}` -> {operazione}")
+    if scoperti:
+        return Esito(
+            False,
+            "comandi che invocano il dominio senza un'operazione disponibile: "
+            + ", ".join(scoperti),
+        )
+    return Esito(True)
+
+
 SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "errore.quattro-assi": sonda_quattro_assi,
     "errore.categoria-nel-vocabolario": sonda_categoria,
@@ -545,6 +742,10 @@ SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "cli.aiuto": sonda_aiuto,
     "cli.versione-json": sonda_versione_json,
     "cli.capabilities": sonda_capabilities,
+    "capabilities.forma": sonda_capability_forma,
+    "capabilities.copre-il-catalogo": sonda_capability_copre_il_catalogo,
+    "capabilities.non-duplica-i-formati": sonda_capability_non_duplica_i_formati,
+    "capabilities.ogni-comando-mappa-un-operazione": sonda_ogni_comando_mappa_un_operazione,
     "cli.formato-json-esplicito": sonda_formato_json_esplicito,
     "cli.identita-nella-busta": sonda_identita_nella_busta,
     "cli.dati-dentro-result": sonda_dati_dentro_result,
