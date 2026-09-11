@@ -3181,11 +3181,51 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     def test_senza_release_pubblicate_la_verifica_non_tace(self) -> None:
         """Un verde senza niente da guardare direbbe che cio' che e' stato
-        rilasciato e' ancora quello, senza aver guardato niente."""
+        rilasciato e' ancora quello, senza aver guardato niente.
+
+        La condizione si **costruisce**, e serve che entrambe le meta' siano
+        vuote: `verifica_release_pubblicata` guarda prima la candidate
+        corrente, e solo se quella non e' `pubblicata` ripiega sull'archivio.
+
+        La stesura precedente svuotava il solo archivio, partendo dallo stato
+        reale. Funzionava finche' la candidate corrente non era una release --
+        ed e' diventata rossa quando la 3.0.0 e' stata pubblicata: con una
+        candidate `pubblicata` c'e' eccome qualcosa da guardare, il gate la
+        guardava, e la sonda cercava un messaggio che non doveva esserci.
+        Misurava il momento del repository invece del comportamento del gate,
+        come le sonde della candidate prima di lei.
+        """
         stato = self.stato_reale()
         stato["chiuso"]["release_pubblicate"] = []
+        stato["aperto"]["candidate_release"]["stato"] = "attiva"
+        self.assertNotEqual(
+            stato["aperto"]["candidate_release"]["stato"],
+            "pubblicata",
+            "la precondizione della sonda e' che **non** ci sia niente da "
+            "guardare: con una candidate pubblicata il gate ha ragione a tacere",
+        )
         errori = gate.verifica_release_pubblicata(stato)
         self.assertTrue(any("nessuna release" in e for e in errori), errori)
+
+    def test_una_candidate_pubblicata_si_guarda_anche_senza_archivio(self) -> None:
+        """La controprova: e' l'altra meta' di cio' che la sonda sopra pretende.
+
+        Senza, «sempre rosso quando l'archivio e' vuoto» passerebbe per una
+        difesa -- e sarebbe invece il difetto che ha reso rossa la sonda
+        precedente, letto al contrario. Qui l'archivio e' vuoto **e** la
+        candidate e' una release pubblicata: cio' che e' stato rilasciato c'e',
+        e va verificato invece che annunciato assente.
+        """
+        stato = self.stato_reale()
+        stato["chiuso"]["release_pubblicate"] = []
+        candidate = stato["aperto"]["candidate_release"]
+        if candidate.get("stato") != "pubblicata":
+            self.skipTest("nessuna release corrente da verificare in questo momento")
+        errori = gate.verifica_release_pubblicata(stato)
+        self.assertFalse(
+            any("nessuna release" in e for e in errori),
+            f"con una candidate pubblicata c'e' qualcosa da guardare: {errori}",
+        )
 
     # --- gli stati della candidate, costruiti e non osservati ---------------
     #
