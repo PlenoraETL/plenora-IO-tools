@@ -86,14 +86,54 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B1 | `--help` presente | CLI-2.0 §3 | `--help` esce **2** con `CLI_USAGE: uso: plenora-io <catalog\|inspect\|layers\|read\|convert>` | la superficie di scoperta richiesta non esiste: l'aiuto è un errore | implementare `--help` che descrive **solo** i comandi compilati nel binario | `--help` esce 0 e non nomina comandi assenti da quella build |
 | B2 | `--version --format json` nella busta comune | CLI-2.0 §3 | `--version` rende `{"status":"ok","version":"3.0.0"}`; con `--format json` esce **2**, «non prende argomenti» | busta non conforme e flag rifiutato | `--format json` accettato ovunque; `result` porta `component_version` e la versione di protocollo CLI | la risposta valida contro `cli-envelope-v2.schema.json` e `result.component_version` vale la versione del workspace |
 | B3 | `capabilities --format json` | CLI-2.0 §3, CAP-003…CAP-009 | il comando **non esiste** | manca la scoperta delle operazioni: nessun orchestratore può selezionarci | comando `capabilities` che descrive **il binario che risponde**, feature di compilazione comprese | la risposta valida contro `capabilities-v2.schema.json`; la build `base` e la build `filegdb` producono documenti **diversi** |
-| B4 | Una sola versione di protocollo nell'artefatto | profilo io-tools, «cutover» | `catalog` rende `protocol_version: 2`; l'errore d'uso rende `protocol_version: 1` | v1 e v2 **coesistono** nello stesso binario, che il profilo vieta | portare ogni percorso, errori d'uso compresi, alla busta v2; `--legacy-protocol-v1-unsafe` va rimosso o isolato dietro un artefatto separato | nessuna risposta del binario conforme porta `protocol_version: 1` |
+| B4 | Una sola versione di protocollo nell'artefatto | profilo io-tools, «cutover» | `catalog` rende `protocol_version: 2`; **ogni percorso d'errore misurato** — uso, `io`, `unsupported` — rende `protocol_version: 1` | v1 e v2 **coesistono** nello stesso binario, che il profilo vieta. Non è il solo errore d'uso: è tutta la superficie d'errore | portare ogni percorso alla busta v2; `--legacy-protocol-v1-unsafe` va rimosso o isolato dietro un artefatto separato | nessuna risposta del binario conforme porta `protocol_version: 1`, successo **ed errore** |
 | B5 | Niente su stderr in modo JSON | CLI-2.0 §4 | gli errori escono **su stderr**, stdout vuoto | selezione dello stream non conforme; un consumatore che legge stdout non vede nulla | busta d'errore su **stdout**, un documento e una newline | per ogni comando, in fallimento: stdout è un documento JSON, stderr è vuoto, exit ≠ 0 |
 | B6 | Campi d'identità nella busta | CLI-2.0 §5 | busta di successo: `contract`, `determinism`, `drivers`, `protocol_version`, `status` | mancano `component`, `component_version`, `command` | aggiungerli a ogni busta, successo ed errore | ogni busta valida contro `cli-envelope-v2.schema.json`, che li richiede |
 | B7 | Dati dell'operazione dentro `result` | CLI-2.0 §5 | `drivers` e `determinism` stanno **al primo livello** | campi di primo livello aggiuntivi, vietati | spostare il corpo dentro `result` senza cambiarne la forma interna | le chiavi di primo livello sono esattamente quelle della busta; tutto il resto è sotto `result` |
 | B8 | Identificatore di contratto del catalogo | catalogo io-tools | `contract: plenora-io-catalog-v2` | il catalogo comune fissa `plenora-io-catalog-v1` per `io.catalog@1` | allineare l'identificatore, oppure dichiarare la deviazione e la ragione | l'identificatore emesso coincide con quello del catalogo comune al pin |
 | B9 | `--format json` come selettore esplicito | CLI-2.0 §2 | `catalog --format json` esce **2**: il flag non è accettato | la modalità macchina non è selezionabile come il contratto prescrive | `--format json` su tutti i comandi; formato umano esplicito e mai implicito | ogni entrypoint del binding CLI è invocabile **letteralmente** come scritto in `bindings/cli-v1.json` |
 | B10 | Comando `write` | catalogo io-tools, `io.write` | il binario espone `catalog, inspect, layers, read, convert` | `io.write` è **richiesto** e non esiste come comando | esporre `write --input INPUT.arrow --output SINK --format json` | l'entrypoint del binding risponde e dichiara esito di pubblicazione e fedeltà |
-| B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | `invalid_configuration` → 2, coerente con la tabella | **nessuno** sui casi osservati | verificare le diciannove categorie, non le due incontrate | una prova tabellare copre ogni categoria e il suo codice atteso |
+| B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
+
+#### La proiezione dei codici d'uscita, misurata
+
+Avevo scritto che questa riga era conforme. Lo era su un campione di uno:
+l'errore d'uso esce **2**, e `invalid_configuration` proietta a 2 anche nel
+contratto. Provando percorsi d'errore veri, la coincidenza sparisce.
+
+Misurato sul binario 3.0.0 pubblicato:
+
+| invocazione | exit | `category` emessa | exit richiesto da CLI-2.0 §8 |
+|---|---:|---|---:|
+| `inspect /nessun/file/qui.shp` | 1 | `io` | **5** |
+| `inspect README.md` | 4 | `unsupported` | **3** |
+| `convert /nessun/file.shp …` | 1 | `io` | **5** |
+| `layers /nessun/file.gpkg` | 1 | `io` | **5** |
+
+La causa sta in `crates/plenora-io-cli/src/main.rs:145`: la proiezione è un
+`match` su `IoErrorCode` — il codice **interno** — e non sulla `category`, che
+è l'asse dichiarato autoritativo dal contratto. I codici prodotti sono
+`1, 2, 3, 4, 5, 6, 7, 8, 130`; il contratto ammette `0, 2, 3, 4, 5, 6, 70, 130`.
+Il **7** e l'**8** non esistono nel contratto, e **70** non è mai prodotto.
+
+Solo `cancelled → 130` coincide, ed è l'unico ramo già agganciato alla categoria
+invece che al codice. Non è una coincidenza fortunata: è la prova che la forma
+giusta era già nota e applicata in un punto solo.
+
+#### Il repository sa già che questo lavoro manca
+
+`docs/contracts/handoff-plenora-error.json` e la matrice `plenora-io-handoff-v1`
+generata dal CLI dichiarano la destinazione `plenora-error-v1` con
+`"stato": "mappatura preparata, conformita' NON dichiarata"` e la nota
+«l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code
+e capabilities».
+
+Non è una scoperta di questo piano: è una decisione già presa, registrata e
+nominata, di cui questo piano fissa la scadenza. Dirlo cambia la natura del
+lavoro — non si rimedia a una svista, si esegue uno step che era stato
+deliberatamente rinviato.
+
+Quel documento porta anche una domanda aperta, che diventa **D8**.
 
 ### C — API pubbliche: Rust
 
@@ -116,10 +156,43 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | E1 | Niente debito anonimo nei commenti | `check_comments.py` di database-tools | **zero** occorrenze di `TODO/FIXME/HACK/XXX` in `crates`, `scripts`, `sdk` | nessuno nei fatti; manca la **guardia** | portare `check_comments.py`, adattando `SKIP_PARTS` a `vendor/` | il gate è verde al primo colpo e rosso su un `TODO` introdotto apposta |
-| E2 | Niente cronaca del processo nei commenti | `check_comments.py` | da misurare: il repository usa prosa esplicativa ricca, e alcune formule nominano date e revisioni | atteso non nullo — i marcatori storici del gate di database-tools colpiscono frasi come «prima era», «fino a poco fa» | misurare **prima** di adottare, poi decidere quali marcatori valgono qui | il gate gira su tutto l'albero; ogni violazione o è corretta o il marcatore è escluso con la ragione scritta |
+| E2 | Niente cronaca del processo nei commenti | `check_comments.py` | **167 violazioni su 274 file**, da 13 marcatori distinti: vedi la ripartizione qui sotto | adottare il gate così com'è significa 167 riscritture, molte delle quali toglierebbero prosa che spiega **perché** | decidere marcatore per marcatore — D6 | il gate gira su tutto l'albero; ogni violazione o è corretta o il marcatore è escluso con la ragione scritta |
 | E3 | I documenti non ripetono fatti che vivono nel codice | `AGENTS.md` di database-tools, regola 3 | parzialmente adottato: il blocco di stato di `docs/RELEASE.md` è **generato** e un gate lo verifica | il resto della prosa non è generato | estendere la generazione dove il fatto esiste già strutturato | rigenerare non produce differenze, come già per `docs/RELEASE.md` |
 | E4 | Docset minimo ed esatto | `check_docset.py` (nostro) | cinque canonici più sette operativi, allowlist esatta | **nessuno**: la regola esiste ed è più severa di quella di database-tools | ammettere questo documento e collegarlo, senza toccare gli altri controlli | `check_docset.py` verde con `docs/PIANO-4.0.0.md` in `CANONICI` e linkato da `README.md` |
+| E6 | Un cambiamento editoriale non deve pretendere una rimisura completa | osservato scrivendo questo piano | aggiungere un documento canonico cambia `docset.markdown_canonici` in `assurance/current-state.json`, e le sonde del contratto di release diventano rosse — dentro L1 | un documento in più costa una corsa di checkpoint. Il conteggio è **derivato** dall'allowlist e **duplicato** nello stato: due posti per lo stesso fatto | valutare se il conteggio vada **letto** dall'allowlist invece che copiato, oppure se la sonda che li confronta debba vivere fuori da L1 | una modifica di solo Markdown richiede i controlli del docset e nient'altro; una modifica di codice continua a richiedere L1 |
 | E5 | Un `AGENTS.md` che dica ciò che non è negoziabile | `AGENTS.md` di database-tools | assente | i vincoli vivono sparsi fra `README.md`, i gate e i messaggi di commit | valutarne uno nostro, **non** copiato: le regole devono essere le nostre | ogni regola scritta è citabile e almeno un gate la presidia |
+
+#### I marcatori di «cronaca obsoleta», misurati
+
+I tredici marcatori di `check_comments.py` di database-tools, applicati ai 274
+file commentabili di IO-tools — `vendor/`, `docs/` e `target/` esclusi:
+
+| occorrenze | marcatore | un esempio nostro |
+|---:|---|---|
+| 102 | `prima (stesura\|versione\|implementazione\|esecuzione\|campagna)` | «la prima stesura di questo passo la trattava come un difetto» |
+| 26 | `tranche` | «registrata nella CIA della tranche 5» |
+| 14 | `(versione\|forma\|stesura\|commento\|contratto) precedente` | «La stesura precedente usciva subito su una pagina non a dizionario» |
+| 6 | `da allora` | «Da allora la forma sciolta è diventata un opt-in esplicito» |
+| 3 | `era stat[oa] (aggiunt[oa]\|rimoss[oa])` | «nemmeno dopo che il file era stato rimosso» |
+| 3 | `qui c'era` | «Qui c'era un `continue`, e sopra il perché» |
+| 3 | `nello stesso commit` | — |
+| 3 | `era rimast` | — |
+| 2 | `prima era` | «prima era rifiutato con "nome di elemento XML non valido"» |
+| 2 | `roadmap` | entrambe **dentro i gate**, che citano documenti eliminati |
+| 1 ciascuno | `pre-fix`, `diceva il contrario`, `… diceva` | — |
+
+Il debito anonimo è **zero**: nessun `TODO`, `FIXME`, `HACK` o `XXX` in 274
+file. Quella metà del gate passerebbe oggi senza toccare niente.
+
+L'altra metà no, e il numero da solo non dice se sia un difetto. Due terzi delle
+occorrenze vengono da un marcatore solo, e molte di quelle frasi spiegano
+**perché** il codice è come è: «la prima stesura la trattava come un difetto, e
+sbagliava» è la motivazione di una scelta, non la cronaca di un commit.
+Adottare il gate senza distinguere cancellerebbe proprio il contenuto che
+`check_comments.py` dichiara di voler preservare — «Motivazioni, invarianti,
+limiti e compatibilita correnti restano invece contenuto utile».
+
+La decisione è **D6**, e ora ha un numero sotto.
 
 ### F — Separazione dei test e modularità
 
@@ -134,7 +207,7 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| G1 | Il grafo compilato è l'autorità, non il lockfile | memoria di progetto, `cargo tree` | **266** pacchetti in `Cargo.lock` | il lock sovrastima: contiene anche ciò che nessun target compila | censire con `cargo tree` per ciascuna feature spedita | il censimento nomina la feature e il target, e due feature diverse danno due numeri diversi |
+| G1 | Il grafo compilato è l'autorità, non il lockfile | memoria di progetto, `cargo tree` | **266** nel lock; **173** compilati (`plenora-io-cli`, feature predefinite, `--edges normal`), **175** con `gdal-backend`, **186** includendo le build-dependencies | il lock sovrastima di **93 pacchetti**: il 35 % di ciò che dichiara non entra in nessun artefatto spedito | partire da 173, non da 266: ridurre il lock non riduce ciò che spediamo | il censimento nomina feature e target; due feature diverse danno due numeri diversi |
 | G2 | Un `cargo deny` che gira | `deny.toml` di database-tools | `scripts/check_dependency_pins.py` e `audit_ignores.py` esistono; non c'è un `deny.toml` | licenze e advisory non sono presidiate da uno strumento dedicato | valutare `cargo deny` accanto ai gate esistenti, senza duplicarli | il gate entra in un workflow che gira, altrimenti non serve |
 | G3 | Ridurre senza toccare ciò che è qualificato | questo piano | i sei artefatti della 3.0.0 sono congelati | rimuovere una dipendenza cambia i byte: è lavoro da 4.0.0, mai retroattivo | ogni rimozione è un commit suo, con il checkpoint suo | nessuna riduzione tocca `assurance/evidence/` né i digest della 2.0.0 e della 3.0.0 |
 
@@ -143,7 +216,7 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
 | H1 | Ogni fork dichiara i propri delta | `scripts/*-fork-lock.json` | `dxf 0.6.1` (59 file, 4 delta funzionali), `gdal 0.19.0` (63 file, 3), `shapefile 0.9.0` (29 file, 3) | **nessuno**: i lock sono già la forma giusta | mantenerli | il digest dell'albero versionato coincide col lock |
-| H2 | Sapere se upstream ha assorbito un delta | pratica già in uso (`1d6454b`: «tre delta avanti, uno che upstream ha assorbito») | verificato manualmente, a ogni aggiornamento | il confronto con upstream non è automatico né schedulato | un controllo che confronti la versione del lock con quella pubblicata upstream | il controllo nomina versione locale e versione upstream e dichiara la distanza |
+| H2 | Sapere se upstream ha assorbito un delta | pratica già in uso (`1d6454b`: «tre delta avanti, uno che upstream ha assorbito») | i tre fork sono **allineati** all'upstream corrente — `dxf 0.6.1`, `gdal 0.19.0`, `shapefile 0.9.0`, verificato su crates.io | nessuna deriva oggi. Manca il **controllo**: l'allineamento è il frutto di una revisione manuale, e la prossima potrebbe non esserci | un controllo che confronti la versione del lock con quella pubblicata upstream | il controllo nomina versione locale e versione upstream e dichiara la distanza; è rosso quando upstream avanza |
 | H3 | Un delta che upstream ha assorbito si ritira | pratica già in uso | applicata alla 0.9.0 di `shapefile` | nessuno oggi; il rischio è dimenticarlo al prossimo giro | ogni aggiornamento di fork rivede i delta uno per uno | il messaggio di commit dice per ciascun delta se resta, e perché |
 
 ### I — Qualifica finale
@@ -167,10 +240,12 @@ viene prima anche quando è piccola.
 verificatore black-box che gira, ogni riga successiva è un'opinione. Sono anche
 le righe più economiche, e rendono misurabili tutte le altre.
 
-**Priorità 2 — la busta CLI.** B1, B2, B5, B6, B7, B9, e la rimozione della
-coesistenza B4. Sono la rottura incompatibile che giustifica la major, ed è
+**Priorità 2 — la busta CLI e i codici d'uscita.** B1, B2, B5, B6, B7, B9,
+B11 e la rimozione della coesistenza B4. Sono la rottura incompatibile che giustifica la major, ed è
 meglio farle **insieme**: ciascuna cambia la stessa struttura, e distribuirle su
-più cicli significherebbe romperla più volte.
+più cicli significherebbe romperla più volte. B11 è entrata qui dopo la
+misura: la proiezione dei codici è agganciata al codice interno invece che
+alla categoria, e cambiarla è incompatibile quanto cambiare la busta.
 
 **Priorità 3 — la scoperta.** B3 e A1. Il documento capability è ciò che rende
 selezionabile il componente da un orchestratore; l'identificatore va corretto
@@ -237,6 +312,15 @@ commenti nascono dalla loro storia: i marcatori di «cronaca obsoleta» colpisco
 frasi che qui potrebbero essere prosa legittima. Prima di adottare `E2` va
 **misurato** quante violazioni produrrebbe sul nostro albero, e deciso se il
 criterio è nostro o solo loro.
+
+**D8 — un driver di formato è un `provider`?** La domanda è già registrata in
+`docs/contracts/handoff-plenora-error.json` con identificatore
+`driver-e-un-provider`. Il campo `provider` di `plenora-error-v1` suggerisce un
+servizio o un backend remoto; per noi è il formato del file — csv, geoparquet,
+shapefile — scelto dal chiamante e senza effetto remoto. Se la destinazione
+intende `provider` nel primo senso, il valore appartiene a un `details`
+component-owned come `format_id`. Il documento dice che il DTO è l'unico punto
+che dovrà cambiare quando la risposta arriva.
 
 **D7 — il tetto di dimensione del codice.** F3 chiede un numero. Fissarlo sul
 valore corrente non impedisce nulla; fissarlo più in basso impegna a ridurre.
