@@ -1401,6 +1401,7 @@ mod tests {
 
         let colonna = |nome: &str| GeometryColumnContract {
             field_id: FieldId(0),
+            identita_dichiarata: None,
             name: nome.to_owned(),
             crs: CrsResolution::Missing,
             nullable: false,

@@ -265,7 +265,6 @@
       "DataMapping/Read/Format/Never"
     ],
     "open": [
-      "InvalidPlan/Validate/Contract/Never",
       "InvalidPlan/Validate/Contract/Never"
     ],
     "open_layer_reader": [

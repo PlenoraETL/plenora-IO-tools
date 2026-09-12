@@ -175,6 +175,47 @@ const fn definition_format_name(format: CrsDefinitionFormat) -> &'static str {
     }
 }
 
+/// Stampa `plenora.field_id` sui campi che non ce l'hanno gia'.
+///
+/// # Che cosa ARROW-003 chiede, e perche' la geometria non bastava
+///
+/// «A field whose identity must survive rename, projection or **round-trip**
+/// MUST carry `plenora.field_id`». La colonna geometrica lo portava da sempre,
+/// gli attributi no, e l'argomento con cui l'avevo difeso -- «nessuna
+/// superficie pubblica proietta» -- copriva la proiezione e non il round trip.
+///
+/// Il round trip lo facciamo, ed e' una forma di prima classe: `io.read` e
+/// `io.write` sono dichiarate l'una l'inversa dell'altra e condividono il
+/// contratto d'interscambio. Un consumatore che correlasse dati su
+/// `plenora.field_id` fra due letture ne aveva uno solo su cui correlare.
+///
+/// # Perche' l'indice, e perche' solo dove manca
+///
+/// L'identita' di un attributo non e' dichiarata da nessuna parte: nei formati
+/// che leggiamo un campo e' la sua posizione nello schema. L'indice e' quindi
+/// l'unica identita' che esista, ed e' stabile per un campo logico non
+/// cambiato -- che e' esattamente il perimetro di ARROW-004.
+///
+/// «Solo dove manca» e' la meta' che conta. Un id che arriva dalla sorgente
+/// **non** viene riscritto: e' cio' che rende il round trip una conservazione
+/// invece di un ricalcolo, e cio' che rendera' corretta una proiezione futura,
+/// dove l'indice al momento della scrittura non sarebbe piu' quello d'origine.
+#[must_use]
+pub fn with_field_identity(fields: Vec<arrow_schema::Field>) -> Vec<arrow_schema::Field> {
+    fields
+        .into_iter()
+        .enumerate()
+        .map(|(indice, field)| {
+            if field.metadata().contains_key(PLENORA_FIELD_ID_KEY) {
+                return field;
+            }
+            let mut metadata = field.metadata().clone();
+            metadata.insert(PLENORA_FIELD_ID_KEY.to_owned(), indice.to_string());
+            field.with_metadata(metadata)
+        })
+        .collect()
+}
+
 /// Registra nel campo Arrow le parti del contratto che GeoArrow-WKB da solo
 /// non esprime. Le chiavi sono namespaced e quindi sopravvivono in Arrow IPC.
 #[must_use]
@@ -186,9 +227,15 @@ pub fn with_geometry_contract_metadata(
     contract: &GeometryColumnContract,
 ) -> arrow_schema::Field {
     let mut metadata = field.metadata().clone();
+    // L'identita' che la sorgente dichiarava, se ne dichiarava una: ARROW-004
+    // chiede di **preservarla** per un campo non cambiato. Dove non c'era, la
+    // posizione e' l'unica identita' che esista.
     metadata.insert(
         PLENORA_FIELD_ID_KEY.to_owned(),
-        contract.field_id.0.to_string(),
+        contract
+            .identita_dichiarata
+            .unwrap_or(contract.field_id.0)
+            .to_string(),
     );
     metadata.insert(
         PLENORA_ENCODING_KEY.to_owned(),
@@ -396,7 +443,18 @@ pub fn read_geometry_contract_metadata(
     let mut presence = GeometryMetadataPresence::default();
 
     if let Some(value) = metadata.get(PLENORA_FIELD_ID_KEY) {
-        parsed.field_id = crate::contract::FieldId(
+        // Nell'**identita' dichiarata**, non in `field_id`.
+        //
+        // `field_id` e' la posizione fisica della colonna e finisce in
+        // `batch.column(...)`: un numero letto dal payload non deve arrivarci,
+        // e prima ci arrivava. La risposta era pretendere che coincidessero, e
+        // rifiutare il file quando non coincidevano -- cioe' rifiutare un file
+        // **conforme**, perche' ARROW-003 chiede «a non-negative decimal
+        // identifier» unico e preservato, non una posizione.
+        //
+        // Ora l'identita' dichiarata si conserva e si riscrive, e l'indice resta
+        // nostro. Le due cose non si toccano piu'.
+        parsed.identita_dichiarata = Some(
             value
                 .parse()
                 .map_err(|_| invalid_metadata(field, &METADATO_FIELD_ID_NON_VALIDO))?,
@@ -743,7 +801,16 @@ mod tests {
 
         let mut decoded = contract();
         read_geometry_contract_metadata(&field, &mut decoded).unwrap();
-        assert_eq!(decoded.field_id, FieldId(17));
+        // Nell'identita' dichiarata, non in `field_id`: il numero letto dal
+        // file e' un'identita', e `field_id` resta la posizione che la nostra
+        // enumerazione produce. Prima finivano nello stesso campo, e per
+        // difendere l'indice si rifiutava un file conforme.
+        assert_eq!(decoded.identita_dichiarata, Some(17));
+        assert_eq!(
+            decoded.field_id,
+            contract().field_id,
+            "la posizione fisica non viene dal payload"
+        );
         assert_eq!(decoded.crs, geometry.crs);
         assert_eq!(decoded.types_declaration, TypesDeclaration::Exact);
     }

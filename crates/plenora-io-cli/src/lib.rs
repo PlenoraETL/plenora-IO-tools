@@ -90,12 +90,17 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
             }
         }
     }
-    json!({
+    let busta_intera = json!({
         "status": "error",
         "protocol_version": busta::PROTOCOLLO,
         "contract": "plenora-error-v1",
         "error": error_document,
-    })
+    });
+    // ERR-011 misura la busta **intera**, e qui e' dove ogni busta d'errore
+    // della libreria nasce. La riserva tiene conto dei campi d'identita' che il
+    // binding aggiungera' dopo: senza, una busta al limite passerebbe di qui e
+    // sforerebbe nel punto in cui nessuno guarda piu'.
+    busta::entro_il_tetto_dell_errore(busta_intera, busta::RISERVA_IDENTITA).0
 }
 
 /// Un errore costruito qui, col codice d'uscita **derivato dalla categoria**.
@@ -188,7 +193,12 @@ pub fn con_identita(mut documento: Value, comando: &str) -> Value {
         );
         campi.insert("command".to_owned(), json!(comando));
     }
-    documento
+    // Il secondo passaggio, ed e' quello che chiude il cerchio: qui la busta e'
+    // **completa**, identita' compresa, ed e' l'oggetto che ERR-011 misura. Il
+    // primo passaggio in `err_doc` lavora con una riserva, quindi normalmente
+    // qui non resta niente da fare -- ma le buste che non passano da li',
+    // come quella di un panico, passano da qui.
+    busta::entro_il_tetto_dell_errore(documento, 0).0
 }
 
 /// Il codice d'uscita di una categoria, secondo CLI 2.0 §8.

@@ -40,8 +40,8 @@ use plenora_io_model::crs::CrsKind;
 use plenora_io_model::crs::{crs_kind_for_authority_id, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
-    validate_geometry_field_identity, with_contract_version, with_geometry_contract_metadata,
-    GEO_CRS_KEY, PLENORA_CONTRACT_VERSION_KEY,
+    validate_geometry_field_identity, with_contract_version, with_field_identity,
+    with_geometry_contract_metadata, GEO_CRS_KEY, PLENORA_CONTRACT_VERSION_KEY,
 };
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
@@ -158,29 +158,20 @@ impl FormatDriver for IpcDriver {
                     f.is_nullable(),
                 );
                 read_geometry_contract_metadata(f, &mut contract)?;
-                // Finding #1 review 2026-08-15: `read_geometry_contract_metadata`
-                // sovrascrive `field_id` con il valore letto dai metadati
-                // (`plenora.field_id`). Un file `.arrow` ostile puo'
-                // dichiarare un indice fuori range che a valle produrrebbe
-                // `batch.column(index)` panic. Il metadato per convenzione
-                // deve coincidere con la posizione fisica del campo
-                // geometrico nello schema: divergenze indicano un file
-                // corrotto o crafted, e vengono rifiutate come contratto
-                // invece di essere accettate silenziosamente.
-                if contract.field_id != physical_field_id {
-                    // Il `plenora.field_id` dichiarato **viene dai metadati del
-                    // file**: e' un numero letto dal payload, e il vincolo di S9
-                    // ammette solo indici, conteggi, tetti e codici strutturali.
-                    // L'indice fisico invece e' nostro — lo produce la nostra
-                    // enumerazione dello schema — e resta.
-                    return Err(PlenoraIoError::contratto_redatto(
-                        &PublicMessage::CuratedWith(
-                            "Arrow IPC: plenora.field_id non coincide con l'indice fisico del \
-                             campo geometria, indice fisico",
-                            NumeroStrutturale::Indice(u64::from(physical_field_id.0)),
-                        ),
-                    ));
-                }
+                // Il rifiuto che c'era qui non c'e' piu', e la ragione per
+                // cui c'era resta valida: `plenora.field_id` veniva dal
+                // payload e finiva in `batch.column(index)`, dove un indice
+                // fuori range e' un panico. La risposta era pretendere che il
+                // metadato coincidesse con la posizione fisica, e rifiutare il
+                // file quando non coincideva.
+                //
+                // Rifiutava pero' anche i file **conformi**: ARROW-003 chiede
+                // un identificatore unico e preservato, non una posizione, e un
+                // produttore che numerasse diversamente era conforme e veniva
+                // respinto. Ora `read_geometry_contract_metadata` mette il
+                // valore letto in `identita_dichiarata` e lascia `field_id`
+                // alla nostra enumerazione: il numero del payload non indicizza
+                // piu' niente, quindi non c'e' piu' niente da difendere.
                 Some(contract)
             }
         };
@@ -256,6 +247,12 @@ impl FormatDriver for IpcDriver {
                     )
             })
             .collect::<Vec<_>>();
+        // ARROW-003: l'identita' dei campi deve sopravvivere al round trip, e
+        // il round trip e' una forma di prima classe -- `io.read` e `io.write`
+        // sono dichiarate l'una l'inversa dell'altra. Gli id che arrivano dalla
+        // sorgente non vengono riscritti: e' cio' che distingue una
+        // conservazione da un ricalcolo.
+        let fields = with_field_identity(fields);
         let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
             fields,
             layer.schema.metadata().clone(),

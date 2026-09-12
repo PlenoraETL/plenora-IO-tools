@@ -29,6 +29,8 @@
     "byte_per_sezione": 12288,
     "byte_per_la_struttura_aggregata": 4096,
     "byte_totali": 65536,
+    "byte_della_busta_d_errore": 524288,
+    "riserva_per_l_identita_del_binding": 256,
     "ragioni_trattenute": 256,
     "esempi_trattenuti": 256,
     "payload_stringhe_v2_trattenute_ragioni": 131072,
@@ -41,7 +43,8 @@
     "niente_redistribuzione": "il budget non speso da una sezione **non** passa a un'altra. Con un consumo sequenziale una sezione grande affamerebbe quelle che la seguono, e la stessa sezione produrrebbe un output diverso a seconda di quanto ha occupato un'altra: una diagnostica che cambia per ragioni che non la riguardano non e' una diagnostica.",
     "caso_peggiore_dichiarato": "sessantaquattro categorie da centoventotto byte occupano 11 510 byte serializzati su 12 288, cioe' entrano con 778 byte di margine. La prova `il_caso_peggiore_dichiarato_entra_nei_dodici_kib` lo misura sui byte JSON che escono davvero, non sulla somma delle lunghezze.",
     "che_cosa_contano_i_dodici_kib": "tutto cio' che la sezione emette, **dichiarazione di troncamento compresa**. Lo spazio della dichiarazione si riserva al suo caso peggiore -- quattro contatori a `u64::MAX` -- e non a quella vuota: una sezione che ne tronca ottantamila sostituisce `0` con cinque cifre, e misurare col segnaposto vuoto faceva uscire il documento oltre il budget su cui era stato deciso il taglio. Il caso peggiore e' quello del **tipo**, non quello dell'ingresso corrente: il contatore e' un `u64`, venti cifre, e una stima piu' stretta rimetterebbe il tetto in mano a quante voci porta il file.",
-    "che_cosa_controlla_il_tetto_complessivo": "la **serializzazione finale** dell'oggetto diagnostico -- le cinque sezioni con le loro chiavi -- e non la somma nominale delle cinque quote: quella direbbe sempre 61 440 senza guardare un byte di cio' che esce. I quattro KiB sono riserva strutturale **dentro** i sessantaquattro, non un addendo da mettergli accanto, e non sono un limite sul resto della risposta, che diagnostica non e'."
+    "che_cosa_controlla_il_tetto_complessivo": "la **serializzazione finale** dell'oggetto diagnostico -- le cinque sezioni con le loro chiavi -- e non la somma nominale delle cinque quote: quella direbbe sempre 61 440 senza guardare un byte di cio' che esce. I quattro KiB sono riserva strutturale **dentro** i sessantaquattro, non un addendo da mettergli accanto, e non sono un limite sul resto della risposta, che diagnostica non e'.",
+    "che_cosa_governa_il_tetto_dell_errore": "`byte_totali` limita le cinque sezioni diagnostiche; `byte_della_busta_d_errore` limita la busta d'errore **serializzata intera**, che porta anche identita', messaggio e `row_diagnostics`. Sono due misure di cose diverse, e per un periodo il prodotto applicava solo la prima mentre ERRORS-1.0 ERR-011 governa la seconda. La riserva esiste perche' il tetto si applica due volte: in `err_doc`, dove il binding di processo aggiungera' ancora l'identita', e sulla busta completa. Senza riserva la prima passata riempirebbe il tetto e l'aggiunta lo supererebbe."
   },
   "ordine_dentro_una_sezione_di_perdita": [
     "metadati di troncamento",
@@ -3765,12 +3768,14 @@
     }
   },
   "sonde_che_lo_provano": [
+    "all_ultimo_restano_i_quattro_assi",
     "anche_gli_esempi_respinti_sono_limitati",
     "anche_l_insieme_delle_respinte_e_limitato",
     "i_conteggi_pubblicati_restano_esatti",
     "i_tetti_dichiarati_sommano_al_tetto_della_busta",
     "il_budget_esaurito_e_una_causa_a_parte",
     "il_caso_peggiore_dichiarato_entra_nei_dodici_kib",
+    "il_confine_del_tetto_e_esatto",
     "il_documento_finale_sta_nel_budget_anche_dichiarando_il_troncamento",
     "il_taglio_non_dipende_dall_ordine_di_inserimento",
     "il_tetto_complessivo_e_verificato_sull_insieme",
@@ -3785,15 +3790,19 @@
     "la_fusione_degli_esempi_non_supera_il_trattenimento",
     "la_fusione_non_supera_il_trattenimento",
     "la_fusione_porta_con_se_le_respinte_e_le_limita",
+    "la_riduzione_e_idempotente",
     "la_sessantacinquesima_categoria_resta_fuori_ed_e_dichiarata",
     "la_sezione_v2_non_dipende_dall_ordine_di_inserimento",
     "la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione",
     "le_ragioni_entrano_in_ordine_canonico_e_il_resto_e_dichiarato",
+    "oltre_il_tetto_cadono_prima_gli_esempi",
+    "poi_cade_l_intera_diagnostica_di_riga",
     "senza_spazio_per_la_dichiarazione_si_fallisce_chiusi",
     "un_dettaglio_di_cinquecentotredici_byte_resta_fuori",
     "un_esempio_fuori_misura_non_sfratta_un_esempio_valido",
     "un_identificatore_di_centoventinove_byte_resta_fuori",
     "un_identificatore_unicode_si_misura_in_byte",
+    "una_busta_nel_tetto_resta_identica",
     "una_categoria_fuori_misura_non_entra_nemmeno_in_un_esempio",
     "una_sezione_di_fedelta_senza_spazio_fallisce_chiusa",
     "una_voce_fuori_misura_non_sfratta_una_voce_valida"

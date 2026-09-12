@@ -60,6 +60,153 @@ pub const BYTE_DELLA_STRUTTURA: usize = 4 * 1024;
 /// Il tetto complessivo della diagnostica in una busta: 64 KiB.
 pub const MAX_BYTE_BUSTA: usize = SEZIONI * BYTE_PER_SEZIONE + BYTE_DELLA_STRUTTURA;
 
+/// Il tetto che ERR-011 pone alla **busta d'errore intera**.
+///
+/// # Perche' e' distinto da `MAX_BYTE_BUSTA`
+///
+/// `MAX_BYTE_BUSTA` limita le cinque sezioni diagnostiche di un risultato
+/// riuscito: tre fedelta' e due rapporti di perdita. E' nostro, ed e' otto
+/// volte piu' stretto di questo.
+///
+/// ERR-011 parla d'altro: «The compact UTF-8 JSON encoding of a public error
+/// MUST NOT exceed 524,288 bytes». L'oggetto misurato e' la busta **completa**
+/// -- identita', messaggio, assi, e `row_diagnostics` quando c'e' -- e nessuna
+/// costante la limitava. Il registro `contracts/limiti-della-diagnostica.json`
+/// lo dichiarava come l'unico asse scoperto dei sette; questo modulo lo chiude.
+pub const MAX_BYTE_ERRORE: usize = 524_288;
+
+/// Lo spazio che i campi d'identita' aggiungeranno alla busta.
+///
+/// La libreria rende la busta **senza** identita': `component`,
+/// `component_version` e `command` li mette il binding di processo. Se la
+/// libreria misurasse soltanto cio' che ha in mano, una busta al limite
+/// passerebbe da lei e sforerebbe dopo, nel punto in cui nessuno guarda piu'.
+///
+/// La riserva e' generosa per costruzione -- il nome del componente e' una
+/// costante, la versione e il comando sono corti -- e generosa e' la direzione
+/// giusta: sbagliarla in eccesso taglia un po' prima del necessario, sbagliarla
+/// in difetto lascia passare una busta fuori contratto.
+pub const RISERVA_IDENTITA: usize = 256;
+
+/// Che cosa e' stato tolto per far stare la busta nel tetto di ERR-011.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RiduzioneDellErrore {
+    /// La busta ci stava gia'.
+    Nessuna,
+    /// Gli esempi della diagnostica di riga sono stati tolti.
+    EsempiDiRiga,
+    /// L'intera diagnostica di riga e' stata tolta.
+    DiagnosticaDiRiga,
+    /// Non bastava: resta la sola busta minima con i quattro assi.
+    SoloGliAssi,
+}
+
+impl RiduzioneDellErrore {
+    /// Il codice che la busta ridotta dichiara al posto del suo.
+    const fn codice(self) -> Option<&'static str> {
+        match self {
+            Self::Nessuna => None,
+            Self::EsempiDiRiga | Self::DiagnosticaDiRiga => Some("DIAGNOSTICS_TRUNCATED"),
+            Self::SoloGliAssi => Some("ERROR_TRUNCATED"),
+        }
+    }
+}
+
+/// I byte della codifica compatta UTF-8, che e' l'unita' in cui ERR-011 misura.
+fn byte_compatti(documento: &Value) -> usize {
+    serde_json::to_vec(documento).map_or(usize::MAX, |v| v.len())
+}
+
+/// Riduce una busta d'errore finche' non sta nel tetto di ERR-011.
+///
+/// # L'ordine in cui si toglie, e perche' e' quello
+///
+/// Si toglie prima cio' che costa meno a chi legge. Gli **esempi** della
+/// diagnostica di riga sono illustrazioni: `counts` e `observed_total` restano,
+/// e chi automatizza decide su quelli. Poi l'intera diagnostica, che e'
+/// facoltativa per contratto. Da ultimo restano i quattro assi piu' il codice,
+/// che sono cio' su cui una macchina **deve** poter decidere: toglierli
+/// renderebbe l'errore illeggibile invece che piu' corto.
+///
+/// Ogni riduzione si **dichiara**, sostituendo il codice: una busta accorciata
+/// in silenzio direbbe a chi la riceve che la diagnostica non c'era, mentre la
+/// verita' e' che non ci stava. Sono due cose diverse, e la seconda si puo'
+/// chiedere di nuovo con un'invocazione piu' stretta.
+///
+/// # Che cosa questa funzione non promette
+///
+/// Che il caso si presenti. Nessun percorso d'errore del prodotto arriva vicino
+/// a mezzo megabyte: `row_diagnostics` ha un tetto di 64 esempi e il messaggio
+/// e' curato. E' una guardia, e una guardia che non scatta mai va comunque
+/// provata -- altrimenti si scopre che non funziona il giorno in cui serve.
+#[must_use]
+pub fn entro_il_tetto_dell_errore(
+    mut documento: Value,
+    riserva: usize,
+) -> (Value, RiduzioneDellErrore) {
+    let tetto = MAX_BYTE_ERRORE.saturating_sub(riserva);
+    if byte_compatti(&documento) <= tetto {
+        return (documento, RiduzioneDellErrore::Nessuna);
+    }
+
+    // 1. Gli esempi della diagnostica di riga.
+    if let Some(diagnostica) = documento
+        .get_mut("error")
+        .and_then(|e| e.get_mut("row_diagnostics"))
+        .and_then(Value::as_object_mut)
+    {
+        diagnostica.insert("examples".to_owned(), Value::Array(Vec::new()));
+        diagnostica.insert("examples_truncated".to_owned(), Value::Bool(true));
+    }
+    if byte_compatti(&documento) <= tetto {
+        return (
+            dichiara(documento, RiduzioneDellErrore::EsempiDiRiga),
+            RiduzioneDellErrore::EsempiDiRiga,
+        );
+    }
+
+    // 2. L'intera diagnostica di riga.
+    if let Some(errore) = documento.get_mut("error").and_then(Value::as_object_mut) {
+        errore.remove("row_diagnostics");
+        errore.remove("details");
+    }
+    if byte_compatti(&documento) <= tetto {
+        return (
+            dichiara(documento, RiduzioneDellErrore::DiagnosticaDiRiga),
+            RiduzioneDellErrore::DiagnosticaDiRiga,
+        );
+    }
+
+    // 3. I soli assi. Il messaggio sparisce con tutto il resto: e' curato e non
+    //    porta dati della sorgente, quindi perderlo costa la leggibilita' e non
+    //    l'informazione su cui si decide.
+    let minima = json!({
+        "status": "error",
+        "protocol_version": PROTOCOLLO,
+        "contract": "plenora-error-v1",
+        "error": {
+            "category": documento["error"]["category"].clone(),
+            "phase": documento["error"]["phase"].clone(),
+            "remote_effect": documento["error"]["remote_effect"].clone(),
+            "retry": documento["error"]["retry"].clone(),
+            "code": "ERROR_TRUNCATED",
+            "message": "busta oltre il tetto del contratto: restano i soli assi",
+        },
+    });
+    (minima, RiduzioneDellErrore::SoloGliAssi)
+}
+
+/// Sostituisce il codice con quello che dichiara la riduzione.
+fn dichiara(mut documento: Value, riduzione: RiduzioneDellErrore) -> Value {
+    if let (Some(codice), Some(errore)) = (
+        riduzione.codice(),
+        documento.get_mut("error").and_then(Value::as_object_mut),
+    ) {
+        errore.insert("code".to_owned(), Value::String(codice.to_owned()));
+    }
+    documento
+}
+
 /// La versione del protocollo che ogni busta dichiara.
 ///
 /// Una sola, e per questo una costante invece di un tipo. Fino alla 3.0.0 era
@@ -1466,5 +1613,201 @@ mod sonde {
             MAX_BYTE_BUSTA
         );
         assert_eq!(MAX_BYTE_BUSTA, 64 * 1024);
+    }
+
+    /// Una busta d'errore che sta nel tetto non viene toccata.
+    ///
+    /// E' il caso di **ogni** errore che il prodotto emette davvero: il
+    /// messaggio e' curato e `row_diagnostics` ha un tetto di 64 esempi, quindi
+    /// si sta nell'ordine dei chilobyte contro i cinquecento ammessi. Senza
+    /// questa sonda, le tre qui sotto proverebbero che la riduzione funziona
+    /// senza provare che non scatti quando non serve.
+    #[test]
+    fn una_busta_nel_tetto_resta_identica() {
+        let busta = busta_d_errore_con_esempi(4);
+        let (uscita, riduzione) = entro_il_tetto_dell_errore(busta.clone(), RISERVA_IDENTITA);
+        assert_eq!(riduzione, RiduzioneDellErrore::Nessuna);
+        assert_eq!(uscita, busta, "una busta che ci sta non si tocca");
+    }
+
+    /// Il confine: un byte sotto passa, un byte sopra riduce.
+    ///
+    /// Si costruisce il messaggio alla lunghezza esatta invece di cercarla per
+    /// tentativi, perche' un confine provato «circa» non e' un confine.
+    #[test]
+    fn il_confine_del_tetto_e_esatto() {
+        for (scarto, atteso) in [
+            (0_i64, RiduzioneDellErrore::Nessuna),
+            (-1, RiduzioneDellErrore::Nessuna),
+            // Un byte sopra: basta togliere l'esempio, che e' la prima
+            // riduzione. Avevo scritto `DiagnosticaDiRiga`, e la prova mi ha
+            // corretto: si toglie il meno possibile, e un byte e' il meno.
+            (1, RiduzioneDellErrore::EsempiDiRiga),
+        ] {
+            let busta = busta_alla_misura(MAX_BYTE_ERRORE, scarto);
+            let misurata = serde_json::to_vec(&busta).expect("si serializza").len();
+            assert_eq!(
+                i64::try_from(misurata).expect("misura rappresentabile"),
+                i64::try_from(MAX_BYTE_ERRORE).expect("tetto rappresentabile") + scarto,
+                "la busta di prova deve avere la misura voluta"
+            );
+            let (_, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+            assert_eq!(
+                riduzione, atteso,
+                "scarto {scarto} dal tetto: riduzione attesa {atteso:?}"
+            );
+        }
+    }
+
+    /// La prima riduzione toglie gli esempi e lo dichiara.
+    ///
+    /// `counts` e `observed_total` restano: sono cio' su cui una macchina
+    /// decide, e gli esempi sono illustrazioni. Una busta accorciata in
+    /// silenzio direbbe che la diagnostica non c'era, mentre la verita' e' che
+    /// non ci stava -- e quella si puo' chiedere di nuovo con un'invocazione
+    /// piu' stretta.
+    #[test]
+    fn oltre_il_tetto_cadono_prima_gli_esempi() {
+        // Tanti esempi da sforare, ma con `counts` piccolo: togliendo gli
+        // esempi si rientra.
+        let busta = busta_d_errore_con_esempi(8_000);
+        let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+
+        assert_eq!(riduzione, RiduzioneDellErrore::EsempiDiRiga);
+        let diagnostica = &uscita["error"]["row_diagnostics"];
+        assert_eq!(
+            diagnostica["examples"].as_array().map(Vec::len),
+            Some(0),
+            "gli esempi sono stati tolti"
+        );
+        assert_eq!(
+            diagnostica["examples_truncated"], true,
+            "e il documento lo dichiara"
+        );
+        assert!(
+            diagnostica["counts"].is_object() || diagnostica["counts"].is_array(),
+            "cio' su cui si decide resta: {diagnostica}"
+        );
+        assert_eq!(
+            uscita["error"]["code"], "DIAGNOSTICS_TRUNCATED",
+            "il codice dichiara la riduzione"
+        );
+        assert!(
+            serde_json::to_vec(&uscita).expect("si serializza").len() <= MAX_BYTE_ERRORE,
+            "e la busta ridotta sta nel tetto"
+        );
+    }
+
+    /// Quando nemmeno togliere gli esempi basta, cade l'intera diagnostica.
+    #[test]
+    fn poi_cade_l_intera_diagnostica_di_riga() {
+        let mut busta = busta_d_errore_con_esempi(1);
+        // `counts` enorme: gli esempi non bastano a rientrare.
+        let mut conteggi = serde_json::Map::new();
+        for indice in 0..40_000 {
+            conteggi.insert(format!("finto.causa_{indice}"), json!(1));
+        }
+        busta["error"]["row_diagnostics"]["counts"] = Value::Object(conteggi);
+
+        let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+        assert_eq!(riduzione, RiduzioneDellErrore::DiagnosticaDiRiga);
+        assert!(
+            uscita["error"].get("row_diagnostics").is_none(),
+            "la diagnostica e' facoltativa per contratto, e cade per seconda"
+        );
+        for asse in ["category", "phase", "remote_effect", "retry"] {
+            assert!(uscita["error"].get(asse).is_some(), "l'asse {asse} resta");
+        }
+        assert_eq!(uscita["error"]["code"], "DIAGNOSTICS_TRUNCATED");
+    }
+
+    /// E se non basta nemmeno quello, restano i quattro assi.
+    ///
+    /// E' il caso che nessun percorso del prodotto puo' raggiungere -- il
+    /// messaggio e' curato e non porta testo della sorgente -- e si costruisce
+    /// a mano perche' una guardia che non scatta mai va comunque provata,
+    /// altrimenti si scopre che non funziona il giorno in cui serve.
+    #[test]
+    fn all_ultimo_restano_i_quattro_assi() {
+        let mut busta = busta_d_errore_con_esempi(1);
+        busta["error"]["message"] = json!("x".repeat(MAX_BYTE_ERRORE + 1_000));
+
+        let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+        assert_eq!(riduzione, RiduzioneDellErrore::SoloGliAssi);
+        assert_eq!(uscita["error"]["code"], "ERROR_TRUNCATED");
+        for asse in ["category", "phase", "remote_effect", "retry"] {
+            assert!(
+                uscita["error"].get(asse).is_some(),
+                "l'asse {asse} non si toglie: e' cio' su cui una macchina deve \
+                 poter decidere, e toglierlo renderebbe l'errore illeggibile \
+                 invece che piu' corto"
+            );
+        }
+        assert!(serde_json::to_vec(&uscita).expect("si serializza").len() <= MAX_BYTE_ERRORE);
+    }
+
+    /// La riduzione e' idempotente: applicarla due volte non cambia nulla.
+    ///
+    /// Serve perche' il prodotto la applica **due volte** -- in `err_doc` con
+    /// la riserva, e su la busta completa nel binding -- e due passaggi che
+    /// dessero risultati diversi farebbero divergere le due superfici.
+    #[test]
+    fn la_riduzione_e_idempotente() {
+        let busta = busta_d_errore_con_esempi(8_000);
+        let (una_volta, _) = entro_il_tetto_dell_errore(busta, 0);
+        let (due_volte, riduzione) = entro_il_tetto_dell_errore(una_volta.clone(), 0);
+        assert_eq!(riduzione, RiduzioneDellErrore::Nessuna);
+        assert_eq!(una_volta, due_volte);
+    }
+
+    /// Una busta d'errore con `n` esempi di diagnostica di riga.
+    fn busta_d_errore_con_esempi(quanti: usize) -> Value {
+        let esempi: Vec<Value> = (0..quanti)
+            .map(|indice| {
+                json!({
+                    "cause": "finto.riga_invalida",
+                    "column": "geometry",
+                    "source_index": indice,
+                })
+            })
+            .collect();
+        json!({
+            "status": "error",
+            "protocol_version": PROTOCOLLO,
+            "contract": "plenora-error-v1",
+            "error": {
+                "category": "data_mapping",
+                "phase": "read",
+                "remote_effect": "none",
+                "retry": {"kind": "never"},
+                "code": "ROW_REJECTED",
+                "message": "righe rifiutate",
+                "row_diagnostics": {
+                    "contract": "plenora-row-diagnostics-v1",
+                    "scope": "read",
+                    "index_basis": "source_row_zero_based",
+                    "completeness": "partial",
+                    "observed_total": quanti,
+                    "counts": {"finto.riga_invalida": quanti},
+                    "examples_limit": 64,
+                    "examples_truncated": false,
+                    "examples": esempi,
+                },
+            },
+        })
+    }
+
+    /// Una busta la cui codifica compatta misura **esattamente** `tetto + scarto`.
+    ///
+    /// Il riempimento sta nel messaggio, e la lunghezza si calcola invece di
+    /// cercarla: si misura la busta vuota e si aggiunge la differenza.
+    fn busta_alla_misura(tetto: usize, scarto: i64) -> Value {
+        let mut busta = busta_d_errore_con_esempi(1);
+        busta["error"]["message"] = json!("");
+        let base = serde_json::to_vec(&busta).expect("si serializza").len();
+        let voluta = usize::try_from(i64::try_from(tetto).expect("tetto rappresentabile") + scarto)
+            .expect("misura positiva");
+        busta["error"]["message"] = json!("x".repeat(voluta - base));
+        busta
     }
 }

@@ -17,19 +17,33 @@
 //! # Quali requisiti, e quali no
 //!
 //! Coperti qui: ARROW-001 (versione di contratto nello schema), ARROW-003 e
-//! ARROW-004 (identità dei campi preservata attraverso un giro completo),
+//! ARROW-004 (identità di **ogni** campo, preservata attraverso un giro
+//! completo e non ricalcolata),
 //! ARROW-005 (geometria WKB canonica con l'estensione `GeoArrow`), ARROW-006
 //! (metadati non contraddittori), ARROW-007 (i tre stati del CRS distinti),
 //! ARROW-012 (ogni batch conforme allo schema dichiarato).
 //!
-//! Non coperti, e ciascuno per una ragione: ARROW-002 è una regola sul
-//! **consumatore** — fallire chiuso su una versione più nuova — e la si prova
-//! dove leggiamo, non dove scriviamo; ARROW-008 riguarda l'ordine degli assi e
-//! il formato della definizione, che `provenienza_crs.rs` già esercita lungo
-//! tutte le conversioni; ARROW-009 vieta di **richiedere** metadati specifici
-//! del provider, ed è una proprietà di ciò che non facciamo; ARROW-010 lega la
-//! conservazione dei metadati ignoti a chi dichiara pass-through lossless, e
-//! `io.read` non lo dichiara; ARROW-011 governa lo streaming, che è B13.
+//! Coperti anche i quattro che la prima stesura aveva lasciato fuori con una
+//! ragione invece che con una prova: ARROW-002 (fallire chiuso su una versione
+//! più nuova), ARROW-008 (ordine degli assi e formato della definizione
+//! sopravvivono al pass-through), ARROW-009 (un consumatore generico non
+//! **richiede** metadati del provider), ARROW-010 (chi dichiara lossless
+//! preserva i metadati ignoti).
+//!
+//! Le ragioni non erano sbagliate — «lo esercita un altro modulo», «è una
+//! proprietà di ciò che non facciamo» — ma erano argomenti, e un argomento
+//! copre un requisito solo finché nessuno lo mette alla prova. Scriverle ha
+//! trovato due cose che gli argomenti non avevano visto, e stanno nei commenti
+//! delle sonde.
+//!
+//! Resta fuori **ARROW-011**, e la ragione è dell'antecedente: «An operation
+//! advertised with Arrow **stream** output MUST allow the consumer to process
+//! batches without first materializing the complete result». Il documento
+//! capability di questo artefatto dichiara per `io.read` il solo
+//! `application/vnd.apache.arrow.file`, perché CLI-2.0 §4 riserva stdout alla
+//! busta e i byte devono andare in un file. L'antecedente è falso su questa
+//! superficie, e lo si vede in `capabilities`. Diventa vero con B13, che porta
+//! lo streaming, e allora questa sarà la sua sonda.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -115,83 +129,169 @@ fn arrow_001_la_versione_del_contratto_e_nello_schema() {
     );
 }
 
-/// ARROW-003 e ARROW-004: l'identità dichiarata sopravvive a un giro completo.
+/// ARROW-003 e ARROW-004: **ogni** campo ha un'identità, e sopravvive al giro.
 ///
-/// # Che cosa il requisito chiede davvero
+/// # Che cosa il requisito chiede, e l'argomento che non bastava
 ///
-/// ARROW-003 è **condizionale**: «A field *whose identity must survive* rename,
-/// projection or round-trip MUST carry `plenora.field_id`». Chi decide quali
-/// campi siano in quel caso è il componente, non il contratto. ARROW-004 invece
-/// non è condizionale: gli identificatori che ci sono vanno **preservati** per i
-/// campi logici non cambiati.
+/// ARROW-003 è condizionale — «A field *whose identity must survive* rename,
+/// projection or **round-trip** MUST carry `plenora.field_id`» — e chi decide
+/// quali campi siano in quel caso è il componente.
 ///
-/// # Che cosa il prodotto dichiara oggi, e la domanda che lascia aperta
+/// La prima stesura di questa sonda fissava che l'identità stesse sulla sola
+/// colonna geometrica, e difendeva la scelta così: nessuna superficie pubblica
+/// proietta, quindi lo schema consegnato è sempre completo e l'indice
+/// posizionale non si sposta. L'argomento copriva la **proiezione** e lasciava
+/// fuori la terza parola del requisito.
 ///
-/// La misura, non l'implementazione: solo la colonna geometrica porta
-/// `plenora.field_id`. Le colonne attributo no.
+/// Il round trip lo facciamo, ed è una forma di prima classe: `io.read` e
+/// `io.write` sono dichiarate l'una l'inversa dell'altra e condividono il
+/// contratto d'interscambio. Un consumatore che correlasse dati fra due letture
+/// aveva un identificatore solo su cui correlare, e per gli attributi nessuno.
 ///
-/// Oggi è difendibile, e per una ragione precisa: nessuna superficie pubblica
-/// **proietta**. La CLI non ha un argomento per selezionare le colonne, quindi
-/// lo schema consegnato è sempre completo e l'indice posizionale — che è ciò su
-/// cui `loss.esempi` indicizza con `field_index` — non si sposta mai.
+/// # Che cosa la sonda misura adesso
 ///
-/// Smette di esserlo il giorno in cui una proiezione entra nel confine
-/// pubblico: allora `field_index` diventerebbe relativo allo schema proiettato,
-/// due letture con proiezioni diverse non sarebbero più correlabili, e
-/// l'identità degli attributi sarebbe esattamente ciò che «deve sopravvivere».
-/// Il piano 4.0.0 lo registra accanto a B13, che è l'intervento che porterebbe
-/// quella proiezione.
-///
-/// Questa sonda verifica quindi ARROW-004 su ciò che l'identità ce l'ha, e
-/// fissa **quali** campi la portano: se un giorno un attributo la acquistasse o
-/// la geometria la perdesse, il conteggio cambierebbe e lo direbbe.
+/// Che ogni campo porti un identificatore, che siano distinti, e che siano gli
+/// **stessi** dopo un giro che non cambia niente. La terza è ARROW-004, e non
+/// si vede su una lettura sola: preservare è un'affermazione su due momenti.
 #[test]
-fn arrow_003_004_l_identita_dichiarata_sopravvive_al_giro() {
+fn arrow_003_004_ogni_campo_ha_un_identita_che_sopravvive_al_giro() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
-    let primo = consegna(temporanea.path(), &fixture("canonico.geojson"), "uno.arrow");
-    let secondo = consegna(temporanea.path(), &primo, "due.arrow");
 
-    let identita = |percorso: &Path| -> BTreeMap<String, String> {
-        schema_di(percorso)
+    for sorgente in ["canonico.geojson", "canonico.gpkg", "canonico.parquet"] {
+        let primo = consegna(
+            temporanea.path(),
+            &fixture(sorgente),
+            &format!("uno-{sorgente}.arrow"),
+        );
+        let secondo = consegna(temporanea.path(), &primo, &format!("due-{sorgente}.arrow"));
+
+        let identita = |percorso: &Path| -> BTreeMap<String, String> {
+            schema_di(percorso)
+                .fields()
+                .iter()
+                .map(|c| {
+                    (
+                        c.name().clone(),
+                        c.metadata()
+                            .get("plenora.field_id")
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "{sorgente}: ARROW-003 — «{}» non porta \
+                                     `plenora.field_id`",
+                                    c.name()
+                                )
+                            }),
+                    )
+                })
+                .collect()
+        };
+
+        let al_primo_giro = identita(&primo);
+        let al_secondo = identita(&secondo);
+
+        assert!(
+            al_primo_giro.len() > 1,
+            "{sorgente}: la fixture ha attributi oltre alla geometria, \
+             altrimenti la sonda proverebbe di nuovo la sola geometria"
+        );
+
+        let distinti: std::collections::BTreeSet<&String> = al_primo_giro.values().collect();
+        assert_eq!(
+            distinti.len(),
+            al_primo_giro.len(),
+            "{sorgente}: due campi con lo stesso identificatore non sono \
+             identificati: {al_primo_giro:?}"
+        );
+
+        assert_eq!(
+            al_primo_giro, al_secondo,
+            "{sorgente}: ARROW-004 — gli identificatori dei campi non cambiati \
+             devono essere gli stessi dopo un giro che non cambia niente"
+        );
+    }
+}
+
+/// L'identità che arriva dalla sorgente non viene riscritta.
+///
+/// # Perché questa prova è separata, e perché è quella che conta
+///
+/// La sonda sopra passerebbe anche su un prodotto che **ricalcola** gli
+/// identificatori a ogni scrittura: su un giro che non cambia l'ordine dei
+/// campi, ricalcolare e conservare danno lo stesso risultato.
+///
+/// Sono due comportamenti diversi, e la differenza si vedrà il giorno in cui
+/// una proiezione entrerà nel confine pubblico: lì l'indice al momento della
+/// scrittura non sarà più quello d'origine, e un prodotto che ricalcola
+/// rinominerebbe in silenzio ciò che ARROW-004 chiede di preservare.
+///
+/// Qui la si costruisce oggi: un file Arrow con identificatori **non**
+/// posizionali, riletto e riscritto. Se tornassero `0, 1, 2…` il prodotto
+/// starebbe ricalcolando.
+#[test]
+fn arrow_004_gli_identificatori_della_sorgente_non_si_riscrivono() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let originale = consegna(
+        temporanea.path(),
+        &fixture("canonico.geojson"),
+        "base.arrow",
+    );
+
+    // Si riscrive lo stesso file con identificatori spostati di cento: restano
+    // distinti e non coincidono con nessun indice.
+    let spostato = temporanea.path().join("spostato.arrow");
+    {
+        let schema = schema_di(&originale);
+        let campi: Vec<arrow_schema::Field> = schema
             .fields()
             .iter()
-            .filter_map(|c| {
-                c.metadata()
-                    .get("plenora.field_id")
-                    .map(|id| (c.name().clone(), id.clone()))
+            .enumerate()
+            .map(|(indice, c)| {
+                let mut metadata = c.metadata().clone();
+                metadata.insert("plenora.field_id".to_owned(), (100 + indice).to_string());
+                c.as_ref().clone().with_metadata(metadata)
             })
-            .collect()
-    };
+            .collect();
+        let nuovo = Schema::new_with_metadata(campi, schema.metadata().clone());
 
-    let al_primo_giro = identita(&primo);
-    let al_secondo = identita(&secondo);
+        let sorgente = File::open(&originale).expect("l'originale si apre");
+        let lettore = FileReader::try_new(sorgente, None).expect("e' un file IPC");
+        let batch: Vec<_> = lettore.map(|b| b.expect("batch leggibile")).collect();
 
-    assert!(
-        !al_primo_giro.is_empty(),
-        "ARROW-003: nessun campo dichiara un'identità durevole, e almeno la \
-         geometria deve"
-    );
-    assert_eq!(
-        al_primo_giro, al_secondo,
-        "ARROW-004: gli identificatori dei campi non cambiati devono essere gli \
-         stessi dopo un giro che non cambia niente"
-    );
+        let destinazione = File::create(&spostato).expect("la destinazione si crea");
+        let mut scrittore = arrow_ipc::writer::FileWriter::try_new(destinazione, &nuovo)
+            .expect("l'intestazione si scrive");
+        for uno in batch {
+            let rimappato = arrow_array::RecordBatch::try_new(
+                std::sync::Arc::new(nuovo.clone()),
+                uno.columns().to_vec(),
+            )
+            .expect("il batch si rimappa sullo schema nuovo");
+            scrittore.write(&rimappato).expect("il batch si scrive");
+        }
+        scrittore.finish().expect("il file si chiude");
+    }
 
-    // Quali campi la portano, oggi: la sola geometria. Non è un'asserzione sul
-    // contratto -- che lascia la scelta al componente -- ma sulla scelta, così
-    // che cambiarla richieda di dirlo.
-    let schema = schema_di(&primo);
-    let geometrici: Vec<&str> = schema
+    let riletto = consegna(temporanea.path(), &spostato, "riletto.arrow");
+    let identificatori: Vec<String> = schema_di(&riletto)
         .fields()
         .iter()
-        .filter(|c| c.metadata().contains_key("ARROW:extension:name"))
-        .map(|c| c.name().as_str())
+        .map(|c| {
+            c.metadata()
+                .get("plenora.field_id")
+                .cloned()
+                .unwrap_or_default()
+        })
         .collect();
-    assert_eq!(
-        al_primo_giro.keys().map(String::as_str).collect::<Vec<_>>(),
-        geometrici,
-        "oggi l'identità durevole è dichiarata sulla sola colonna geometrica; \
-         se questo cambia, cambia una decisione e va scritta"
+
+    assert!(
+        identificatori
+            .iter()
+            .all(|id| id.parse::<usize>().is_ok_and(|n| n >= 100)),
+        "ARROW-004: gli identificatori della sorgente sono stati riscritti con \
+         gli indici. Conservarli e ricalcolarli danno lo stesso risultato \
+         quando l'ordine non cambia, e sono due comportamenti diversi: \
+         {identificatori:?}"
     );
 }
 
@@ -351,4 +451,256 @@ fn arrow_012_ogni_batch_segue_lo_schema_dichiarato() {
         batch += 1;
     }
     assert!(batch > 0, "la fixture produce almeno un batch");
+}
+
+/// ARROW-002: una versione di contratto più nuova fallisce chiusa.
+///
+/// # Perché la prova sta qui e non nel modello
+///
+/// `plenora-io-model` ha già una sonda su `validate_contract_version`, e prova
+/// la funzione. Questa prova il **confine pubblico**: un file Arrow che dichiara
+/// `plenora.contract.version: 2` arriva a `io.read` e viene rifiutato con un
+/// errore tipizzato invece di essere letto indovinando.
+///
+/// La differenza non è formale. Una funzione giusta che nessuno chiama sul
+/// percorso pubblico è un requisito soddisfatto nel posto sbagliato, e fino a
+/// questa sonda nessuno aveva verificato che il percorso ci passasse.
+#[test]
+fn arrow_002_una_versione_piu_nuova_fallisce_chiusa() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let originale = consegna(temporanea.path(), &fixture("canonico.geojson"), "v1.arrow");
+    let futuro = temporanea.path().join("v2.arrow");
+    riscrivi_con(&originale, &futuro, |schema| {
+        let mut metadata = schema.metadata().clone();
+        metadata.insert("plenora.contract.version".to_owned(), "2".to_owned());
+        Schema::new_with_metadata(schema.fields().clone(), metadata)
+    });
+
+    let esito = Command::new(BINARIO)
+        .args(["read", futuro.to_str().unwrap(), "--format", "json"])
+        .output()
+        .expect("il binario parte");
+    let stdout = String::from_utf8(esito.stdout).expect("stdout e' UTF-8");
+    let busta: serde_json::Value = serde_json::from_str(&stdout).expect("stdout e' JSON");
+
+    assert_eq!(
+        busta["status"], "error",
+        "ARROW-002: una versione più nuova non si legge indovinando: {stdout}"
+    );
+    assert!(
+        busta["error"]["category"].is_string(),
+        "e il rifiuto è tipizzato"
+    );
+}
+
+/// ARROW-008: ordine degli assi e formato della definizione sopravvivono.
+///
+/// # Che cosa l'argomento precedente non copriva
+///
+/// «Lo esercita `provenienza_crs.rs` lungo tutte le conversioni» era vero e
+/// riguardava un'altra cosa: lì si verifica da dove il CRS **arriva**, qui che
+/// due chiavi specifiche sopravvivano a un pass-through che si dichiara
+/// lossless. Sono due affermazioni, e la seconda non segue dalla prima.
+#[test]
+fn arrow_008_gli_assi_e_il_formato_della_definizione_sopravvivono() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+
+    for sorgente in ["canonico.gpkg", "canonico.parquet"] {
+        let primo = consegna(
+            temporanea.path(),
+            &fixture(sorgente),
+            &format!("a-{sorgente}.arrow"),
+        );
+        let secondo = consegna(temporanea.path(), &primo, &format!("b-{sorgente}.arrow"));
+
+        let all_andata = metadati(geometria(&schema_di(&primo)).metadata())
+            .into_iter()
+            .filter(|(chiave, _)| {
+                matches!(
+                    *chiave,
+                    "plenora.geometry.axis_order" | "plenora.geometry.crs_definition_format"
+                )
+            })
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert!(
+            !all_andata.is_empty(),
+            "{sorgente}: la fixture deve portarne almeno una, altrimenti la \
+             sonda passerebbe per assenza di soggetto"
+        );
+
+        let al_ritorno = metadati(geometria(&schema_di(&secondo)).metadata())
+            .into_iter()
+            .filter(|(chiave, _)| all_andata.contains_key(*chiave))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            all_andata, al_ritorno,
+            "{sorgente}: ARROW-008 — sono parte del significato pubblico e \
+             devono sopravvivere al pass-through"
+        );
+    }
+}
+
+/// ARROW-009: un consumatore generico non **richiede** metadati del provider.
+///
+/// # Perché «è una proprietà di ciò che non facciamo» non bastava
+///
+/// Era un argomento sull'assenza, e l'assenza non si prova guardandosi dentro.
+/// Qui si costruisce un file Arrow che porta metadati specifici del provider —
+/// nel namespace che `ARROW-INTERCHANGE §5` riserva — e uno che non ne porta
+/// affatto, e si verifica che `io.read` legga entrambi allo stesso modo.
+#[test]
+fn arrow_009_i_metadati_del_provider_non_sono_richiesti() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let senza = consegna(
+        temporanea.path(),
+        &fixture("canonico.geojson"),
+        "senza.arrow",
+    );
+
+    let con = temporanea.path().join("con-provider.arrow");
+    riscrivi_con(&senza, &con, |schema| {
+        let campi: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|c| {
+                // Solo sulla colonna geometrica. La prima stesura li metteva su
+                // ogni campo, e il lettore rispondeva «Arrow IPC contiene più
+                // colonne GeoArrow»: una chiave `plenora.geometry.*` su un
+                // campo qualunque lo fa contare come geometrico. Il rifiuto è
+                // corretto -- due colonne geometriche nel contratto v1 non si
+                // possono avere -- ed era la sonda a costruire un file che
+                // nessun produttore conforme scriverebbe.
+                if !c.metadata().contains_key("ARROW:extension:name") {
+                    return c.as_ref().clone();
+                }
+                let mut metadata = c.metadata().clone();
+                metadata.insert(
+                    "plenora.geometry.native.postgis.typmod".to_owned(),
+                    "geography(PointZM,4326)".to_owned(),
+                );
+                c.as_ref().clone().with_metadata(metadata)
+            })
+            .collect();
+        Schema::new_with_metadata(campi, schema.metadata().clone())
+    });
+
+    let righe = |percorso: &Path| -> u64 {
+        let esito = Command::new(BINARIO)
+            .args(["read", percorso.to_str().unwrap(), "--format", "json"])
+            .output()
+            .expect("il binario parte");
+        let stdout = String::from_utf8(esito.stdout).expect("stdout e' UTF-8");
+        let busta: serde_json::Value = serde_json::from_str(&stdout).expect("stdout e' JSON");
+        assert_eq!(busta["status"], "ok", "ARROW-009: {stdout}");
+        busta["result"]["rows_read"].as_u64().expect("righe")
+    };
+
+    assert_eq!(
+        righe(&senza),
+        righe(&con),
+        "ARROW-009: la presenza o l'assenza di metadati del provider non cambia \
+         l'interpretazione del contratto comune"
+    );
+}
+
+/// ARROW-010: chi dichiara lossless preserva i metadati ignoti.
+///
+/// # Il requisito, e che cosa lega a che cosa
+///
+/// «An operation that claims lossless pass-through MUST preserve unknown
+/// metadata. An operation that intentionally normalizes or drops metadata MUST
+/// report that behavior in its output contract or fidelity result.»
+///
+/// L'argomento precedente era che `io.read` non dichiara pass-through lossless.
+/// È falso quando la sorgente è Arrow: lì la busta rende `fidelity.level:
+/// lossless`, e quella **è** la dichiarazione. Il requisito si applica, e questa
+/// sonda lo misura: un metadato che nessuno conosce, messo su un file Arrow,
+/// deve ritrovarsi dopo il giro — oppure la fedeltà non deve dirsi lossless.
+#[test]
+fn arrow_010_chi_si_dichiara_lossless_conserva_i_metadati_ignoti() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let base = consegna(
+        temporanea.path(),
+        &fixture("canonico.geojson"),
+        "base.arrow",
+    );
+
+    let con_ignoti = temporanea.path().join("con-ignoti.arrow");
+    riscrivi_con(&base, &con_ignoti, |schema| {
+        let campi: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|c| {
+                let mut metadata = c.metadata().clone();
+                metadata.insert("chiave.che.nessuno.conosce".to_owned(), "valore".to_owned());
+                c.as_ref().clone().with_metadata(metadata)
+            })
+            .collect();
+        let mut dello_schema = schema.metadata().clone();
+        dello_schema.insert("schema.ignoto".to_owned(), "valore".to_owned());
+        Schema::new_with_metadata(campi, dello_schema)
+    });
+
+    let uscita = temporanea.path().join("dopo.arrow");
+    let esito = Command::new(BINARIO)
+        .args([
+            "read",
+            con_ignoti.to_str().unwrap(),
+            "--output",
+            uscita.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("il binario parte");
+    let stdout = String::from_utf8(esito.stdout).expect("stdout e' UTF-8");
+    let busta: serde_json::Value = serde_json::from_str(&stdout).expect("stdout e' JSON");
+    assert_eq!(busta["status"], "ok", "{stdout}");
+
+    let dichiarata_lossless = busta["result"]["fidelity"]["level"] == "lossless";
+    let schema = schema_di(&uscita);
+    let conservato_sul_campo = schema
+        .fields()
+        .iter()
+        .any(|c| c.metadata().contains_key("chiave.che.nessuno.conosce"));
+    let conservato_sullo_schema = schema.metadata().contains_key("schema.ignoto");
+
+    assert!(
+        !dichiarata_lossless || (conservato_sul_campo && conservato_sullo_schema),
+        "ARROW-010: la fedeltà dice `lossless` e i metadati ignoti non ci sono \
+         più (campo: {conservato_sul_campo}, schema: {conservato_sullo_schema}). \
+         Le due cose non possono stare insieme: o si conservano, o la fedeltà \
+         dichiara di averli normalizzati"
+    );
+}
+
+/// Riscrive un file Arrow cambiandone lo schema, tenendo i batch.
+///
+/// Serve alle sonde che costruiscono un ingresso che il prodotto non sa
+/// produrre: una versione di contratto futura, metadati di un provider, chiavi
+/// che nessuno conosce. Costruirli con `arrow-ipc` invece che col nostro writer
+/// è il punto -- il nostro writer non li scriverebbe.
+fn riscrivi_con(sorgente: &Path, destinazione: &Path, trasforma: impl FnOnce(&Schema) -> Schema) {
+    let file = File::open(sorgente).expect("la sorgente si apre");
+    let lettore = FileReader::try_new(file, None).expect("e' un file Arrow IPC");
+    let schema = lettore.schema();
+    let batch: Vec<_> = lettore.map(|b| b.expect("batch leggibile")).collect();
+
+    let nuovo = std::sync::Arc::new(trasforma(schema.as_ref()));
+    let uscita = File::create(destinazione).expect("la destinazione si crea");
+    let mut scrittore =
+        arrow_ipc::writer::FileWriter::try_new(uscita, nuovo.as_ref()).expect("intestazione");
+    for uno in batch {
+        let rimappato = arrow_array::RecordBatch::try_new(
+            std::sync::Arc::clone(&nuovo),
+            uno.columns().to_vec(),
+        )
+        .expect("il batch si rimappa");
+        scrittore.write(&rimappato).expect("il batch si scrive");
+    }
+    scrittore.finish().expect("il file si chiude");
 }

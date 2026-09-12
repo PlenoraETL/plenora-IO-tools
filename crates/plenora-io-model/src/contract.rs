@@ -171,7 +171,31 @@ pub enum TypesDeclaration {
 /// Contratto di una colonna geometrica.
 #[derive(Clone, Debug)]
 pub struct GeometryColumnContract {
+    /// La posizione fisica della colonna nello schema.
+    ///
+    /// E' **nostra**: la produce la nostra enumerazione dello schema, e serve a
+    /// indicizzare -- `batch.column(field_id)`. Non viene mai da un file.
     pub field_id: FieldId,
+    /// L'identita' che la sorgente **dichiara**, quando ne dichiara una.
+    ///
+    /// # Perche' e' un campo a parte
+    ///
+    /// Perche' identita' e indice sono due cose, e tenerle in una sola aveva un
+    /// costo misurabile: il lettore IPC pretendeva che `plenora.field_id` letto
+    /// dal file coincidesse con l'indice fisico, e **rifiutava** un file
+    /// conforme che dichiarasse un'identita' diversa. Il vincolo nasceva da una
+    /// ragione vera -- l'id letto dal payload finiva in `batch.column(index)`,
+    /// e un indice fuori range e' un panico -- ma la risposta giusta e' non
+    /// usare un'identita' come indice, non pretendere che siano uguali.
+    ///
+    /// ARROW-003 dice «a non-negative decimal identifier», unico nello schema e
+    /// preservato per un campo non cambiato: non dice che debba essere una
+    /// posizione. Un produttore conforme puo' numerare come vuole, e noi ora lo
+    /// leggiamo, lo conserviamo e lo riscriviamo.
+    ///
+    /// `None` significa che la sorgente non ne dichiara: li' l'identita' e' la
+    /// posizione, che e' l'unica che esista nei formati che non la portano.
+    pub identita_dichiarata: Option<u32>,
     pub name: String,
     pub crs: CrsResolution,
     pub nullable: bool,
@@ -199,6 +223,10 @@ impl GeometryColumnContract {
     ) -> Self {
         Self {
             field_id,
+            // Nessuna identita' dichiarata finche' qualcuno non la legge da una
+            // sorgente: i formati che non la portano hanno la posizione, e la
+            // posizione la porta `field_id`.
+            identita_dichiarata: None,
             name: name.into(),
             crs: crs.into(),
             nullable,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 140,
+  "totale": 143,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -80,16 +80,16 @@
       "ragione": "directory, durata e seed di campagna riproducibili; serializzazione best-effort confinata alla generazione del corpus, senza entrare nel componente distribuibile Dal 2026-09-07 uno in meno: il seme del PRNG usava `map(..).unwrap_or(costante)`, ora `map_or(costante, ..)`. Il comportamento e' identico e il fallback pure -- resta la costante quando l'orologio non risponde -- ma il censimento conta le occorrenze di `unwrap_or`, e quella non c'e' piu'."
     },
     "plenora-io-cli": {
-      "conteggio": 39,
-      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance. Le due occorrenze del blocco di coerenza stanno nelle prove che confrontano il catalogo con i driver: `unwrap_or_else(|| panic!(\"{id} assente dal catalogo\"))` nomina il formato che non ha corrispondenza invece di proseguire con un default. Come le altre della categoria, terminano la prova. L'occorrenza del blocco BB e' in `tests/metadati_arrow.rs`, dove `unwrap_or_else(|| panic!(...))` nomina il campo che non porta l'identita' attesa: stessa categoria, stessa forma, termina la prova. L'occorrenza del blocco C e' in `tests/equivalenza_superfici.rs`: nomina l'invocazione la cui uscita non e' JSON, quando le due porte si confrontano."
+      "conteggio": 41,
+      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance. Le due occorrenze del blocco di coerenza stanno nelle prove che confrontano il catalogo con i driver: `unwrap_or_else(|| panic!(\"{id} assente dal catalogo\"))` nomina il formato che non ha corrispondenza invece di proseguire con un default. Come le altre della categoria, terminano la prova. L'occorrenza del blocco BB e' in `tests/metadati_arrow.rs`, dove `unwrap_or_else(|| panic!(...))` nomina il campo che non porta l'identita' attesa: stessa categoria, stessa forma, termina la prova. L'occorrenza del blocco C e' in `tests/equivalenza_superfici.rs`: nomina l'invocazione la cui uscita non e' JSON, quando le due porte si confrontano. Le due occorrenze del blocco ERR-011/Arrow stanno entrambe in `tests/metadati_arrow.rs`. La prima, `unwrap_or_else(|| panic!(...))`, nomina il campo che non porta `plenora.field_id` e termina la prova: ARROW-003 chiede che ogni campo ne porti uno, quindi l'assenza è il difetto, non un caso da coprire con un valore. La seconda, `unwrap_or_default()`, raccoglie gli identificatori di una sorgente che può legittimamente non dichiararne: lì il confronto è fra l'insieme prima e dopo il giro, e una stringa vuota è il valore giusto per «non dichiarato» — far terminare la prova nasconderebbe proprio il caso che ARROW-004 vuole vedere."
     },
     "plenora-io-core": {
       "conteggio": 17,
       "ragione": "due decisioni, entrambe senza effetto su dati o contratti. Un path senza parent esplicito usa la directory corrente. E `FidelityReason::detail_v1` ricade sul testo curato quando `dettaglio_v1` e' `None`: i sette siti che non hanno mai portato nomi presi dal file non hanno una frase congelata da conservare, e li' le due stringhe coincidono gia'. Il fallback e' quindi la forma in cui il v1 resta identico a se stesso dove non c'era niente da redigere, non una scelta presa in mancanza di meglio"
     },
     "plenora-io-model": {
-      "conteggio": 1,
-      "ragione": "metadato GeoArrow assente significa “non è un campo geometrico”"
+      "conteggio": 2,
+      "ragione": "metadato GeoArrow assente significa “non è un campo geometrico”; l'identità dichiarata di una colonna geometrica ripiega sulla sua posizione fisica quando la sorgente non ne dichiara una. Non è un default di comodo: prima della separazione fra `identita_dichiarata` e `field_id` i due significati erano lo stesso campo, e un file conforme con identità diversa dall'indice veniva rifiutato in lettura."
     }
   }
 }

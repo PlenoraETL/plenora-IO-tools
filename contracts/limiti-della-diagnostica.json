@@ -6,17 +6,20 @@
   "fonte": {
     "revisione": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e",
     "documento": "specs/errors/ERRORS-1.0.md",
-    "requisiti": ["ERR-011", "ERR-012"]
+    "requisiti": [
+      "ERR-011",
+      "ERR-012"
+    ]
   },
   "assi": [
     {
       "asse": "byte dell'errore pubblico",
       "requisito": "ERR-011",
       "tetto_del_contratto": 524288,
-      "tetto_del_prodotto": 65536,
-      "costante": "busta::MAX_BYTE_BUSTA",
+      "tetto_del_prodotto": 524288,
+      "costante": "busta::MAX_BYTE_ERRORE (piu' busta::RISERVA_IDENTITA)",
       "governa": "il prodotto",
-      "nota": "otto volte piu' stretto. **Con un'avvertenza che conta**: `MAX_BYTE_BUSTA` limita le cinque sezioni diagnostiche -- tre fedelta' e due perdite -- non la busta intera, che porta anche i campi d'identita', il messaggio curato ed eventualmente `row_diagnostics`. Il tetto del contratto e' sull'errore **intero**. I due non misurano la stessa cosa, e per questo la sonda misura i byte effettivi di un errore reale invece di dedurli dalla somma delle costanti."
+      "nota": "**chiuso.** Era l'unico asse scoperto: `MAX_BYTE_BUSTA` limita le cinque sezioni diagnostiche di un risultato riuscito, non la busta d'errore intera che ERR-011 governa -- i due non misurano la stessa cosa. Ora la busta completa passa da `busta::entro_il_tetto_dell_errore`, che riduce finche' non ci sta e **dichiara** che cosa ha tolto.\n\nL'ordine toglie prima cio' che costa meno a chi legge: gli esempi della diagnostica di riga (`counts` e `observed_total` restano, e sono cio' su cui una macchina decide), poi l'intera diagnostica, che e' facoltativa per contratto; da ultimo restano i quattro assi piu' il codice. Una busta accorciata in silenzio direbbe che la diagnostica non c'era, mentre la verita' e' che non ci stava: sono due cose diverse, e la seconda si puo' chiedere di nuovo con un'invocazione piu' stretta.\n\nIl tetto e' applicato due volte -- in `err_doc` con la riserva per i campi d'identita' che il binding aggiungera', e sulla busta completa nel binding -- e la riduzione e' idempotente, altrimenti le due superfici divergerebbero."
     },
     {
       "asse": "byte di `details`",
@@ -73,5 +76,5 @@
       "nota": "un oggetto piu' cinque coppie chiave-valore: undici nodi nel caso pieno."
     }
   ],
-  "che_cosa_resta_scoperto": "un asse solo, ed e' il primo. Il tetto del prodotto sulla diagnostica non copre la busta d'errore intera, e nessuna costante la limita direttamente: la limitano di fatto il messaggio curato -- che non porta testo dalla sorgente -- e i tetti di `row_diagnostics`, che vengono dal contratto condiviso e non dai nostri. La sonda misura i byte effettivi del caso peggiore che si sa costruire, e quella misura e' un limite inferiore alla verita': dice che quel caso sta sotto il tetto, non che ogni caso ci stia. Renderlo una garanzia vorrebbe dire applicare un tetto alla serializzazione finale della busta, che oggi non c'e'."
+  "che_cosa_resta_scoperto": "niente, sui sette assi. L'ultimo a chiudersi e' stato il primo: il tetto sulla busta d'errore intera, che nessuna costante limitava.\n\nResta pero' una distinzione che vale piu' di un verde. Il tetto e' una **guardia**, e nessun percorso d'errore del prodotto le arriva vicino: `row_diagnostics` ha un tetto di 64 esempi e il messaggio e' curato, quindi si sta nell'ordine dei chilobyte contro i cinquecento ammessi. Le prove costruiscono i casi oltre il tetto a mano, perche' una guardia che non scatta mai va comunque provata: altrimenti si scopre che non funziona il giorno in cui serve. Sei sonde coprono il confine esatto, le tre riduzioni e l'idempotenza."
 }
