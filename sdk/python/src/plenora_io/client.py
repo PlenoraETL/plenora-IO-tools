@@ -226,15 +226,15 @@ class Client:
         **scritta** invece che un obbligo del contratto: nessun requisito
         fissato vieta una consegna parziale -- `SURF-014` vieta soltanto di
         riportarla come successo pieno. La scelta e' che `io.read` non consegni
-        dataset parziali, perche' le due semantiche possibili del totale sono
-        incompatibili: conservare quello della sorgente consegna un file che
-        non gli corrisponde, dichiarare quello consegnato cancella l'unica
-        informazione per cui il limite serviva.
+        dataset parziali, e la ragione sta nella forma del risultato: porta un
+        totale **solo**, e con uno solo conservare quello della sorgente
+        consegna un file che non gli corrisponde mentre dichiarare quello
+        consegnato cancella l'unica informazione per cui il limite serviva.
 
-        Esporre il parametro qui offrirebbe quindi una combinazione che
-        fallisce sempre. «Le prime N righe come dataset» resta un'operazione
-        legittima e diversa -- una proiezione -- e quando esistera' avra' un
-        metodo suo, non un argomento in piu' a questo.
+        Non e' un'impossibilita': un risultato che distinguesse le righe della
+        sorgente da quelle consegnate le direbbe entrambe, e allora il parametro
+        comparirebbe. Finche' il risultato ne porta uno, esporlo qui offrirebbe
+        una combinazione che fallisce sempre.
         """
         argomenti = self._argomenti("read", source, assume_crs, options)
         argomenti += ["--output", os.fspath(output)]

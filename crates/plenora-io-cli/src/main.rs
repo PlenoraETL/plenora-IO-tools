@@ -1469,8 +1469,8 @@ fn cmd_read(cli: &Cli) -> CliResult {
     //
     // `declare_input_total` vuole la cardinalita' esatta, ma un vincolo di
     // implementazione e' una ragione per progettare la semantica, non per
-    // negarla. La ragione vera e' che le due semantiche del totale sono
-    // **incompatibili**, e nessuna e' gratis:
+    // negarla. La ragione sta in **questo** contratto d'uscita, che ha un
+    // totale solo. Con un totale solo le due letture si escludono:
     //
     // * «il totale e' quello della sorgente e ne consegno N» conserva il
     //   denominatore delle diagnostiche di riga, e consegna un dataset che non
@@ -1480,9 +1480,15 @@ fn cmd_read(cli: &Cli) -> CliResult {
     //   quanto e' rimasto indietro -- che e' precisamente cio' per cui il
     //   limite era stato chiesto.
     //
-    // «Le prime N righe come dataset» resta un'operazione legittima e
-    // **diversa**: e' una proiezione, non una lettura limitata, e avra' il suo
-    // contratto d'ingresso quando qualcuno la chiedera'. Fino ad allora
+    // Non e' una proprieta' del problema: e' una proprieta' della forma che
+    // abbiamo scelto. Un contratto che rappresentasse **separatamente** le
+    // righe della sorgente e quelle consegnate direbbe entrambe le cose senza
+    // che nessuna cancelli l'altra, e allora una consegna parziale sarebbe
+    // esprimibile. Rifiutare adesso non chiude quella porta: la tiene, perche'
+    // un rifiuto si toglie mentre una semantica gia' consegnata no.
+    //
+    // «Le prime N righe come dataset» resta intanto un'operazione legittima e
+    // **diversa**: e' una proiezione, non una lettura limitata. Fino ad allora
     // `limit` governa quante righe si **leggono**, non quante se ne
     // consegnano.
     ingresso_ammissibile(cli)?;

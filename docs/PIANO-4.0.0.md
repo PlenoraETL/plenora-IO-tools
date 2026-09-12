@@ -115,7 +115,7 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B10a | Il formato del sink è esplicito | profilo io-tools, «Format-specific behavior MUST NOT be selected by parsing file extensions when the operation requires an explicit format» | **chiusa.** `--to` prende un `id` di `io.catalog`; senza, il comando rifiuta invece di indovinare | `convert` deduce ancora i due formati dalle estensioni: è la riga B17 | `driver_per_formato` risolve per nome, e `ogni_formato_del_catalogo_ha_un_driver` confronta i due insiemi nei due versi | quando `--to` e l'estensione della destinazione si contraddicono non viene scritto **né** l'uno **né** l'altro formato: è l'unico caso in cui la regola si osserva, perché quando concordano le due strade portano allo stesso posto |
 | B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | diciassette prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel; due schemi pubblicati e quindici esempi legano la forma dichiarata all'invocazione reale |
 | B12a | Dataset vuoto: zero righe **non** implica schema ignoto | ARROW-VOCABULARY-1.0 §3-4, `capabilities.rs` | **corretta.** Una sorgente con zero righe e schema noto — GeoPackage, Arrow IPC, Parquet, Shapefile — si consegna con lo schema intero; solo una sorgente i cui tipi geometrici non si determinano viene rifiutata | il rilievo: la prova precedente asseriva «un dataset vuoto non si consegna» e ne dava come ragione che una sorgente senza righe non può dichiarare i tipi. Entrambe sbagliate. La regola vera non parla di righe: rifiuta quando il **sink restringe** i tipi geometrici **e** il contratto della sorgente arriva `unresolved` — una sorgente con mille righe di tipi indeterminati sarebbe rifiutata allo stesso modo | fatto: due prove distinte, `zero_righe_con_schema_noto_si_consegnano` e `tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato` | la prima costruisce un file IPC con lo schema della fixture canonica e **zero** batch, e ne verifica la consegna con schema intero; la seconda verifica che il messaggio nomini la dichiarazione dei tipi e non il numero di righe |
-| B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto, e ora ha una strada a monte**: la PR #6 di `plenora-contracts` propone `plenora.geometry.types_scan`, che separa «scandito, nessuna geometria» da «tipi non determinati». Con quella distinzione un sink che restringe i tipi può accettare il primo caso e continuare a rifiutare il secondo, senza che nessun driver allarghi ciò che dichiara di saper scrivere | la sorgente vuota di GeoJSON si consegna quando il vocabolario sa dire che l'assenza è accertata; finché la PR non è integrata il rifiuto resta, e il pin resta `453c8d1` |
+| B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto, e la strada a monte è più lunga di quanto pensassi**: la PR #6 non aggiunge più la chiave alla `1.0`, perché quel vocabolario si dichiara chiuso — l'analisi è la decisione 0006, che lascia due strade: un vocabolario successore che alza la versione del contratto, oppure `plenora.geometry.native.*` come spazio riservato ai provider. **Una metà però non dipende da monte**: il rifiuto scatta sul contratto che il reader costruisce, non sul filo, e un reader che sapesse dire «scandito, nessuna geometria» al proprio sink risolverebbe il caso locale senza toccare nessun contratto condiviso. La parte che serve il filo — dirlo a un altro componente — resta appesa alla decisione 0006 | il caso locale si chiude quando il contratto interno distingue i due stati; quello sul filo quando esiste un successore del vocabolario. Il pin resta `453c8d1`, e nessun requisito del verificatore dipende dalla proposta |
 | B12b | Il limite non si combina con la consegna | **nessun requisito lo impone**: SURF-014 vieta solo di riportare un parziale come successo pieno, e PUBLIC-SURFACES-1.0 §9.5 delega la semantica del parziale alla nostra specifica d'operazione | `--limit` insieme a `--output` è rifiutato con `invalid_plan` e codice `LIMIT_WITH_DELIVERY` | il difetto che le prove hanno trovato era reale — `--limit 2 --output` riusciva e consegnava **tutte** le righe con `truncated: true` accanto — ma il rifiuto che l'ha chiuso è una **scelta**, non un obbligo. La necessità del writer di conoscere la cardinalità esatta (`declare_input_total`) è una ragione per progettare la semantica, non per negarla | **D9 decisa per la 4.0.0**: `io.read` non consegna dataset parziali, e la scelta è scritta per esteso in `plenora-io-read-input-v1` — schema, codice, prova e SDK la citano invece di ripeterla | il comando esce `invalid_plan` e non lascia un file; `--limit` da solo continua a valere e governa quante righe si **leggono**. Cambiarla sarebbe un cambio di contratto con un identificatore nuovo, non una riga tolta |
 | B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
 | B17 | `convert` deduce i formati dalle estensioni | catalogo io-tools (`io.convert`: «Convert an external dataset between **explicit** formats»), profilo io-tools | `cmd_convert` chiama `driver_for_path` su entrambi i percorsi: i due formati vengono dall'estensione | la stessa regola che `io.write` ora rispetta. `io.convert` è descritto dal catalogo come operazione fra formati **espliciti**, quindi la deduzione non è un default comodo ma la selezione che il profilo esclude | **chiusa.** `convert IN OUT --from F --to G`; senza i due formati è un errore d'uso, non un ritorno alla deduzione. `inspect`, `layers` e `read` **non** cambiano: quelle riconoscono la sorgente invece di riceverla dichiarata, e il catalogo le distingue operazione per operazione | `docs/INSTALL.md` porta la migrazione 3.x → 4.0.0 con la corrispondenza fra le dieci estensioni di prima e gli identificatori di adesso; le prove d'integrazione passano i due formati, e l'helper che li deriva dichiara perché una prova può dedurre dove il prodotto non deve |
@@ -339,21 +339,36 @@ accettare il primo e rifiutare il secondo. È la ragione per cui la sorgente
 vuota di GeoJSON viene rifiutata (B12a) mentre il GeoPackage vuoto passa: non
 perché siano diversi i dati, ma perché uno dei due ha potuto dichiarare.
 
-**Proposta, PR #6 di `plenora-contracts`.** Non un quarto valore: una chiave
-facoltativa, `plenora.geometry.types_scan` ∈ {`complete`, `partial`},
-significativa solo insieme a `types_declaration=unresolved`.
+**Proposta, PR #6 di `plenora-contracts` — e la prima stesura era sbagliata.**
+Avevo messo `plenora.geometry.types_scan` direttamente in
+`ARROW-VOCABULARY-1.0`, argomentando da `COMPATIBILITY.md` che un campo
+facoltativo la cui assenza preserva il comportamento è compatibile. Quell'argomento
+non basta, e tre cose me l'hanno mostrato:
 
-La differenza è di compatibilità, non di gusto, e `COMPATIBILITY.md` la decide:
-aggiungere un valore a un'enumerazione chiusa **cambia il significato del campo**
-per un consumatore esistente, ed è elencato fra le modifiche incompatibili;
-aggiungere un campo facoltativo la cui assenza preserva il comportamento
-precedente è elencato fra quelle compatibili. Un consumatore che ignori la
-chiave continua a leggere `unresolved` come «non determinato», che è la lettura
-prudente di entrambi gli stati.
+* **il vocabolario si chiude da solo** nella sua prima frase — «This document
+  closes the wire vocabulary» — quindi un consumatore può validare che un campo
+  geometrico porti queste chiavi *e nessun'altra*. Aggiungere a un insieme
+  chiuso non è aggiungere un campo facoltativo a uno aperto;
+* **`plenora.contract.version` porta già il meccanismo**: §1 dice che le
+  versioni ignote falliscono chiuse. Lasciarla a `1` non ne usa niente, e chiede
+  ai consumatori esistenti una tolleranza che il documento non ha mai promesso;
+* **uno schema permissivo non è un contratto permissivo**: il vettore di
+  conformità accetta qualunque chiave di metadato con valore stringa, ma è una
+  proprietà di come si validano i vettori, non un'affermazione su che cosa un
+  consumatore conforme debba accettare. Dedurre la compatibilità da lì
+  renderebbe compatibile ogni chiave futura per costruzione — l'opposto di ciò
+  per cui un vocabolario si chiude.
 
-Con quella distinzione il rifiuto di B12c diventa mirato invece che totale: un
-sink che restringe i tipi accetta l'assenza accertata e continua a rifiutare
-l'ignoto, senza che nessun driver allarghi ciò che dichiara di saper scrivere.
+La 1.0 è quindi ripristinata intatta, e l'analisi è diventata la **decisione
+0006** con le due strade che lascia: la distinzione condivisa appartiene a un
+vocabolario successore che alza la versione del contratto, e un componente che
+ne abbia bisogno prima usa `plenora.geometry.native.*`, che `ARROW-INTERCHANGE-1.0
+§5` riserva esattamente a questo e che ARROW-009 e ARROW-010 già governano.
+
+Finché non c'è un successore, un sink che restringe i tipi continua a rifiutare
+le sorgenti dai tipi indeterminati, comprese quelle certamente vuote. Il rifiuto
+è prudente e non perde dati: rifiuta soltanto un lavoro che sarebbe stato
+sicuro.
 
 ### I — Qualifica finale
 
@@ -563,17 +578,24 @@ successo pieno, e la busta lo riporta già con `truncated`; PUBLIC-SURFACES-1.0
 §9 punto 5 delega «success, partial and failure semantics» alla specifica
 dell'operazione, che è nostra — quindi la scelta era nostra, ed è questa.
 
-La ragione non è il writer. Sono due semantiche del totale **incompatibili**, e
-nessuna è gratis: «il totale è quello della sorgente e ne consegno N» conserva
-il denominatore delle diagnostiche di riga e consegna un dataset che non gli
-corrisponde — chi lo rilegge conta N righe mentre il documento ne dichiara di
-più; «il totale è N» rende coerente il file e cancella l'informazione su quanto
-è rimasto indietro, che è precisamente ciò per cui il limite era stato chiesto.
+La ragione non è il writer, ed è più stretta di come l'avevo scritta la prima
+volta. Sta in **questo** contratto d'uscita, che porta un totale **solo**. Con
+uno solo le due letture si escludono: se vale quello della sorgente, il file
+consegnato non gli corrisponde e chi lo rilegge conta meno righe di quante il
+documento ne dichiari; se vale quello consegnato, sparisce l'informazione su
+quanto è rimasto indietro, che è precisamente ciò per cui il limite era stato
+chiesto.
 
-«Le prime N righe come dataset» resta un'operazione legittima e **diversa**: è
-una proiezione, non una lettura limitata, e avrà il suo contratto d'ingresso
-quando qualcuno la chiederà. Fino ad allora `limit` governa quante righe si
-**leggono**, non quante se ne consegnano.
+Non è una proprietà del problema: è una proprietà della forma scelta. **Un
+contratto futuro che rappresentasse separatamente le righe della sorgente e
+quelle consegnate direbbe entrambe le cose senza che nessuna cancelli l'altra**,
+e allora una consegna parziale sarebbe esprimibile e questa politica andrebbe
+riaperta. Rifiutare adesso non chiude quella porta: la tiene aperta, perché un
+rifiuto si toglie mentre una semantica già consegnata no.
+
+«Le prime N righe come dataset» resta intanto un'operazione legittima e
+**diversa**: è una proiezione, non una lettura limitata. Fino ad allora `limit`
+governa quante righe si **leggono**, non quante se ne consegnano.
 
 La decisione è scritta in
 `contracts/schemas/plenora-io-read-input-v1.schema.json`; codice, prova e SDK la
@@ -606,12 +628,31 @@ rilegge senza dichiarare il formato — non è sparita con il controllo:
 `recognised_suffixes` la dichiara, il catalogo la pubblica, e la sonda
 `write.vincoli-del-percorso` verifica che ogni driver dichiari entrambe le cose.
 
-Restava una terza categoria che non ho voluto inventare: `filegdb` è un dataset
-a directory e il suo staging è una `.gdb`, ma il driver non controlla la
-destinazione e in questa build la feature non è disponibile. Dichiararlo
-vincolato senza poterlo misurare sarebbe stato aggiungere un requisito per
-simmetria. È `Free` con i suoi `recognised_suffixes`, e la verifica è da fare
-dove la feature c'è.
+Restava una terza categoria che non avevo voluto inventare, ed è ora
+**misurata**. `filegdb` è un dataset a directory e il suo staging è una `.gdb`,
+quindi la tentazione era di dichiararlo vincolato per simmetria. Con
+`gdal-backend` acceso la misura dice altro:
+
+```text
+write g.arrow senza_suffisso --to filegdb   -> ok, 2 righe
+  inspect senza_suffisso                    -> estensione non riconosciuta
+write g.arrow con.gdb        --to filegdb   -> ok, 2 righe
+  inspect con.gdb                           -> ok
+```
+
+Scrivere su un nome qualunque **riesce** e produce un dataset valido; è
+rileggerlo per deduzione che non si può. È il comportamento dei sette driver
+liberi, non quello dei due vincolati — dove un nome sbagliato produrrebbe un
+artefatto fuori specifica o lascerebbe i companion senza un posto da cui
+prendere il nome. `Free` con i suoi `recognised_suffixes` era la dichiarazione
+giusta, e ora lo si sa invece di supporlo:
+`crates/driver-filegdb/tests/descrittore_pubblico.rs` la fissa, e gira in
+entrambe le build perché il descrittore è statico — ciò che la feature
+cambia è se il driver sappia lavorare, non che cosa dichiari.
+
+La build con `gdal-backend` conferma anche il resto del perimetro: tutti e dieci
+i descrittori portano `recognised_suffixes` e `sink_path`, e `filegdb` risulta
+`available: true`.
 
 ---
 

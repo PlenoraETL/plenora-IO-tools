@@ -532,13 +532,17 @@ fn senza_output_non_consegna_e_lo_dichiara() {
 /// imponeva -- `SURF-014` vieta soltanto di riportare un parziale come
 /// successo pieno, e `PUBLIC-SURFACES-1.0 §9.5` delega la semantica del
 /// parziale alla specifica dell'operazione -- quindi la scelta era nostra, ed
-/// e' stata fatta per la 4.0.0: `io.read` non consegna dataset parziali,
-/// perche' le due semantiche possibili del totale sono incompatibili e
-/// sceglierne una cancellerebbe cio' che l'altra conserva. Sta in
+/// e' stata fatta per la 4.0.0: `io.read` non consegna dataset parziali. Sta in
 /// `contracts/schemas/plenora-io-read-input-v1.schema.json`, per esteso.
 ///
-/// Chi la cambia cambia un contratto, non una riga: l'identificatore dello
-/// schema d'ingresso cambierebbe con essa.
+/// # E che cosa **non** prova
+///
+/// Che una consegna parziale sia impossibile. Le due letture del totale si
+/// escludono finche' il risultato ne porta **uno**; un contratto che
+/// rappresentasse separatamente le righe della sorgente e quelle consegnate le
+/// direbbe entrambe. Questa sonda fissa una politica, non un teorema, e il
+/// giorno in cui quel contratto esistesse andrebbe riaperta insieme allo
+/// schema d'ingresso -- che e' il punto dove la politica e' scritta.
 #[test]
 fn il_limite_con_la_consegna_e_rifiutato() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
