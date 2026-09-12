@@ -53,16 +53,26 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-#: Cio' che l'archivio **non** porta. Sono percorsi del repository che non
-#: servono a compilare la superficie pubblica, e includerli farebbe pagare a chi
-#: consuma il peso delle nostre prove.
+#: Cio' che l'archivio **non** porta.
+#:
+#: La regola e' precisa e l'ho imparata sbagliando: l'archivio deve contenere
+#: tutto cio' che serve a compilare i **target libreria**, e puo' lasciare fuori
+#: cio' che serve solo alle prove. Non e' la stessa cosa di «le nostre prove
+#: pesano», che era la regola che avevo scritto: `assurance/` era escluso e
+#: `driver-geoparquet` ne compila dentro quattro schemi con `include_str!`, per
+#: cui l'archivio non compilava affatto. Nessuna prova interna poteva dirlo --
+#: dentro il repository quei file ci sono sempre.
+#:
+#: Cio' che resta fuori e' quindi solo cio' che nessun target libreria include:
+#: le fixture dei test d'integrazione e i corpora di fuzzing. Un consumatore
+#: puo' compilare e usare la superficie; **non** puo' eseguire le suite di
+#: prova, e questa e' la conseguenza che va detta invece di scoprirla.
 ESCLUSI = (
     "crates/plenora-io-cli/tests/fixtures",
     "crates/driver-filegdb/tests",
     "fuzz/seeds",
     "fuzz/fixtures",
     "fuzz/corpus",
-    "assurance",
     ".s9-checkpoint",
 )
 

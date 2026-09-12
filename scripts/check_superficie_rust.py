@@ -127,6 +127,36 @@ def coerenza(mappatura: dict) -> list[str]:
     return problemi
 
 
+def inclusioni_fuori_dal_crate() -> list[tuple[str, str]]:
+    """I file che un crate compila dentro di se' prendendoli da fuori.
+
+    `include_str!` e `include_bytes!` con un percorso che esce dal crate legano
+    la compilazione a un file che sta altrove nel repository. Se l'archivio non
+    lo porta, non compila -- e nessuna prova interna puo' dirlo, perche' dentro
+    il repository quel file c'e' sempre.
+
+    E' la classe di difetti che ha reso rosso questo gate la prima volta:
+    `assurance/` era fra gli esclusi e `driver-geoparquet` ne compila dentro
+    quattro schemi.
+    """
+    trovate: list[tuple[str, str]] = []
+    for sorgente in (ROOT / "crates").rglob("*.rs"):
+        testo = sorgente.read_text(encoding="utf-8", errors="replace")
+        for uso in re.finditer(r'include_(?:str|bytes)!\(\s*"([^"]+)"', testo):
+            percorso = uso.group(1)
+            if not percorso.startswith("../"):
+                continue
+            risolto = (sorgente.parent / percorso).resolve()
+            try:
+                relativo = risolto.relative_to(ROOT)
+            except ValueError:
+                continue
+            # Fuori dal crate che lo include: e' il caso che ci interessa.
+            if not str(relativo).replace("\\", "/").startswith("crates/"):
+                trovate.append((str(sorgente.relative_to(ROOT)), str(relativo).replace("\\", "/")))
+    return trovate
+
+
 def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     """Costruisce l'archivio, lo estrae, e ci compila il consumatore accanto."""
     problemi: list[str] = []
@@ -151,6 +181,23 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
             "l'archivio non contiene `crates/plenora-io-cli/src/lib.rs`: la "
             "superficie non e' distribuita"
         ]
+    # Ogni file che un crate compila dentro di se' prendendolo da fuori deve
+    # essere nell'archivio, o quel crate non compila.
+    for sorgente, incluso in inclusioni_fuori_dal_crate():
+        if (radice / incluso).exists():
+            continue
+        # Un'inclusione dentro `#[cfg(test)]` puo' mancare: l'archivio non
+        # promette le suite di prova. Lo si distingue guardando se il file sta
+        # sotto un percorso che l'archivio dichiara di escludere per le prove.
+        if incluso.startswith(("fuzz/seeds", "fuzz/fixtures", "fuzz/corpus")):
+            continue
+        problemi.append(
+            f"`{sorgente}` compila dentro di se' `{incluso}`, che l'archivio non "
+            "contiene: il crate non compilerebbe fuori dal repository"
+        )
+    if problemi:
+        return problemi
+
     for fork in ("gdal", "shapefile", "dxf"):
         if not (radice / "vendor" / fork / "Cargo.toml").is_file():
             return [
@@ -174,6 +221,17 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
             f'path = "{relativo}"', f'path = "{assoluto.as_posix()}"'
         )
     (fuori / "Cargo.toml").write_text(manifesto_consumatore, encoding="utf-8")
+
+    # La toolchain e' quella che l'archivio dichiara, non quella di sistema.
+    # Fuori dal workspace il pin non si eredita, e senza di esso cargo sceglie
+    # il canale di default: il consumatore fallirebbe con «requires rustc
+    # 1.98.1» su una macchina che quel compilatore ce l'ha. E' anche cio' che un
+    # consumatore vero deve fare -- la versione minima e' una condizione d'uso
+    # della superficie, non un dettaglio di questa prova.
+    pin = radice / "rust-toolchain.toml"
+    if not pin.is_file():
+        return ["l'archivio non contiene `rust-toolchain.toml`: la versione minima non e' distribuita"]
+    shutil.copy(pin, fuori / "rust-toolchain.toml")
 
     corsa = subprocess.run(
         ["cargo", "run", "--quiet", "--offline"],
