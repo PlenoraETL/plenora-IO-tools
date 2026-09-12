@@ -19,6 +19,25 @@ publish = false
 [dependencies]
 plenora-io-cli = { path = "../../crates/plenora-io-cli" }
 
+# Le tre patch dei fork governati, e non e' un dettaglio di compilazione: e'
+# **cio' che un consumatore esterno deve sapere**. Il workspace di IO-tools
+# sostituisce `gdal`, `shapefile` e `dxf` con fork che espongono ciascuno un
+# comportamento che l'API upstream non sa esprimere -- la scrittura di un
+# record con geometria nulla, i campi ignorati di OGR, un reader fallibile di
+# entita' logiche. Un consumatore che non le applicasse non compilerebbe
+# affatto: `Cargo.lock` fissa versioni che su crates.io non esistono.
+#
+# La prima stesura di questo manifesto non le aveva, e il gate e' stato rosso
+# per la ragione giusta: «attempting to make an HTTP request, but --offline was
+# specified». Era la superficie che diceva a chi la usa una cosa incompleta.
+#
+# I percorsi li riscrive `scripts/check_superficie_rust.py` su quelli
+# dell'archivio estratto, come fa per la dipendenza principale.
+[patch.crates-io]
+gdal = { path = "../../vendor/gdal" }
+shapefile = { path = "../../vendor/shapefile" }
+dxf = { path = "../../vendor/dxf" }
+
 [[bin]]
 name = "consumatore-rust"
 path = "src/main.rs"

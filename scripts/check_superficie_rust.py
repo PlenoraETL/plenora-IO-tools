@@ -151,16 +151,28 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
             "l'archivio non contiene `crates/plenora-io-cli/src/lib.rs`: la "
             "superficie non e' distribuita"
         ]
+    for fork in ("gdal", "shapefile", "dxf"):
+        if not (radice / "vendor" / fork / "Cargo.toml").is_file():
+            return [
+                f"l'archivio non contiene `vendor/{fork}`: il workspace lo "
+                "sostituisce a una dipendenza di crates.io, e senza il fork un "
+                "consumatore non compila affatto"
+            ]
 
     # Il consumatore accanto all'albero estratto, con la dipendenza riscritta
     # sul percorso dell'archivio.
     fuori = lavoro / "consumatore"
     shutil.copytree(CONSUMATORE, fuori)
     manifesto_consumatore = (fuori / "Cargo.toml").read_text(encoding="utf-8")
-    manifesto_consumatore = manifesto_consumatore.replace(
-        'path = "../../crates/plenora-io-cli"',
-        f'path = "{(radice / "crates" / "plenora-io-cli").as_posix()}"',
-    )
+    for relativo, assoluto in (
+        ("../../crates/plenora-io-cli", radice / "crates" / "plenora-io-cli"),
+        ("../../vendor/gdal", radice / "vendor" / "gdal"),
+        ("../../vendor/shapefile", radice / "vendor" / "shapefile"),
+        ("../../vendor/dxf", radice / "vendor" / "dxf"),
+    ):
+        manifesto_consumatore = manifesto_consumatore.replace(
+            f'path = "{relativo}"', f'path = "{assoluto.as_posix()}"'
+        )
     (fuori / "Cargo.toml").write_text(manifesto_consumatore, encoding="utf-8")
 
     corsa = subprocess.run(
