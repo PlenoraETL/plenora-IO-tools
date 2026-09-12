@@ -233,8 +233,17 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
         return ["l'archivio non contiene `rust-toolchain.toml`: la versione minima non e' distribuita"]
     shutil.copy(pin, fuori / "rust-toolchain.toml")
 
+    # Senza `--offline`, e la ragione e' che la proprieta' sotto esame non e' la
+    # ermeticita': e' che un consumatore esterno possa costruire questa
+    # superficie. Un consumatore esterno scarica le proprie dipendenze, e i tre
+    # fork governati arrivano comunque dall'archivio perche' sono patch per
+    # percorso.
+    #
+    # `--offline` c'era, e passava in locale perche' la cache del container
+    # aveva gia' tutto. In CI, su un runner pulito, falliva: la prova stava
+    # misurando la cache invece della distribuzione.
     corsa = subprocess.run(
-        ["cargo", "run", "--quiet", "--offline"],
+        ["cargo", "run", "--quiet"],
         cwd=fuori,
         capture_output=True,
         text=True,
