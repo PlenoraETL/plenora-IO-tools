@@ -289,6 +289,17 @@ set -eu
 # proseguire con un default. Stessa categoria gia' ratificata tre volte qui
 # sopra. Nessuna revisione H-01 dovuta.
 #
+# Il 2026-09-12, blocco C1-C4, plenora-io-cli passa da 38 a 39 (totale 139 ->
+# 140). L'occorrenza e' in `tests/equivalenza_superfici.rs`: nomina
+# l'invocazione la cui uscita non e' JSON mentre si confrontano le due porte.
+# Stessa categoria gia' ratificata quattro volte qui sopra.
+#
+# Nota sul conteggio del crate: `main.rs` si e' diviso in `lib.rs` piu' un
+# binario sottile, e le occorrenze sono le stesse -- il censimento e' per
+# crate, non per file, quindi lo spostamento non si vede qui. Si vede invece
+# nello snapshot dei quartetti, che e' indicizzato per percorso.
+# Nessuna revisione H-01 dovuta.
+#
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

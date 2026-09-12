@@ -11,7 +11,9 @@ from plenora_io import Limits
 
 from _repository import RADICE
 
-CLI = RADICE / "crates" / "plenora-io-cli" / "src" / "main.rs" if RADICE else None
+# `lib.rs` e non `main.rs`: dalla 4.0.0 il parser degli argomenti sta nella
+# libreria insieme alle operazioni, e `main.rs` e' il binding di processo.
+CLI = RADICE / "crates" / "plenora-io-cli" / "src" / "lib.rs" if RADICE else None
 
 
 class ITetti(unittest.TestCase):

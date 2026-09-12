@@ -383,7 +383,7 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
-  "crates/plenora-io-cli/src/main.rs": {
+  "crates/plenora-io-cli/src/lib.rs": {
     "cmd_convert": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"

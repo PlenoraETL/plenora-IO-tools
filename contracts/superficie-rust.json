@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "component": "plenora-io-tools",
+  "che_cosa_e": "la mappatura versionata fra le operazioni del catalogo comune e gli export Rust pubblici che le servono. SURFACE-BINDINGS-1.0 §2 la richiede: «Each component MUST publish a versioned operation-to-public-export mapping for its released crate and verify it through a consumer crate that imports only those documented exports.»",
+  "crate": {
+    "pacchetto": "plenora-io-cli",
+    "libreria": "plenora_io_cli",
+    "perche_il_nome_dice_cli": "perche' rinominare il pacchetto tocca cinquantatre file fra CI, gate e manifesti, ed e' un intervento suo -- la riga C1b del piano. Il nome e' infelice per una libreria e il profilo non prescrive nomi: SURFACE-BINDINGS-1.0 §2 dice esplicitamente che «this repository does not prescribe Rust module, trait, method or type names». Cio' che prescrive e' che la mappatura esista e sia verificata, e quella non dipende dal nome.",
+    "distribuzione": "archivio sorgente con versione e digest. crates.io non e' richiesto dal perimetro della 4.0.0, e un pacchetto pubblicato senza un consumatore che lo provi sarebbe una superficie annunciata e non verificata."
+  },
+  "compatibilita": {
+    "perimetro": "gli export elencati qui sotto, e soltanto quelli. Tutto il resto della libreria e' raggiungibile perche' Rust non ha un modo di nascondere un modulo pubblico a un consumatore specifico, non perche' sia promesso.",
+    "regola": "un export elencato non cambia firma ne' sparisce senza un cambio di versione maggiore del componente. Un export **non** elencato puo' cambiare in qualunque momento.",
+    "come_si_verifica": "`conformance/consumatore-rust/` importa solo questi nomi e viene compilato **dall'archivio sorgente**, non dall'albero di lavoro. Sta fuori dal workspace perche' un crate dentro `crates/` vedrebbe i `pub(crate)` ed erediterebbe i lint: proverebbe che l'API e' raggiungibile da dentro, che e' precisamente cio' che non serve provare. Un export che diventasse privato, cambiasse firma o non finisse nell'archivio romperebbe quella compilazione.",
+    "costruzione": "gli ingressi si costruiscono con i metodi `con_*` e non con un letterale. I metodi sono parte della superficie: togliere uno di essi e' una rottura come togliere un campo, e il consumatore esterno ne esercita sei."
+  },
+  "operazioni": [
+    {
+      "operazione": "io.catalog",
+      "export": "plenora_io_cli::operazioni::catalog",
+      "firma": "fn() -> serde_json::Value",
+      "contratto_ingresso": "plenora-io-catalog-query-v1",
+      "contratto_uscita": "plenora-io-catalog-v1",
+      "nota": "nessun ingresso: il contratto d'ingresso e' vuoto perche' l'operazione descrive l'artefatto che sta rispondendo."
+    },
+    {
+      "operazione": "io.inspect",
+      "export": "plenora_io_cli::operazioni::inspect",
+      "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
+      "contratto_ingresso": "plenora-io-inspect-input-v1",
+      "contratto_uscita": "plenora-io-inspect-v1"
+    },
+    {
+      "operazione": "io.layers",
+      "export": "plenora_io_cli::operazioni::layers",
+      "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
+      "contratto_ingresso": "plenora-io-layers-input-v1",
+      "contratto_uscita": "plenora-io-layers-v1"
+    },
+    {
+      "operazione": "io.read",
+      "export": "plenora_io_cli::operazioni::read",
+      "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
+      "contratto_ingresso": "plenora-io-read-input-v1",
+      "contratto_uscita": "plenora-io-read-result-v1"
+    },
+    {
+      "operazione": "io.write",
+      "export": "plenora_io_cli::operazioni::write",
+      "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
+      "contratto_ingresso": "plenora-io-write-input-v1",
+      "contratto_uscita": "plenora-io-write-result-v1"
+    },
+    {
+      "operazione": "io.convert",
+      "export": "plenora_io_cli::operazioni::convert",
+      "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
+      "contratto_ingresso": "plenora-io-convert-input-v1",
+      "contratto_uscita": "plenora-io-convert-v1"
+    }
+  ],
+  "tipi_pubblici": [
+    {
+      "export": "plenora_io_cli::operazioni::Richiesta",
+      "ruolo": "l'ingresso delle cinque operazioni che ne hanno uno, con i campi che gli schemi `*-input-v1` dichiarano.",
+      "nota": "`#[non_exhaustive]`: il letterale `Richiesta { .. }` non compila da fuori, e non e' una limitazione ma il punto -- un campo aggiunto in futuro non rompe chi la costruisce. Si costruisce con `sulla_sorgente` e i metodi `con_*`, che si concatenano. La prima stesura di questa riga documentava `..Default::default()` come idioma, e non compilava nemmeno nelle prove d'integrazione del crate stesso, che per Rust sono gia' «fuori»."
+    },
+    {
+      "export": "plenora_io_cli::operazioni::Esito",
+      "ruolo": "`Result<Value, Value>`: il documento del contratto d'uscita, o la busta d'errore del contratto comune."
+    },
+    {
+      "export": "plenora_io_cli::operazioni::capabilities",
+      "ruolo": "il documento capability dell'artefatto, `plenora-capabilities-v2`."
+    }
+  ],
+  "che_cosa_questa_superficie_non_promette": {
+    "risultati_tipizzati": "ogni operazione rende il documento JSON del proprio contratto, non una struct Rust. E' una scelta col suo costo -- chi consuma da Rust legge `Value` e non campi -- e in cambio l'equivalenza fra CLI e Rust che SURF-017 e CLI-2.0 §10 pretendono non e' una promessa da verificare ma una conseguenza: le due superfici chiamano la stessa funzione. Strutture tipizzate potranno arrivare accanto a questo senza cambiare la mappatura.",
+    "il_codice_d_uscita": "non appartiene alla libreria. E' una proiezione del binding di processo, e `uscita_della_categoria` la applica nel binario. Un'API che rendesse un `i32` costringerebbe chi la usa in libreria a ragionare su un numero che riguarda un processo che non ha avviato.",
+    "i_driver": "i crate `driver-*` e `plenora-io-core` restano interni e instabili. Sono il confine plug-in, non l'API: un consumatore che li importasse dipenderebbe dal motore invece che dalle operazioni, ed e' esattamente la dipendenza che questa mappatura esiste per evitare."
+  }
+}

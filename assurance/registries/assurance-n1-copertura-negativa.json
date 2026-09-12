@@ -997,7 +997,7 @@
     },
     {
       "gruppo": "plenora-io-cli::installa_gestore_dei_segnali",
-      "file": "crates/plenora-io-cli/src/main.rs",
+      "file": "crates/plenora-io-cli/src/lib.rs",
       "righe": 1,
       "raggiunto_da_replay": 0,
       "disposizione": "chiuso",

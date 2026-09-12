@@ -30,7 +30,7 @@
 #   bash scripts/fuzz-container.sh collect      # attende, stampa, poi rimuove
 #   cargo llvm-cov --workspace --all-targets --locked --no-report
 #   cargo llvm-cov report --summary-only --fail-under-lines 80 \
-#     --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+#     --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$'
 #
 # L'esclusione fa parte della misura, non e' un dettaglio del comando: lo scope
 # e' "library coverage", e senza il filtro la percentuale misurata qui non e'

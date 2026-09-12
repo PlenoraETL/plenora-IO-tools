@@ -236,7 +236,10 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
 #:
 #: Non e' `busta.rs`, che porta i tetti della diagnostica: la semantica di
 #: `--limit` e `truncated` la decide il ciclo di lettura, che sta nel binario.
-CLI_MAIN = ROOT / "crates" / "plenora-io-cli" / "src" / "main.rs"
+# `lib.rs` e non `main.rs`: dalla 4.0.0 le operazioni e le loro sonde stanno
+# nella libreria, e `main.rs` e' il binding di processo. Il gate cerca le sonde
+# dove vivono, non dove vivevano.
+CLI_MAIN = ROOT / "crates" / "plenora-io-cli" / "src" / "lib.rs"
 
 
 def semantica_delle_buste(manifesto: dict[str, Any]) -> list[str]:

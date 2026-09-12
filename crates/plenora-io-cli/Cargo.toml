@@ -8,6 +8,19 @@ publish = false
 [lints]
 workspace = true
 
+# La libreria **e** il binario, e la separazione non e' di comodo: il profilo
+# io-tools pretende una superficie Rust pubblica con una mappatura versionata,
+# verificata da un consumatore che importa solo gli export documentati -- e un
+# binario non si importa. Le operazioni stanno in `lib.rs`; `main.rs` e' il
+# binding CLI, cioe' flussi, codici d'uscita e radici dell'artefatto.
+#
+# Il nome del pacchetto resta `plenora-io-cli` per ora: rinominarlo tocca
+# cinquantatre file fra CI, gate e manifesti, ed e' un intervento suo. La riga
+# C1b del piano lo registra.
+[lib]
+name = "plenora_io_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "plenora-io"
 path = "src/main.rs"

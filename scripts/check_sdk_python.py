@@ -54,7 +54,9 @@ MODELLI = SDK / "models.py"
 TETTI = SDK / "limits.py"
 ERRORI = SDK / "errors.py"
 CATEGORIE_RUST = ROOT / "crates" / "plenora-io-model" / "src" / "error.rs"
-CLI = ROOT / "crates" / "plenora-io-cli" / "src" / "main.rs"
+# `lib.rs`: i tetti che la CLI ammette si leggono dal parser, che sta nella
+# libreria insieme alle operazioni. `main.rs` e' il binding di processo.
+CLI = ROOT / "crates" / "plenora-io-cli" / "src" / "lib.rs"
 
 #: Le opzioni della CLI che **non** sono tetti: hanno un parametro proprio nei
 #: metodi del client, o sono comandi. Dichiarate qui perche' un elenco che si

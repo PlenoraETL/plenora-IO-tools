@@ -18,7 +18,8 @@
         "test": [
           "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi"
         ],
-        "bersaglio": "bins"
+        "bersaglio": "lib",
+        "perche_lib": "`lib` e non `bins`: dalla 4.0.0 le operazioni e le loro prove stanno nella libreria del crate, e `main.rs` e' il binding di processo. Il bersaglio `bins` elencava zero test, e il gate lo ha detto invece di leggere il silenzio come un verde."
       },
       "stato": "verified"
     },

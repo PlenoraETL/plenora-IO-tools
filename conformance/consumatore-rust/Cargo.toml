@@ -1,0 +1,24 @@
+# Il consumatore esterno della superficie Rust pubblica.
+#
+# Non e' un membro del workspace, e non e' una svista: un crate dentro
+# `crates/` sarebbe compilato insieme al resto, vedrebbe i `pub(crate)` ed
+# erediterebbe i lint del workspace. Proverebbe che l'API e' raggiungibile da
+# dentro, che e' precisamente cio' che non serve provare.
+#
+# La dipendenza e' per **percorso**, e il percorso viene riscritto da
+# `scripts/check_superficie_rust.py`, che estrae l'archivio sorgente
+# distribuito in una directory temporanea e mette questo crate accanto. Il
+# valore qui sotto e' quello che serve per aprire il file in un editore; la
+# compilazione usa quello dell'archivio.
+[package]
+name = "consumatore-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+plenora-io-cli = { path = "../../crates/plenora-io-cli" }
+
+[[bin]]
+name = "consumatore-rust"
+path = "src/main.rs"

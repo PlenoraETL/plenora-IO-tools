@@ -520,7 +520,7 @@ jobs:
       - name: Export LCOV report
         run: >-
           cargo llvm-cov report --lcov --output-path lcov.info
-          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         with:
           name: rust-coverage-lcov
@@ -534,7 +534,7 @@ jobs:
       - name: Enforce library coverage threshold
         run: >-
           cargo llvm-cov report --summary-only
-          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$'
           --fail-under-lines 80
 
   # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
@@ -585,6 +585,39 @@ jobs:
           python3 scripts/check_public_contracts.py
           --contracts .plenora-contracts
           --cli target/debug/plenora-io
+
+  # La superficie Rust pubblica, provata da un consumatore **esterno** compilato
+  # dall'archivio sorgente distribuito.
+  #
+  # Job suo e non un passo di `rust`, per due ragioni. La prima e' il costo:
+  # compila il workspace da zero in una directory temporanea, senza la cache del
+  # job principale, perche' una cache condivisa vorrebbe dire compilare contro
+  # artefatti dell'albero di lavoro invece che dell'archivio. La seconda e' che
+  # cio' che fallisce qui e' un'affermazione diversa -- «l'API e' usabile da
+  # fuori e l'archivio la contiene» -- e leggerla in mezzo ai passi del
+  # workspace la nasconderebbe.
+  #
+  # Non gira nel checkpoint: un checkpoint che compila due volte lo stesso
+  # workspace misura la macchina. Vedi la nota in testa a
+  # `scripts/check_superficie_rust.py`.
+  superficie-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          # L'archivio si costruisce da `HEAD`, quindi serve la revisione e non
+          # un albero senza storia.
+          fetch-depth: 1
+
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.98.1"
+
+      - name: Installa GDAL
+        run: sudo apt-get update && sudo apt-get install -y libgdal-dev
+
+      - name: La mappatura, il consumatore e l'archivio
+        run: python3 scripts/check_superficie_rust.py
 
   python-sdk:
     runs-on: ubuntu-latest

@@ -191,11 +191,12 @@ Quel documento porta anche una domanda aperta, che diventa **D8**.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| C1 | Superficie Rust **richiesta** dal profilo | profilo io-tools, «Public surfaces» | `release/cli-protocol-v2.json` dichiara `rust_api.status: internal_unstable`, `semver_guarantee: false`: nessun export è documentato come pubblico e nessuna compatibilità è promessa | manca ciò che il profilo chiede — export documentati, regole di compatibilità, prova da un consumatore esterno | dichiarare la superficie: elenco degli export, contratto di compatibilità, mappatura verso le operazioni | un crate consumatore importa **solo** gli export documentati e compila; il test è rosso se uno di essi diventa privato |
+| C1 | Superficie Rust **richiesta** dal profilo | profilo io-tools, «Public surfaces» | **chiusa.** Il crate guadagna una libreria: `plenora_io_cli::operazioni` espone le sei operazioni per nome, con una `Richiesta` a campi nominati. `main.rs` diventa il binding di processo — flussi, codici d'uscita, radici dell'artefatto — e non l'operazione | la superficie non esisteva perché le operazioni vivevano dentro un binario, e **un binario non si importa**. Gli unici nomi disponibili erano quelli del binding: `cmd_read`, `Cli`, i posizionali | una libreria accanto al binario, non una seconda implementazione: se ce ne fossero due l'equivalenza sarebbe una promessa da mantenere invece di una conseguenza | `contracts/superficie-rust.json` dichiara nove export; `conformance/consumatore-rust/` li importa tutti e nessun altro |
+| C1b | Il pacchetto si chiama ancora `plenora-io-cli` | — | il nome dice «CLI» e contiene una libreria | infelice ma non scorretto: SURFACE-BINDINGS-1.0 §2 dice che «this repository does not prescribe Rust module, trait, method or type names» | **aperto**: rinominarlo tocca cinquantatré file fra CI, gate, manifesti e il workspace di fuzzing, ed è un intervento suo | il nome nuovo compare in un posto solo — il manifesto — e tutto il resto lo deriva |
 | C1b | Il canale di distribuzione è una scelta separata | SURFACE-BINDINGS §2, ADOPTION §2 | tutti e sedici i crate hanno `publish = false` | `publish = false` riguarda **crates.io**, non l'esistenza di una superficie pubblica: un workspace sorgente è già consumabile per path o per dipendenza git | scegliere il canale — crates.io, sorgente versionato, dipendenza git su tag — **dopo** aver deciso la superficie, non insieme | il manifesto di adozione identifica l'artefatto crate per versione e digest, qualunque sia il canale |
-| C2 | Mappatura operazione → export pubblico | SURFACE-BINDINGS §2 | assente | nessuno può sapere quale simbolo serve `io.read` | mappatura versionata, sul modello di `rust_surface_bindings()` di database-tools | un crate consumatore importa **solo** gli export documentati e compila |
-| C3 | Verifica da un consumatore esterno | SURFACE-BINDINGS §2 | i test vivono dentro i crate | un test interno non prova che l'API sia usabile da fuori | test di integrazione che importa il crate come dipendenza | il test fallisce se un export documentato diventa privato |
-| C4 | Equivalenza fra superfici | SURF-017, CLI-2.0 §10 | non verificabile: una delle due superfici non esiste ancora | — | verifica di equivalenza fra CLI e Rust sulla stessa operazione | stessi input rifiutati, stessi assi d'errore, stesso significato del risultato |
+| C2 | Mappatura operazione → export pubblico | SURFACE-BINDINGS §2 | **chiusa.** `contracts/superficie-rust.json`: per ciascuna delle sei operazioni l'export, la firma e i due contratti; più tre tipi pubblici e il perimetro di compatibilità | — | fatto | `check_superficie_rust.py` confronta la mappatura col consumatore **nei due versi** — un export documentato e mai importato è una promessa che nessuno prova, uno importato e mai documentato una dipendenza che nessuno ha dichiarato — e verifica che ogni contratto nominato sia uno schema pubblicato |
+| C3 | Verifica da un consumatore esterno | SURFACE-BINDINGS §2 | **chiusa.** `conformance/consumatore-rust/` sta **fuori** dal workspace e viene compilato dall'**archivio sorgente distribuito**, non dall'albero di lavoro | un crate dentro `crates/` vedrebbe i `pub(crate)` ed erediterebbe i lint: proverebbe che l'API è raggiungibile da dentro, che è precisamente ciò che non serve provare | `scripts/costruisci-archivio-sorgente.py` produce `plenora-io-<versione>-src.tar.gz` con digest, **riproducibile** — `git archive` di un commit prende i tempi da lui, e `gzip -n` non scrive il proprio: due corse danno gli stessi byte | il gate costruisce l'archivio, lo estrae, ci mette il consumatore accanto e compila offline. Il primo tentativo è stato rosso per la ragione giusta: `lib.rs` non era ancora nella revisione, e l'archivio non la conteneva |
+| C4 | Equivalenza fra superfici | SURF-017, CLI-2.0 §10 | **chiusa, e per costruzione**: le due porte chiamano la stessa funzione, quindi non c'è una seconda implementazione da tenere allineata | restano due cose che la costruzione non garantisce, e sono quelle che le prove misurano: che il binding non aggiunga o tolga campi mentre costruisce la busta, e che la traduzione fra `Richiesta` e argomenti non cambi il significato di un ingresso. Un binding che leggesse la destinazione dal posizionale sbagliato passerebbe ogni prova interna | — | sei prove in `tests/equivalenza_superfici.rs`: le sei operazioni rendono documenti **identici** dalle due porte, e tre ingressi invalidi sono rifiutati con gli stessi assi. Il codice d'uscita non entra nel confronto: è la proiezione del binding, non dell'operazione |
 
 ### D — API pubbliche: Python
 
@@ -400,11 +401,10 @@ Era 8 su 19 quando il verificatore è nato.
 Dice che i requisiti **elencati in quel registro** sono verificati sul confine
 pubblico. Fuori restano:
 
-* **C1–C4** — la superficie Rust, la sua mappatura versionata e il consumatore
-  esterno che la importa;
 * **B13 e BB5a** — lo streaming senza materializzazione completa, e con esso
   l'identità dei campi attributo, che diventa necessaria appena una proiezione
   entra nel confine pubblico;
+* **C1b** — il nome del pacchetto, che dice ancora «CLI» per una libreria;
 * **A3, A6, I1** — il manifesto di adozione con le sue deviazioni, e la qualifica.
 
 Un registro completo misura tutto ciò che gli è stato chiesto di misurare, non
@@ -482,6 +482,12 @@ punto con più incertezza e più costo, e non blocca nulla di ciò che precede.
 che esce dalla prima entra nella seconda, con lo stesso contratto
 d'interscambio dichiarato dalle due parti. Resta **B13**, lo streaming senza
 materializzazione completa, che segue da qui.
+
+**Priorità 6-bis — la superficie Rust.** C1–C4 ✅ **chiuse**. Il crate ha una
+libreria, la mappatura è dichiarata e il consumatore esterno la compila
+dall'archivio distribuito. Ciò che questa priorità ha cambiato oltre al
+perimetro: l'equivalenza fra CLI e Rust non è più una promessa da verificare a
+ogni modifica, perché le due porte chiamano la stessa funzione.
 
 **Priorità 7 — i contratti di confine.** BB1–BB5. Dodici schemi, i loro esempi,
 lo schema di `details` e le prove sui metadati Arrow consegnati. Vengono **dopo**

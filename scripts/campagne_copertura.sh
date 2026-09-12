@@ -109,7 +109,7 @@ for numero in $(seq 1 "${CAMPAGNE}"); do
     echo "  suite eseguita"
 
     if ! cargo llvm-cov report --lcov --output-path "${LCOV}" \
-        --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$' >> "${REGISTRO}" 2>&1; then
+        --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$' >> "${REGISTRO}" 2>&1; then
         echo "  export lcov FALLITO — ${REGISTRO}" >&2
         exit 1
     fi
@@ -119,7 +119,7 @@ for numero in $(seq 1 "${CAMPAGNE}"); do
     fi
 
     if ! cargo llvm-cov report --summary-only \
-        --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$' > "${RIEPILOGO}" 2>&1; then
+        --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$' > "${RIEPILOGO}" 2>&1; then
         echo "  riepilogo FALLITO — ${RIEPILOGO}" >&2
         exit 1
     fi
