@@ -817,7 +817,9 @@ def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> 
         ("catalog", ("catalog", "--format", "json")),
         ("capabilities", ("capabilities", "--format", "json")),
         ("version", ("--version", "--format", "json")),
-        ("errore", ("read", "/nessun-file-per-la-sonda-dei-nomi.geojson", "--format", "json")),
+        # La stessa invocazione che le sonde degli assi d'errore usano: un
+        # secondo percorso inventato avrebbe fatto due contratti dove ne basta uno.
+        ("errore", ("inspect", "/nessun-file-esistente-per-la-sonda.shp")),
     ):
         corsa = artefatto.invoca(*argomenti)
         documento = corsa.documento() or {}

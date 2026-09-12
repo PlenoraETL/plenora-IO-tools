@@ -93,6 +93,8 @@ class ArtefattoFinto:
             return None
         if argomenti[:1] == ("write",):
             return self._pubblica(argomenti)
+        if argomenti[:1] == ("read",) and any("ostili" in a for a in argomenti):
+            return self._righe_rifiutate()
         if argomenti[:1] != ("read",):
             return None
 
@@ -128,6 +130,50 @@ class ArtefattoFinto:
         }
         return invocazione(json.dumps(busta) + "\n")
 
+
+    def _righe_rifiutate(self) -> gate.Invocazione:
+        """La busta d'errore con `row_diagnostics`, nella forma del contratto.
+
+        I nove campi obbligatori non sono scelti qui: sono quelli che
+        `schemas/row-diagnostics-v1.schema.json` dichiara, e la sonda li legge
+        da li'. Un finto che ne omettesse uno farebbe rossa la sonda, che e'
+        cio' che deve succedere.
+        """
+        busta = {
+            "status": "error",
+            "protocol_version": 2,
+            "component": "plenora-io-tools",
+            "component_version": "4.0.0",
+            "contract": "plenora-error-v1",
+            "command": "read",
+            "error": {
+                "category": "data_mapping",
+                "code": "ROW_REJECTED",
+                "message": "righe rifiutate",
+                "phase": "read",
+                "remote_effect": "none",
+                "retry": {"kind": "never"},
+                "row_diagnostics": {
+                    "contract": "plenora-row-diagnostics-v1",
+                    "scope": "read",
+                    "index_basis": "source_row_zero_based",
+                    "completeness": "partial",
+                    "observed_total": 1,
+                    "counts": {"finto.riga_invalida": 1},
+                    "examples_limit": 64,
+                    "examples_truncated": False,
+                    "examples": [
+                        {
+                            "cause": "finto.riga_invalida",
+                            "column": "geometry",
+                            "source_index": 1,
+                        }
+                    ],
+                    "knowledge_limits": ["scan_terminated_before_eof"],
+                },
+            },
+        }
+        return invocazione(json.dumps(busta) + "\n", exit_code=3)
 
     def _pubblica(self, argomenti: tuple[str, ...]) -> gate.Invocazione | None:
         """Le tre risposte di `write` che le sonde distinguono.
@@ -507,7 +553,7 @@ def artefatto_conforme() -> ArtefattoFinto:
                         "protocol_version": 2,
                         "component": "plenora-io-tools",
                         "component_version": "4.0.0",
-                        "contract": "plenora-io-version-v1",
+                        "contract": "plenora-io-version-v2",
                         "command": "--version",
                         "result": {"component_version": "4.0.0", "cli_protocol_version": 2},
                     }
