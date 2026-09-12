@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-convert-input-v1.schema.json",
+  "title": "plenora-io-convert-input-v1",
+  "$comment": "Contratto d'ingresso di io.convert. I **due** formati sono espliciti: il catalogo descrive l'operazione come «convert an external dataset between **explicit** formats», e il profilo vieta di scegliere il comportamento specifico di un formato analizzando l'estensione quando l'operazione lo richiede esplicito. Dalla 4.0.0 ometterli e' un errore d'uso, non un ritorno alla deduzione: un default che sopravvive alla deprecazione e' la deprecazione che non avviene.",
+  "type": "object",
+  "required": [
+    "source",
+    "destination",
+    "source_format",
+    "target_format"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_format": {
+      "$ref": "#/$defs/formato"
+    },
+    "target_format": {
+      "$ref": "#/$defs/formato"
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "$comment": "Assente significa **tutti** i layer della sorgente. Un sink che non ne regge piu' d'uno lo dichiara nel catalogo e rifiuta: e' una capacita' del formato, non un default di questa operazione."
+    },
+    "assume_crs": {
+      "type": "string",
+      "minLength": 1
+    },
+    "durable": {
+      "type": "boolean"
+    },
+    "input_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "output_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "$comment": "La base comune ai due driver; `input_options` e `output_options` la sovrascrivono per chiave. Tre dizionari e non uno perche' la stessa chiave puo' esistere per entrambi con significati diversi -- `delimiter` fra due CSV -- e un dizionario solo costringerebbe a indovinare a chi vada."
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "budgets": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "formato": {
+      "type": "string",
+      "enum": [
+        "geoparquet",
+        "geojson",
+        "csv",
+        "gpkg",
+        "shp",
+        "kml",
+        "xls",
+        "dxf",
+        "filegdb",
+        "ipc"
+      ],
+      "$comment": "Gli `id` di io.catalog, non estensioni: `shp`, non `shapefile` ne' `.shp`. L'enum e' chiuso perche' lo e' il catalogo, e una prova lo confronta nei due versi."
+    }
+  }
+}

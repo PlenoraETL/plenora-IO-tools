@@ -1,0 +1,7 @@
+{
+  "source": "SORGENTE",
+  "assume_crs": "EPSG:4326",
+  "input_options": {
+    "wkt_column": "geometry"
+  }
+}

@@ -218,6 +218,20 @@
       "riga_del_piano": "B14",
       "descrizione": "il nome di contratto che ogni busta annuncia e' quello che il contratto fissato le assegna, confrontato voce per voce con il catalogo e le specifiche del checkout fissato invece che per somiglianza",
       "stato": "implementato"
+    },
+    {
+      "id": "errore.limiti-dichiarati",
+      "regola": "ERR-011, ERR-012",
+      "riga_del_piano": "BB4",
+      "descrizione": "i limiti del prodotto sulla diagnostica sono confrontati asse per asse con quelli del contratto, nessuno li supera, e i byte del caso peggiore noto sono misurati contro il tetto dell'errore pubblico",
+      "stato": "implementato"
+    },
+    {
+      "id": "errore.dettagli-tipizzati",
+      "regola": "profilo io-tools, ERR-013",
+      "riga_del_piano": "BB3",
+      "descrizione": "lo schema `plenora-io-error-details-v1` e' pubblicato, e nessun errore emette un `details` fuori dalla forma dichiarata",
+      "stato": "implementato"
     }
   ],
   "che_cosa_questo_registro_non_misura": "l'adozione. Ventisette su ventisette dice che i requisiti **qui elencati** sono verificati sul confine pubblico, e nient'altro. Fuori da questo registro restano: otto dei dodici schemi delle coppie di ingresso e uscita con i loro esempi -- quelli di `io.read` e `io.write` ci sono --, `plenora-io-error-details-v1`, le prove sui metadati Arrow oltre quelle che `io.read` copre, la superficie Rust con la sua mappatura e il consumatore esterno, e la qualifica finale col manifesto di adozione. Sono le righe BB1-BB5, C1-C4 e I1 del piano. B10 e' entrata: `io.write` ha tre requisiti qui sopra.\n\nIl numero e' seducente proprio quando e' pieno: un registro completo misura tutto cio' che gli e' stato chiesto di misurare, non tutto cio' che serve. Aggiungere qui un requisito e' il modo in cui la misura cresce, e il gate non sa che cosa manca al registro stesso."

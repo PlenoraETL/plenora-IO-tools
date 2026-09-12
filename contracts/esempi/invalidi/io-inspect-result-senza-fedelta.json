@@ -1,0 +1,166 @@
+{
+  "format": {
+    "buffering": "adaptive_memory_then_disk",
+    "crs_handling": "fixed_wgs84",
+    "descriptor_version": 10,
+    "direction": "bidirectional",
+    "driver_version": 6,
+    "effective_delivery": "operation_atomic",
+    "fidelity_class": "conditional",
+    "format_options": [],
+    "hostile_input_hardened": true,
+    "id": "geojson",
+    "multi_file": false,
+    "multi_layer": false,
+    "native_read_mode": "streaming_sequential",
+    "predicate_pruning_support": "none",
+    "projection_support": "exact",
+    "read_determinism": "semantic",
+    "read_mode": "streaming_sequential",
+    "reader_concurrency": "multiple_independent_readers",
+    "recognised_suffixes": [
+      "geojson",
+      "json"
+    ],
+    "runtime": "pure_rust",
+    "semantic_version": 1,
+    "spatial_pruning_support": "none",
+    "spec_version_supported": null,
+    "write_capabilities": {
+      "allowed_types": [
+        "boolean",
+        "signed_integer",
+        "unsigned_integer",
+        "floating",
+        "utf8",
+        "binary",
+        "temporal",
+        "decimal"
+      ],
+      "attributes": "all",
+      "crs": {
+        "fixed": "OGC:CRS84"
+      },
+      "crs_representations": {
+        "crs_definition": "absent",
+        "crs_id": "derived",
+        "srid": "absent"
+      },
+      "field_names": {
+        "case_sensitive": true,
+        "encoding": "utf8",
+        "max_bytes": null,
+        "max_chars": null,
+        "normalization": "none",
+        "reserved_names": []
+      },
+      "geometry": {
+        "dimensions": [
+          "xy",
+          "xyz",
+          "unknown"
+        ],
+        "encodings": [
+          "wkb"
+        ],
+        "geometry_types": [
+          "point",
+          "linestring",
+          "polygon",
+          "multipoint",
+          "multilinestring",
+          "multipolygon",
+          "geometrycollection"
+        ],
+        "mixed_types": true,
+        "spatial_semantics": [
+          "geometry"
+        ],
+        "supported": true
+      },
+      "multi_layer": false,
+      "nullability": "preserve",
+      "sink_path": {
+        "kind": "free"
+      },
+      "type_coercion": "reject"
+    },
+    "write_determinism": "semantic",
+    "write_mode": "streaming"
+  },
+  "layers": [
+    {
+      "fields": [
+        {
+          "geometry": true,
+          "name": "geometry",
+          "nullable": true,
+          "type": "Binary"
+        },
+        {
+          "geometry": false,
+          "name": "attivo",
+          "nullable": true,
+          "type": "Boolean"
+        },
+        {
+          "geometry": false,
+          "name": "codice",
+          "nullable": true,
+          "type": "Utf8"
+        },
+        {
+          "geometry": false,
+          "name": "conteggio",
+          "nullable": true,
+          "type": "Int64"
+        },
+        {
+          "geometry": false,
+          "name": "etichetta",
+          "nullable": true,
+          "type": "Utf8"
+        },
+        {
+          "geometry": false,
+          "name": "id",
+          "nullable": true,
+          "type": "Utf8"
+        },
+        {
+          "geometry": false,
+          "name": "intero_largo",
+          "nullable": true,
+          "type": "Int64"
+        },
+        {
+          "geometry": false,
+          "name": "istante",
+          "nullable": true,
+          "type": "Utf8"
+        },
+        {
+          "geometry": false,
+          "name": "misura",
+          "nullable": true,
+          "type": "Float64"
+        }
+      ],
+      "geometry": {
+        "crs": "OGC:CRS84",
+        "crs_resolution": {
+          "axis_order": "longitude_latitude",
+          "definition": null,
+          "definition_format": null,
+          "id": "OGC:CRS84",
+          "kind": "geographic",
+          "status": "resolved"
+        },
+        "kind": "Geographic",
+        "name": "geometry"
+      },
+      "id": 0,
+      "name": "canonico"
+    }
+  ]
+}

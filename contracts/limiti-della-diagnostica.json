@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "component": "plenora-io-tools",
+  "che_cosa_e": "il confronto, asse per asse, fra i limiti che ERRORS-1.0 impone a un errore pubblico e quelli che il prodotto applica alla propria diagnostica. Chiude la riga BB4 del piano 4.0.0: i due sistemi esistevano entrambi e nessuno li aveva messi uno accanto all'altro, quindi non si sapeva se i nostri fossero piu' stretti o piu' larghi.",
+  "perche_i_numeri_del_contratto_stanno_qui": "perche' ERRORS-1.0 li pubblica come prosa, e un gate che leggesse la prosa di una specifica sarebbe la stessa dipendenza che `check_docset.py` vieta per i nostri documenti -- con in piu' il fatto che quella prosa non e' nostra. Sono ricopiati una volta, con la citazione accanto, e la sonda `errore.limiti-dichiarati` confronta il prodotto con questa copia. Il giorno in cui il repository comune li pubblicasse come dato macchina, questa copia sparirebbe: e' la stessa richiesta gia' registrata come HB2 per la proiezione dei codici d'uscita.",
+  "fonte": {
+    "revisione": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e",
+    "documento": "specs/errors/ERRORS-1.0.md",
+    "requisiti": ["ERR-011", "ERR-012"]
+  },
+  "assi": [
+    {
+      "asse": "byte dell'errore pubblico",
+      "requisito": "ERR-011",
+      "tetto_del_contratto": 524288,
+      "tetto_del_prodotto": 65536,
+      "costante": "busta::MAX_BYTE_BUSTA",
+      "governa": "il prodotto",
+      "nota": "otto volte piu' stretto. **Con un'avvertenza che conta**: `MAX_BYTE_BUSTA` limita le cinque sezioni diagnostiche -- tre fedelta' e due perdite -- non la busta intera, che porta anche i campi d'identita', il messaggio curato ed eventualmente `row_diagnostics`. Il tetto del contratto e' sull'errore **intero**. I due non misurano la stessa cosa, e per questo la sonda misura i byte effettivi di un errore reale invece di dedurli dalla somma delle costanti."
+    },
+    {
+      "asse": "byte di `details`",
+      "requisito": "ERR-011",
+      "tetto_del_contratto": 262144,
+      "tetto_del_prodotto": null,
+      "costante": null,
+      "governa": "il contratto, per assenza di soggetto",
+      "nota": "nessun percorso d'errore del prodotto emette `details`. La forma dichiarata in `plenora-io-error-details-v1` ha cinque proprieta' scalari con stringhe limitate a 128 byte l'una, quindi qualche centinaio di byte nel caso peggiore: tre ordini di grandezza sotto il tetto. Il rischio qui non e' superarlo, e' dimenticarsi del tetto quando `details` comincera' a esistere."
+    },
+    {
+      "asse": "profondita' di annidamento in `details`",
+      "requisito": "ERR-012",
+      "tetto_del_contratto": 8,
+      "tetto_del_prodotto": 1,
+      "costante": "la forma di plenora-io-error-details-v1",
+      "governa": "il prodotto",
+      "nota": "la forma dichiarata e' piatta: cinque scalari, nessun oggetto annidato, nessun array. La profondita' 1 non e' un limite applicato a runtime ma una proprieta' dello schema, che e' un modo piu' forte di rispettarlo."
+    },
+    {
+      "asse": "proprieta' per oggetto in `details`",
+      "requisito": "ERR-012",
+      "tetto_del_contratto": 128,
+      "tetto_del_prodotto": 5,
+      "costante": "la forma di plenora-io-error-details-v1",
+      "governa": "il prodotto",
+      "nota": "`additionalProperties: false` con cinque proprieta' dichiarate: il tetto non si puo' superare senza cambiare lo schema, e cambiarlo richiede un identificatore nuovo per ERR-013."
+    },
+    {
+      "asse": "elementi per array",
+      "requisito": "ERR-012",
+      "tetto_del_contratto": 128,
+      "tetto_del_prodotto": 64,
+      "costante": "loss::MAX_LOSS_EXAMPLES, loss::MAX_FIDELITY_REASONS, busta::MAX_CATEGORIE",
+      "governa": "il prodotto",
+      "nota": "il doppio piu' stretto, e su tre array diversi con lo stesso numero. `details` non ha array; questi appartengono alle sezioni diagnostiche, che ERR-012 non governa -- il suo perimetro e' `details`. Sono confrontati lo stesso perche' la domanda di BB4 era se i due sistemi fossero coerenti, non se si sovrapponessero."
+    },
+    {
+      "asse": "byte per stringa",
+      "requisito": "ERR-012",
+      "tetto_del_contratto": 4096,
+      "tetto_del_prodotto": 512,
+      "costante": "loss::MAX_BYTE_DETTAGLIO, loss::MAX_BYTE_ID_CATEGORIA (128)",
+      "governa": "il prodotto",
+      "nota": "otto volte piu' stretto sul dettaglio, trentadue sull'identificatore di categoria."
+    },
+    {
+      "asse": "nodi JSON in `details`",
+      "requisito": "ERR-012",
+      "tetto_del_contratto": 2048,
+      "tetto_del_prodotto": 11,
+      "costante": "la forma di plenora-io-error-details-v1",
+      "governa": "il prodotto",
+      "nota": "un oggetto piu' cinque coppie chiave-valore: undici nodi nel caso pieno."
+    }
+  ],
+  "che_cosa_resta_scoperto": "un asse solo, ed e' il primo. Il tetto del prodotto sulla diagnostica non copre la busta d'errore intera, e nessuna costante la limita direttamente: la limitano di fatto il messaggio curato -- che non porta testo dalla sorgente -- e i tetti di `row_diagnostics`, che vengono dal contratto condiviso e non dai nostri. La sonda misura i byte effettivi del caso peggiore che si sa costruire, e quella misura e' un limite inferiore alla verita': dice che quel caso sta sotto il tetto, non che ogni caso ci stia. Renderlo una garanzia vorrebbe dire applicare un tetto alla serializzazione finale della busta, che oggi non c'e'."
+}

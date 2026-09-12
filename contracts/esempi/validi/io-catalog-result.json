@@ -1,0 +1,1065 @@
+{
+  "determinism": "byte_for_byte",
+  "drivers": [
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "none",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 6,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [
+        {
+          "default": ",",
+          "description": "separatore di campo, esattamente un carattere ASCII",
+          "key": "delimiter",
+          "phase": "both",
+          "value": "char"
+        },
+        {
+          "default": "wkt",
+          "description": "come scrivere la geometria: colonna WKT o colonne x/y",
+          "key": "geometry_encoding",
+          "phase": "write",
+          "value": {
+            "enum": [
+              "wkt",
+              "xy"
+            ]
+          }
+        },
+        {
+          "default": null,
+          "description": "colonna che contiene la geometria in WKT",
+          "key": "wkt_column",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "colonna dell'ascissa, da usare insieme a y_column",
+          "key": "x_column",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "colonna dell'ordinata, da usare insieme a x_column",
+          "key": "y_column",
+          "phase": "read",
+          "value": "text"
+        }
+      ],
+      "hostile_input_hardened": true,
+      "id": "csv",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "streaming_sequential",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "csv"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "all",
+        "crs": "none",
+        "crs_representations": {
+          "crs_definition": "absent",
+          "crs_id": "absent",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "explicit_text"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 5,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "approximating",
+      "format_options": [],
+      "hostile_input_hardened": false,
+      "id": "dxf",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "materialized",
+      "predicate_pruning_support": "none",
+      "projection_support": "none",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "single_active_reader",
+      "recognised_suffixes": [
+        "dxf"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "loss_reported",
+        "crs": "embedded",
+        "crs_representations": {
+          "crs_definition": "preserved",
+          "crs_id": "derived",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "loss_reported"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "buffered"
+    },
+    {
+      "available": false,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 12,
+      "direction": "bidirectional",
+      "driver_version": 10,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [],
+      "hostile_input_hardened": false,
+      "id": "filegdb",
+      "multi_file": true,
+      "multi_layer": true,
+      "native_read_mode": "streaming_sequential",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "materializing",
+      "reader_concurrency": "single_active_reader",
+      "recognised_suffixes": [
+        "gdb"
+      ],
+      "required_feature": "gdal-backend",
+      "runtime": "gdal",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "signed_integer",
+          "floating",
+          "utf8"
+        ],
+        "attributes": "all",
+        "crs": "embedded",
+        "crs_representations": {
+          "crs_definition": "derived",
+          "crs_id": "derived",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "multipoint",
+            "multilinestring",
+            "multipolygon"
+          ],
+          "mixed_types": false,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": true,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "fixed_wgs84",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 6,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [],
+      "hostile_input_hardened": true,
+      "id": "geojson",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "streaming_sequential",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "geojson",
+        "json"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "all",
+        "crs": {
+          "fixed": "OGC:CRS84"
+        },
+        "crs_representations": {
+          "crs_definition": "absent",
+          "crs_id": "derived",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "preserve",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 9,
+      "direction": "bidirectional",
+      "driver_version": 5,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "lossless",
+      "format_options": [
+        {
+          "default": "false",
+          "description": "opt-in alla lettura del `crs` storico non conforme scritto da plenora fino a S10",
+          "key": "accept_legacy_crs_id_only",
+          "phase": "read",
+          "value": "boolean"
+        },
+        {
+          "default": "false",
+          "description": "opt-in al riconoscimento per nome delle colonne bbox legacy",
+          "key": "bbox_legacy_by_name",
+          "phase": "read",
+          "value": "boolean"
+        },
+        {
+          "default": "snappy",
+          "description": "codec di compressione delle pagine",
+          "key": "compression",
+          "phase": "write",
+          "value": {
+            "enum": [
+              "brotli",
+              "gzip",
+              "lz4",
+              "none",
+              "snappy",
+              "uncompressed",
+              "zstd"
+            ]
+          }
+        }
+      ],
+      "hostile_input_hardened": false,
+      "id": "geoparquet",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "streaming_random",
+      "predicate_pruning_support": "numeric_min_max_statistics",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_columnar",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "parquet"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "bounding_box_statistics",
+      "spec_version_supported": "1.1.0",
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal",
+          "nested",
+          "other"
+        ],
+        "attributes": "all",
+        "crs": "embedded",
+        "crs_representations": {
+          "crs_definition": "preserved",
+          "crs_id": "preserved",
+          "srid": "derived"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "preserve",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 6,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [],
+      "hostile_input_hardened": false,
+      "id": "gpkg",
+      "multi_file": false,
+      "multi_layer": true,
+      "native_read_mode": "streaming_random",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "gpkg"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "optional_rtree_index",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary"
+        ],
+        "attributes": "all",
+        "crs": "embedded",
+        "crs_representations": {
+          "crs_definition": "derived",
+          "crs_id": "preserved",
+          "srid": "derived"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": true,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "required",
+          "reason": "format_specification",
+          "suffixes": [
+            "gpkg"
+          ]
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 3,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "lossless",
+      "format_options": [],
+      "hostile_input_hardened": false,
+      "id": "ipc",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "streaming_random",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "arrow"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal",
+          "nested",
+          "other"
+        ],
+        "attributes": "all",
+        "crs": "embedded_optional",
+        "crs_representations": {
+          "crs_definition": "preserved",
+          "crs_id": "preserved",
+          "srid": "preserved"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb",
+            "ewkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry",
+            "geography"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "preserve",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "fixed_wgs84",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 5,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [],
+      "hostile_input_hardened": false,
+      "id": "kml",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "materialized",
+      "predicate_pruning_support": "none",
+      "projection_support": "none",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "single_active_reader",
+      "recognised_suffixes": [
+        "kml"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "all",
+        "crs": {
+          "fixed": "OGC:CRS84"
+        },
+        "crs_representations": {
+          "crs_definition": "absent",
+          "crs_id": "derived",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "reject"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "embedded",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 9,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [
+        {
+          "default": null,
+          "description": "forma di pubblicazione; .shp.d si deduce, .shp va accettata",
+          "key": "publish_mode",
+          "phase": "write",
+          "value": {
+            "enum": [
+              "shapefile_directory_dataset",
+              "loose_shapefile_set"
+            ]
+          }
+        },
+        {
+          "default": "64",
+          "description": "numero massimo di righe di esempio per diagnostica",
+          "key": "row_diagnostics.examples_limit",
+          "phase": "read",
+          "value": {
+            "integer": {
+              "max": 64,
+              "min": 1
+            }
+          }
+        },
+        {
+          "default": null,
+          "description": "campo DBF usato come chiave nelle diagnostiche di riga",
+          "key": "row_diagnostics.key_field",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "se emettere o redigere la chiave; richiede row_diagnostics.key_field",
+          "key": "row_diagnostics.key_policy",
+          "phase": "read",
+          "value": {
+            "enum": [
+              "emit",
+              "redact"
+            ]
+          }
+        }
+      ],
+      "hostile_input_hardened": false,
+      "id": "shp",
+      "multi_file": true,
+      "multi_layer": false,
+      "native_read_mode": "streaming_sequential",
+      "predicate_pruning_support": "none",
+      "projection_support": "exact",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "multiple_independent_readers",
+      "recognised_suffixes": [
+        "shp"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "all",
+        "crs": "embedded",
+        "crs_representations": {
+          "crs_definition": "preserved",
+          "crs_id": "derived",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": false,
+          "encoding": "ascii",
+          "max_bytes": 10,
+          "max_chars": 10,
+          "normalization": "format_defined",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon"
+          ],
+          "mixed_types": false,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "required",
+          "reason": "companion_files",
+          "suffixes": [
+            "shp",
+            "shp.d"
+          ]
+        },
+        "type_coercion": "explicit_text"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "streaming"
+    },
+    {
+      "available": true,
+      "buffering": "adaptive_memory_then_disk",
+      "crs_handling": "none",
+      "descriptor_version": 10,
+      "direction": "bidirectional",
+      "driver_version": 5,
+      "effective_delivery": "operation_atomic",
+      "fidelity_class": "conditional",
+      "format_options": [
+        {
+          "default": "wkt",
+          "description": "come scrivere la geometria: colonna WKT o colonne x/y",
+          "key": "geometry_encoding",
+          "phase": "write",
+          "value": {
+            "enum": [
+              "wkt",
+              "xy"
+            ]
+          }
+        },
+        {
+          "default": null,
+          "description": "nome del foglio da leggere; in assenza, il primo",
+          "key": "sheet",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "colonna che contiene la geometria in WKT",
+          "key": "wkt_column",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "colonna dell'ascissa, da usare insieme a y_column",
+          "key": "x_column",
+          "phase": "read",
+          "value": "text"
+        },
+        {
+          "default": null,
+          "description": "colonna dell'ordinata, da usare insieme a x_column",
+          "key": "y_column",
+          "phase": "read",
+          "value": "text"
+        }
+      ],
+      "hostile_input_hardened": true,
+      "id": "xls",
+      "multi_file": false,
+      "multi_layer": false,
+      "native_read_mode": "materialized",
+      "predicate_pruning_support": "none",
+      "projection_support": "none",
+      "read_determinism": "semantic",
+      "read_mode": "streaming_sequential",
+      "reader_concurrency": "single_active_reader",
+      "recognised_suffixes": [
+        "xlsx"
+      ],
+      "required_feature": null,
+      "runtime": "pure_rust",
+      "semantic_version": 1,
+      "spatial_pruning_support": "none",
+      "spec_version_supported": null,
+      "write_capabilities": {
+        "allowed_types": [
+          "boolean",
+          "signed_integer",
+          "unsigned_integer",
+          "floating",
+          "utf8",
+          "binary",
+          "temporal",
+          "decimal"
+        ],
+        "attributes": "all",
+        "crs": "none",
+        "crs_representations": {
+          "crs_definition": "absent",
+          "crs_id": "absent",
+          "srid": "absent"
+        },
+        "field_names": {
+          "case_sensitive": true,
+          "encoding": "utf8",
+          "max_bytes": null,
+          "max_chars": null,
+          "normalization": "none",
+          "reserved_names": []
+        },
+        "geometry": {
+          "dimensions": [
+            "xy",
+            "xyz",
+            "xym",
+            "xyzm",
+            "unknown"
+          ],
+          "encodings": [
+            "wkb"
+          ],
+          "geometry_types": [
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
+          ],
+          "mixed_types": true,
+          "spatial_semantics": [
+            "geometry"
+          ],
+          "supported": true
+        },
+        "multi_layer": false,
+        "nullability": "format_defined",
+        "sink_path": {
+          "kind": "free"
+        },
+        "type_coercion": "explicit_text"
+      },
+      "write_determinism": "semantic",
+      "write_mode": "buffered"
+    }
+  ]
+}

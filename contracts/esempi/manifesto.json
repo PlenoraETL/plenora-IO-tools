@@ -230,6 +230,175 @@
       "schema": "plenora-io-write-result-v1",
       "atteso": "invalido",
       "perche": "manca `write_fidelity`. Le tre fedelta' rispondono a domande diverse, e chi ne riceve una sola non sa se la perdita venga dall'ingresso o dal sink."
+    },
+    {
+      "file": "validi/io-catalog-query-vuota.json",
+      "schema": "plenora-io-catalog-query-v1",
+      "atteso": "valido",
+      "perche": "l'ingresso vuoto e' l'unico valido: l'operazione rende le capacita' dell'artefatto che sta rispondendo, quindi non c'e' niente da chiedere.",
+      "invocazione_cli": [
+        "catalog"
+      ]
+    },
+    {
+      "file": "invalidi/io-catalog-query-con-parametro.json",
+      "schema": "plenora-io-catalog-query-v1",
+      "atteso": "invalido",
+      "perche": "un parametro che filtri il catalogo. Sarebbe una comodita' e un'ambiguita': chi ricevesse un catalogo filtrato non saprebbe se un formato assente manchi all'artefatto o alla domanda.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "catalog",
+        "--format-filtro",
+        "geojson"
+      ]
+    },
+    {
+      "file": "validi/io-catalog-result.json",
+      "schema": "plenora-io-catalog-v1",
+      "atteso": "valido",
+      "perche": "il catalogo che il binario rende, catturato da un'invocazione reale: dieci driver con i loro descrittori, vincoli sul percorso e suffissi di riconoscimento."
+    },
+    {
+      "file": "invalidi/io-catalog-driver-senza-suffissi.json",
+      "schema": "plenora-io-catalog-v1",
+      "atteso": "invalido",
+      "perche": "un driver che non dichiara con quali suffissi viene riconosciuto. E' la meta' che resta vera dopo D10: togliere il vincolo sulla scrittura senza dichiarare il riconoscimento toglierebbe anche l'informazione."
+    },
+    {
+      "file": "invalidi/io-catalog-vincolo-senza-ragione.json",
+      "schema": "plenora-io-catalog-v1",
+      "atteso": "invalido",
+      "perche": "un vincolo sul percorso senza la sua ragione. Un vincolo di cui nessuno risponde e' indistinguibile da un'abitudine, ed e' esattamente la categoria che D10 ha eliminato in sette driver."
+    },
+    {
+      "file": "validi/io-inspect-input-minimo.json",
+      "schema": "plenora-io-inspect-input-v1",
+      "atteso": "valido",
+      "perche": "la sorgente e nient'altro: il formato non si dichiara perche' l'operazione esiste per determinarlo.",
+      "invocazione_cli": [
+        "inspect",
+        "SORGENTE"
+      ]
+    },
+    {
+      "file": "validi/io-inspect-input-con-opzioni.json",
+      "schema": "plenora-io-inspect-input-v1",
+      "atteso": "valido",
+      "perche": "le opzioni di lettura servono anche a ispezionare: un CSV senza `wkt_column` non ha geometria da descrivere, e l'ispezione direbbe il vero su un file diverso da quello inteso."
+    },
+    {
+      "file": "invalidi/io-inspect-input-con-formato.json",
+      "schema": "plenora-io-inspect-input-v1",
+      "atteso": "invalido",
+      "perche": "il formato dichiarato in ingresso. Il catalogo descrive io.inspect come l'operazione che rende «its **declared** format»: chiederlo insieme alla domanda sarebbe chiedere la risposta.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "inspect",
+        "SORGENTE",
+        "--formato-dichiarato",
+        "geojson"
+      ]
+    },
+    {
+      "file": "validi/io-inspect-result.json",
+      "schema": "plenora-io-inspect-v1",
+      "atteso": "valido",
+      "perche": "l'ispezione di una sorgente reale: descrittore intero del formato, layer con i loro schemi, fedelta' dichiarata."
+    },
+    {
+      "file": "invalidi/io-inspect-result-senza-fedelta.json",
+      "schema": "plenora-io-inspect-v1",
+      "atteso": "invalido",
+      "perche": "manca la fedelta'. Il profilo esige che perdita e coercizione che cambiano il risultato pubblico siano riportate e non taciute: un'ispezione che non dica che cosa il formato non sa rappresentare e' un'ispezione che tace la meta' utile."
+    },
+    {
+      "file": "validi/io-layers-input-minimo.json",
+      "schema": "plenora-io-layers-input-v1",
+      "atteso": "valido",
+      "perche": "la forma minima, identica a quella di io.inspect: due operazioni distinte del catalogo, e far loro condividere uno schema ne legherebbe l'evoluzione senza che nessun contratto lo chieda.",
+      "invocazione_cli": [
+        "layers",
+        "SORGENTE"
+      ]
+    },
+    {
+      "file": "validi/io-layers-result.json",
+      "schema": "plenora-io-layers-v1",
+      "atteso": "valido",
+      "perche": "i layer riassunti di una sorgente multi-layer: `format` e' il solo identificatore e ogni layer porta un conteggio di campi, non lo schema."
+    },
+    {
+      "file": "invalidi/io-layers-result-con-gli-schemi.json",
+      "schema": "plenora-io-layers-v1",
+      "atteso": "invalido",
+      "perche": "gli schemi dei campi dentro il riassunto. `io.layers` risponde a «che cosa posso indirizzare» senza aprire gli schemi, che su una sorgente grande e' la ragione per cui esiste: rimetterceli la renderebbe un io.inspect piu' povero invece di un'operazione diversa."
+    },
+    {
+      "file": "invalidi/io-layers-result-formato-come-descrittore.json",
+      "schema": "plenora-io-layers-v1",
+      "atteso": "invalido",
+      "perche": "`format` come descrittore invece che identificatore. Chi vuole le capacita' chiama io.catalog, che ne e' la fonte unica: duplicarle qui produrrebbe due copie destinate a divergere."
+    },
+    {
+      "file": "validi/io-convert-input-minimo.json",
+      "schema": "plenora-io-convert-input-v1",
+      "atteso": "valido",
+      "perche": "i quattro campi obbligatori: le due estremita' e i due formati, entrambi espliciti.",
+      "invocazione_cli": [
+        "convert",
+        "SORGENTE",
+        "USCITA",
+        "--from",
+        "geojson",
+        "--to",
+        "csv"
+      ]
+    },
+    {
+      "file": "invalidi/io-convert-input-senza-formati.json",
+      "schema": "plenora-io-convert-input-v1",
+      "atteso": "invalido",
+      "perche": "i due formati omessi. Il catalogo descrive l'operazione «between **explicit** formats»: dedurli dalle estensioni e' cio' che il profilo vieta, e dalla 4.0.0 l'assenza non ha un default ma un rifiuto.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "convert",
+        "SORGENTE",
+        "USCITA"
+      ]
+    },
+    {
+      "file": "invalidi/io-convert-input-formato-come-estensione.json",
+      "schema": "plenora-io-convert-input-v1",
+      "atteso": "invalido",
+      "perche": "un'estensione al posto di un identificatore. Sono due vocabolari diversi -- uno del filesystem, uno del catalogo -- e confonderli e' esattamente cio' che i formati espliciti esistono per evitare.",
+      "codice_del_prodotto": "UNKNOWN_FORMAT",
+      "invocazione_cli": [
+        "convert",
+        "SORGENTE",
+        "USCITA",
+        "--from",
+        ".geojson",
+        "--to",
+        "csv"
+      ]
+    },
+    {
+      "file": "validi/io-convert-result.json",
+      "schema": "plenora-io-convert-v1",
+      "atteso": "valido",
+      "perche": "una conversione reale con perdita in scrittura: tre fedelta' con valori diversi, due perdite, esito di pubblicazione."
+    },
+    {
+      "file": "invalidi/io-convert-result-senza-fedelta-combinata.json",
+      "schema": "plenora-io-convert-v1",
+      "atteso": "invalido",
+      "perche": "manca la fedelta' della coppia. Le due dei formati singoli non la implicano: la conversione promette meno di entrambe, e chi leggesse solo quelle crederebbe di avere una garanzia che non ha."
+    },
+    {
+      "file": "invalidi/io-convert-result-esito-ignoto.json",
+      "schema": "plenora-io-convert-v1",
+      "atteso": "invalido",
+      "perche": "un esito di pubblicazione fuori dal vocabolario dichiarato. Un valore nuovo e' un cambio di contratto, non un dettaglio."
     }
   ]
 }

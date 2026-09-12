@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-inspect-input-v1.schema.json",
+  "title": "plenora-io-inspect-input-v1",
+  "$comment": "Contratto d'ingresso di io.inspect. Il formato **non** si dichiara, e qui la differenza con io.convert e io.write e' normativa e non stilistica: il catalogo descrive io.inspect come l'operazione che rende «its **declared** format», cioe' quella che lo scopre. Chiedere il formato in ingresso a un'operazione che esiste per determinarlo sarebbe chiedere la risposta insieme alla domanda.",
+  "type": "object",
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Percorso della sorgente da ispezionare. Binding CLI: primo argomento posizionale."
+    },
+    "assume_crs": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CRS da assumere quando la sorgente non lo dichiara. Binding CLI: --assume-crs."
+    },
+    "input_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Opzioni del driver di lettura. Binding CLI: --in-opt k=v.",
+      "$comment": "Talvolta necessarie **per ispezionare**: un CSV senza `wkt_column` non ha geometria da descrivere, e senza l'opzione l'ispezione direbbe il vero su un file diverso da quello che il chiamante intendeva."
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "examples": [
+    {
+      "source": "dati/canonico.geojson"
+    }
+  ]
+}

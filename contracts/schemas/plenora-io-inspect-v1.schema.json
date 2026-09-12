@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-inspect-v1.schema.json",
+  "title": "plenora-io-inspect-v1",
+  "$comment": "Contratto d'uscita di io.inspect: formato dichiarato, layer, schemi e metadati di fedelta'. `format` e' il **descrittore intero**, lo stesso che io.catalog rende per quel driver, e non un identificatore: chi ispeziona una sorgente vuole sapere che cosa il formato sa fare su di essa, non soltanto come si chiama.",
+  "type": "object",
+  "required": [
+    "format",
+    "layers",
+    "fidelity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "object",
+      "required": [
+        "id",
+        "direction",
+        "recognised_suffixes"
+      ],
+      "$comment": "Il descrittore del driver che ha riconosciuto la sorgente. Le sue chiavi sono quelle di `plenora-io-catalog-v1`, e non sono ripetute qui: duplicarle produrrebbe due elenchi destinati a divergere, che e' il difetto che il catalogo unico esiste per impedire."
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "fields"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "type",
+                "nullable",
+                "geometry"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "nullable": {
+                  "type": "boolean"
+                },
+                "geometry": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "geometry": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "name",
+              "kind",
+              "crs_resolution"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "crs": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "crs_resolution": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "resolved",
+                      "declared_unresolved",
+                      "missing"
+                    ],
+                    "$comment": "I tre stati di ARROW-007, che un componente DEVE distinguere. Non sono tre sfumature di «non lo so»: `resolved` ha un CRS utilizzabile, `declared_unresolved` un identificatore che non si e' saputo risolvere, `missing` non ha nulla. La grafia e' quella del contratto -- ARROW-VOCABULARY-1.0 §3 -- ed e' la stessa che i metadati Arrow scrivono."
+                  },
+                  "id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "definition": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "definition_format": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "axis_order": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "$comment": "ARROW-VOCABULARY-1.0 §4: `resolved` e `declared_unresolved` esigono un identificatore o una definizione **e** l'ordine degli assi; `missing` li vieta tutti. Definizione e formato o ci sono entrambi o non c'e' nessuno dei due."
+              }
+            }
+          }
+        }
+      },
+      "$comment": "Ogni layer con il suo schema. `id` e' l'identificatore numerico con cui le altre operazioni lo selezionano, e non il nome: il nome puo' ripetersi fra sorgenti e in alcuni formati non esiste affatto."
+    },
+    "fidelity": {
+      "type": "object",
+      "required": [
+        "level",
+        "reasons"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Il profilo esige che perdita, coercizione e metadati non supportati che cambiano il risultato pubblico siano riportati e non taciuti. `code` e' stabile e utilizzabile senza analizzare `detail`: chi automatizza legge il codice, chi legge a schermo legge il dettaglio."
+    }
+  }
+}

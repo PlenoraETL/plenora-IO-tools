@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-error-details-v1.schema.json",
+  "title": "plenora-io-error-details-v1",
+  "$comment": "La forma tipizzata che `error.details` DEVE avere quando un errore di IO-tools ne porta uno. Il profilo io-tools lo esige: «When an IO error includes `details`, the value MUST conform to the component-owned `plenora-io-error-details-v1` schema. IO-tools MUST publish that schema and bounded valid and invalid examples.»\n\nSTATO DI FATTO, perche' vale piu' della forma: **nessun percorso d'errore del prodotto emette oggi `details`**. La settima chiave che le buste d'errore portano e' `row_diagnostics`, che e' un altro contratto -- condiviso, non nostro -- e la quarta frase della clausola del profilo copre esattamente questo caso: «Omitting `details` remains valid when the four common error axes and optional `code` completely express the failure». Finora li esprimono.\n\nLo schema esiste lo stesso, e non per formalismo: ERR-013 dice che gli identificatori di contratto sono immutabili e che far evolvere la forma richiede un identificatore nuovo. Pubblicarla prima di emetterla significa sceglierla una volta invece di scoprirla sotto pressione al primo errore che ne avra' bisogno.\n\nI campi non sono inventati: sono quelli che `ErrorContext` gia' calcola dentro il prodotto e che oggi finiscono soltanto nel messaggio curato. `details` e' il posto dove diventerebbero leggibili da una macchina senza analizzare quel testo, che e' cio' che ERR-002 chiede di non dover fare.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "driver": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "$comment": "L'identificatore del driver coinvolto, dal vocabolario di `io.catalog`. Non e' un nome che viene dal file: e' una costante del prodotto, e questa e' la ragione per cui puo' comparire in un errore redatto."
+    },
+    "layer_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "$comment": "L'indice del layer, non il suo nome. Il nome viene dalla sorgente e `message` deve restare redatto; l'indice e' una posizione, e una posizione non porta dati."
+    },
+    "field_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "$comment": "Stessa ragione dell'indice di layer: identifica senza nominare. Chi riceve l'errore risale al nome incrociando lo schema che `io.inspect` rende, e quella e' una scelta sua."
+    },
+    "capability_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "$comment": "Perche' una capacita' del formato non regge il contratto dei dati -- tipo non rappresentabile, geometria mista, CRS non esprimibile. E' un codice stabile e chiuso dal prodotto, utilizzabile senza analizzare `message`: e' la parte di `details` che serve davvero a chi automatizza, perche' distingue «questo formato non puo'» da «questa richiesta e' sbagliata»."
+    },
+    "contract_identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "$comment": "L'elemento del contratto dei dati su cui il fallimento cade -- una colonna geometrica, un campo dello schema -- nella forma stabile che il prodotto usa internamente. Non e' il nome della colonna nel file."
+    }
+  },
+  "$defs": {
+    "limiti": {
+      "$comment": "I limiti di ERR-011 e ERR-012 non sono ripetuti come vincoli dello schema, ed e' una scelta: JSON Schema puo' contare le proprieta' e la profondita', non i byte della codifica compatta, quindi metterne meta' qui darebbe l'impressione che il resto sia coperto. Sono invece dichiarati in `contracts/limiti-della-diagnostica.json`, confrontati con quelli del prodotto, e verificati sui byte da una sonda. Per costruzione questa forma li rispetta comunque: cinque proprieta' scalari, profondita' 1, nessun array, e ogni stringa limitata."
+    }
+  },
+  "examples": [
+    { "driver": "geoparquet", "capability_reason": "type_not_representable" },
+    { "driver": "shp", "layer_index": 0, "field_index": 2, "capability_reason": "crs_not_representable" }
+  ]
+}

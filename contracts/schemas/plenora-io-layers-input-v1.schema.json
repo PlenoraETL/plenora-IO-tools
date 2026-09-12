@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-layers-input-v1.schema.json",
+  "title": "plenora-io-layers-input-v1",
+  "$comment": "Contratto d'ingresso di io.layers. Identico a quello di io.inspect, e la ripetizione e' voluta: sono due operazioni distinte del catalogo, con identificatori distinti, e farle condividere uno schema legherebbe la loro evoluzione senza che nessun contratto lo chieda.",
+  "type": "object",
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assume_crs": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "examples": [
+    {
+      "source": "dati/canonico.gpkg"
+    }
+  ]
+}

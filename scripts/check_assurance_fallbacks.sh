@@ -283,6 +283,12 @@ set -eu
 # sopra -- terminano la prova invece di proseguire con un default.
 # Nessuna revisione H-01 dovuta.
 #
+# Il 2026-09-12, blocco BB1-BB5, plenora-io-cli passa da 37 a 38 (totale 138 ->
+# 139). L'occorrenza e' in `tests/metadati_arrow.rs`: `unwrap_or_else(|| panic!(
+# "ARROW-003: ..."))` nomina il campo che non porta l'identita' attesa invece di
+# proseguire con un default. Stessa categoria gia' ratificata tre volte qui
+# sopra. Nessuna revisione H-01 dovuta.
+#
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

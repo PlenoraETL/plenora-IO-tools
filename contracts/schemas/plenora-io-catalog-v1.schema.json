@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-catalog-v1.schema.json",
+  "title": "plenora-io-catalog-v1",
+  "$comment": "Contratto d'uscita di io.catalog: il contenuto di `result`. PUBLIC-CATALOGS-1.0 e il profilo io-tools lo dichiarano «the sole normative source for format identifiers, accepted options, read/write availability, layer behavior, geometry and CRS support, fidelity constraints and publish guarantees». Da qui la regola che governa tutto il resto: il documento capability NON deve duplicarne la matrice, e infatti non la duplica.",
+  "type": "object",
+  "required": [
+    "determinism",
+    "drivers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "determinism": {
+      "type": "string",
+      "minLength": 1,
+      "$comment": "La garanzia di determinismo del catalogo stesso: due invocazioni sullo stesso artefatto rendono gli stessi byte. Serve a chi lo usa come impronta."
+    },
+    "drivers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/driver"
+      },
+      "$comment": "Ogni driver dell'artefatto, disponibile o no. Un driver **omesso** direbbe che non esiste; uno presente con `available: false` dice che esiste e perche' non si puo' usare, ed e' l'unica delle due che si puo' verificare."
+    }
+  },
+  "$defs": {
+    "driver": {
+      "type": "object",
+      "required": [
+        "id",
+        "available",
+        "required_feature",
+        "direction",
+        "recognised_suffixes",
+        "runtime",
+        "fidelity_class",
+        "crs_handling",
+        "multi_layer",
+        "multi_file",
+        "hostile_input_hardened",
+        "spec_version_supported",
+        "buffering",
+        "descriptor_version",
+        "driver_version",
+        "semantic_version",
+        "effective_delivery",
+        "native_read_mode",
+        "read_mode",
+        "write_mode",
+        "read_determinism",
+        "write_determinism",
+        "reader_concurrency",
+        "projection_support",
+        "predicate_pruning_support",
+        "spatial_pruning_support",
+        "format_options"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "available": {
+          "type": "boolean",
+          "$comment": "`false` con `required_feature` non nullo dice **perche'**: la build non porta quella feature. Un driver indisponibile senza ragione sarebbe indistinguibile da un difetto."
+        },
+        "required_feature": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "bidirectional",
+            "read_only",
+            "write_only"
+          ]
+        },
+        "recognised_suffixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "$comment": "I suffissi per cui un percorso viene **riconosciuto** come questo formato quando nessuno lo dichiara. Non e' il gemello del vincolo che la scrittura pone: scrivere su un nome qualsiasi e' ammesso dove `sink_path.kind` vale `free`, e questo campo dice che cosa si perde facendolo -- la riapribilita' per deduzione."
+        },
+        "write_capabilities": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "sink_path"
+          ],
+          "properties": {
+            "sink_path": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "free",
+                    "required"
+                  ]
+                },
+                "suffixes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "reason": {
+                  "enum": [
+                    "format_specification",
+                    "companion_files"
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "required"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "suffixes",
+                      "reason"
+                    ]
+                  }
+                }
+              ],
+              "$comment": "Un vincolo senza ragione e' un vincolo di cui nessuno risponde, e senza suffissi non vincola niente: la clausola condizionale li pretende entrambi quando il vincolo c'e'. Le due ragioni ammesse sono chiuse perche' lo sono i casi: la specifica del formato lo impone (GeoPackage, OGC 12-128r requisito 2), oppure i file companion derivano il nome dal principale e il suffisso sceglie la forma di pubblicazione (Shapefile)."
+            }
+          }
+        },
+        "format_options": {
+          "type": "array"
+        },
+        "descriptor_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "driver_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "semantic_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "$comment": "Le tre versioni non sono ridondanti: `semantic_version` e' quella del contratto semantico del formato, `driver_version` quella dell'implementazione, `descriptor_version` quella di **questa descrizione**. L'impronta del catalogo deriva da tutte e tre, e cambiarne una senza le altre e' un'affermazione precisa su che cosa e' cambiato."
+    }
+  }
+}

@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-convert-v1.schema.json",
+  "title": "plenora-io-convert-v1",
+  "$comment": "Contratto d'uscita di io.convert. Le **tre** fedelta' e le **due** perdite non sono la stessa cosa ripetuta: `read_fidelity` e `write_fidelity` dicono che cosa i due formati promettono da soli, `conversion_fidelity` che cosa promette la coppia -- che e' meno di entrambe -- e le due perdite dicono che cosa e' andato perso davvero, dai due lati. Chi le fondesse non saprebbe piu' se una perdita e' del formato d'origine o di quello di destinazione, che e' l'unica cosa da sapere per evitarla.",
+  "type": "object",
+  "required": [
+    "from",
+    "to",
+    "layers",
+    "total_rows",
+    "bytes_written",
+    "publish_outcome",
+    "read_fidelity",
+    "write_fidelity",
+    "conversion_fidelity",
+    "read_loss",
+    "write_loss"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "type": "string",
+      "minLength": 1
+    },
+    "to": {
+      "type": "string",
+      "minLength": 1
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "rows",
+          "batches"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "batches": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "$comment": "Per layer e non solo in totale: una conversione multi-layer in cui uno sia vuoto e un altro pieno e' indistinguibile dal totale, e sono due situazioni che portano a decisioni diverse."
+    },
+    "total_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bytes_written": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "publish_outcome": {
+      "type": "string",
+      "enum": [
+        "published",
+        "published_durability_unconfirmed"
+      ],
+      "$comment": "I due stati **osservabili** su questa superficie. Il rollback non e' un esito ma un errore, e si osserva sull'assenza della destinazione; la pubblicazione parziale non e' osservabile perche' il publish e' `operation_atomic`. Un valore per uno stato irraggiungibile sarebbe un vocabolario piu' ricco e meno vero."
+    },
+    "read_fidelity": {
+      "type": "object",
+      "required": [
+        "level",
+        "reasons"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Il profilo esige che perdita, coercizione e metadati non supportati che cambiano il risultato pubblico siano riportati e non taciuti. `code` e' stabile e utilizzabile senza analizzare `detail`: chi automatizza legge il codice, chi legge a schermo legge il dettaglio."
+    },
+    "write_fidelity": {
+      "type": "object",
+      "required": [
+        "level",
+        "reasons"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Il profilo esige che perdita, coercizione e metadati non supportati che cambiano il risultato pubblico siano riportati e non taciuti. `code` e' stabile e utilizzabile senza analizzare `detail`: chi automatizza legge il codice, chi legge a schermo legge il dettaglio."
+    },
+    "conversion_fidelity": {
+      "type": "object",
+      "required": [
+        "level",
+        "reasons"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Il profilo esige che perdita, coercizione e metadati non supportati che cambiano il risultato pubblico siano riportati e non taciuti. `code` e' stabile e utilizzabile senza analizzare `detail`: chi automatizza legge il codice, chi legge a schermo legge il dettaglio."
+    },
+    "read_loss": {
+      "type": "object",
+      "required": [
+        "lossless",
+        "counts"
+      ],
+      "properties": {
+        "lossless": {
+          "type": "boolean"
+        },
+        "counts": {
+          "type": "array"
+        },
+        "esempi": {
+          "type": "array"
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Indicizzata per **layer, campo e classe di tipo**, mai per riga: non e' un documento `plenora-row-diagnostics-v1` e non deve diventarlo. Quello, che e' row-scoped, sta nella busta d'errore sotto `row_diagnostics`. Confonderli produrrebbe due documenti con lo stesso nome che rispondono a domande diverse."
+    },
+    "write_loss": {
+      "type": "object",
+      "required": [
+        "lossless",
+        "counts"
+      ],
+      "properties": {
+        "lossless": {
+          "type": "boolean"
+        },
+        "counts": {
+          "type": "array"
+        },
+        "esempi": {
+          "type": "array"
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "type": "object"
+        }
+      },
+      "$comment": "Indicizzata per **layer, campo e classe di tipo**, mai per riga: non e' un documento `plenora-row-diagnostics-v1` e non deve diventarlo. Quello, che e' row-scoped, sta nella busta d'errore sotto `row_diagnostics`. Confonderli produrrebbe due documenti con lo stesso nome che rispondono a domande diverse."
+    }
+  }
+}

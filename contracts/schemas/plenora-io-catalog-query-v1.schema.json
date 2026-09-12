@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-catalog-query-v1.schema.json",
+  "title": "plenora-io-catalog-query-v1",
+  "$comment": "Contratto d'ingresso di io.catalog. E' vuoto, e non e' una svista: l'operazione rende le capacita' **dell'artefatto che sta rispondendo**, quindi non c'e' niente da chiedere. Dichiararlo vuoto e' un'affermazione -- nessun parametro cambia il risultato -- mentre non pubblicarlo lascerebbe pensare che qualcosa ci sia e non sia stato scritto.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "examples": [
+    {}
+  ]
+}

@@ -758,6 +758,177 @@ def _dataset_arrow(artefatto: Artefatto, dove: Path) -> tuple[Path | None, str]:
     return arrow, ""
 
 
+def sonda_limiti_della_diagnostica(
+    artefatto: Artefatto, vocabolario: Vocabolario
+) -> Esito:
+    """I due sistemi di limiti sono confrontati, e il caso peggiore e' misurato.
+
+    # Che cosa c'era prima
+
+    Due sistemi che non si erano mai guardati: ERR-011 e ERR-012 col tetto
+    sull'errore pubblico, e il nostro budget della diagnostica con i suoi.
+    Nessuno sapeva se i nostri fossero piu' stretti o piu' larghi, e un tetto
+    piu' largo del contratto sarebbe una violazione che nessun gate avrebbe
+    visto.
+
+    # Che cosa questa sonda fa, e che cosa non puo' fare
+
+    Confronta i sette assi dichiarati in `contracts/limiti-della-diagnostica.json`
+    e verifica che, dove il prodotto ha un tetto, quel tetto non superi quello
+    del contratto. Poi **misura i byte** di un errore reale con diagnostica di
+    riga -- il caso peggiore che si sappia costruire -- contro il tetto di
+    ERR-011.
+
+    Quella misura e' un limite inferiore alla verita': dice che quel caso sta
+    sotto il tetto, non che ogni caso ci stia. Nessuna costante limita la
+    serializzazione finale della busta, e il registro lo dichiara invece di
+    lasciarlo credere.
+    """
+    registro_percorso = ROOT / "contracts" / "limiti-della-diagnostica.json"
+    if not registro_percorso.is_file():
+        return Esito(False, "il registro dei limiti non c'e'")
+    registro = json.loads(registro_percorso.read_text(encoding="utf-8"))
+
+    adozione = json.loads(
+        (ROOT / "contracts" / "adoption-source.json").read_text(encoding="utf-8")
+    )
+    pin = adozione["contracts_source"]["revision"]
+    if registro.get("fonte", {}).get("revisione") != pin:
+        return Esito(
+            False,
+            "il registro dei limiti cita una revisione diversa dal pin adottato: "
+            "i numeri ricopiati verrebbero da un'altra fonte di quella misurata",
+        )
+
+    problemi = []
+    for asse in registro["assi"]:
+        contratto = asse["tetto_del_contratto"]
+        prodotto = asse["tetto_del_prodotto"]
+        if prodotto is None:
+            continue
+        if prodotto > contratto:
+            problemi.append(
+                f"«{asse['asse']}»: il prodotto ammette {prodotto} e "
+                f"{asse['requisito']} ne ammette {contratto}"
+            )
+        atteso = "il prodotto" if prodotto <= contratto else "il contratto"
+        if asse["governa"] != atteso:
+            problemi.append(
+                f"«{asse['asse']}»: il registro dice che governa "
+                f"«{asse['governa']}» e i numeri dicono «{atteso}»"
+            )
+    if problemi:
+        return Esito(False, "; ".join(problemi))
+
+    # La misura sui byte veri.
+    tetto = next(
+        a["tetto_del_contratto"]
+        for a in registro["assi"]
+        if a["requisito"] == "ERR-011" and a["asse"].startswith("byte dell'errore")
+    )
+    sorgente = _fixture_ostile("lettura.kml")
+    if sorgente is None:
+        return Esito(False, "la fixture ostile che produce diagnostica di riga non c'e'")
+    corsa = artefatto.invoca("read", str(sorgente), "--format", "json")
+    if corsa.exit_code == 0:
+        return Esito(False, "la sorgente ostile non ha prodotto un errore")
+    documento = corsa.documento()
+    if documento is None:
+        return Esito(False, "l'errore non e' un documento JSON")
+    byte = len(json.dumps(documento, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if byte > tetto:
+        return Esito(False, f"l'errore misurato occupa {byte} byte, oltre i {tetto}")
+
+    return Esito(
+        True,
+        f"{len(registro['assi'])} assi confrontati; il caso peggiore noto "
+        f"occupa {byte} byte sui {tetto} ammessi",
+    )
+
+
+def sonda_dettagli_dell_errore(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """Se un errore porta `details`, quel valore ha la forma dichiarata.
+
+    # Il caso che oggi non si presenta, e perche' la sonda esiste lo stesso
+
+    Nessun percorso d'errore del prodotto emette `details`: la settima chiave
+    delle buste d'errore e' `row_diagnostics`, che e' un altro contratto. Il
+    profilo lo ammette esplicitamente -- «Omitting `details` remains valid when
+    the four common error axes and optional `code` completely express the
+    failure» -- e finora lo esprimono.
+
+    La sonda verifica due cose, e la seconda e' quella che conta: che lo schema
+    sia **pubblicato** come il profilo pretende, e che nessun errore ne emetta
+    uno che non gli corrisponda. Oggi la seconda passa per assenza di soggetto,
+    ed e' detto nel dettaglio invece che nascosto in un verde: un verde che non
+    dice di non aver misurato niente e' il verde peggiore.
+    """
+    schema = ROOT / "contracts" / "schemas" / "plenora-io-error-details-v1.schema.json"
+    if not schema.is_file():
+        return Esito(False, "lo schema dei dettagli non e' pubblicato")
+    forma = json.loads(schema.read_text(encoding="utf-8"))
+    ammesse = set(forma.get("properties") or {})
+    if not ammesse:
+        return Esito(False, "lo schema non dichiara proprieta'")
+
+    # Ogni errore che il gate sa provocare, e che cosa porta in `details`.
+    sorgenti = [
+        ("read", "/nessun-file-esistente-per-la-sonda.geojson"),
+        ("inspect", "/nessun-file-esistente-per-la-sonda.shp"),
+    ]
+    ostile = _fixture_ostile("lettura.kml")
+    if ostile is not None:
+        sorgenti.append(("read", str(ostile)))
+
+    # Quanti errori la sonda ha davvero **osservato**, e quanti portavano
+    # `details`. I due numeri servono a cose diverse, e tenerne uno solo era il
+    # difetto: senza il primo, un artefatto che non risponde affatto avrebbe
+    # zero errori con `details` e la sonda avrebbe concluso «il profilo lo
+    # ammette». Avrebbe passato per assenza di soggetto senza soggetto.
+    osservati = 0
+    con_dettagli = 0
+    for comando, percorso in sorgenti:
+        corsa = artefatto.invoca(comando, percorso, "--format", "json")
+        documento = corsa.documento()
+        if documento is None:
+            continue
+        errore = documento.get("error")
+        if not isinstance(errore, dict) or "category" not in errore:
+            continue
+        osservati += 1
+        dettagli = errore.get("details")
+        if dettagli is None:
+            continue
+        con_dettagli += 1
+        if not isinstance(dettagli, dict):
+            return Esito(False, f"{comando}: `details` non e' un oggetto")
+        estranee = set(dettagli) - ammesse
+        if estranee:
+            return Esito(
+                False,
+                f"{comando}: `details` porta chiavi fuori dalla forma dichiarata: "
+                f"{', '.join(sorted(estranee))}",
+            )
+
+    if osservati == 0:
+        return Esito(
+            False,
+            "nessuna delle invocazioni ha prodotto una busta d'errore: non c'e' "
+            "niente su cui dire che `details` sia assente",
+        )
+    if con_dettagli == 0:
+        return Esito(
+            True,
+            f"schema pubblicato; {osservati} errori osservati, nessuno emette "
+            "`details`, e il profilo lo ammette quando i quattro assi bastano",
+        )
+    return Esito(
+        True,
+        f"{con_dettagli} errori con `details` su {osservati}, tutti nella forma "
+        "dichiarata",
+    )
+
+
 def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
     """Ogni busta annuncia il nome che il contratto fissato le assegna.
 
@@ -1238,6 +1409,8 @@ SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "cli.versione-json": sonda_versione_json,
     "cli.capabilities": sonda_capabilities,
     "read.consegna-arrow": sonda_read_consegna,
+    "errore.limiti-dichiarati": sonda_limiti_della_diagnostica,
+    "errore.dettagli-tipizzati": sonda_dettagli_dell_errore,
     "busta.nomi-dal-contratto-fissato": sonda_nomi_dei_contratti,
     "diagnostica.riga-e-il-contratto-condiviso": sonda_diagnostica_di_riga,
     "write.pubblica": sonda_write_pubblica,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 138,
+  "totale": 139,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -80,8 +80,8 @@
       "ragione": "directory, durata e seed di campagna riproducibili; serializzazione best-effort confinata alla generazione del corpus, senza entrare nel componente distribuibile Dal 2026-09-07 uno in meno: il seme del PRNG usava `map(..).unwrap_or(costante)`, ora `map_or(costante, ..)`. Il comportamento e' identico e il fallback pure -- resta la costante quando l'orologio non risponde -- ma il censimento conta le occorrenze di `unwrap_or`, e quella non c'e' piu'."
     },
     "plenora-io-cli": {
-      "conteggio": 37,
-      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance. Le due occorrenze del blocco di coerenza stanno nelle prove che confrontano il catalogo con i driver: `unwrap_or_else(|| panic!(\"{id} assente dal catalogo\"))` nomina il formato che non ha corrispondenza invece di proseguire con un default. Come le altre della categoria, terminano la prova."
+      "conteggio": 38,
+      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance. Le due occorrenze del blocco di coerenza stanno nelle prove che confrontano il catalogo con i driver: `unwrap_or_else(|| panic!(\"{id} assente dal catalogo\"))` nomina il formato che non ha corrispondenza invece di proseguire con un default. Come le altre della categoria, terminano la prova. L'occorrenza del blocco BB e' in `tests/metadati_arrow.rs`, dove `unwrap_or_else(|| panic!(...))` nomina il campo che non porta l'identita' attesa: stessa categoria, stessa forma, termina la prova."
     },
     "plenora-io-core": {
       "conteggio": 17,

@@ -1,0 +1,6 @@
+{
+  "source": "SORGENTE",
+  "destination": "USCITA",
+  "source_format": ".geojson",
+  "target_format": "csv"
+}

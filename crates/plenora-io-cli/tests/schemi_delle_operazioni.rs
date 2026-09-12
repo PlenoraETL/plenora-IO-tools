@@ -75,7 +75,7 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
     let esempi = manifesto["esempi"]
         .as_array()
         .expect("il manifesto elenca esempi");
-    assert!(esempi.len() >= 24, "il manifesto non e' stato svuotato");
+    assert!(esempi.len() >= 44, "il manifesto non e' stato svuotato");
 
     let mut visti = 0usize;
     for voce in esempi {
@@ -115,57 +115,179 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
     );
 }
 
-/// Le forme reali di `io.read` validano contro lo schema del risultato.
+/// Ogni busta che il binario emette valida contro lo schema della sua
+/// operazione.
 ///
-/// Non un documento scritto a mano: l'uscita del binario, letta da stdout.
-/// Cio' che lo schema descrive e cio' che il prodotto emette devono essere la
-/// stessa cosa, e questo e' il punto in cui si vede.
+/// # Perche' tutte e sei, e non una per volta
+///
+/// Il profilo pretende schemi immutabili per le sei coppie prima che un
+/// artefatto reclami il profilo. Averli scritti non basta: uno schema che
+/// nessuna busta attraversa e' una dichiarazione che nessuno prova, e la prima
+/// divergenza la troverebbe un consumatore invece di noi.
+///
+/// Le invocazioni non sono scelte per far passare la sonda. Sono le forme che
+/// il prodotto ha davvero -- `inspect` su un formato a layer unico e su uno
+/// multi-layer, `read` con e senza consegna, `write` verso due sink diversi,
+/// `convert` verso un formato che perde e verso uno che non perde -- perche' un
+/// campo dichiarato su un solo valore osservato non e' dichiarato.
 #[test]
-fn le_buste_reali_validano_contro_lo_schema_del_risultato() {
-    let validatore = compila("plenora-io-read-result-v1");
+// La tabella dei casi e' lunga per costruzione: undici invocazioni reali, ognuna
+// con i suoi argomenti. Spezzarla in due funzioni separerebbe i casi dal
+// confronto che li rende una prova sola.
+#[allow(clippy::too_many_lines)]
+fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
-    let uscita = temporanea.path().join("consegnata.arrow");
+    let dove = temporanea.path();
+    let arrow = dove.join("ponte.arrow");
 
-    let casi: Vec<Vec<String>> = vec![
-        vec![
-            "read".to_owned(),
-            fixture("canonico.geojson").display().to_string(),
-        ],
-        vec![
-            "read".to_owned(),
-            fixture("canonico.geojson").display().to_string(),
-            "--output".to_owned(),
-            uscita.display().to_string(),
-        ],
-        vec![
-            "read".to_owned(),
-            fixture("canonico.gpkg").display().to_string(),
-            "--layer".to_owned(),
-            "0".to_owned(),
-        ],
+    // La consegna che alimenta le due invocazioni di `write`.
+    let preparazione = Command::new(BINARIO)
+        .args([
+            "read",
+            fixture("canonico.geojson").to_str().unwrap(),
+            "--output",
+            arrow.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("il binario parte");
+    assert!(
+        preparazione.status.success(),
+        "la consegna che alimenta la prova"
+    );
+
+    let casi: Vec<(&str, Vec<String>)> = vec![
+        ("plenora-io-catalog-v1", vec!["catalog".to_owned()]),
+        (
+            "plenora-io-inspect-v1",
+            vec![
+                "inspect".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-inspect-v1",
+            vec![
+                "inspect".to_owned(),
+                fixture("canonico.gpkg").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-layers-v1",
+            vec![
+                "layers".to_owned(),
+                fixture("canonico.gpkg").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-layers-v1",
+            vec![
+                "layers".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-read-result-v1",
+            vec![
+                "read".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-read-result-v1",
+            vec![
+                "read".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+                "--output".to_owned(),
+                dove.join("consegnata.arrow").display().to_string(),
+            ],
+        ),
+        (
+            "plenora-io-write-result-v1",
+            vec![
+                "write".to_owned(),
+                arrow.display().to_string(),
+                dove.join("pubblicato.csv").display().to_string(),
+                "--to".to_owned(),
+                "csv".to_owned(),
+            ],
+        ),
+        (
+            "plenora-io-write-result-v1",
+            vec![
+                "write".to_owned(),
+                arrow.display().to_string(),
+                dove.join("pubblicato.geojson").display().to_string(),
+                "--to".to_owned(),
+                "geojson".to_owned(),
+            ],
+        ),
+        (
+            "plenora-io-convert-v1",
+            vec![
+                "convert".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+                dove.join("convertito.csv").display().to_string(),
+                "--from".to_owned(),
+                "geojson".to_owned(),
+                "--to".to_owned(),
+                "csv".to_owned(),
+            ],
+        ),
+        (
+            "plenora-io-convert-v1",
+            vec![
+                "convert".to_owned(),
+                fixture("canonico.geojson").display().to_string(),
+                dove.join("convertito.geojson").display().to_string(),
+                "--from".to_owned(),
+                "geojson".to_owned(),
+                "--to".to_owned(),
+                "geojson".to_owned(),
+            ],
+        ),
     ];
 
-    for argomenti in casi {
-        let uscita_processo = Command::new(BINARIO)
-            .args(&argomenti)
+    let mut coperti = std::collections::BTreeSet::new();
+    for (schema, argomenti) in &casi {
+        let validatore = compila(schema);
+        let uscita = Command::new(BINARIO)
+            .args(argomenti)
             .arg("--format")
             .arg("json")
             .output()
             .expect("il binario parte");
-        let stdout = String::from_utf8(uscita_processo.stdout).expect("stdout e' UTF-8");
+        let stdout = String::from_utf8(uscita.stdout).expect("stdout e' UTF-8");
         let busta: Value = serde_json::from_str(&stdout)
             .unwrap_or_else(|e| panic!("{argomenti:?}: stdout e' JSON: {e} -- {stdout}"));
         assert_eq!(busta["status"], "ok", "{argomenti:?}: {stdout}");
+
+        // Il nome annunciato e' quello dello schema contro cui si valida: se
+        // divergessero, la sonda validerebbe contro il documento sbagliato e
+        // passerebbe per la ragione sbagliata.
+        assert_eq!(
+            busta["contract"], *schema,
+            "{argomenti:?}: la busta annuncia un contratto diverso da quello atteso"
+        );
+
         let risultato = &busta["result"];
         assert!(
             validatore.is_valid(risultato),
-            "{argomenti:?}: il risultato non valida: {:?}",
+            "{argomenti:?} contro {schema}: {:?}",
             validatore
                 .iter_errors(risultato)
                 .map(|e| format!("{} in {}", e, e.instance_path()))
                 .collect::<Vec<_>>()
         );
+        coperti.insert((*schema).to_owned());
     }
+
+    assert_eq!(
+        coperti.len(),
+        6,
+        "le sei uscite del catalogo sono coperte tutte: {coperti:?}"
+    );
 }
 
 /// Cio' che lo schema d'ingresso rifiuta, il binario lo rifiuta.
@@ -235,8 +357,8 @@ fn il_binario_rifiuta_gli_ingressi_che_lo_schema_dichiara_invalidi() {
         provati += 1;
     }
     assert!(
-        provati >= 6,
-        "il manifesto deve legare al binario i rifiuti noti di read e write, legati: {provati}"
+        provati >= 11,
+        "il manifesto deve legare al binario i rifiuti noti di tutte e sei le          operazioni, legati: {provati}"
     );
 }
 
@@ -275,69 +397,4 @@ fn il_manifesto_e_la_directory_coincidono() {
         dichiarati, trovati,
         "gli esempi dichiarati e quelli sul disco devono coincidere"
     );
-}
-
-/// E lo stesso per `io.write`: la busta reale contro il suo schema.
-///
-/// Qui la catena e' completa -- si legge una sorgente, si consegna Arrow, si
-/// pubblica -- ed e' il punto: i due schemi descrivono due operazioni che si
-/// incatenano, e provarli su invocazioni scollegate direbbe meno.
-#[test]
-fn la_busta_di_write_valida_contro_il_suo_schema() {
-    let validatore = compila("plenora-io-write-result-v1");
-    let temporanea = tempfile::tempdir().expect("directory temporanea");
-    let arrow = temporanea.path().join("ponte.arrow");
-
-    let consegna = Command::new(BINARIO)
-        .args([
-            "read",
-            fixture("canonico.geojson").to_str().unwrap(),
-            "--output",
-            arrow.to_str().unwrap(),
-            "--format",
-            "json",
-        ])
-        .output()
-        .expect("il binario parte");
-    assert!(
-        consegna.status.success(),
-        "la consegna che alimenta la prova"
-    );
-
-    for (formato, nome) in [("csv", "uscita.csv"), ("geojson", "uscita.geojson")] {
-        let destinazione = temporanea.path().join(nome);
-        let uscita = Command::new(BINARIO)
-            .args([
-                "write",
-                arrow.to_str().unwrap(),
-                destinazione.to_str().unwrap(),
-                "--to",
-                formato,
-                "--format",
-                "json",
-            ])
-            .output()
-            .expect("il binario parte");
-        let stdout = String::from_utf8(uscita.stdout).expect("stdout e' UTF-8");
-        let busta: Value = serde_json::from_str(&stdout)
-            .unwrap_or_else(|e| panic!("{formato}: stdout e' JSON: {e} -- {stdout}"));
-        assert_eq!(busta["status"], "ok", "{formato}: {stdout}");
-
-        // Il nome del contratto e' quello del catalogo, non `-v2`: `io.write`
-        // nasce con i suoi schemi pubblicati.
-        assert_eq!(
-            busta["contract"], "plenora-io-write-result-v1",
-            "{formato}: la busta annuncia il contratto del catalogo"
-        );
-
-        let risultato = &busta["result"];
-        assert!(
-            validatore.is_valid(risultato),
-            "{formato}: il risultato non valida: {:?}",
-            validatore
-                .iter_errors(risultato)
-                .map(|e| format!("{} in {}", e, e.instance_path()))
-                .collect::<Vec<_>>()
-        );
-    }
 }
