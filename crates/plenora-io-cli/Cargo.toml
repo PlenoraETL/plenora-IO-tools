@@ -40,4 +40,9 @@ arrow-array.workspace = true
 zip.workspace = true
 arrow-ipc.workspace = true
 arrow-schema.workspace = true
+# Solo per `tests/schemi_io_read.rs`: gli esempi di conformita' vanno validati
+# con un validatore che non sia il nostro, altrimenti si proverebbe che il
+# nostro validatore concorda con se stesso. E' gia' nel workspace -- la usa
+# `driver-geoparquet` -- quindi il grafo compilato del prodotto non cambia.
+jsonschema.workspace = true
 tempfile.workspace = true

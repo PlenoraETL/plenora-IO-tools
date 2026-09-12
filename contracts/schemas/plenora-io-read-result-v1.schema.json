@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-read-result-v1.schema.json",
+  "title": "plenora-io-read-result-v1",
+  "$comment": "Contratto d'uscita di io.read: il contenuto di `result` dentro la busta CLI-2.0, non la busta. CLI-2.0 §5 esige che i dati dell'operazione stiano dentro `result` e che non creino campi di primo livello, quindi il confine fra i due schemi e' quello. DIVERGENZA NOTA: la busta emessa oggi annuncia `contract: plenora-io-read-v2`, mentre il catalogo comune nomina questo contratto `plenora-io-read-result-v1`. Lo stesso vale per inspect, layers e convert, che annunciano `-v2` dove il catalogo dice `-v1`. Il nome corretto e' quello del catalogo -- CLI-2.0 §10 esige che il contratto d'uscita resti equivalente fra le superfici -- e allinearlo tocca busta, manifesto del protocollo e SDK insieme: e' la riga B14 del piano 4.0.0, non una modifica da fare per un'operazione sola.",
+  "type": "object",
+  "required": [
+    "format",
+    "layer",
+    "fidelity",
+    "loss",
+    "rows_read",
+    "batches",
+    "truncated",
+    "delivered"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificatore del driver che ha letto la sorgente.",
+      "$comment": "E' l'identificatore che io.catalog usa per lo stesso driver. Chi legge il risultato puo' risalire alle capacita' del formato senza che questo documento ne ripeta la matrice."
+    },
+    "layer": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "fields"
+      ],
+      "description": "Il contratto del layer letto: identita', colonne e geometria.",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "type",
+              "nullable",
+              "geometry"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "geometry": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "$comment": "L'ordine e' quello dello schema Arrow consegnato, e non e' decorativo: ARROW-012 esige che tutti i batch di uno stream siano conformi allo schema dichiarato, quindi un risultato che elencasse le colonne in un altro ordine descriverebbe un dataset diverso da quello consegnato."
+        },
+        "geometry": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "La colonna geometria, quando c'e'.",
+          "required": [
+            "name",
+            "kind",
+            "crs_resolution"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string"
+            },
+            "crs": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "crs_resolution": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "resolved",
+                    "declared_but_unresolved",
+                    "missing"
+                  ],
+                  "$comment": "I tre stati di ARROW-007, che un componente DEVE distinguere. Non sono tre sfumature di «non lo so»: `resolved` ha un CRS utilizzabile, `declared_but_unresolved` ha un identificatore che non si è saputo risolvere, `missing` non ha nulla. Collassarli renderebbe un dato senza CRS indistinguibile da uno con un CRS che non conosciamo. NOTA: la grafia qui è quella che serde deriva dall'enum (`declared_but_unresolved`), mentre i metadati Arrow usano quella del contratto (`declared_unresolved`). Due grafie per lo stesso stato dentro lo stesso prodotto: riga B15 del piano 4.0.0."
+                },
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "definition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "definition_format": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "axis_order": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "$comment": "ARROW-VOCABULARY-1.0 §4: `resolved` e `declared_unresolved` esigono un identificatore o una definizione **e** l'ordine degli assi; `missing` li vieta tutti. Definizione e formato della definizione o ci sono entrambi o non c'e' nessuno dei due."
+            }
+          }
+        }
+      }
+    },
+    "fidelity": {
+      "type": "object",
+      "required": [
+        "level",
+        "reasons"
+      ],
+      "description": "Il giudizio di fedelta' della lettura.",
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          },
+          "$comment": "`code` e' stabile e utilizzabile senza analizzare `detail`, come DIAG-006 esige per i codici di causa: chi automatizza legge il codice, chi legge a schermo legge il dettaglio."
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "$ref": "#/$defs/omesse"
+        }
+      },
+      "$comment": "Si riferisce alla **lettura**, non alla scrittura del file consegnato: cio' che il sink IPC potrebbe perdere non entra qui, perche' io.read risponde di quel che ha letto. Una perdita introdotta dal sink sarebbe di io.write."
+    },
+    "loss": {
+      "type": "object",
+      "required": [
+        "lossless",
+        "counts"
+      ],
+      "description": "Le perdite osservate durante la lettura.",
+      "properties": {
+        "lossless": {
+          "type": "boolean"
+        },
+        "counts": {
+          "type": "array"
+        },
+        "esempi": {
+          "type": "array"
+        },
+        "troncato": {
+          "type": "boolean"
+        },
+        "omesse_esatte": {
+          "type": "boolean"
+        },
+        "omesse": {
+          "$ref": "#/$defs/omesse"
+        }
+      },
+      "$comment": "DIVERGENZA NOTA: questa e' una forma nostra, non il documento `plenora-row-diagnostics-v1` che ROW-DIAGNOSTICS-1.0 definisce -- niente `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit`. Poiche' quel contratto e' fra quelli adottati, la conformita' va stabilita o dichiarata come deviazione: e' la riga BB4-bis del piano 4.0.0."
+    },
+    "rows_read": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Righe effettivamente lette.",
+      "$comment": "Zero e' un valore legittimo e non implica che lo schema sia ignoto: una sorgente che dichiara colonne e tipi indipendentemente dalle righe -- GeoPackage, Arrow IPC, Parquet, Shapefile -- si consegna vuota con lo schema intero."
+    },
+    "batches": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "Se la lettura si sia fermata prima della fine della sorgente.",
+      "$comment": "E' il campo con cui SURF-014 si soddisfa: un esito parziale non va riportato come successo pieno, e qui lo si riporta. Oggi puo' essere vero soltanto nella forma senza consegna, perche' `limit` e `destination` non convivono (D9)."
+    },
+    "delivered": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "La consegna, quando l'ingresso ha chiesto una destinazione. `null` quando no.",
+      "required": [
+        "content_type",
+        "interchange_contract",
+        "bytes_written",
+        "publish_outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "content_type": {
+          "const": "application/vnd.apache.arrow.file",
+          "$comment": "Il catalogo comune ammette anche `application/vnd.apache.arrow.stream` per io.read. La CLI non lo puo' produrre: CLI-2.0 §4 riserva stdout a un solo documento JSON, quindi i byte vanno in un file e il file e' il formato `file`. Dichiarare `stream` da questa superficie sarebbe annunciare una consegna che non arriva."
+        },
+        "interchange_contract": {
+          "const": "plenora-arrow-interchange-v1",
+          "$comment": "ARROW-001: lo schema che attraversa un confine dichiara la versione del contratto. Qui la si dichiara anche nel risultato, cosi' chi orchestra la conosce senza aprire i byte."
+        },
+        "bytes_written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "publish_outcome": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "$comment": "`null` non e' l'assenza del campo: il campo c'e' sempre, e vale null. Un consumatore non deve dedurre dall'assenza di una chiave se i dati esistano -- dedurre da un'assenza e' indistinguibile dal dedurre da un bug."
+    }
+  },
+  "$defs": {
+    "omesse": {
+      "type": "object",
+      "description": "Quante voci il budget diagnostico ha omesso, per categoria di omissione.",
+      "properties": {
+        "categorie_omesse": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "esempi_omessi": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omesse_per_byte": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ragioni_omesse": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "$comment": "DIAG-004: quando la completezza non e' garantita, va detto perche'. Contare le omissioni per categoria e' piu' forte di un booleano «troncato»: dice quanto manca, non solo che manca qualcosa."
+    }
+  }
+}

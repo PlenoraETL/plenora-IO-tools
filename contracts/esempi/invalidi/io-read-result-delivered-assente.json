@@ -1,0 +1,109 @@
+{
+  "batches": 1,
+  "fidelity": {
+    "level": "conditional",
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "reasons": [
+      {
+        "code": "format_constraint",
+        "detail": "geojson: fedeltÃ  condizionata ai tipi e alle semantiche del contratto"
+      }
+    ],
+    "troncato": false
+  },
+  "format": "geojson",
+  "layer": {
+    "fields": [
+      {
+        "geometry": true,
+        "name": "geometry",
+        "nullable": true,
+        "type": "Binary"
+      },
+      {
+        "geometry": false,
+        "name": "attivo",
+        "nullable": true,
+        "type": "Boolean"
+      },
+      {
+        "geometry": false,
+        "name": "codice",
+        "nullable": true,
+        "type": "Utf8"
+      },
+      {
+        "geometry": false,
+        "name": "conteggio",
+        "nullable": true,
+        "type": "Int64"
+      },
+      {
+        "geometry": false,
+        "name": "etichetta",
+        "nullable": true,
+        "type": "Utf8"
+      },
+      {
+        "geometry": false,
+        "name": "id",
+        "nullable": true,
+        "type": "Utf8"
+      },
+      {
+        "geometry": false,
+        "name": "intero_largo",
+        "nullable": true,
+        "type": "Int64"
+      },
+      {
+        "geometry": false,
+        "name": "istante",
+        "nullable": true,
+        "type": "Utf8"
+      },
+      {
+        "geometry": false,
+        "name": "misura",
+        "nullable": true,
+        "type": "Float64"
+      }
+    ],
+    "geometry": {
+      "crs": "OGC:CRS84",
+      "crs_resolution": {
+        "axis_order": "longitude_latitude",
+        "definition": null,
+        "definition_format": null,
+        "id": "OGC:CRS84",
+        "kind": "geographic",
+        "status": "resolved"
+      },
+      "kind": "Geographic",
+      "name": "geometry"
+    },
+    "id": 0,
+    "name": "canonico"
+  },
+  "loss": {
+    "counts": [],
+    "esempi": [],
+    "lossless": false,
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "troncato": false
+  },
+  "rows_read": 5,
+  "truncated": false
+}

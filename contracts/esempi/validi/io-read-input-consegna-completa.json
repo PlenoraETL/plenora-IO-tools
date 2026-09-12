@@ -1,0 +1,6 @@
+{
+  "source": "SORGENTE",
+  "destination": "USCITA",
+  "durable": true,
+  "deadline_ms": 30000
+}

@@ -112,9 +112,14 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B8 | Identificatore di contratto del catalogo | catalogo io-tools | `contract: plenora-io-catalog-v2` | il catalogo comune fissa `plenora-io-catalog-v1` per `io.catalog@1` | allineare l'identificatore, oppure dichiarare la deviazione e la ragione | l'identificatore emesso coincide con quello del catalogo comune al pin |
 | B9 | `--format json` come selettore esplicito | CLI-2.0 §2 | `catalog --format json` esce **2**: il flag non è accettato | la modalità macchina non è selezionabile come il contratto prescrive | `--format json` su tutti i comandi; formato umano esplicito e mai implicito | ogni entrypoint del binding CLI è invocabile **letteralmente** come scritto in `bindings/cli-v1.json` |
 | B10 | Comando `write` | catalogo io-tools, `io.write` | il binario espone `catalog, inspect, layers, read, convert` | `io.write` è **richiesto** e non esiste come comando | esporre `write --input INPUT.arrow --output SINK --format json` | l'entrypoint del binding risponde e dichiara esito di pubblicazione e fedeltà |
-| B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | sedici prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel |
-| B12b | Il limite non si combina con la consegna | contratto di scrittura, `declare_input_total` | **chiusa.** `--limit` insieme a `--output` è rifiutato con `invalid_plan` | il difetto che le prove hanno trovato: `--limit 2 --output` riusciva e consegnava **tutte** le righe, con `truncated: true` accanto. La busta diceva una cosa e il file un'altra | rifiuto chiuso: il writer deve conoscere la cardinalità esatta dell'ingresso, e una consegna troncata renderebbe falso il totale su cui poggiano le diagnostiche di riga | il comando esce `invalid_plan` con codice `LIMIT_WITH_DELIVERY` e non lascia un file; `--limit` da solo continua a valere |
+| B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | diciassette prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel; due schemi pubblicati e quindici esempi legano la forma dichiarata all'invocazione reale |
+| B12a | Dataset vuoto: zero righe **non** implica schema ignoto | ARROW-VOCABULARY-1.0 §3-4, `capabilities.rs` | **corretta.** Una sorgente con zero righe e schema noto — GeoPackage, Arrow IPC, Parquet, Shapefile — si consegna con lo schema intero; solo una sorgente i cui tipi geometrici non si determinano viene rifiutata | il rilievo: la prova precedente asseriva «un dataset vuoto non si consegna» e ne dava come ragione che una sorgente senza righe non può dichiarare i tipi. Entrambe sbagliate. La regola vera non parla di righe: rifiuta quando il **sink restringe** i tipi geometrici **e** il contratto della sorgente arriva `unresolved` — una sorgente con mille righe di tipi indeterminati sarebbe rifiutata allo stesso modo | fatto: due prove distinte, `zero_righe_con_schema_noto_si_consegnano` e `tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato` | la prima costruisce un file IPC con lo schema della fixture canonica e **zero** batch, e ne verifica la consegna con schema intero; la seconda verifica che il messaggio nomini la dichiarazione dei tipi e non il numero di righe |
+| B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto**: separare la dichiarazione di un vero passaggio di byte da quella dei formati che interpretano la geometria, oppure motivare la restrizione. Non è una correzione da fare di traverso: cambia la matrice del catalogo per cinque driver | la sorgente vuota di GeoJSON si consegna con `types_declaration=unresolved`, oppure il catalogo motiva per iscritto perché no |
+| B12b | Il limite non si combina con la consegna | **nessun requisito lo impone**: SURF-014 vieta solo di riportare un parziale come successo pieno, e PUBLIC-SURFACES-1.0 §9.5 delega la semantica del parziale alla nostra specifica d'operazione | `--limit` insieme a `--output` è rifiutato con `invalid_plan` e codice `LIMIT_WITH_DELIVERY` | il difetto che le prove hanno trovato era reale — `--limit 2 --output` riusciva e consegnava **tutte** le righe con `truncated: true` accanto — ma il rifiuto che l'ha chiuso è una **scelta**, non un obbligo. La necessità del writer di conoscere la cardinalità esatta (`declare_input_total`) è una ragione per progettare la semantica, non per negarla | **decisione aperta D9**: si chiude scrivendo in `plenora-io-read-input-v1` quale sia il totale di una consegna troncata, non nel codice | oggi: il comando esce `invalid_plan` e non lascia un file, `--limit` da solo continua a valere. La prova che lo fissa dichiara di misurare una scelta aperta, e diventerà rossa il giorno in cui D9 si chiude nell'altro verso |
 | B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
+| B14 | Il nome del contratto nella busta diverge dal catalogo | catalogo io-tools, CLI-2.0 §5 e §10 | la busta annuncia `plenora-io-read-v2`, `…-inspect-v2`, `…-layers-v2`, `…-convert-v2` | il catalogo comune nomina quegli stessi contratti `plenora-io-read-result-v1`, `…-inspect-v1`, `…-layers-v1`, `…-convert-v1`. CLI-2.0 §10 esige che il contratto d'uscita resti **equivalente** fra le superfici, e un nome diverso non è equivalente. Il `-v2` nostro segue il protocollo della busta, che è un'altra cosa dalla versione dell'operazione | allineare i quattro nomi a quelli del catalogo, in un intervento solo: tocca busta, `release/cli-protocol-v2.json` e SDK insieme | ogni busta annuncia il nome che il catalogo assegna all'operazione, e una prova lo confronta con `catalogs/io-tools-v1.json` del pin invece che con una costante nostra |
+| B15 | Due grafie per lo stato del CRS | ARROW-007, ARROW-VOCABULARY-1.0 §3 | il risultato JSON rende `declared_but_unresolved` (grafia derivata da serde), i metadati Arrow scrivono `declared_unresolved` (grafia del contratto) | lo stesso stato, due nomi, dentro lo stesso prodotto. Nessuno dei due è sbagliato in sé — il JSON è contratto nostro — ma chi confronta le due viste deve tradurre, e una traduzione non scritta è una traduzione che prima o poi si sbaglia | scegliere la grafia del contratto anche nel JSON, con `#[serde(rename)]` | una prova legge entrambe le viste sulla stessa sorgente e le confronta senza tabella di traduzione |
+| B16 | Opzioni accettate e senza effetto | SURF-014, `plenora-io-read-input-v1` | **chiusa.** `--in-opt` era accettata da `read`, `inspect` e `layers` e **scartata** — solo `convert` la applicava; `--out-opt` e `--durable` erano accettate anche senza `--output`, cioè senza alcun writer a cui rivolgersi | trovate scrivendo lo schema d'ingresso, non leggendo il codice: dichiarare che cosa l'operazione accetta ha reso visibile che accettava di più di quel che usava. Una chiave sbagliata passava in silenzio, indistinguibile da una applicata — e lo stesso valeva per `options=` dell'SDK, il cui docstring prometteva un rifiuto che non arrivava | fatto: `read_options` unisce `--opt` e `--in-opt`; `read` rifiuta `SINK_OPTIONS_WITHOUT_SINK` quando le opzioni del sink arrivano senza destinazione | cinque esempi invalidi dello schema portano l'invocazione CLI equivalente e il codice atteso, e una prova verifica che il binario rifiuti **lo stesso** insieme che lo schema rifiuta; due sonde dell'SDK lo esercitano dalla wheel |
 | B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
 
 ### B-bis — I contratti di confine di proprietà nostra
@@ -127,8 +132,9 @@ incrociato, non l'implementazione. Mancava ogni riga operativa.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| BB1 | Dodici schemi immutabili per le sei coppie | profilo io-tools, «Component-owned wire contracts» | nessuno dei dodici identificatori esiste come schema pubblicato; il CLI emette `plenora-io-catalog-v2` senza uno schema che lo definisca | dodici schemi da scrivere: `…-catalog-query-v1`/`…-catalog-v1`, `…-inspect-input-v1`/`…-inspect-v1`, `…-layers-input-v1`/`…-layers-v1`, `…-read-input-v1`/`…-read-result-v1`, `…-write-input-v1`/`…-write-result-v1`, `…-convert-input-v1`/`…-convert-v1` | pubblicarli sotto `contracts/`, versionati e immutabili | ogni busta emessa dal binario valida contro lo schema del proprio `contract`; uno schema modificato in modo che cambi la validazione richiede un identificatore nuovo |
-| BB2 | Esempi di conformità validi e invalidi | profilo io-tools | assenti | senza esempi, uno schema è una dichiarazione che nessuno prova | un esempio valido e uno invalido per ciascuna delle dodici forme | il gate valida i «validi» e **rifiuta** gli «invalidi»; un invalido che passa è rosso |
+| BB1 | Dodici schemi immutabili per le sei coppie | profilo io-tools, «Component-owned wire contracts» | **due su dodici fatti**: `plenora-io-read-input-v1` e `plenora-io-read-result-v1` stanno in `contracts/schemas/`. Dei restanti dieci nessun identificatore esiste come schema pubblicato; il CLI emette `plenora-io-catalog-v2` senza uno schema che lo definisca | dodici schemi da scrivere: `…-catalog-query-v1`/`…-catalog-v1`, `…-inspect-input-v1`/`…-inspect-v1`, `…-layers-input-v1`/`…-layers-v1`, `…-read-input-v1`/`…-read-result-v1`, `…-write-input-v1`/`…-write-result-v1`, `…-convert-input-v1`/`…-convert-v1` | pubblicarli sotto `contracts/`, versionati e immutabili | ogni busta emessa dal binario valida contro lo schema del proprio `contract`; uno schema modificato in modo che cambi la validazione richiede un identificatore nuovo |
+| BB2 | Esempi di conformità validi e invalidi | profilo io-tools | **fatti per `io.read`**: sei validi e nove invalidi in `contracts/esempi/`, con un manifesto che ne dichiara il verdetto atteso. Assenti per le altre cinque coppie | senza esempi, uno schema è una dichiarazione che nessuno prova | un esempio valido e uno invalido per ciascuna delle dodici forme | il gate valida i «validi» e **rifiuta** gli «invalidi»; un invalido che passa è rosso |
+| BB4bis | Le perdite non sono un documento `plenora-row-diagnostics-v1` | ROW-DIAGNOSTICS-1.0, DIAG-001…013 | il blocco `loss` del risultato ha forma nostra: `counts`, `esempi`, `omesse`, `troncato`, `lossless` | mancano `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit`, e `contract` non vale `plenora-row-diagnostics-v1`. Quel contratto è fra quelli **adottati**, quindi o le perdite vi si conformano o la deviazione va dichiarata nel manifesto con la sua ragione | confrontare i due vocabolari voce per voce e decidere: conformare, oppure dichiarare che `loss` non è un documento di diagnostica di riga e dire dove sta invece quello | il documento di diagnostica valida contro `schemas/row-diagnostics-v1.schema.json` del pin, oppure il manifesto di adozione porta la deviazione motivata |
 | BB3 | `plenora-io-error-details-v1` | profilo io-tools, ERR-013 | `details` non ha una forma dichiarata; il vocabolario delle perdite esiste ma non come schema di `details` | quando un errore IO porta `details`, il valore **deve** conformarsi a uno schema nostro pubblicato | definire lo schema e i suoi esempi limitati; omettere `details` resta valido quando i quattro assi bastano | un errore con `details` valida contro lo schema; un `details` che viola i limiti di ERR-012 è rifiutato dal produttore, non solo dal validatore |
 | BB4 | Limiti semantici di ERR-011 e ERR-012 | ERRORS-1.0 §6 | il v2 ha un proprio sistema di budget molto più dettagliato — 64 KiB totali, 12 KiB per sezione, tetti per voce | i due sistemi non sono confrontati: i nostri limiti potrebbero essere più stretti o più larghi di `524 288` byte per l'errore e `262 144` per `details`, e di profondità 8 / 128 proprietà / 2 048 nodi | confrontare i due insiemi di limiti e dichiarare quale governa | una prova costruisce il caso peggiore dichiarato e misura i byte JSON effettivi contro **entrambi** i tetti |
 | BB5 | Verifica dei metadati Arrow al confine | ARROW-001…ARROW-012 | il vocabolario è implementato per intero nel codice; nessuna prova lo verifica **sui byte prodotti da un'invocazione pubblica** | l'implementazione non è la prova: ARROW-001 (versione di contratto nello schema), ARROW-003/004 (identità dei campi preservata), ARROW-006 (metadati non contraddittori), ARROW-007 (CRS risolto, dichiarato-non-risolto e assente distinti) vanno letti dall'artefatto Arrow consegnato | una prova che legge il file prodotto da `io.read` e verifica ciascun identificatore | la prova fallisce se `plenora.contract.version` manca, se un `plenora.field_id` cambia in un round-trip che non lo doveva cambiare, o se un CRS non risolto viene presentato come risolto |
@@ -277,6 +283,48 @@ Va proposta **prima** di fissare il pin (A2): fissare una revisione che dice la
 cosa sbagliata, e correggerla dopo, significherebbe cambiare pin a metà
 adozione. È anche la ragione per cui questa riga non appartiene alla priorità 1
 ma la precede.
+
+### HB3 — `io.read` con `side_effect: none` non è realizzabile da una CLI
+
+Il catalogo comune dichiara `io.read` con `side_effect: none` e, fra i content
+type d'uscita, `application/vnd.apache.arrow.stream` e `.file`.
+SURFACE-BINDINGS-1.0 §1 esige che una superficie preservi «contratti, default,
+assi d'errore, **effetti collaterali** e controlli d'esecuzione» del catalogo.
+
+Ma CLI-2.0 §4 riserva stdout a **esattamente un** documento JSON. I byte Arrow
+non hanno altra strada che un file, e scrivere un file è un effetto locale.
+Quindi un binding CLI conforme a CLI-2.0 non può servire `io.read` con
+`side_effect: none`: le due clausole si escludono.
+
+Oggi il nostro documento capability dichiara `side_effect: local` per `io.read`,
+che è vero per questa superficie e diverso dal catalogo. Le uscite possibili
+sono tre, e la scelta non è nostra da sola:
+
+1. il catalogo distingue l'effetto **per superficie**, come già fa per i
+   content type che una superficie può o non può produrre;
+2. `io.read` resta `none` e la consegna su file diventa un'operazione sua;
+3. resta come sta e la differenza si dichiara come deviazione nel manifesto di
+   adozione, con questa ragione.
+
+Fino ad allora `local` resta, perché dichiarare `none` su una superficie che
+scrive un file sarebbe la sola delle tre risposte falsa.
+
+### HB4 — il vocabolario non distingue «scandito, nessuna geometria» da «ignoto»
+
+`ARROW-VOCABULARY-1.0 §3` chiude `types_declaration` su `exact`, `mixed` e
+`unresolved`, e §4 aggiunge che `exact` esige una lista **non vuota**. Una
+sorgente scandita per intero e priva di geometrie — un GeoJSON con zero feature
+— non ha quindi modo di dire «li ho guardati tutti, non ce n'è nessuno»: deve
+dichiararsi `unresolved`, cioè indistinguibile da una sorgente i cui tipi non si
+sono potuti determinare.
+
+I due stati portano garanzie diverse, e un sink che restringe i tipi potrebbe
+accettare il primo e rifiutare il secondo. È la ragione per cui la sorgente
+vuota di GeoJSON viene rifiutata (B12a) mentre il GeoPackage vuoto passa: non
+perché siano diversi i dati, ma perché uno dei due ha potuto dichiarare.
+
+Serve un quarto valore, o una chiave che dica che la scansione è stata
+completa. Da proporre a monte insieme a HB3.
 
 ### I — Qualifica finale
 
@@ -478,6 +526,23 @@ non è fra «un vincolo» e «nessun vincolo»: un tetto fissato al valore corre
 anche se non obbliga a ridurre. Fissarlo più in basso impegna anche a ridurre, e
 va scelto sapendo che l'intervento sulla busta CLI e su `io.read` aggiungerà
 codice prima di toglierne. Il numero è una decisione, non una misura.
+
+**D9 — la consegna può essere parziale?** Oggi `--limit` con `--output` è
+rifiutato, e il rifiuto **non** viene dal contratto: SURF-014 vieta soltanto di
+riportare un esito parziale come successo pieno, e la busta lo riporta già con
+`truncated`; PUBLIC-SURFACES-1.0 §9 punto 5 delega «success, partial and failure
+semantics» alla specifica dell'operazione, che è
+`plenora-io-read-input-v1`/`…-result-v1` e su questo tace.
+
+La scelta è fra due semantiche, e non è neutra: «il totale è quello della
+sorgente e ne consegno N» conserva il denominatore delle diagnostiche di riga ma
+consegna un dataset che non corrisponde al totale dichiarato; «il totale è N»
+rende coerente il file consegnato e perde l'informazione su quanto è stato
+lasciato indietro. Una terza via è consegnare il parziale con **entrambi** i
+numeri, distinti e nominati.
+
+Finché non è decisa il rifiuto resta, perché è l'unica delle tre che si può
+togliere senza rompere nessuno. Una semantica già consegnata, no.
 
 ---
 

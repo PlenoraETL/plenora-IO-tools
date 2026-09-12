@@ -221,11 +221,16 @@ class Client:
 
         # `limit` non c'e', e non e' una dimenticanza
 
-        Il prodotto rifiuta `--limit` insieme alla consegna: il writer deve
-        conoscere la cardinalita' esatta dell'ingresso, e una consegna troncata
-        renderebbe falso il totale su cui poggiano le diagnostiche di riga.
-        Esporre il parametro qui avrebbe offerto una combinazione che fallisce
-        sempre.
+        Il prodotto rifiuta `--limit` insieme alla consegna, e il rifiuto e' una
+        **scelta aperta**, non un obbligo del contratto: nessun requisito
+        fissato vieta una consegna parziale -- `SURF-014` vieta soltanto di
+        riportarla come successo pieno -- e la semantica del totale di una
+        consegna troncata non e' ancora scritta. Finche' non lo e', esporre il
+        parametro qui offrirebbe una combinazione che fallisce sempre.
+
+        Il giorno in cui la decisione si chiude, il parametro compare: e' un
+        argomento facoltativo in piu', non una rottura. Chi consuma questo SDK
+        non deve progettare intorno alla sua assenza.
         """
         argomenti = self._argomenti("read", source, assume_crs, options)
         argomenti += ["--output", os.fspath(output)]
@@ -328,6 +333,12 @@ class Client:
         driver, e duplicarlo nell'SDK produrrebbe due elenchi destinati a
         divergere. Una chiave sconosciuta e' un rifiuto del prodotto, tipizzato
         come tutti gli altri.
+
+        Quest'ultima frase era falsa fino alla 4.0.0, e il difetto stava nel
+        prodotto: `read`, `inspect` e `layers` accettavano `--in-opt` e la
+        **scartavano** -- solo `convert` la applicava -- quindi una chiave
+        sbagliata passava in silenzio. Ora il driver la vede, e
+        `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
         """
         argomenti = [comando, os.fspath(source)]
         if assume_crs is not None:

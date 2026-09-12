@@ -696,7 +696,19 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
     // Finding #3: il budget deve riflettere i flag CLI. Fallire chiuso qui
     // preserva la semantica fail-closed dichiarata dal componente: un flag
     // fuori intervallo non deve degradare silenziosamente a un default.
-    let mut opzioni = read_pipeline(cli)?.with_format_options(cli.opts.clone());
+    //
+    // `--in-opt` entra qui, e prima non entrava. Il difetto e' emerso
+    // scrivendo `plenora-io-read-input-v1`: il parser accettava `--in-opt`, il
+    // testo d'uso la elencava fra le ammesse, e `read`, `inspect` e `layers` la
+    // **scartavano** -- solo `convert` la univa a `--opt`. Una chiave sbagliata
+    // passava in silenzio, che e' il caso peggiore: indistinguibile da una
+    // applicata. Con `opts_uniti` il driver la vede, e se non la conosce
+    // risponde `unsupported` come gia' fa per `--opt`.
+    //
+    // La precedenza e' quella dichiarata dal README e fissata da
+    // `opts_uniti_preserva_precedenza_direzionale`: la direzionale sovrascrive
+    // la comune, per chiave.
+    let mut opzioni = read_pipeline(cli)?.with_format_options(opts_uniti(&cli.opts, &cli.in_opts));
     opzioni.assume_crs.clone_from(&cli.assume_crs);
     Ok(opzioni)
 }
@@ -1066,6 +1078,57 @@ fn legge_senza_consegnare(
     }))
 }
 
+/// Le combinazioni d'argomenti che `io.read` non accetta.
+///
+/// Estratta da `cmd_read` perche' quella funzione ha un tetto di righe, ma
+/// anche perche' qui sta una cosa sola: la validazione dell'ingresso, che e'
+/// esattamente cio' che `contracts/schemas/plenora-io-read-input-v1.schema.json`
+/// dichiara. Le due devono rifiutare lo stesso insieme, e
+/// `tests/schemi_io_read.rs` lo verifica invocando il binario sugli esempi
+/// invalidi dello schema.
+fn ingresso_ammissibile(cli: &Cli) -> Result<(), (i32, Value)> {
+    // Opzioni indirizzate a un sink che non esistera'.
+    //
+    // Senza `--output` non si crea nessun writer, quindi `--out-opt` e
+    // `--durable` non hanno destinatario: venivano accettate e cadevano nel
+    // vuoto. Con `--output` il driver le vede e rifiuta le chiavi che non
+    // conosce -- il rifiuto c'era gia', mancava soltanto nel caso in cui non
+    // c'e' nessuno a cui chiedere.
+    //
+    // E' lo stesso principio che governa `--in-opt`: un'opzione accettata e
+    // senza effetto e' indistinguibile da una applicata, e chi la scrive
+    // crede di aver cambiato qualcosa.
+    if cli.output.is_none() && (!cli.out_opts.is_empty() || cli.durable) {
+        return Err(local_err_doc(
+            "SINK_OPTIONS_WITHOUT_SINK",
+            ErrorCategory::InvalidConfiguration,
+            ErrorPhase::Validate,
+            &PublicMessage::Curated(
+                "--out-opt e --durable descrivono la destinazione, e senza \
+                 --output non c'e' destinazione da descrivere. Con --output \
+                 valgono, e il driver rifiuta le chiavi che non conosce.",
+            ),
+        ));
+    }
+
+    if cli.limit.is_some() && cli.output.is_some() {
+        return Err(local_err_doc(
+            "LIMIT_WITH_DELIVERY",
+            ErrorCategory::InvalidPlan,
+            ErrorPhase::Validate,
+            &PublicMessage::Curated(
+                "--limit e --output insieme non sono ancora ammessi: il \
+                 contratto d'ingresso di io.read non dice ancora come una \
+                 consegna troncata debba riportare il totale della sorgente, \
+                 e sceglierlo qui lo fisserebbe. Senza --output il limite \
+                 vale, e la lettura riporta quante righe ha visto.",
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 /// `io.read`: legge un layer e, quando glielo si chiede, lo **consegna**.
 ///
 /// # Che cosa e' cambiato, e perche' era un difetto
@@ -1115,28 +1178,35 @@ fn cmd_read(cli: &Cli) -> CliResult {
         ReadScope::AcceptedRows(limit as u64)
     });
 
-    // `--limit` e `--output` insieme sono rifiutati, e non per pigrizia.
+    // `--limit` con `--output`: rifiutato **per scelta**, non per obbligo.
     //
-    // Il contratto di scrittura pretende che il writer conosca la cardinalita'
-    // **esatta** dell'ingresso -- `declare_input_total` -- perche' e' cio' su
-    // cui poggiano le diagnostiche di riga. Consegnare un dataset troncato
-    // lasciando dichiarato il totale della sorgente direbbe una cosa falsa
-    // proprio nel campo che serve a interpretare gli scarti; dichiarare il
-    // totale troncato direbbe che la sorgente ne aveva meno.
+    // # Che cosa dice il contratto fissato, e che cosa non dice
     //
-    // «Le prime N righe come Arrow» e' un'operazione legittima e **diversa**:
-    // e' una proiezione, e il contratto d'ingresso di `io.read` non la descrive.
-    // Inventarne la semantica qui la fisserebbe prima che qualcuno la decida.
-    if cli.limit.is_some() && cli.output.is_some() {
-        return Err(local_err_doc(
-            "LIMIT_WITH_DELIVERY",
-            ErrorCategory::InvalidPlan,
-            ErrorPhase::Validate,
-            &PublicMessage::Curated(
-                "--limit e --output insieme non sono ammessi: una consegna                  troncata renderebbe falso il totale d'ingresso su cui                  poggiano le diagnostiche di riga. Senza --output il limite                  vale, e la lettura riporta quante righe ha visto.",
-            ),
-        ));
-    }
+    // Nessun requisito di `plenora-contracts@453c8d1` vieta una consegna
+    // parziale. L'unico che la tocca e' `SURF-014`: «Partial or ambiguous
+    // outcomes MUST NOT be reported as complete success» -- una regola sul
+    // **riferire**, non sul consegnare, e la busta la soddisfa gia' con
+    // `truncated`. `PUBLIC-SURFACES-1.0 §9` punto 5 delega poi «success,
+    // partial and failure semantics» alla specifica dell'operazione, che per
+    // `io.read` e' nostra e non e' ancora pubblicata.
+    //
+    // Quindi il contratto **non decide**, e la necessita' interna del writer
+    // non basta a decidere al suo posto: `declare_input_total` vuole la
+    // cardinalita' esatta perche' le diagnostiche di riga vi poggiano, ma un
+    // vincolo di implementazione e' una ragione per progettare la semantica,
+    // non per negarla.
+    //
+    // # Perche' allora si rifiuta lo stesso
+    //
+    // Perche' fra le due semantiche possibili -- «il totale e' quello della
+    // sorgente e ne consegno N» oppure «il totale e' N» -- sceglierne una qui
+    // la fisserebbe sul confine pubblico prima che sia scritta, e disfarla poi
+    // sarebbe una rottura. Un rifiuto esplicito si toglie; una semantica
+    // sbagliata gia' consegnata, no.
+    //
+    // E' la decisione aperta **D9** del piano 4.0.0: si chiude scrivendo
+    // `plenora-io-read-input-v1`, non qui.
+    ingresso_ammissibile(cli)?;
 
     let Some(uscita) = cli.output.clone() else {
         return legge_senza_consegnare(

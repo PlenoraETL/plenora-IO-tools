@@ -44,3 +44,10 @@ __pycache__/
 
 # Impostazioni locali dell'assistente (permessi per macchina, non di progetto)
 /.claude/settings.local.json
+
+# Il checkout fissato di plenora-contracts, che il verificatore delle superfici
+# pubbliche legge. La CI lo materializza allo stesso percorso con `actions/
+# checkout` sul pin: qui lo si clona a mano per far girare lo stesso gate in
+# locale. Non e' nostro e non va committato -- il pin sta in
+# `contracts/adoption-source.json`, che e' l'unica cosa di cui rispondiamo.
+/.plenora-contracts/

@@ -382,6 +382,41 @@ class ContrIlBinarioVero(unittest.TestCase):
         attesa = errors.CATEGORIE[preso.exception.envelope.category]
         self.assertIs(type(preso.exception), attesa)
 
+    def test_una_opzione_ignota_e_rifiutata(self) -> None:
+        """`options=` arriva davvero al driver, e una chiave inventata fallisce.
+
+        Fino alla 4.0.0 questa sonda sarebbe stata verde per la ragione
+        sbagliata -- anzi, rossa: `read`, `inspect` e `layers` accettavano
+        `--in-opt` e la scartavano, quindi `options={...}` dall'SDK non aveva
+        alcun effetto e una chiave sbagliata non produceva niente. Il difetto
+        e' emerso scrivendo `plenora-io-read-input-v1`, che dichiara
+        `input_options` come opzioni che il driver **vede**.
+
+        Provarlo da qui, e non solo in Rust, e' cio' che verifica il tratto di
+        strada fra il parametro Python e il driver: un SDK che costruisse
+        l'argomento sbagliato passerebbe le prove Rust e fallirebbe questa.
+        """
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        with self.assertRaises(CommandFailed) as preso:
+            cliente.validate(fixture, options={"chiave_inventata": "1"})
+        self.assertEqual(preso.exception.envelope.code, "UNSUPPORTED")
+        self.assertIn("chiave_inventata", preso.exception.envelope.message)
+
+    def test_una_opzione_nota_passa(self) -> None:
+        """Il contro-esempio: senza, «rifiuta tutto» sarebbe indistinguibile.
+
+        Una chiave che il driver conosce deve passare. Se questa fallisse, la
+        sonda qui sopra starebbe misurando un rifiuto indiscriminato invece
+        della validazione delle chiavi.
+        """
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.csv"
+        esito = cliente.validate(
+            fixture, assume_crs="EPSG:4326", options={"wkt_column": "geometry"}
+        )
+        self.assertGreater(esito.rows_read, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

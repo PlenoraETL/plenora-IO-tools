@@ -340,25 +340,108 @@ fn la_busta_riporta_la_fedelta_della_lettura() {
 
 // --- i casi limite ------------------------------------------------------
 
-/// Un dataset vuoto non si consegna, e il rifiuto e' la risposta giusta.
+/// Zero righe con schema noto **si consegnano**.
 ///
-/// # Non e' una scorciatoia: e' la decisione che il repository ha gia' preso
+/// # Il rilievo che questa prova chiude
 ///
-/// `tests/foglio_vuoto.rs` la fissa per `convert`: da una sorgente senza righe
-/// non c'e' un layout da inferire, la conversione non puo' riuscire, e non deve
-/// lasciare una destinazione. Qui vale lo stesso, e per la stessa ragione: il
-/// sink Arrow pretende la dichiarazione preventiva dei tipi geometrici, e una
-/// sorgente vuota non la puo' dare -- nessuna riga, nessun tipo osservato.
+/// Qui stava scritto che «un dataset vuoto non si consegna», e la ragione data
+/// era che una sorgente senza righe non puo' dichiarare i tipi geometrici.
+/// Entrambe le affermazioni erano sbagliate, e la seconda spiega la prima.
 ///
-/// Consegnare uno schema con zero righe **inventerebbe** quella dichiarazione.
-/// Un consumatore leggerebbe «nessuna geometria di questi tipi» dove la verita'
-/// e' «non lo so», e sono due cose diverse.
+/// Il numero di righe e la conoscenza dello schema sono **indipendenti**. Un
+/// `GeoPackage` con zero feature dichiara comunque colonne, tipo geometrico e
+/// CRS nelle sue tabelle di sistema; un file Arrow IPC li porta nello schema,
+/// che sta nell'intestazione e non nei batch. Dedurre «tipi ignoti» da «zero
+/// righe» vale soltanto per i formati che non dichiarano nulla e vanno
+/// ispezionati riga per riga -- `GeoJSON` e' uno di quelli, ed era l'unico caso
+/// che la prova precedente guardava, generalizzandolo a tutti.
 ///
-/// Il controllo positivo e' nelle altre sonde di questo file: lo stesso comando
-/// su una sorgente con righe consegna. Senza quelle, «il vuoto non si consegna»
-/// sarebbe vero anche di un binario che non consegna mai.
+/// La sorgente e' costruita qui: si prende lo schema della fixture canonica --
+/// metadati geometrici compresi -- e si scrive un file IPC con **zero** batch.
+/// E' il caso limite esatto: tutto noto, niente dati.
 #[test]
-fn un_dataset_vuoto_non_si_consegna_e_non_lascia_un_file() {
+fn zero_righe_con_schema_noto_si_consegnano() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let vuota = temporanea.path().join("vuota.arrow");
+
+    let schema = {
+        let file = File::open(fixture("canonico.arrow")).expect("la fixture si apre");
+        FileReader::try_new(file, None)
+            .expect("la fixture e' un file IPC")
+            .schema()
+    };
+    {
+        let file = File::create(&vuota).expect("la sorgente si crea");
+        arrow_ipc::writer::FileWriter::try_new(file, &schema)
+            .expect("l'intestazione si scrive")
+            .finish()
+            .expect("il file si chiude senza batch");
+    }
+
+    let uscita = temporanea.path().join("consegnata.arrow");
+    let esito = leggi(&[
+        "read",
+        vuota.to_str().unwrap(),
+        "--output",
+        uscita.to_str().unwrap(),
+    ]);
+
+    assert!(esito.riuscita, "{}", esito.stdout);
+    let risultato = esito.risultato();
+    assert_eq!(risultato["rows_read"], 0, "la sorgente non ha righe");
+    assert!(
+        !risultato["delivered"].is_null(),
+        "zero righe restano una consegna: {risultato}"
+    );
+    assert!(uscita.exists(), "il file consegnato esiste");
+
+    // E ha ancora lo schema: e' cio' che distingue una consegna vuota da un
+    // file vuoto. Chi legge sa quali colonne avrebbe avuto.
+    let file = File::open(&uscita).expect("la consegna si apre");
+    let lettore = FileReader::try_new(file, None).expect("la consegna e' un file IPC");
+    let consegnato = lettore.schema();
+    assert_eq!(
+        consegnato.fields().len(),
+        schema.fields().len(),
+        "le colonne consegnate sono quelle della sorgente"
+    );
+    let righe: usize = lettore
+        .map(|b| b.expect("batch leggibile").num_rows())
+        .sum();
+    assert_eq!(righe, 0, "non sono comparse righe dal nulla");
+}
+
+/// Tipi geometrici non determinabili verso un sink che li pretende: rifiuto.
+///
+/// # Che cosa decide questo rifiuto, e che cosa no
+///
+/// La regola vera non parla di righe. `capabilities.rs` rifiuta quando **due**
+/// cose valgono insieme: il sink dichiara un sottoinsieme proprio dei tipi
+/// geometrici canonici, e il contratto della sorgente arriva con
+/// `types_declaration = unresolved`. Una sorgente con mille righe di tipi
+/// indeterminati sarebbe rifiutata allo stesso modo, e una vuota con tipi
+/// dichiarati passa -- lo prova la sonda qui sopra.
+///
+/// # Il vincolo del sink rispetto al contratto
+///
+/// `ARROW-VOCABULARY-1.0 §3-4` **ha** un modo di dire «non lo so»:
+/// `types_declaration=unresolved`, che vieta la lista dei tipi. Quindi il
+/// contratto non ci obbliga a rifiutare: consegnare `unresolved` sarebbe
+/// esprimibile. Il rifiuto viene dal sink, ed e' prudente per una ragione sua:
+/// il driver IPC dichiara sette dei sedici tipi canonici
+/// (`SIMPLE_WKB_GEOMETRY_TYPES`), e un sink che non li accetta tutti non puo'
+/// promettere su dati di cui non sa i tipi.
+///
+/// Restano due questioni aperte, registrate nel piano 4.0.0 e non decise qui:
+///
+/// 1. il vocabolario chiuso del contratto non distingue «scandito, nessuna
+///    geometria» da «tipi ignoti» -- `exact` esige una lista non vuota, quindi
+///    una sorgente scandita e priva di geometrie **deve** dirsi `unresolved`;
+/// 2. il driver IPC trasporta WKB senza interpretarlo, e la dichiarazione dei
+///    sette tipi e' condivisa con quattro driver per cui non e' altrettanto
+///    conservativa.
+#[test]
+fn tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
     let vuota = temporanea.path().join("vuota.geojson");
     std::fs::write(&vuota, br#"{"type":"FeatureCollection","features":[]}"#)
@@ -375,8 +458,21 @@ fn un_dataset_vuoto_non_si_consegna_e_non_lascia_un_file() {
     assert_eq!(
         esito.errore()["category"],
         "unsupported",
-        "e' una risposta sul prodotto -- il sink non sa dichiarare tipi che \
-         nessuna riga ha mostrato -- non un difetto della richiesta"
+        "e' una risposta sul prodotto -- il sink non accetta tipi che nessuno \
+         ha dichiarato -- non un difetto della richiesta"
+    );
+    // `expect` e non `unwrap_or_default`: un messaggio assente e' un difetto a
+    // se', e un default vuoto lo trasformerebbe in "non contiene la frase",
+    // cioe' nella diagnosi sbagliata di un problema diverso.
+    let messaggio = esito.errore()["message"]
+        .as_str()
+        .expect("un errore porta sempre un messaggio")
+        .to_owned();
+    assert!(
+        messaggio.contains("dichiarazione preventiva dei tipi geometrici"),
+        "il messaggio nomina la dichiarazione dei tipi, non il numero di \
+         righe: se un giorno dicesse «sorgente vuota» sarebbe di nuovo la \
+         spiegazione sbagliata. Detto: {messaggio}"
     );
     assert!(
         !uscita.exists(),
@@ -384,11 +480,16 @@ fn un_dataset_vuoto_non_si_consegna_e_non_lascia_un_file() {
     );
 }
 
-/// Senza consegna, invece, una sorgente vuota si legge benissimo.
+/// Senza consegna, anche la sorgente dai tipi indeterminati si legge.
 ///
-/// E' la meta' che rende accettabile il rifiuto qui sopra: contare zero righe
-/// non richiede di dichiarare niente, e chi vuole **sapere** che la sorgente e'
-/// vuota lo puo' chiedere.
+/// # Perche' qui il rifiuto non scatta
+///
+/// La forma senza `--output` non apre nessun sink, quindi non c'e' nessuna
+/// capacita' da soddisfare: si legge e si riferisce. E' la stessa operazione
+/// pubblica -- `io.read` -- invocata senza destinazione, non un'operazione
+/// diversa: `delivered` vale `null` ed e' li' che la differenza si vede.
+/// `schemas/plenora-io-read-input-v1.schema.json` la descrive come il campo
+/// `destination` facoltativo, e la tabella del risultato dice che cosa cambia.
 #[test]
 fn un_dataset_vuoto_si_legge_e_conta_zero() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
@@ -417,16 +518,28 @@ fn senza_output_non_consegna_e_lo_dichiara() {
     );
 }
 
+/// Il limite con la consegna e' rifiutato, e questa prova fissa la **scelta**.
+///
+/// # Il difetto che l'ha fatta nascere
+///
+/// Con `--limit 2 --output` il comando riusciva e consegnava **tutte** le
+/// righe, con `truncated: true` accanto: il limite valeva sul conteggio e non
+/// sui byte, e la busta diceva una cosa mentre il file ne diceva un'altra.
+///
+/// # Che cosa questa prova prova, e che cosa no
+///
+/// Prova che il comportamento corrente e' quello dichiarato. **Non** prova che
+/// sia quello richiesto: nessun requisito del contratto fissato vieta una
+/// consegna parziale -- `SURF-014` vieta soltanto di riportarla come successo
+/// pieno, e `PUBLIC-SURFACES-1.0 §9.5` delega la semantica del parziale alla
+/// specifica dell'operazione, che e' nostra e non c'e' ancora.
+///
+/// Quindi questa sonda diventera' rossa il giorno in cui `D9` verra' decisa
+/// per il verso opposto, ed e' giusto cosi': e' una prova su una scelta
+/// aperta, non su un obbligo. Chi la cambia deve cambiare anche lo schema
+/// d'ingresso, che e' il punto dove la scelta va scritta.
 #[test]
 fn il_limite_con_la_consegna_e_rifiutato() {
-    // Il difetto che questa prova ha trovato: con `--limit 2 --output` il
-    // comando riusciva e consegnava **tutte** le righe, con `truncated: true`
-    // accanto. Il limite valeva sul conteggio e non sui byte, che e' la forma
-    // peggiore -- la busta diceva una cosa e il file un'altra.
-    //
-    // La risposta non e' troncare: il writer deve conoscere la cardinalita'
-    // esatta dell'ingresso, e una consegna parziale renderebbe falso il totale
-    // su cui poggiano le diagnostiche di riga. Si rifiuta chiuso.
     let temporanea = tempfile::tempdir().expect("directory temporanea");
     let uscita = temporanea.path().join("troncato.arrow");
     let esito = leggi(&[

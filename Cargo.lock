@@ -1572,6 +1572,7 @@ dependencies = [
  "driver-kml",
  "driver-shp",
  "driver-xls",
+ "jsonschema",
  "plenora-io-core",
  "plenora-io-model",
  "serde_json",

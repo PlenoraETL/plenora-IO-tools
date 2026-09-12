@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "che_cosa_e": "gli esempi di conformita' dei contratti di io.read, con il verdetto atteso di ciascuno. La colonna `invocazione_cli` lega l'esempio al binario: cio' che lo schema dichiara invalido, il prodotto deve rifiutarlo con il codice indicato. Senza quel legame un esempio invalido proverebbe soltanto che il validatore sa dire di no.",
+  "segnaposti": {
+    "SORGENTE": "sostituito dalla prova con il percorso di una fixture canonica",
+    "USCITA": "sostituito dalla prova con un percorso in una directory temporanea"
+  },
+  "esempi": [
+    {
+      "file": "validi/io-read-input-lettura.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "valido",
+      "perche": "la forma minima: una sorgente e nient'altro. Nessuna destinazione, quindi nessuna consegna e `delivered` a null nel risultato.",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE"
+      ]
+    },
+    {
+      "file": "validi/io-read-input-consegna.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "valido",
+      "perche": "la forma che consegna: `destination` presente. E' la stessa operazione, non un'altra.",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--output",
+        "USCITA"
+      ]
+    },
+    {
+      "file": "validi/io-read-input-consegna-completa.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "valido",
+      "perche": "i campi che dipendono da `destination` insieme alla destinazione che li legittima.",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--output",
+        "USCITA",
+        "--durable",
+        "--deadline-ms",
+        "30000"
+      ]
+    },
+    {
+      "file": "validi/io-read-input-limite-senza-consegna.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "valido",
+      "perche": "`limit` da solo resta valido: e' con `destination` che oggi non convive (D9). Senza questo esempio, Â«limite rifiutatoÂ» sembrerebbe una regola sul limite invece che sulla coppia.",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--limit",
+        "2"
+      ]
+    },
+    {
+      "file": "invalidi/io-read-input-senza-sorgente.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "invalido",
+      "perche": "manca `source`, l'unico campo obbligatorio: senza sorgente non c'e' lettura.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "read",
+        "--layer",
+        "0"
+      ]
+    },
+    {
+      "file": "invalidi/io-read-input-limite-con-consegna.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "invalido",
+      "perche": "`limit` con `destination`: la decisione aperta D9. Il contratto fissato non lo vieta -- SURF-014 vieta soltanto di riportare un parziale come successo pieno -- ma la semantica del totale di una consegna troncata non e' scritta, e il rifiuto evita di fissarla per sbaglio.",
+      "codice_del_prodotto": "LIMIT_WITH_DELIVERY",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--output",
+        "USCITA",
+        "--limit",
+        "2"
+      ]
+    },
+    {
+      "file": "invalidi/io-read-input-opzioni-senza-sink.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "invalido",
+      "perche": "`output_options` senza `destination`: opzioni indirizzate a un writer che non verra' creato. Un'opzione accettata e senza effetto e' indistinguibile da una applicata.",
+      "codice_del_prodotto": "SINK_OPTIONS_WITHOUT_SINK",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--out-opt",
+        "compression=none"
+      ]
+    },
+    {
+      "file": "invalidi/io-read-input-durabilita-senza-sink.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "invalido",
+      "perche": "`durable` senza `destination`, per la stessa ragione: descrive una destinazione che non c'e'.",
+      "codice_del_prodotto": "SINK_OPTIONS_WITHOUT_SINK",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--durable"
+      ]
+    },
+    {
+      "file": "invalidi/io-read-input-campo-ignoto.json",
+      "schema": "plenora-io-read-input-v1",
+      "atteso": "invalido",
+      "perche": "un campo che lo schema non prevede. `additionalProperties: false` non e' pedanteria: un ingresso accettato e ignorato e' il difetto che questo blocco ha trovato tre volte.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "read",
+        "SORGENTE",
+        "--proiezione-spaziale",
+        "EPSG:3857"
+      ]
+    },
+    {
+      "file": "validi/io-read-result-consegna.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "valido",
+      "perche": "il risultato che il binario emette con --output, catturato da un'invocazione reale."
+    },
+    {
+      "file": "validi/io-read-result-conteggio.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "valido",
+      "perche": "il risultato senza --output, dove `delivered` vale null. Le due forme validano contro lo stesso schema, ed e' il modo in cui lo schema dice che sono la stessa operazione."
+    },
+    {
+      "file": "invalidi/io-read-result-delivered-assente.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "invalido",
+      "perche": "`delivered` manca invece di valere null. Un consumatore non deve dedurre dall'assenza di una chiave se i dati esistano: dedurre da un'assenza e' indistinguibile dal dedurre da un difetto."
+    },
+    {
+      "file": "invalidi/io-read-result-delivered-monco.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "invalido",
+      "perche": "una consegna senza `content_type`: chi la riceve non sa che cosa ha ricevuto."
+    },
+    {
+      "file": "invalidi/io-read-result-crs-stato-ignoto.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "invalido",
+      "perche": "uno stato di risoluzione CRS fuori dai tre di ARROW-007. Un quarto stato collasserebbe la distinzione che quel requisito esiste per tenere."
+    },
+    {
+      "file": "invalidi/io-read-result-consegna-stream.json",
+      "schema": "plenora-io-read-result-v1",
+      "atteso": "invalido",
+      "perche": "il content type dello stream Arrow, che il catalogo ammette per l'operazione e che questa superficie non puo' produrre: CLI-2.0 §4 riserva stdout a un solo documento JSON. Dichiararlo sarebbe annunciare una consegna che non arriva."
+    }
+  ]
+}

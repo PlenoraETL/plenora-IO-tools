@@ -253,6 +253,22 @@ set -eu
 # quello in cui c'e' e' proprio il motivo per cui il canale laterale esiste.
 # Nessuna revisione H-01 dovuta.
 
+# Il 2026-09-12 le prove degli schemi di `io.read` hanno portato plenora-io-cli
+# da 28 a 33 (totale 129 -> 134). Le cinque occorrenze stanno tutte in
+# `tests/schemi_io_read.rs`, nella forma `unwrap_or_else(|e| panic!(...))`, e
+# servono a dire **quale** file o **quale** invocazione non ha retto: con
+# `.expect()` il messaggio perderebbe il percorso e gli argomenti, e su una
+# tabella di quindici esempi il fallimento direbbe che qualcosa non va senza
+# dire che cosa.
+#
+# Non sono fallback: terminano la prova invece di proseguire con un default, ed
+# e' la stessa categoria gia' ratificata per i test di conformance esistenti.
+# Nella stessa revisione ne e' stata **tolta** una vera, in
+# `tests/consegna_arrow.rs`: `message.as_str().unwrap_or_default()` avrebbe
+# trasformato un messaggio assente in "non contiene la frase attesa", cioe' in
+# la diagnosi sbagliata di un problema diverso. Ora e' un `expect`.
+# Nessuna revisione H-01 dovuta.
+#
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

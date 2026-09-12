@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-read-input-v1.schema.json",
+  "title": "plenora-io-read-input-v1",
+  "$comment": "Contratto d'ingresso di io.read. L'identificatore e' quello che il catalogo comune assegna all'operazione (plenora-contracts@453c8d1, catalogs/io-tools-v1.json), non una scelta nostra. Lo schema descrive l'ingresso **logico**: la CLI non lo accetta come JSON, lo compone dagli argomenti, ed e' cio' che SURFACE-BINDINGS-1.0 §1 consente -- una superficie puo' avvolgere gli ingressi in tipi idiomatici purche' ne preservi contratti, default, assi d'errore, effetti ed esecuzione. La colonna «binding CLI» di ogni campo dice con quale argomento lo si scrive.",
+  "type": "object",
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Percorso della sorgente da leggere. Binding CLI: primo argomento posizionale.",
+      "$comment": "Il formato non si dichiara: lo si riconosce. Dichiararlo qui duplicherebbe la matrice di io.catalog, che e' la fonte delle capacita' dei formati, e due copie divergono."
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Identificatore numerico del layer da leggere. Obbligatorio quando la sorgente ne espone piu' di uno. Binding CLI: --layer.",
+      "$comment": "E' l'`id` che `io.layers` rende, non il nome: il nome puo' ripetersi fra sorgenti e in alcuni formati non esiste affatto. L'assenza non significa «il primo»: su una sorgente multi-layer e' un errore d'uso, perche' un default posizionale renderebbe il risultato dipendente dall'ordine interno della sorgente, che nessun formato garantisce."
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1,
+      "description": "File Arrow IPC da produrre. Assente: nessuna consegna. Binding CLI: --output.",
+      "$comment": "IL CAMPO CHE DISTINGUE LE DUE FORME, e la risposta a «come si rapporta la modalita' che conta soltanto all'operazione pubblica di consegna». Non sono due operazioni: e' io.read con e senza destinazione. Presente: si consegna il dataset Arrow e `delivered` nel risultato lo descrive. Assente: si legge per intero e si riferisce -- righe, batch, fedelta', perdite -- con `delivered` a null. Il campo esiste perche' CLI-2.0 §4 riserva stdout a un solo documento JSON: su una superficie di processo i byte Arrow non hanno altra strada che un file. Una superficie in-process -- Rust, runtime -- rende lo stream e non usa questo campo, ed e' li' che il catalogo puo' dichiarare `arrow.stream` fra i content type d'uscita mentre la CLI dichiara soltanto `arrow.file`."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tetto alle righe lette. Con `destination` presente e' rifiutato oggi. Binding CLI: --limit.",
+      "$comment": "DECISIONE APERTA D9. Il contratto fissato NON impone il rifiuto: SURF-014 vieta di riportare un esito parziale come successo pieno -- e `truncated` lo riporta -- mentre PUBLIC-SURFACES-1.0 §9 punto 5 delega «success, partial and failure semantics» a questa specifica, che non l'ha ancora scritta. Il rifiuto e' prudenza, non obbligo: fra «il totale e' quello della sorgente e ne consegno N» e «il totale e' N» sceglierne una prima che la semantica esista la fisserebbe sul confine pubblico, e disfarla sarebbe una rottura. Qui si chiude D9, non nel codice."
+    },
+    "assume_crs": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CRS da assumere quando la sorgente non lo dichiara. Binding CLI: --assume-crs.",
+      "$comment": "Non sovrascrive un CRS dichiarato: ARROW-007 esige che risolto, dichiarato-non-risolto e assente restino distinti, e un'assunzione che coprisse un CRS presente cancellerebbe quella distinzione."
+    },
+    "input_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Opzioni del driver di lettura, come coppie chiave/valore. Binding CLI: --in-opt k=v, ripetibile.",
+      "$comment": "Una chiave che il driver di lettura non conosce e' rifiutata con categoria `unsupported`, non ignorata: un'opzione accettata e senza effetto e' indistinguibile da una applicata. Il difetto emerso scrivendo questo schema era esattamente quello -- il parser accettava --in-opt e `read`, `inspect` e `layers` la scartavano -- e la riga che lo chiude e' in `read_options`."
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Scadenza dell'invocazione in millisecondi. Binding CLI: --deadline-ms.",
+      "$comment": "E' uno dei tre controlli d'esecuzione che il catalogo dichiara per io.read (`controls.deadline`). Gli altri due: la cancellazione arriva dai segnali, e `idempotency_key` e' dichiarata falsa perche' la lettura non ha nulla da deduplicare."
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tetti di risorsa. Superarli e' un errore di categoria `resource_limit`, non un troncamento silenzioso.",
+      "$comment": "Estensione nostra oltre i `controls` del catalogo, ed e' ammessa perche' SURFACE-BINDINGS-1.0 §1 vincola a preservare i controlli dichiarati, non a non averne altri. La differenza con `limit` e' la risposta: un budget superato fallisce, un limite tronca.",
+      "properties": {
+        "memory_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_columns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_input_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_input_entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_vertices": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_wkb_cell_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_wkb_components": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_wkb_depth": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "output_options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Opzioni del driver di scrittura. Richiede `destination`. Binding CLI: --out-opt k=v, ripetibile.",
+      "$comment": "Il sink e' sempre Arrow IPC, quindi le chiavi ammesse sono quelle del driver `ipc`. Senza `destination` non esiste writer a cui rivolgerle, e l'ingresso e' rifiutato con `SINK_OPTIONS_WITHOUT_SINK`: un'opzione senza destinatario e' la stessa categoria di difetto di una ignorata."
+    },
+    "durable": {
+      "type": "boolean",
+      "description": "Chiede al sink la durabilita' sulla chiusura. Richiede `destination`. Binding CLI: --durable.",
+      "$comment": "Come `output_options`, descrive la destinazione: senza `destination` e' rifiutato."
+    }
+  },
+  "dependentSchemas": {
+    "limit": {
+      "$comment": "La forma della decisione D9 resa eseguibile: finche' e' aperta, `limit` e `destination` non convivono. Il giorno in cui D9 si chiude per il verso opposto, questa clausola sparisce e il campo `truncated` del risultato diventa il posto dove la parzialita' si dichiara.",
+      "not": {
+        "required": [
+          "destination"
+        ]
+      }
+    }
+  },
+  "examples": [
+    {
+      "source": "dati/canonico.geojson"
+    },
+    {
+      "source": "dati/canonico.gpkg",
+      "layer": "principale",
+      "destination": "uscita.arrow"
+    }
+  ],
+  "dependentRequired": {
+    "output_options": [
+      "destination"
+    ],
+    "durable": [
+      "destination"
+    ]
+  }
+}
