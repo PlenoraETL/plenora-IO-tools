@@ -222,16 +222,19 @@ class Client:
 
         # `limit` non c'e', e non e' una dimenticanza
 
-        Il prodotto rifiuta `--limit` insieme alla consegna, e il rifiuto e' una
-        **scelta aperta**, non un obbligo del contratto: nessun requisito
+        Il prodotto rifiuta `--limit` insieme alla consegna, ed e' una scelta
+        **scritta** invece che un obbligo del contratto: nessun requisito
         fissato vieta una consegna parziale -- `SURF-014` vieta soltanto di
-        riportarla come successo pieno -- e la semantica del totale di una
-        consegna troncata non e' ancora scritta. Finche' non lo e', esporre il
-        parametro qui offrirebbe una combinazione che fallisce sempre.
+        riportarla come successo pieno. La scelta e' che `io.read` non consegni
+        dataset parziali, perche' le due semantiche possibili del totale sono
+        incompatibili: conservare quello della sorgente consegna un file che
+        non gli corrisponde, dichiarare quello consegnato cancella l'unica
+        informazione per cui il limite serviva.
 
-        Il giorno in cui la decisione si chiude, il parametro compare: e' un
-        argomento facoltativo in piu', non una rottura. Chi consuma questo SDK
-        non deve progettare intorno alla sua assenza.
+        Esporre il parametro qui offrirebbe quindi una combinazione che
+        fallisce sempre. «Le prime N righe come dataset» resta un'operazione
+        legittima e diversa -- una proiezione -- e quando esistera' avra' un
+        metodo suo, non un argomento in piu' a questo.
         """
         argomenti = self._argomenti("read", source, assume_crs, options)
         argomenti += ["--output", os.fspath(output)]
@@ -307,6 +310,8 @@ class Client:
         source: str | os.PathLike[str],
         target: str | os.PathLike[str],
         *,
+        source_format: str,
+        target_format: str,
         layer: int | None = None,
         assume_crs: str | None = None,
         read_options: dict[str, str] | None = None,
@@ -316,6 +321,23 @@ class Client:
         limits: Limits | None = None,
     ) -> ConvertResult:
         """Converte un file in un altro formato, e dice che cosa e' costato.
+
+        # I due formati sono obbligatori dalla 4.0.0
+
+        Prima si deducevano dalle estensioni, e non era un default comodo: il
+        catalogo comune descrive `io.convert` come operazione «between
+        **explicit** formats», e il profilo io-tools vieta di scegliere il
+        comportamento specifico di un formato analizzando l'estensione quando
+        l'operazione lo richiede esplicito.
+
+        I nomi sono `id` di `catalog()` -- `shp`, `geoparquet`, `xls` -- non
+        estensioni. Un default qui («deducilo dal nome») reintrodurrebbe nello
+        SDK la deduzione che il prodotto ha tolto, e lo farebbe nel punto in cui
+        nessuno la vedrebbe.
+
+        Chi aggiorna da una versione precedente aggiunge due argomenti a ogni
+        chiamata; `docs/INSTALL.md` porta la corrispondenza fra le estensioni di
+        prima e gli identificatori di adesso.
 
         # Le opzioni sono tre, e la distinzione non e' formale
 
@@ -350,7 +372,15 @@ class Client:
         una pubblicazione perderebbe la differenza. `ConvertResult.published` la
         legge.
         """
-        argomenti = ["convert", os.fspath(source), os.fspath(target)]
+        argomenti = [
+            "convert",
+            os.fspath(source),
+            os.fspath(target),
+            "--from",
+            source_format,
+            "--to",
+            target_format,
+        ]
         if assume_crs is not None:
             argomenti += ["--assume-crs", assume_crs]
         if layer is not None:

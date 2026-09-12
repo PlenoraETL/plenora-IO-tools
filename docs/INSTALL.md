@@ -330,6 +330,118 @@ risultato. Chi usa lo SDK non vede nessuna delle cinque differenze, tranne che
 `Version` ora espone `component_version` e `cli_protocol_version` — `.version`
 resta leggibile e significa la stessa cosa.
 
+## Migrazione 3.x → 4.0.0
+
+La 4.0.0 è la prima release che reclama il profilo `io-tools` dei contratti
+comuni, ed è una release **di rottura**. Le rotture sono tre, e nessuna è
+silenziosa: ognuna produce un rifiuto tipizzato dove prima c'era un
+comportamento.
+
+### 1. `convert` vuole i due formati, e non li deduce più
+
+Prima i formati venivano dalle estensioni dei due percorsi. Ora si nominano:
+
+```
+# prima
+plenora-io convert dati.geojson uscita.gpkg
+
+# dalla 4.0.0
+plenora-io convert dati.geojson uscita.gpkg --from geojson --to gpkg
+```
+
+Omettere i due argomenti è un errore d'uso, non un ritorno alla deduzione: un
+default che sopravvive alla deprecazione è la deprecazione che non avviene.
+
+La ragione non è di stile. Il catalogo comune descrive `io.convert` come
+operazione «between **explicit** formats», e il profilo vieta di scegliere il
+comportamento specifico di un formato analizzando l'estensione quando
+l'operazione la richiede esplicita. Dedurre era comodo e diceva tre cose false:
+che `.json` significhi GeoJSON, che un percorso senza estensione non abbia
+formato, e che il nome di un file sia un contratto.
+
+Gli identificatori sono quelli che `catalog` rende — non estensioni, non nomi
+lunghi. La corrispondenza con le estensioni di prima:
+
+| estensione | identificatore |
+|---|---|
+| `.parquet` | `geoparquet` |
+| `.geojson`, `.json` | `geojson` |
+| `.csv` | `csv` |
+| `.gpkg` | `gpkg` |
+| `.shp`, `.shp.d` | `shp` |
+| `.kml` | `kml` |
+| `.xlsx` | `xls` |
+| `.dxf` | `dxf` |
+| `.gdb` | `filegdb` |
+| `.arrow` | `ipc` |
+
+`inspect`, `layers` e `read` **non** cambiano: quelle operazioni riconoscono la
+sorgente invece di riceverla dichiarata — `io.inspect` rende «its **declared**
+format» — e lì il suffisso resta l'unico segnale che c'è. Riconoscere e
+dichiarare sono due cose, e il catalogo le distingue operazione per operazione.
+
+### 2. Il nome del contratto nelle buste
+
+Ogni busta annuncia ora l'identificatore che il contratto fissato le assegna.
+Prima portavano tutte il suffisso `v2`, che è quello del **protocollo** — una
+cosa diversa dalla versione dell'operazione. La coincidenza reggeva finché
+nessuno confrontava.
+
+| Comando | 3.x | 4.0.0 | fonte |
+|---|---|---|---|
+| `catalog` | `plenora-io-catalog-v2` | `plenora-io-catalog-v1` | catalogo comune |
+| `inspect` | `plenora-io-inspect-v2` | `plenora-io-inspect-v1` | catalogo comune |
+| `layers` | `plenora-io-layers-v2` | `plenora-io-layers-v1` | catalogo comune |
+| `read` | `plenora-io-read-v2` | `plenora-io-read-result-v1` | catalogo comune |
+| `write` | — | `plenora-io-write-result-v1` | catalogo comune |
+| `convert` | `plenora-io-convert-v2` | `plenora-io-convert-v1` | catalogo comune |
+| errori | `plenora-io-error-v1` | `plenora-error-v1` | ERRORS-1.0 |
+| `capabilities` | `plenora-capabilities-v2` | invariato | CAPABILITY-DISCOVERY-2.0 |
+| `--version` | `plenora-io-version-v2` | invariato | nessuna: non è un'operazione |
+
+Due righe smentiscono la somiglianza dei nomi, ed è la ragione per cui la
+tabella esiste invece di una regola: `read` rende `-read-**result**-v1` perché
+il catalogo distingue l'ingresso `-read-input-v1` dall'uscita, e l'errore è
+`plenora-error-v1` **senza** `io` perché i fallimenti pubblici mappano sul
+contratto d'errore **comune**, che ha un nome suo. Resta nostro
+`plenora-io-error-details-v1`, che è il contenuto facoltativo di `details` e non
+la busta.
+
+`--version` è l'unica busta senza un contratto fissato a cui allinearsi, ed è
+l'unico caso in cui `v2` significa ancora quello che dice.
+
+`protocol_version` resta `2`: il protocollo non è cambiato, sono cambiati i nomi
+che le buste dichiarano.
+
+### 3. La destinazione di una scrittura non deve più portare l'estensione
+
+Prima ogni driver rifiutava una destinazione il cui nome non portasse
+l'estensione attesa. In sette casi su dieci quel controllo era una convenzione:
+dopo di esso l'estensione non veniva usata per niente. Toglierlo rende il
+formato esplicito sufficiente a scegliere la destinazione — chi pubblica su un
+percorso di staging o su un nome generato non viene più rifiutato per il nome
+invece che per i dati.
+
+Restano due vincoli, e sono dichiarati nel catalogo con la loro ragione:
+
+| formato | suffissi | perché |
+|---|---|---|
+| `gpkg` | `.gpkg` | la specifica GeoPackage lo impone (OGC 12-128r, requisito 2) |
+| `shp` | `.shp`, `.shp.d` | i file companion derivano il nome dal principale, e il suffisso sceglie la forma di pubblicazione |
+
+Il catalogo dichiara anche, per ogni formato, i suffissi con cui viene
+**riconosciuto** in lettura (`recognised_suffixes`). Scrivere su un nome diverso
+è ammesso e non rende il file illeggibile: rende necessario dichiarare il
+formato quando lo si rilegge, invece di lasciarlo dedurre.
+
+### Un nuovo comando
+
+`write INGRESSO.arrow DESTINAZIONE --to FORMATO` pubblica un dataset Arrow — il
+file che `read --output` consegna — nel formato nominato. Non sostituisce
+`convert`: quella collega due sorgenti esterne, questa pubblica il dataset che
+il chiamante ha già in mano, ed è ciò che permette di mettere i propri passi fra
+la lettura e la scrittura.
+
 ## Migrazione 1.x → 2.0.0
 
 Il perimetro di compatibilità del prodotto è dichiarato e stretto:

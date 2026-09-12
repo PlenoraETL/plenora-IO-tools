@@ -86,16 +86,16 @@ class SondeDelRaggruppamento(unittest.TestCase):
                 self.osservazione(
                     "sparita",
                     {
-                        "contract": "plenora-io-error-v1",
+                        "contract": "plenora-error-v1",
                         "error": {"message": "file non trovato"},
                     },
-                    attesa="plenora-io-read-v2",
+                    attesa="plenora-io-read-result-v1",
                 )
             ]
         )
         self.assertEqual(len(problemi), 1)
         self.assertIn("sparita", problemi[0])
-        self.assertIn("plenora-io-read-v2", problemi[0])
+        self.assertIn("plenora-io-read-result-v1", problemi[0])
         # Il messaggio dell'errore arriva fino al rosso: senza, chi legge
         # saprebbe che il caso e' fallito e non perche'.
         self.assertIn("file non trovato", problemi[0])

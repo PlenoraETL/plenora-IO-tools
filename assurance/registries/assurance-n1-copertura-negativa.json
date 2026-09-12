@@ -418,17 +418,11 @@
     {
       "gruppo": "driver-xls::create",
       "file": "crates/driver-xls/src/lib.rs",
-      "righe": 7,
+      "righe": 4,
       "raggiunto_da_replay": 0,
       "disposizione": "chiuso",
-      "nota": "chiuso in ASSURANCE-N1 tranche 1, ma il gruppo e' misto e va letto cosi': UN ramo e' coperto (estensione .xlsx, 387-389); DUE restano scoperti perche' **irraggiungibili dall'API pubblica**, e non per supposizione. Il piano con un numero di layer diverso da uno (392-394) e' fermato da `validate_write` nel core con code=Capability; un `geometry_encoding` non ammesso (411-418) e' fermato da `valida_opzioni` con il token dell'opzione rifiutata. I due test di precedenza asseriscono la firma di CHI rifiuta, non la sola categoria: la prima stesura asseriva solo `Unsupported`, passava, e la misura di copertura mostro' che il ramo restava scoperto. Era un test verde che provava un'altra cosa.",
+      "nota": "chiuso in ASSURANCE-N1 tranche 1, e ristretto dalla 4.0.0. Il gruppo aveva tre rami: uno coperto (il rifiuto di una destinazione senza estensione `.xlsx`) e due irraggiungibili dall'API pubblica. Il primo **non esiste piu'**: D10 ha stabilito che quel controllo era una convenzione e non un requisito del formato -- dopo di esso l'estensione non veniva usata per niente -- e toglierlo ha tolto il ramo, non la sua copertura. Non e' un ramo che ha smesso di essere provato: e' un ramo che non c'e'.\n\nRestano i due irraggiungibili, e non per supposizione. Il piano con un numero di layer diverso da uno (ora 389-391) e' fermato da `validate_write` nel core con code=Capability; un `geometry_encoding` non ammesso (ora 408-415) e' fermato da `valida_opzioni` con il token dell'opzione rifiutata. I due test di precedenza asseriscono la firma di CHI rifiuta, non la sola categoria: la prima stesura asseriva solo `Unsupported`, passava, e la misura di copertura mostro' che il ramo restava scoperto. Era un test verde che provava un'altra cosa.\n\nIl vincolo sul percorso di destinazione non e' sparito ovunque: resta dove e' del formato -- `gpkg` per la specifica GeoPackage, `shp` per i file companion -- e li' ha i suoi rami e le sue prove.",
       "prova": [
-        {
-          "crate": "driver-xls",
-          "test": "tests::n1_create_rifiuta_una_destinazione_senza_estensione_xlsx",
-          "configurazione": "default",
-          "esito": "coperto"
-        },
         {
           "crate": "driver-xls",
           "test": "tests::n1_un_piano_senza_un_solo_layer_e_fermato_prima_di_create",

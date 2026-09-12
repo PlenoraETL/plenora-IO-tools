@@ -230,28 +230,30 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 
 ### Le buste
 
-| Comando | Contratto |
-|---|---|
-| errori | `plenora-io-error-v1` |
-| `catalog` | `plenora-io-catalog-v1` |
-| `inspect` | `plenora-io-inspect-v1` |
-| `layers` | `plenora-io-layers-v1` |
-| `read` | `plenora-io-read-v1` |
-| `write` | `plenora-io-write-result-v1` |
-| `convert` | `plenora-io-convert-v1` |
-| `capabilities` | `plenora-capabilities-v2` |
+| Comando | Contratto | Fonte del nome |
+|---|---|---|
+| errori | `plenora-error-v1` | ERRORS-1.0 |
+| `catalog` | `plenora-io-catalog-v1` | catalogo comune |
+| `inspect` | `plenora-io-inspect-v1` | catalogo comune |
+| `layers` | `plenora-io-layers-v1` | catalogo comune |
+| `read` | `plenora-io-read-result-v1` | catalogo comune |
+| `write` | `plenora-io-write-result-v1` | catalogo comune |
+| `convert` | `plenora-io-convert-v1` | catalogo comune |
+| `capabilities` | `plenora-capabilities-v2` | CAPABILITY-DISCOVERY-2.0 |
+| `--version` | `plenora-io-version-v2` | nessuna |
 
-Due nomi di questa tabella sono diversi dagli altri, e la differenza è il
-punto. `plenora-capabilities-v2` è un contratto **condiviso**: il suo schema
-vive in `plenora-contracts` e altri componenti emettono lo stesso documento, e
-chiamarlo `plenora-io-…` direbbe che ne abbiamo uno nostro.
-`plenora-io-write-result-v1` è il nome che il catalogo comune assegna
-all'operazione `io.write`, e `write` lo annuncia perché nasce con i suoi schemi
-pubblicati in `contracts/schemas/`.
+La colonna della fonte non è decorativa: dove un contratto fissato assegna già
+un identificatore, quello **è** il nome, e non c'è niente da scegliere. Due
+righe smentiscono la somiglianza — `read` rende `-read-result-v1` perché il
+catalogo distingue l'ingresso dall'uscita, e l'errore è `plenora-error-v1`
+**senza** `io` perché i fallimenti pubblici mappano sul contratto d'errore
+comune — ed è la ragione per cui il registro sta in
+`contracts/nomi-dei-contratti.json` e un gate lo confronta con il checkout
+fissato invece di fidarsi della forma dei nomi.
 
-Le altre cinque righe annunciano oggi il suffisso `v2` del protocollo — `read`
-emette `plenora-io-read-v2` — e passeranno ai nomi del catalogo insieme, con la
-tabella di migrazione che quel passaggio richiede.
+`--version` è l'unica riga senza una fonte: non è un'operazione del catalogo ma
+una superficie di scoperta della CLI, quindi il nome resta nostro ed è l'unico
+caso in cui il suffisso `v2` significa ancora il protocollo.
 
 ### `plenora-io-error-v1`
 

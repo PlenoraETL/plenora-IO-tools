@@ -526,18 +526,19 @@ fn senza_output_non_consegna_e_lo_dichiara() {
 /// righe, con `truncated: true` accanto: il limite valeva sul conteggio e non
 /// sui byte, e la busta diceva una cosa mentre il file ne diceva un'altra.
 ///
-/// # Che cosa questa prova prova, e che cosa no
+/// # Che cosa questa prova prova
 ///
-/// Prova che il comportamento corrente e' quello dichiarato. **Non** prova che
-/// sia quello richiesto: nessun requisito del contratto fissato vieta una
-/// consegna parziale -- `SURF-014` vieta soltanto di riportarla come successo
-/// pieno, e `PUBLIC-SURFACES-1.0 §9.5` delega la semantica del parziale alla
-/// specifica dell'operazione, che e' nostra e non c'e' ancora.
+/// Che il comportamento sia quello **scritto**. Il contratto fissato non lo
+/// imponeva -- `SURF-014` vieta soltanto di riportare un parziale come
+/// successo pieno, e `PUBLIC-SURFACES-1.0 §9.5` delega la semantica del
+/// parziale alla specifica dell'operazione -- quindi la scelta era nostra, ed
+/// e' stata fatta per la 4.0.0: `io.read` non consegna dataset parziali,
+/// perche' le due semantiche possibili del totale sono incompatibili e
+/// sceglierne una cancellerebbe cio' che l'altra conserva. Sta in
+/// `contracts/schemas/plenora-io-read-input-v1.schema.json`, per esteso.
 ///
-/// Quindi questa sonda diventera' rossa il giorno in cui `D9` verra' decisa
-/// per il verso opposto, ed e' giusto cosi': e' una prova su una scelta
-/// aperta, non su un obbligo. Chi la cambia deve cambiare anche lo schema
-/// d'ingresso, che e' il punto dove la scelta va scritta.
+/// Chi la cambia cambia un contratto, non una riga: l'identificatore dello
+/// schema d'ingresso cambierebbe con essa.
 #[test]
 fn il_limite_con_la_consegna_e_rifiutato() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");

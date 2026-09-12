@@ -84,7 +84,7 @@ class ConUnFinto(unittest.TestCase):
     def test_una_busta_d_errore_diventa_un_eccezione(self) -> None:
         client = self.client(
             'print(json.dumps({"status": "error", "protocol_version": 2,'
-            ' "contract": "plenora-io-error-v1", "error": {"code": "FORMAT_ERROR",'
+            ' "contract": "plenora-error-v1", "error": {"code": "FORMAT_ERROR",'
             ' "category": "io", "phase": "read", "remote_effect": "none",'
             ' "retry": {"kind": "never"}, "message": "niente da leggere"}}))'
             "\nsys.exit(5)\n"

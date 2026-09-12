@@ -137,6 +137,15 @@ class FormatDescriptor:
     spatial_pruning_support: str
     format_options: list[dict[str, Any]]
     write_capabilities: dict[str, Any]
+    #: I suffissi per cui un percorso viene **riconosciuto** come questo
+    #: formato, quando nessuno lo dichiara.
+    #:
+    #: Non e' il gemello del vincolo che la scrittura pone sul percorso -- che
+    #: sta in `write_capabilities["sink_path"]` -- ma il suo complemento:
+    #: scrivere su un nome qualsiasi e' ammesso dove il vincolo e' `free`, e
+    #: questo campo dice che cosa si perde facendolo, cioe' la riapribilita'
+    #: per deduzione.
+    recognised_suffixes: list[str]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     #: I campi che il protocollo dichiara `sempre: true` sotto `.format`.
@@ -166,6 +175,7 @@ class FormatDescriptor:
         "spatial_pruning_support",
         "format_options",
         "write_capabilities",
+        "recognised_suffixes",
     )
 
     @classmethod
@@ -643,7 +653,7 @@ class Delivered:
 
 @dataclass(frozen=True, kw_only=True)
 class Validation:
-    """L'esito di `validate()`, cioe' della busta `plenora-io-read-v2`.
+    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v1`.
 
     # Che cosa dice, e che cosa non da'
 

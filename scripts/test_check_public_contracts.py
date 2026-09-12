@@ -113,7 +113,7 @@ class ArtefattoFinto:
             "protocol_version": 2,
             "component": "plenora-io-tools",
             "component_version": "4.0.0",
-            "contract": "plenora-io-read-v2",
+            "contract": "plenora-io-read-result-v1",
             "command": "read",
             "result": {
                 "format": "geojson",
@@ -146,7 +146,7 @@ class ArtefattoFinto:
                         "protocol_version": 2,
                         "component": "plenora-io-tools",
                         "component_version": "4.0.0",
-                        "contract": "plenora-io-error-v1",
+                        "contract": "plenora-error-v1",
                         "command": "write",
                         "error": {
                             "category": "invalid_configuration",
@@ -177,7 +177,7 @@ class ArtefattoFinto:
                         "protocol_version": 2,
                         "component": "plenora-io-tools",
                         "component_version": "4.0.0",
-                        "contract": "plenora-io-error-v1",
+                        "contract": "plenora-error-v1",
                         "command": "write",
                         "error": {
                             "category": "unsupported",
@@ -193,13 +193,15 @@ class ArtefattoFinto:
                 exit_code=3,
             )
 
-        atteso = {"csv": ".csv", "geojson": ".geojson", "gpkg": ".gpkg", "ipc": ".arrow"}
-        rifiuta = destinazione.suffix != atteso[formato]
-        # Il dataset proiettato che il sink non sa esprimere: la sonda del
-        # rollback lo costruisce leggendo il GeoPackage.
+        # Il suffisso della destinazione **non** decide piu' il rifiuto, e non
+        # e' una semplificazione del finto: e' la regola. Il solo formato che lo
+        # pretende qui sarebbe GeoPackage, e nessuna sonda lo esercita su
+        # questo percorso.
+        #
+        # Resta il dataset proiettato che il sink non sa esprimere: la sonda del
+        # rollback lo costruisce leggendo il GeoPackage, e li' il rifiuto e' del
+        # formato, non del nome.
         if "proiettato" in destinazione.name or "mai_nato" in destinazione.name:
-            rifiuta = True
-        if rifiuta:
             return invocazione(
                 json.dumps(
                     {
@@ -207,7 +209,7 @@ class ArtefattoFinto:
                         "protocol_version": 2,
                         "component": "plenora-io-tools",
                         "component_version": "4.0.0",
-                        "contract": "plenora-io-error-v1",
+                        "contract": "plenora-error-v1",
                         "command": "write",
                         "error": {
                             "category": "unsupported",
@@ -223,7 +225,10 @@ class ArtefattoFinto:
                 exit_code=3,
             )
 
-        byte = b"a,b\n1,2\n"
+        # Byte che **sembrano** il formato chiesto: la sonda del formato
+        # esplicito guarda il contenuto, non la busta, e un finto che scrivesse
+        # sempre la stessa cosa la farebbe passare a vuoto.
+        byte = b"a,b\n1,2\n" if formato == "csv" else b'{"type":"FeatureCollection"}\n' 
         destinazione.write_bytes(byte)
         busta = {
             "status": "ok",
@@ -260,7 +265,31 @@ BUSTA_CONFORME = json.dumps(
         "component_version": "4.0.0",
         "contract": "plenora-io-catalog-v1",
         "command": "catalog",
-        "result": {"drivers": []},
+        # Due driver e non zero: `sonda_vincoli_del_percorso` deve vedere sia il
+        # caso libero sia quello vincolato, altrimenti passerebbe a vuoto su un
+        # catalogo che non dichiara niente.
+        "result": {
+            "drivers": [
+                {
+                    "id": "csv",
+                    "direction": "bidirectional",
+                    "recognised_suffixes": ["csv"],
+                    "write_capabilities": {"sink_path": {"kind": "free"}},
+                },
+                {
+                    "id": "gpkg",
+                    "direction": "bidirectional",
+                    "recognised_suffixes": ["gpkg"],
+                    "write_capabilities": {
+                        "sink_path": {
+                            "kind": "required",
+                            "suffixes": ["gpkg"],
+                            "reason": "format_specification",
+                        }
+                    },
+                },
+            ]
+        },
     }
 )
 

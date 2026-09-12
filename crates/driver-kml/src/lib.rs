@@ -34,8 +34,8 @@ use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
+    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 #[cfg(test)]
@@ -327,13 +327,15 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
+        sink_path: SinkPathConstraint::Free,
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
     plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    &["kml"],
     1,
     5,
-    9,
+    10,
 );
 
 pub struct KmlDriver;
@@ -425,15 +427,22 @@ impl FormatDriver for KmlDriver {
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
-        if !path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("kml"))
-        {
-            return Err(PlenoraIoError::non_supportato_redatto(
-                &PublicMessage::Curated("l'output deve avere estensione .kml"),
-            ));
-        }
+        // Nessun controllo sul suffisso della destinazione.
+        //
+        // Ce n'era uno, e rifiutava una destinazione il cui nome non portasse
+        // l'estensione attesa. Non era un requisito del formato: dopo il
+        // controllo l'estensione non veniva usata per **niente** -- ne' per
+        // derivare un nome, ne' per scegliere un comportamento -- ed era una
+        // convenzione travestita da vincolo. Il costo era che il formato
+        // esplicito non bastava a scegliere la destinazione: chi pubblicava su
+        // un percorso di staging, o su un nome generato, veniva rifiutato per
+        // il nome invece che per i dati.
+        //
+        // Il suffisso resta rilevante per chi **rilegge** senza dichiarare il
+        // formato, e quella parte e' dichiarata e non taciuta:
+        // `recognised_suffixes` del descrittore la rende, e `io.catalog` la
+        // pubblica. Scrivere e riconoscere sono due cose, e ora si vedono
+        // entrambe.
         if plan.layers.len() != 1 {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::Curated("KML: un solo layer per file"),

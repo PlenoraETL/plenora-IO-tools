@@ -229,6 +229,9 @@ class Vocabolario:
     """Gli enum chiusi, letti dallo schema del contratto e non ricopiati."""
 
     def __init__(self, contratti: Path) -> None:
+        #: Il checkout fissato, per le sonde che leggono uno schema invece di
+        #: ricopiarne i requisiti.
+        self.contracts = contratti
         schema = json.loads(
             (contratti / "schemas" / "error-v1.schema.json").read_text(encoding="utf-8")
         )
@@ -755,6 +758,198 @@ def _dataset_arrow(artefatto: Artefatto, dove: Path) -> tuple[Path | None, str]:
     return arrow, ""
 
 
+def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """Ogni busta annuncia il nome che il contratto fissato le assegna.
+
+    # Perche' il confronto dev'essere eseguibile
+
+    CLI-2.0 §5 chiama `contract` «operation-specific, namespaced contract
+    identifier» e §10 esige che il contratto d'uscita resti equivalente fra le
+    superfici. Fino alla 3.0.0 tutte le buste portavano il suffisso `v2`, che e'
+    quello del **protocollo**: la coincidenza reggeva finche' nessuno
+    confrontava.
+
+    Confrontare a mano e' il modo di sbagliare: due nomi su nove smentiscono la
+    somiglianza. `io.read` rende `plenora-io-read-result-v1` e non
+    `plenora-io-read-v1` -- il catalogo distingue l'ingresso dall'uscita -- e la
+    busta d'errore e' `plenora-error-v1` **senza** `io`, perche' SURF-015 mappa
+    i fallimenti sul contratto d'errore comune. Una sostituzione meccanica
+    `-v2` -> `-v1` le avrebbe sbagliate entrambe.
+
+    Qui i nomi arrivano da tre fonti del checkout fissato -- il catalogo per le
+    sei operazioni, ERRORS-1.0 e CAPABILITY-DISCOVERY-2.0 per i due condivisi --
+    e si confrontano con cio' che il binario emette davvero.
+    """
+    registro_percorso = ROOT / "contracts" / "nomi-dei-contratti.json"
+    if not registro_percorso.is_file():
+        return Esito(False, "il registro dei nomi non c'e'")
+    registro = json.loads(registro_percorso.read_text(encoding="utf-8"))
+
+    catalogo_percorso = vocabolario.contracts / "catalogs" / "io-tools-v1.json"
+    if not catalogo_percorso.is_file():
+        return Esito(False, "il catalogo io-tools non e' nel pin")
+    catalogo = json.loads(catalogo_percorso.read_text(encoding="utf-8"))
+    dal_catalogo = {
+        voce["id"]: voce["output"]["contract"] for voce in catalogo["operations"]
+    }
+
+    # I due contratti condivisi, letti dalla riga «Contract identifier» della
+    # loro specifica invece che ricopiati.
+    def identificatore(relativo: str) -> str | None:
+        percorso = vocabolario.contracts / relativo
+        if not percorso.is_file():
+            return None
+        for riga in percorso.read_text(encoding="utf-8").splitlines():
+            if riga.lower().startswith("contract identifier:"):
+                return riga.split("`")[1] if "`" in riga else None
+        return None
+
+    dalle_specifiche = {
+        "errore": identificatore("specs/errors/ERRORS-1.0.md"),
+        "capabilities": identificatore(
+            "specs/capabilities/CAPABILITY-DISCOVERY-2.0.md"
+        ),
+    }
+
+    # Che cosa il binario emette, comando per comando.
+    emesso: dict[str, str] = {}
+    for comando, argomenti in (
+        ("catalog", ("catalog", "--format", "json")),
+        ("capabilities", ("capabilities", "--format", "json")),
+        ("version", ("--version", "--format", "json")),
+        ("errore", ("read", "/nessun-file-per-la-sonda-dei-nomi.geojson", "--format", "json")),
+    ):
+        corsa = artefatto.invoca(*argomenti)
+        documento = corsa.documento() or {}
+        nome = documento.get("contract")
+        if not isinstance(nome, str):
+            return Esito(False, f"`{comando}` non annuncia un contratto")
+        emesso[comando] = nome
+
+    problemi: list[str] = []
+    for voce in registro["buste"]:
+        comando = voce["comando"]
+        dichiarato = voce["contratto"]
+
+        atteso = dal_catalogo.get(f"io.{comando}")
+        if atteso is None:
+            atteso = dalle_specifiche.get(comando)
+        if atteso is None:
+            if comando != "version":
+                problemi.append(f"{comando}: nessuna fonte fissata trovata")
+            continue
+        if dichiarato != atteso:
+            problemi.append(
+                f"{comando}: il registro dichiara «{dichiarato}» e la fonte "
+                f"fissata dice «{atteso}»"
+            )
+
+    for comando, nome in emesso.items():
+        dichiarato = next(
+            (v["contratto"] for v in registro["buste"] if v["comando"] == comando),
+            None,
+        )
+        if dichiarato is None:
+            problemi.append(f"{comando}: il binario lo emette e il registro tace")
+        elif nome != dichiarato:
+            problemi.append(
+                f"{comando}: il binario annuncia «{nome}» e il registro «{dichiarato}»"
+            )
+
+    if problemi:
+        return Esito(False, "; ".join(problemi))
+    return Esito(
+        True,
+        f"{len(registro['buste'])} nomi confrontati con catalogo e specifiche del pin",
+    )
+
+
+def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """La diagnostica di riga e' il documento condiviso, e lo dice il pin.
+
+    # Che cosa questa sonda ha stabilito, prima di poter esistere
+
+    La domanda era se `loss` -- la sezione di perdita dei risultati riusciti --
+    dovesse conformarsi a `plenora-row-diagnostics-v1`. La risposta e' no, e non
+    per comodita': `loss` e' indicizzata per **layer, campo e classe di tipo**,
+    e la sua struttura interna non ha proprio un posto dove mettere un indice di
+    riga. Non e' diagnostica di riga mancata: e' un'altra cosa -- che cosa il
+    formato non ha saputo rappresentare -- e il profilo la governa con l'obbligo
+    di riportare perdita e coercizione, che e' soddisfatto altrove.
+
+    Rinominarla sarebbe stato il modo peggiore di chiudere la domanda: due
+    documenti con lo stesso nome che rispondono a domande diverse, e chi legge
+    che cerca `source_index` dove non ce n'e' mai stato uno.
+
+    # Che cosa la sonda verifica
+
+    Il documento che **e'** row-scoped: `row_diagnostics` nella busta d'errore.
+    I campi obbligatori non sono scritti qui -- si leggono dallo schema del
+    checkout fissato -- perche' una copia locale dell'elenco si allineerebbe da
+    sola il giorno in cui il contratto cambia, ed e' esattamente cio' che il pin
+    esiste per impedire.
+    """
+    schema_percorso = (
+        vocabolario.contracts / "schemas" / "row-diagnostics-v1.schema.json"
+    )
+    if not schema_percorso.is_file():
+        return Esito(False, f"lo schema «{schema_percorso.name}» non e' nel pin")
+    schema = json.loads(schema_percorso.read_text(encoding="utf-8"))
+    obbligatori = schema.get("required") or []
+    if not obbligatori:
+        return Esito(False, "lo schema del pin non dichiara campi obbligatori")
+
+    sorgente = _fixture_ostile("lettura.kml")
+    if sorgente is None:
+        return Esito(False, "la fixture ostile che produce diagnostica di riga non c'e'")
+
+    corsa = artefatto.invoca("read", str(sorgente), "--format", "json")
+    if corsa.exit_code == 0:
+        return Esito(False, "la sorgente ostile non ha prodotto un errore")
+    documento = corsa.documento() or {}
+    diagnostica = (documento.get("error") or {}).get("row_diagnostics")
+    if not isinstance(diagnostica, dict):
+        return Esito(
+            False, "l'errore su righe rifiutate non porta `row_diagnostics`"
+        )
+
+    mancanti = [campo for campo in obbligatori if campo not in diagnostica]
+    if mancanti:
+        return Esito(
+            False,
+            "il documento non porta i campi che lo schema del pin dichiara "
+            f"obbligatori: {', '.join(sorted(mancanti))}",
+        )
+    if diagnostica.get("contract") != "plenora-row-diagnostics-v1":
+        return Esito(
+            False,
+            f"si annuncia «{diagnostica.get('contract')}» invece del contratto "
+            "condiviso",
+        )
+
+    # I due assi chiusi: un valore fuori enum e' un vocabolario inventato.
+    proprieta = schema.get("properties") or {}
+    for campo in ("index_basis", "completeness"):
+        ammessi = (proprieta.get(campo) or {}).get("enum")
+        if ammessi and diagnostica.get(campo) not in ammessi:
+            return Esito(
+                False,
+                f"`{campo}` vale «{diagnostica.get(campo)}», fuori dall'enum del pin",
+            )
+
+    return Esito(
+        True,
+        f"conforme ai {len(obbligatori)} campi obbligatori dello schema fissato",
+    )
+
+
+def _fixture_ostile(nome: str) -> Path | None:
+    percorso = (
+        ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "ostili" / nome
+    )
+    return percorso if percorso.is_file() else None
+
+
 def sonda_write_pubblica(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
     """`write` pubblica davvero, e dichiara come e' finita.
 
@@ -807,9 +1002,9 @@ def sonda_write_formato_esplicito(
 
     Il profilo io-tools vieta di **scegliere** il comportamento di un formato
     analizzando l'estensione quando l'operazione richiede un formato esplicito.
-    Quando `--to` e il nome concordano le due strade portano allo stesso posto e
-    non si distingue niente: qui si fanno disaccordare, e la risposta deve
-    essere un rifiuto -- mai un file scritto nell'uno o nell'altro formato.
+    Quando `--to` e il nome della destinazione concordano le due strade portano
+    allo stesso posto e non si distingue niente: qui si fanno disaccordare, e il
+    **contenuto** deve smentire il nome.
 
     E senza `--to` si rifiuta invece di indovinare: un default sarebbe la scelta
     implicita che il profilo esclude.
@@ -824,14 +1019,23 @@ def sonda_write_formato_esplicito(
         corsa = artefatto.invoca(
             "write", str(arrow), str(travestito), "--to", "csv", "--format", "json"
         )
-        if corsa.exit_code == 0:
+        if corsa.exit_code != 0:
             return Esito(
                 False,
-                "`--to csv` su una destinazione `.geojson` e' riuscito: uno dei "
-                "due nomi ha deciso da solo",
+                "`--to csv` su una destinazione `.geojson` e' stato rifiutato: il "
+                "nome ha deciso al posto del formato",
             )
-        if travestito.exists():
-            return Esito(False, "il rifiuto ha lasciato una destinazione")
+        if not travestito.is_file():
+            return Esito(False, "la busta dice pubblicato e il file non c'e'")
+        testo = travestito.read_text(encoding="utf-8", errors="replace").lstrip()
+        if testo.startswith("{"):
+            return Esito(
+                False,
+                "il contenuto e' JSON: l'estensione ha scelto il driver invece di "
+                "`--to`",
+            )
+        if "," not in testo.splitlines()[0]:
+            return Esito(False, "il contenuto non ha l'aspetto di un CSV")
 
         senza = dove / "senza.csv"
         corsa = artefatto.invoca("write", str(arrow), str(senza), "--format", "json")
@@ -851,7 +1055,53 @@ def sonda_write_formato_esplicito(
                 "un formato fuori dal catalogo non e' rifiutato come tale: "
                 f"{errore.get('code')}",
             )
-    return Esito(True, "il formato e' quello nominato, e senza nome si rifiuta")
+    return Esito(True, "il contenuto segue `--to`, non il nome della destinazione")
+
+
+def sonda_vincoli_del_percorso(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """Ogni driver scrivibile dichiara che cosa pretende dal percorso, e perche'.
+
+    # Che cosa questa sonda difende
+
+    Che un vincolo non rientri in silenzio. Toglierli dove erano convenzione ha
+    reso `--to` il selettore vero; se domani un driver ne riaggiungesse uno
+    senza dichiararlo, il formato esplicito tornerebbe insufficiente e nessuno
+    se ne accorgerebbe fino al primo rifiuto. Qui il vincolo o non c'e', o e'
+    dichiarato con la sua ragione e i suoi suffissi.
+
+    Il suffisso di **riconoscimento** e' dichiarato sempre, vincolo o no: e'
+    l'altra meta' della verita', e senza di essa togliere il vincolo avrebbe
+    tolto anche l'informazione su come l'artefatto viene riletto.
+    """
+    corsa = artefatto.invoca("catalog", "--format", "json")
+    if corsa.exit_code != 0:
+        return Esito(False, f"`catalog` esce {corsa.exit_code}")
+    drivers = ((corsa.documento() or {}).get("result") or {}).get("drivers")
+    if not isinstance(drivers, list) or not drivers:
+        return Esito(False, "il catalogo non elenca driver")
+
+    vincolati = []
+    for driver in drivers:
+        identita = driver.get("id")
+        if not driver.get("recognised_suffixes"):
+            return Esito(False, f"{identita}: nessun suffisso di riconoscimento")
+        capacita = driver.get("write_capabilities")
+        if not isinstance(capacita, dict):
+            continue
+        vincolo = capacita.get("sink_path")
+        if not isinstance(vincolo, dict) or "kind" not in vincolo:
+            return Esito(False, f"{identita}: vincolo sul percorso non dichiarato")
+        if vincolo["kind"] == "required":
+            if not vincolo.get("reason"):
+                return Esito(False, f"{identita}: vincolo senza ragione")
+            if not vincolo.get("suffixes"):
+                return Esito(False, f"{identita}: vincolo senza suffissi")
+            vincolati.append(identita)
+    return Esito(
+        True,
+        "i vincoli sono dichiarati con la loro ragione"
+        + (f"; vincolati: {', '.join(sorted(vincolati))}" if vincolati else ""),
+    )
 
 
 def sonda_write_rollback(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
@@ -986,8 +1236,11 @@ SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "cli.versione-json": sonda_versione_json,
     "cli.capabilities": sonda_capabilities,
     "read.consegna-arrow": sonda_read_consegna,
+    "busta.nomi-dal-contratto-fissato": sonda_nomi_dei_contratti,
+    "diagnostica.riga-e-il-contratto-condiviso": sonda_diagnostica_di_riga,
     "write.pubblica": sonda_write_pubblica,
     "write.formato-esplicito": sonda_write_formato_esplicito,
+    "write.vincoli-del-percorso": sonda_vincoli_del_percorso,
     "write.rollback-osservabile": sonda_write_rollback,
     "capabilities.forma": sonda_capability_forma,
     "capabilities.copre-il-catalogo": sonda_capability_copre_il_catalogo,

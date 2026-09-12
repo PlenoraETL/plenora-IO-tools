@@ -362,7 +362,7 @@
       }
     },
     "catalog": {
-      "contract": "plenora-io-catalog-v2",
+      "contract": "plenora-io-catalog-v1",
       "required_top_level": [
         "status",
         "protocol_version",
@@ -654,6 +654,18 @@
           ],
           "sempre": true
         },
+        ".result.drivers[].recognised_suffixes": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].recognised_suffixes[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
         ".result.drivers[].required_feature": {
           "tipi": [
             "null",
@@ -869,6 +881,36 @@
           ],
           "sempre": true
         },
+        ".result.drivers[].write_capabilities.sink_path": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].write_capabilities.sink_path.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].write_capabilities.sink_path.reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].write_capabilities.sink_path.suffixes": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].write_capabilities.sink_path.suffixes[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
         ".result.drivers[].write_capabilities.type_coercion": {
           "tipi": [
             "string"
@@ -900,7 +942,7 @@
       ]
     },
     "convert": {
-      "contract": "plenora-io-convert-v2",
+      "contract": "plenora-io-convert-v1",
       "required_top_level": [
         "status",
         "protocol_version",
@@ -1471,7 +1513,7 @@
       ]
     },
     "error": {
-      "contract": "plenora-io-error-v1",
+      "contract": "plenora-error-v1",
       "perche_il_contratto_resta_v1": "il protocollo della busta e il contratto dell'errore sono due assi diversi, e il catalogo comune lo dice per esteso: «operation identity and operation contract version are independent from the CLI protocol version». La busta e' v2 -- lo dichiara `protocol_version` -- e la forma dell'errore che trasporta e' ancora la prima. Rinominarla `-v2` per farla assomigliare alla busta direbbe che e' cambiata, e non e' cambiata.",
       "required_top_level": [
         "status",
@@ -1696,7 +1738,7 @@
       },
       "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
       "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
-      "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
+      "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
       "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-cli`.",
       "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
@@ -1705,7 +1747,7 @@
       "perche_non_sta_piu_a_parte": "il v2 la riusava dal v1 senza modifiche, e il manifesto la descriveva in una sezione propria per non ripeterla dove non le competeva. Dalla 4.0.0 non e' piu' una busta riusata: porta i sei campi d'identita', esce su stdout e il suo codice d'uscita proietta la categoria. E' una busta del v2 come le altre, e sta dove stanno le altre."
     },
     "inspect": {
-      "contract": "plenora-io-inspect-v2",
+      "contract": "plenora-io-inspect-v1",
       "required_top_level": [
         "status",
         "protocol_version",
@@ -2013,6 +2055,18 @@
           ],
           "sempre": true
         },
+        ".result.format.recognised_suffixes": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.format.recognised_suffixes[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
         ".result.format.runtime": {
           "tipi": [
             "string"
@@ -2221,6 +2275,36 @@
           ],
           "sempre": true
         },
+        ".result.format.write_capabilities.sink_path": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.format.write_capabilities.sink_path.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.format.write_capabilities.sink_path.reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.format.write_capabilities.sink_path.suffixes": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".result.format.write_capabilities.sink_path.suffixes[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
         ".result.format.write_capabilities.type_coercion": {
           "tipi": [
             "string"
@@ -2381,7 +2465,7 @@
       ]
     },
     "layers": {
-      "contract": "plenora-io-layers-v2",
+      "contract": "plenora-io-layers-v1",
       "required_top_level": [
         "status",
         "protocol_version",
@@ -2563,7 +2647,7 @@
       ]
     },
     "read": {
-      "contract": "plenora-io-read-v2",
+      "contract": "plenora-io-read-result-v1",
       "required_top_level": [
         "status",
         "protocol_version",

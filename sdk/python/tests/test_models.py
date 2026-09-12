@@ -59,7 +59,7 @@ def catalogo_sano(**modifiche):
     documento = {
         "status": "ok",
         "protocol_version": 2,
-        "contract": "plenora-io-catalog-v2",
+        "contract": "plenora-io-catalog-v1",
         "determinism": "byte_for_byte",
         "drivers": [driver_sano(), driver_sano(id="csv", available=False)],
     }
@@ -229,7 +229,7 @@ def inspect_sano(**modifiche):
     documento = {
         "status": "ok",
         "protocol_version": 2,
-        "contract": "plenora-io-inspect-v2",
+        "contract": "plenora-io-inspect-v1",
         "format": descrittore_sano(),
         "fidelity": fedelta_sana(),
         "layers": [strato_sano()],
@@ -242,7 +242,7 @@ def layers_sano(**modifiche):
     documento = {
         "status": "ok",
         "protocol_version": 2,
-        "contract": "plenora-io-layers-v2",
+        "contract": "plenora-io-layers-v1",
         "format": "gpkg",
         "fidelity": fedelta_sana(),
         "layers": [
@@ -422,7 +422,7 @@ def validazione_sana(**modifiche):
     documento = {
         "status": "ok",
         "protocol_version": 2,
-        "contract": "plenora-io-read-v2",
+        "contract": "plenora-io-read-result-v1",
         "format": "geojson",
         "layer": strato_sano(),
         "rows_read": 5,

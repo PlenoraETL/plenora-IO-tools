@@ -14,7 +14,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.catalog = {
             "status": "ok",
             "protocol_version": 2,
-            "contract": "plenora-io-catalog-v2",
+            "contract": "plenora-io-catalog-v1",
             "determinism": "byte_for_byte",
             "drivers": [
                 {
@@ -130,8 +130,8 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.assertTrue(self.validate(catalog))
 
     def test_rejects_non_object_root_and_non_array_drivers(self) -> None:
-        self.assertTrue(self.validate(["plenora-io-catalog-v2"]))
-        self.assertTrue(self.validate("plenora-io-catalog-v2"))
+        self.assertTrue(self.validate(["plenora-io-catalog-v1"]))
+        self.assertTrue(self.validate("plenora-io-catalog-v1"))
 
         catalog = copy.deepcopy(self.catalog)
         catalog["drivers"] = {"filegdb": {"available": True}}

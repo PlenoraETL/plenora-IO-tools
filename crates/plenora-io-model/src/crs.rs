@@ -273,6 +273,19 @@ impl RawCrs {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CrsResolution {
     Resolved(ResolvedCrs),
+    /// Serializzato `declared_unresolved`, non `declared_but_unresolved`.
+    ///
+    /// La grafia non e' una preferenza: `ARROW-VOCABULARY-1.0 §3` chiude
+    /// `plenora.geometry.crs_resolution` su `resolved`, `declared_unresolved` e
+    /// `missing`, e i metadati Arrow che scriviamo la usano gia'. Il JSON della
+    /// busta rendeva `declared_but_unresolved` perche' era quella che serde
+    /// deriva dal nome della variante, e il risultato erano **due grafie per lo
+    /// stesso stato dentro lo stesso prodotto**: chi confrontava le due viste
+    /// doveva tradurre, e una traduzione non scritta prima o poi si sbaglia.
+    ///
+    /// Il nome Rust resta `DeclaredButUnresolved` perche' li' si legge meglio;
+    /// a viaggiare e' la grafia del contratto.
+    #[serde(rename = "declared_unresolved")]
     DeclaredButUnresolved(RawCrs),
     Missing,
 }

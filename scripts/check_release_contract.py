@@ -3891,6 +3891,12 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         errors.append("cli-protocol-v1: stato API Rust inatteso")
 
     expected_contracts = {
+        # `plenora-io-error-v1`, non `plenora-error-v1`: questo e' il manifesto
+        # del protocollo **v1**, che e' congelato. La 4.0.0 ha allineato il
+        # nome della busta d'errore al contratto comune di ERRORS-1.0, ma quel
+        # cambio riguarda il v2: qui l'atteso e' cio' che il v1 pubblicava, e
+        # riallinearlo renderebbe il congelamento una tautologia che si
+        # aggiorna da sola.
         "error": "plenora-io-error-v1",
         "catalog": "plenora-io-catalog-v1",
         "inspect": "plenora-io-inspect-v1",

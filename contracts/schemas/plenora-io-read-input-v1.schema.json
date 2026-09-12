@@ -30,8 +30,8 @@
     "limit": {
       "type": "integer",
       "minimum": 0,
-      "description": "Tetto alle righe lette. Con `destination` presente e' rifiutato oggi. Binding CLI: --limit.",
-      "$comment": "DECISIONE APERTA D9. Il contratto fissato NON impone il rifiuto: SURF-014 vieta di riportare un esito parziale come successo pieno -- e `truncated` lo riporta -- mentre PUBLIC-SURFACES-1.0 §9 punto 5 delega «success, partial and failure semantics» a questa specifica, che non l'ha ancora scritta. Il rifiuto e' prudenza, non obbligo: fra «il totale e' quello della sorgente e ne consegno N» e «il totale e' N» sceglierne una prima che la semantica esista la fisserebbe sul confine pubblico, e disfarla sarebbe una rottura. Qui si chiude D9, non nel codice."
+      "description": "Tetto alle righe lette. Non si combina con `destination`. Binding CLI: --limit.",
+      "$comment": "DECISA PER LA 4.0.0. Il contratto fissato non imponeva il rifiuto -- SURF-014 vieta di riportare un esito parziale come successo pieno, e `truncated` lo riporta; PUBLIC-SURFACES-1.0 §9 punto 5 delega «success, partial and failure semantics» a questa specifica -- quindi la scelta era nostra, ed è questa: `io.read` non consegna dataset parziali.\n\nLa ragione non è il writer. Sono due semantiche incompatibili del totale, e nessuna delle due è gratis: «il totale è quello della sorgente e ne consegno N» conserva il denominatore delle diagnostiche di riga ma consegna un dataset che non gli corrisponde, e chi lo rilegge conta N righe mentre il documento ne dichiara di più; «il totale è N» rende coerente il file e cancella l'informazione su quanto è rimasto indietro, che è precisamente ciò per cui il limite era stato chiesto. Consegnarli entrambi, distinti, resta possibile e sarebbe una terza operazione: «le prime N righe come dataset» non è una lettura limitata, è una proiezione, e avrà il suo ingresso quando qualcuno la chiederà.\n\nFino ad allora `limit` governa quante righe si **leggono**, non quante se ne consegnano, e le due forme dell'operazione restano distinte: senza `destination` il limite vale e `truncated` lo dichiara."
     },
     "assume_crs": {
       "type": "string",
@@ -117,7 +117,7 @@
   },
   "dependentSchemas": {
     "limit": {
-      "$comment": "La forma della decisione D9 resa eseguibile: finche' e' aperta, `limit` e `destination` non convivono. Il giorno in cui D9 si chiude per il verso opposto, questa clausola sparisce e il campo `truncated` del risultato diventa il posto dove la parzialita' si dichiara.",
+      "$comment": "La decisione D9 resa eseguibile: `limit` e `destination` non convivono. Non è una clausola provvisoria in attesa che qualcuno decida -- è la semantica scelta per la 4.0.0, e cambiarla sarebbe un cambio di contratto con il suo identificatore nuovo, non una riga tolta.",
       "not": {
         "required": [
           "destination"

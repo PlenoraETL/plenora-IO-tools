@@ -50,8 +50,9 @@ use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadSco
 use plenora_io_core::{
     validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
     CrsDerivation, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
-    SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, SinkPathReason,
+    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, SCALAR_TYPES,
+    WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -617,11 +618,16 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
+        sink_path: SinkPathConstraint::Required {
+            suffixes: &["shp", "shp.d"],
+            reason: SinkPathReason::CompanionFiles,
+        },
     }),
     SCHEMA_OPZIONI,
+    &["shp"],
     1,
     9,
-    9,
+    10,
 );
 
 pub struct ShpDriver;

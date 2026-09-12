@@ -324,7 +324,7 @@ pub enum CrsRepresentationState {
 /// La serializzazione **non** porta la provenienza, ed e' una scelta.
 ///
 /// Il catalogo emesso dalla CLI descrive la capability **statica** del
-/// formato: `crs_id: "derived"` per lo Shapefile resta vero: l'identificatore
+/// formato: `crs_id: "derived"` per lo `Shapefile` resta vero: l'identificatore
 /// si ricava dal `.prj` che quel driver scrive. Cio' che la provenienza
 /// raffina e' il verdetto **per piano**, e quello vive nel `LossReport`, che
 /// ha gia' il proprio vocabolario chiuso.
@@ -379,6 +379,87 @@ pub enum NullabilitySupport {
     NoNulls,
 }
 
+/// Perche' un formato pretenda un suffisso sulla destinazione.
+///
+/// Esiste per **separare** due cose che si somigliavano: un vincolo del formato
+/// e un'abitudine dell'implementazione. Prima della 4.0.0 otto driver su dieci
+/// rifiutavano una destinazione il cui nome non portasse il suffisso atteso, e
+/// il rifiuto aveva la stessa forma in tutti e otto — ma in sei casi
+/// l'estensione non veniva usata per **niente** dopo il controllo. Era una
+/// convenzione travestita da requisito, e rendeva il formato esplicito
+/// insufficiente a scegliere la destinazione.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SinkPathReason {
+    /// La specifica del formato lo impone.
+    ///
+    /// `GeoPackage` e' il caso: OGC 12-128r, requisito 2, dice che un `GeoPackage`
+    /// **deve** avere estensione `.gpkg`. Un file con gli stessi byte e un
+    /// altro nome non e' un `GeoPackage` conforme, e chi lo riceve ha ragione a
+    /// rifiutarlo.
+    FormatSpecification,
+    /// Il suffisso governa i file che accompagnano il principale, o sceglie la
+    /// forma della pubblicazione.
+    ///
+    /// `Shapefile` e' il caso, ed e' doppio: i companion (`.shx`, `.dbf`, `.prj`,
+    /// `.cpg`) derivano il nome dal basename del principale, e `.shp` contro
+    /// `.shp.d` distingue due pubblicazioni con garanzie di atomicita'
+    /// **diverse**. Qui il suffisso non descrive il contenuto: lo determina.
+    CompanionFiles,
+}
+
+/// Che cosa il driver pretende dal percorso di destinazione.
+///
+/// `Libero` non vuol dire che il nome sia irrilevante per chi legge: vuol dire
+/// che **scrivere** non lo richiede. Il nome con cui un artefatto viene
+/// riconosciuto in lettura e' un'altra cosa, e sta in
+/// `FormatDescriptor::recognised_suffixes`. Tenerle separate e' il punto: un
+/// artefatto scritto su un percorso senza suffisso e' valido e puo' non essere
+/// riapribile per deduzione, e sono due affermazioni distinte che il chiamante
+/// deve poter leggere entrambe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SinkPathConstraint {
+    /// Il percorso e' del chiamante.
+    Free,
+    /// La destinazione deve terminare con uno dei suffissi dichiarati.
+    Required {
+        /// I suffissi ammessi, senza il punto, confrontati senza distinzione di
+        /// maiuscole.
+        suffixes: &'static [&'static str],
+        reason: SinkPathReason,
+    },
+}
+
+impl SinkPathConstraint {
+    /// Il percorso soddisfa il vincolo.
+    ///
+    /// Il confronto e' sul **suffisso** e non sull'estensione di `Path`, perche'
+    /// `.shp.d` non e' un'estensione: `Path::extension` ne renderebbe `d`.
+    #[must_use]
+    pub fn ammette(&self, percorso: &std::path::Path) -> bool {
+        let Self::Required { suffixes, .. } = self else {
+            return true;
+        };
+        let Some(nome) = percorso.file_name().and_then(|n| n.to_str()) else {
+            return false;
+        };
+        let minuscolo = nome.to_ascii_lowercase();
+        suffixes
+            .iter()
+            .any(|suffisso| minuscolo.ends_with(&format!(".{}", suffisso.to_ascii_lowercase())))
+    }
+
+    /// I suffissi richiesti, per il messaggio di rifiuto.
+    #[must_use]
+    pub const fn suffissi(&self) -> &'static [&'static str] {
+        match self {
+            Self::Free => &[],
+            Self::Required { suffixes, .. } => suffixes,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct FormatWriteCapabilities {
     pub field_names: FieldNamePolicy,
@@ -390,6 +471,13 @@ pub struct FormatWriteCapabilities {
     pub crs_representations: CrsRepresentationCapabilities,
     pub nullability: NullabilitySupport,
     pub multi_layer: bool,
+    /// Che cosa la scrittura pretende dal percorso di destinazione.
+    ///
+    /// Campo obbligatorio e non `Option`: un driver che non pretende nulla
+    /// dichiara `SinkPathConstraint::Free`, che e' un'affermazione, mentre
+    /// l'assenza sarebbe indistinguibile da una dimenticanza. E' la stessa
+    /// ragione per cui `format_options` non e' opzionale.
+    pub sink_path: SinkPathConstraint,
 }
 
 pub const UTF8_FIELD_NAMES: FieldNamePolicy = FieldNamePolicy {
@@ -484,7 +572,7 @@ pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     mixed_types: true,
 };
 
-/// GeoJSON/KML-like geometry support: XY plus an interoperable altitude Z.
+/// `GeoJSON`/KML-like geometry support: XY plus an interoperable altitude Z.
 /// M is deliberately excluded because these formats do not assign it a stable
 /// round-trip semantic.
 pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
@@ -505,7 +593,7 @@ pub const WKB_SINGLE_TYPE_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSuppo
     ..WKB_XY_GEOMETRY
 };
 
-/// Shapefile-like support: one native shape family per dataset, with the
+/// `Shapefile`-like support: one native shape family per dataset, with the
 /// dimensional variants represented by the format itself.
 pub const WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     geometry_types: SHAPEFILE_GEOMETRY_TYPES,
@@ -695,6 +783,18 @@ pub struct FormatDescriptor {
     /// comando `options` si compone dall'elenco dei driver, che il core ha
     /// gia'.
     format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
+    /// I suffissi per cui un percorso viene **riconosciuto** come questo
+    /// formato, quando nessuno lo dichiara.
+    ///
+    /// Non e' il gemello di `sink_path`: quello dice che cosa la scrittura
+    /// pretende, questo che cosa la lettura deduce. Le due si separano perche'
+    /// un artefatto scritto su un percorso qualsiasi e' valido e puo' non
+    /// essere riapribile per deduzione — due affermazioni distinte, e il
+    /// chiamante deve poterle leggere entrambe prima di scegliere un nome.
+    ///
+    /// Vuoto significa «nessun suffisso lo identifica»: oggi nessun driver e'
+    /// in quel caso, ma dichiararlo vuoto e' un'affermazione, non un'omissione.
+    recognised_suffixes: &'static [&'static str],
     // Versioni esplicite: il fingerprint del catalogo deriva da queste (D17).
     semantic_version: u32,
     driver_version: u32,
@@ -740,6 +840,7 @@ impl FormatDescriptor {
         spec_version_supported: Option<&'static str>,
         write_capabilities: Option<FormatWriteCapabilities>,
         format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
+        recognised_suffixes: &'static [&'static str],
         semantic_version: u32,
         driver_version: u32,
         descriptor_version: u32,
@@ -767,6 +868,7 @@ impl FormatDescriptor {
             spec_version_supported,
             write_capabilities,
             format_options,
+            recognised_suffixes,
             semantic_version,
             driver_version,
             descriptor_version,
@@ -917,6 +1019,21 @@ impl FormatDescriptor {
     #[must_use]
     pub const fn driver_version(&self) -> u32 {
         self.driver_version
+    }
+
+    /// I suffissi per cui un percorso e' riconosciuto come questo formato.
+    #[must_use]
+    pub const fn recognised_suffixes(&self) -> &'static [&'static str] {
+        self.recognised_suffixes
+    }
+
+    /// Che cosa la scrittura pretende dal percorso, o `None` per un read-only.
+    #[must_use]
+    pub const fn sink_path(&self) -> Option<SinkPathConstraint> {
+        match &self.write_capabilities {
+            Some(capacita) => Some(capacita.sink_path),
+            None => None,
+        }
     }
 
     #[must_use]

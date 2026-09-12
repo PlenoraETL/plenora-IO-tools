@@ -22,11 +22,12 @@ pub use descriptor::{
     DeterminismLevel, Direction, Fidelity, FieldNamePolicy, FormatDescriptor,
     FormatWriteCapabilities, GeometryWriteSupport, NameNormalization, NativeReadMode,
     NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadMode, ReaderConcurrency,
-    Runtime, SpatialPruningSupport, TextEncoding, TypeCoercionPolicy, WriteMode, ALL_ARROW_TYPES,
-    ALL_GEOMETRY_TYPES, DBF_FIELD_NAMES, NO_GEOMETRY, SCALAR_TYPES, SHAPEFILE_GEOMETRY_TYPES,
-    SIMPLE_WKB_GEOMETRY_TYPES, UTF8_FIELD_NAMES, WKB_EWKB_PASSTHROUGH_GEOMETRY,
-    WKB_PASSTHROUGH_GEOMETRY, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY, WKB_SINGLE_TYPE_XY_GEOMETRY,
-    WKB_XY_GEOMETRY, WKB_XY_XYZ_GEOMETRY,
+    Runtime, SinkPathConstraint, SinkPathReason, SpatialPruningSupport, TextEncoding,
+    TypeCoercionPolicy, WriteMode, ALL_ARROW_TYPES, ALL_GEOMETRY_TYPES, DBF_FIELD_NAMES,
+    NO_GEOMETRY, SCALAR_TYPES, SHAPEFILE_GEOMETRY_TYPES, SIMPLE_WKB_GEOMETRY_TYPES,
+    UTF8_FIELD_NAMES, WKB_EWKB_PASSTHROUGH_GEOMETRY, WKB_PASSTHROUGH_GEOMETRY,
+    WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY, WKB_SINGLE_TYPE_XY_GEOMETRY, WKB_XY_GEOMETRY,
+    WKB_XY_XYZ_GEOMETRY,
 };
 pub use driver::{
     check_cancelled, check_cancelled_periodically, preflight_source, read_row_error,

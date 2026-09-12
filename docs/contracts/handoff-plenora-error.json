@@ -67,7 +67,7 @@
   ],
   "generato_da": "plenora-io-cli, test la_matrice_di_handoff_e_aggiornata",
   "sorgente": {
-    "contract": "plenora-io-error-v1",
+    "contract": "plenora-error-v1",
     "protocol_version": 1,
     "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
   },

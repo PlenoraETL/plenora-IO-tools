@@ -109,6 +109,12 @@ fn comando_convert(ingresso: &Path, uscita: &Path, deadline_ms: Option<&str>) ->
         .arg("convert")
         .arg(ingresso)
         .arg(uscita)
+        // I due formati sono espliciti dalla 4.0.0: la sorgente e' il CSV che
+        // questa prova scrive, la destinazione l'Arrow che si aspetta.
+        .arg("--from")
+        .arg("csv")
+        .arg("--to")
+        .arg("ipc")
         .arg("--assume-crs")
         .arg(CRS)
         .arg("--in-opt")

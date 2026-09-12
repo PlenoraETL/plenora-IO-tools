@@ -726,7 +726,7 @@ fn la_busta_del_binario_ha_le_sei_chiavi_e_non_porta_il_payload() {
         serde_json::from_str(testo.trim()).expect("stdout e' un documento JSON");
     assert_eq!(documento["status"], "error");
     assert_eq!(documento["protocol_version"], 2);
-    assert_eq!(documento["contract"], "plenora-io-error-v1");
+    assert_eq!(documento["contract"], "plenora-error-v1");
     // L'identita' c'e', e viene dal processo: e' l'unica prova che attraversa
     // anche il punto in cui `main` la aggiunge.
     assert_eq!(documento["component"], "plenora-io-tools");

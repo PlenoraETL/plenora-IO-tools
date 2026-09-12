@@ -118,54 +118,151 @@ fn il_giro_completo_conserva_righe_e_valori() {
     );
 }
 
-/// Il driver viene da `--to`. Se il nome della destinazione dice un'altra
-/// cosa, si rifiuta: non si sceglie per conto del chiamante.
+/// Il driver viene da `--to`, e l'estensione non decide al suo posto.
 ///
-/// # Che cosa questa prova stabilisce
+/// # La sola forma in cui la regola si osserva
 ///
 /// Il profilo io-tools vieta di **scegliere** il comportamento di un formato
 /// analizzando l'estensione quando l'operazione richiede un formato esplicito.
-/// Qui `--to` e il nome della destinazione si contraddicono, e la risposta e'
-/// un rifiuto tipizzato: ne' il formato dell'estensione ne' quello di `--to`
-/// vengono scritti in silenzio. E' l'unico caso in cui la regola si osserva --
-/// quando i due concordano, le due strade portano allo stesso posto e la sonda
-/// non distinguerebbe niente.
+/// Quando `--to` e il nome concordano le due strade portano allo stesso posto e
+/// la sonda non distinguerebbe niente: qui si fanno disaccordare, e il
+/// contenuto deve smentire il nome.
 ///
-/// # Che cosa **non** stabilisce, ed e' la decisione D10
+/// # Perche' questa prova prima diceva il contrario
 ///
-/// Che il formato esplicito basti a determinare la destinazione. Oggi non
-/// basta: ogni driver scrivibile pretende **anche** l'estensione sua, quindi
-/// `--to` aggiunge un controllo di coerenza invece di sostituire la deduzione.
-/// Non e' una violazione -- la selezione non passa piu' dall'estensione, e il
-/// vincolo sul nome e' una capacita' del formato, non una scelta di
-/// comportamento -- ma lascia aperto se un orchestratore debba poter pubblicare
-/// su un percorso che non ha nome di formato. Il piano 4.0.0 la registra.
+/// Fino a D10 il file veniva rifiutato, e la sonda lo fissava. Il rifiuto pero'
+/// non veniva dal formato: ogni driver scrivibile pretendeva la propria
+/// estensione, e in sette casi su dieci dopo il controllo l'estensione non
+/// veniva usata per niente. Era una convenzione travestita da vincolo, e
+/// rendeva `--to` un controllo di coerenza invece del selettore. Tolta quella,
+/// la regola del profilo diventa osservabile davvero.
+///
+/// I due formati che il suffisso lo pretendono per ragioni loro -- `GeoPackage`
+/// per la sua specifica, `Shapefile` per i file companion -- lo dichiarano nel
+/// catalogo, e le loro prove stanno accanto a questa.
 #[test]
-fn to_e_l_estensione_in_disaccordo_sono_un_rifiuto_tipizzato() {
+fn il_formato_lo_decide_to_e_non_l_estensione() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
     let arrow = dataset_arrow(temporanea.path(), &fixture("canonico.geojson"));
     let uscita = temporanea.path().join("travestito.geojson");
 
-    let esito = esegui(&[
+    let scrittura = esegui(&[
         "write",
         arrow.to_str().unwrap(),
         uscita.to_str().unwrap(),
         "--to",
         "csv",
     ]);
+    assert!(scrittura.riuscita, "{}", scrittura.stdout);
+    assert_eq!(scrittura.risultato()["format"], "csv");
 
-    assert!(!esito.riuscita, "{}", esito.stdout);
-    assert_eq!(
-        esito.errore()["category"],
-        "unsupported",
-        "il rifiuto e' sulla capacita' del formato, non sulla richiesta"
+    let contenuto = std::fs::read_to_string(&uscita).expect("la destinazione si legge");
+    assert!(
+        !contenuto.trim_start().starts_with('{'),
+        "il contenuto non e' JSON: l'estensione non ha scelto il driver. Letto: {}",
+        &contenuto[..contenuto.len().min(80)]
     );
     assert!(
-        !uscita.exists(),
-        "e soprattutto: non e' stato scritto ne' un CSV ne' un GeoJSON. Un \
-         file prodotto qui vorrebbe dire che uno dei due nomi ha deciso da \
-         solo, ed e' esattamente cio' che il profilo vieta"
+        contenuto.lines().next().is_some_and(|r| r.contains(',')),
+        "la prima riga e' un'intestazione CSV"
     );
+}
+
+/// I due formati che il suffisso lo pretendono davvero, e lo dichiarano.
+///
+/// `GeoPackage` per la sua specifica (OGC 12-128r, requisito 2) e `Shapefile` per i
+/// file companion, che derivano il nome dal basename del principale. Non sono
+/// convenzioni: il primo produrrebbe un artefatto fuori specifica, il secondo
+/// non saprebbe dove mettere `.shx` e `.dbf`.
+///
+/// La sonda non fissa **quali** siano i due: legge il catalogo. Se un terzo
+/// formato acquistasse un vincolo, o se uno di questi lo perdesse, il numero
+/// cambierebbe e la sonda lo direbbe -- ed e' cio' che deve fare, perche' un
+/// vincolo aggiunto in silenzio e' un vincolo di cui nessuno risponde.
+#[test]
+fn i_vincoli_sul_percorso_sono_dichiarati_e_motivati() {
+    let catalogo = esegui(&["catalog"]);
+    assert!(catalogo.riuscita, "{}", catalogo.stdout);
+    let drivers = catalogo.risultato()["drivers"]
+        .as_array()
+        .expect("il catalogo elenca driver")
+        .clone();
+
+    let mut vincolati: Vec<(String, String)> = Vec::new();
+    for driver in &drivers {
+        let Some(capacita) = driver["write_capabilities"].as_object() else {
+            continue;
+        };
+        let vincolo = &capacita["sink_path"];
+        assert!(
+            vincolo["kind"].is_string(),
+            "{}: il vincolo sul percorso e' dichiarato",
+            driver["id"]
+        );
+        if vincolo["kind"] == "required" {
+            assert!(
+                vincolo["reason"].is_string(),
+                "{}: un vincolo senza ragione e' un vincolo di cui nessuno risponde",
+                driver["id"]
+            );
+            assert!(
+                vincolo["suffixes"]
+                    .as_array()
+                    .is_some_and(|s| !s.is_empty()),
+                "{}: un vincolo senza suffissi non vincola niente",
+                driver["id"]
+            );
+            vincolati.push((
+                driver["id"].as_str().unwrap_or_default().to_owned(),
+                vincolo["reason"].as_str().unwrap_or_default().to_owned(),
+            ));
+        }
+        // E il suffisso con cui il formato viene **riconosciuto** in lettura e'
+        // dichiarato sempre, vincolo o no: e' l'altra meta', e senza di essa
+        // togliere il vincolo avrebbe tolto anche l'informazione.
+        assert!(
+            driver["recognised_suffixes"]
+                .as_array()
+                .is_some_and(|s| !s.is_empty()),
+            "{}: nessun suffisso di riconoscimento dichiarato",
+            driver["id"]
+        );
+    }
+
+    vincolati.sort();
+    assert_eq!(
+        vincolati,
+        vec![
+            ("gpkg".to_owned(), "format_specification".to_owned()),
+            ("shp".to_owned(), "companion_files".to_owned()),
+        ],
+        "i formati che pretendono il suffisso sono due, e ciascuno per la sua ragione"
+    );
+}
+
+/// E il vincolo dichiarato viene applicato: `GeoPackage` rifiuta l'altro nome.
+#[test]
+fn il_vincolo_dichiarato_da_geopackage_e_applicato() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let arrow = dataset_arrow(temporanea.path(), &fixture("canonico.geojson"));
+    let uscita = temporanea.path().join("non_conforme.dat");
+
+    let esito = esegui(&[
+        "write",
+        arrow.to_str().unwrap(),
+        uscita.to_str().unwrap(),
+        "--to",
+        "gpkg",
+    ]);
+    assert!(!esito.riuscita, "{}", esito.stdout);
+    assert_eq!(esito.errore()["category"], "unsupported");
+    let errore = esito.errore();
+    let messaggio = errore["message"].as_str().expect("un messaggio");
+    assert!(
+        messaggio.contains("12-128r"),
+        "il rifiuto cita la specifica che lo impone, non una convenzione: {messaggio}"
+    );
+    assert!(!uscita.exists(), "e non lascia una destinazione");
 }
 
 /// Il controesempio: quando `--to` e il nome concordano, si scrive.

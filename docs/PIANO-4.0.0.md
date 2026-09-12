@@ -115,12 +115,12 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B10a | Il formato del sink è esplicito | profilo io-tools, «Format-specific behavior MUST NOT be selected by parsing file extensions when the operation requires an explicit format» | **chiusa.** `--to` prende un `id` di `io.catalog`; senza, il comando rifiuta invece di indovinare | `convert` deduce ancora i due formati dalle estensioni: è la riga B17 | `driver_per_formato` risolve per nome, e `ogni_formato_del_catalogo_ha_un_driver` confronta i due insiemi nei due versi | quando `--to` e l'estensione della destinazione si contraddicono non viene scritto **né** l'uno **né** l'altro formato: è l'unico caso in cui la regola si osserva, perché quando concordano le due strade portano allo stesso posto |
 | B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | diciassette prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel; due schemi pubblicati e quindici esempi legano la forma dichiarata all'invocazione reale |
 | B12a | Dataset vuoto: zero righe **non** implica schema ignoto | ARROW-VOCABULARY-1.0 §3-4, `capabilities.rs` | **corretta.** Una sorgente con zero righe e schema noto — GeoPackage, Arrow IPC, Parquet, Shapefile — si consegna con lo schema intero; solo una sorgente i cui tipi geometrici non si determinano viene rifiutata | il rilievo: la prova precedente asseriva «un dataset vuoto non si consegna» e ne dava come ragione che una sorgente senza righe non può dichiarare i tipi. Entrambe sbagliate. La regola vera non parla di righe: rifiuta quando il **sink restringe** i tipi geometrici **e** il contratto della sorgente arriva `unresolved` — una sorgente con mille righe di tipi indeterminati sarebbe rifiutata allo stesso modo | fatto: due prove distinte, `zero_righe_con_schema_noto_si_consegnano` e `tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato` | la prima costruisce un file IPC con lo schema della fixture canonica e **zero** batch, e ne verifica la consegna con schema intero; la seconda verifica che il messaggio nomini la dichiarazione dei tipi e non il numero di righe |
-| B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto**: separare la dichiarazione di un vero passaggio di byte da quella dei formati che interpretano la geometria, oppure motivare la restrizione. Non è una correzione da fare di traverso: cambia la matrice del catalogo per cinque driver | la sorgente vuota di GeoJSON si consegna con `types_declaration=unresolved`, oppure il catalogo motiva per iscritto perché no |
-| B12b | Il limite non si combina con la consegna | **nessun requisito lo impone**: SURF-014 vieta solo di riportare un parziale come successo pieno, e PUBLIC-SURFACES-1.0 §9.5 delega la semantica del parziale alla nostra specifica d'operazione | `--limit` insieme a `--output` è rifiutato con `invalid_plan` e codice `LIMIT_WITH_DELIVERY` | il difetto che le prove hanno trovato era reale — `--limit 2 --output` riusciva e consegnava **tutte** le righe con `truncated: true` accanto — ma il rifiuto che l'ha chiuso è una **scelta**, non un obbligo. La necessità del writer di conoscere la cardinalità esatta (`declare_input_total`) è una ragione per progettare la semantica, non per negarla | **decisione aperta D9**: si chiude scrivendo in `plenora-io-read-input-v1` quale sia il totale di una consegna troncata, non nel codice | oggi: il comando esce `invalid_plan` e non lascia un file, `--limit` da solo continua a valere. La prova che lo fissa dichiara di misurare una scelta aperta, e diventerà rossa il giorno in cui D9 si chiude nell'altro verso |
+| B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto, e ora ha una strada a monte**: la PR #6 di `plenora-contracts` propone `plenora.geometry.types_scan`, che separa «scandito, nessuna geometria» da «tipi non determinati». Con quella distinzione un sink che restringe i tipi può accettare il primo caso e continuare a rifiutare il secondo, senza che nessun driver allarghi ciò che dichiara di saper scrivere | la sorgente vuota di GeoJSON si consegna quando il vocabolario sa dire che l'assenza è accertata; finché la PR non è integrata il rifiuto resta, e il pin resta `453c8d1` |
+| B12b | Il limite non si combina con la consegna | **nessun requisito lo impone**: SURF-014 vieta solo di riportare un parziale come successo pieno, e PUBLIC-SURFACES-1.0 §9.5 delega la semantica del parziale alla nostra specifica d'operazione | `--limit` insieme a `--output` è rifiutato con `invalid_plan` e codice `LIMIT_WITH_DELIVERY` | il difetto che le prove hanno trovato era reale — `--limit 2 --output` riusciva e consegnava **tutte** le righe con `truncated: true` accanto — ma il rifiuto che l'ha chiuso è una **scelta**, non un obbligo. La necessità del writer di conoscere la cardinalità esatta (`declare_input_total`) è una ragione per progettare la semantica, non per negarla | **D9 decisa per la 4.0.0**: `io.read` non consegna dataset parziali, e la scelta è scritta per esteso in `plenora-io-read-input-v1` — schema, codice, prova e SDK la citano invece di ripeterla | il comando esce `invalid_plan` e non lascia un file; `--limit` da solo continua a valere e governa quante righe si **leggono**. Cambiarla sarebbe un cambio di contratto con un identificatore nuovo, non una riga tolta |
 | B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
-| B17 | `convert` deduce i formati dalle estensioni | catalogo io-tools (`io.convert`: «Convert an external dataset between **explicit** formats»), profilo io-tools | `cmd_convert` chiama `driver_for_path` su entrambi i percorsi: i due formati vengono dall'estensione | la stessa regola che `io.write` ora rispetta. `io.convert` è descritto dal catalogo come operazione fra formati **espliciti**, quindi la deduzione non è un default comodo ma la selezione che il profilo esclude | dare a `convert` un `--from` e un `--to`. È una **rottura**: ogni invocazione esistente li omette, quindi va fatta con la sua nota di migrazione e non di traverso | `convert` rifiuta senza i due formati; una destinazione la cui estensione contraddice `--to` non viene scritta in nessuno dei due formati, come già per `write` |
-| B14 | Il nome del contratto nella busta diverge dal catalogo | catalogo io-tools, CLI-2.0 §5 e §10 | la busta annuncia `plenora-io-read-v2`, `…-inspect-v2`, `…-layers-v2`, `…-convert-v2`. `write` no: annuncia `plenora-io-write-result-v1`, perché nasce con i suoi schemi pubblicati e non ha consumatori da migrare | il catalogo comune nomina quegli stessi contratti `plenora-io-read-result-v1`, `…-inspect-v1`, `…-layers-v1`, `…-convert-v1`. CLI-2.0 §10 esige che il contratto d'uscita resti **equivalente** fra le superfici, e un nome diverso non è equivalente. Il `-v2` nostro segue il protocollo della busta, che è un'altra cosa dalla versione dell'operazione | allineare i quattro nomi a quelli del catalogo, in un intervento solo: tocca busta, `release/cli-protocol-v2.json` e SDK insieme | ogni busta annuncia il nome che il catalogo assegna all'operazione, e una prova lo confronta con `catalogs/io-tools-v1.json` del pin invece che con una costante nostra |
-| B15 | Due grafie per lo stato del CRS | ARROW-007, ARROW-VOCABULARY-1.0 §3 | il risultato JSON rende `declared_but_unresolved` (grafia derivata da serde), i metadati Arrow scrivono `declared_unresolved` (grafia del contratto) | lo stesso stato, due nomi, dentro lo stesso prodotto. Nessuno dei due è sbagliato in sé — il JSON è contratto nostro — ma chi confronta le due viste deve tradurre, e una traduzione non scritta è una traduzione che prima o poi si sbaglia | scegliere la grafia del contratto anche nel JSON, con `#[serde(rename)]` | una prova legge entrambe le viste sulla stessa sorgente e le confronta senza tabella di traduzione |
+| B17 | `convert` deduce i formati dalle estensioni | catalogo io-tools (`io.convert`: «Convert an external dataset between **explicit** formats»), profilo io-tools | `cmd_convert` chiama `driver_for_path` su entrambi i percorsi: i due formati vengono dall'estensione | la stessa regola che `io.write` ora rispetta. `io.convert` è descritto dal catalogo come operazione fra formati **espliciti**, quindi la deduzione non è un default comodo ma la selezione che il profilo esclude | **chiusa.** `convert IN OUT --from F --to G`; senza i due formati è un errore d'uso, non un ritorno alla deduzione. `inspect`, `layers` e `read` **non** cambiano: quelle riconoscono la sorgente invece di riceverla dichiarata, e il catalogo le distingue operazione per operazione | `docs/INSTALL.md` porta la migrazione 3.x → 4.0.0 con la corrispondenza fra le dieci estensioni di prima e gli identificatori di adesso; le prove d'integrazione passano i due formati, e l'helper che li deriva dichiara perché una prova può dedurre dove il prodotto non deve |
+| B14 | Il nome del contratto nella busta diverge dal catalogo | catalogo io-tools, CLI-2.0 §5 e §10 | la busta annuncia `plenora-io-read-v2`, `…-inspect-v2`, `…-layers-v2`, `…-convert-v2`. `write` no: annuncia `plenora-io-write-result-v1`, perché nasce con i suoi schemi pubblicati e non ha consumatori da migrare | il catalogo comune nomina quegli stessi contratti `plenora-io-read-result-v1`, `…-inspect-v1`, `…-layers-v1`, `…-convert-v1`. CLI-2.0 §10 esige che il contratto d'uscita resti **equivalente** fra le superfici, e un nome diverso non è equivalente. Il `-v2` nostro segue il protocollo della busta, che è un'altra cosa dalla versione dell'operazione | **chiusa.** Allineati cinque nomi, non quattro: il confronto ha trovato anche che la busta d'errore è `plenora-error-v1` **senza** `io` (ERRORS-1.0), e che `read` è `-read-result-v1` e non `-read-v1`. Due voci che una sostituzione per somiglianza avrebbe sbagliato | `contracts/nomi-dei-contratti.json` dichiara i nove nomi con la loro fonte, e la sonda `busta.nomi-dal-contratto-fissato` li confronta con il catalogo e con la riga «Contract identifier» delle due specifiche del checkout fissato, poi con ciò che il binario emette |
+| B15 | Due grafie per lo stato del CRS | ARROW-007, ARROW-VOCABULARY-1.0 §3 | il risultato JSON rende `declared_but_unresolved` (grafia derivata da serde), i metadati Arrow scrivono `declared_unresolved` (grafia del contratto) | lo stesso stato, due nomi, dentro lo stesso prodotto. Nessuno dei due è sbagliato in sé — il JSON è contratto nostro — ma chi confronta le due viste deve tradurre, e una traduzione non scritta è una traduzione che prima o poi si sbaglia | **chiusa.** Il JSON rende ora `declared_unresolved`, la grafia che `ARROW-VOCABULARY-1.0 §3` chiude e che i metadati Arrow già scrivevano. Il nome Rust resta `DeclaredButUnresolved`, dove si legge meglio: a viaggiare è la grafia del contratto | lo schema del risultato chiude l'enum sui tre valori del contratto, e le buste reali vi validano contro |
 | B16 | Opzioni accettate e senza effetto | SURF-014, `plenora-io-read-input-v1` | **chiusa.** `--in-opt` era accettata da `read`, `inspect` e `layers` e **scartata** — solo `convert` la applicava; `--out-opt` e `--durable` erano accettate anche senza `--output`, cioè senza alcun writer a cui rivolgersi | trovate scrivendo lo schema d'ingresso, non leggendo il codice: dichiarare che cosa l'operazione accetta ha reso visibile che accettava di più di quel che usava. Una chiave sbagliata passava in silenzio, indistinguibile da una applicata — e lo stesso valeva per `options=` dell'SDK, il cui docstring prometteva un rifiuto che non arrivava | fatto: `read_options` unisce `--opt` e `--in-opt`; `read` rifiuta `SINK_OPTIONS_WITHOUT_SINK` quando le opzioni del sink arrivano senza destinazione | cinque esempi invalidi dello schema portano l'invocazione CLI equivalente e il codice atteso, e una prova verifica che il binario rifiuti **lo stesso** insieme che lo schema rifiuta; due sonde dell'SDK lo esercitano dalla wheel |
 | B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
 
@@ -136,7 +136,7 @@ incrociato, non l'implementazione. Mancava ogni riga operativa.
 |---|---|---|---|---|---|---|
 | BB1 | Dodici schemi immutabili per le sei coppie | profilo io-tools, «Component-owned wire contracts» | **due su dodici fatti**: `plenora-io-read-input-v1` e `plenora-io-read-result-v1` stanno in `contracts/schemas/`. Dei restanti dieci nessun identificatore esiste come schema pubblicato; il CLI emette `plenora-io-catalog-v2` senza uno schema che lo definisca | dodici schemi da scrivere: `…-catalog-query-v1`/`…-catalog-v1`, `…-inspect-input-v1`/`…-inspect-v1`, `…-layers-input-v1`/`…-layers-v1`, `…-read-input-v1`/`…-read-result-v1`, `…-write-input-v1`/`…-write-result-v1`, `…-convert-input-v1`/`…-convert-v1` | pubblicarli sotto `contracts/`, versionati e immutabili | ogni busta emessa dal binario valida contro lo schema del proprio `contract`; uno schema modificato in modo che cambi la validazione richiede un identificatore nuovo |
 | BB2 | Esempi di conformità validi e invalidi | profilo io-tools | **fatti per `io.read`**: sei validi e nove invalidi in `contracts/esempi/`, con un manifesto che ne dichiara il verdetto atteso. Assenti per le altre cinque coppie | senza esempi, uno schema è una dichiarazione che nessuno prova | un esempio valido e uno invalido per ciascuna delle dodici forme | il gate valida i «validi» e **rifiuta** gli «invalidi»; un invalido che passa è rosso |
-| BB4bis | Le perdite non sono un documento `plenora-row-diagnostics-v1` | ROW-DIAGNOSTICS-1.0, DIAG-001…013 | il blocco `loss` del risultato ha forma nostra: `counts`, `esempi`, `omesse`, `troncato`, `lossless` | mancano `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit`, e `contract` non vale `plenora-row-diagnostics-v1`. Quel contratto è fra quelli **adottati**, quindi o le perdite vi si conformano o la deviazione va dichiarata nel manifesto con la sua ragione | confrontare i due vocabolari voce per voce e decidere: conformare, oppure dichiarare che `loss` non è un documento di diagnostica di riga e dire dove sta invece quello | il documento di diagnostica valida contro `schemas/row-diagnostics-v1.schema.json` del pin, oppure il manifesto di adozione porta la deviazione motivata |
+| BB4bis | Le perdite non sono un documento `plenora-row-diagnostics-v1` | ROW-DIAGNOSTICS-1.0, DIAG-001…013 | il blocco `loss` del risultato ha forma nostra: `counts`, `esempi`, `omesse`, `troncato`, `lossless` | mancano `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit`, e `contract` non vale `plenora-row-diagnostics-v1`. Quel contratto è fra quelli **adottati**, quindi o le perdite vi si conformano o la deviazione va dichiarata nel manifesto con la sua ragione | **chiusa, e la risposta non era rinominare.** `loss` è indicizzata per **layer, campo e classe di tipo**: la sua struttura interna (`Posizione`) non ha proprio un posto dove mettere un indice di riga, quindi non è diagnostica di riga mancata ma un'altra cosa — che cosa il formato non ha saputo rappresentare. Il documento che **è** row-scoped esiste già ed è conforme: `row_diagnostics` nella busta d'errore porta tutti e nove i campi obbligatori, `contract: plenora-row-diagnostics-v1`, `index_basis`, `completeness`, `knowledge_limits` | la sonda `diagnostica.riga-e-il-contratto-condiviso` legge i campi obbligatori e i due enum **dallo schema del checkout fissato** invece di ricopiarli, e li confronta con il documento emesso. Rinominare `loss` avrebbe prodotto due documenti con lo stesso nome che rispondono a domande diverse |
 | BB3 | `plenora-io-error-details-v1` | profilo io-tools, ERR-013 | `details` non ha una forma dichiarata; il vocabolario delle perdite esiste ma non come schema di `details` | quando un errore IO porta `details`, il valore **deve** conformarsi a uno schema nostro pubblicato | definire lo schema e i suoi esempi limitati; omettere `details` resta valido quando i quattro assi bastano | un errore con `details` valida contro lo schema; un `details` che viola i limiti di ERR-012 è rifiutato dal produttore, non solo dal validatore |
 | BB4 | Limiti semantici di ERR-011 e ERR-012 | ERRORS-1.0 §6 | il v2 ha un proprio sistema di budget molto più dettagliato — 64 KiB totali, 12 KiB per sezione, tetti per voce | i due sistemi non sono confrontati: i nostri limiti potrebbero essere più stretti o più larghi di `524 288` byte per l'errore e `262 144` per `details`, e di profondità 8 / 128 proprietà / 2 048 nodi | confrontare i due insiemi di limiti e dichiarare quale governa | una prova costruisce il caso peggiore dichiarato e misura i byte JSON effettivi contro **entrambi** i tetti |
 | BB5 | Verifica dei metadati Arrow al confine | ARROW-001…ARROW-012 | il vocabolario è implementato per intero nel codice; nessuna prova lo verifica **sui byte prodotti da un'invocazione pubblica** | l'implementazione non è la prova: ARROW-001 (versione di contratto nello schema), ARROW-003/004 (identità dei campi preservata), ARROW-006 (metadati non contraddittori), ARROW-007 (CRS risolto, dichiarato-non-risolto e assente distinti) vanno letti dall'artefatto Arrow consegnato | una prova che legge il file prodotto da `io.read` e verifica ciascun identificatore | la prova fallisce se `plenora.contract.version` manca, se un `plenora.field_id` cambia in un round-trip che non lo doveva cambiare, o se un CRS non risolto viene presentato come risolto |
@@ -308,8 +308,22 @@ sono tre, e la scelta non è nostra da sola:
 3. resta come sta e la differenza si dichiara come deviazione nel manifesto di
    adozione, con questa ragione.
 
-Fino ad allora `local` resta, perché dichiarare `none` su una superficie che
-scrive un file sarebbe la sola delle tre risposte falsa.
+**Proposta, PR #6 di `plenora-contracts`.** La strada scelta è la prima delle
+tre: il catalogo descrive l'**operazione**, e le meccaniche che una superficie
+deve usare per consegnarne il risultato appartengono al **binding**. Una
+superficie che materializza un risultato deve accettare la destinazione come
+ingresso dichiarato, non dedurla mai, dichiarare l'effetto sulla propria
+superficie, e non toccare identificatore, versione, contratti, assi d'errore e
+controlli dell'operazione.
+
+È compatibile secondo `COMPATIBILITY.md`: chiarisce la prosa e permette una
+dichiarazione veritiera dove non ne esisteva nessuna, senza cambiare dati
+accettati o semantica visibile a un consumatore.
+
+Fino all'integrazione `local` resta, perché dichiarare `none` su una superficie
+che scrive un file sarebbe la sola delle risposte falsa — e il pin resta
+`453c8d1`, perché fissare una revisione che contiene una proposta non ancora
+decisa fisserebbe la proposta.
 
 ### HB4 — il vocabolario non distingue «scandito, nessuna geometria» da «ignoto»
 
@@ -325,8 +339,21 @@ accettare il primo e rifiutare il secondo. È la ragione per cui la sorgente
 vuota di GeoJSON viene rifiutata (B12a) mentre il GeoPackage vuoto passa: non
 perché siano diversi i dati, ma perché uno dei due ha potuto dichiarare.
 
-Serve un quarto valore, o una chiave che dica che la scansione è stata
-completa. Da proporre a monte insieme a HB3.
+**Proposta, PR #6 di `plenora-contracts`.** Non un quarto valore: una chiave
+facoltativa, `plenora.geometry.types_scan` ∈ {`complete`, `partial`},
+significativa solo insieme a `types_declaration=unresolved`.
+
+La differenza è di compatibilità, non di gusto, e `COMPATIBILITY.md` la decide:
+aggiungere un valore a un'enumerazione chiusa **cambia il significato del campo**
+per un consumatore esistente, ed è elencato fra le modifiche incompatibili;
+aggiungere un campo facoltativo la cui assenza preserva il comportamento
+precedente è elencato fra quelle compatibili. Un consumatore che ignori la
+chiave continua a leggere `unresolved` come «non determinato», che è la lettura
+prudente di entrambi gli stati.
+
+Con quella distinzione il rifiuto di B12c diventa mirato invece che totale: un
+sink che restringe i tipi accetta l'assenza accertata e continua a rifiutare
+l'ignoto, senza che nessun driver allarghi ciò che dichiara di saper scrivere.
 
 ### I — Qualifica finale
 
@@ -346,12 +373,12 @@ completa. Da proporre a monte insieme a HB3.
 CLI e quello delle capability:
 
 ```
-profilo pubblico: 27 requisiti verificati e protetti su 27.
+profilo pubblico: 30 requisiti verificati e protetti su 30.
 ```
 
 Era 8 su 19 quando il verificatore è nato.
 
-### Ventisette su ventisette non è l'adozione
+### Trenta su trenta non è l'adozione
 
 È il momento in cui quel numero inganna di più, e va detto qui prima che altrove.
 Dice che i requisiti **elencati in quel registro** sono verificati sul confine
@@ -363,8 +390,7 @@ pubblico. Fuori restano:
   `io.read` ora copre;
 * **C1–C4** — la superficie Rust, la sua mappatura versionata e il consumatore
   esterno che la importa;
-* **B14, B17** — i nomi di contratto delle quattro buste storiche, e i formati
-  espliciti di `convert`;
+* **B13** — lo streaming senza materializzazione completa;
 * **A3, A6, I1** — il manifesto di adozione con le sue deviazioni, e la qualifica.
 
 Un registro completo misura tutto ciò che gli è stato chiesto di misurare, non
@@ -531,38 +557,61 @@ anche se non obbliga a ridurre. Fissarlo più in basso impegna anche a ridurre, 
 va scelto sapendo che l'intervento sulla busta CLI e su `io.read` aggiungerà
 codice prima di toglierne. Il numero è una decisione, non una misura.
 
-**D9 — la consegna può essere parziale?** Oggi `--limit` con `--output` è
-rifiutato, e il rifiuto **non** viene dal contratto: SURF-014 vieta soltanto di
-riportare un esito parziale come successo pieno, e la busta lo riporta già con
-`truncated`; PUBLIC-SURFACES-1.0 §9 punto 5 delega «success, partial and failure
-semantics» alla specifica dell'operazione, che è
-`plenora-io-read-input-v1`/`…-result-v1` e su questo tace.
+**D9 — decisa: `io.read` non consegna dataset parziali.** Il contratto fissato
+non lo imponeva — SURF-014 vieta soltanto di riportare un esito parziale come
+successo pieno, e la busta lo riporta già con `truncated`; PUBLIC-SURFACES-1.0
+§9 punto 5 delega «success, partial and failure semantics» alla specifica
+dell'operazione, che è nostra — quindi la scelta era nostra, ed è questa.
 
-La scelta è fra due semantiche, e non è neutra: «il totale è quello della
-sorgente e ne consegno N» conserva il denominatore delle diagnostiche di riga ma
-consegna un dataset che non corrisponde al totale dichiarato; «il totale è N»
-rende coerente il file consegnato e perde l'informazione su quanto è stato
-lasciato indietro. Una terza via è consegnare il parziale con **entrambi** i
-numeri, distinti e nominati.
+La ragione non è il writer. Sono due semantiche del totale **incompatibili**, e
+nessuna è gratis: «il totale è quello della sorgente e ne consegno N» conserva
+il denominatore delle diagnostiche di riga e consegna un dataset che non gli
+corrisponde — chi lo rilegge conta N righe mentre il documento ne dichiara di
+più; «il totale è N» rende coerente il file e cancella l'informazione su quanto
+è rimasto indietro, che è precisamente ciò per cui il limite era stato chiesto.
 
-Finché non è decisa il rifiuto resta, perché è l'unica delle tre che si può
-togliere senza rompere nessuno. Una semantica già consegnata, no.
+«Le prime N righe come dataset» resta un'operazione legittima e **diversa**: è
+una proiezione, non una lettura limitata, e avrà il suo contratto d'ingresso
+quando qualcuno la chiederà. Fino ad allora `limit` governa quante righe si
+**leggono**, non quante se ne consegnano.
 
-**D10 — il formato esplicito basta a determinare la destinazione?** `io.write`
-prende il formato da `--to`, come il profilo richiede, e la selezione non passa
-più dall'estensione. Ma ogni driver scrivibile pretende **anche** che il nome
-della destinazione porti l'estensione sua: `--to csv` su un file `.geojson` è
-rifiutato. Non è una violazione — la selezione non guarda più il nome, e il
-vincolo sul nome è una capacità del formato — ma significa che il formato
-esplicito non basta a scegliere la destinazione.
+La decisione è scritta in
+`contracts/schemas/plenora-io-read-input-v1.schema.json`; codice, prova e SDK la
+citano invece di ripeterla, e cambiarla sarebbe un cambio di contratto con un
+identificatore nuovo.
 
-La domanda è se un orchestratore debba poter pubblicare su un percorso che non
-ha nome di formato: una directory di staging, un nome generato, un percorso che
-qualcun altro rinominerà. Oggi non può. Le due risposte hanno costi opposti:
-togliere il vincolo produce artefatti il cui nome mente sul contenuto,
-tenerlo lega la destinazione a una convenzione del filesystem che il catalogo
-non conosce. Non si decide scrivendo codice: si decide dicendo di chi è il nome
-del file.
+**D10 — decisa: il nome del file è del chiamante.** Ogni driver scrivibile
+pretendeva l'estensione sua, e la domanda era se il formato esplicito bastasse a
+scegliere la destinazione. La risposta è venuta separando due cose che si
+somigliavano.
+
+In **sette** driver su dieci il controllo era una convenzione: dopo di esso
+l'estensione non veniva usata per niente — né per derivare un nome, né per
+scegliere un comportamento. Quelli sono stati tolti, e `--to` è diventato il
+selettore vero invece di un controllo di coerenza.
+
+In **due** il vincolo è del formato, e resta:
+
+* `gpkg` perché la specifica GeoPackage lo impone (OGC 12-128r, requisito 2):
+  gli stessi byte con un altro nome non sono un GeoPackage conforme, e
+  scriverli sarebbe produrre un artefatto che si sa già fuori specifica;
+* `shp` perché i file companion derivano il nome dal principale, e `.shp`
+  contro `.shp.d` sceglie fra due pubblicazioni con garanzie di atomicità
+  diverse. Lì il suffisso non descrive il contenuto: lo determina.
+
+Nessun percorso viene riscritto: un vincolo non soddisfatto è un rifiuto
+tipizzato, mai una rinomina silenziosa. E la metà che restava vera — che un
+artefatto scritto su un nome qualsiasi non venga **riconosciuto** da chi lo
+rilegge senza dichiarare il formato — non è sparita con il controllo:
+`recognised_suffixes` la dichiara, il catalogo la pubblica, e la sonda
+`write.vincoli-del-percorso` verifica che ogni driver dichiari entrambe le cose.
+
+Restava una terza categoria che non ho voluto inventare: `filegdb` è un dataset
+a directory e il suo staging è una `.gdb`, ma il driver non controlla la
+destinazione e in questa build la feature non è disponibile. Dichiararlo
+vincolato senza poterlo misurare sarebbe stato aggiungere un requisito per
+simmetria. È `Free` con i suoi `recognised_suffixes`, e la verifica è da fare
+dove la feature c'è.
 
 ---
 

@@ -71,38 +71,49 @@ pub const PROTOCOLLO: u64 = 2;
 
 /// Il nome di contratto di una busta.
 ///
-/// # La regola: si annuncia il nome del catalogo quando lo schema esiste
+/// # Da dove viene il nome
 ///
-/// Il suffisso `v2` e' quello del **protocollo**, che e' un'altra cosa dalla
-/// versione dell'operazione. Il catalogo comune assegna a ciascuna operazione
-/// un identificatore -- `plenora-io-read-result-v1`, `…-write-result-v1`, e
-/// cosi' via -- e CLI-2.0 §10 esige che il contratto d'uscita resti
-/// equivalente fra le superfici.
+/// CLI-2.0 §5 chiama questo campo «operation-specific, namespaced contract
+/// identifier», e §10 esige che il contratto d'uscita resti **equivalente**
+/// fra le superfici. Quindi dove un contratto fissato assegna gia' un
+/// identificatore, quello e' il nome: non c'e' niente da scegliere.
 ///
-/// Annunciarlo pero' ha senso solo quando lo schema che lo definisce e'
-/// pubblicato: un nome che nessuno puo' validare e' peggio di un nome diverso,
-/// perche' manda chi legge a cercare un documento che non c'e'. Quindi
-/// un'operazione passa al nome del catalogo **insieme** ai suoi schemi, non
-/// prima.
+/// Fino alla 3.0.0 tutte le buste portavano il suffisso `v2`, che e' quello
+/// del **protocollo** — un'altra cosa dalla versione dell'operazione. La
+/// coincidenza reggeva finche' nessuno confrontava; confrontando, cinque nomi
+/// su nove erano diversi da quelli del catalogo comune.
 ///
-/// Oggi `write` ci e' gia': nasce con `contracts/schemas/plenora-io-write-*`.
-/// `read` ha gli schemi ma non il nome, e non e' un'incoerenza dimenticata: il
-/// suo rinominare e' un evento di migrazione che tocca `docs/INSTALL.md`, il
-/// manifesto del protocollo e l'SDK, e va fatto con quello di `inspect`,
-/// `layers` e `convert` -- riga **B14** del piano. Farne uno per volta
-/// moltiplicherebbe le tabelle di migrazione invece di scriverne una.
+/// # Perche' la tabella sta anche in `contracts/nomi-dei-contratti.json`
+///
+/// Perche' il confronto con la fonte dev'essere **eseguibile**. Due voci
+/// smentiscono la somiglianza dei nomi, ed e' esattamente il caso in cui una
+/// sostituzione meccanica avrebbe sbagliato:
+///
+/// * `read` rende `plenora-io-read-result-v1` e non `plenora-io-read-v1`: il
+///   catalogo distingue l'ingresso `…-read-input-v1` dall'uscita, e il
+///   segmento `result` serve a quello;
+/// * l'errore e' `plenora-error-v1` **senza** `io`, perche' SURF-015 dice che
+///   i fallimenti pubblici mappano sul contratto d'errore **comune**, che ha
+///   un nome suo. Resta nostro `plenora-io-error-details-v1`, che e' il
+///   contenuto facoltativo di `details`, non la busta.
+///
+/// `--version` e' l'unica busta senza un contratto fissato a cui allinearsi:
+/// non e' un'operazione del catalogo ma una superficie di scoperta, quindi il
+/// suffisso resta quello del protocollo ed e' l'unico caso in cui `v2`
+/// significa ancora quello che dice.
 #[must_use]
 pub fn contratto(nome: &str) -> String {
     match nome {
-        // Il documento capability e' un contratto **condiviso**, non nostro: il
-        // suo schema vive in `plenora-contracts` e altri componenti emettono lo
-        // stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo
-        // uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.
-        "capabilities" => "plenora-capabilities-v2".to_owned(),
-        // Nasce ora, e nasce col nome che il catalogo le assegna: non c'e'
-        // nessun consumatore da migrare, quindi non c'e' nessuna ragione per
-        // introdurre una divergenza che sappiamo gia' di dover chiudere.
+        "catalog" => "plenora-io-catalog-v1".to_owned(),
+        "inspect" => "plenora-io-inspect-v1".to_owned(),
+        "layers" => "plenora-io-layers-v1".to_owned(),
+        "read" => "plenora-io-read-result-v1".to_owned(),
         "write" => "plenora-io-write-result-v1".to_owned(),
+        "convert" => "plenora-io-convert-v1".to_owned(),
+        // Condiviso, non nostro: lo emettono anche gli altri componenti.
+        "capabilities" => "plenora-capabilities-v2".to_owned(),
+        // La sola busta il cui nome resta nostro, e il solo `v2` che sia
+        // ancora quello del protocollo.
         _ => format!("plenora-io-{nome}-v2"),
     }
 }

@@ -98,6 +98,7 @@ class ITettiEsistonoNellaCli(unittest.TestCase):
             "--opt",  # idem
             "--durable",  # servira' a convert()
             "--to",  # il formato del sink: parametro obbligatorio di write()
+            "--from",  # il formato della sorgente: obbligatorio in convert()
             "--version",  # e' un comando, non un'opzione
         }
         offerte = set(Limits.opzioni())

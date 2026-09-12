@@ -35,8 +35,8 @@ use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
     AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
+    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -285,11 +285,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
+        sink_path: SinkPathConstraint::Free,
     }),
     SCHEMA_OPZIONI,
+    &["xlsx"],
     1,
     5,
-    9,
+    10,
 );
 
 pub struct XlsDriver;
@@ -380,15 +382,15 @@ impl FormatDriver for XlsDriver {
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
-        if !path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("xlsx"))
-        {
-            return Err(PlenoraIoError::non_supportato_redatto(
-                &PublicMessage::Curated("l'output deve avere estensione .xlsx"),
-            ));
-        }
+        // Nessun controllo sul suffisso della destinazione: era una
+        // convenzione, non un requisito del formato. Vedi la nota identica
+        // negli altri sei driver, e `recognised_suffixes` per la meta' che
+        // resta vera -- quella di chi rilegge senza dichiarare il formato.
+        //
+        // Il controllo in `open` invece **resta**, e non e' incoerenza: li'
+        // l'estensione e' l'unico segnale disponibile, perche' una sorgente si
+        // riconosce e non si dichiara. Scrivere e leggere non hanno lo stesso
+        // problema.
         if plan.layers.len() != 1 {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::Curated("XLSX: un solo foglio per file nella v1"),
@@ -4480,13 +4482,26 @@ mod tests {
         );
     }
 
-    /// La destinazione senza estensione `.xlsx` e' rifiutata.
+    /// La destinazione senza estensione `.xlsx` e' **accettata**, e la sonda
+    /// che diceva il contrario e' diventata questa.
     ///
-    /// Va provato **dopo** aver escluso il conflitto di destinazione: nel
-    /// codice quel controllo viene prima, e un file preesistente
-    /// maschererebbe il ramo sotto esame.
+    /// # Perche' e' cambiata
+    ///
+    /// Il rifiuto c'era, e non era un requisito del formato: dopo il controllo
+    /// l'estensione non veniva usata per niente. Era una convenzione travestita
+    /// da vincolo, e rendeva il formato esplicito insufficiente a scegliere la
+    /// destinazione -- chi pubblicava su un percorso di staging o su un nome
+    /// generato veniva rifiutato per il nome invece che per i dati.
+    ///
+    /// # Che cosa resta vero, e dove si legge
+    ///
+    /// Che un `.ods` contenente un XLSX non venga **riconosciuto** da chi lo
+    /// rilegge senza dichiarare il formato. Quella meta' non e' sparita: e'
+    /// dichiarata in `recognised_suffixes`, che il catalogo pubblica. Questa
+    /// sonda verifica entrambe le cose insieme, perche' separate direbbero
+    /// meta' della verita'.
     #[test]
-    fn n1_create_rifiuta_una_destinazione_senza_estensione_xlsx() {
+    fn n1_create_accetta_una_destinazione_senza_estensione_xlsx() {
         let dir = tempfile::tempdir().unwrap();
         let uscita = dir.path().join("uscita.ods");
         assert!(
@@ -4506,15 +4521,26 @@ mod tests {
             }],
         };
 
-        let errore = XlsDriver
-            .create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
-            .err()
-            .expect("un'estensione diversa da .xlsx va rifiutata");
-        assert_eq!(
-            errore.category,
-            plenora_io_model::ErrorCategory::Unsupported
+        let esito = XlsDriver.create(Sink::Path(uscita), &piano, &opzioni_scrittura());
+        assert!(
+            esito.is_ok(),
+            "il percorso e' del chiamante: {:?}",
+            esito.err().map(|e| e.category)
         );
-        assert!(!uscita.exists(), "un rifiuto non lascia destinazione");
+
+        // E la meta' che resta: il suffisso con cui **questo** formato viene
+        // riconosciuto e' dichiarato, quindi chi sceglie un altro nome lo fa
+        // sapendo che cosa perde.
+        assert_eq!(
+            XlsDriver.descriptor().recognised_suffixes(),
+            &["xlsx"],
+            "il suffisso di riconoscimento e' dichiarato, non dedotto"
+        );
+        assert_eq!(
+            XlsDriver.descriptor().sink_path(),
+            Some(plenora_io_core::SinkPathConstraint::Free),
+            "e la scrittura non pretende nulla dal percorso"
+        );
     }
 
     /// Un piano senza esattamente un layer e' fermato **prima** di `create`.

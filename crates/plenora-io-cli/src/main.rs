@@ -50,7 +50,7 @@ const ESTENSIONI_AMMESSE: &str =
 /// esattamente cio' che `--to` esiste per evitare.
 const FORMATI_AMMESSI: &str = "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --to, --version";
+const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --from, --to, --version";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -91,7 +91,7 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     json!({
         "status": "error",
         "protocol_version": busta::PROTOCOLLO,
-        "contract": "plenora-io-error-v1",
+        "contract": "plenora-error-v1",
         "error": error_document,
     })
 }
@@ -408,6 +408,18 @@ struct Cli {
     /// verifica nei due versi: nessun formato del catalogo senza driver, e
     /// nessun driver che il catalogo non dichiari.
     to: Option<String>,
+    /// Il formato della **sorgente** di `convert`, nominato.
+    ///
+    /// Esiste per la stessa ragione di `to`, e la ragione e' nel catalogo:
+    /// `io.convert` vi e' descritto come «convert an external dataset between
+    /// **explicit** formats». Due formati, due nomi.
+    ///
+    /// Non vale per `inspect`, `layers` e `read`, e non e' una dimenticanza:
+    /// quelle operazioni **riconoscono** la sorgente invece di riceverla
+    /// dichiarata -- `io.inspect` rende «its **declared** format» -- e il
+    /// suffisso li' e' l'unico segnale che c'e'. Riconoscere e dichiarare sono
+    /// due cose, e il catalogo le distingue operazione per operazione.
+    from_: Option<String>,
     layer: Option<u32>,
     limit: Option<usize>,
     durable: bool,
@@ -584,6 +596,17 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                 cli.limit = Some(v.parse().map_err(|_| {
                     usage_err(&PublicMessage::Curated("--limit richiede un intero"))
                 })?);
+            }
+            "--from" => {
+                cli.from_ = Some(
+                    it.next()
+                        .ok_or_else(|| {
+                            usage_err(&PublicMessage::Curated(
+                                "--from richiede un identificatore di formato",
+                            ))
+                        })?
+                        .clone(),
+                );
             }
             "--to" => {
                 cli.to = Some(
@@ -838,21 +861,21 @@ fn capabilities_document() -> Value {
             operazione_esposta(
                 "io.catalog",
                 "plenora-io-catalog-query-v1",
-                "plenora-io-catalog-v2",
+                "plenora-io-catalog-v1",
                 "none",
                 false,
             ),
             operazione_esposta(
                 "io.inspect",
                 "plenora-io-inspect-input-v1",
-                "plenora-io-inspect-v2",
+                "plenora-io-inspect-v1",
                 "none",
                 true,
             ),
             operazione_esposta(
                 "io.layers",
                 "plenora-io-layers-input-v1",
-                "plenora-io-layers-v2",
+                "plenora-io-layers-v1",
                 "none",
                 true,
             ),
@@ -875,7 +898,7 @@ fn capabilities_document() -> Value {
                     "content_types": ["application/json"],
                 },
                 "output": {
-                    "contract": "plenora-io-read-v2",
+                    "contract": "plenora-io-read-result-v1",
                     "content_types": ["application/vnd.apache.arrow.file"],
                 },
                 "side_effect": "local",
@@ -918,7 +941,7 @@ fn capabilities_document() -> Value {
             operazione_esposta(
                 "io.convert",
                 "plenora-io-convert-input-v1",
-                "plenora-io-convert-v2",
+                "plenora-io-convert-v1",
                 "local",
                 true,
             ),
@@ -1160,11 +1183,11 @@ fn ingresso_ammissibile(cli: &Cli) -> Result<(), (i32, Value)> {
             ErrorCategory::InvalidPlan,
             ErrorPhase::Validate,
             &PublicMessage::Curated(
-                "--limit e --output insieme non sono ancora ammessi: il \
-                 contratto d'ingresso di io.read non dice ancora come una \
-                 consegna troncata debba riportare il totale della sorgente, \
-                 e sceglierlo qui lo fisserebbe. Senza --output il limite \
-                 vale, e la lettura riporta quante righe ha visto.",
+                "--limit e --output insieme non sono ammessi: io.read non \
+                 consegna dataset parziali, e le due semantiche possibili del \
+                 totale sono incompatibili. La scelta e' scritta in \
+                 plenora-io-read-input-v1. Senza --output il limite vale, e la \
+                 lettura riporta quante righe ha visto.",
             ),
         ));
     }
@@ -1429,34 +1452,39 @@ fn cmd_read(cli: &Cli) -> CliResult {
         ReadScope::AcceptedRows(limit as u64)
     });
 
-    // `--limit` con `--output`: rifiutato **per scelta**, non per obbligo.
+    // `--limit` con `--output`: rifiutato per **scelta scritta**, non per
+    // obbligo del contratto e non per comodita' del writer.
     //
-    // # Che cosa dice il contratto fissato, e che cosa non dice
+    // # Che cosa il contratto lasciava a noi
     //
     // Nessun requisito di `plenora-contracts@453c8d1` vieta una consegna
-    // parziale. L'unico che la tocca e' `SURF-014`: «Partial or ambiguous
-    // outcomes MUST NOT be reported as complete success» -- una regola sul
-    // **riferire**, non sul consegnare, e la busta la soddisfa gia' con
-    // `truncated`. `PUBLIC-SURFACES-1.0 §9` punto 5 delega poi «success,
-    // partial and failure semantics» alla specifica dell'operazione, che per
-    // `io.read` e' nostra e non e' ancora pubblicata.
+    // parziale. `SURF-014` vieta di **riportare** un esito parziale come
+    // successo pieno -- e la busta lo riporta gia' con `truncated` --, mentre
+    // `PUBLIC-SURFACES-1.0 §9` punto 5 delega «success, partial and failure
+    // semantics» alla specifica dell'operazione. Quella specifica e' nostra:
+    // `contracts/schemas/plenora-io-read-input-v1.schema.json`, dove la
+    // decisione e' scritta per esteso.
     //
-    // Quindi il contratto **non decide**, e la necessita' interna del writer
-    // non basta a decidere al suo posto: `declare_input_total` vuole la
-    // cardinalita' esatta perche' le diagnostiche di riga vi poggiano, ma un
-    // vincolo di implementazione e' una ragione per progettare la semantica,
-    // non per negarla.
+    // # La decisione, e perche' non e' il writer a dettarla
     //
-    // # Perche' allora si rifiuta lo stesso
+    // `declare_input_total` vuole la cardinalita' esatta, ma un vincolo di
+    // implementazione e' una ragione per progettare la semantica, non per
+    // negarla. La ragione vera e' che le due semantiche del totale sono
+    // **incompatibili**, e nessuna e' gratis:
     //
-    // Perche' fra le due semantiche possibili -- «il totale e' quello della
-    // sorgente e ne consegno N» oppure «il totale e' N» -- sceglierne una qui
-    // la fisserebbe sul confine pubblico prima che sia scritta, e disfarla poi
-    // sarebbe una rottura. Un rifiuto esplicito si toglie; una semantica
-    // sbagliata gia' consegnata, no.
+    // * «il totale e' quello della sorgente e ne consegno N» conserva il
+    //   denominatore delle diagnostiche di riga, e consegna un dataset che non
+    //   gli corrisponde: chi lo rilegge conta N righe mentre il documento ne
+    //   dichiara di piu';
+    // * «il totale e' N» rende coerente il file e cancella l'informazione su
+    //   quanto e' rimasto indietro -- che e' precisamente cio' per cui il
+    //   limite era stato chiesto.
     //
-    // E' la decisione aperta **D9** del piano 4.0.0: si chiude scrivendo
-    // `plenora-io-read-input-v1`, non qui.
+    // «Le prime N righe come dataset» resta un'operazione legittima e
+    // **diversa**: e' una proiezione, non una lettura limitata, e avra' il suo
+    // contratto d'ingresso quando qualcuno la chiedera'. Fino ad allora
+    // `limit` governa quante righe si **leggono**, non quante se ne
+    // consegnano.
     ingresso_ammissibile(cli)?;
 
     let Some(uscita) = cli.output.clone() else {
@@ -1613,13 +1641,40 @@ fn trasferisci_layer(
 fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
         return Err(usage_err(&PublicMessage::Curated(
-            "convert richiede <ingresso> <uscita>",
+            "convert richiede <ingresso> <uscita> --from <formato> --to <formato>",
         )));
     }
+    // I due formati sono **nominati**, e dalla 4.0.0 non si deducono piu' dalle
+    // estensioni.
+    //
+    // # Che cosa cambia per chi invocava `convert` prima
+    //
+    // Ogni invocazione esistente li omette, quindi ogni invocazione esistente
+    // va aggiornata: e' una rottura, ed e' dichiarata in `docs/INSTALL.md`
+    // insieme alla tabella di corrispondenza fra estensioni e identificatori.
+    // Non c'e' un periodo di grazia in cui l'assenza continui a dedurre: un
+    // default che sopravvive alla deprecazione e' la deprecazione che non
+    // avviene.
+    //
+    // # Perche' si rompe invece di dedurre
+    //
+    // Il catalogo comune descrive `io.convert` come operazione «between
+    // **explicit** formats», e il profilo io-tools vieta di scegliere il
+    // comportamento specifico di un formato analizzando l'estensione quando
+    // l'operazione richiede un formato esplicito. Dedurre era comodo e diceva
+    // una cosa falsa: che `.json` significhi GeoJSON, che un percorso senza
+    // estensione non abbia formato, e che il nome di un file sia un contratto.
+    let (Some(nome_ingresso), Some(nome_uscita)) = (cli.from_.as_deref(), cli.to.as_deref()) else {
+        return Err(usage_err(&PublicMessage::Curated(
+            "convert richiede --from <formato> e --to <formato>: i due formati \
+             sono espliciti e non si deducono dalle estensioni. Gli \
+             identificatori sono quelli di io.catalog",
+        )));
+    };
     let in_path = PathBuf::from(&cli.positionals[0]);
     let out_path = PathBuf::from(&cli.positionals[1]);
-    let src = driver_for_path(&in_path)?;
-    let dst = driver_for_path(&out_path)?;
+    let src = driver_per_formato(nome_ingresso)?;
+    let dst = driver_per_formato(nome_uscita)?;
     // Finding #3 (follow-up review 2026-08-15): reader e writer devono avere
     // budget INDIPENDENTI. Condividere lo stesso `ResourceBudget` fa
     // consumare la quota `Rows`/`OutputBytes`/`GeometryComponents` due
@@ -1803,7 +1858,7 @@ COMANDI
     layers SORGENTE    i layer indirizzabili della sorgente
     read SORGENTE      legge un layer e riporta fedelta' e conteggi
     write IN OUT --to F  pubblica un dataset Arrow nel formato F
-    convert IN OUT     converte fra due formati espliciti
+    convert IN OUT --from F --to G   converte fra due formati espliciti
 
 SCOPERTA
     --help             questo testo
@@ -1982,7 +2037,7 @@ fn envelope_panico(payload: &(dyn std::any::Any + Send)) -> Value {
     json!({
         "status": "error",
         "protocol_version": 1,
-        "contract": "plenora-io-error-v1",
+        "contract": "plenora-error-v1",
         "error": error,
     })
 }
@@ -2021,7 +2076,7 @@ fn matrice_di_handoff() -> Value {
         "contract": "plenora-io-handoff-v1",
         "generato_da": "plenora-io-cli, test la_matrice_di_handoff_e_aggiornata",
         "sorgente": {
-            "contract": "plenora-io-error-v1",
+            "contract": "plenora-error-v1",
             "protocol_version": 1,
             "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
         },
@@ -2798,6 +2853,10 @@ mod tests {
             "OGC:CRS84".to_owned(),
             "--in-opt".to_owned(),
             "wkt_column=wkt".to_owned(),
+            "--from".to_owned(),
+            "csv".to_owned(),
+            "--to".to_owned(),
+            "geojson".to_owned(),
         ];
         let cli = parse(&argomenti).unwrap();
         cmd_convert(&cli).unwrap()
@@ -2825,7 +2884,7 @@ mod tests {
         assert_eq!(busta["component"], "plenora-io-tools");
         assert_eq!(busta["component_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(busta["command"], "convert");
-        assert_eq!(busta["contract"], "plenora-io-convert-v2");
+        assert_eq!(busta["contract"], "plenora-io-convert-v1");
         assert_eq!(busta["result"], serde_json::json!({"x": 1}));
         // E i dati **non** escono al primo livello: era il difetto.
         assert!(busta.get("x").is_none());
@@ -3061,6 +3120,10 @@ mod tests {
         let convert = parse(&[
             input.to_string_lossy().into_owned(),
             output.to_string_lossy().into_owned(),
+            "--from".to_owned(),
+            "ipc".to_owned(),
+            "--to".to_owned(),
+            "ipc".to_owned(),
         ])
         .unwrap();
         let error = cmd_convert(&convert).unwrap_err();
@@ -3096,7 +3159,7 @@ mod tests {
         // Il contratto sta nella **busta**, non nel corpo.
         assert_eq!(
             busta_di_successo("read", summary)["contract"],
-            "plenora-io-read-v2"
+            "plenora-io-read-result-v1"
         );
     }
 
@@ -3359,7 +3422,7 @@ mod tests {
         assert_eq!(exit, uscita_della_categoria(ErrorCategory::DataMapping));
         assert_eq!(document["status"], "error");
         assert_eq!(document["protocol_version"], busta::PROTOCOLLO);
-        assert_eq!(document["contract"], "plenora-io-error-v1");
+        assert_eq!(document["contract"], "plenora-error-v1");
         assert_eq!(document["error"]["code"], "FORMAT_ERROR");
         assert_eq!(document["error"]["category"], "data_mapping");
         assert_eq!(document["error"]["phase"], "read");
@@ -3463,7 +3526,7 @@ mod tests {
             "l'exit viene dalla categoria, non da un numero scritto qui"
         );
         assert_eq!(documento["protocol_version"], busta::PROTOCOLLO);
-        assert_eq!(documento["contract"], "plenora-io-error-v1");
+        assert_eq!(documento["contract"], "plenora-error-v1");
 
         let campi: std::collections::BTreeSet<&str> = documento["error"]
             .as_object()
@@ -3543,7 +3606,7 @@ mod tests {
         assert_eq!(exit, uscita_della_categoria(ErrorCategory::Cancelled));
         assert_eq!(document["status"], "error");
         assert_eq!(document["protocol_version"], busta::PROTOCOLLO);
-        assert_eq!(document["contract"], "plenora-io-error-v1");
+        assert_eq!(document["contract"], "plenora-error-v1");
         assert_eq!(document["error"]["code"], "CANCELLED");
         assert_eq!(document["error"]["category"], "cancelled");
         assert_eq!(document["error"]["phase"], "read");
@@ -3611,7 +3674,7 @@ mod tests {
                 "protocol_version": 2,
                 "component": "plenora-io-tools",
                 "component_version": env!("CARGO_PKG_VERSION"),
-                "contract": "plenora-io-error-v1",
+                "contract": "plenora-error-v1",
                 "command": "convert",
                 "error": {
                     "category": "transient",
@@ -3701,6 +3764,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn convert_exposes_reader_crs_inconsistency_without_writer_ambiguity() {
         use std::collections::HashMap;
         use std::sync::Arc;
@@ -3756,6 +3820,10 @@ mod tests {
         let cli = parse(&[
             input.to_string_lossy().into_owned(),
             output.to_string_lossy().into_owned(),
+            "--from".to_owned(),
+            "ipc".to_owned(),
+            "--to".to_owned(),
+            "ipc".to_owned(),
         ])
         .unwrap();
         let document = cmd_convert(&cli).unwrap();
@@ -3800,6 +3868,10 @@ mod tests {
         let cli = parse(&[
             input.to_string_lossy().into_owned(),
             shapefile_output.to_string_lossy().into_owned(),
+            "--from".to_owned(),
+            "ipc".to_owned(),
+            "--to".to_owned(),
+            "shp".to_owned(),
         ])
         .unwrap();
         let (exit, error) = cmd_convert(&cli).unwrap_err();
@@ -3858,6 +3930,10 @@ mod tests {
         let cli = parse(&[
             input.to_string_lossy().into_owned(),
             output.to_string_lossy().into_owned(),
+            "--from".to_owned(),
+            "ipc".to_owned(),
+            "--to".to_owned(),
+            "ipc".to_owned(),
         ])
         .unwrap();
         // `cmd_convert` rende il **corpo**: lo `status` e' della busta, e chi

@@ -42,8 +42,8 @@ use plenora_io_core::request::{Bbox, ProjectionMode, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
-    WKB_PASSTHROUGH_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, SinkPathReason,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -217,13 +217,18 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
+        sink_path: SinkPathConstraint::Required {
+            suffixes: &["gpkg"],
+            reason: SinkPathReason::FormatSpecification,
+        },
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
     plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    &["gpkg"],
     1,
     6,
-    9,
+    10,
 );
 
 pub struct GpkgDriver;
@@ -347,13 +352,26 @@ impl FormatDriver for GpkgDriver {
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
-        if !path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+        // Il vincolo non e' scritto qui: e' **dichiarato** nel descrittore, e
+        // qui lo si applica. La differenza conta perche' `io.catalog` pubblica
+        // la dichiarazione, quindi un chiamante puo' sapere del vincolo prima
+        // di provarci invece di scoprirlo da un rifiuto.
+        //
+        // Questo e' uno dei due formati che il suffisso lo pretendono davvero:
+        // OGC 12-128r, requisito 2, dice che un GeoPackage **deve** avere
+        // estensione `.gpkg`. Gli stessi byte con un altro nome non sono un
+        // GeoPackage conforme, e chi li riceve ha ragione a rifiutarli --
+        // quindi scriverli sarebbe produrre un artefatto che si sa gia' essere
+        // fuori specifica.
+        if DESCRIPTOR
+            .sink_path()
+            .is_some_and(|vincolo| !vincolo.ammette(&path))
         {
             return Err(PlenoraIoError::non_supportato_redatto(
-                &PublicMessage::Curated("l'output deve avere estensione .gpkg"),
+                &PublicMessage::Curated(
+                    "la specifica GeoPackage (OGC 12-128r, requisito 2) impone \
+                     l'estensione .gpkg alla destinazione",
+                ),
             ));
         }
         let mut names = std::collections::BTreeSet::new();

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 136,
+  "totale": 138,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -80,8 +80,8 @@
       "ragione": "directory, durata e seed di campagna riproducibili; serializzazione best-effort confinata alla generazione del corpus, senza entrare nel componente distribuibile Dal 2026-09-07 uno in meno: il seme del PRNG usava `map(..).unwrap_or(costante)`, ora `map_or(costante, ..)`. Il comportamento e' identico e il fallback pure -- resta la costante quando l'orologio non risponde -- ma il censimento conta le occorrenze di `unwrap_or`, e quella non c'e' piu'."
     },
     "plenora-io-cli": {
-      "conteggio": 35,
-      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance -- categoria a cui appartengono le cinque occorrenze di `tests/schemi_delle_operazioni.rs`, la sesta di `tests/scrittura_arrow.rs` e la settima aggiunta dalla prova della busta di `io.write`. In tutte, `unwrap_or_else(|e| panic!(...))` costruisce il messaggio di fallimento nominando il file, il formato o l'invocazione che non ha retto: non cadono su un dato, terminano la prova."
+      "conteggio": 37,
+      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance. Le due occorrenze del blocco di coerenza stanno nelle prove che confrontano il catalogo con i driver: `unwrap_or_else(|| panic!(\"{id} assente dal catalogo\"))` nomina il formato che non ha corrispondenza invece di proseguire con un default. Come le altre della categoria, terminano la prova."
     },
     "plenora-io-core": {
       "conteggio": 17,

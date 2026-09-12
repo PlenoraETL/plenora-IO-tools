@@ -47,7 +47,7 @@
       "file": "validi/io-read-input-limite-senza-consegna.json",
       "schema": "plenora-io-read-input-v1",
       "atteso": "valido",
-      "perche": "`limit` da solo resta valido: e' con `destination` che oggi non convive (D9). Senza questo esempio, Â«limite rifiutatoÂ» sembrerebbe una regola sul limite invece che sulla coppia.",
+      "perche": "`limit` da solo resta valido: governa quante righe si **leggono**, e con `destination` non convive. Senza questo esempio, «limite rifiutato» sembrerebbe una regola sul limite invece che sulla coppia.",
       "invocazione_cli": [
         "read",
         "SORGENTE",
@@ -71,7 +71,7 @@
       "file": "invalidi/io-read-input-limite-con-consegna.json",
       "schema": "plenora-io-read-input-v1",
       "atteso": "invalido",
-      "perche": "`limit` con `destination`: la decisione aperta D9. Il contratto fissato non lo vieta -- SURF-014 vieta soltanto di riportare un parziale come successo pieno -- ma la semantica del totale di una consegna troncata non e' scritta, e il rifiuto evita di fissarla per sbaglio.",
+      "perche": "`limit` con `destination`. Il contratto fissato non lo vieta -- SURF-014 vieta soltanto di riportare un parziale come successo pieno -- quindi la scelta era nostra, ed e' scritta: io.read non consegna dataset parziali, perche' le due semantiche possibili del totale sono incompatibili.",
       "codice_del_prodotto": "LIMIT_WITH_DELIVERY",
       "invocazione_cli": [
         "read",

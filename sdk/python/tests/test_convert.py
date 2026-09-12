@@ -75,7 +75,7 @@ def conversione_sana(**modifiche):
     documento = {
         "status": "ok",
         "protocol_version": 2,
-        "contract": "plenora-io-convert-v2",
+        "contract": "plenora-io-convert-v1",
         "from": "geojson",
         "to": "csv",
         "layers": [{"name": "canonico", "rows": 5, "batches": 1}],
@@ -208,7 +208,12 @@ class ControIlBinarioVero(unittest.TestCase):
 
     def test_una_conversione_pubblica_e_conta(self) -> None:
         uscita = self.tmp / "da-geojson.csv"
-        esito = self.cliente.convert(CANONICHE / "canonico.geojson", uscita)
+        esito = self.cliente.convert(
+            CANONICHE / "canonico.geojson",
+            uscita,
+            source_format="geojson",
+            target_format="csv",
+        )
         self.assertEqual(esito.from_, "geojson")
         self.assertEqual(esito.to, "csv")
         self.assertTrue(esito.published)
@@ -224,7 +229,10 @@ class ControIlBinarioVero(unittest.TestCase):
         """GeoJSON verso CSV perde l'identificatore del CRS, e il rapporto lo
         dice con la categoria e un esempio invece che con un booleano."""
         esito = self.cliente.convert(
-            CANONICHE / "canonico.geojson", self.tmp / "perdita.csv"
+            CANONICHE / "canonico.geojson",
+            self.tmp / "perdita.csv",
+            source_format="geojson",
+            target_format="csv",
         )
         self.assertFalse(esito.lossless)
         self.assertTrue(esito.write_loss.categories)
@@ -236,7 +244,10 @@ class ControIlBinarioVero(unittest.TestCase):
         """`conversion_fidelity` non e' piu' forte di nessuna delle due: la
         coppia promette al piu' quanto promette il piu' debole dei due formati."""
         esito = self.cliente.convert(
-            CANONICHE / "canonico.geojson", self.tmp / "tre.csv"
+            CANONICHE / "canonico.geojson",
+            self.tmp / "tre.csv",
+            source_format="geojson",
+            target_format="csv",
         )
         livelli = {"exact": 0, "conditional": 1, "approximating": 2, "lossy": 3}
         self.assertGreaterEqual(
@@ -251,7 +262,12 @@ class ControIlBinarioVero(unittest.TestCase):
         uscita = self.tmp / "occupata.csv"
         uscita.write_text("gia' qui", encoding="utf-8")
         with self.assertRaises(ConflictError) as preso:
-            self.cliente.convert(CANONICHE / "canonico.geojson", uscita)
+            self.cliente.convert(
+            CANONICHE / "canonico.geojson",
+            uscita,
+            source_format="geojson",
+            target_format="csv",
+        )
         self.assertEqual(preso.exception.envelope.category, "conflict")
         self.assertEqual(
             uscita.read_text(encoding="utf-8"),
@@ -276,6 +292,8 @@ class ControIlBinarioVero(unittest.TestCase):
         letto = self.cliente.convert(
             sorgente,
             self.tmp / "da-csv.geojson",
+            source_format="csv",
+            target_format="geojson",
             # GeoJSON impone il proprio CRS: assumerne un altro e' un rifiuto
             # tipizzato, non un'approssimazione silenziosa.
             assume_crs="OGC:CRS84",
@@ -287,7 +305,11 @@ class ControIlBinarioVero(unittest.TestCase):
         # Le opzioni di **scrittura**: la stessa chiave, all'altro driver.
         uscita = self.tmp / "a-punto-e-virgola.csv"
         scritto = self.cliente.convert(
-            CANONICHE / "canonico.geojson", uscita, write_options={"delimiter": ";"}
+            CANONICHE / "canonico.geojson",
+            uscita,
+            source_format="geojson",
+            target_format="csv",
+            write_options={"delimiter": ";"},
         )
         self.assertTrue(scritto.published)
         intestazione = uscita.read_text(encoding="utf-8").splitlines()[0]
@@ -297,7 +319,11 @@ class ControIlBinarioVero(unittest.TestCase):
     def test_durable_non_cambia_l_esito(self) -> None:
         """Costa in tempo e non in significato: la busta e' la stessa."""
         esito = self.cliente.convert(
-            CANONICHE / "canonico.geojson", self.tmp / "durevole.csv", durable=True
+            CANONICHE / "canonico.geojson",
+            self.tmp / "durevole.csv",
+            source_format="geojson",
+            target_format="csv",
+            durable=True,
         )
         self.assertTrue(esito.published)
 
@@ -305,7 +331,11 @@ class ControIlBinarioVero(unittest.TestCase):
         uscita = self.tmp / "mai-scritta.csv"
         with self.assertRaises(CommandFailed) as preso:
             self.cliente.convert(
-                CANONICHE / "canonico.geojson", uscita, limits=Limits(max_rows=1)
+                CANONICHE / "canonico.geojson",
+                uscita,
+                source_format="geojson",
+                target_format="csv",
+                limits=Limits(max_rows=1),
             )
         self.assertEqual(preso.exception.envelope.category, "resource_limit")
         self.assertFalse(

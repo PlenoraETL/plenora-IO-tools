@@ -158,19 +158,19 @@ def forma(valore: Any, prefisso: str = "", out: dict[str, set[str]] | None = Non
 MATRICE: tuple[dict[str, Any], ...] = (
     {
         "nome": "catalogo",
-        "busta": "plenora-io-catalog-v2",
+        "busta": "plenora-io-catalog-v1",
         "argomenti": ["catalog"],
         "perche": "l'unica busta del comando: non prende argomenti.",
     },
     {
         "nome": "inspect-geojson",
-        "busta": "plenora-io-inspect-v2",
+        "busta": "plenora-io-inspect-v1",
         "argomenti": ["inspect", "{canoniche}/canonico.geojson"],
         "perche": "un descrittore con CRS fisso e un layer con geometria.",
     },
     {
         "nome": "inspect-gpkg",
-        "busta": "plenora-io-inspect-v2",
+        "busta": "plenora-io-inspect-v1",
         "argomenti": ["inspect", "{canoniche}/canonico.gpkg"],
         "perche": (
             "un descrittore con CRS incorporato e opzioni di formato diverse: "
@@ -180,7 +180,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "inspect-shp",
-        "busta": "plenora-io-inspect-v2",
+        "busta": "plenora-io-inspect-v1",
         "argomenti": [
             "inspect",
             "{canoniche}/canonico_punti.shp",
@@ -198,7 +198,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "inspect-parquet",
-        "busta": "plenora-io-inspect-v2",
+        "busta": "plenora-io-inspect-v1",
         "argomenti": ["inspect", "{canoniche}/canonico.parquet"],
         "perche": (
             "l'unico descrittore che dichiara una versione di specifica: senza, "
@@ -207,25 +207,25 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "layers-gpkg",
-        "busta": "plenora-io-layers-v2",
+        "busta": "plenora-io-layers-v1",
         "argomenti": ["layers", "{canoniche}/canonico.gpkg"],
         "perche": "il riassunto per layer, che non porta i campi.",
     },
     {
         "nome": "layers-geojson",
-        "busta": "plenora-io-layers-v2",
+        "busta": "plenora-io-layers-v1",
         "argomenti": ["layers", "{canoniche}/canonico.geojson"],
         "perche": "lo stesso comando su un formato a layer unico.",
     },
     {
         "nome": "read-geojson",
-        "busta": "plenora-io-read-v2",
+        "busta": "plenora-io-read-result-v1",
         "argomenti": ["read", "{canoniche}/canonico.geojson"],
         "perche": "una lettura intera: `truncated` falso.",
     },
     {
         "nome": "read-con-consegna",
-        "busta": "plenora-io-read-v2",
+        "busta": "plenora-io-read-result-v1",
         "argomenti": [
             "read",
             "{canoniche}/canonico.geojson",
@@ -241,7 +241,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-troncato",
-        "busta": "plenora-io-read-v2",
+        "busta": "plenora-io-read-result-v1",
         "argomenti": ["read", "{canoniche}/canonico.geojson", "--limit", "1"],
         "perche": (
             "`truncated` vero. E' l'unico caso che lo porta: senza, il campo "
@@ -250,7 +250,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-parquet",
-        "busta": "plenora-io-read-v2",
+        "busta": "plenora-io-read-result-v1",
         "argomenti": ["read", "{canoniche}/canonico_pieno.parquet"],
         "perche": "uno schema piu' ricco, e un CRS risolto per identificatore.",
     },
@@ -290,11 +290,15 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "convert-geojson-csv",
-        "busta": "plenora-io-convert-v2",
+        "busta": "plenora-io-convert-v1",
         "argomenti": [
             "convert",
             "{canoniche}/canonico.geojson",
             "{uscita}/da-geojson.csv",
+            "--from",
+            "geojson",
+            "--to",
+            "csv",
         ],
         "perche": (
             "una conversione pubblicata con perdita in scrittura: e' il caso "
@@ -304,11 +308,15 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "convert-geojson-geojson",
-        "busta": "plenora-io-convert-v2",
+        "busta": "plenora-io-convert-v1",
         "argomenti": [
             "convert",
             "{canoniche}/canonico.geojson",
             "{uscita}/da-geojson.geojson",
+            "--from",
+            "geojson",
+            "--to",
+            "geojson",
         ],
         "perche": (
             "la stessa conversione senza perdita di CRS: `write_loss.counts` "
@@ -318,13 +326,13 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "errore-semplice",
-        "busta": "plenora-io-error-v1",
+        "busta": "plenora-error-v1",
         "argomenti": ["read", "{uscita}/non-esiste.geojson"],
         "perche": "la busta d'errore nella sua forma minima: sei chiavi.",
     },
     {
         "nome": "errore-con-diagnostica-di-riga",
-        "busta": "plenora-io-error-v1",
+        "busta": "plenora-error-v1",
         "argomenti": ["read", "{ostili}/lettura.kml"],
         "perche": (
             "la busta d'errore con `row_diagnostics`, la settima chiave. Il "
@@ -334,7 +342,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "errore-d-uso",
-        "busta": "plenora-io-error-v1",
+        "busta": "plenora-error-v1",
         "argomenti": ["--opzione-che-non-esiste"],
         "perche": "la via d'uso, che passa da `usage_err` e non da `map_err`.",
     },
@@ -477,7 +485,7 @@ def raggruppa(osservazioni: list[dict[str, Any]]) -> tuple[dict[str, dict], list
                 f"«{osservazione['attesa']}» e ha prodotto «{nome}»"
                 + (
                     f": {documento.get('error', {}).get('message', '')}"
-                    if nome == "plenora-io-error-v1"
+                    if nome == "plenora-error-v1"
                     else ""
                 )
             )

@@ -14,7 +14,7 @@ use plenora_io_core::driver::{
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsDerivation, CrsRepresentationCapabilities,
     CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
@@ -91,13 +91,15 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
+        sink_path: SinkPathConstraint::Free,
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
     plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    &["gdb"],
     1,
     10,
-    11,
+    12,
 );
 
 pub struct FileGdbDriver;

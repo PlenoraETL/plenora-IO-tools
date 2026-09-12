@@ -197,6 +197,27 @@
       "riga_del_piano": "B10",
       "descrizione": "una pubblicazione fallita e' un errore tipizzato e non lascia byte sulla destinazione: il rollback e' osservabile",
       "stato": "implementato"
+    },
+    {
+      "id": "write.vincoli-del-percorso",
+      "regola": "profilo io-tools, «Format-specific behavior MUST NOT be selected by parsing file extensions»",
+      "riga_del_piano": "D10",
+      "descrizione": "ogni driver scrivibile dichiara che cosa pretende dal percorso di destinazione e perche', e dichiara sempre il suffisso con cui il formato viene riconosciuto in lettura",
+      "stato": "implementato"
+    },
+    {
+      "id": "diagnostica.riga-e-il-contratto-condiviso",
+      "regola": "profilo io-tools, «Row-scoped format or mapping failures use plenora-row-diagnostics-v1»; ROW-DIAGNOSTICS-1.0",
+      "riga_del_piano": "BB4bis",
+      "descrizione": "il documento di diagnostica di riga della busta d'errore porta i campi obbligatori dello schema fissato, annuncia il contratto condiviso e sta dentro i suoi enum. `loss` non vi rientra: e' indicizzata per layer e campo, non per riga",
+      "stato": "implementato"
+    },
+    {
+      "id": "busta.nomi-dal-contratto-fissato",
+      "regola": "CLI-2.0 §5 e §10, catalogo io-tools, ERRORS-1.0, CAPABILITY-DISCOVERY-2.0",
+      "riga_del_piano": "B14",
+      "descrizione": "il nome di contratto che ogni busta annuncia e' quello che il contratto fissato le assegna, confrontato voce per voce con il catalogo e le specifiche del checkout fissato invece che per somiglianza",
+      "stato": "implementato"
     }
   ],
   "che_cosa_questo_registro_non_misura": "l'adozione. Ventisette su ventisette dice che i requisiti **qui elencati** sono verificati sul confine pubblico, e nient'altro. Fuori da questo registro restano: otto dei dodici schemi delle coppie di ingresso e uscita con i loro esempi -- quelli di `io.read` e `io.write` ci sono --, `plenora-io-error-details-v1`, le prove sui metadati Arrow oltre quelle che `io.read` copre, la superficie Rust con la sua mappatura e il consumatore esterno, e la qualifica finale col manifesto di adozione. Sono le righe BB1-BB5, C1-C4 e I1 del piano. B10 e' entrata: `io.write` ha tre requisiti qui sopra.\n\nIl numero e' seducente proprio quando e' pieno: un registro completo misura tutto cio' che gli e' stato chiesto di misurare, non tutto cio' che serve. Aggiungere qui un requisito e' il modo in cui la misura cresce, e il gate non sa che cosa manca al registro stesso."

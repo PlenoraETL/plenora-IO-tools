@@ -23,7 +23,7 @@ from plenora_io.process import Runner
 
 BUSTA_ERRORE = (
     '{"status": "error", "protocol_version": 1, '
-    '"contract": "plenora-io-error-v1", "error": {"code": "FORMAT_ERROR", '
+    '"contract": "plenora-error-v1", "error": {"code": "FORMAT_ERROR", '
     '"category": "not_found", "phase": "read", "remote_effect": "none", '
     '"retry": {"kind": "never"}, "message": "niente da leggere"}}'
 )

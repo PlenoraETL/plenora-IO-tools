@@ -83,6 +83,9 @@ NON_SONO_TETTI = frozenset(
         # default -- "deducilo dal nome" -- reintrodurrebbe nell'SDK la
         # deduzione che il prodotto ha tolto.
         "--to",
+        # Il formato della sorgente di `convert`, esplicito per la stessa
+        # ragione di `--to`: l'SDK lo offre come `source_format=` obbligatorio.
+        "--from",
     }
 )
 

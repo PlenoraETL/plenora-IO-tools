@@ -450,7 +450,7 @@ class LoStatoDelManifesto(unittest.TestCase):
         regola per lo stesso fatto.
         """
         manifesto = self.ratificato()
-        manifesto["envelopes"]["error"] = {"contract": "plenora-io-error-v1"}
+        manifesto["envelopes"]["error"] = {"contract": "plenora-error-v1"}
         errori = gate.stato_del_manifesto(manifesto)
         self.assertTrue(
             any("error" in e and "struttura" in e for e in errori), errori

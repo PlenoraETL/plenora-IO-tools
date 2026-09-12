@@ -120,13 +120,66 @@ pub fn cli(argomenti: &[&str]) -> Esito {
     }
 }
 
+/// L'identificatore di catalogo di un percorso, per le sole fixture di prova.
+///
+/// # Perche' una tabella qui, se il prodotto non ce l'ha piu'
+///
+/// Dalla 4.0.0 `convert` pretende `--from` e `--to` e non deduce piu' nulla dal
+/// nome. La deduzione che il **prodotto** non fa, la prova la puo' fare: qui
+/// sappiamo gia' che cosa stiamo convertendo -- la fixture la scegliamo noi --
+/// e questa tabella e' la traduzione di quella conoscenza in argomenti, non un
+/// riconoscimento.
+///
+/// La differenza non e' formale. Se il prodotto deducesse, un consumatore
+/// riceverebbe un formato che non ha chiesto; qui l'unica cosa che puo'
+/// succedere e' che una prova chieda il formato sbagliato, e allora fallisce,
+/// che e' precisamente cio' che deve fare.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+fn formato_del_percorso(percorso: &Path) -> &'static str {
+    let nome = percorso
+        .file_name()
+        .and_then(|n| n.to_str())
+        .expect("percorso rappresentabile")
+        .to_ascii_lowercase();
+    if nome.ends_with(".shp.d") || nome.ends_with(".shp") {
+        return "shp";
+    }
+    match percorso
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("parquet") => "geoparquet",
+        Some("arrow") => "ipc",
+        Some("gpkg") => "gpkg",
+        Some("csv") => "csv",
+        Some("geojson" | "json") => "geojson",
+        Some("kml") => "kml",
+        Some("dxf") => "dxf",
+        Some("xlsx") => "xls",
+        Some("gdb") => "filegdb",
+        altro => panic!("la prova non sa quale formato chiedere per {altro:?}"),
+    }
+}
+
 /// Converte una fixture, con le opzioni che il registro dichiara per il caso.
+///
+/// I due formati sono passati esplicitamente, come la 4.0.0 pretende: li
+/// deriva `formato_del_percorso` dalla fixture scelta e dalla destinazione
+/// scelta, che sono entrambe conoscenza della prova.
 pub fn converti(sorgente: &str, uscita: &Path, opzioni: &[&str]) -> Esito {
     let percorso = fixture(sorgente);
+    let da = formato_del_percorso(&percorso);
+    let a = formato_del_percorso(uscita);
     let mut argomenti = vec![
         "convert",
         percorso.to_str().expect("percorso rappresentabile"),
         uscita.to_str().expect("percorso rappresentabile"),
+        "--from",
+        da,
+        "--to",
+        a,
     ];
     argomenti.extend_from_slice(opzioni);
     cli(&argomenti)
@@ -174,6 +227,10 @@ pub fn valori(percorso: &Path, opzioni: &[&str]) -> Vec<BTreeMap<String, Option<
         "convert",
         percorso.to_str().expect("percorso rappresentabile"),
         csv.to_str().expect("percorso rappresentabile"),
+        "--from",
+        formato_del_percorso(percorso),
+        "--to",
+        "csv",
     ];
     argomenti.extend_from_slice(opzioni);
     let esito = cli(&argomenti);

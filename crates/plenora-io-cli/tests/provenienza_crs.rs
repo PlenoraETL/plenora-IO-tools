@@ -120,9 +120,55 @@ impl Esito {
 /// Esegue `convert`. `crs` diventa `--assume-crs` solo quando c'e': una
 /// sorgente che porta gia' il proprio CRS non deve riceverne uno di fuori,
 /// altrimenti la prova non direbbe piu' da dove il CRS e' arrivato.
+/// L'identificatore di catalogo di un percorso, per le sole prove.
+///
+/// `convert` non deduce piu' i formati dal nome: li pretende. Questa prova
+/// sceglie da sola le due estremita', quindi puo' tradurre la propria scelta in
+/// argomenti -- e' conoscenza della prova, non riconoscimento del prodotto.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+fn formato(percorso: &Path) -> &'static str {
+    if percorso
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| {
+            let minuscolo = n.to_ascii_lowercase();
+            // `ends_with` su una stringa gia' minuscola: il lint vorrebbe
+            // `Path::extension`, che pero' non vede `.shp.d` -- li'
+            // l'estensione e' `d`, e i due suffissi vanno distinti.
+            minuscolo.ends_with(".shp.d") || minuscolo.ends_with(".shp")
+        })
+    {
+        return "shp";
+    }
+    match percorso
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("parquet") => "geoparquet",
+        Some("arrow") => "ipc",
+        Some("gpkg") => "gpkg",
+        Some("csv") => "csv",
+        Some("geojson" | "json") => "geojson",
+        Some("kml") => "kml",
+        Some("dxf") => "dxf",
+        Some("xlsx") => "xls",
+        Some("gdb") => "filegdb",
+        altro => panic!("la prova non sa quale formato chiedere per {altro:?}"),
+    }
+}
+
 fn converti(ingresso: &Path, uscita: &Path, crs: Option<&str>) -> Esito {
     let mut comando = Command::new(binario());
-    comando.arg("convert").arg(ingresso).arg(uscita);
+    comando
+        .arg("convert")
+        .arg(ingresso)
+        .arg(uscita)
+        .arg("--from")
+        .arg(formato(ingresso))
+        .arg("--to")
+        .arg(formato(uscita));
     if let Some(crs) = crs {
         comando.arg("--assume-crs").arg(crs);
     }

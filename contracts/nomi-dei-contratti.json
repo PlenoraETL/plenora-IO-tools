@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "component": "plenora-io-tools",
+  "che_cosa_e": "il nome che ciascuna busta annuncia nel campo `contract`, e da dove quel nome viene. CLI-2.0 §5 chiama quel campo «operation-specific, namespaced contract identifier» e §10 esige che il contratto d'uscita resti equivalente fra le superfici: quindi il nome non e' nostro da scegliere dove un contratto fissato lo assegna gia'.",
+  "perche_un_registro_e_non_una_costante": "perche' il confronto con la fonte dev'essere eseguibile. Un nome scritto solo nel codice si allinea per somiglianza -- `-v2` diventa `-v1` e sembra giusto -- e due dei nove qui sotto smentiscono proprio quella somiglianza: `io.read` rende `plenora-io-read-result-v1` e non `plenora-io-read-v1`, e l'errore e' `plenora-error-v1` senza `io`. Il gate `profilo-pubblico` confronta questa tabella col checkout fissato, voce per voce.",
+  "buste": [
+    {
+      "comando": "catalog",
+      "contratto": "plenora-io-catalog-v1",
+      "fonte": "catalogo comune, operations[io.catalog].output.contract",
+      "prima_della_4_0_0": "plenora-io-catalog-v2"
+    },
+    {
+      "comando": "inspect",
+      "contratto": "plenora-io-inspect-v1",
+      "fonte": "catalogo comune, operations[io.inspect].output.contract",
+      "prima_della_4_0_0": "plenora-io-inspect-v2"
+    },
+    {
+      "comando": "layers",
+      "contratto": "plenora-io-layers-v1",
+      "fonte": "catalogo comune, operations[io.layers].output.contract",
+      "prima_della_4_0_0": "plenora-io-layers-v2"
+    },
+    {
+      "comando": "read",
+      "contratto": "plenora-io-read-result-v1",
+      "fonte": "catalogo comune, operations[io.read].output.contract",
+      "prima_della_4_0_0": "plenora-io-read-v2",
+      "nota": "`-result-`, non `plenora-io-read-v1`. E' la voce che una sostituzione per somiglianza avrebbe sbagliato: il catalogo distingue il contratto d'ingresso `plenora-io-read-input-v1` da quello d'uscita, e il segmento serve a quello."
+    },
+    {
+      "comando": "write",
+      "contratto": "plenora-io-write-result-v1",
+      "fonte": "catalogo comune, operations[io.write].output.contract",
+      "prima_della_4_0_0": null,
+      "nota": "nata gia' allineata: l'operazione e' della 4.0.0 e non aveva consumatori da migrare."
+    },
+    {
+      "comando": "convert",
+      "contratto": "plenora-io-convert-v1",
+      "fonte": "catalogo comune, operations[io.convert].output.contract",
+      "prima_della_4_0_0": "plenora-io-convert-v2"
+    },
+    {
+      "comando": "capabilities",
+      "contratto": "plenora-capabilities-v2",
+      "fonte": "CAPABILITY-DISCOVERY-2.0, «Contract identifier»",
+      "prima_della_4_0_0": "plenora-capabilities-v2",
+      "nota": "gia' allineata, e senza `io` perche' il documento e' **condiviso**: altri componenti emettono lo stesso. Il `v2` qui e' la versione di quel contratto, non del nostro protocollo -- due numeri che coincidono per caso, e questa riga esiste perche' non vengano confusi."
+    },
+    {
+      "comando": "errore",
+      "contratto": "plenora-error-v1",
+      "fonte": "ERRORS-1.0, «Contract identifier»",
+      "prima_della_4_0_0": "plenora-io-error-v1",
+      "nota": "senza `io`: SURF-015 dice che i fallimenti pubblici mappano sul **contratto d'errore comune**, e quel contratto ha un nome suo. Emettere `plenora-io-error-v1` diceva che ne avevamo uno nostro, e mandava chi lo riceve a cercare uno schema che non esiste. Resta nostro `plenora-io-error-details-v1`, che e' il contenuto facoltativo di `details` e non la busta."
+    },
+    {
+      "comando": "version",
+      "contratto": "plenora-io-version-v2",
+      "fonte": "nessuna: `--version` non e' un'operazione del catalogo",
+      "prima_della_4_0_0": "plenora-io-version-v2",
+      "nota": "l'unica busta senza un contratto fissato a cui allinearsi. E' una superficie di scoperta della CLI, non un'operazione, quindi il nome e il suffisso restano nostri e seguono il protocollo. Lasciarla `-v2` non e' una dimenticanza: e' l'unico caso in cui `-v2` significa ancora quello che dice."
+    }
+  ]
+}

@@ -276,6 +276,13 @@ set -eu
 # Terminano la prova invece di proseguire con un default.
 # Nessuna revisione H-01 dovuta.
 #
+# Il 2026-09-12, blocco di coerenza, plenora-io-cli passa da 35 a 37 (totale
+# 136 -> 138). Le due occorrenze sono nelle prove che confrontano il catalogo
+# con i driver risolti per nome: `unwrap_or_else(|| panic!(...))` nomina il
+# formato senza corrispondenza. Stessa categoria gia' ratificata due volte qui
+# sopra -- terminano la prova invece di proseguire con un default.
+# Nessuna revisione H-01 dovuta.
+#
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la
