@@ -946,3 +946,102 @@ class ConvertResult:
                 return strato
         noti = ", ".join(strato.name for strato in self.layers)
         raise KeyError(f"nessun layer «{name}» nella conversione; ci sono: {noti}")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteInput:
+    """Che cosa `io.write` ha accettato in ingresso.
+
+    Due campi soli, e servono a una cosa: chi incatena `read()` e `write()` puo'
+    verificare che il contratto d'interscambio dichiarato in uscita dalla prima
+    sia quello dichiarato in ingresso dalla seconda, senza aprire i byte.
+    """
+
+    content_type: str
+    interchange_contract: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("content_type", "interchange_contract")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "WriteInput":
+        _pretendi(documento, cls.OBBLIGATORI, "write.input")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteResult:
+    """L'esito di `write()`: la pubblicazione di un dataset Arrow.
+
+    # Perche' le fedelta' sono tre anche qui
+
+    `input_fidelity` e' cio' che la lettura del dataset Arrow ha conservato --
+    normalmente tutto, perche' Arrow e' la rappresentazione e non una
+    traduzione -- e `write_fidelity` cio' che il formato di destinazione sa
+    esprimere. `fidelity` e' il giudizio combinato, che e' quello
+    dell'operazione. Chi le fondesse non saprebbe piu' se una perdita venga da
+    cio' che gli e' stato dato o da dove l'ha messo, che e' l'unica cosa da
+    sapere per evitarla.
+
+    # `publish_outcome` non e' decorativo
+
+    Porta due valori: `published` e `published_durability_unconfirmed`. Il
+    secondo dice che i byte ci sono ma il sistema non ha confermato che
+    sopravvivano a un'interruzione, e arriva solo se la durabilita' e' stata
+    chiesta. Un esito che tacesse l'incertezza sarebbe indistinguibile dalla
+    certezza, che e' la forma peggiore.
+    """
+
+    format: str
+    input: WriteInput
+    layers: list[ConvertedLayer]
+    rows_written: int
+    bytes_written: int
+    publish_outcome: str
+    fidelity: Fidelity
+    input_fidelity: Fidelity
+    write_fidelity: Fidelity
+    input_loss: LossReport
+    write_loss: LossReport
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "format",
+        "input",
+        "layers",
+        "rows_written",
+        "bytes_written",
+        "publish_outcome",
+        "fidelity",
+        "input_fidelity",
+        "write_fidelity",
+        "input_loss",
+        "write_loss",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "WriteResult":
+        _pretendi(documento, cls.OBBLIGATORI, "write")
+        elenco = documento["layers"]
+        if not isinstance(elenco, list):
+            raise ProtocolError(
+                f"write.layers e' {type(elenco).__name__} e non un elenco."
+            )
+        return cls(
+            format=documento["format"],
+            input=WriteInput.from_json(documento["input"]),
+            layers=[ConvertedLayer.from_json(v) for v in elenco],
+            rows_written=documento["rows_written"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            input_fidelity=Fidelity.from_json(documento["input_fidelity"]),
+            write_fidelity=Fidelity.from_json(documento["write_fidelity"]),
+            input_loss=LossReport.from_json(documento["input_loss"]),
+            write_loss=LossReport.from_json(documento["write_loss"]),
+            raw=dict(documento),
+        )
+

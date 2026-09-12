@@ -89,7 +89,11 @@ class ArtefattoFinto:
         per cogliere. E senza `--output` `delivered` vale `None`, perche' e'
         l'altra meta' di cio' che la sonda verifica.
         """
-        if not self.consegna_attiva or argomenti[:1] != ("read",):
+        if not self.consegna_attiva:
+            return None
+        if argomenti[:1] == ("write",):
+            return self._pubblica(argomenti)
+        if argomenti[:1] != ("read",):
             return None
 
         consegna = None
@@ -120,6 +124,129 @@ class ArtefattoFinto:
                 "batches": 1,
                 "truncated": False,
                 "delivered": consegna,
+            },
+        }
+        return invocazione(json.dumps(busta) + "\n")
+
+
+    def _pubblica(self, argomenti: tuple[str, ...]) -> gate.Invocazione | None:
+        """Le tre risposte di `write` che le sonde distinguono.
+
+        Un finto che dicesse sempre di si' farebbe passare a vuoto le sonde del
+        formato esplicito e del rollback, che esistono proprio per cogliere un
+        `write` troppo accomodante. Quindi qui si rifiuta esattamente dove il
+        prodotto rifiuta: senza `--to`, con un formato fuori dal catalogo, e
+        quando `--to` e l'estensione della destinazione si contraddicono.
+        """
+        def _uso() -> gate.Invocazione:
+            return invocazione(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "protocol_version": 2,
+                        "component": "plenora-io-tools",
+                        "component_version": "4.0.0",
+                        "contract": "plenora-io-error-v1",
+                        "command": "write",
+                        "error": {
+                            "category": "invalid_configuration",
+                            "code": "CLI_USAGE",
+                            "message": "write richiede --to <formato>",
+                            "phase": "validate",
+                            "remote_effect": "none",
+                            "retry": {"kind": "never"},
+                        },
+                    }
+                )
+                + "\n",
+                exit_code=2,
+            )
+
+        if len(argomenti) < 3:
+            return _uso()
+        destinazione = pathlib.Path(argomenti[2])
+
+        if "--to" not in argomenti:
+            return _uso()
+        formato = argomenti[argomenti.index("--to") + 1]
+        if formato not in ("csv", "geojson", "gpkg", "ipc"):
+            return invocazione(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "protocol_version": 2,
+                        "component": "plenora-io-tools",
+                        "component_version": "4.0.0",
+                        "contract": "plenora-io-error-v1",
+                        "command": "write",
+                        "error": {
+                            "category": "unsupported",
+                            "code": "UNKNOWN_FORMAT",
+                            "message": "formato non riconosciuto",
+                            "phase": "validate",
+                            "remote_effect": "none",
+                            "retry": {"kind": "never"},
+                        },
+                    }
+                )
+                + "\n",
+                exit_code=3,
+            )
+
+        atteso = {"csv": ".csv", "geojson": ".geojson", "gpkg": ".gpkg", "ipc": ".arrow"}
+        rifiuta = destinazione.suffix != atteso[formato]
+        # Il dataset proiettato che il sink non sa esprimere: la sonda del
+        # rollback lo costruisce leggendo il GeoPackage.
+        if "proiettato" in destinazione.name or "mai_nato" in destinazione.name:
+            rifiuta = True
+        if rifiuta:
+            return invocazione(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "protocol_version": 2,
+                        "component": "plenora-io-tools",
+                        "component_version": "4.0.0",
+                        "contract": "plenora-io-error-v1",
+                        "command": "write",
+                        "error": {
+                            "category": "unsupported",
+                            "code": "UNSUPPORTED",
+                            "message": "il sink non regge questa destinazione",
+                            "phase": "validate",
+                            "remote_effect": "none",
+                            "retry": {"kind": "never"},
+                        },
+                    }
+                )
+                + "\n",
+                exit_code=3,
+            )
+
+        byte = b"a,b\n1,2\n"
+        destinazione.write_bytes(byte)
+        busta = {
+            "status": "ok",
+            "protocol_version": 2,
+            "component": "plenora-io-tools",
+            "component_version": "4.0.0",
+            "contract": "plenora-io-write-result-v1",
+            "command": "write",
+            "result": {
+                "format": formato,
+                "input": {
+                    "content_type": "application/vnd.apache.arrow.file",
+                    "interchange_contract": "plenora-arrow-interchange-v1",
+                },
+                "layers": [{"name": "x", "rows": 1, "batches": 1}],
+                "rows_written": 1,
+                "bytes_written": len(byte),
+                "publish_outcome": "published",
+                "fidelity": {"level": "lossless", "reasons": []},
+                "input_fidelity": {"level": "lossless", "reasons": []},
+                "write_fidelity": {"level": "lossless", "reasons": []},
+                "input_loss": {"lossless": True, "counts": []},
+                "write_loss": {"lossless": True, "counts": []},
             },
         }
         return invocazione(json.dumps(busta) + "\n")

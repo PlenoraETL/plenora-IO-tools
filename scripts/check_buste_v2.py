@@ -255,6 +255,40 @@ MATRICE: tuple[dict[str, Any], ...] = (
         "perche": "uno schema piu' ricco, e un CRS risolto per identificatore.",
     },
     {
+        "nome": "write-csv",
+        "busta": "plenora-io-write-result-v1",
+        "argomenti": [
+            "write",
+            "{uscita}/consegnato.arrow",
+            "{uscita}/pubblicato.csv",
+            "--to",
+            "csv",
+        ],
+        "perche": (
+            "la pubblicazione di un dataset Arrow in un formato che perde "
+            "qualcosa: e' il caso che porta le tre fedelta' con valori "
+            "**diversi**, ed e' l'unico modo in cui il contratto puo' dire "
+            "che sono tre e non una ripetuta. L'ingresso e' il file che "
+            "`read-con-consegna` ha prodotto: le due buste descrivono i due "
+            "capi della stessa catena."
+        ),
+    },
+    {
+        "nome": "write-geojson",
+        "busta": "plenora-io-write-result-v1",
+        "argomenti": [
+            "write",
+            "{uscita}/consegnato.arrow",
+            "{uscita}/pubblicato.geojson",
+            "--to",
+            "geojson",
+        ],
+        "perche": (
+            "un secondo sink, perche' `format` e `layers[].name` non siano "
+            "dichiarati su un solo valore osservato."
+        ),
+    },
+    {
         "nome": "convert-geojson-csv",
         "busta": "plenora-io-convert-v2",
         "argomenti": [

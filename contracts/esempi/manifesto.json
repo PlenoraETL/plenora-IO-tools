@@ -155,6 +155,81 @@
       "schema": "plenora-io-read-result-v1",
       "atteso": "invalido",
       "perche": "il content type dello stream Arrow, che il catalogo ammette per l'operazione e che questa superficie non puo' produrre: CLI-2.0 §4 riserva stdout a un solo documento JSON. Dichiararlo sarebbe annunciare una consegna che non arriva."
+    },
+    {
+      "file": "validi/io-write-input-minimo.json",
+      "schema": "plenora-io-write-input-v1",
+      "atteso": "valido",
+      "perche": "i tre campi obbligatori e nient'altro: sorgente Arrow, destinazione, formato esplicito.",
+      "invocazione_cli": [
+        "write",
+        "SORGENTE",
+        "USCITA",
+        "--to",
+        "csv"
+      ]
+    },
+    {
+      "file": "validi/io-write-input-completo.json",
+      "schema": "plenora-io-write-input-v1",
+      "atteso": "valido",
+      "perche": "con selezione del layer, durabilita' richiesta e scadenza."
+    },
+    {
+      "file": "validi/io-write-result-csv.json",
+      "schema": "plenora-io-write-result-v1",
+      "atteso": "valido",
+      "perche": "il risultato che il binario emette pubblicando in CSV, catturato da un'invocazione reale."
+    },
+    {
+      "file": "invalidi/io-write-input-senza-formato.json",
+      "schema": "plenora-io-write-input-v1",
+      "atteso": "invalido",
+      "perche": "manca `format`. Dedurlo dall'estensione della destinazione e' cio' che il profilo vieta per un'operazione a formato esplicito, quindi l'assenza non ha un default: ha un rifiuto.",
+      "codice_del_prodotto": "CLI_USAGE",
+      "invocazione_cli": [
+        "write",
+        "SORGENTE",
+        "USCITA"
+      ]
+    },
+    {
+      "file": "invalidi/io-write-input-formato-ignoto.json",
+      "schema": "plenora-io-write-input-v1",
+      "atteso": "invalido",
+      "perche": "«shapefile» non e' un identificatore del catalogo -- quello e' `shp`. L'enum e' chiuso perche' lo e' il catalogo.",
+      "codice_del_prodotto": "UNKNOWN_FORMAT",
+      "invocazione_cli": [
+        "write",
+        "SORGENTE",
+        "USCITA",
+        "--to",
+        "shapefile"
+      ]
+    },
+    {
+      "file": "invalidi/io-write-input-senza-destinazione.json",
+      "schema": "plenora-io-write-input-v1",
+      "atteso": "invalido",
+      "perche": "pubblicare senza destinazione non vuol dire niente. E' la differenza con io.read, dove l'assenza significa «non consegnare»."
+    },
+    {
+      "file": "invalidi/io-write-result-senza-esito.json",
+      "schema": "plenora-io-write-result-v1",
+      "atteso": "invalido",
+      "perche": "manca `publish_outcome`: il profilo chiede di distinguere gli stati della pubblicazione dove sono osservabili, e tacerli e' il contrario."
+    },
+    {
+      "file": "invalidi/io-write-result-esito-ignoto.json",
+      "schema": "plenora-io-write-result-v1",
+      "atteso": "invalido",
+      "perche": "un esito fuori dal vocabolario dichiarato. Un valore nuovo e' un cambio di contratto, non un dettaglio."
+    },
+    {
+      "file": "invalidi/io-write-result-una-fedelta-sola.json",
+      "schema": "plenora-io-write-result-v1",
+      "atteso": "invalido",
+      "perche": "manca `write_fidelity`. Le tre fedelta' rispondono a domande diverse, e chi ne riceve una sola non sa se la perdita venga dall'ingresso o dal sink."
     }
   ]
 }

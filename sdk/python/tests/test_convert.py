@@ -408,3 +408,85 @@ class LaConsegnaDiRead(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@serve_le_fixture
+class LaScritturaDiWrite(unittest.TestCase):
+    """`write()` pubblica davvero, e la catena con `read()` si chiude.
+
+    # Perche' dalla wheel e non solo in Rust
+
+    Le prove Rust verificano il binario. Queste verificano il tratto di strada
+    fra il parametro Python e il binario: un SDK che costruisse l'argomento
+    sbagliato -- `--format` invece di `--to`, l'ordine dei posizionali
+    invertito -- passerebbe quelle e fallirebbe queste.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        indicato = os.environ.get(VARIABILE)
+        cls.binario = indicato or shutil.which(NOME)
+        if cls.binario is None:
+            costruito = RADICE / "target" / "debug" / NOME
+            cls.binario = str(costruito) if costruito.is_file() else None
+
+    def setUp(self) -> None:
+        if self.binario is None:
+            self.skipTest("nessun binario plenora-io")
+        self.lavoro = tempfile.TemporaryDirectory()
+        self.addCleanup(self.lavoro.cleanup)
+        self.cliente = Client(binary=self.binario)
+        self.arrow = Path(self.lavoro.name) / "ponte.arrow"
+        self.cliente.read(CANONICHE / "canonico.geojson", self.arrow)
+
+    def test_la_catena_read_write_si_chiude(self) -> None:
+        destinazione = Path(self.lavoro.name) / "pubblicato.csv"
+        esito = self.cliente.write(self.arrow, destinazione, format="csv")
+        self.assertEqual(esito.format, "csv")
+        self.assertGreater(esito.rows_written, 0)
+        self.assertTrue(destinazione.is_file())
+        # Il contratto d'interscambio dichiarato in ingresso qui e' quello che
+        # `read()` dichiara in uscita: e' cio' che rende la catena verificabile
+        # senza aprire i byte.
+        self.assertEqual(esito.input.interchange_contract, "plenora-arrow-interchange-v1")
+
+    def test_le_tre_fedelta_arrivano_distinte(self) -> None:
+        destinazione = Path(self.lavoro.name) / "fedelta.csv"
+        esito = self.cliente.write(self.arrow, destinazione, format="csv")
+        for fedelta in (esito.fidelity, esito.input_fidelity, esito.write_fidelity):
+            self.assertTrue(fedelta.level)
+        # Leggere Arrow non perde niente: se un giorno lo perdesse, sarebbe un
+        # difetto del giro e non del sink, e si vedrebbe qui.
+        self.assertEqual(esito.input_fidelity.level, "lossless")
+
+    def test_il_formato_e_un_id_del_catalogo_non_un_estensione(self) -> None:
+        """«shapefile» non e' un identificatore: lo e' `shp`.
+
+        Se l'SDK passasse l'estensione o il nome lungo, il prodotto
+        risponderebbe `UNKNOWN_FORMAT` -- ed e' proprio cio' che questa sonda
+        pretende, perche' fissa che il vocabolario sia quello del catalogo e
+        non quello del filesystem.
+        """
+        destinazione = Path(self.lavoro.name) / "mai.shp"
+        with self.assertRaises(CommandFailed) as preso:
+            self.cliente.write(self.arrow, destinazione, format="shapefile")
+        self.assertEqual(preso.exception.envelope.code, "UNKNOWN_FORMAT")
+        self.assertFalse(destinazione.exists())
+
+    def test_un_sink_che_non_regge_i_dati_non_lascia_una_destinazione(self) -> None:
+        proiettato = Path(self.lavoro.name) / "proiettato.arrow"
+        self.cliente.read(CANONICHE / "canonico.gpkg", proiettato, layer=0)
+        destinazione = Path(self.lavoro.name) / "mai.geojson"
+        with self.assertRaises(CommandFailed) as preso:
+            self.cliente.write(proiettato, destinazione, format="geojson")
+        self.assertEqual(preso.exception.envelope.category, "unsupported")
+        self.assertFalse(destinazione.exists())
+
+    def test_l_esito_di_pubblicazione_e_uno_dei_due_dichiarati(self) -> None:
+        destinazione = Path(self.lavoro.name) / "durevole.csv"
+        esito = self.cliente.write(self.arrow, destinazione, format="csv", durable=True)
+        self.assertIn(
+            esito.publish_outcome,
+            ("published", "published_durability_unconfirmed"),
+        )
+

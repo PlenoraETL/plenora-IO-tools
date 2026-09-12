@@ -1,0 +1,8 @@
+{
+  "source": "SORGENTE",
+  "destination": "USCITA",
+  "format": "csv",
+  "layer": 0,
+  "durable": true,
+  "deadline_ms": 30000
+}

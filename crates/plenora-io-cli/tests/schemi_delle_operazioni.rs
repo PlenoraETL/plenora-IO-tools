@@ -1,4 +1,4 @@
-//! Gli schemi di `io.read`, i loro esempi, e il legame con il binario.
+//! Gli schemi delle operazioni, i loro esempi, e il legame con il binario.
 //!
 //! # Che cosa questa prova aggiunge a quelle sulla consegna
 //!
@@ -75,7 +75,7 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
     let esempi = manifesto["esempi"]
         .as_array()
         .expect("il manifesto elenca esempi");
-    assert!(esempi.len() >= 15, "il manifesto non e' stato svuotato");
+    assert!(esempi.len() >= 24, "il manifesto non e' stato svuotato");
 
     let mut visti = 0usize;
     for voce in esempi {
@@ -115,7 +115,7 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
     );
 }
 
-/// Le due forme reali di `io.read` validano contro lo schema del risultato.
+/// Le forme reali di `io.read` validano contro lo schema del risultato.
 ///
 /// Non un documento scritto a mano: l'uscita del binario, letta da stdout.
 /// Cio' che lo schema descrive e cio' che il prodotto emette devono essere la
@@ -235,8 +235,8 @@ fn il_binario_rifiuta_gli_ingressi_che_lo_schema_dichiara_invalidi() {
         provati += 1;
     }
     assert!(
-        provati >= 4,
-        "il manifesto deve legare al binario almeno i quattro rifiuti noti, legati: {provati}"
+        provati >= 6,
+        "il manifesto deve legare al binario i rifiuti noti di read e write, legati: {provati}"
     );
 }
 
@@ -275,4 +275,69 @@ fn il_manifesto_e_la_directory_coincidono() {
         dichiarati, trovati,
         "gli esempi dichiarati e quelli sul disco devono coincidere"
     );
+}
+
+/// E lo stesso per `io.write`: la busta reale contro il suo schema.
+///
+/// Qui la catena e' completa -- si legge una sorgente, si consegna Arrow, si
+/// pubblica -- ed e' il punto: i due schemi descrivono due operazioni che si
+/// incatenano, e provarli su invocazioni scollegate direbbe meno.
+#[test]
+fn la_busta_di_write_valida_contro_il_suo_schema() {
+    let validatore = compila("plenora-io-write-result-v1");
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let arrow = temporanea.path().join("ponte.arrow");
+
+    let consegna = Command::new(BINARIO)
+        .args([
+            "read",
+            fixture("canonico.geojson").to_str().unwrap(),
+            "--output",
+            arrow.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("il binario parte");
+    assert!(
+        consegna.status.success(),
+        "la consegna che alimenta la prova"
+    );
+
+    for (formato, nome) in [("csv", "uscita.csv"), ("geojson", "uscita.geojson")] {
+        let destinazione = temporanea.path().join(nome);
+        let uscita = Command::new(BINARIO)
+            .args([
+                "write",
+                arrow.to_str().unwrap(),
+                destinazione.to_str().unwrap(),
+                "--to",
+                formato,
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("il binario parte");
+        let stdout = String::from_utf8(uscita.stdout).expect("stdout e' UTF-8");
+        let busta: Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|e| panic!("{formato}: stdout e' JSON: {e} -- {stdout}"));
+        assert_eq!(busta["status"], "ok", "{formato}: {stdout}");
+
+        // Il nome del contratto e' quello del catalogo, non `-v2`: `io.write`
+        // nasce con i suoi schemi pubblicati.
+        assert_eq!(
+            busta["contract"], "plenora-io-write-result-v1",
+            "{formato}: la busta annuncia il contratto del catalogo"
+        );
+
+        let risultato = &busta["result"];
+        assert!(
+            validatore.is_valid(risultato),
+            "{formato}: il risultato non valida: {:?}",
+            validatore
+                .iter_errors(risultato)
+                .map(|e| format!("{} in {}", e, e.instance_path()))
+                .collect::<Vec<_>>()
+        );
+    }
 }

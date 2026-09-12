@@ -111,13 +111,15 @@ sono più nette. Le righe qui sotto vengono dalle risposte del binario 3.0.0.
 | B7 | Dati dell'operazione dentro `result` | CLI-2.0 §5 | `drivers` e `determinism` stanno **al primo livello** | campi di primo livello aggiuntivi, vietati | spostare il corpo dentro `result` senza cambiarne la forma interna | le chiavi di primo livello sono esattamente quelle della busta; tutto il resto è sotto `result` |
 | B8 | Identificatore di contratto del catalogo | catalogo io-tools | `contract: plenora-io-catalog-v2` | il catalogo comune fissa `plenora-io-catalog-v1` per `io.catalog@1` | allineare l'identificatore, oppure dichiarare la deviazione e la ragione | l'identificatore emesso coincide con quello del catalogo comune al pin |
 | B9 | `--format json` come selettore esplicito | CLI-2.0 §2 | `catalog --format json` esce **2**: il flag non è accettato | la modalità macchina non è selezionabile come il contratto prescrive | `--format json` su tutti i comandi; formato umano esplicito e mai implicito | ogni entrypoint del binding CLI è invocabile **letteralmente** come scritto in `bindings/cli-v1.json` |
-| B10 | Comando `write` | catalogo io-tools, `io.write` | il binario espone `catalog, inspect, layers, read, convert` | `io.write` è **richiesto** e non esiste come comando | esporre `write --input INPUT.arrow --output SINK --format json` | l'entrypoint del binding risponde e dichiara esito di pubblicazione e fedeltà |
+| B10 | Comando `write` | catalogo io-tools, `io.write`, profilo «External outcomes» | **chiusa.** `write INGRESSO.arrow DESTINAZIONE --to FORMATO` pubblica un dataset Arrow; `io.write` è `available` nel documento capability, e tutte e sei le operazioni del catalogo lo sono | — | fatto: il formato del sink è **nominato** e non dedotto, le fedeltà d'ingresso e di scrittura restano distinte, e l'esito di pubblicazione porta i due stati osservabili | undici prove del binario, cinque dell'SDK dalla wheel, tre requisiti del verificatore pubblico, due schemi con nove esempi, e due casi nel censimento delle buste. Il giro si chiude: ciò che `read --output` consegna, `write` lo pubblica |
+| B10a | Il formato del sink è esplicito | profilo io-tools, «Format-specific behavior MUST NOT be selected by parsing file extensions when the operation requires an explicit format» | **chiusa.** `--to` prende un `id` di `io.catalog`; senza, il comando rifiuta invece di indovinare | `convert` deduce ancora i due formati dalle estensioni: è la riga B17 | `driver_per_formato` risolve per nome, e `ogni_formato_del_catalogo_ha_un_driver` confronta i due insiemi nei due versi | quando `--to` e l'estensione della destinazione si contraddicono non viene scritto **né** l'uno **né** l'altro formato: è l'unico caso in cui la regola si osserva, perché quando concordano le due strade portano allo stesso posto |
 | B12 | `io.read` **consegna** dati Arrow | catalogo io-tools, ARROW-001, ARROW-005, binding `read SOURCE --output OUTPUT.arrow` | **chiusa.** `read --output` scrive un file Arrow IPC; senza `--output` la forma che conta resta, e `delivered` vale `null` | — | fatto | diciassette prove aprono il file con `arrow-ipc` — la libreria che userebbe chi ci consuma — e ne verificano valori, tipi, nullabilità, `plenora.contract.version`, `geoarrow.wkb` e il CRS risolto; quattro prove dell'SDK fanno lo stesso dalla wheel; due schemi pubblicati e quindici esempi legano la forma dichiarata all'invocazione reale |
 | B12a | Dataset vuoto: zero righe **non** implica schema ignoto | ARROW-VOCABULARY-1.0 §3-4, `capabilities.rs` | **corretta.** Una sorgente con zero righe e schema noto — GeoPackage, Arrow IPC, Parquet, Shapefile — si consegna con lo schema intero; solo una sorgente i cui tipi geometrici non si determinano viene rifiutata | il rilievo: la prova precedente asseriva «un dataset vuoto non si consegna» e ne dava come ragione che una sorgente senza righe non può dichiarare i tipi. Entrambe sbagliate. La regola vera non parla di righe: rifiuta quando il **sink restringe** i tipi geometrici **e** il contratto della sorgente arriva `unresolved` — una sorgente con mille righe di tipi indeterminati sarebbe rifiutata allo stesso modo | fatto: due prove distinte, `zero_righe_con_schema_noto_si_consegnano` e `tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato` | la prima costruisce un file IPC con lo schema della fixture canonica e **zero** batch, e ne verifica la consegna con schema intero; la seconda verifica che il messaggio nomini la dichiarazione dei tipi e non il numero di righe |
 | B12c | Il sink IPC dichiara sette dei sedici tipi canonici | `descriptor.rs` `SIMPLE_WKB_GEOMETRY_TYPES`, ARROW-VOCABULARY-1.0 | il driver IPC trasporta WKB **senza interpretarlo**, e dichiara `WKB_EWKB_PASSTHROUGH_GEOMETRY`, che restringe a sette tipi | è quella restrizione, e non il vuoto, a far rifiutare `unresolved`. Per un passaggio di byte la restrizione è più stretta del vero; ma la costante è condivisa con CSV, GeoParquet, GPKG e XLS, dove non lo è altrettanto | **aperto**: separare la dichiarazione di un vero passaggio di byte da quella dei formati che interpretano la geometria, oppure motivare la restrizione. Non è una correzione da fare di traverso: cambia la matrice del catalogo per cinque driver | la sorgente vuota di GeoJSON si consegna con `types_declaration=unresolved`, oppure il catalogo motiva per iscritto perché no |
 | B12b | Il limite non si combina con la consegna | **nessun requisito lo impone**: SURF-014 vieta solo di riportare un parziale come successo pieno, e PUBLIC-SURFACES-1.0 §9.5 delega la semantica del parziale alla nostra specifica d'operazione | `--limit` insieme a `--output` è rifiutato con `invalid_plan` e codice `LIMIT_WITH_DELIVERY` | il difetto che le prove hanno trovato era reale — `--limit 2 --output` riusciva e consegnava **tutte** le righe con `truncated: true` accanto — ma il rifiuto che l'ha chiuso è una **scelta**, non un obbligo. La necessità del writer di conoscere la cardinalità esatta (`declare_input_total`) è una ragione per progettare la semantica, non per negarla | **decisione aperta D9**: si chiude scrivendo in `plenora-io-read-input-v1` quale sia il totale di una consegna troncata, non nel codice | oggi: il comando esce `invalid_plan` e non lascia un file, `--limit` da solo continua a valere. La prova che lo fissa dichiara di misurare una scelta aperta, e diventerà rossa il giorno in cui D9 si chiude nell'altro verso |
 | B13 | Streaming senza materializzazione completa | ARROW-011 | il lettore è già a batch e lo spool è documentato in ENGINEERING | da verificare **al confine**, non nell'implementazione | dichiarare nel descrittore se la materializzazione è limitata, e provarlo | il consumatore elabora il primo batch prima che l'ultimo sia stato prodotto, oppure il descrittore dichiara la materializzazione limitata |
-| B14 | Il nome del contratto nella busta diverge dal catalogo | catalogo io-tools, CLI-2.0 §5 e §10 | la busta annuncia `plenora-io-read-v2`, `…-inspect-v2`, `…-layers-v2`, `…-convert-v2` | il catalogo comune nomina quegli stessi contratti `plenora-io-read-result-v1`, `…-inspect-v1`, `…-layers-v1`, `…-convert-v1`. CLI-2.0 §10 esige che il contratto d'uscita resti **equivalente** fra le superfici, e un nome diverso non è equivalente. Il `-v2` nostro segue il protocollo della busta, che è un'altra cosa dalla versione dell'operazione | allineare i quattro nomi a quelli del catalogo, in un intervento solo: tocca busta, `release/cli-protocol-v2.json` e SDK insieme | ogni busta annuncia il nome che il catalogo assegna all'operazione, e una prova lo confronta con `catalogs/io-tools-v1.json` del pin invece che con una costante nostra |
+| B17 | `convert` deduce i formati dalle estensioni | catalogo io-tools (`io.convert`: «Convert an external dataset between **explicit** formats»), profilo io-tools | `cmd_convert` chiama `driver_for_path` su entrambi i percorsi: i due formati vengono dall'estensione | la stessa regola che `io.write` ora rispetta. `io.convert` è descritto dal catalogo come operazione fra formati **espliciti**, quindi la deduzione non è un default comodo ma la selezione che il profilo esclude | dare a `convert` un `--from` e un `--to`. È una **rottura**: ogni invocazione esistente li omette, quindi va fatta con la sua nota di migrazione e non di traverso | `convert` rifiuta senza i due formati; una destinazione la cui estensione contraddice `--to` non viene scritta in nessuno dei due formati, come già per `write` |
+| B14 | Il nome del contratto nella busta diverge dal catalogo | catalogo io-tools, CLI-2.0 §5 e §10 | la busta annuncia `plenora-io-read-v2`, `…-inspect-v2`, `…-layers-v2`, `…-convert-v2`. `write` no: annuncia `plenora-io-write-result-v1`, perché nasce con i suoi schemi pubblicati e non ha consumatori da migrare | il catalogo comune nomina quegli stessi contratti `plenora-io-read-result-v1`, `…-inspect-v1`, `…-layers-v1`, `…-convert-v1`. CLI-2.0 §10 esige che il contratto d'uscita resti **equivalente** fra le superfici, e un nome diverso non è equivalente. Il `-v2` nostro segue il protocollo della busta, che è un'altra cosa dalla versione dell'operazione | allineare i quattro nomi a quelli del catalogo, in un intervento solo: tocca busta, `release/cli-protocol-v2.json` e SDK insieme | ogni busta annuncia il nome che il catalogo assegna all'operazione, e una prova lo confronta con `catalogs/io-tools-v1.json` del pin invece che con una costante nostra |
 | B15 | Due grafie per lo stato del CRS | ARROW-007, ARROW-VOCABULARY-1.0 §3 | il risultato JSON rende `declared_but_unresolved` (grafia derivata da serde), i metadati Arrow scrivono `declared_unresolved` (grafia del contratto) | lo stesso stato, due nomi, dentro lo stesso prodotto. Nessuno dei due è sbagliato in sé — il JSON è contratto nostro — ma chi confronta le due viste deve tradurre, e una traduzione non scritta è una traduzione che prima o poi si sbaglia | scegliere la grafia del contratto anche nel JSON, con `#[serde(rename)]` | una prova legge entrambe le viste sulla stessa sorgente e le confronta senza tabella di traduzione |
 | B16 | Opzioni accettate e senza effetto | SURF-014, `plenora-io-read-input-v1` | **chiusa.** `--in-opt` era accettata da `read`, `inspect` e `layers` e **scartata** — solo `convert` la applicava; `--out-opt` e `--durable` erano accettate anche senza `--output`, cioè senza alcun writer a cui rivolgersi | trovate scrivendo lo schema d'ingresso, non leggendo il codice: dichiarare che cosa l'operazione accetta ha reso visibile che accettava di più di quel che usava. Una chiave sbagliata passava in silenzio, indistinguibile da una applicata — e lo stesso valeva per `options=` dell'SDK, il cui docstring prometteva un rifiuto che non arrivava | fatto: `read_options` unisce `--opt` e `--in-opt`; `read` rifiuta `SINK_OPTIONS_WITHOUT_SINK` quando le opzioni del sink arrivano senza destinazione | cinque esempi invalidi dello schema portano l'invocazione CLI equivalente e il codice atteso, e una prova verifica che il binario rifiuti **lo stesso** insieme che lo schema rifiuta; due sonde dell'SDK lo esercitano dalla wheel |
 | B11 | Proiezione dei codici d'uscita | CLI-2.0 §8 | la proiezione è agganciata a `IoErrorCode`, **non** alla categoria del contratto: vedi la tabella qui sotto | scostamento **incompatibile**: solo `cancelled → 130` coincide | riscrivere la proiezione sulla `category`, che è l'asse autoritativo | una prova tabellare copre ogni categoria e il suo codice atteso, e fallisce se la chiave torna a essere il codice interno |
@@ -344,23 +346,25 @@ completa. Da proporre a monte insieme a HB3.
 CLI e quello delle capability:
 
 ```
-profilo pubblico: 24 requisiti verificati e protetti su 24.
+profilo pubblico: 27 requisiti verificati e protetti su 27.
 ```
 
 Era 8 su 19 quando il verificatore è nato.
 
-### Ventiquattro su ventiquattro non è l'adozione
+### Ventisette su ventisette non è l'adozione
 
 È il momento in cui quel numero inganna di più, e va detto qui prima che altrove.
 Dice che i requisiti **elencati in quel registro** sono verificati sul confine
 pubblico. Fuori restano:
 
-* **BB1–BB5** — i dodici schemi delle coppie di ingresso e uscita con i loro
-  esempi, `plenora-io-error-details-v1`, e le prove sui metadati Arrow oltre
-  quelle che `io.read` ora copre;
+* **BB1–BB5** — otto dei dodici schemi delle coppie di ingresso e uscita con i
+  loro esempi (quelli di `io.read` e `io.write` ci sono),
+  `plenora-io-error-details-v1`, e le prove sui metadati Arrow oltre quelle che
+  `io.read` ora copre;
 * **C1–C4** — la superficie Rust, la sua mappatura versionata e il consumatore
   esterno che la importa;
-* **B10** — `io.write`;
+* **B14, B17** — i nomi di contratto delle quattro buste storiche, e i formati
+  espliciti di `convert`;
 * **A3, A6, I1** — il manifesto di adozione con le sue deviazioni, e la qualifica.
 
 Un registro completo misura tutto ciò che gli è stato chiesto di misurare, non
@@ -433,11 +437,11 @@ qui perché è la precondizione di C1.
 **Priorità 5 — la superficie Rust.** C1, C2, C3, C4, dopo la decisione D1. È il
 punto con più incertezza e più costo, e non blocca nulla di ciò che precede.
 
-**Priorità 6 — le due operazioni sui dati.** B12 ✅ **chiusa**: `io.read`
-consegna, e le prove aprono i byte. Resta **B10**, `io.write`, che userà lo
-stesso contratto del dataset Arrow — l'ingresso di `write` è l'uscita di `read`,
-ed è la ragione per cui questo ordine è quello giusto. B13, lo streaming senza
-materializzazione completa, segue da lì.
+**Priorità 6 — le due operazioni sui dati.** B12 ✅ e B10 ✅ **chiuse**:
+`io.read` consegna e `io.write` pubblica, e il giro fra le due si chiude — ciò
+che esce dalla prima entra nella seconda, con lo stesso contratto
+d'interscambio dichiarato dalle due parti. Resta **B13**, lo streaming senza
+materializzazione completa, che segue da qui.
 
 **Priorità 7 — i contratti di confine.** BB1–BB5. Dodici schemi, i loro esempi,
 lo schema di `details` e le prove sui metadati Arrow consegnati. Vengono **dopo**
@@ -543,6 +547,22 @@ numeri, distinti e nominati.
 
 Finché non è decisa il rifiuto resta, perché è l'unica delle tre che si può
 togliere senza rompere nessuno. Una semantica già consegnata, no.
+
+**D10 — il formato esplicito basta a determinare la destinazione?** `io.write`
+prende il formato da `--to`, come il profilo richiede, e la selezione non passa
+più dall'estensione. Ma ogni driver scrivibile pretende **anche** che il nome
+della destinazione porti l'estensione sua: `--to csv` su un file `.geojson` è
+rifiutato. Non è una violazione — la selezione non guarda più il nome, e il
+vincolo sul nome è una capacità del formato — ma significa che il formato
+esplicito non basta a scegliere la destinazione.
+
+La domanda è se un orchestratore debba poter pubblicare su un percorso che non
+ha nome di formato: una directory di staging, un nome generato, un percorso che
+qualcun altro rinominerà. Oggi non può. Le due risposte hanno costi opposti:
+togliere il vincolo produce artefatti il cui nome mente sul contenuto,
+tenerlo lega la destinazione a una convenzione del filesystem che il catalogo
+non conosce. Non si decide scrivendo codice: si decide dicendo di chi è il nome
+del file.
 
 ---
 

@@ -78,6 +78,11 @@ NON_SONO_TETTI = frozenset(
         # l'argomento che distingue le due forme dell'operazione, e l'SDK lo
         # offre come parametro posizionale di `Client.read(source, output)`.
         "--output",
+        # Il formato del sink di `write`, che il profilo pretende **esplicito**:
+        # l'SDK lo offre come `format=` obbligatorio di `Client.write`, e un
+        # default -- "deducilo dal nome" -- reintrodurrebbe nell'SDK la
+        # deduzione che il prodotto ha tolto.
+        "--to",
     }
 )
 
@@ -106,6 +111,8 @@ POSTI: dict[str, tuple[str, str]] = {
     "Validation": ("read", ".result"),
     "ConvertResult": ("convert", ".result"),
     "ConvertedLayer": ("convert", ".result.layers[]"),
+    "WriteResult": ("write", ".result"),
+    "WriteInput": ("write", ".result.input"),
     # La perdita si confronta con `write_loss`: e' l'unica delle due che la
     # matrice del gate delle buste raggiunge non vuota, e su `read_loss` i
     # percorsi interni di `counts` ed `esempi` non compaiono affatto. Il tipo e'

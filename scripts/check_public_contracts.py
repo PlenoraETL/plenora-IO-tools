@@ -730,6 +730,175 @@ def sonda_ogni_comando_mappa_un_operazione(
     return Esito(True)
 
 
+def _fixture(nome: str) -> Path:
+    return (
+        ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche" / nome
+    )
+
+
+def _dataset_arrow(artefatto: Artefatto, dove: Path) -> tuple[Path | None, str]:
+    """Il dataset Arrow da cui partono le sonde di `write`.
+
+    Prodotto da `read --output` e non costruito qui: e' il contratto fra le due
+    operazioni, e un file sintetico proverebbe che `write` legge *qualcosa*
+    invece che l'uscita di `read`.
+    """
+    sorgente = _fixture("canonico.geojson")
+    if not sorgente.is_file():
+        return None, f"la fixture «{sorgente.name}» non c'e'"
+    arrow = dove / "ponte.arrow"
+    corsa = artefatto.invoca(
+        "read", str(sorgente), "--output", str(arrow), "--format", "json"
+    )
+    if corsa.exit_code != 0:
+        return None, f"la consegna che alimenta la sonda esce {corsa.exit_code}"
+    return arrow, ""
+
+
+def sonda_write_pubblica(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """`write` pubblica davvero, e dichiara come e' finita.
+
+    # Che cosa si guarda, e perche' non la sola busta
+
+    Che il file esista, che i byte dichiarati siano quelli sul disco, e che
+    l'esito di pubblicazione stia nel vocabolario. E' la stessa lezione di
+    `read`: una busta puo' essere giusta mentre il file non c'e', e un gate che
+    guardasse solo il riassunto misurerebbe la cosa che non era bastata.
+    """
+    with tempfile.TemporaryDirectory(prefix="plenora-write-") as temporanea:
+        dove = Path(temporanea)
+        arrow, problema = _dataset_arrow(artefatto, dove)
+        if arrow is None:
+            return Esito(False, problema)
+
+        destinazione = dove / "pubblicato.csv"
+        corsa = artefatto.invoca(
+            "write", str(arrow), str(destinazione), "--to", "csv", "--format", "json"
+        )
+        if corsa.exit_code != 0:
+            return Esito(False, f"`write --to csv` esce {corsa.exit_code}")
+        risultato = (corsa.documento() or {}).get("result") or {}
+        if not destinazione.is_file():
+            return Esito(False, "la busta dice pubblicato e il file non c'e'")
+        byte = destinazione.stat().st_size
+        if risultato.get("bytes_written") != byte:
+            return Esito(
+                False,
+                f"la busta dichiara {risultato.get('bytes_written')} byte e il "
+                f"file ne ha {byte}",
+            )
+        esito = risultato.get("publish_outcome")
+        if esito not in ("published", "published_durability_unconfirmed"):
+            return Esito(False, f"esito di pubblicazione fuori vocabolario: {esito}")
+        if risultato.get("format") != "csv":
+            return Esito(
+                False,
+                f"il formato dichiarato non e' quello chiesto: {risultato.get('format')}",
+            )
+    return Esito(True, "pubblica, e i byte dichiarati sono quelli sul disco")
+
+
+def sonda_write_formato_esplicito(
+    artefatto: Artefatto, vocabolario: Vocabolario
+) -> Esito:
+    """Il formato viene da `--to`, e l'estensione non decide al suo posto.
+
+    # La sola forma in cui la regola si osserva
+
+    Il profilo io-tools vieta di **scegliere** il comportamento di un formato
+    analizzando l'estensione quando l'operazione richiede un formato esplicito.
+    Quando `--to` e il nome concordano le due strade portano allo stesso posto e
+    non si distingue niente: qui si fanno disaccordare, e la risposta deve
+    essere un rifiuto -- mai un file scritto nell'uno o nell'altro formato.
+
+    E senza `--to` si rifiuta invece di indovinare: un default sarebbe la scelta
+    implicita che il profilo esclude.
+    """
+    with tempfile.TemporaryDirectory(prefix="plenora-esplicito-") as temporanea:
+        dove = Path(temporanea)
+        arrow, problema = _dataset_arrow(artefatto, dove)
+        if arrow is None:
+            return Esito(False, problema)
+
+        travestito = dove / "travestito.geojson"
+        corsa = artefatto.invoca(
+            "write", str(arrow), str(travestito), "--to", "csv", "--format", "json"
+        )
+        if corsa.exit_code == 0:
+            return Esito(
+                False,
+                "`--to csv` su una destinazione `.geojson` e' riuscito: uno dei "
+                "due nomi ha deciso da solo",
+            )
+        if travestito.exists():
+            return Esito(False, "il rifiuto ha lasciato una destinazione")
+
+        senza = dove / "senza.csv"
+        corsa = artefatto.invoca("write", str(arrow), str(senza), "--format", "json")
+        if corsa.exit_code == 0:
+            return Esito(False, "`write` senza `--to` e' riuscito indovinando")
+        if senza.exists():
+            return Esito(False, "il rifiuto senza `--to` ha lasciato una destinazione")
+
+        ignoto = dove / "ignoto.shp"
+        corsa = artefatto.invoca(
+            "write", str(arrow), str(ignoto), "--to", "shapefile", "--format", "json"
+        )
+        errore = (corsa.documento() or {}).get("error") or {}
+        if errore.get("code") != "UNKNOWN_FORMAT":
+            return Esito(
+                False,
+                "un formato fuori dal catalogo non e' rifiutato come tale: "
+                f"{errore.get('code')}",
+            )
+    return Esito(True, "il formato e' quello nominato, e senza nome si rifiuta")
+
+
+def sonda_write_rollback(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
+    """Una pubblicazione fallita non lascia byte sulla destinazione.
+
+    Il profilo chiede di distinguere pubblicazione completa, rollback, parziale
+    e durabilita' ignota **dove sono osservabili**. Il rollback lo e', e si
+    osserva esattamente qui: una destinazione a meta' sarebbe indistinguibile,
+    per chi guarda la directory, da una riuscita.
+    """
+    with tempfile.TemporaryDirectory(prefix="plenora-rollback-") as temporanea:
+        dove = Path(temporanea)
+        sorgente = _fixture("canonico.gpkg")
+        if not sorgente.is_file():
+            return Esito(False, f"la fixture «{sorgente.name}» non c'e'")
+        arrow = dove / "proiettato.arrow"
+        corsa = artefatto.invoca(
+            "read",
+            str(sorgente),
+            "--layer",
+            "0",
+            "--output",
+            str(arrow),
+            "--format",
+            "json",
+        )
+        if corsa.exit_code != 0:
+            return Esito(False, f"la consegna proiettata esce {corsa.exit_code}")
+
+        # GeoJSON impone WGS84: il dataset proiettato non si puo' esprimere.
+        destinazione = dove / "mai_nato.geojson"
+        corsa = artefatto.invoca(
+            "write", str(arrow), str(destinazione), "--to", "geojson", "--format", "json"
+        )
+        if corsa.exit_code == 0:
+            return Esito(
+                False,
+                "un sink che non puo' esprimere il CRS ha pubblicato lo stesso",
+            )
+        errore = (corsa.documento() or {}).get("error") or {}
+        if errore.get("category") not in vocabolario.categorie:
+            return Esito(False, f"categoria fuori enum: {errore.get('category')}")
+        if destinazione.exists():
+            return Esito(False, "la pubblicazione fallita ha lasciato una destinazione")
+    return Esito(True, "il rifiuto e' tipizzato e non lascia byte")
+
+
 def sonda_read_consegna(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
     """`read --output` consegna byte Arrow, e senza `--output` lo dichiara.
 
@@ -817,6 +986,9 @@ SONDE: dict[str, Callable[[Artefatto, Vocabolario], Esito]] = {
     "cli.versione-json": sonda_versione_json,
     "cli.capabilities": sonda_capabilities,
     "read.consegna-arrow": sonda_read_consegna,
+    "write.pubblica": sonda_write_pubblica,
+    "write.formato-esplicito": sonda_write_formato_esplicito,
+    "write.rollback-osservabile": sonda_write_rollback,
     "capabilities.forma": sonda_capability_forma,
     "capabilities.copre-il-catalogo": sonda_capability_copre_il_catalogo,
     "capabilities.non-duplica-i-formati": sonda_capability_non_duplica_i_formati,

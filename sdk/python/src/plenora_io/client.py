@@ -36,6 +36,7 @@ from .models import (
     Layers,
     Validation,
     Version,
+    WriteResult,
 )
 from .process import Runner
 
@@ -240,6 +241,66 @@ class Client:
             argomenti += limits.to_argv()
         return Validation.from_json(self._runner.run(argomenti))
 
+
+    def write(
+        self,
+        source: str | os.PathLike[str],
+        destination: str | os.PathLike[str],
+        *,
+        format: str,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        read_options: dict[str, str] | None = None,
+        write_options: dict[str, str] | None = None,
+        options: dict[str, str] | None = None,
+        durable: bool = False,
+        limits: Limits | None = None,
+    ) -> WriteResult:
+        """Pubblica un dataset Arrow in un formato esplicito.
+
+        # L'inversa di `read()`
+
+        `source` e' un file Arrow IPC -- quello che `read()` consegna -- e non
+        una sorgente qualsiasi: per quella c'e' `convert()`. Le due operazioni
+        condividono `plenora-arrow-interchange-v1` proprio perche' l'uscita
+        dell'una deve poter essere l'ingresso dell'altra, ed e' la ragione per
+        cui un orchestratore puo' metterci in mezzo i propri passi.
+
+        # `format` e' obbligatorio, e non ha default
+
+        Non e' una scomodita': il profilo io-tools vieta di scegliere il
+        comportamento di un formato analizzando l'estensione quando
+        l'operazione richiede un formato esplicito, e questa lo richiede. Un
+        default qui -- «deducilo dal nome» -- reintrodurrebbe nell'SDK la
+        deduzione che il prodotto ha tolto, e lo farebbe nel punto in cui
+        nessuno la vedrebbe.
+
+        Il nome e' un `id` di `catalog()`, non un'estensione: `shp`, non
+        `shapefile` ne' `.shp`.
+
+        # Che cosa si ottiene
+
+        Un `WriteResult` con le tre fedelta' distinte, le due perdite,
+        `rows_written`, `bytes_written` e `publish_outcome`. Le eccezioni sono
+        quelle di sempre, tipizzate per categoria: un formato che non sa
+        esprimere questi dati fallisce, e il fallimento non lascia una
+        destinazione a meta'.
+        """
+        argomenti = self._argomenti("write", source, assume_crs, options)
+        argomenti += [os.fspath(destination), "--to", format]
+        if layer is not None:
+            argomenti += ["--layer", str(layer)]
+        if durable:
+            argomenti.append("--durable")
+        for bandiera, mappa in (
+            ("--in-opt", read_options),
+            ("--out-opt", write_options),
+        ):
+            for chiave, valore in (mappa or {}).items():
+                argomenti += [bandiera, f"{chiave}={valore}"]
+        if limits is not None:
+            argomenti += limits.to_argv()
+        return WriteResult.from_json(self._runner.run(argomenti))
 
     def convert(
         self,

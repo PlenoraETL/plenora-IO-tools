@@ -110,6 +110,257 @@
     "come_convive_col_v1": "il v1 e' congelato e i suoi `detail` restano quelli che erano, **alla lettera**: la frase non si ricostruisce dai pezzi, si conserva. Vive in un campo privato e `#[serde(skip)]` di `FidelityReason`, popolato solo nelle sessantaquattro copie che il v1 pubblica e mai in quelle che il v2 trattiene -- quella stringa porta nomi presi dal file, quindi la sua lunghezza la decide chi fornisce il file, e la struttura che serve il v2 non la contiene affatto. A leggerla e' il solo `mod legacy_v1`, e `check_confine_v1.py` pretende che i lettori restino quelli. E' lo stesso disegno della chiave dinamica di DXF."
   },
   "envelopes": {
+    "capabilities": {
+      "contract": "plenora-capabilities-v2",
+      "perche_il_contratto_non_e_nostro": "e la sola busta il cui contratto vive in `plenora-contracts`: lo schema del documento capability e condiviso, e altri componenti emettono lo stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.",
+      "che_cosa_dichiara": "le operazioni che **questo** binario espone, e quelle che non espone con la ragione. Non i formati: il profilo assegna quella scoperta al risultato versionato di `io.catalog`, e gli attributi non devono duplicarla. Ne segue che la build `base` e quella `gdal-backend` producono lo stesso documento: la feature cambia quali formati `io.catalog` dichiara, non quali operazioni esistono.",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "component",
+        "component_version",
+        "contract",
+        "command",
+        "result"
+      ],
+      "required_result_fields": [
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations"
+      ],
+      "struttura": {
+        ".command": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].artifact": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.interfaces[].version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.operations": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.cancellation": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.deadline": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].controls.idempotency_key": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.content_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.content_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.interchange_contracts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].input.interchange_contracts[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.content_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.content_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].side_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].surfaces": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].surfaces[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.schema_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
+    },
     "catalog": {
       "contract": "plenora-io-catalog-v2",
       "required_top_level": [
@@ -647,6 +898,811 @@
         "determinism",
         "drivers"
       ]
+    },
+    "convert": {
+      "contract": "plenora-io-convert-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "component",
+        "component_version",
+        "contract",
+        "command",
+        "result"
+      ],
+      "forbidden_legacy_fields": [
+        "loss"
+      ],
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".command": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.bytes_written": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.conversion_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.conversion_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.conversion_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.from": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.layers[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].batches": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].rows": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.publish_outcome": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.read_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.read_loss.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.to": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.total_rows": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.counts[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.counts[].categoria": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.counts[].conteggio": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi[].category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi[].context": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.esempi[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.write_loss.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      },
+      "required_result_fields": [
+        "from",
+        "to",
+        "layers",
+        "total_rows",
+        "bytes_written",
+        "publish_outcome",
+        "read_fidelity",
+        "write_fidelity",
+        "conversion_fidelity",
+        "read_loss",
+        "write_loss"
+      ]
+    },
+    "error": {
+      "contract": "plenora-io-error-v1",
+      "perche_il_contratto_resta_v1": "il protocollo della busta e il contratto dell'errore sono due assi diversi, e il catalogo comune lo dice per esteso: «operation identity and operation contract version are independent from the CLI protocol version». La busta e' v2 -- lo dichiara `protocol_version` -- e la forma dell'errore che trasporta e' ancora la prima. Rinominarla `-v2` per farla assomigliare alla busta direbbe che e' cambiata, e non e' cambiata.",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "component",
+        "component_version",
+        "contract",
+        "command",
+        "error"
+      ],
+      "required_error_fields": [
+        "category",
+        "phase",
+        "remote_effect",
+        "retry",
+        "code",
+        "message"
+      ],
+      "optional_error_fields": [
+        "row_diagnostics"
+      ],
+      "row_diagnostics_semantics": {
+        "contract": "plenora-row-diagnostics-v1",
+        "present_when": "read_row_scoped_rejections_are_observed_or_write_row_scoped_rejections_are_observed_after_exact_input_total_declaration",
+        "missing_write_input_total": "contract_precondition_error_without_row_diagnostics",
+        "absent_for_other_errors": true,
+        "posizione_da_allineare": "il contratto comune delle diagnostiche di riga le vuole in `details.row_diagnostics`; qui stanno accanto agli assi. Spostarle vuole prima lo schema `plenora-io-error-details-v1`, che il profilo pretende per qualunque `details` e che non esiste ancora: e' la riga BB3 del piano 4.0.0."
+      },
+      "emitted_error_codes": [
+        "CANCELLED",
+        "INVALID_ROW_DIAGNOSTICS"
+      ],
+      "lo_stream": "**stdout**, e stderr resta vuoto. Fino alla 3.0.0 la busta d'errore usciva su stderr e stdout restava vuoto: un consumatore che legge stdout -- cioe' quello che il contratto descrive -- non vedeva il fallimento affatto. E' un cambiamento incompatibile di selezione dello stream, e per questo appartiene a una major.",
+      "i_codici_di_uscita": "sono la proiezione della `category`, secondo la tabella di CLI 2.0 §8, e non piu' del codice interno `IoErrorCode`. La tabella dichiarata sta in `contracts/proiezione-codici-uscita.json`, e una sonda verifica che copra esattamente l'enum chiuso delle categorie.",
+      "struttura": {
+        ".command": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".error.category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.message": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.remote_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.retry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".error.retry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".error.row_diagnostics": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.completeness": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.counts": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.counts{}": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples[].cause": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples[].column": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples[].source_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples_limit": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.examples_truncated": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.index_basis": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.knowledge_limits": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.knowledge_limits[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.observed_total": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.row_diagnostics.scope": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      },
+      "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
+      "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
+      "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
+      "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-cli`.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
+      "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
+      "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva.",
+      "perche_non_sta_piu_a_parte": "il v2 la riusava dal v1 senza modifiche, e il manifesto la descriveva in una sezione propria per non ripeterla dove non le competeva. Dalla 4.0.0 non e' piu' una busta riusata: porta i sei campi d'identita', esce su stdout e il suo codice d'uscita proietta la categoria. E' una busta del v2 come le altre, e sta dove stanno le altre."
     },
     "inspect": {
       "contract": "plenora-io-inspect-v2",
@@ -1914,8 +2970,9 @@
       ],
       "delivered_nota": "`delivered` e sempre presente e vale null quando non c e consegna: un consumatore non deve dedurre dall assenza di un campo se i dati esistano."
     },
-    "convert": {
-      "contract": "plenora-io-convert-v2",
+    "version": {
+      "contract": "plenora-io-version-v2",
+      "perche_non_e_piu_a_parte": "era la sola busta **senza** `contract` ne' `protocol_version`: si leggeva prima di sapere con quale protocollo si stesse parlando, e il manifesto la dichiarava a schema chiuso proprio per quello. CLI 2.0 chiede che anche la scoperta passi dalla busta comune, e ora `--version --format json` ne ha una come gli altri comandi. Lo schema **del risultato** resta chiuso: due campi, ne' uno di meno ne' uno di piu'.",
       "required_top_level": [
         "status",
         "protocol_version",
@@ -1925,9 +2982,98 @@
         "command",
         "result"
       ],
-      "forbidden_legacy_fields": [
-        "loss"
+      "required_result_fields": [
+        "component_version",
+        "cli_protocol_version"
       ],
+      "risultato_a_schema_chiuso": true,
+      "struttura": {
+        ".command": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.cli_protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.component_version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
+    },
+    "write": {
+      "contract": "plenora-io-write-result-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "component",
+        "component_version",
+        "contract",
+        "command",
+        "result"
+      ],
+      "required_result_fields": [
+        "format",
+        "input",
+        "layers",
+        "rows_written",
+        "bytes_written",
+        "publish_outcome",
+        "fidelity",
+        "input_fidelity",
+        "write_fidelity",
+        "input_loss",
+        "write_loss"
+      ],
+      "semantica": {
+        "il_formato_e_esplicito": "il driver del sink viene da `--to` e non dall'estensione della destinazione: il profilo io-tools vieta di scegliere il comportamento di un formato analizzando l'estensione quando l'operazione richiede un formato esplicito, e il catalogo descrive io.write proprio cosi'. Quando `--to` e il nome della destinazione si contraddicono la risposta e' un rifiuto tipizzato: mai una scrittura silenziosa nell'uno o nell'altro formato. Lo esercita `to_e_l_estensione_in_disaccordo_sono_un_rifiuto_tipizzato`.",
+        "le_fedelta_sono_tre": "`input_fidelity` e' cio' che la lettura del dataset Arrow ha conservato, `write_fidelity` cio' che il formato di destinazione puo' esprimere, `fidelity` il giudizio combinato. Non sono la stessa cosa ripetuta: attribuire al sink una perdita dell'ingresso direbbe a chi legge di cambiare la cosa sbagliata. Lo esercita `le_fedelta_dell_ingresso_e_della_scrittura_restano_distinte`.",
+        "l_esito_di_pubblicazione": "due valori, `published` e `published_durability_unconfirmed`, e sono i due stati **osservabili** su questa superficie. Il rollback non e' un esito ma un errore, e si osserva sull'assenza della destinazione; la pubblicazione parziale non e' osservabile perche' il publish e' operation_atomic. Un valore per uno stato irraggiungibile sarebbe un vocabolario piu' ricco e meno vero. Lo esercitano `l_esito_di_pubblicazione_e_dichiarato` e `un_rifiuto_del_sink_non_lascia_una_destinazione`.",
+        "il_nome_del_contratto": "`plenora-io-write-result-v1` e non `plenora-io-write-v2`: l'operazione nasce con i suoi schemi pubblicati in `contracts/schemas/`, quindi annuncia subito il nome che il catalogo comune le assegna. Le altre quattro lo faranno con B14, che e' un evento di migrazione."
+      },
       "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
@@ -1972,99 +3118,243 @@
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity": {
+        ".result.fidelity": {
           "tipi": [
             "object"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.level": {
+        ".result.fidelity.level": {
           "tipi": [
             "string"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse": {
+        ".result.fidelity.omesse": {
           "tipi": [
             "object"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse.categorie_omesse": {
+        ".result.fidelity.omesse.categorie_omesse": {
           "tipi": [
             "integer"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse.esempi_omessi": {
+        ".result.fidelity.omesse.esempi_omessi": {
           "tipi": [
             "integer"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse.omesse_per_byte": {
+        ".result.fidelity.omesse.omesse_per_byte": {
           "tipi": [
             "integer"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse.ragioni_omesse": {
+        ".result.fidelity.omesse.ragioni_omesse": {
           "tipi": [
             "integer"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.omesse_esatte": {
+        ".result.fidelity.omesse_esatte": {
           "tipi": [
             "boolean"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.reasons": {
+        ".result.fidelity.reasons": {
           "tipi": [
             "array"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.reasons[]": {
+        ".result.fidelity.reasons[]": {
           "tipi": [
             "object"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.reasons[].code": {
+        ".result.fidelity.reasons[].code": {
           "tipi": [
             "string"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.reasons[].detail": {
+        ".result.fidelity.reasons[].detail": {
           "tipi": [
             "string"
           ],
           "sempre": true
         },
-        ".result.conversion_fidelity.reasons[].field_index": {
+        ".result.fidelity.reasons[].field_index": {
           "tipi": [
             "integer"
           ],
           "sempre": false
         },
-        ".result.conversion_fidelity.reasons[].layer_index": {
+        ".result.fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
           "sempre": false
         },
-        ".result.conversion_fidelity.troncato": {
+        ".result.fidelity.troncato": {
           "tipi": [
             "boolean"
           ],
           "sempre": true
         },
-        ".result.from": {
+        ".result.format": {
           "tipi": [
             "string"
+          ],
+          "sempre": true
+        },
+        ".result.input": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.input.content_type": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.input.interchange_contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.input_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.input_loss.troncato": {
+          "tipi": [
+            "boolean"
           ],
           "sempre": true
         },
@@ -2104,157 +3394,7 @@
           ],
           "sempre": true
         },
-        ".result.read_fidelity": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.level": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse.categorie_omesse": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse.esempi_omessi": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse.omesse_per_byte": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse.ragioni_omesse": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.omesse_esatte": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.reasons": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.reasons[]": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.reasons[].code": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.reasons[].detail": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.read_fidelity.troncato": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.counts": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.esempi": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.lossless": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse.categorie_omesse": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse.esempi_omessi": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse.omesse_per_byte": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse.ragioni_omesse": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.omesse_esatte": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.read_loss.troncato": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.to": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.total_rows": {
+        ".result.rows_written": {
           "tipi": [
             "integer"
           ],
@@ -2461,572 +3601,6 @@
         ".result.write_loss.troncato": {
           "tipi": [
             "boolean"
-          ],
-          "sempre": true
-        },
-        ".status": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        }
-      },
-      "required_result_fields": [
-        "from",
-        "to",
-        "layers",
-        "total_rows",
-        "bytes_written",
-        "publish_outcome",
-        "read_fidelity",
-        "write_fidelity",
-        "conversion_fidelity",
-        "read_loss",
-        "write_loss"
-      ]
-    },
-    "error": {
-      "contract": "plenora-io-error-v1",
-      "perche_il_contratto_resta_v1": "il protocollo della busta e il contratto dell'errore sono due assi diversi, e il catalogo comune lo dice per esteso: «operation identity and operation contract version are independent from the CLI protocol version». La busta e' v2 -- lo dichiara `protocol_version` -- e la forma dell'errore che trasporta e' ancora la prima. Rinominarla `-v2` per farla assomigliare alla busta direbbe che e' cambiata, e non e' cambiata.",
-      "required_top_level": [
-        "status",
-        "protocol_version",
-        "component",
-        "component_version",
-        "contract",
-        "command",
-        "error"
-      ],
-      "required_error_fields": [
-        "category",
-        "phase",
-        "remote_effect",
-        "retry",
-        "code",
-        "message"
-      ],
-      "optional_error_fields": [
-        "row_diagnostics"
-      ],
-      "row_diagnostics_semantics": {
-        "contract": "plenora-row-diagnostics-v1",
-        "present_when": "read_row_scoped_rejections_are_observed_or_write_row_scoped_rejections_are_observed_after_exact_input_total_declaration",
-        "missing_write_input_total": "contract_precondition_error_without_row_diagnostics",
-        "absent_for_other_errors": true,
-        "posizione_da_allineare": "il contratto comune delle diagnostiche di riga le vuole in `details.row_diagnostics`; qui stanno accanto agli assi. Spostarle vuole prima lo schema `plenora-io-error-details-v1`, che il profilo pretende per qualunque `details` e che non esiste ancora: e' la riga BB3 del piano 4.0.0."
-      },
-      "emitted_error_codes": [
-        "CANCELLED",
-        "INVALID_ROW_DIAGNOSTICS"
-      ],
-      "lo_stream": "**stdout**, e stderr resta vuoto. Fino alla 3.0.0 la busta d'errore usciva su stderr e stdout restava vuoto: un consumatore che legge stdout -- cioe' quello che il contratto descrive -- non vedeva il fallimento affatto. E' un cambiamento incompatibile di selezione dello stream, e per questo appartiene a una major.",
-      "i_codici_di_uscita": "sono la proiezione della `category`, secondo la tabella di CLI 2.0 §8, e non piu' del codice interno `IoErrorCode`. La tabella dichiarata sta in `contracts/proiezione-codici-uscita.json`, e una sonda verifica che copra esattamente l'enum chiuso delle categorie.",
-      "struttura": {
-        ".command": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component_version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".error.category": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.code": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.message": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.phase": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.remote_effect": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.retry": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".error.retry.kind": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".error.row_diagnostics": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.completeness": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.counts": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.counts{}": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[]": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].cause": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].column": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].source_index": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples_limit": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples_truncated": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.index_basis": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.knowledge_limits": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.knowledge_limits[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.observed_total": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.scope": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".protocol_version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".status": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        }
-      },
-      "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
-      "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
-      "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
-      "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-cli`.",
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
-      "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
-      "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
-      "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva.",
-      "perche_non_sta_piu_a_parte": "il v2 la riusava dal v1 senza modifiche, e il manifesto la descriveva in una sezione propria per non ripeterla dove non le competeva. Dalla 4.0.0 non e' piu' una busta riusata: porta i sei campi d'identita', esce su stdout e il suo codice d'uscita proietta la categoria. E' una busta del v2 come le altre, e sta dove stanno le altre."
-    },
-    "version": {
-      "contract": "plenora-io-version-v2",
-      "perche_non_e_piu_a_parte": "era la sola busta **senza** `contract` ne' `protocol_version`: si leggeva prima di sapere con quale protocollo si stesse parlando, e il manifesto la dichiarava a schema chiuso proprio per quello. CLI 2.0 chiede che anche la scoperta passi dalla busta comune, e ora `--version --format json` ne ha una come gli altri comandi. Lo schema **del risultato** resta chiuso: due campi, ne' uno di meno ne' uno di piu'.",
-      "required_top_level": [
-        "status",
-        "protocol_version",
-        "component",
-        "component_version",
-        "contract",
-        "command",
-        "result"
-      ],
-      "required_result_fields": [
-        "component_version",
-        "cli_protocol_version"
-      ],
-      "risultato_a_schema_chiuso": true,
-      "struttura": {
-        ".command": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component_version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".protocol_version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.cli_protocol_version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.component_version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".status": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        }
-      }
-    },
-    "capabilities": {
-      "contract": "plenora-capabilities-v2",
-      "perche_il_contratto_non_e_nostro": "e la sola busta il cui contratto vive in `plenora-contracts`: lo schema del documento capability e condiviso, e altri componenti emettono lo stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.",
-      "che_cosa_dichiara": "le operazioni che **questo** binario espone, e quelle che non espone con la ragione. Non i formati: il profilo assegna quella scoperta al risultato versionato di `io.catalog`, e gli attributi non devono duplicarla. Ne segue che la build `base` e quella `gdal-backend` producono lo stesso documento: la feature cambia quali formati `io.catalog` dichiara, non quali operazioni esistono.",
-      "required_top_level": [
-        "status",
-        "protocol_version",
-        "component",
-        "component_version",
-        "contract",
-        "command",
-        "result"
-      ],
-      "required_result_fields": [
-        "schema_version",
-        "component",
-        "component_version",
-        "interfaces",
-        "operations"
-      ],
-      "struttura": {
-        ".command": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".component_version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".protocol_version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.component": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.component_version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces[]": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces[].artifact": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces[].contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces[].kind": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.interfaces[].version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.operations": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[]": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].controls": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].controls.cancellation": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].controls.deadline": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].controls.idempotency_key": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].id": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].input": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].input.content_types": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].input.content_types[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].input.contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output.content_types": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output.content_types[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output.contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].reason": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].side_effect": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].status": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].surfaces": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].surfaces[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].version": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": true
-        },
-        ".result.schema_version": {
-          "tipi": [
-            "integer"
           ],
           "sempre": true
         },

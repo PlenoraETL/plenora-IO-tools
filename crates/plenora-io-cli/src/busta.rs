@@ -71,10 +71,26 @@ pub const PROTOCOLLO: u64 = 2;
 
 /// Il nome di contratto di una busta.
 ///
-/// Il suffisso e' quello del protocollo, e resta `v2` finche' gli schemi delle
-/// dodici forme di ingresso e uscita non sono pubblicati: allinearlo agli
-/// identificatori del catalogo comune senza gli schemi che li definiscono
-/// nominerebbe contratti che nessuno puo' validare.
+/// # La regola: si annuncia il nome del catalogo quando lo schema esiste
+///
+/// Il suffisso `v2` e' quello del **protocollo**, che e' un'altra cosa dalla
+/// versione dell'operazione. Il catalogo comune assegna a ciascuna operazione
+/// un identificatore -- `plenora-io-read-result-v1`, `…-write-result-v1`, e
+/// cosi' via -- e CLI-2.0 §10 esige che il contratto d'uscita resti
+/// equivalente fra le superfici.
+///
+/// Annunciarlo pero' ha senso solo quando lo schema che lo definisce e'
+/// pubblicato: un nome che nessuno puo' validare e' peggio di un nome diverso,
+/// perche' manda chi legge a cercare un documento che non c'e'. Quindi
+/// un'operazione passa al nome del catalogo **insieme** ai suoi schemi, non
+/// prima.
+///
+/// Oggi `write` ci e' gia': nasce con `contracts/schemas/plenora-io-write-*`.
+/// `read` ha gli schemi ma non il nome, e non e' un'incoerenza dimenticata: il
+/// suo rinominare e' un evento di migrazione che tocca `docs/INSTALL.md`, il
+/// manifesto del protocollo e l'SDK, e va fatto con quello di `inspect`,
+/// `layers` e `convert` -- riga **B14** del piano. Farne uno per volta
+/// moltiplicherebbe le tabelle di migrazione invece di scriverne una.
 #[must_use]
 pub fn contratto(nome: &str) -> String {
     match nome {
@@ -83,6 +99,10 @@ pub fn contratto(nome: &str) -> String {
         // stesso. Nominarlo `plenora-io-capabilities-v2` direbbe che ne abbiamo
         // uno proprio, e chi lo riceve cercherebbe uno schema che non esiste.
         "capabilities" => "plenora-capabilities-v2".to_owned(),
+        // Nasce ora, e nasce col nome che il catalogo le assegna: non c'e'
+        // nessun consumatore da migrare, quindi non c'e' nessuna ragione per
+        // introdurre una divergenza che sappiamo gia' di dover chiudere.
+        "write" => "plenora-io-write-result-v1".to_owned(),
         _ => format!("plenora-io-{nome}-v2"),
     }
 }

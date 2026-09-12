@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-write-input-v1.schema.json",
+  "title": "plenora-io-write-input-v1",
+  "$comment": "Contratto d'ingresso di io.write: pubblicare un dataset Arrow in un formato di sink esplicito. L'identificatore e' quello che il catalogo comune assegna all'operazione (plenora-contracts@453c8d1). Come per io.read, lo schema descrive l'ingresso logico e la CLI lo compone dagli argomenti, cosa che SURFACE-BINDINGS-1.0 §1 consente purche' la superficie preservi contratti, default, assi d'errore, effetti e controlli.",
+  "type": "object",
+  "required": ["source", "destination", "format"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "File Arrow IPC da pubblicare. Binding CLI: primo argomento posizionale.",
+      "$comment": "E' l'uscita di io.read: le due operazioni sono l'una l'inversa dell'altra, e condividono `plenora-arrow-interchange-v1` proprio perche' cio' che esce da una deve poter entrare nell'altra. Il formato dell'ingresso non si dichiara perche' non c'e' scelta: io.write accetta un dataset Arrow, non una sorgente qualsiasi -- per quella c'e' io.convert."
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Percorso dell'artefatto da pubblicare. Binding CLI: secondo argomento posizionale.",
+      "$comment": "Obbligatorio, a differenza di `destination` in io.read: li' la consegna e' facoltativa perche' leggere senza materializzare e' un'operazione sensata, qui pubblicare senza destinazione non vuol dire niente."
+    },
+    "format": {
+      "type": "string",
+      "enum": ["geoparquet", "geojson", "csv", "gpkg", "shp", "kml", "xls", "dxf", "filegdb", "ipc"],
+      "description": "Identificatore del formato del sink. Binding CLI: --to.",
+      "$comment": "ESPLICITO PER OBBLIGO. Il profilo io-tools vieta di scegliere il comportamento specifico di un formato analizzando l'estensione quando l'operazione richiede un formato esplicito, e il catalogo descrive io.write come «publish an Arrow dataset to an **explicit** sink format». I valori sono gli `id` di io.catalog -- non estensioni: un'estensione e' una convenzione del filesystem che non appartiene a nessun vocabolario versionato. Enum chiuso qui e verificato contro il catalogo dal prodotto: `ogni_formato_del_catalogo_ha_un_driver` lo confronta nei due versi. DECISIONE APERTA D10: oggi il driver pretende **anche** che il nome della destinazione porti l'estensione del formato, quindi `format` da solo non determina la destinazione; quando i due si contraddicono la risposta e' un rifiuto tipizzato, mai una scrittura silenziosa nell'uno o nell'altro formato."
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Layer dell'ingresso da pubblicare. Assente: tutti. Binding CLI: --layer.",
+      "$comment": "L'assenza qui significa davvero «tutti», e non e' incoerente con io.read, dove significa «il solo»: li' si legge un layer e sceglierne uno implicitamente sarebbe arbitrario, qui si pubblica un dataset e pubblicarlo intero e' il caso normale. Un sink che non regge piu' layer lo dichiara nel catalogo e rifiuta."
+    },
+    "durable": {
+      "type": "boolean",
+      "description": "Chiede la durabilita' alla chiusura. Binding CLI: --durable.",
+      "$comment": "Non cambia il risultato dei dati, cambia cio' che si puo' **dire** della pubblicazione: con `durable` l'esito puo' diventare `published_durability_unconfirmed` dove il sistema non conferma il fsync della directory. Un esito che tacesse l'incertezza sarebbe la forma peggiore, perche' indistinguibile dalla certezza."
+    },
+    "output_options": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Opzioni del driver di scrittura. Binding CLI: --out-opt k=v, ripetibile.",
+      "$comment": "Le chiavi ammesse le dichiara io.catalog per driver. Una chiave che il driver non conosce e' rifiutata con categoria `unsupported`."
+    },
+    "input_options": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Opzioni del driver Arrow in lettura. Binding CLI: --in-opt k=v.",
+      "$comment": "Raramente utili -- l'ingresso e' Arrow, che non ha dialetti -- ma il binding le accetta e il driver le valida, e un'opzione accettata e ignorata sarebbe il difetto chiuso in B16."
+    },
+    "assume_crs": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CRS da assumere quando l'ingresso non lo dichiara. Binding CLI: --assume-crs."
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Scadenza dell'invocazione. Binding CLI: --deadline-ms."
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tetti di risorsa. Superarli e' un errore `resource_limit`, non un troncamento.",
+      "properties": {
+        "memory_bytes": { "type": "integer", "minimum": 1 },
+        "max_rows": { "type": "integer", "minimum": 0 },
+        "max_columns": { "type": "integer", "minimum": 0 },
+        "max_input_bytes": { "type": "integer", "minimum": 0 },
+        "max_input_entries": { "type": "integer", "minimum": 0 },
+        "max_output_bytes": { "type": "integer", "minimum": 0 },
+        "max_vertices": { "type": "integer", "minimum": 0 },
+        "max_wkb_cell_bytes": { "type": "integer", "minimum": 0 },
+        "max_wkb_components": { "type": "integer", "minimum": 0 },
+        "max_wkb_depth": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

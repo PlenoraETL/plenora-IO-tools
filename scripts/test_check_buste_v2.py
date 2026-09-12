@@ -230,14 +230,16 @@ class SondeDelManifesto(unittest.TestCase):
     def test_ogni_busta_ha_una_struttura(self) -> None:
         """Il conteggio e' la difesa: una busta si aggiunge per decisione.
 
-        Otto: le cinque operazioni, l'errore, `--version` e `capabilities`. Che
-        questa sonda diventi rossa quando ne nasce una nona e' il suo mestiere,
-        e non un fastidio: una busta che compare senza che nessuno lo decida e'
-        una superficie pubblica non censita.
+        Nove: le **sei** operazioni del catalogo, l'errore, `--version` e
+        `capabilities`. Erano otto finche' `io.write` non esisteva; la nona e'
+        nata con B10, e questa sonda e' diventata rossa come doveva -- e' il suo
+        mestiere, non un fastidio. Una busta che comparisse senza che nessuno lo
+        decida sarebbe una superficie pubblica non censita.
         """
         nomi = [nome for nome, _ in self.strutture()]
-        self.assertEqual(len(nomi), 8, nomi)
+        self.assertEqual(len(nomi), 9, nomi)
         self.assertIn("capabilities", nomi)
+        self.assertIn("write", nomi)
 
     def test_nessun_percorso_e_orfano(self) -> None:
         """`.a.b` senza `.a` descriverebbe un campo dentro un padre non dichiarato."""

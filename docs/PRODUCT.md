@@ -228,7 +228,7 @@ derivazione dall'identificatore.
 La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rust
 è interna e instabile: non porta garanzia semver e i crate non sono pubblicati.
 
-### Le sei buste
+### Le buste
 
 | Comando | Contratto |
 |---|---|
@@ -237,7 +237,21 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 | `inspect` | `plenora-io-inspect-v1` |
 | `layers` | `plenora-io-layers-v1` |
 | `read` | `plenora-io-read-v1` |
+| `write` | `plenora-io-write-result-v1` |
 | `convert` | `plenora-io-convert-v1` |
+| `capabilities` | `plenora-capabilities-v2` |
+
+Due nomi di questa tabella sono diversi dagli altri, e la differenza è il
+punto. `plenora-capabilities-v2` è un contratto **condiviso**: il suo schema
+vive in `plenora-contracts` e altri componenti emettono lo stesso documento, e
+chiamarlo `plenora-io-…` direbbe che ne abbiamo uno nostro.
+`plenora-io-write-result-v1` è il nome che il catalogo comune assegna
+all'operazione `io.write`, e `write` lo annuncia perché nasce con i suoi schemi
+pubblicati in `contracts/schemas/`.
+
+Le altre cinque righe annunciano oggi il suffisso `v2` del protocollo — `read`
+emette `plenora-io-read-v2` — e passeranno ai nomi del catalogo insieme, con la
+tabella di migrazione che quel passaggio richiede.
 
 ### `plenora-io-error-v1`
 

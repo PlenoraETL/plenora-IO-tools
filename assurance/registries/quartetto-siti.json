@@ -395,6 +395,10 @@
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
+    "cmd_write": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "local_err_doc": [
       "esplicito/esplicito/Generic/esplicito"
     ],

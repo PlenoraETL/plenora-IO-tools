@@ -53,9 +53,10 @@ from .errors import (
 from .limits import Limits
 from .models import (
     Catalog,
-    ConvertedLayer,
     ConvertResult,
+    ConvertedLayer,
     CrsResolution,
+    Delivered,
     Driver,
     Fidelity,
     FidelityReason,
@@ -64,15 +65,16 @@ from .models import (
     Geometry,
     Inspect,
     Layer,
-    Layers,
     LayerSummary,
+    Layers,
     LossCount,
     LossExample,
     LossReport,
     Omissions,
-    Delivered,
     Validation,
     Version,
+    WriteInput,
+    WriteResult,
 )
 from .process import Runner
 
@@ -108,6 +110,7 @@ __all__ = [
     "CrsError",
     "CrsResolution",
     "DataMappingError",
+    "Delivered",
     "Driver",
     "ErrorEnvelope",
     "ExecutionError",
@@ -144,8 +147,9 @@ __all__ = [
     "TimeoutError",
     "TransientError",
     "UnsupportedError",
-    "Delivered",
     "Validation",
     "Version",
+    "WriteInput",
+    "WriteResult",
     "__version__",
 ]

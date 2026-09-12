@@ -176,7 +176,28 @@
       "riga_del_piano": "B12",
       "descrizione": "`read --output` consegna un file Arrow IPC leggibile da una libreria Arrow, con i metadati del contratto nello schema; senza `--output` non consegna e lo dichiara",
       "stato": "implementato"
+    },
+    {
+      "id": "write.pubblica",
+      "regola": "catalogo io-tools, profilo «External outcomes»",
+      "riga_del_piano": "B10",
+      "descrizione": "`write` pubblica un dataset Arrow nel formato chiesto, i byte dichiarati sono quelli sul disco e l'esito di pubblicazione sta nel vocabolario dichiarato",
+      "stato": "implementato"
+    },
+    {
+      "id": "write.formato-esplicito",
+      "regola": "profilo io-tools, «Format-specific behavior MUST NOT be selected by parsing file extensions»",
+      "riga_del_piano": "B10",
+      "descrizione": "il formato del sink viene da `--to`; senza si rifiuta invece di indovinare, e quando `--to` e l'estensione si contraddicono non si scrive ne' l'uno ne' l'altro formato",
+      "stato": "implementato"
+    },
+    {
+      "id": "write.rollback-osservabile",
+      "regola": "profilo io-tools, «External outcomes»",
+      "riga_del_piano": "B10",
+      "descrizione": "una pubblicazione fallita e' un errore tipizzato e non lascia byte sulla destinazione: il rollback e' osservabile",
+      "stato": "implementato"
     }
   ],
-  "che_cosa_questo_registro_non_misura": "l'adozione. Ventiquattro su ventiquattro dice che i requisiti **qui elencati** sono verificati sul confine pubblico, e nient'altro. Fuori da questo registro restano: i dodici schemi delle coppie di ingresso e uscita con i loro esempi, `plenora-io-error-details-v1`, le prove sui metadati Arrow oltre quelle di `io.read`, la superficie Rust con la sua mappatura e il consumatore esterno, `io.write`, e la qualifica finale col manifesto di adozione. Sono le righe BB1-BB5, C1-C4, B10 e I1 del piano.\n\nIl numero e' seducente proprio quando e' pieno: un registro completo misura tutto cio' che gli e' stato chiesto di misurare, non tutto cio' che serve. Aggiungere qui un requisito e' il modo in cui la misura cresce, e il gate non sa che cosa manca al registro stesso."
+  "che_cosa_questo_registro_non_misura": "l'adozione. Ventisette su ventisette dice che i requisiti **qui elencati** sono verificati sul confine pubblico, e nient'altro. Fuori da questo registro restano: otto dei dodici schemi delle coppie di ingresso e uscita con i loro esempi -- quelli di `io.read` e `io.write` ci sono --, `plenora-io-error-details-v1`, le prove sui metadati Arrow oltre quelle che `io.read` copre, la superficie Rust con la sua mappatura e il consumatore esterno, e la qualifica finale col manifesto di adozione. Sono le righe BB1-BB5, C1-C4 e I1 del piano. B10 e' entrata: `io.write` ha tre requisiti qui sopra.\n\nIl numero e' seducente proprio quando e' pieno: un registro completo misura tutto cio' che gli e' stato chiesto di misurare, non tutto cio' che serve. Aggiungere qui un requisito e' il modo in cui la misura cresce, e il gate non sa che cosa manca al registro stesso."
 }

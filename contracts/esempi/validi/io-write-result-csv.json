@@ -1,0 +1,253 @@
+{
+  "bytes_written": 515,
+  "fidelity": {
+    "level": "approximating",
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "reasons": [
+      {
+        "code": "format_constraint",
+        "detail": "csv: fedeltÃ  condizionata ai tipi e alle semantiche del contratto"
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 0,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 1,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 2,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 3,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 4,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 5,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 6,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 7,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 8,
+        "layer_index": 0
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "crs_definition_not_preserved_absent: 1 occorrenze"
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "crs_id_not_preserved_absent: 1 occorrenze"
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "srid_not_preserved_absent: 1 occorrenze"
+      }
+    ],
+    "troncato": false
+  },
+  "format": "csv",
+  "input": {
+    "content_type": "application/vnd.apache.arrow.file",
+    "interchange_contract": "plenora-arrow-interchange-v1"
+  },
+  "input_fidelity": {
+    "level": "lossless",
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "reasons": [],
+    "troncato": false
+  },
+  "input_loss": {
+    "counts": [],
+    "esempi": [],
+    "lossless": true,
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "troncato": false
+  },
+  "layers": [
+    {
+      "batches": 1,
+      "name": "proj",
+      "rows": 5
+    }
+  ],
+  "publish_outcome": "published",
+  "rows_written": 5,
+  "write_fidelity": {
+    "level": "approximating",
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "reasons": [
+      {
+        "code": "format_constraint",
+        "detail": "csv: fedeltÃ  condizionata ai tipi e alle semantiche del contratto"
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 0,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 1,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 2,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 3,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 4,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 5,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 6,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 7,
+        "layer_index": 0
+      },
+      {
+        "code": "nullability_changed",
+        "detail": "la nullability dell'attributo la definisce il formato",
+        "field_index": 8,
+        "layer_index": 0
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "crs_definition_not_preserved_absent: 1 occorrenze"
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "crs_id_not_preserved_absent: 1 occorrenze"
+      },
+      {
+        "code": "native_metadata_loss",
+        "detail": "srid_not_preserved_absent: 1 occorrenze"
+      }
+    ],
+    "troncato": false
+  },
+  "write_loss": {
+    "counts": [
+      {
+        "categoria": "crs_definition_not_preserved_absent",
+        "conteggio": 1
+      },
+      {
+        "categoria": "crs_id_not_preserved_absent",
+        "conteggio": 1
+      },
+      {
+        "categoria": "srid_not_preserved_absent",
+        "conteggio": 1
+      }
+    ],
+    "esempi": [
+      {
+        "category": "crs_definition_not_preserved_absent",
+        "context": "representation=crs_definition value_bytes=611",
+        "field_index": 0,
+        "layer_index": 0
+      },
+      {
+        "category": "crs_id_not_preserved_absent",
+        "context": "representation=crs_id value_bytes=9",
+        "field_index": 0,
+        "layer_index": 0
+      },
+      {
+        "category": "srid_not_preserved_absent",
+        "context": "representation=srid value_bytes=4",
+        "field_index": 0,
+        "layer_index": 0
+      }
+    ],
+    "lossless": false,
+    "omesse": {
+      "categorie_omesse": 0,
+      "esempi_omessi": 0,
+      "omesse_per_byte": 0,
+      "ragioni_omesse": 0
+    },
+    "omesse_esatte": true,
+    "troncato": false
+  }
+}

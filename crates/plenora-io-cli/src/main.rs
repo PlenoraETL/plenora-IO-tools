@@ -43,7 +43,14 @@ const ESTENSIONI_AMMESSE: &str =
     "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
 
 /// I flag che la CLI riconosce. Stessa ragione.
-const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --version";
+/// Gli identificatori di formato che `--to` accetta, nell'ordine del catalogo.
+///
+/// Sta accanto a `ESTENSIONI_AMMESSE` e non lo sostituisce: sono due
+/// vocabolari diversi, uno del filesystem e uno del catalogo, e confonderli e'
+/// esattamente cio' che `--to` esiste per evitare.
+const FORMATI_AMMESSI: &str = "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
+
+const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --to, --version";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -386,6 +393,21 @@ struct Cli {
     /// la consegna obbligatoria o la sua assenza indistinguibile da un refuso.
     output: Option<PathBuf>,
     assume_crs: Option<String>,
+    /// Il formato del sink di `write`, **nominato**.
+    ///
+    /// Non dedotto dall'estensione della destinazione: il profilo io-tools dice
+    /// che il comportamento specifico di un formato non va scelto analizzando
+    /// l'estensione quando l'operazione richiede un formato esplicito, e il
+    /// catalogo descrive `io.write` come «publish an Arrow dataset to an
+    /// **explicit** sink format». Un'estensione e' una convenzione del
+    /// filesystem, non un identificatore di formato: `.json` e' `GeoJSON` qui e
+    /// mille altre cose altrove, e una destinazione senza estensione non
+    /// avrebbe risposta.
+    ///
+    /// I valori ammessi sono gli `id` che `io.catalog` rende, e una prova lo
+    /// verifica nei due versi: nessun formato del catalogo senza driver, e
+    /// nessun driver che il catalogo non dichiari.
+    to: Option<String>,
     layer: Option<u32>,
     limit: Option<usize>,
     durable: bool,
@@ -562,6 +584,17 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                 cli.limit = Some(v.parse().map_err(|_| {
                     usage_err(&PublicMessage::Curated("--limit richiede un intero"))
                 })?);
+            }
+            "--to" => {
+                cli.to = Some(
+                    it.next()
+                        .ok_or_else(|| {
+                            usage_err(&PublicMessage::Curated(
+                                "--to richiede un identificatore di formato",
+                            ))
+                        })?
+                        .clone(),
+                );
             }
             "--durable" => cli.durable = true,
             // Il nome dice che cosa si sta scegliendo. `--protocol 1` sarebbe
@@ -774,30 +807,20 @@ fn operazione_esposta(
 
 /// Un'operazione che il catalogo comune pretende e che questo binario non serve.
 ///
-/// La `reason` e' cio' che un consumatore legge per sapere **perche'** non puo'
-/// selezionarla, e i contratti dichiarati sono quelli del catalogo: non essendo
-/// esposta l'operazione, non c'e' un contratto emesso da riportare.
-fn operazione_assente(
-    id: &str,
-    ingresso: &str,
-    uscita: &str,
-    tipi_uscita: &[&str],
-    effetto: &str,
-    ragione: &str,
-) -> Value {
-    json!({
-        "id": id,
-        "version": 1,
-        "status": "unavailable",
-        "reason": ragione,
-        "surfaces": ["cli"],
-        "input": { "contract": ingresso, "content_types": ["application/json"] },
-        "output": { "contract": uscita, "content_types": tipi_uscita },
-        "side_effect": effetto,
-        "controls": { "cancellation": true, "deadline": true, "idempotency_key": false },
-    })
-}
-
+/// # Perche' e' sparita, e perche' la regola resta
+///
+/// C'era `operazione_assente`, e la usava `io.write`. Con `io.write`
+/// implementata tutte e sei le operazioni del catalogo sono `available`, e una
+/// funzione che nessuno chiama e' codice che nessuno prova: il lint la boccia,
+/// e ha ragione.
+///
+/// La regola che quella funzione serviva non e' sparita con lei, ed e' del
+/// profilo: un artefatto rilasciato **puo'** omettere un'operazione che non fa
+/// parte di quell'artefatto, ma **non deve** annunciarla disponibile. Il giorno
+/// in cui una build parziale -- senza un driver, senza una feature -- non
+/// servisse una delle sei, il documento dovra' dichiararla `unavailable` con la
+/// ragione, non tacerla e non dirla disponibile. La forma sta in questo
+/// commento e in `git log`, che e' dove va tenuto cio' che non ha chiamanti.
 fn capabilities_document() -> Value {
     json!({
         "schema_version": 2,
@@ -862,16 +885,36 @@ fn capabilities_document() -> Value {
                     "idempotency_key": false,
                 },
             }),
-            operazione_assente(
-                "io.write",
-                "plenora-io-write-input-v1",
-                "plenora-io-write-result-v1",
-                &["application/json"],
-                "local",
-                "non implementata. Il binario sa scrivere -- `convert` lo fa -- \
-                 ma non espone la scrittura come operazione autonoma su un \
-                 ingresso Arrow.",
-            ),
+            // `io.write` accetta un dataset Arrow e ne pubblica uno esterno,
+            // quindi i content type d'ingresso sono due: il documento dei
+            // parametri e il payload. Su questa superficie il payload arriva
+            // come **file** e non come stream, per la ragione speculare a
+            // quella di `io.read`: CLI-2.0 §4 riserva stdout alla busta, e
+            // stdin a un solo documento non basta a portare i due.
+            json!({
+                "id": "io.write",
+                "version": 1,
+                "status": "available",
+                "surfaces": ["cli"],
+                "input": {
+                    "contract": "plenora-io-write-input-v1",
+                    "content_types": [
+                        "application/json",
+                        "application/vnd.apache.arrow.file",
+                    ],
+                    "interchange_contracts": ["plenora-arrow-interchange-v1"],
+                },
+                "output": {
+                    "contract": "plenora-io-write-result-v1",
+                    "content_types": ["application/json"],
+                },
+                "side_effect": "local",
+                "controls": {
+                    "cancellation": true,
+                    "deadline": true,
+                    "idempotency_key": false,
+                },
+            }),
             operazione_esposta(
                 "io.convert",
                 "plenora-io-convert-input-v1",
@@ -1127,6 +1170,214 @@ fn ingresso_ammissibile(cli: &Cli) -> Result<(), (i32, Value)> {
     }
 
     Ok(())
+}
+
+/// Il driver di un formato **nominato**, non dedotto.
+///
+/// # Perche' non basta `driver_for_path`
+///
+/// Quella funzione guarda l'estensione della destinazione, ed e' la cosa che il
+/// profilo io-tools vieta per le operazioni che richiedono un formato
+/// esplicito. Non e' una finezza formale: un'estensione e' una convenzione del
+/// filesystem che non appartiene a nessun vocabolario -- `.json` e' `GeoJSON` qui
+/// e mille altre cose altrove -- mentre l'identificatore di formato e' una voce
+/// del catalogo versionato, cioe' una cosa di cui il componente risponde.
+///
+/// I nomi sono gli `id` che `io.catalog` rende.
+/// `ogni_formato_del_catalogo_ha_un_driver` li confronta nei due versi: un
+/// formato annunciato e non scrivibile sarebbe una capacita' falsa, e un driver
+/// che il catalogo non nomina sarebbe una capacita' nascosta.
+fn driver_per_formato(id: &str) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
+    let driver: Box<dyn FormatDriver> = match id {
+        "geoparquet" => Box::new(driver_geoparquet::GeoParquetDriver),
+        "geojson" => Box::new(driver_geojson::GeoJsonDriver),
+        "csv" => Box::new(driver_csv::CsvDriver),
+        "gpkg" => Box::new(driver_gpkg::GpkgDriver),
+        "shp" => Box::new(driver_shp::ShpDriver),
+        "kml" => Box::new(driver_kml::KmlDriver),
+        "xls" => Box::new(driver_xls::XlsDriver),
+        "dxf" => Box::new(driver_dxf::DxfDriver),
+        "filegdb" => Box::new(driver_filegdb::FileGdbDriver),
+        "ipc" => Box::new(driver_ipc::IpcDriver),
+        // Legato a `_`: il nome arriva da argv e non entra nel messaggio, che
+        // porta invece l'elenco chiuso di cio' che si puo' chiedere.
+        _ => {
+            return Err(local_err_doc(
+                "UNKNOWN_FORMAT",
+                ErrorCategory::Unsupported,
+                ErrorPhase::Validate,
+                &PublicMessage::CuratedPair(
+                    "formato non riconosciuto; gli identificatori sono quelli di \
+                     io.catalog:",
+                    FORMATI_AMMESSI,
+                ),
+            ))
+        }
+    };
+    Ok(driver)
+}
+
+/// I layer dell'ingresso che vanno pubblicati.
+///
+/// `None` significa **tutti**, e non e' incoerente con `io.read`, dove
+/// l'assenza di `--layer` significa «il solo»: li' si legge un layer e
+/// sceglierne uno implicitamente sarebbe arbitrario, qui si pubblica un
+/// dataset e pubblicarlo intero e' il caso normale.
+fn strati_da_pubblicare(
+    disponibili: &[LayerContract],
+    scelto: Option<u32>,
+) -> Result<Vec<LayerContract>, (i32, Value)> {
+    let Some(id) = scelto else {
+        return Ok(disponibili.to_vec());
+    };
+    disponibili
+        .iter()
+        .find(|l| l.id.0 == id)
+        .cloned()
+        .map(|l| vec![l])
+        .ok_or_else(|| {
+            local_err_doc(
+                "LAYER_NOT_FOUND",
+                ErrorCategory::InvalidPlan,
+                ErrorPhase::Validate,
+                &PublicMessage::Curated("il layer richiesto non esiste nell'ingresso"),
+            )
+        })
+}
+
+/// Il piano di scrittura: un layer del sink per ciascun layer selezionato,
+/// nello stesso ordine, perche' e' l'ordine su cui `trasferisci_layer` indicizza.
+fn piano_di_scrittura(selezionati: &[LayerContract]) -> WritePlan {
+    WritePlan {
+        layers: selezionati
+            .iter()
+            .map(|l| WriteLayer {
+                name: l.name.clone(),
+                contract: DataContract {
+                    schema: l.contract.schema.clone(),
+                    geometry: l.contract.geometry.clone(),
+                },
+            })
+            .collect(),
+    }
+}
+
+/// `io.write`: pubblica un dataset Arrow in un formato **nominato**.
+///
+/// # Che cosa la distingue da `convert`
+///
+/// L'ingresso non e' una sorgente qualsiasi: e' un dataset Arrow, cioe' la
+/// forma in cui `io.read` consegna. Le due operazioni sono l'una l'inversa
+/// dell'altra, e questo e' il motivo per cui condividono il contratto
+/// d'interscambio: cio' che esce da `read --output` deve poter entrare qui.
+///
+/// `convert` prende due sorgenti esterne e le collega; `write` prende il
+/// dataset che il chiamante **ha gia' in mano** e lo pubblica. Un orchestratore
+/// che leggesse, trasformasse e riscrivesse non potrebbe usare `convert`: fra i
+/// due passi ci sono i suoi dati, non un file di cui ci occupiamo noi.
+///
+/// # Le fedelta' sono due, e la distinzione non e' cosmetica
+///
+/// `input_fidelity` e' quel che la lettura del file Arrow ha potuto conservare
+/// -- normalmente tutto, perche' Arrow e' la rappresentazione e non una
+/// traduzione -- mentre `write_fidelity` e' quel che il formato di
+/// destinazione puo' esprimere. Attribuire al sink una perdita dell'ingresso,
+/// o viceversa, direbbe a chi legge di cambiare la cosa sbagliata. `fidelity`
+/// e' il giudizio combinato, che e' quello dell'operazione.
+fn cmd_write(cli: &Cli) -> CliResult {
+    if cli.positionals.len() < 2 {
+        return Err(usage_err(&PublicMessage::Curated(
+            "write richiede <ingresso.arrow> <destinazione> --to <formato>",
+        )));
+    }
+    let Some(formato) = cli.to.as_deref() else {
+        // Un default qui sarebbe la scelta implicita che il profilo vieta:
+        // meglio un rifiuto che nomina la mancanza.
+        return Err(usage_err(&PublicMessage::Curated(
+            "write richiede --to <formato>: il formato del sink e' esplicito, \
+             e non si deduce dall'estensione della destinazione",
+        )));
+    };
+
+    let in_path = PathBuf::from(&cli.positionals[0]);
+    let out_path = PathBuf::from(&cli.positionals[1]);
+    let sorgente = driver_ipc::IpcDriver;
+    let sink = driver_per_formato(formato)?;
+
+    let (mut ropts, mut wopts) = convert_pipeline(cli).map_err(map_err)?;
+    ropts.assume_crs.clone_from(&cli.assume_crs);
+    ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
+    let ds = sorgente
+        .open(Source::Path(in_path), ropts)
+        .map_err(map_err)?;
+    let fedelta_ingresso = ds.fidelity_assessment();
+
+    let selezionati = strati_da_pubblicare(ds.layers(), cli.layer)?;
+    let piano = piano_di_scrittura(&selezionati);
+    wopts.durable = cli.durable;
+    wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
+    let mut writer = sink
+        .create(Sink::Path(out_path), &piano, &wopts)
+        .map_err(map_err)?;
+
+    let mut righe_totali = 0usize;
+    let mut perdita_in_ingresso = LossReport::default();
+    let mut rapporti = Vec::new();
+    for (indice, strato) in selezionati.iter().enumerate() {
+        let mut reader = ds
+            .open_layer_reader(&read_request(cli, strato.id.0, ReadScope::Complete))
+            .map_err(map_err)?;
+        let sink_layer =
+            plenora_io_model::contract::LayerId(u32::try_from(indice).map_err(|_| {
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "numero di layer non rappresentabile",
+                )))
+            })?);
+        let (righe, batch) =
+            trasferisci_layer(reader.as_mut(), writer.as_mut(), sink_layer).map_err(map_err)?;
+        perdita_in_ingresso.merge(&reader.loss_report());
+        righe_totali = righe_totali.checked_add(righe).ok_or_else(|| {
+            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio delle righe scritte",
+            )))
+        })?;
+        rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
+    }
+    let pubblicato = writer.finish().map_err(map_err)?;
+
+    let fedelta_ingresso = fedelta_ingresso.with_loss_report(&perdita_in_ingresso);
+    let combinata = combined_fidelity(&fedelta_ingresso, &pubblicato.fidelity);
+
+    let ingresso = fidelity_doc(&fedelta_ingresso)?;
+    let scrittura = fidelity_doc(&pubblicato.fidelity)?;
+    let complessiva = fidelity_doc(&combinata)?;
+    let perdita_ingresso = loss_doc(&fedelta_ingresso, &perdita_in_ingresso)?;
+    let perdita_scrittura = loss_doc(&pubblicato.fidelity, &pubblicato.loss)?;
+    busta::diagnostica_entro_il_totale(&[
+        ("input_fidelity", &ingresso),
+        ("write_fidelity", &scrittura),
+        ("fidelity", &complessiva),
+        ("input_loss", &perdita_ingresso),
+        ("write_loss", &perdita_scrittura),
+    ])
+    .map_err(|_| budget_err())?;
+
+    Ok(json!({
+        "format": sink.descriptor().id(),
+        "input": {
+            "content_type": "application/vnd.apache.arrow.file",
+            "interchange_contract": "plenora-arrow-interchange-v1",
+        },
+        "layers": rapporti,
+        "rows_written": righe_totali,
+        "bytes_written": pubblicato.bytes,
+        "publish_outcome": esito_di_pubblicazione(pubblicato.outcome),
+        "fidelity": complessiva,
+        "input_fidelity": ingresso,
+        "write_fidelity": scrittura,
+        "input_loss": perdita_ingresso,
+        "write_loss": perdita_scrittura,
+    }))
 }
 
 /// `io.read`: legge un layer e, quando glielo si chiede, lo **consegna**.
@@ -1551,6 +1802,7 @@ COMANDI
     inspect SORGENTE   formato, layer, schemi e fedelta' dichiarati
     layers SORGENTE    i layer indirizzabili della sorgente
     read SORGENTE      legge un layer e riporta fedelta' e conteggi
+    write IN OUT --to F  pubblica un dataset Arrow nel formato F
     convert IN OUT     converte fra due formati espliciti
 
 SCOPERTA
@@ -1577,7 +1829,7 @@ fn run() -> EsitoDelComando {
         Err(errore) => return (COMANDO_IGNOTO, Err(errore_di_avvio(&errore))),
     };
 
-    if let Some(nome @ ("inspect" | "layers" | "read" | "convert")) =
+    if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert")) =
         args.first().map(String::as_str)
     {
         let cli = match parse_legato(&args[1..], &cancellazione) {
@@ -1588,6 +1840,7 @@ fn run() -> EsitoDelComando {
             "inspect" => cmd_inspect(&cli),
             "layers" => cmd_layers(&cli),
             "read" => cmd_read(&cli),
+            "write" => cmd_write(&cli),
             _ => cmd_convert(&cli),
         };
         return (nome_canonico(nome), esito);
@@ -1655,6 +1908,7 @@ const fn nome_canonico(invocato: &str) -> &'static str {
         b"inspect" => "inspect",
         b"layers" => "layers",
         b"read" => "read",
+        b"write" => "write",
         b"convert" => "convert",
         _ => COMANDO_IGNOTO,
     }

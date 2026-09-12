@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-write-result-v1.schema.json",
+  "title": "plenora-io-write-result-v1",
+  "$comment": "Contratto d'uscita di io.write: il contenuto di `result` dentro la busta CLI-2.0. A differenza di io.read, questo e' anche il nome che la busta **annuncia** nel campo `contract`: l'operazione nasce con i suoi schemi pubblicati, quindi non c'e' nessun consumatore da migrare e nessuna ragione per introdurre una divergenza gia' nota. Le altre quattro operazioni annunciano ancora `-v2` e si allineano con B14, che e' un evento di migrazione con la sua tabella.",
+  "type": "object",
+  "required": ["format", "input", "layers", "rows_written", "bytes_written", "publish_outcome", "fidelity", "input_fidelity", "write_fidelity", "input_loss", "write_loss"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "string",
+      "enum": ["geoparquet", "geojson", "csv", "gpkg", "shp", "kml", "xls", "dxf", "filegdb", "ipc"],
+      "description": "Il formato del sink effettivamente usato.",
+      "$comment": "Coincide sempre con `format` dell'ingresso: e' il campo con cui chi legge verifica che nessuna deduzione sia intervenuta fra la richiesta e l'esecuzione."
+    },
+    "input": {
+      "type": "object",
+      "required": ["content_type", "interchange_contract"],
+      "additionalProperties": false,
+      "description": "Che cosa e' stato accettato come ingresso.",
+      "properties": {
+        "content_type": { "const": "application/vnd.apache.arrow.file" },
+        "interchange_contract": { "const": "plenora-arrow-interchange-v1" }
+      },
+      "$comment": "Simmetrico a `delivered` di io.read, e non per eleganza: chi incatena le due operazioni deve poter verificare che il contratto d'interscambio dichiarato in uscita da una sia quello dichiarato in ingresso dall'altra, senza aprire i byte."
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Un rapporto per layer pubblicato.",
+      "items": {
+        "type": "object",
+        "required": ["name", "rows", "batches"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "rows": { "type": "integer", "minimum": 0 },
+          "batches": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "$comment": "Per layer e non solo in totale: un dataset multi-layer in cui un layer sia vuoto e un altro pieno e' indistinguibile dal totale, e sono due situazioni che portano a decisioni diverse."
+    },
+    "rows_written": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Somma delle righe pubblicate su tutti i layer.",
+      "$comment": "Zero e' legittimo: un dataset senza righe ma con schema si pubblica, come si consegna (B12a)."
+    },
+    "bytes_written": { "type": "integer", "minimum": 0 },
+    "publish_outcome": {
+      "type": "string",
+      "enum": ["published", "published_durability_unconfirmed"],
+      "description": "Come e' finita la pubblicazione.",
+      "$comment": "Il profilo io-tools chiede di distinguere pubblicazione completa, rollback, pubblicazione parziale e durabilita' ignota **dove quegli stati siano osservabili**. Qui due lo sono e stanno nell'enum. Il rollback non e' un esito: e' un errore, e si osserva sull'assenza della destinazione -- una prova lo verifica. La pubblicazione parziale non e' osservabile su questa superficie perche' il publish e' `operation_atomic` (lo dichiara il catalogo, campo `effective_delivery`): la destinazione compare intera o non compare. Un valore per uno stato che non si puo' raggiungere sarebbe un vocabolario piu' ricco e meno vero."
+    },
+    "fidelity": {
+      "$ref": "#/$defs/fedelta",
+      "description": "Il giudizio combinato: e' quello dell'operazione."
+    },
+    "input_fidelity": {
+      "$ref": "#/$defs/fedelta",
+      "description": "Che cosa la lettura del dataset Arrow ha conservato."
+    },
+    "write_fidelity": {
+      "$ref": "#/$defs/fedelta",
+      "description": "Che cosa il formato di destinazione ha potuto esprimere."
+    },
+    "input_loss": { "$ref": "#/$defs/perdita" },
+    "write_loss": { "$ref": "#/$defs/perdita" }
+  },
+  "$defs": {
+    "fedelta": {
+      "type": "object",
+      "required": ["level", "reasons"],
+      "additionalProperties": true,
+      "properties": {
+        "level": { "type": "string", "minLength": 1 },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "detail"],
+            "properties": {
+              "code": { "type": "string", "minLength": 1 },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      },
+      "$comment": "Le tre fedelta' sono tre e non una perche' rispondono a domande diverse: che cosa e' entrato, che cosa il sink sa esprimere, e che cosa ne e' risultato. Attribuire al sink una perdita dell'ingresso, o viceversa, direbbe a chi legge di cambiare la cosa sbagliata. Il profilo esige che perdita, coercizione e metadati non supportati che cambiano il risultato pubblico siano riportati e non taciuti: e' qui che si riportano."
+    },
+    "perdita": {
+      "type": "object",
+      "required": ["lossless", "counts"],
+      "additionalProperties": true,
+      "properties": {
+        "lossless": { "type": "boolean" },
+        "counts": { "type": "array" },
+        "esempi": { "type": "array" }
+      },
+      "$comment": "Stessa forma di `loss` in io.read, e stessa divergenza nota: non e' un documento `plenora-row-diagnostics-v1`. Riga BB4bis del piano."
+    }
+  }
+}

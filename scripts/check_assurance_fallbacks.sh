@@ -269,6 +269,13 @@ set -eu
 # la diagnosi sbagliata di un problema diverso. Ora e' un `expect`.
 # Nessuna revisione H-01 dovuta.
 #
+# Il 2026-09-12, poco dopo, `io.write` ha portato plenora-io-cli da 33 a 35
+# (totale 134 -> 136). Le due occorrenze sono la stessa forma gia' ratificata
+# poche righe sopra: `unwrap_or_else(|e| panic!(...))` che nomina l'invocazione
+# fallita in `tests/scrittura_arrow.rs` e nella prova della busta di `io.write`.
+# Terminano la prova invece di proseguire con un default.
+# Nessuna revisione H-01 dovuta.
+#
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la
