@@ -259,6 +259,7 @@
   "crates/driver-ipc/src/lib.rs": {
     "create": [
       "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "err": [
@@ -380,29 +381,6 @@
     ],
     "write": [
       "ResourceLimit/Validate/LimitExceeded/Never"
-    ]
-  },
-  "crates/plenora-io-tools/src/lib.rs": {
-    "cmd_convert": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "cmd_write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "local_err_doc": [
-      "esplicito/esplicito/Generic/esplicito"
-    ],
-    "trasferisci_layer": [
-      "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ]
-  },
-  "crates/plenora-io-tools/src/segnali.rs": {
-    "installa_gestore_dei_segnali": [
-      "esplicito/esplicito/Generic/esplicito"
     ]
   },
   "crates/plenora-io-core/src/capabilities.rs": {
@@ -598,6 +576,29 @@
   "crates/plenora-io-model/src/wkb_lossless.rs": {
     "error": [
       "DataMapping/Validate/Wkb/Never"
+    ]
+  },
+  "crates/plenora-io-tools/src/lib.rs": {
+    "cmd_convert": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "cmd_write": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "local_err_doc": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "trasferisci_layer": [
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-tools/src/segnali.rs": {
+    "installa_gestore_dei_segnali": [
+      "esplicito/esplicito/Generic/esplicito"
     ]
   },
   "fuzz/fuzz_targets/harness.rs": {

@@ -115,27 +115,6 @@
   "perche_not_applicable_non_e_una_deviazione": "una deviazione dice «il requisito si applica e non lo soddisfo». `not_applicable` dice «il requisito non si applica», e le due cose non vanno mescolate perche' un lettore ne trae conclusioni opposte. `plenora-runtime-binding-v1`: il profilo lo dichiara applicabile «when exposed», e nessuna operazione di questo componente e' selezionata per l'orchestrazione -- il documento capability non annuncia la superficie `runtime`, come PUBLIC-CATALOGS-1.0 §5 impone («publish only the surfaces actually present»). `plenora-python-sdk-v1`: il profilo dice «Python SDK: not required by this profile». Lo SDK esiste e viene spedito, ma avvolge il processo CLI e non pretende la conformita' a quel contratto; e' una comodita' di questo repository, non una superficie dichiarata.",
   "deviations": [
     {
-      "rule": "PUBLIC-CATALOGS-1.0 §5.4 (io.read.output.content_types)",
-      "surface": "cli",
-      "observed_behavior": "il catalogo comune dichiara per `io.read` due content type d'uscita, `application/vnd.apache.arrow.stream` e `application/vnd.apache.arrow.file`; questo artefatto annuncia e produce il solo file. Il formato stream e' una serializzazione, non una consegna incrementale: non e' escluso da nulla, semplicemente non e' prodotto. Per il consumatore: chi seleziona sul content type trova un solo valore e sceglie quello; chi si aspettasse lo stream non lo trova, e nessuna opzione lo produce.",
-      "tracking": "docs/PIANO-4.0.0.md riga B13; si chiude con un'opzione di scrittura `serialization` sul sink IPC, che e' un'opzione di formato del catalogo e non un campo nuovo dello schema d'ingresso",
-      "detectable_before_invocation": true
-    },
-    {
-      "rule": "PUBLIC-CATALOGS-1.0 §5.4 (io.write.input.content_types)",
-      "surface": "cli",
-      "observed_behavior": "speculare della precedente sull'ingresso: `io.write` accetta `application/json` per i parametri e `application/vnd.apache.arrow.file` per il payload, non `application/vnd.apache.arrow.stream`. Per il consumatore: un dataset serializzato in formato stream va riscritto come file prima di essere pubblicato.",
-      "tracking": "docs/PIANO-4.0.0.md riga B13; stessa chiusura della precedente, dal lato del lettore IPC",
-      "detectable_before_invocation": true
-    },
-    {
-      "rule": "COMPOSITION-1.0 §2 (edges direct con content_type arrow.stream)",
-      "surface": "cli",
-      "observed_behavior": "i quattro archi della matrice rivista che toccano questo componente sono `direct` con `content_type: application/vnd.apache.arrow.stream`, e un arco `direct` esige che sorgente e destinazione condividano contratto d'interscambio **e** content type: il contratto e' condiviso, il content type no. Per il consumatore: comporre con data-tools o database-tools resta possibile ma non e' `direct` come la matrice lo descrive, perche' il payload va riserializzato da file a stream fuori da questi componenti.",
-      "tracking": "docs/PIANO-4.0.0.md riga B13; e' la conseguenza piu' pesante delle due deviazioni sui content type, e si chiude con loro",
-      "detectable_before_invocation": true
-    },
-    {
       "rule": "catalogo io-tools (io.read.side_effect)",
       "surface": "cli",
       "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; questo artefatto dichiara `local`. Con `--output` l'operazione scrive un file, e il descrittore dichiara il rischio **massimo** e non quello del caso migliore. Per il consumatore: chi orchestra tratta `io.read` come un'operazione con effetto locale -- puo' serializzarla o isolarla dove il catalogo la lascerebbe libera. La deviazione e' piu' prudente del contratto, non piu' permissiva.",
@@ -150,5 +129,6 @@
       "detectable_before_invocation": false
     }
   ],
-  "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto»."
+  "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
+  "che_cosa_e_stato_chiuso_e_come": "tre deviazioni su cinque, e tutte e tre dalla stessa capacita': il driver IPC produce e legge entrambe le serializzazioni che ARROW-INTERCHANGE-1.0 §1 registra. La scelta e' un'opzione di formato del catalogo -- `serialization`, valori `file` e `stream`, default `file` -- e non un campo nuovo di uno schema d'ingresso pubblicato.\n\nChiuderle ha richiesto il percorso **intero**, non la sola opzione di scrittura: produrre un flusso non serve se chi lo riceve non puo' consumarlo. Il riconoscimento guarda i byte -- il contenitore porta `ARROW1` in testa, il flusso no -- e non il nome del file, che resta del chiamante; la prevalidazione del flusso ha gli stessi tetti di quella del contenitore, perche' una porta meno sorvegliata e' il modo normale in cui una difesa si aggira; e `io.write` accetta il payload in entrambe le forme.\n\nLa **consegna resta atomica**, ed e' la proprieta' che questa capacita' non doveva intaccare: i byte si scrivono per intero nello staging e la pubblicazione e' l'ultima operazione, in tutt'e due le serializzazioni. Uno stream e' una disposizione dei byte, non un permesso di esporre batch prima che l'operazione sia finita.\n\nSulla composizione va detto che cosa questa chiusura significa e che cosa no. I quattro archi `direct` della matrice rivista nominano `application/vnd.apache.arrow.stream`, e questo artefatto ora lo produce e lo accetta: la condizione che **ci riguarda** e' soddisfatta. Non e' interoperabilita' verificata con data-tools o database-tools -- quella e' una qualifica cross-component, resta differita, e nessuna prova di questo repository la tocca."
 }

@@ -66,6 +66,43 @@ pub mod busta;
 /// La superficie Rust pubblica: le sei operazioni del catalogo, per nome.
 pub mod operazioni;
 
+/// Il content type che `io.read` ha **prodotto**, non quello che di solito
+/// produce.
+///
+/// Arrow IPC ha due serializzazioni registrate, e `ARROW-INTERCHANGE-1.0 §1`
+/// pretende che il descrittore dichiari quelle accettate e prodotte. Dichiararne
+/// una sola quando se ne producono due direbbe il falso proprio al consumatore
+/// che sceglie il lettore sul content type -- e sbagliare lettore, fra le due,
+/// e' un errore di apertura, non una degradazione.
+///
+/// L'opzione la legge il driver; qui si legge la stessa chiave per **riferire**
+/// che cosa e' uscito. Le due letture non possono divergere senza che una prova
+/// se ne accorga: `il_content_type_segue_la_serializzazione` confronta questo
+/// campo con i byte del file consegnato.
+fn content_type_consegnato(opzioni: &BTreeMap<String, String>) -> &'static str {
+    if opzioni.get("serialization").map(String::as_str) == Some("stream") {
+        driver_ipc::Serializzazione::Flusso.content_type()
+    } else {
+        driver_ipc::Serializzazione::File.content_type()
+    }
+}
+
+/// Il content type del payload che `io.write` ha **letto**, dai suoi byte.
+///
+/// Il contenitore porta `ARROW1` in testa, il flusso no. Si guardano i byte e
+/// non il nome per la stessa ragione per cui il driver fa lo stesso: un file
+/// rinominato resta quello che e', e il descrittore deve dire che cosa e'
+/// entrato, non che cosa il nome faceva sperare.
+fn content_type_della_sorgente(sorgente: &std::path::Path) -> &'static str {
+    driver_ipc::serializzazione_del_file(sorgente).map_or(
+        // Illeggibile qui vuol dire che non e' stato letto nemmeno prima, e
+        // questa funzione non e' il posto in cui dirlo: il driver ha gia'
+        // fallito con il proprio errore.
+        driver_ipc::Serializzazione::File.content_type(),
+        driver_ipc::Serializzazione::content_type,
+    )
+}
+
 fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     let mut error_document = json!({
         "category": error.category,
@@ -395,7 +432,13 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         }
         "dxf" => Box::new(driver_dxf::DxfDriver),
         "gdb" => Box::new(driver_filegdb::FileGdbDriver),
-        "arrow" => Box::new(driver_ipc::IpcDriver),
+        // Due suffissi, un driver. `.arrows` e' il nome convenzionale della
+        // serializzazione a flusso, e serve a scegliere il **driver** quando il
+        // formato non e' dichiarato. Quale delle due serializzazioni un file
+        // porti lo decidono i suoi byte, non il suo nome: un `.arrow` che
+        // contiene un flusso si legge lo stesso, e un `.arrows` che contiene un
+        // contenitore pure.
+        "arrow" | "arrows" => Box::new(driver_ipc::IpcDriver),
         // Legato a `_`: l'estensione non serve piu' a nessuno qui, ed e' la
         // prova — in forma di binding — che non entra nel messaggio.
         _ => {
@@ -878,6 +921,62 @@ fn operazione_esposta(
     })
 }
 
+/// Il descrittore di `io.read`, che non passa da `operazione_esposta`.
+///
+/// E' l'unica operazione disponibile la cui uscita non e' JSON, e l'unica
+/// che dichiari attributi: sta in una funzione sua perche' e' cresciuta
+/// abbastanza da non stare comoda dentro il documento che la contiene.
+fn descrittore_di_read() -> Value {
+    // `io.read` consegna, e la sua uscita non e' JSON: e' l'unica
+    // operazione disponibile che produce Arrow, ed e' la ragione per
+    // cui non passa da `operazione_esposta`.
+    //
+    // `side_effect` e' `local` e non `none`: con `--output` scrive un
+    // file, e un effetto che il documento tacesse sarebbe un effetto
+    // che chi orchestra non si aspetta. La forma senza consegna non
+    // scrive niente, ma il descrittore dichiara il **massimo** rischio,
+    // non quello del caso migliore.
+    json!({
+        "id": "io.read",
+        "version": 1,
+        "status": "available",
+        "surfaces": ["cli", "rust"],
+        "input": {
+            "contract": "plenora-io-read-input-v1",
+            "content_types": ["application/json"],
+        },
+        "output": {
+            "contract": "plenora-io-read-result-v1",
+            // Le due serializzazioni che Arrow IPC registra, e che
+            // questa superficie ora produce entrambe. L'ordine segue
+            // il catalogo comune; il default resta il contenitore, e
+            // il flusso si chiede con `--out-opt serialization=stream`.
+            "content_types": [
+                "application/vnd.apache.arrow.stream",
+                "application/vnd.apache.arrow.file",
+            ],
+            // Il catalogo comune lo dichiara, e noi lo rispettiamo: le
+            // undici sonde di `metadati_arrow.rs` leggono dal file
+            // consegnato cio' che ARROW-001..012 pretende. Ometterlo
+            // qui diceva **meno** del vero -- un consumatore che
+            // cercasse il contratto d'interscambio non lo trovava, e
+            // avrebbe concluso che il payload non ne segue nessuno.
+            "interchange_contracts": ["plenora-arrow-interchange-v1"],
+        },
+        "side_effect": "local",
+        "controls": {
+            "cancellation": true,
+            "deadline": true,
+            "idempotency_key": false,
+        },
+        "attributes": {
+            "materialization": "bounded",
+            "delivery": "operation_atomic",
+            "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. `materialization: bounded` e' la dichiarazione che ARROW-011 ammette esplicitamente («unless the operation descriptor explicitly declares bounded materialization»), ed e' la forma in cui questa superficie soddisfa quel requisito ora che annuncia anche lo stream. `delivery: operation_atomic` dice quando il primo batch diventa visibile, ed e' vero per tutti e dieci i driver: se una violazione emerge in un punto qualsiasi della sorgente l'operazione e' rifiutata come blocco unico. Le due cose rispondono a domande diverse, e produrre un flusso non cambia la seconda: i byte si scrivono per intero nello staging e la pubblicazione resta l'ultima operazione. Quale delle due serializzazioni esca lo sceglie l'opzione di formato `serialization` del driver IPC, che `io.catalog` pubblica."
+        },
+    })
+}
+
 /// Un'operazione che il catalogo comune pretende e che questo binario non serve.
 ///
 /// # Perche' e' sparita, e perche' la regola resta
@@ -948,47 +1047,7 @@ pub fn capabilities_document() -> Value {
                 "none",
                 true,
             ),
-            // `io.read` consegna, e la sua uscita non e' JSON: e' l'unica
-            // operazione disponibile che produce Arrow, ed e' la ragione per
-            // cui non passa da `operazione_esposta`.
-            //
-            // `side_effect` e' `local` e non `none`: con `--output` scrive un
-            // file, e un effetto che il documento tacesse sarebbe un effetto
-            // che chi orchestra non si aspetta. La forma senza consegna non
-            // scrive niente, ma il descrittore dichiara il **massimo** rischio,
-            // non quello del caso migliore.
-            json!({
-                "id": "io.read",
-                "version": 1,
-                "status": "available",
-                "surfaces": ["cli", "rust"],
-                "input": {
-                    "contract": "plenora-io-read-input-v1",
-                    "content_types": ["application/json"],
-                },
-                "output": {
-                    "contract": "plenora-io-read-result-v1",
-                    "content_types": ["application/vnd.apache.arrow.file"],
-                    // Il catalogo comune lo dichiara, e noi lo rispettiamo: le
-                    // undici sonde di `metadati_arrow.rs` leggono dal file
-                    // consegnato cio' che ARROW-001..012 pretende. Ometterlo
-                    // qui diceva **meno** del vero -- un consumatore che
-                    // cercasse il contratto d'interscambio non lo trovava, e
-                    // avrebbe concluso che il payload non ne segue nessuno.
-                    "interchange_contracts": ["plenora-arrow-interchange-v1"],
-                },
-                "side_effect": "local",
-                "controls": {
-                    "cancellation": true,
-                    "deadline": true,
-                    "idempotency_key": false,
-                },
-                "attributes": {
-                    "materialization": "bounded",
-                    "delivery": "operation_atomic",
-                    "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. `materialization: bounded` e' la dichiarazione che ARROW-011 ammette esplicitamente («unless the operation descriptor explicitly declares bounded materialization»); `delivery: operation_atomic` dice quando il primo batch diventa visibile, ed e' vero per tutti e dieci i driver: se una violazione emerge in un punto qualsiasi della sorgente l'operazione e' rifiutata come blocco unico. Le due cose rispondono a domande diverse. Il catalogo comune ammette per io.read anche application/vnd.apache.arrow.stream, che e' una **serializzazione** e non una consegna incrementale: un file in formato stream si puo' produrre per intero prima di consegnarlo, quindi l'atomicita' non lo esclude e non richiede un protocollo nuovo. Questa superficie non lo annuncia perche' non produce una seconda serializzazione, ed e' una scelta di prodotto: il restringimento di una voce required e' registrato come deviazione nel manifesto di adozione, come PUBLIC-CATALOGS-1.0 §5 prescrive."
-                },
-            }),
+            descrittore_di_read(),
             // `io.write` accetta un dataset Arrow e ne pubblica uno esterno,
             // quindi i content type d'ingresso sono due: il documento dei
             // parametri e il payload. Su questa superficie il payload arriva
@@ -1004,6 +1063,10 @@ pub fn capabilities_document() -> Value {
                     "contract": "plenora-io-write-input-v1",
                     "content_types": [
                         "application/json",
+                        // Il payload arriva in una delle due serializzazioni, e
+                        // quale sia lo dicono i suoi byte -- non il nome del
+                        // file. `io.write` le legge entrambe.
+                        "application/vnd.apache.arrow.stream",
                         "application/vnd.apache.arrow.file",
                     ],
                     "interchange_contracts": ["plenora-arrow-interchange-v1"],
@@ -1421,6 +1484,9 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
     };
 
     let in_path = PathBuf::from(&cli.positionals[0]);
+    // Letto **prima** che `in_path` vada al lettore: il content type del
+    // payload si misura sui byte d'ingresso, e il rapporto lo riferisce.
+    let content_type_ingresso = content_type_della_sorgente(&in_path);
     let out_path = PathBuf::from(&cli.positionals[1]);
     let sorgente = driver_ipc::IpcDriver;
     let sink = driver_per_formato(formato)?;
@@ -1486,7 +1552,7 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
     Ok(json!({
         "format": sink.descriptor().id(),
         "input": {
-            "content_type": "application/vnd.apache.arrow.file",
+            "content_type": content_type_ingresso,
             "interchange_contract": "plenora-arrow-interchange-v1",
         },
         "layers": rapporti,
@@ -1664,7 +1730,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
         "batches": batches,
         "truncated": cli.limit.is_some_and(|l| rows >= l),
         "delivered": {
-            "content_type": "application/vnd.apache.arrow.file",
+            "content_type": content_type_consegnato(&cli.out_opts),
             "interchange_contract": "plenora-arrow-interchange-v1",
             "bytes_written": byte,
             "publish_outcome": esito_di_pubblicazione(pubblicato.outcome),

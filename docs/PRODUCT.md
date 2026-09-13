@@ -380,40 +380,47 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |
-| `io.read` | consegna un **file** Arrow IPC, non uno stream: vedi qui sotto |
 | tutti | nessuna proiezione delle colonne: lo schema consegnato è quello della sorgente |
 
-### Perché `io.read` consegna un file e non uno stream
+### Le due serializzazioni di Arrow IPC
 
-Il catalogo comune ammette per `io.read` due content type d'uscita,
-`application/vnd.apache.arrow.stream` e `application/vnd.apache.arrow.file`.
-Questo prodotto annuncia il secondo.
+Arrow IPC ne definisce due, e questo prodotto le produce e le legge entrambe:
 
-Vanno tenute distinte due cose che è facile confondere. Il formato **stream**
-è una serializzazione: un file scritto in quel formato si può produrre per
-intero e poi consegnare, esattamente come un file `.arrow`. La consegna
-**incrementale** è un'altra cosa: è il consumatore che elabora i primi batch
-mentre gli ultimi non esistono ancora.
+| | Come si chiede | Come si riconosce |
+|---|---|---|
+| `application/vnd.apache.arrow.file` | il default | `ARROW1` in testa e in coda, più il footer che indicizza i blocchi |
+| `application/vnd.apache.arrow.stream` | `--out-opt serialization=stream` | una sequenza di messaggi, senza magic né footer |
 
-Questo prodotto non fa consegna incrementale, e la ragione è dichiarata: tutti
-e dieci i driver hanno consegna **atomica sull'operazione**. Se una violazione
-emerge in un punto qualsiasi della sorgente, l'operazione viene rifiutata come
-blocco unico e nessun prefisso accettato viene consegnato — o tutto, o niente.
-Il descrittore lo dice, con `attributes.delivery: operation_atomic`.
+La scelta è un'**opzione di formato** del driver IPC, e `io.catalog` la
+pubblica accanto alle altre: non è un campo nuovo di uno schema d'ingresso.
+`delivered.content_type` nel risultato dice quale delle due è uscita.
 
-Il formato stream, invece, non è escluso da nulla: semplicemente non lo
-produciamo. È una seconda serializzazione che non esiste in questo artefatto, e
-non annunciarla è una scelta di prodotto. Siccome restringe una voce
-`required` del catalogo comune, è **registrata come deviazione** nel manifesto
-di adozione — che è ciò che il contratto dei cataloghi prescrive di fare invece
-di modificare il catalogo.
+In lettura non serve chiederlo: il driver guarda i **byte**. Un flusso
+chiamato `.arrow` si legge, e un contenitore chiamato `.arrows` pure — il nome
+del file è del chiamante, e serve solo a scegliere il driver quando il formato
+non è dichiarato. `io.write` accetta il payload in entrambe le forme e riferisce
+quale ha letto.
 
-Se un giorno la producessimo, ARROW-011 diventerebbe applicabile e sarebbe
-soddisfatto: il descrittore dichiara già `attributes.materialization: bounded`,
-che è l'uscita che quel requisito prevede per iscritto. Gli attributi restano
-diagnostica opaca — CAP-013 riserva la selezione automatica ai contratti
-tipizzati — quindi un consumatore sceglie sul content type e legge gli
-attributi per sapere perché.
+#### Che cosa uno stream **non** cambia
+
+La consegna resta **atomica sull'operazione**. Se una violazione emerge in un
+punto qualsiasi della sorgente, l'operazione viene rifiutata come blocco unico e
+nessun prefisso accettato viene consegnato — o tutto, o niente. Il descrittore
+lo dice con `attributes.delivery: operation_atomic`, e vale per tutti e dieci i
+driver.
+
+È una distinzione che è facile confondere, e per un periodo l'abbiamo confusa:
+lo stream è una **serializzazione**, cioè come i byte sono disposti; la consegna
+incrementale è un'altra cosa, cioè il consumatore che elabora i primi batch
+mentre gli ultimi non esistono ancora. Produrre un flusso non richiede la
+seconda, e qui non la si fa: i byte si scrivono per intero in un file di
+staging, e la pubblicazione è l'ultima operazione. Un'operazione fallita non
+lascia una destinazione, in nessuna delle due forme.
+
+Il descrittore dichiara anche `attributes.materialization: bounded`, che è la
+forma in cui ARROW-011 è soddisfatto: il requisito si applica a chi annuncia lo
+stream, e ammette per iscritto che il descrittore dichiari la materializzazione
+limitata.
 
 ### Una sorgente senza geometrie, e una di cui non si sanno i tipi
 

@@ -214,6 +214,130 @@ fn valida_metadati_del_footer(driver: &'static str, footer: &arrow_ipc::Footer<'
     Ok(())
 }
 
+/// La stessa difesa sul **flusso** IPC, che non ha ne' magic ne' footer.
+///
+/// # Errors
+///
+/// Quando il flusso e' troncato, dichiara lunghezze fuori dai limiti, porta un
+/// messaggio non decodificabile o non comincia con uno schema.
+///
+/// # Che cosa cambia rispetto al contenitore
+///
+/// Il file porta `ARROW1` ai due capi e un footer che indicizza i blocchi: si
+/// puo' saltare alla coda, leggere l'indice e validare ogni blocco senza
+/// scorrere. Il flusso non ha niente di tutto questo -- e' una sequenza di
+/// messaggi, ciascuno preceduto dalla propria lunghezza -- quindi la si
+/// percorre in avanti una volta sola.
+///
+/// # Che cosa **non** cambia
+///
+/// I tetti. Lunghezza dei metadati, numero di messaggi, forma dello schema:
+/// sono gli stessi del contenitore, e vengono dalle stesse costanti. Un
+/// formato che entra da una porta meno sorvegliata e' il modo normale in cui
+/// una difesa si aggira, e qui le due porte hanno la stessa serratura.
+pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
+    let mut file = std::fs::File::open(percorso)?;
+    let dimensione = file.seek(SeekFrom::End(0))?;
+    file.seek(SeekFrom::Start(0))?;
+
+    // Il messaggio piu' corto possibile: il prefisso di continuazione e la
+    // lunghezza. Sotto, non c'e' nemmeno un messaggio.
+    if dimensione < 8 {
+        return Err(errore(
+            driver,
+            "flusso Arrow IPC troppo corto per il formato",
+        ));
+    }
+
+    let mut messaggi = 0_usize;
+    let mut schema_visto = false;
+    let mut posizione = 0_u64;
+
+    loop {
+        if posizione + 8 > dimensione {
+            break;
+        }
+        let mut intestazione = [0_u8; 8];
+        file.seek(SeekFrom::Start(posizione))?;
+        file.read_exact(&mut intestazione)?;
+
+        // `0xFFFFFFFF` e' il prefisso di continuazione dell'incapsulamento
+        // corrente. Senza, il primo campo **e'** la lunghezza: e' la forma
+        // storica, e accettarla soltanto perche' arrow la accetta lascerebbe
+        // entrare byte che questa funzione non ha guardato.
+        let continuazione = u32::from_le_bytes([
+            intestazione[0],
+            intestazione[1],
+            intestazione[2],
+            intestazione[3],
+        ]);
+        if continuazione != 0xFFFF_FFFF {
+            return Err(errore(
+                driver,
+                "messaggio Arrow senza prefisso di continuazione",
+            ));
+        }
+        let lunghezza_metadati = i32::from_le_bytes([
+            intestazione[4],
+            intestazione[5],
+            intestazione[6],
+            intestazione[7],
+        ]);
+        let lunghezza_metadati = usize::try_from(lunghezza_metadati)
+            .map_err(|_| errore(driver, "lunghezza dei metadati Arrow negativa"))?;
+
+        // Lunghezza zero: e' il marcatore di fine flusso, ed e' legittimo.
+        if lunghezza_metadati == 0 {
+            break;
+        }
+        if lunghezza_metadati > MAX_BYTE_METADATI {
+            return Err(errore(
+                driver,
+                "lunghezza dei metadati Arrow fuori dai limiti",
+            ));
+        }
+
+        let inizio_metadati = posizione + 8;
+        if inizio_metadati + lunghezza_metadati as u64 > dimensione {
+            return Err(errore(driver, "messaggio Arrow oltre la fine del flusso"));
+        }
+        let mut byte = vec![0_u8; lunghezza_metadati];
+        file.seek(SeekFrom::Start(inizio_metadati))?;
+        file.read_exact(&mut byte)?;
+        let messaggio = arrow_ipc::root_as_message(&byte)
+            .map_err(|_| errore(driver, "messaggio Arrow non decodificabile"))?;
+
+        if let Some(schema) = messaggio.header_as_schema() {
+            valida_schema(driver, schema)?;
+            schema_visto = true;
+        }
+
+        let corpo = messaggio.bodyLength();
+        let corpo = u64::try_from(corpo)
+            .map_err(|_| errore(driver, "lunghezza del corpo Arrow negativa"))?;
+        // I metadati sono allineati a otto byte prima del corpo.
+        let dopo_i_metadati = inizio_metadati + lunghezza_metadati as u64;
+        let allineata = dopo_i_metadati.next_multiple_of(8);
+        let termine = allineata
+            .checked_add(corpo)
+            .ok_or_else(|| errore(driver, "corpo Arrow oltre la dimensione rappresentabile"))?;
+        if termine > dimensione {
+            return Err(errore(driver, "corpo Arrow oltre la fine del flusso"));
+        }
+        posizione = termine;
+
+        messaggi += 1;
+        if messaggi > MAX_BLOCCHI {
+            return Err(errore(driver, "troppi messaggi nel flusso Arrow"));
+        }
+    }
+
+    if !schema_visto {
+        return Err(errore(driver, "flusso Arrow senza messaggio di schema"));
+    }
+    Ok(())
+}
+
 /// Verifica un file Arrow IPC: schema del footer e coerenza di ogni messaggio.
 ///
 /// Legge solo i metadati — footer e intestazioni dei messaggi — mai il corpo.

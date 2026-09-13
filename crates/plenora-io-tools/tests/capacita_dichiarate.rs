@@ -7,34 +7,28 @@
 //! ed e' quello che conta per chi orchestra, perche' un orchestratore sceglie
 //! leggendo il documento e non provando.
 //!
-//! # ARROW-011, e perche' non e' chiuso da un'assenza
+//! # ARROW-011, e perche' ora si applica
 //!
 //! «An operation advertised with Arrow **stream** output MUST allow the
 //! consumer to process batches without first materializing the complete
 //! result, unless the operation descriptor explicitly declares bounded
-//! materialization». Il catalogo comune ammette per `io.read` sia
-//! `arrow.stream` sia `arrow.file`; questa superficie annuncia il solo file.
+//! materialization». Questa superficie annuncia lo stream, quindi il requisito
+//! si applica -- e la seconda meta' della frase e' come lo soddisfa: il
+//! descrittore dichiara `materialization: bounded`, che e' l'uscita prevista
+//! per iscritto.
 //!
-//! Due cose vanno tenute distinte, e per un periodo le ho confuse.
+//! Due cose restano distinte, e per un periodo le ho confuse.
 //!
 //! `application/vnd.apache.arrow.stream` e' una **serializzazione**: il
-//! formato IPC a flusso si puo' produrre per intero e poi consegnare, come si
-//! fa con un file. L'atomicita' dell'operazione -- che tutti e dieci i driver
+//! formato IPC a flusso si produce per intero e poi si consegna, come si fa
+//! con un file. L'atomicita' dell'operazione -- che tutti e dieci i driver
 //! hanno -- riguarda **quando** il primo batch diventa visibile, non quale
-//! serializzazione lo trasporta. Dall'atomicita' non segue quindi che il
-//! formato stream sia impossibile, ne' che richieda un protocollo nuovo.
+//! serializzazione lo trasporta. Produrre un flusso non ha quindi richiesto di
+//! rinunciare all'atomicita', e non ci ha rinunciato: i byte si scrivono per
+//! intero nello staging e la pubblicazione resta l'ultima operazione.
 //!
 //! Quello che segue dall'atomicita' e' un'altra cosa: la **consegna
-//! incrementale** non c'e', e se un giorno annunciassimo lo stream ARROW-011
-//! diventerebbe applicabile. Anche allora sarebbe soddisfabile, perche' il
-//! descrittore dichiara gia' `materialization: bounded`, che e' l'uscita che
-//! il requisito prevede per iscritto.
-//!
-//! Questa superficie annuncia il solo file perche' non produce una seconda
-//! serializzazione. E' una scelta di prodotto, non una necessita', e siccome
-//! restringe una voce `required` del catalogo comune e' registrata come
-//! deviazione nel manifesto di adozione -- che e' cio' che PUBLIC-CATALOGS-1.0
-//! §5 prescrive di fare invece di modificare il catalogo.
+//! incrementale** non c'e', e non e' promessa da nessuna parte.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -73,11 +67,21 @@ fn operazione(documento: &Value, id: &str) -> Value {
         .clone()
 }
 
-/// ARROW-011: la capacita' annunciata e' il file, e non lo stream.
+/// Le due serializzazioni che il catalogo comune ammette sono annunciate.
+///
+/// Erano una, e il restringimento era registrato come deviazione. Questa sonda
+/// diceva allora che il giorno in cui la superficie avesse annunciato anche lo
+/// stream sarebbe stato il posto in cui accorgersene -- ed e' successo. Ora
+/// dice il verso opposto, e serve alla stessa cosa: annunciare un content type
+/// che non si produce e' peggio che non annunciarlo, perche' chi sceglie il
+/// lettore su quel campo apre con lo strumento sbagliato.
+///
+/// Che i due siano **prodotti** davvero lo prova
+/// `tests/serializzazione_arrow.rs`, sui byte consegnati.
 #[test]
-fn io_read_annuncia_il_file_e_non_lo_stream() {
+fn io_read_annuncia_le_due_serializzazioni() {
     let read = operazione(&capacita(), "io.read");
-    let tipi: Vec<&str> = read["output"]["content_types"]
+    let tipi: std::collections::BTreeSet<&str> = read["output"]["content_types"]
         .as_array()
         .expect("i content type sono un elenco")
         .iter()
@@ -86,18 +90,45 @@ fn io_read_annuncia_il_file_e_non_lo_stream() {
 
     assert_eq!(
         tipi,
-        ["application/vnd.apache.arrow.file"],
-        "il restringimento e' registrato come deviazione nel manifesto di \
-         adozione: se un giorno la superficie annunciasse anche lo stream, \
-         quella deviazione andrebbe tolta e questa sonda e' il posto in cui \
-         accorgersene"
+        [
+            "application/vnd.apache.arrow.file",
+            "application/vnd.apache.arrow.stream",
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>(),
+        "i content type annunciati non sono i due del catalogo comune"
     );
 
-    // La dichiarazione esiste ed e' esplicita, cosi' che la scelta si legga nel
-    // documento invece di doversi dedurre da un'assenza. Resta diagnostica
-    // opaca per CAP-013: la selezione si fa sui content type.
+    // `materialization: bounded` non e' piu' una nota sul perche' il requisito
+    // non si applichi: e' la forma in cui ARROW-011 e' soddisfatto, ora che
+    // l'antecedente e' vero. Resta diagnostica opaca per CAP-013 -- la
+    // selezione si fa sui content type -- ma toglierla renderebbe il requisito
+    // applicabile e non soddisfatto.
     assert_eq!(read["attributes"]["materialization"], "bounded");
     assert_eq!(read["attributes"]["delivery"], "operation_atomic");
+}
+
+/// E `io.write` accetta il payload in entrambe.
+///
+/// Un'operazione che producesse due serializzazioni e ne accettasse una sola
+/// renderebbe non componibile il proprio stesso risultato.
+#[test]
+fn io_write_accetta_le_due_serializzazioni() {
+    let write = operazione(&capacita(), "io.write");
+    let tipi: std::collections::BTreeSet<&str> = write["input"]["content_types"]
+        .as_array()
+        .expect("i content type sono un elenco")
+        .iter()
+        .map(|t| t.as_str().expect("ogni content type e' una stringa"))
+        .collect();
+
+    for atteso in [
+        "application/json",
+        "application/vnd.apache.arrow.file",
+        "application/vnd.apache.arrow.stream",
+    ] {
+        assert!(tipi.contains(atteso), "manca «{atteso}» fra {tipi:?}");
+    }
 }
 
 /// E il file consegnato e' davvero un file IPC, non uno stream in un file.
@@ -121,8 +152,8 @@ fn il_consegnato_e_un_file_ipc_e_non_uno_stream() {
     let byte = std::fs::read(&destinazione).expect("il consegnato si legge");
     assert!(
         byte.starts_with(b"ARROW1") && byte.ends_with(b"ARROW1"),
-        "il magic del formato file manca a un capo: la consegna non e' il \
-         `application/vnd.apache.arrow.file` che il descrittore annuncia"
+        "il magic del formato file manca a un capo: senza opzioni la consegna \
+         e' il contenitore, che e' il default dichiarato dal catalogo"
     );
 }
 

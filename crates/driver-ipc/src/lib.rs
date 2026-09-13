@@ -6,13 +6,13 @@
 #![forbid(unsafe_code)]
 
 use std::fs::File;
-use std::io::{BufWriter, Write as _};
+use std::io::{BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
-use arrow_ipc::reader::FileReader;
-use arrow_ipc::writer::FileWriter;
+use arrow_ipc::reader::{FileReader, StreamReader};
+use arrow_ipc::writer::{FileWriter, StreamWriter};
 use arrow_schema::{Schema, SchemaRef};
 
 use plenora_io_core::descriptor::{
@@ -92,14 +92,96 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
     }),
-    // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
-    // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    &["arrow"],
+    OPZIONI,
+    &["arrow", "arrows"],
     1,
     3,
     10,
 );
+
+/// Le due serializzazioni che Arrow IPC definisce, e come si scelgono.
+///
+/// # Perche' e' un'opzione di formato e non un campo dello schema d'ingresso
+///
+/// Perche' e' una proprieta' del **formato**, non dell'operazione: `io.read` e
+/// `io.write` non cambiano semantica, cambia come i byte sono disposti. Il
+/// catalogo pubblica le opzioni di formato driver per driver, quindi un
+/// consumatore la trova dove cerca le altre -- e aggiungerla non tocca
+/// `plenora-io-read-input-v1`, che e' un contratto pubblicato.
+///
+/// # Che cosa **non** cambia
+///
+/// La consegna resta atomica. Il formato a flusso si scrive per intero nello
+/// staging e poi si pubblica, esattamente come il file: `stream` descrive la
+/// disposizione dei byte, non il momento in cui diventano visibili. Chi legge
+/// non vede un batch prima che l'operazione sia finita, e non lo vede in
+/// nessuna delle due serializzazioni.
+static OPZIONI: plenora_io_model::format_options::SchemaOpzioniFormato =
+    plenora_io_model::format_options::SchemaOpzioniFormato::nuovo(&[
+        plenora_io_model::format_options::OpzioneFormato {
+            chiave: "serialization",
+            fase: plenora_io_model::format_options::FaseOpzione::Scrittura,
+            valore: plenora_io_model::format_options::ValoreAmmesso::Enumerato(&["file", "stream"]),
+            predefinito: Some("file"),
+            descrizione: "serializzazione IPC: contenitore `file` con footer, o flusso `stream`",
+        },
+    ]);
+
+/// Quale serializzazione porta un file, letta dai **byte** e non dal nome.
+///
+/// Il contenitore `file` porta `ARROW1` in testa; il flusso no, comincia
+/// direttamente con un messaggio. E' il discriminante che la specifica Arrow
+/// definisce, ed e' l'unico che non si possa sbagliare rinominando un file.
+///
+/// Il suffisso resta dichiarato in `recognised_suffixes` e serve a scegliere il
+/// **driver** quando il formato non e' dichiarato; a scegliere la
+/// serializzazione dentro il driver servono i byte. Sono due domande, e
+/// tenerle separate e' la stessa regola per cui `io.convert` pretende i formati
+/// espliciti invece di dedurli dalle estensioni.
+///
+/// # Errors
+///
+/// Quando il file non si apre.
+pub fn serializzazione_del_file(percorso: &std::path::Path) -> Result<Serializzazione> {
+    let mut file = File::open(percorso)?;
+    let mut magic = [0_u8; 6];
+    // Due rami con lo stesso esito, e la ragione e' la stessa: cio' che non
+    // comincia con `ARROW1` -- perche' porta altri byte, o perche' di byte non
+    // ne ha abbastanza -- non e' il contenitore. Se non e' nemmeno un flusso
+    // valido, lo dira' la prevalidazione con il proprio messaggio: non e'
+    // questa funzione a decidere se il file sia buono, solo che cosa dichiari
+    // di essere.
+    match std::io::Read::read_exact(&mut file, &mut magic) {
+        Ok(()) if magic == *b"ARROW1" => Ok(Serializzazione::File),
+        _ => Ok(Serializzazione::Flusso),
+    }
+}
+
+/// Le due disposizioni dei byte che Arrow IPC definisce.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Serializzazione {
+    /// `ARROW1` in testa e in coda, con il footer che indicizza i blocchi.
+    File,
+    /// Una sequenza di messaggi, senza footer: nessun accesso casuale.
+    Flusso,
+}
+
+impl Serializzazione {
+    /// Il content type registrato da `ARROW-INTERCHANGE-1.0 §1`.
+    ///
+    /// Sta qui e non nella CLI perche' il nome deve avere un posto solo: il
+    /// driver sceglie la serializzazione e il driver la nomina. Due tabelle --
+    /// una che sceglie e una che riferisce -- divergerebbero in silenzio, e chi
+    /// sceglie il lettore sul content type aprirebbe con lo strumento
+    /// sbagliato.
+    #[must_use]
+    pub const fn content_type(self) -> &'static str {
+        match self {
+            Self::File => "application/vnd.apache.arrow.file",
+            Self::Flusso => "application/vnd.apache.arrow.stream",
+        }
+    }
+}
 
 pub struct IpcDriver;
 
@@ -115,12 +197,25 @@ impl FormatDriver for IpcDriver {
         // dello schema e l'affettamento del corpo sono infallibili nel tipo e
         // panicano sull'input non conforme; la barriera `leggendo_arrow` sotto
         // resta come difesa in profondita', non come mitigazione.
-        driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
-        let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
-            FileReader::try_new(File::open(&path)?, None)
-                .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido")))
+        let serializzazione = serializzazione_del_file(&path)?;
+        match serializzazione {
+            Serializzazione::File => {
+                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
+            }
+            Serializzazione::Flusso => {
+                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
+            }
+        }
+        let schema = plenora_io_core::driver::leggendo_arrow("arrow", || match serializzazione {
+            Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
+                .map(|lettore| lettore.schema())
+                .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido"))),
+            Serializzazione::Flusso => {
+                StreamReader::try_new(BufReader::new(File::open(&path)?), None)
+                    .map(|lettore| lettore.schema())
+                    .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido")))
+            }
         })?;
-        let schema = reader.schema();
         validate_contract_version(schema.as_ref())?;
         let canonical_version_present =
             schema.metadata().contains_key(PLENORA_CONTRACT_VERSION_KEY);
@@ -257,13 +352,42 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         )));
+        // La serializzazione richiesta. Il valore e' gia' stato validato da
+        // `validate_write` contro lo schema delle opzioni -- `Enumerato(&["file",
+        // "stream"])` -- quindi qui l'unico caso da decidere e' l'assenza, che
+        // vale il default dichiarato.
+        let flusso = match opts.format_options.get("serialization").map(String::as_str) {
+            Some("stream") => true,
+            None | Some("file") => false,
+            Some(_) => {
+                // Ramo difensivo: il validatore centrale ha gia' respinto ogni
+                // altro valore con il proprio token bounded.
+                return Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated("Arrow IPC: serializzazione sconosciuta"),
+                ));
+            }
+        };
+        // Lo staging non cambia con la serializzazione, ed e' il punto: i byte
+        // si scrivono per intero in un file temporaneo e la pubblicazione e'
+        // l'ultima operazione. Il flusso descrive **come** i byte sono
+        // disposti, non quando diventano visibili -- la consegna resta atomica
+        // sull'operazione in entrambe le forme.
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
-        let writer = FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
-            .map_err(|_| err(&PublicMessage::Curated("apertura del writer IPC fallita")))?;
+        let scrittore = if flusso {
+            ScrittoreIpc::Flusso(
+                StreamWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
+                    .map_err(|_| err(&PublicMessage::Curated("apertura del writer IPC fallita")))?,
+            )
+        } else {
+            ScrittoreIpc::File(
+                FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
+                    .map_err(|_| err(&PublicMessage::Curated("apertura del writer IPC fallita")))?,
+            )
+        };
         with_write_validation(
             Box::new(IpcWriter {
                 staging,
-                writer: Some(writer),
+                writer: Some(scrittore),
                 schema,
             }),
             self.descriptor(),
@@ -355,10 +479,35 @@ impl OpenDatasetHandle for IpcDataset {
         // `open` e questa chiamata il contenuto su disco puo' essere cambiato,
         // e una verifica fatta una volta sola varrebbe per un file che non e'
         // piu' quello.
-        driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
+        let serializzazione = serializzazione_del_file(&path)?;
+        match serializzazione {
+            Serializzazione::File => {
+                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
+            }
+            Serializzazione::Flusso => {
+                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
+            }
+        }
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
-            FileReader::try_new(File::open(&path)?, projection)
-                .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido")))
+            match serializzazione {
+                Serializzazione::File => FileReader::try_new(File::open(&path)?, projection)
+                    .map(LettoreIpc::File)
+                    .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido"))),
+                // Il `StreamReader` non prende una proiezione alla
+                // costruzione: il flusso non ha un indice da cui saltare le
+                // colonne, e la selezione si fa sul batch. Il risultato e' lo
+                // stesso -- `ProjectionSupport::Exact` resta vero -- e cambia
+                // solo dove costa: li' il lavoro non fatto, qui fatto e
+                // scartato.
+                Serializzazione::Flusso => {
+                    StreamReader::try_new(BufReader::new(File::open(&path)?), None)
+                        .map(|lettore| LettoreIpc::Flusso {
+                            lettore: Box::new(lettore),
+                            proiezione: projection,
+                        })
+                        .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido")))
+                }
+            }
         })?;
         Ok(plenora_io_core::with_batch_target(
             Box::new(IpcReader { reader, layer }),
@@ -368,8 +517,23 @@ impl OpenDatasetHandle for IpcDataset {
     }
 }
 
+/// Le due serializzazioni dietro la stessa interfaccia di lettura.
+///
+/// `Box` sul flusso perche' `StreamReader` e' molto piu' grande di
+/// `FileReader`, e senza il riquadro l'enum costerebbe a entrambe la
+/// dimensione della piu' grande.
+enum LettoreIpc {
+    File(FileReader<File>),
+    Flusso {
+        lettore: Box<StreamReader<BufReader<File>>>,
+        /// Gli indici delle colonne richieste, applicati al batch invece che
+        /// alla sorgente: il flusso non ha un indice da cui saltarle.
+        proiezione: Option<Vec<usize>>,
+    },
+}
+
 struct IpcReader {
-    reader: FileReader<File>,
+    reader: LettoreIpc,
     layer: LayerContract,
 }
 
@@ -386,17 +550,72 @@ impl LayerReader for IpcReader {
         // definito. Non e' un problema: il chiamante riceve un errore e il
         // contratto di `LayerReader` non prevede di proseguire dopo un errore.
         let reader = &mut self.reader;
-        plenora_io_core::driver::leggendo_arrow("arrow", move || match reader.next() {
-            None => Ok(None),
-            Some(Ok(b)) => Ok(Some(b)),
-            Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
+        plenora_io_core::driver::leggendo_arrow("arrow", move || match reader {
+            LettoreIpc::File(lettore) => match lettore.next() {
+                None => Ok(None),
+                Some(Ok(b)) => Ok(Some(b)),
+                Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
+            },
+            LettoreIpc::Flusso {
+                lettore,
+                proiezione,
+            } => match lettore.next() {
+                None => Ok(None),
+                Some(Ok(b)) => match proiezione {
+                    None => Ok(Some(b)),
+                    Some(indici) => b.project(indici).map(Some).map_err(|_| {
+                        err(&PublicMessage::Curated("proiezione del batch IPC fallita"))
+                    }),
+                },
+                Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
+            },
         })
+    }
+}
+
+/// Le due serializzazioni dietro la stessa interfaccia di scrittura.
+enum ScrittoreIpc {
+    File(FileWriter<BufWriter<File>>),
+    Flusso(StreamWriter<BufWriter<File>>),
+}
+
+impl ScrittoreIpc {
+    fn scrivi(&mut self, batch: &RecordBatch) -> std::result::Result<(), arrow_schema::ArrowError> {
+        match self {
+            Self::File(w) => w.write(batch),
+            Self::Flusso(w) => w.write(batch),
+        }
+    }
+
+    /// Chiude la serializzazione e restituisce il flusso sottostante.
+    ///
+    /// Chiudere e' parte del formato, non una cortesia: il contenitore scrive
+    /// il footer e il magic finale, il flusso il marcatore di fine. Un file a
+    /// cui mancasse la chiusura sarebbe illeggibile in entrambi i casi, e in
+    /// entrambi lo sarebbe **dopo** che la pubblicazione lo ha reso visibile.
+    fn chiudi(self) -> Result<BufWriter<File>> {
+        match self {
+            Self::File(mut w) => {
+                w.finish().map_err(|_| {
+                    err(&PublicMessage::Curated("chiusura dello stream IPC fallita"))
+                })?;
+                w.into_inner()
+                    .map_err(|_| err(&PublicMessage::Curated("recupero del writer IPC fallito")))
+            }
+            Self::Flusso(mut w) => {
+                w.finish().map_err(|_| {
+                    err(&PublicMessage::Curated("chiusura dello stream IPC fallita"))
+                })?;
+                w.into_inner()
+                    .map_err(|_| err(&PublicMessage::Curated("recupero del writer IPC fallito")))
+            }
+        }
     }
 }
 
 struct IpcWriter {
     staging: StagedFile,
-    writer: Option<FileWriter<BufWriter<File>>>,
+    writer: Option<ScrittoreIpc>,
     schema: SchemaRef,
 }
 
@@ -407,20 +626,16 @@ impl FormatWriter for IpcWriter {
         self.writer
             .as_mut()
             .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?
-            .write(&batch)
+            .scrivi(&batch)
             .map_err(|_| err(&PublicMessage::Curated("scrittura IPC fallita")))
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut w = self
+        let w = self
             .writer
             .take()
             .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
-        w.finish()
-            .map_err(|_| err(&PublicMessage::Curated("chiusura dello stream IPC fallita")))?;
-        let mut inner = w
-            .into_inner()
-            .map_err(|_| err(&PublicMessage::Curated("recupero del writer IPC fallito")))?;
+        let mut inner = w.chiudi()?;
         inner.flush()?;
         drop(inner);
         let (bytes, outcome) = self.staging.publish()?;
