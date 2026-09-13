@@ -849,19 +849,27 @@ def sonda_limiti_della_diagnostica(
 def sonda_dettagli_dell_errore(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito:
     """Se un errore porta `details`, quel valore ha la forma dichiarata.
 
-    # Il caso che oggi non si presenta, e perche' la sonda esiste lo stesso
+    # Il soggetto che prima non c'era
 
-    Nessun percorso d'errore del prodotto emette `details`: la settima chiave
-    delle buste d'errore e' `row_diagnostics`, che e' un altro contratto. Il
-    profilo lo ammette esplicitamente -- «Omitting `details` remains valid when
-    the four common error axes and optional `code` completely express the
-    failure» -- e finora lo esprimono.
+    Per un periodo questa sonda passava per **assenza di soggetto**: nessun
+    percorso d'errore emetteva `details`, e la settima chiave delle buste era
+    `row_diagnostics` al primo livello dell'errore. Li' il documento risultava
+    invalido contro `error-v1.schema.json`, che dichiara
+    `additionalProperties: false` e non prevede quella chiave.
 
-    La sonda verifica due cose, e la seconda e' quella che conta: che lo schema
-    sia **pubblicato** come il profilo pretende, e che nessun errore ne emetta
-    uno che non gli corrisponda. Oggi la seconda passa per assenza di soggetto,
-    ed e' detto nel dettaglio invece che nascosto in un verde: un verde che non
-    dice di non aver misurato niente e' il verde peggiore.
+    ROW-DIAGNOSTICS-1.0 dice dove va: «when the enclosing serialized error uses
+    `error-v1.schema.json`, the complete document is placed at
+    `details.row_diagnostics`». Da quando ci sta, `details` esiste davvero e
+    questa sonda ha qualcosa da misurare.
+
+    Restano i casi in cui `details` **non** c'e', e vanno bene: il profilo lo
+    ammette esplicitamente -- «Omitting `details` remains valid when the four
+    common error axes and optional `code` completely express the failure» -- e
+    un errore senza righe rifiutate non ha diagnostica da portare. Il
+    contatore `osservati` esiste percio' ancora: senza, un artefatto che non
+    rispondesse affatto avrebbe zero errori con `details` e la sonda avrebbe
+    concluso «il profilo lo ammette», passando per assenza di soggetto senza
+    soggetto.
     """
     schema = ROOT / "contracts" / "schemas" / "plenora-io-error-details-v1.schema.json"
     if not schema.is_file():
@@ -1056,7 +1064,14 @@ def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) ->
 
     # Che cosa la sonda verifica
 
-    Il documento che **e'** row-scoped: `row_diagnostics` nella busta d'errore.
+    Il documento che **e'** row-scoped: `row_diagnostics`, che sul filo vive in
+    `error.details.row_diagnostics`. La posizione non e' un dettaglio: e' quella
+    che ROW-DIAGNOSTICS-1.0 prescrive -- «when the enclosing serialized error
+    uses `error-v1.schema.json`, the complete document is placed at
+    `details.row_diagnostics`» -- e al primo livello dell'errore rendeva il
+    documento invalido contro quello schema, che dichiara
+    `additionalProperties: false`.
+
     I campi obbligatori non sono scritti qui -- si leggono dallo schema del
     checkout fissato -- perche' una copia locale dell'elenco si allineerebbe da
     sola il giorno in cui il contratto cambia, ed e' esattamente cio' che il pin
@@ -1080,10 +1095,19 @@ def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) ->
     if corsa.exit_code == 0:
         return Esito(False, "la sorgente ostile non ha prodotto un errore")
     documento = corsa.documento() or {}
-    diagnostica = (documento.get("error") or {}).get("row_diagnostics")
+    errore = documento.get("error") or {}
+    if "row_diagnostics" in errore:
+        return Esito(
+            False,
+            "`row_diagnostics` sta al primo livello dell'errore: li' il "
+            "documento e' invalido contro `error-v1.schema.json`, che dichiara "
+            "`additionalProperties: false`. Va in `details.row_diagnostics`.",
+        )
+    diagnostica = (errore.get("details") or {}).get("row_diagnostics")
     if not isinstance(diagnostica, dict):
         return Esito(
-            False, "l'errore su righe rifiutate non porta `row_diagnostics`"
+            False,
+            "l'errore su righe rifiutate non porta `details.row_diagnostics`",
         )
 
     mancanti = [campo for campo in obbligatori if campo not in diagnostica]

@@ -9,7 +9,7 @@
   },
   "come_si_alza": "modificando `tetto.righe_di_prodotto` e `perche_questo_numero` nello stesso commit che porta il codice. Il gate non lo alza da solo, e `--aggiorna` tocca la sola `misura_corrente`: e' cio' che rende l'aumento una decisione visibile invece di un effetto.",
   "misura_corrente": {
-    "prodotto": 44941,
+    "prodotto": 44969,
     "prove_nei_sorgenti": 2411,
     "file": 52
   }

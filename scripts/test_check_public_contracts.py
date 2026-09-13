@@ -138,6 +138,11 @@ class ArtefattoFinto:
         `schemas/row-diagnostics-v1.schema.json` dichiara, e la sonda li legge
         da li'. Un finto che ne omettesse uno farebbe rossa la sonda, che e'
         cio' che deve succedere.
+
+        La **posizione** e' `details.row_diagnostics`, dove ROW-DIAGNOSTICS-1.0
+        la vuole quando la busta usa `error-v1.schema.json`. Al primo livello
+        dell'errore -- dov'era -- il documento risultava invalido contro quello
+        schema, che dichiara `additionalProperties: false`.
         """
         busta = {
             "status": "error",
@@ -153,23 +158,25 @@ class ArtefattoFinto:
                 "phase": "read",
                 "remote_effect": "none",
                 "retry": {"kind": "never"},
-                "row_diagnostics": {
-                    "contract": "plenora-row-diagnostics-v1",
-                    "scope": "read",
-                    "index_basis": "source_row_zero_based",
-                    "completeness": "partial",
-                    "observed_total": 1,
-                    "counts": {"finto.riga_invalida": 1},
-                    "examples_limit": 64,
-                    "examples_truncated": False,
-                    "examples": [
-                        {
-                            "cause": "finto.riga_invalida",
-                            "column": "geometry",
-                            "source_index": 1,
-                        }
-                    ],
-                    "knowledge_limits": ["scan_terminated_before_eof"],
+                "details": {
+                    "row_diagnostics": {
+                        "contract": "plenora-row-diagnostics-v1",
+                        "scope": "read",
+                        "index_basis": "source_row_zero_based",
+                        "completeness": "partial",
+                        "observed_total": 1,
+                        "counts": {"finto.riga_invalida": 1},
+                        "examples_limit": 64,
+                        "examples_truncated": False,
+                        "examples": [
+                            {
+                                "cause": "finto.riga_invalida",
+                                "column": "geometry",
+                                "source_index": 1,
+                            }
+                        ],
+                        "knowledge_limits": ["scan_terminated_before_eof"],
+                    }
                 },
             },
         }

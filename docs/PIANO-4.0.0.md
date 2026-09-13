@@ -88,11 +88,11 @@ possa eseguirle senza chiedere che cosa intendessero.
 |---|---|---|---|---|---|---|
 | A1 | Identificatore di componente `plenora-<domain>-tools` | SURF-001 | `release/cli-protocol-v2.json` dichiara `"component": "plenora-IO-tools"` | maiuscole non ammesse dalla forma | fissare `plenora-io-tools` come identificatore pubblico unico, in un solo punto del codice | il campo `component` di ogni busta JSON vale `plenora-io-tools`; una sonda confronta la costante con la forma `^plenora-[a-z]+-tools$` |
 | A2 | Pin immutabile del repository dei contratti | ADOPTION §1.2 | **chiusa.** `contracts/adoption-source.json` fissa `453c8d1ff2eb…`, dichiara il perimetro delle superfici e la ragione di ciascun `not_applicable` | — | fatto | `scripts/check_public_contracts.py` rifiuta un checkout la cui `HEAD` non coincide col pin, e una sonda lo verifica |
-| A3 | Manifesto di adozione validato dallo schema v4 | ADOPTION §1.5, `adoption-manifest-v4.schema.json` | assente | nessuna dichiarazione di conformità pubblicabile | manifesto con `artifacts`, `contracts`, `deviations`; ogni artefatto porta `version` e `digest` `sha256:<64 hex>` | il manifesto valida contro lo schema v4 al pin; i digest coincidono con quelli congelati in `assurance/current-state.json` |
+| A3 | Manifesto di adozione validato dallo schema v4 | ADOPTION §1.5, `adoption-manifest-v4.schema.json` | **chiusa nella meccanica, aperta nel congelamento.** La parte redatta e' `contracts/adozione-4.0.0.json`: tredici contratti con stato e comandi di verifica, cinque deviazioni. La parte misurata la produce `scripts/costruisci-manifesto-adozione.py`, che legge i digest dai file veri e la versione dal `Cargo.toml` del workspace | resta da produrla sugli artefatti **finali**, che vogliono il bump a 4.0.0: oggi il generatore scrive `3.0.0` perche' quello dice il workspace, ed e' giusto che lo dica | due file e non uno, perche' due cose cambiano in momenti diversi: che cosa dichiariamo si rilegge in revisione a ogni commit, l'identita' degli artefatti si misura dopo il congelamento. Il manifesto generato non e' committato — un digest stantio somiglia a una garanzia | `check_manifesto_adozione.py` valida contro lo schema del checkout fissato con un validatore che **rifiuta** i costrutti che non conosce invece di saltarli, confronta il pin con `adoption-source.json`, pretende che ogni contratto applicabile del profilo compaia, e ricalcola i digest sui byte. Diciotto sonde, fra cui il caso in cui lo schema usasse `oneOf`: il gate deve diventare rosso, non passare oltre |
 | A4 | Identità immutabile dell'artefatto | ADOPTION §2 | i sei digest sono già congelati nella candidate e verificati due volte | **nessuno** — la macchina di rilascio produce già esattamente ciò che il manifesto richiede | riusare i digest esistenti invece di ricalcolarli | i digest del manifesto sono gli stessi di `aperto.candidate_release.artefatti` |
 | A5 | Prova black-box: il verificatore invoca un binario, non ispetta lo stato privato | ADOPTION §3 | **chiusa.** `scripts/check_public_contracts.py` riceve un percorso e interroga il processo; nessuna sonda legge un sorgente o una struttura interna | — | fatto, col job CI `profilo-pubblico` che costruisce il binario e lo interroga contro il pin | il verificatore protegge **8 requisiti su 19** sull'artefatto 3.0.0 e ne mostra 11 da implementare; 32 sonde provano che le tre regole mordono |
 | A5b | Identità dell'artefatto qualificato | ADOPTION §2 | i digest sono congelati e verificati, ma nessun controllo lega il **binario interrogato** a un digest | il verificatore da solo non dice quale artefatto ha interrogato | in **qualifica** il binario si estrae dall'archivio identificato dal digest, e il verificatore riceve quel percorso | l'estrazione ricalcola il digest dell'archivio e lo confronta con `aperto.candidate_release.artefatti` **prima** di invocare; un digest diverso ferma la qualifica |
-| A6 | Deviazioni dichiarate con regola, osservabilità e tracking | ADOPTION §5 | assente | una conformità parziale non dichiarata si legge come completa | ogni riga di questa matrice non chiusa alla 4.0.0 diventa una `deviation` con il proprio identificatore | ogni deviazione cita un identificatore esistente (`SURF-001`, `CLI-2.4`, …) e dichiara `detectable_before_invocation` |
+| A6 | Deviazioni dichiarate con regola, osservabilità e tracking | ADOPTION §5 | **chiusa: cinque deviazioni, misurate una per una** confrontando il documento capability col catalogo comune campo per campo, invece che a memoria | **la stesura precedente ne elencava una falsa**: diceva «i nomi in `-v2` delle quattro buste storiche», e B14 li aveva allineati — tutti e sei i contratti d'uscita coincidono col catalogo, verificato interrogando il binario | le cinque: i due content type `arrow.stream` che il catalogo ammette per `io.read` e `io.write` e che questo artefatto non produce; i quattro archi `direct` della matrice di composizione, che quel content type lo nominano; il `side_effect: local` di `io.read` dove il catalogo dice `none`; e la regola di pubblicazione che il catalogo non esprime — un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink | ognuna porta regola, comportamento osservato **con la conseguenza per il consumatore**, superficie, tracking e se il consumatore possa accorgersene prima di invocare. I binding `not_applicable` restano **distinti**: una deviazione dice «si applica e non lo soddisfo», `not_applicable` dice «non si applica», e il gate rifiuta un contratto che compaia in tutt'e due |
 
 ### B — API pubbliche: CLI
 
@@ -136,8 +136,8 @@ incrociato, non l'implementazione. Mancava ogni riga operativa.
 |---|---|---|---|---|---|---|
 | BB1 | Dodici schemi immutabili per le sei coppie | profilo io-tools, «Component-owned wire contracts» | **chiusa: dodici su dodici** in `contracts/schemas/`, con gli identificatori che il catalogo comune assegna; il CLI emette `plenora-io-catalog-v2` senza uno schema che lo definisca | — | fatto | `ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione` invoca **undici** forme reali — `inspect` su formato a layer unico e multi-layer, `layers` su entrambi, `read` con e senza consegna, `write` verso due sink, `convert` verso un formato che perde e uno che non perde — e valida ciascuna contro lo schema del contratto che la busta annuncia. Le sei uscite del catalogo sono coperte tutte, e la sonda lo conta |
 | BB2 | Esempi di conformità validi e invalidi | profilo io-tools | **chiusa: quarantaquattro esempi** per tutte e sei le coppie, con un manifesto che ne dichiara il verdetto atteso | — | fatto | il gate valida i «validi» e **rifiuta** gli «invalidi»; in più **undici** invalidi portano l'invocazione CLI equivalente e il codice che il prodotto deve rendere, così che schema e binario debbano rifiutare lo stesso insieme. Un esempio invalido che il solo validatore rifiuta proverebbe che il validatore sa dire di no |
-| BB4bis | Le perdite non sono un documento `plenora-row-diagnostics-v1` | ROW-DIAGNOSTICS-1.0, DIAG-001…013 | il blocco `loss` del risultato ha forma nostra: `counts`, `esempi`, `omesse`, `troncato`, `lossless` | mancano `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit`, e `contract` non vale `plenora-row-diagnostics-v1`. Quel contratto è fra quelli **adottati**, quindi o le perdite vi si conformano o la deviazione va dichiarata nel manifesto con la sua ragione | **chiusa, e la risposta non era rinominare.** `loss` è indicizzata per **layer, campo e classe di tipo**: la sua struttura interna (`Posizione`) non ha proprio un posto dove mettere un indice di riga, quindi non è diagnostica di riga mancata ma un'altra cosa — che cosa il formato non ha saputo rappresentare. Il documento che **è** row-scoped esiste già ed è conforme: `row_diagnostics` nella busta d'errore porta tutti e nove i campi obbligatori, `contract: plenora-row-diagnostics-v1`, `index_basis`, `completeness`, `knowledge_limits` | la sonda `diagnostica.riga-e-il-contratto-condiviso` legge i campi obbligatori e i due enum **dallo schema del checkout fissato** invece di ricopiarli, e li confronta con il documento emesso. Rinominare `loss` avrebbe prodotto due documenti con lo stesso nome che rispondono a domande diverse |
-| BB3 | `plenora-io-error-details-v1` | profilo io-tools, ERR-013 | **schema pubblicato**, con i campi che `ErrorContext` già calcola: driver, indice di layer, indice di campo, ragione della capacità, identificatore del contratto | **nessun percorso d'errore del prodotto emette `details`**: la settima chiave delle buste d'errore è `row_diagnostics`, che è un altro contratto. Il profilo lo ammette — «Omitting `details` remains valid when the four common error axes and optional `code` completely express the failure» — e finora lo esprimono | pubblicato lo stesso, perché ERR-013 rende immutabile l'identificatore: sceglierla adesso è meglio che scoprirla sotto pressione al primo errore che ne avrà bisogno. Gli indici e non i nomi, perché un nome viene dalla sorgente e il messaggio deve restare redatto | la sonda `errore.dettagli-tipizzati` verifica che lo schema sia pubblicato e che nessun errore emetta un `details` fuori dalla forma. **Oggi passa per assenza di soggetto, e lo dice nel dettaglio**: un verde che non dichiari di non aver misurato niente è il verde peggiore |
+| BB4bis | Le perdite non sono un documento `plenora-row-diagnostics-v1` | ROW-DIAGNOSTICS-1.0, DIAG-001…013 | il blocco `loss` del risultato ha forma nostra: `counts`, `esempi`, `omesse`, `troncato`, `lossless` | mancano `index_basis`, `knowledge_limits`, `observed_total`, `examples_limit` | **chiusa, e la risposta non era rinominare.** `loss` è indicizzata per **layer, campo e classe di tipo**: non ha un posto dove mettere un indice di riga, quindi non è diagnostica di riga mancante ma un'altra cosa. Il documento che **è** row-scoped esiste ed è conforme | **e ora sta anche dove il contratto lo mette.** Stava in `error.row_diagnostics`; ROW-DIAGNOSTICS-1.0 dice `details.row_diagnostics` «when the enclosing serialized error uses `error-v1.schema.json`», e al primo livello rendeva il documento d'errore **invalido** contro quello schema, che dichiara `additionalProperties: false`. Spostarlo lo porta anche dentro i tetti strutturali di ERR-012, che prima non lo toccavano: il caso peggiore misura 53 531 byte, 601 nodi, profondità 5 e 64 proprietà, contro 262 144, 2 048, 8 e 128. Il verificatore ora **rifiuta** la posizione vecchia invece di accettarne due |
+| BB3 | `plenora-io-error-details-v1` | profilo io-tools, ERR-013 | **schema pubblicato**, con i campi che `ErrorContext` già calcola | nessun percorso emetteva `details`: la sonda passava per **assenza di soggetto**, e lo diceva nel dettaglio invece di nasconderlo in un verde | **chiusa: `details` esiste.** Porta `row_diagnostics`, ed è la stessa correzione di BB4bis vista dall'altro capo — la chiave che mancava a `details` era proprio quella che stava nel posto sbagliato. Gli altri cinque campi restano dichiarati e non emessi, e il profilo lo ammette per iscritto. Lo schema è stato esteso **prima** della prima release che lo pubblica: ERR-013 rende immutabile l'identificatore, e a v3.0.0 quel file non esisteva — dopo la 4.0.0 servirebbe un `-v2` | la sonda `errore.dettagli-tipizzati` ha ora un soggetto da misurare: confronta le chiavi emesse con quelle dichiarate. Il contatore `osservati` resta, perché un artefatto che non rispondesse affatto avrebbe zero `details` e la sonda concluderebbe «il profilo lo ammette» |
 | BB4 | Limiti semantici di ERR-011 e ERR-012 | ERRORS-1.0 §6 | **chiusa: sette assi su sette.** L'ultimo era il primo — `MAX_BYTE_BUSTA` limitava le cinque sezioni diagnostiche, non la busta d'errore intera che ERR-011 governa. Ora la busta completa passa da `busta::entro_il_tetto_dell_errore` | — | la riduzione toglie prima ciò che costa meno a chi legge: gli esempi della diagnostica (`counts` e `observed_total` restano, e sono ciò su cui una macchina decide), poi l'intera diagnostica, che è facoltativa per contratto; da ultimo restano i quattro assi. Ogni riduzione **si dichiara** sostituendo il codice: una busta accorciata in silenzio direbbe che la diagnostica non c'era, mentre la verità è che non ci stava | sei sonde: il confine **esatto** (un byte sotto, un byte sopra), le tre riduzioni, e l'idempotenza — che serve perché il tetto si applica due volte, in `err_doc` con la riserva per l'identità e sulla busta completa nel binding. Nessun percorso reale arriva vicino a mezzo megabyte: è una guardia, e una guardia che non scatta mai va comunque provata |
 | BB5 | Verifica dei metadati Arrow al confine | ARROW-001…ARROW-012 | **chiusa per sei requisiti**, in `tests/metadati_arrow.rs`, letti con `arrow-ipc` dal file consegnato: ARROW-001, ARROW-003/004, ARROW-005, ARROW-006, ARROW-007, ARROW-012 | **quattro dei cinque «non coperti» ora hanno una prova, e le ragioni con cui li avevo lasciati fuori erano argomenti**: ARROW-002 «è una regola sul consumatore» — e consumatori lo siamo, quindi un file che dichiara `contract.version: 2` deve essere rifiutato dal **confine pubblico**, non solo da una funzione; ARROW-008 «lo esercita `provenienza_crs.rs`» — che verifica da dove il CRS arriva, non che due chiavi sopravvivano a un pass-through; ARROW-009 «è una proprietà di ciò che non facciamo» — un'assenza non si prova guardandosi dentro; ARROW-010 «`io.read` non dichiara lossless» — **falso** quando la sorgente è Arrow, dove la busta rende esattamente `lossless` | fatto | undici sonde. ARROW-011 resta fuori per l'antecedente: «An operation advertised with Arrow **stream** output…», e questa superficie dichiara il solo `arrow.file` perché CLI-2.0 §4 riserva stdout alla busta. Diventa vero con B13 |
 | BB5a | L'identità dei campi attributo | ARROW-003, ARROW-004 | **chiusa, e l'argomento con cui l'avevo rimandata era sbagliato.** Ogni campo porta ora `plenora.field_id`, e gli identificatori che arrivano dalla sorgente **non vengono riscritti** | avevo difeso l'assenza con «nessuna superficie pubblica proietta». L'argomento copriva la proiezione e lasciava fuori la terza parola del requisito: «rename, projection or **round-trip**». Il round trip lo facciamo, ed è una forma di prima classe — `io.read` e `io.write` sono dichiarate l'una l'inversa dell'altra | `with_field_identity` stampa l'indice **solo dove manca**: un id che arriva dalla sorgente si conserva, ed è ciò che distingue una conservazione da un ricalcolo. Il lettore IPC inoltre **rifiutava** un file conforme il cui `plenora.field_id` geometrico non fosse la posizione fisica: il vincolo nasceva da una ragione vera — quel numero finiva in `batch.column(index)` — ma la risposta giusta è non usare un'identità come indice. Ora `GeometryColumnContract` ha due campi distinti. Lo snapshot dei quartetti perde con ciò un sito in `driver-ipc::open` — un `InvalidPlan/Validate/Contract/Never` su due: quel rifiuto non esiste più, e il quartetto resta perché l'altro sito lo costruisce ancora | due sonde: che ogni campo abbia un'identità distinta e uguale dopo il giro, e che un'identità **non posizionale** della sorgente torni intatta. La seconda è quella che conta: su un giro che non cambia l'ordine, conservare e ricalcolare danno lo stesso risultato |
@@ -409,11 +409,19 @@ requisiti Arrow letti dai byte consegnati, i sette assi dei limiti.
 **Obbligatorio e non ancora provato.** Il requisito si applica, e la prova non
 c'è. Oggi la lista è:
 
-* **I1** — la qualifica finale col manifesto di adozione e le sue deviazioni.
-  Nessuna sonda la copre, e non è un'omissione: è il passo che viene dopo;
-* **A3, A6** — le deviazioni dichiarate nel manifesto, che esistono (il
-  `side_effect: local` di HB3, i nomi in `-v2` delle quattro buste storiche) e
-  non sono ancora scritte dove un consumatore le leggerebbe.
+* **I1 e A5b** — la qualifica, sul binario estratto dall'archivio che il
+  digest identifica. Nessuna sonda la copre, e non è un'omissione: è il passo
+  che viene dopo. Con essa il bump della versione, che gli artefatti finali
+  vogliono.
+
+A3 e A6 stavano qui e non ci stanno più. Vale la pena dire come si sono
+chiuse, perché la stesura che le teneva aperte conteneva un errore
+istruttivo: elencava fra le deviazioni «i nomi in `-v2` delle quattro buste
+storiche», che B14 aveva già allineato. Il confronto campo per campo fra il
+documento capability e il catalogo l'ha smentita — tutti e sei i contratti
+d'uscita coincidono. **Una deviazione ricordata a memoria dichiara una non
+conformità che non esiste**, ed è sbagliata quanto tacerne una che esiste: le
+cinque che restano vengono da un confronto meccanico, non da un ricordo.
 
 Questa categoria è la sola che conti per la conformità. Le altre due si possono
 spiegare; questa no.
@@ -422,19 +430,28 @@ spiegare; questa no.
 la cosa non ci sia, e non c'è. Non è un debito, e metterlo in un elenco di
 debiti farebbe cercare un lavoro che non esiste:
 
-* **`details`** — «Omitting `details` remains valid when the four common error
-  axes and optional `code` completely express the failure». Nessun percorso lo
-  emette, e i quattro assi bastano. Lo schema è pubblicato lo stesso perché
-  ERR-013 rende immutabile l'identificatore: sceglierne la forma adesso è meglio
-  che scoprirla sotto pressione;
+* **`details` senza righe rifiutate** — «Omitting `details` remains valid when
+  the four common error axes and optional `code` completely express the
+  failure». Un errore che non ha righe rifiutate non ha diagnostica da portare,
+  e `details` non c'è affatto. **Quando invece c'è**, porta `row_diagnostics`
+  ed è la posizione che ROW-DIAGNOSTICS-1.0 prescrive: la categoria di questa
+  chiave è cambiata, e prima stava qui per la ragione sbagliata — il documento
+  c'era, al primo livello dell'errore, dove rendeva la busta invalida contro
+  `error-v1.schema.json`;
 * **ARROW-011** — «An operation advertised with Arrow **stream** output MUST
-  allow…». Questa superficie dichiara il solo `arrow.file`, quindi l'antecedente
-  è falso — e da B13 la scelta è misurata invece che subita: i dieci driver sono
-  tutti `OperationAtomic`, e annunciare uno stream prometterebbe la consegna
-  incrementale che quell'atomicità esclude. Diventa un requisito vero il giorno
-  in cui una superficie annuncia lo stream, non prima;
+  allow…». Questa superficie annuncia il solo `arrow.file`, quindi l'antecedente
+  è falso. La ragione va detta con precisione, perché per un periodo l'ho detta
+  male: lo stream è una **serializzazione**, non una consegna incrementale, e
+  l'atomicità dell'operazione — vera per tutti e dieci i driver — non lo
+  esclude. Semplicemente non lo produciamo, ed è registrato come deviazione nel
+  manifesto. Il requisito diventerebbe applicabile il giorno in cui lo
+  annunciassimo, e sarebbe soddisfatto: il descrittore dichiara già
+  `materialization: bounded`, che è l'uscita che il requisito prevede;
 * **`plenora-runtime-binding-v1` e `plenora-python-sdk-v1`** — dichiarati
-  `not_applicable` nel manifesto di adozione, con la ragione.
+  `not_applicable` nel manifesto di adozione, con la ragione. Non sono
+  deviazioni, e il gate del manifesto rifiuta un contratto che compaia in
+  tutt'e due le liste: «non si applica» e «si applica e non lo soddisfo» non
+  possono valere insieme.
 
 La differenza fra la seconda e la terza non è di grado. Un requisito
 facoltativo e assente è una scelta che il contratto prevede; uno obbligatorio e
@@ -447,14 +464,18 @@ verifica da solo.
 Dice che i requisiti **elencati in quel registro** sono verificati sul confine
 pubblico. Fuori restano:
 
-* **A3, A6, I1** — il manifesto di adozione con le sue deviazioni, e la
-  qualifica. È rimasto solo questo, ed è il passo che viene dopo lo sviluppo.
+* **I1 e A5b** — la qualifica, sul binario estratto dall'archivio che il
+  digest identifica. È rimasto questo, ed è il passo che viene dopo lo
+  sviluppo.
 
-B13 e C1b ci stavano fino al blocco delle superfici pubbliche e non ci stanno
-più: il primo è chiuso da una decisione che i descrittori dichiarano e quattro
-sonde misurano; il secondo dal nome nuovo. Resta fuori dal registro, e non è un
-requisito, la **proiezione** delle colonne: nessun contratto la chiede a questa
-versione, e nominarla fra i residui la farebbe sembrare dovuta.
+A3 e A6 ci stavano fino al blocco del manifesto; B13 e C1b fino a quello delle
+superfici. Resta fuori dal registro, e non è un requisito, la **proiezione**
+delle colonne: nessun contratto la chiede a questa versione, e nominarla fra i
+residui la farebbe sembrare dovuta. Il registro non conta neppure le cinque
+**deviazioni**, ed è giusto così: una deviazione non è un requisito mancante
+dal registro, è un requisito che il registro non può dichiarare soddisfatto —
+il manifesto le elenca, e ADOPTION dice per iscritto che non contano come
+conformità.
 
 Un registro completo misura tutto ciò che gli è stato chiesto di misurare, non
 tutto ciò che serve: il gate non sa che cosa manchi al registro stesso.
@@ -739,40 +760,40 @@ nessuno le aveva chiesto.
 
 ### Necessari alla 4.0.0
 
-Tre righe, e sono tutte lo stesso passo: dichiarare ciò che si è fatto in una
-forma che un consumatore possa leggere, e poi qualificarlo.
+Una riga, ed è la qualifica.
 
-* **A3 — il manifesto di adozione.** `adoption-manifest-v4.schema.json` con
-  `artifacts`, `contracts` e `deviations`; ogni artefatto con `version` e
-  `digest` `sha256:<64 hex>`. Senza, nessuna dichiarazione di conformità è
-  pubblicabile: il prodotto è conforme e non lo dice in nessun posto dove
-  qualcuno lo cerchi;
-* **A6 — le deviazioni dichiarate.** Esistono e sono note: il `side_effect:
-  local` di `io.read` dove il catalogo dice `none`, i nomi in `-v2` delle
-  quattro buste storiche, `row_diagnostics` su `error.` invece che su
-  `details.`, `plenora-runtime-binding-v1` e `plenora-python-sdk-v1`
-  `not_applicable`. Ciascuna diventa una `deviation` con identificatore,
-  regola, osservabilità e tracking. Una conformità parziale non dichiarata si
-  legge come completa, ed è il difetto peggiore di tutti perché è invisibile;
 * **I1 e A5b — la qualifica.** L2 su albero pulito, e il verificatore del
   profilo pubblico che interroga il binario **estratto dall'archivio
   identificato dal digest**, non quello dell'albero di lavoro. Oggi il
   verificatore dice che l'artefatto costruito da questo commit rispetta i
   contratti; la qualifica deve dire che li rispetta **l'artefatto che si
-  spedisce**.
+  spedisce**. Con essa il bump della versione, perché il manifesto porta
+  l'identità degli artefatti finali e oggi il generatore legge `3.0.0` dal
+  workspace — ed è giusto che lo legga da lì.
 
-Nient'altro. In particolare **non** sono necessari alla 4.0.0, e vale la pena
-dirlo perché somigliano a lacune:
+**A3 e A6 sono chiuse.** La parte redatta del manifesto — tredici contratti con
+i loro comandi di verifica, cinque deviazioni — è
+`contracts/adozione-4.0.0.json` e un gate la rilegge a ogni commit. La parte
+misurata la produce `scripts/costruisci-manifesto-adozione.py` dai file veri,
+e `check_manifesto_adozione.py` ne ricalcola i digest: fra il congelamento del
+codice e il manifesto non c'è una modifica da fare, solo una corsa.
 
-* lo **stream Arrow** e la **proiezione** delle colonne — ARROW-011 si applica a
-  chi annuncia lo stream, e questa superficie annuncia il file per una scelta
-  misurata (tutti i driver sono `operation_atomic`). Il catalogo comune li
-  ammette, non li pretende;
+Non sono necessari alla 4.0.0, e vale la pena dirlo perché somigliano a lacune:
+
+* lo **stream Arrow** e la **proiezione** delle colonne. Lo stream è una
+  serializzazione, non una consegna incrementale: l'atomicità dell'operazione
+  non lo esclude, semplicemente non lo produciamo. È registrato come deviazione
+  — tre delle cinque, contando i quattro archi di composizione che lo nominano
+  — e si chiuderebbe con un'opzione di scrittura `serialization` sul sink IPC,
+  che è un'opzione di formato e non un campo nuovo dello schema d'ingresso;
 * il **vocabolario successore** che distinguerebbe «scandito, nessuna
   geometria» da «tipi ignoti» sul filo — è la decisione 0006, non è nostra, e
   la metà locale è chiusa;
-* `details` nelle buste d'errore — il profilo ammette esplicitamente di
-  ometterlo quando i quattro assi bastano, e bastano.
+* `details` **vuoto**. Non lo è più: porta `row_diagnostics`, dove
+  ROW-DIAGNOSTICS-1.0 lo vuole. Al primo livello dell'errore — dov'era — il
+  documento risultava invalido contro `error-v1.schema.json`, che dichiara
+  `additionalProperties: false`. Restano i casi senza righe rifiutate, dove
+  `details` non c'è affatto, e il profilo lo ammette per iscritto.
 
 ### Miglioramenti rinviabili
 

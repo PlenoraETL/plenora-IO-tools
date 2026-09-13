@@ -95,11 +95,17 @@ class ProtocolError(PlenoraError):
 class ErrorEnvelope:
     """La busta `plenora-io-error-v1`, con i suoi campi obbligatori.
 
-    `row_diagnostics` e' il settimo campo, e c'e' solo quando l'errore porta la
-    diagnostica riga per riga. Resta un dizionario grezzo: ha un contratto
-    proprio -- `plenora-row-diagnostics-v1` -- e modellarlo qui vorrebbe dire
-    ratificare in questo ciclo una superficie che non e' stata censita per
-    l'SDK.
+    `row_diagnostics` c'e' solo quando l'errore porta la diagnostica riga per
+    riga, e sul filo vive dentro `details`: ROW-DIAGNOSTICS-1.0 dice che «when
+    the enclosing serialized error uses `error-v1.schema.json`, the complete
+    document is placed at `details.row_diagnostics`». Per un periodo la CLI lo
+    scriveva al primo livello dell'errore, dove rendeva il documento invalido
+    contro quello schema; l'attributo qui resta piatto perche' e' la comodita'
+    che serve a chi lo legge, e la posizione sul filo la sa questa classe.
+
+    Resta un dizionario grezzo: ha un contratto proprio --
+    `plenora-row-diagnostics-v1` -- e modellarlo qui vorrebbe dire ratificare
+    in questo ciclo una superficie che non e' stata censita per l'SDK.
     """
 
     code: str
@@ -135,7 +141,7 @@ class ErrorEnvelope:
             remote_effect=errore["remote_effect"],
             retry=errore["retry"],
             message=errore["message"],
-            row_diagnostics=errore.get("row_diagnostics"),
+            row_diagnostics=(errore.get("details") or {}).get("row_diagnostics"),
         )
 
 

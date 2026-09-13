@@ -526,7 +526,7 @@ fn geoparquet_con_riga_senza_geometria_a_dxf_rifiuta_la_riga() {
     let esito = converti("canonico.parquet", &uscita, &[]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     let errore = esito.errore();
-    let diagnostica = &errore["row_diagnostics"];
+    let diagnostica = &errore["details"]["row_diagnostics"];
     assert_eq!(
         diagnostica["counts"]["dxf.null_geometry_unsupported"], 1,
         "il rifiuto e' di riga e nomina la propria causa: {errore}"

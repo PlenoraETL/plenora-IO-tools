@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://plenora.dev/io-tools/schemas/plenora-io-error-details-v1.schema.json",
   "title": "plenora-io-error-details-v1",
-  "$comment": "La forma tipizzata che `error.details` DEVE avere quando un errore di IO-tools ne porta uno. Il profilo io-tools lo esige: «When an IO error includes `details`, the value MUST conform to the component-owned `plenora-io-error-details-v1` schema. IO-tools MUST publish that schema and bounded valid and invalid examples.»\n\nSTATO DI FATTO, perche' vale piu' della forma: **nessun percorso d'errore del prodotto emette oggi `details`**. La settima chiave che le buste d'errore portano e' `row_diagnostics`, che e' un altro contratto -- condiviso, non nostro -- e la quarta frase della clausola del profilo copre esattamente questo caso: «Omitting `details` remains valid when the four common error axes and optional `code` completely express the failure». Finora li esprimono.\n\nLo schema esiste lo stesso, e non per formalismo: ERR-013 dice che gli identificatori di contratto sono immutabili e che far evolvere la forma richiede un identificatore nuovo. Pubblicarla prima di emetterla significa sceglierla una volta invece di scoprirla sotto pressione al primo errore che ne avra' bisogno.\n\nI campi non sono inventati: sono quelli che `ErrorContext` gia' calcola dentro il prodotto e che oggi finiscono soltanto nel messaggio curato. `details` e' il posto dove diventerebbero leggibili da una macchina senza analizzare quel testo, che e' cio' che ERR-002 chiede di non dover fare.",
+  "$comment": "La forma tipizzata che `error.details` DEVE avere quando un errore di IO-tools ne porta uno. Il profilo io-tools lo esige: «When an IO error includes `details`, the value MUST conform to the component-owned `plenora-io-error-details-v1` schema. IO-tools MUST publish that schema and bounded valid and invalid examples.»\n\n**`details` ora esiste davvero**, e porta un campo solo: `row_diagnostics`. ROW-DIAGNOSTICS-1.0 dice dove va messo -- «When the enclosing serialized error uses `error-v1.schema.json`, the complete document is placed at `details.row_diagnostics`» -- e per un periodo il prodotto lo scriveva al primo livello dell'errore. Li' rendeva il documento **invalido** contro `error-v1.schema.json`, che dichiara `additionalProperties: false`: una busta che nessun consumatore poteva validare senza sapere che noi la scrivevamo diversa.\n\nGli altri cinque campi restano dichiarati e **non emessi**. La quarta frase della clausola del profilo li copre: «Omitting `details` remains valid when the four common error axes and optional `code` completely express the failure» -- e quando la diagnostica di riga non c'è, `details` non c'è affatto. Sono dichiarati lo stesso perché ERR-013 rende immutabile l'identificatore: sceglierne la forma adesso è meglio che scoprirla sotto pressione al primo errore che ne avrà bisogno. Non sono inventati: sono i campi che `ErrorContext` già calcola e che oggi finiscono soltanto nel messaggio curato.\n\nGli indici e non i nomi: un nome viene dalla sorgente e il messaggio pubblico deve restare redatto.\n\nI tetti di ERR-012 valgono su tutto `details`, quindi anche sulla diagnostica di riga -- cosa che al primo livello non succedeva. Il caso peggiore che il prodotto sa emettere (64 esempi, 64 categorie, stringhe ai loro tetti) misura 53 531 byte, 601 nodi, profondità 5 e 64 proprietà per oggetto, contro tetti di 262 144, 2 048, 8 e 128: ci sta per costruzione, e la costruzione sono i tetti che il prodotto applica già alla diagnostica.",
   "type": "object",
   "additionalProperties": false,
   "minProperties": 1,
@@ -36,6 +36,18 @@
       "minLength": 1,
       "maxLength": 128,
       "$comment": "L'elemento del contratto dei dati su cui il fallimento cade -- una colonna geometrica, un campo dello schema -- nella forma stabile che il prodotto usa internamente. Non e' il nome della colonna nel file."
+    },
+    "row_diagnostics": {
+      "$comment": "Il documento `plenora-row-diagnostics-v1`, che è un contratto **condiviso** e non nostro: la sua forma la fissa `https://schemas.plenora.dev/row-diagnostics-v1.schema.json`, e ricopiarla qui creerebbe due verità che divergono. Qui si dichiara soltanto che la chiave esiste e quale contratto la governa, che è ciò che un consumatore deve sapere per sceglierne il validatore.",
+      "type": "object",
+      "required": [
+        "contract"
+      ],
+      "properties": {
+        "contract": {
+          "const": "plenora-row-diagnostics-v1"
+        }
+      }
     }
   },
   "$defs": {
@@ -44,7 +56,15 @@
     }
   },
   "examples": [
-    { "driver": "geoparquet", "capability_reason": "type_not_representable" },
-    { "driver": "shp", "layer_index": 0, "field_index": 2, "capability_reason": "crs_not_representable" }
+    {
+      "driver": "geoparquet",
+      "capability_reason": "type_not_representable"
+    },
+    {
+      "driver": "shp",
+      "layer_index": 0,
+      "field_index": 2,
+      "capability_reason": "crs_not_representable"
+    }
   ]
 }

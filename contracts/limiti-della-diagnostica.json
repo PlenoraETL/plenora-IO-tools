@@ -25,28 +25,28 @@
       "asse": "byte di `details`",
       "requisito": "ERR-011",
       "tetto_del_contratto": 262144,
-      "tetto_del_prodotto": null,
-      "costante": null,
-      "governa": "il contratto, per assenza di soggetto",
-      "nota": "nessun percorso d'errore del prodotto emette `details`. La forma dichiarata in `plenora-io-error-details-v1` ha cinque proprieta' scalari con stringhe limitate a 128 byte l'una, quindi qualche centinaio di byte nel caso peggiore: tre ordini di grandezza sotto il tetto. Il rischio qui non e' superarlo, e' dimenticarsi del tetto quando `details` comincera' a esistere."
+      "tetto_del_prodotto": 53531,
+      "costante": "`busta::MAX_BYTE_ERRORE` sulla busta intera, piu' i tetti della diagnostica",
+      "governa": "il prodotto",
+      "nota": "**`details` ora esiste**: porta `row_diagnostics`, dove ROW-DIAGNOSTICS-1.0 lo mette quando la busta usa `error-v1.schema.json`. Al primo livello dell'errore -- dov'era -- il documento era invalido contro quello schema e questi quattro tetti non lo toccavano affatto. Il numero e' il **caso peggiore misurato**, non stimato: 64 esempi con `cause` a 128 byte e `column` a 512, 64 categorie con identificatori a 128 byte. Sta cinque volte sotto il tetto, e non per fortuna: ci sta perche' i tetti che il prodotto applica alla diagnostica lo tengono li'."
     },
     {
       "asse": "profondita' di annidamento in `details`",
       "requisito": "ERR-012",
       "tetto_del_contratto": 8,
-      "tetto_del_prodotto": 1,
-      "costante": "la forma di plenora-io-error-details-v1",
+      "tetto_del_prodotto": 5,
+      "costante": "la forma di plenora-io-error-details-v1 piu' quella di row-diagnostics-v1",
       "governa": "il prodotto",
-      "nota": "la forma dichiarata e' piatta: cinque scalari, nessun oggetto annidato, nessun array. La profondita' 1 non e' un limite applicato a runtime ma una proprieta' dello schema, che e' un modo piu' forte di rispettarlo."
+      "nota": "`details` -> `row_diagnostics` -> `examples` -> l'esempio -> il suo campo: cinque livelli, tre sotto il tetto. Non e' un limite applicato a runtime ma una proprieta' delle due forme messe una dentro l'altra, che e' un modo piu' forte di rispettarlo."
     },
     {
       "asse": "proprieta' per oggetto in `details`",
       "requisito": "ERR-012",
       "tetto_del_contratto": 128,
-      "tetto_del_prodotto": 5,
-      "costante": "la forma di plenora-io-error-details-v1",
+      "tetto_del_prodotto": 64,
+      "costante": "`MAX_CATEGORIE` su `counts`",
       "governa": "il prodotto",
-      "nota": "`additionalProperties: false` con cinque proprieta' dichiarate: il tetto non si puo' superare senza cambiare lo schema, e cambiarlo richiede un identificatore nuovo per ERR-013."
+      "nota": "l'oggetto piu' largo e' `counts`, che porta una chiave per categoria di perdita e ne ammette `MAX_CATEGORIE` = 64. Gli altri sono molto sotto: `row_diagnostics` ne ha dieci, `details` una."
     },
     {
       "asse": "elementi per array",
@@ -70,10 +70,10 @@
       "asse": "nodi JSON in `details`",
       "requisito": "ERR-012",
       "tetto_del_contratto": 2048,
-      "tetto_del_prodotto": 11,
-      "costante": "la forma di plenora-io-error-details-v1",
+      "tetto_del_prodotto": 601,
+      "costante": "64 esempi e 64 categorie, i tetti che il prodotto applica",
       "governa": "il prodotto",
-      "nota": "un oggetto piu' cinque coppie chiave-valore: undici nodi nel caso pieno."
+      "nota": "601 nel caso peggiore: l'oggetto `details`, il documento di diagnostica con i suoi dieci campi, 64 esempi da tre coppie e 64 conteggi. Un terzo del tetto."
     }
   ],
   "che_cosa_resta_scoperto": "niente, sui sette assi. L'ultimo a chiudersi e' stato il primo: il tetto sulla busta d'errore intera, che nessuna costante limitava.\n\nResta pero' una distinzione che vale piu' di un verde. Il tetto e' una **guardia**, e nessun percorso d'errore del prodotto le arriva vicino: `row_diagnostics` ha un tetto di 64 esempi e il messaggio e' curato, quindi si sta nell'ordine dei chilobyte contro i cinquecento ammessi. Le prove costruiscono i casi oltre il tetto a mano, perche' una guardia che non scatta mai va comunque provata: altrimenti si scopre che non funziona il giorno in cui serve. Sei sonde coprono il confine esatto, le tre riduzioni e l'idempotenza."

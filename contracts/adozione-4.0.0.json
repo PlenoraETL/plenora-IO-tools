@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "che_cosa_e": "la parte **redatta** del manifesto di adozione: i contratti adottati con il loro stato, le deviazioni, e i comandi che verificano ciascuna cosa. Non porta i digest degli artefatti, che non esistono finche' gli artefatti non sono costruiti: quelli li aggiunge `scripts/costruisci-manifesto-adozione.py`, che legge i file veri e scrive `contracts/adoption-manifest.json`.",
+  "perche_due_file": "perche' due cose diverse cambiano in due momenti diversi. Che cosa dichiariamo di rispettare, e dove non lo rispettiamo, si decide scrivendolo e si rilegge in revisione. L'identita' degli artefatti si misura **dopo** il congelamento, sui byte che si spediscono, e non deve poter essere scritta a mano: un digest battuto a tastiera e' un numero, non una prova.",
+  "component": "plenora-io-tools",
+  "profile": "plenora-io-tools-profile-v1",
+  "contracts_source": {
+    "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
+    "revision": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+  },
+  "contracts": [
+    {
+      "id": "plenora-public-surfaces-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "cargo test -p plenora-io-tools --test equivalenza_superfici",
+        "python3 scripts/check_superficie_rust.py"
+      ]
+    },
+    {
+      "id": "plenora-capabilities-v2",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "cargo test -p plenora-io-tools --test capacita_dichiarate",
+        "python3 scripts/check_capability_input_ostile.py"
+      ]
+    },
+    {
+      "id": "plenora-cli-v2",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "python3 scripts/check_buste_v2.py",
+        "python3 scripts/check_protocollo_v2.py"
+      ]
+    },
+    {
+      "id": "plenora-error-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "python3 scripts/check_errori_redatti.py",
+        "python3 scripts/check_quartetto_sito.py"
+      ]
+    },
+    {
+      "id": "plenora-row-diagnostics-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "python3 scripts/check_categorie_di_perdita.py"
+      ]
+    },
+    {
+      "id": "plenora-arrow-interchange-v1",
+      "status": "conforming",
+      "verification": [
+        "cargo test -p plenora-io-tools --test metadati_arrow",
+        "cargo test -p plenora-io-tools --test consegna_arrow"
+      ]
+    },
+    {
+      "id": "plenora-arrow-metadata-v1",
+      "status": "conforming",
+      "verification": [
+        "cargo test -p plenora-io-tools --test metadati_arrow",
+        "cargo test -p plenora-io-tools --test provenienza_crs"
+      ]
+    },
+    {
+      "id": "plenora-surface-bindings-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_superficie_rust.py",
+        "cargo test -p plenora-io-tools --test equivalenza_superfici"
+      ]
+    },
+    {
+      "id": "plenora-public-catalog-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
+        "cargo test -p plenora-io-tools --test capacita_dichiarate"
+      ]
+    },
+    {
+      "id": "plenora-public-security-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/check_niente_leak.py",
+        "python3 scripts/check_errori_redatti.py",
+        "python3 scripts/check_permit_boundary.py",
+        "python3 scripts/check_canale_privato.py"
+      ]
+    },
+    {
+      "id": "plenora-composition-v1",
+      "status": "conforming",
+      "verification": [
+        "cargo test -p plenora-io-tools --test metadati_arrow",
+        "cargo test -p plenora-io-tools --test capacita_dichiarate"
+      ]
+    },
+    {
+      "id": "plenora-runtime-binding-v1",
+      "status": "not_applicable"
+    },
+    {
+      "id": "plenora-python-sdk-v1",
+      "status": "not_applicable"
+    }
+  ],
+  "perche_not_applicable_non_e_una_deviazione": "una deviazione dice «il requisito si applica e non lo soddisfo». `not_applicable` dice «il requisito non si applica», e le due cose non vanno mescolate perche' un lettore ne trae conclusioni opposte. `plenora-runtime-binding-v1`: il profilo lo dichiara applicabile «when exposed», e nessuna operazione di questo componente e' selezionata per l'orchestrazione -- il documento capability non annuncia la superficie `runtime`, come PUBLIC-CATALOGS-1.0 §5 impone («publish only the surfaces actually present»). `plenora-python-sdk-v1`: il profilo dice «Python SDK: not required by this profile». Lo SDK esiste e viene spedito, ma avvolge il processo CLI e non pretende la conformita' a quel contratto; e' una comodita' di questo repository, non una superficie dichiarata.",
+  "deviations": [
+    {
+      "rule": "PUBLIC-CATALOGS-1.0 §5.4 (io.read.output.content_types)",
+      "surface": "cli",
+      "observed_behavior": "il catalogo comune dichiara per `io.read` due content type d'uscita, `application/vnd.apache.arrow.stream` e `application/vnd.apache.arrow.file`; questo artefatto annuncia e produce il solo file. Il formato stream e' una serializzazione, non una consegna incrementale: non e' escluso da nulla, semplicemente non e' prodotto. Per il consumatore: chi seleziona sul content type trova un solo valore e sceglie quello; chi si aspettasse lo stream non lo trova, e nessuna opzione lo produce.",
+      "tracking": "docs/PIANO-4.0.0.md riga B13; si chiude con un'opzione di scrittura `serialization` sul sink IPC, che e' un'opzione di formato del catalogo e non un campo nuovo dello schema d'ingresso",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "PUBLIC-CATALOGS-1.0 §5.4 (io.write.input.content_types)",
+      "surface": "cli",
+      "observed_behavior": "speculare della precedente sull'ingresso: `io.write` accetta `application/json` per i parametri e `application/vnd.apache.arrow.file` per il payload, non `application/vnd.apache.arrow.stream`. Per il consumatore: un dataset serializzato in formato stream va riscritto come file prima di essere pubblicato.",
+      "tracking": "docs/PIANO-4.0.0.md riga B13; stessa chiusura della precedente, dal lato del lettore IPC",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "COMPOSITION-1.0 §2 (edges direct con content_type arrow.stream)",
+      "surface": "cli",
+      "observed_behavior": "i quattro archi della matrice rivista che toccano questo componente sono `direct` con `content_type: application/vnd.apache.arrow.stream`, e un arco `direct` esige che sorgente e destinazione condividano contratto d'interscambio **e** content type: il contratto e' condiviso, il content type no. Per il consumatore: comporre con data-tools o database-tools resta possibile ma non e' `direct` come la matrice lo descrive, perche' il payload va riserializzato da file a stream fuori da questi componenti.",
+      "tracking": "docs/PIANO-4.0.0.md riga B13; e' la conseguenza piu' pesante delle due deviazioni sui content type, e si chiude con loro",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "catalogo io-tools (io.read.side_effect)",
+      "surface": "cli",
+      "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; questo artefatto dichiara `local`. Con `--output` l'operazione scrive un file, e il descrittore dichiara il rischio **massimo** e non quello del caso migliore. Per il consumatore: chi orchestra tratta `io.read` come un'operazione con effetto locale -- puo' serializzarla o isolarla dove il catalogo la lascerebbe libera. La deviazione e' piu' prudente del contratto, non piu' permissiva.",
+      "tracking": "docs/PIANO-4.0.0.md riga B10; si chiude separando la forma che consegna da quella che conta, oppure ottenendo che il catalogo comune ammetta l'effetto locale per la forma con destinazione",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "profilo io-tools (plenora-io-catalog-v1 fonte normativa delle publish guarantees)",
+      "surface": "cli",
+      "observed_behavior": "un dataset Arrow con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink: nessuno dichiara i sedici tipi geometrici canonici, il massimo e' sette. La regola «un sink che restringe i tipi pretende che la sorgente li dichiari» non compare nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees. Per il consumatore: il rifiuto e' tipizzato e mai silenzioso, ma non e' predicibile leggendo il catalogo.",
+      "tracking": "docs/PIANO-4.0.0.md riga B12c; la meta' locale e' chiusa (`scansione_completa` distingue l'assenza accertata dall'ignoranza), quella sul filo dipende dal vocabolario successore -- decisione 0006 del repository dei contratti",
+      "detectable_before_invocation": false
+    }
+  ],
+  "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto»."
+}

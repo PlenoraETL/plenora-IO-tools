@@ -318,6 +318,14 @@
       "log": true
     },
     {
+      "id": "sonde_manifesto_adozione",
+      "log": true
+    },
+    {
+      "id": "check_manifesto_adozione",
+      "log": true
+    },
+    {
       "id": "sonde_commenti",
       "log": true
     },

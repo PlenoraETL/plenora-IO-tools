@@ -51,3 +51,10 @@ __pycache__/
 # locale. Non e' nostro e non va committato -- il pin sta in
 # `contracts/adoption-source.json`, che e' l'unica cosa di cui rispondiamo.
 /.plenora-contracts/
+
+# Il manifesto di adozione **generato**: porta i digest degli artefatti,
+# che cambiano a ogni costruzione. Committarlo vorrebbe dire un file stantio
+# a ogni commit, e un digest stantio e' peggio di nessun digest -- sembra una
+# garanzia. La parte redatta sta in `contracts/adozione-4.0.0.json`, quella
+# misurata si produce in qualifica e finisce fra le evidenze.
+contracts/adoption-manifest.json

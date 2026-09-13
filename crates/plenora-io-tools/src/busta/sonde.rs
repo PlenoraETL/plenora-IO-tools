@@ -950,7 +950,7 @@ fn oltre_il_tetto_cadono_prima_gli_esempi() {
     let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
 
     assert_eq!(riduzione, RiduzioneDellErrore::EsempiDiRiga);
-    let diagnostica = &uscita["error"]["row_diagnostics"];
+    let diagnostica = &uscita["error"]["details"]["row_diagnostics"];
     assert_eq!(
         diagnostica["examples"].as_array().map(Vec::len),
         Some(0),
@@ -983,13 +983,14 @@ fn poi_cade_l_intera_diagnostica_di_riga() {
     for indice in 0..40_000 {
         conteggi.insert(format!("finto.causa_{indice}"), json!(1));
     }
-    busta["error"]["row_diagnostics"]["counts"] = Value::Object(conteggi);
+    busta["error"]["details"]["row_diagnostics"]["counts"] = Value::Object(conteggi);
 
     let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
     assert_eq!(riduzione, RiduzioneDellErrore::DiagnosticaDiRiga);
     assert!(
-        uscita["error"].get("row_diagnostics").is_none(),
-        "la diagnostica e' facoltativa per contratto, e cade per seconda"
+        uscita["error"].get("details").is_none(),
+        "la diagnostica vive dentro `details`, che e' facoltativo per contratto \
+         e cade per secondo"
     );
     for asse in ["category", "phase", "remote_effect", "retry"] {
         assert!(uscita["error"].get(asse).is_some(), "l'asse {asse} resta");
@@ -1179,6 +1180,7 @@ fn busta_d_errore_con_esempi(quanti: usize) -> Value {
             "retry": {"kind": "never"},
             "code": "ROW_REJECTED",
             "message": "righe rifiutate",
+            "details": {
             "row_diagnostics": {
                 "contract": "plenora-row-diagnostics-v1",
                 "scope": "read",
@@ -1189,6 +1191,7 @@ fn busta_d_errore_con_esempi(quanti: usize) -> Value {
                 "examples_limit": 64,
                 "examples_truncated": false,
                 "examples": esempi,
+            },
             },
         },
     })

@@ -387,27 +387,33 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 
 Il catalogo comune ammette per `io.read` due content type d'uscita,
 `application/vnd.apache.arrow.stream` e `application/vnd.apache.arrow.file`.
-Questo prodotto annuncia il secondo, e la ragione non è che manchi il tempo di
-scrivere il primo.
+Questo prodotto annuncia il secondo.
 
-Tutti e dieci i driver hanno consegna **atomica sull'operazione**: se una
-violazione emerge in un punto qualsiasi della sorgente, l'operazione viene
-rifiutata come blocco unico e nessun prefisso accettato viene consegnato. È la
-proprietà che rende prevedibile una pipeline — o tutto, o niente — ed è
-incompatibile con la consegna incrementale, che è precisamente ciò che uno
-stream promette a chi lo consuma. Annunciarlo vorrebbe dire promettere di
-consegnare batch prima di sapere se l'operazione riuscirà.
+Vanno tenute distinte due cose che è facile confondere. Il formato **stream**
+è una serializzazione: un file scritto in quel formato si può produrre per
+intero e poi consegnare, esattamente come un file `.arrow`. La consegna
+**incrementale** è un'altra cosa: è il consumatore che elabora i primi batch
+mentre gli ultimi non esistono ancora.
 
-Il descrittore lo dichiara: `attributes.materialization` vale `bounded` e
-`attributes.delivery` vale `operation_atomic` sull'operazione `io.read`. Restano
+Questo prodotto non fa consegna incrementale, e la ragione è dichiarata: tutti
+e dieci i driver hanno consegna **atomica sull'operazione**. Se una violazione
+emerge in un punto qualsiasi della sorgente, l'operazione viene rifiutata come
+blocco unico e nessun prefisso accettato viene consegnato — o tutto, o niente.
+Il descrittore lo dice, con `attributes.delivery: operation_atomic`.
+
+Il formato stream, invece, non è escluso da nulla: semplicemente non lo
+produciamo. È una seconda serializzazione che non esiste in questo artefatto, e
+non annunciarla è una scelta di prodotto. Siccome restringe una voce
+`required` del catalogo comune, è **registrata come deviazione** nel manifesto
+di adozione — che è ciò che il contratto dei cataloghi prescrive di fare invece
+di modificare il catalogo.
+
+Se un giorno la producessimo, ARROW-011 diventerebbe applicabile e sarebbe
+soddisfatto: il descrittore dichiara già `attributes.materialization: bounded`,
+che è l'uscita che quel requisito prevede per iscritto. Gli attributi restano
 diagnostica opaca — CAP-013 riserva la selezione automatica ai contratti
-tipizzati — quindi un consumatore sceglie sul content type, che è il campo
-normativo, e legge gli attributi per sapere perché.
-
-Cambiare idea è possibile e non è gratis: la variante `Streaming` esiste
-nell'asse delle semantiche di consegna, ma vuole una categoria d'errore nuova —
-«l'operazione è fallita dopo che ti ho già dato dei dati» non è esprimibile oggi
-— e con essa un bump del protocollo.
+tipizzati — quindi un consumatore sceglie sul content type e legge gli
+attributi per sapere perché.
 
 ### Una sorgente senza geometrie, e una di cui non si sanno i tipi
 

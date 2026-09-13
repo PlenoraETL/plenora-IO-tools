@@ -344,6 +344,18 @@
           ],
           "sempre": true
         },
+        ".result.operations[].output.interchange_contracts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].output.interchange_contracts[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
         ".result.operations[].side_effect": {
           "tipi": [
             "string"
@@ -1618,6 +1630,114 @@
           ],
           "sempre": true
         },
+        ".error.details": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.completeness": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.counts": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.counts{}": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples[].cause": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples[].column": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples[].source_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples_limit": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.examples_truncated": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.index_basis": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.knowledge_limits": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.knowledge_limits[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.observed_total": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".error.details.row_diagnostics.scope": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
         ".error.message": {
           "tipi": [
             "string"
@@ -1647,108 +1767,6 @@
             "string"
           ],
           "sempre": true
-        },
-        ".error.row_diagnostics": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.completeness": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.counts": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.counts{}": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[]": {
-          "tipi": [
-            "object"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].cause": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].column": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples[].source_index": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples_limit": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.examples_truncated": {
-          "tipi": [
-            "boolean"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.index_basis": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.knowledge_limits": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.knowledge_limits[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.observed_total": {
-          "tipi": [
-            "integer"
-          ],
-          "sempre": false
-        },
-        ".error.row_diagnostics.scope": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": false
         },
         ".protocol_version": {
           "tipi": [

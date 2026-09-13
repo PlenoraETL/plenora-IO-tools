@@ -771,6 +771,18 @@ passo check_docset python3 scripts/check_docset.py
 #
 # Nessuno dei tre viene da un contratto fissato: sono scelte di questo
 # repository, e i loro moduli dicono quale e perche'.
+
+# Il manifesto di adozione, nella sua parte **redatta**: quali contratti
+# dichiariamo di rispettare, dove non li rispettiamo, e con quali comandi si
+# verifica. I digest degli artefatti non ci sono e non devono esserci: quelli
+# si misurano in qualifica, sui byte che si spediscono.
+#
+# Gira a ogni checkpoint perche' e' la parte che si sbaglia **scrivendo**:
+# una deviazione dimenticata non fa rosso nessun altro gate, e si legge come
+# conformita' piena.
+passo sonde_manifesto_adozione python3 -m unittest scripts.test_check_manifesto_adozione
+passo check_manifesto_adozione python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
+
 passo sonde_commenti python3 -m unittest scripts.test_check_comments
 passo check_commenti python3 scripts/check_comments.py
 passo sonde_disposizione_prove python3 -m unittest scripts.test_check_test_layout

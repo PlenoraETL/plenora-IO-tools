@@ -77,7 +77,25 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     });
     if let Some(diagnostics) = &error.row_diagnostics {
         match serde_json::to_value(diagnostics.as_ref()) {
-            Ok(document) => error_document["row_diagnostics"] = document,
+            // `details.row_diagnostics`, e non `error.row_diagnostics`.
+            //
+            // ROW-DIAGNOSTICS-1.0 lo dice per esteso: «When the enclosing
+            // serialized error uses `error-v1.schema.json`, the complete
+            // document is placed at `details.row_diagnostics`». Al primo
+            // livello la chiave rendeva il documento d'errore **invalido**
+            // contro quello schema, che dichiara `additionalProperties:
+            // false` e non prevede `row_diagnostics`: una busta che nessun
+            // consumatore poteva validare senza sapere che noi la scriviamo
+            // diversa.
+            //
+            // Sotto `details` il documento entra anche nei tetti strutturali
+            // di ERR-012, che al primo livello non lo toccavano affatto. Il
+            // caso peggiore che il prodotto sa emettere -- 64 esempi, 64
+            // categorie, stringhe ai loro tetti -- misura 53 531 byte, 601
+            // nodi, profondita' 5 e 64 proprieta' per oggetto, contro tetti
+            // di 262 144, 2 048, 8 e 128: ci sta per costruzione, e la
+            // costruzione sono i tetti che il prodotto gia' applica.
+            Ok(document) => error_document["details"] = json!({"row_diagnostics": document}),
             Err(_) => {
                 error_document = json!({
                     "category": ErrorCategory::Internal,
@@ -951,6 +969,13 @@ pub fn capabilities_document() -> Value {
                 "output": {
                     "contract": "plenora-io-read-result-v1",
                     "content_types": ["application/vnd.apache.arrow.file"],
+                    // Il catalogo comune lo dichiara, e noi lo rispettiamo: le
+                    // undici sonde di `metadati_arrow.rs` leggono dal file
+                    // consegnato cio' che ARROW-001..012 pretende. Ometterlo
+                    // qui diceva **meno** del vero -- un consumatore che
+                    // cercasse il contratto d'interscambio non lo trovava, e
+                    // avrebbe concluso che il payload non ne segue nessuno.
+                    "interchange_contracts": ["plenora-arrow-interchange-v1"],
                 },
                 "side_effect": "local",
                 "controls": {
@@ -961,7 +986,7 @@ pub fn capabilities_document() -> Value {
                 "attributes": {
                     "materialization": "bounded",
                     "delivery": "operation_atomic",
-                    "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. Il catalogo comune ammette per io.read anche application/vnd.apache.arrow.stream; questa superficie non lo annuncia, e la ragione non e' che manchi il tempo di scriverlo. Tutti i driver raggiungibili sono DeliverySemantics::OperationAtomic: se una violazione emerge in un punto qualsiasi della sorgente, l'operazione viene rifiutata come blocco unico e nessun prefisso accettato viene consegnato. Annunciare uno stream prometterebbe la consegna incrementale che quella scelta esclude. La variante Streaming esiste nell'asse ed e' dichiarabile, ma richiede una categoria d'errore nuova e un bump del protocollo, nessuno dei due ratificato."
+                    "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. `materialization: bounded` e' la dichiarazione che ARROW-011 ammette esplicitamente («unless the operation descriptor explicitly declares bounded materialization»); `delivery: operation_atomic` dice quando il primo batch diventa visibile, ed e' vero per tutti e dieci i driver: se una violazione emerge in un punto qualsiasi della sorgente l'operazione e' rifiutata come blocco unico. Le due cose rispondono a domande diverse. Il catalogo comune ammette per io.read anche application/vnd.apache.arrow.stream, che e' una **serializzazione** e non una consegna incrementale: un file in formato stream si puo' produrre per intero prima di consegnarlo, quindi l'atomicita' non lo esclude e non richiede un protocollo nuovo. Questa superficie non lo annuncia perche' non produce una seconda serializzazione, ed e' una scelta di prodotto: il restringimento di una voce required e' registrato come deviazione nel manifesto di adozione, come PUBLIC-CATALOGS-1.0 §5 prescrive."
                 },
             }),
             // `io.write` accetta un dataset Arrow e ne pubblica uno esterno,

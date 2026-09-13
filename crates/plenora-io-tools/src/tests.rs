@@ -930,7 +930,7 @@ fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
     );
     assert_eq!(error.1["error"]["code"], "FORMAT_ERROR");
     assert_eq!(
-        error.1["error"]["row_diagnostics"]["examples"][0]["source_index"],
+        error.1["error"]["details"]["row_diagnostics"]["examples"][0]["source_index"],
         12
     );
     assert!(!output.exists());
@@ -1113,7 +1113,7 @@ fn read_limit_rejects_invalid_rows_inside_the_observed_prefix() {
     ])
     .unwrap();
     let error = cmd_read(&cli).unwrap_err();
-    let diagnostics = &error.1["error"]["row_diagnostics"];
+    let diagnostics = &error.1["error"]["details"]["row_diagnostics"];
     assert_eq!(diagnostics["completeness"], "partial");
     assert_eq!(diagnostics["examples"][0]["source_index"], 1);
     assert_eq!(
@@ -1225,11 +1225,11 @@ fn row_diagnostics_are_preserved_in_the_cli_error_envelope() {
         serde_json::json!({"kind": "never"})
     );
     assert_eq!(
-        document["error"]["row_diagnostics"]["contract"],
+        document["error"]["details"]["row_diagnostics"]["contract"],
         plenora_io_model::ROW_DIAGNOSTICS_CONTRACT
     );
     assert_eq!(
-        document["error"]["row_diagnostics"]["examples"][0]["source_index"],
+        document["error"]["details"]["row_diagnostics"]["examples"][0]["source_index"],
         17
     );
 }

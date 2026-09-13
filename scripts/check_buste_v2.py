@@ -115,7 +115,10 @@ def _tipo(valore: Any) -> str:
 #: Collassano percio' su `{}`, come gli elementi di un array su `[]`: il
 #: contratto dice che c'e' una mappa e di che tipo sono i suoi valori, e i nomi
 #: delle chiavi li governa il vocabolario delle cause, che sta altrove.
-MAPPE: frozenset[str] = frozenset({".error.row_diagnostics.counts"})
+#: `.error.details.row_diagnostics.counts` e non `.error.row_diagnostics.counts`:
+#: la diagnostica di riga sta sotto `details`, che e' dove
+#: ROW-DIAGNOSTICS-1.0 la mette quando la busta usa `error-v1.schema.json`.
+MAPPE: frozenset[str] = frozenset({".error.details.row_diagnostics.counts"})
 
 
 def forma(valore: Any, prefisso: str = "", out: dict[str, set[str]] | None = None):

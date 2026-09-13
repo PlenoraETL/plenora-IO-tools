@@ -152,7 +152,8 @@ pub fn entro_il_tetto_dell_errore(
     // 1. Gli esempi della diagnostica di riga.
     if let Some(diagnostica) = documento
         .get_mut("error")
-        .and_then(|e| e.get_mut("row_diagnostics"))
+        .and_then(|e| e.get_mut("details"))
+        .and_then(|d| d.get_mut("row_diagnostics"))
         .and_then(Value::as_object_mut)
     {
         diagnostica.insert("examples".to_owned(), Value::Array(Vec::new()));
@@ -165,9 +166,11 @@ pub fn entro_il_tetto_dell_errore(
         );
     }
 
-    // 2. L'intera diagnostica di riga.
+    // 2. L'intera diagnostica di riga, che vive dentro `details`: togliere
+    //    `details` la toglie con se', ed e' giusto -- il profilo ammette di
+    //    omettere `details` quando i quattro assi bastano, e quando non ci
+    //    sta e' esattamente il caso in cui devono bastare.
     if let Some(errore) = documento.get_mut("error").and_then(Value::as_object_mut) {
-        errore.remove("row_diagnostics");
         errore.remove("details");
     }
     if byte_compatti(&documento) <= tetto {

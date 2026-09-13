@@ -81,6 +81,14 @@ jobs:
       # righe di prodotto. Girano qui e non solo nel checkpoint perche' si
       # rompono in una riga -- un `TODO` in una PR, un modulo di prove scritto
       # inline per abitudine -- e perche' costano millisecondi.
+      # Il manifesto di adozione, parte redatta. Gira qui e non solo nel
+      # checkpoint perche' e' il documento che dichiara la conformita': una
+      # deviazione dimenticata non fa rosso nessun altro gate e si legge come
+      # conformita' piena.
+      - name: Verify the adoption manifest
+        run: |
+          python3 -m unittest scripts.test_check_manifesto_adozione
+          python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
       - name: Verify comments, test layout and code size
         run: |
           python3 -m unittest scripts.test_check_comments
