@@ -19,14 +19,4 @@ impl Default for WkbLimits {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn i_limiti_wkb_predefiniti_sono_quelli_storici() {
-        let wkb = WkbLimits::default();
-        assert_eq!(wkb.max_cell_bytes, 64 * 1024 * 1024);
-        assert_eq!(wkb.max_components, 100_000);
-        assert_eq!(wkb.max_depth, 64);
-    }
-}
+mod tests;

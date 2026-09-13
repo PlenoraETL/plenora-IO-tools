@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "descrizione": "Gli `#[cfg(test)]` che restano dentro i file di prodotto, e perche' restano.",
+  "attributi_su_singoli_elementi": {
+    "quanti": 57,
+    "perche_non_sono_vietati": "sono su **singoli elementi** -- un aiutante, una fixture, un costruttore che serve solo alle prove -- e non formano un modulo. Spostarli in un file di prove vorrebbe dire renderli visibili al crate per poterli importare: si allargherebbe una superficie interna per far contento un gate, che e' il contrario di quello che il gate vuole ottenere. Restano dove sono, contati: crescono solo per decisione."
+  }
+}

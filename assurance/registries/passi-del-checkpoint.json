@@ -318,6 +318,30 @@
       "log": true
     },
     {
+      "id": "sonde_commenti",
+      "log": true
+    },
+    {
+      "id": "check_commenti",
+      "log": true
+    },
+    {
+      "id": "sonde_disposizione_prove",
+      "log": true
+    },
+    {
+      "id": "check_disposizione_prove",
+      "log": true
+    },
+    {
+      "id": "sonde_dimensione",
+      "log": true
+    },
+    {
+      "id": "check_dimensione",
+      "log": true
+    },
+    {
       "id": "sonde_assurance_n1",
       "log": true
     },

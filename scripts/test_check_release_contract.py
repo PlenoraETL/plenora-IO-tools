@@ -1682,13 +1682,28 @@ class SondeFontiLegate(unittest.TestCase):
             any(gate.LOG_DEL_CENSIMENTO in e for e in errori), errori
         )
 
-    def test_i_conteggi_del_docset_vengono_dall_allowlist(self) -> None:
+    def test_i_conteggi_del_docset_non_stanno_nello_stato(self) -> None:
+        """Scriverli qui li farebbe divergere dall'allowlist.
+
+        Prima ci stavano e il gate li teneva uguali. Funzionava, ed era il
+        difetto: aggiungere un documento canonico -- un cambiamento editoriale
+        -- rendeva rosso il contratto di release finche' qualcuno non
+        riallineava il secondo posto. Ora il numero ha un posto solo, e
+        rimetterlo qui e' cio' che il gate respinge.
+        """
         for chiave in ("markdown_canonici", "markdown_operativi"):
             with self.subTest(chiave=chiave):
                 stato = self.stato()
-                stato["docset"][chiave] = self.muta(stato["docset"][chiave])
+                stato["docset"][chiave] = 99
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
+
+    def test_chi_verifica_il_docset_resta_legato(self) -> None:
+        """Togliere i conteggi non deve togliere anche il legame che resta."""
+        stato = self.stato()
+        stato["docset"]["verificato_da"] = "scripts/check_altro.py"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("verificato_da" in e for e in errori), errori)
 
     # --- le frasi, non solo i numeri --------------------------------------
     #

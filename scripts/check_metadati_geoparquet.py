@@ -71,6 +71,10 @@ import check_schemi_geoparquet as schemi  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULO = ROOT / "crates" / "driver-geoparquet" / "src" / "metadati.rs"
+#: Le sonde di quel modulo, uscite dal file di prodotto con gli altri moduli
+#: di prova. Restano un modulo figlio di `metadati`, quindi provano gli stessi
+#: privati; il gate le cerca dove vivono.
+SONDE = ROOT / "crates" / "driver-geoparquet" / "src" / "metadati" / "sonde.rs"
 CRATE = "driver-geoparquet"
 PERCORSO_DELLE_SONDE = "metadati::sonde::"
 
@@ -95,7 +99,20 @@ SONDA = re.compile(r"#\[test\]\s*\n\s*fn ([a-z_0-9]+)\(\)")
 
 
 def sorgente() -> str:
-    return MODULO.read_text(encoding="utf-8")
+    """Il modulo e le sue sonde, letti insieme.
+
+    Il gate confronta cio' che il codice interroga con cio' che le sonde
+    provano, e le due cose ora stanno in due file: leggerne uno solo direbbe
+    che nessun campo ha una prova.
+    """
+    return (
+        MODULO.read_text(encoding="utf-8") + chr(10) + SONDE.read_text(encoding="utf-8")
+    )
+
+
+def sorgente_delle_sonde() -> str:
+    """Il solo file delle sonde, per chi conta le prove e non gli usi."""
+    return SONDE.read_text(encoding="utf-8")
 
 
 def campi_dello_schema() -> tuple[set[str], list[str]]:
@@ -122,11 +139,15 @@ def campi_dello_schema() -> tuple[set[str], list[str]]:
 
 
 def sonde(testo: str) -> list[str]:
-    """Le sonde dichiarate nel modulo, in ordine."""
-    principio = testo.find("mod sonde {")
-    if principio == -1:
-        return []
-    return SONDA.findall(testo[principio:])
+    """Le sonde dichiarate nel modulo, in ordine.
+
+    Cercava `mod sonde {` e leggeva da li' in poi: serviva a non prendere i
+    `#[test]` che stessero fuori dal modulo. Da quando il modulo e' un file suo
+    quella graffa non c'e' piu', e cercarla avrebbe reso il gate verde per
+    assenza di sonde -- il modo peggiore di passare. Il confine ora e' il file:
+    `SONDE` contiene le sonde e nient'altro.
+    """
+    return SONDA.findall(testo)
 
 
 def verso(nome: str) -> str | None:
@@ -147,12 +168,23 @@ def campo_di(nome: str, campi: set[str]) -> str | None:
 def verifica(
     testo: str | None = None,
     campi: set[str] | None = None,
+    testo_delle_sonde: str | None = None,
 ) -> tuple[list[str], dict[str, dict[str, list[str]]]]:
     """Il sorgente e il perimetro sono iniettabili perche' le sonde di questo
     gate ne costruiscono di finti: provare la regola su moduli inventati e'
-    l'unico modo di provarla invece di provare il modulo di oggi."""
+    l'unico modo di provarla invece di provare il modulo di oggi.
+
+    Da quando le prove stanno in un file loro i sorgenti sono due, e le sonde
+    del gate ne passano uno solo -- il modulo finto con le sue prove attaccate
+    in fondo. `testo_delle_sonde` vale allora `testo`: se leggesse il file
+    vero, un modulo inventato verrebbe confrontato con le prove di quello vero
+    e il gate direbbe cose sull'uno guardando l'altro."""
     if testo is None:
         testo = sorgente()
+        if testo_delle_sonde is None:
+            testo_delle_sonde = sorgente_delle_sonde()
+    elif testo_delle_sonde is None:
+        testo_delle_sonde = testo
     errori: list[str] = []
     if campi is None:
         campi, errori = campi_dello_schema()
@@ -173,7 +205,7 @@ def verifica(
         campo: {"positiva": [], "negativa": []} for campo in sorted(attesi)
     }
 
-    for nome in sonde(testo):
+    for nome in sonde(testo_delle_sonde):
         direzione = verso(nome)
         if direzione is None:
             errori.append(

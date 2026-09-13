@@ -81,9 +81,16 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 BUSTA = ROOT / "crates" / "plenora-io-tools" / "src" / "busta.rs"
+#: Le sonde della busta, che dalla separazione dei test stanno in un file loro.
+#: Le **costanti** restano in `busta.rs`, dove sta il prodotto: sono due
+#: domande diverse e due percorsi diversi.
+SONDE_DELLA_BUSTA = ROOT / "crates" / "plenora-io-tools" / "src" / "busta" / "sonde.rs"
 LOSS = ROOT / "crates" / "plenora-io-core" / "src" / "loss.rs"
 REGISTRO_CATEGORIE = ROOT / "assurance" / "registries" / "categorie-di-perdita.json"
-DRIVER = ROOT / "crates" / "plenora-io-core" / "src" / "driver.rs"
+#: Le sonde della redazione, uscite da `driver.rs` con gli altri moduli di
+#: prova. Il file di prodotto resta `driver.rs`; qui serve dove stanno le
+#: prove, ed e' il suo modulo figlio.
+DRIVER = ROOT / "crates" / "plenora-io-core" / "src" / "driver" / "tests.rs"
 
 #: Il numero dichiarato nel contratto, e la costante che lo produce.
 #:
@@ -238,10 +245,11 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
 #:
 #: Non e' `busta.rs`, che porta i tetti della diagnostica: la semantica di
 #: `--limit` e `truncated` la decide il ciclo di lettura, che sta nel binario.
-# `lib.rs` e non `main.rs`: dalla 4.0.0 le operazioni e le loro sonde stanno
-# nella libreria, e `main.rs` e' il binding di processo. Il gate cerca le sonde
-# dove vivono, non dove vivevano.
-CLI_MAIN = ROOT / "crates" / "plenora-io-tools" / "src" / "lib.rs"
+# `plenora-io-tools` e non `main.rs`: dalla 4.0.0 le operazioni stanno nella
+# libreria e `main.rs` e' il binding di processo. Le **sonde** di quella
+# libreria stanno in `src/tests.rs` da quando i moduli di prova sono usciti dai
+# file di prodotto. Il gate cerca le sonde dove vivono, non dove vivevano.
+CLI_MAIN = ROOT / "crates" / "plenora-io-tools" / "src" / "tests.rs"
 
 
 def semantica_delle_buste(manifesto: dict[str, Any]) -> list[str]:
@@ -1296,13 +1304,17 @@ def costanti() -> dict[str, int]:
 
 
 def sonde() -> set[str]:
-    """Le sonde di `busta.rs`, prese dall'attributo e non dal nome.
+    """Le sonde della busta, prese dall'attributo e non dal nome.
 
     Cercare `fn qualcosa` prenderebbe anche gli aiutanti del modulo di prova --
     `rapporto_con` non e' una sonda -- e il contratto dovrebbe nominare
     funzioni che non provano niente.
+
+    Stanno in `busta/sonde.rs` e non piu' dentro `busta.rs`: il modulo di prove
+    e' uscito dal file di prodotto, restando un modulo **figlio** -- vede gli
+    stessi privati di prima. Il gate cerca dove vivono, non dove vivevano.
     """
-    return set(SONDA.findall(BUSTA.read_text(encoding="utf-8")))
+    return set(SONDA.findall(SONDE_DELLA_BUSTA.read_text(encoding="utf-8")))
 
 
 def verifica(

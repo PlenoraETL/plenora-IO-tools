@@ -5,8 +5,8 @@ accorgersi di un cambio, e non accorgersi di cio' che non e' un cambio --
 spostamenti e riformattazioni, che sono la ragione per cui l'identita' e'
 `percorso::funzione` e non `path:riga`.
 
-La sonda che conta di piu' e' quella sul difetto reale della tranche 2: un
-`new(Schema, Validate, ...)` diventato `schema_redatto` sposta il codice da
+La sonda che conta di piu' e' quella sul difetto reale che ha fatto nascere
+il gate: un `new(Schema, Validate, ...)` diventato `schema_redatto` sposta il codice da
 `Generic` a `Schema` **senza cambiare una riga di assi**. Un gate basato sul
 diff delle varianti enum non lo vedrebbe.
 """
@@ -43,7 +43,7 @@ class SondeQuartetto(unittest.TestCase):
     def test_new_porta_generic_per_costruzione(self) -> None:
         """`new` non nomina il codice: lo mette a `Generic`.
 
-        E' il fatto che ha reso invisibile il difetto della tranche 2.
+        E' il fatto che ha reso invisibile quel difetto.
         """
         q = self.quartetti(
             "fn f() -> PlenoraIoError {\n"
@@ -65,7 +65,7 @@ class SondeQuartetto(unittest.TestCase):
     # --- il difetto vero ----------------------------------------------------
 
     def test_new_sostituito_da_una_famiglia_cambia_il_quartetto(self) -> None:
-        """La regressione della tranche 2, in miniatura.
+        """La regressione che ha fatto nascere il gate, in miniatura.
 
         Categoria, fase, effetto e retry restano gli stessi; il diff non mostra
         una riga di assi cambiata. Solo il codice si sposta.

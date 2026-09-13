@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "descrizione": "Il tetto sulle righe di codice di prodotto, e la ragione del numero.",
+  "che_cosa_conta": "le righe dei file di **prodotto** sotto `crates/*/src`, dove prodotto e prove li distingue `scripts/perimetro_dei_sorgenti.py` leggendo i `mod`: un file dichiarato sotto `#[cfg(test)]` e' prove, con tutta la sua discendenza. Restano nel conto le righe dei `#[cfg(test)]` applicati a singoli item dentro un file di prodotto -- aiutanti e fixture che non formano un modulo -- e sono 2 411. `plenora-bench` e `plenora-fuzz` sono strumenti di misura e non entrano: contarli gonfierebbe il numero che si vuole tenere basso con codice che non viene spedito.",
+  "perche_un_budget_e_non_una_fotografia": "un tetto fissato sul valore corrente non impedisce niente: qualunque crescita lo supera, e allora o si alza senza pensarci o si smette di guardarlo. Un margine dichiarato invece dice che cosa ci si aspetta: il lavoro ordinario ci sta dentro, un sottosistema nuovo no, e quando non ci sta la domanda «serve davvero» viene posta da sola.",
+  "tetto": {
+    "righe_di_prodotto": 50000,
+    "perche_questo_numero": "44 941 misurate piu' circa l'11% di margine. Il margine e' scelto sul **modo in cui questo codice cresce**, non su una regola generale: gli ultimi blocchi hanno aggiunto qualche centinaio di righe di prodotto per volta -- un campo di contratto, una funzione di allocazione, un ramo di validazione -- e 5 059 righe ne coprono parecchi. Un driver nuovo, o una superficie nuova, non ci sta: e' l'ordine di grandezza in cui la crescita smette di essere ordinaria e la decisione va scritta invece che subita. Il tetto e' stato fissato a 50 000 quando la misura ne diceva 47 660, contando anche i moduli di prove inline; spostarli in file loro ha tolto 2 719 righe al **conto**, non al codice, e il tetto e' rimasto dov'era proprio per questo -- abbassarlo ora significherebbe spacciare una riclassificazione per una riduzione."
+  },
+  "come_si_alza": "modificando `tetto.righe_di_prodotto` e `perche_questo_numero` nello stesso commit che porta il codice. Il gate non lo alza da solo, e `--aggiorna` tocca la sola `misura_corrente`: e' cio' che rende l'aumento una decisione visibile invece di un effetto.",
+  "misura_corrente": {
+    "prodotto": 44941,
+    "prove_nei_sorgenti": 2411,
+    "file": 52
+  }
+}

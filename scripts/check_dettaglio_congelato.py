@@ -44,6 +44,10 @@ import pathlib
 import re
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Dove vive la struttura, e dove l'accessore puo' essere letto.
@@ -123,7 +127,12 @@ def il_dettaglio_resta_interno(radice: pathlib.Path) -> list[str]:
     """`detail_v1()` si legge soltanto dal modulo che possiede il dato."""
     errori: list[str] = []
     visti = 0
+    # I file di prove non sono prodotto, e dalla separazione dei test non lo
+    # si vede piu' aprendo il file: la risposta la da' `perimetro_dei_sorgenti`,
+    # che legge i `mod` e sa quali stanno sotto `#[cfg(test)]`.
     for percorso in sorted((radice / "crates").glob("*/src/**/*.rs")):
+        if perimetro.e_codice_di_prova(percorso):
+            continue
         relativo = percorso.relative_to(radice)
         if relativo == CASA or percorso.name.endswith("_tests.rs"):
             continue

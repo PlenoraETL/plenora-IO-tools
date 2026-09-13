@@ -296,9 +296,9 @@ class LIdentitaDelManifesto(unittest.TestCase):
 class LoStatoDelManifesto(unittest.TestCase):
     """`ratificato` e' un'affermazione, e ha delle condizioni.
 
-    Prima di questa tranche `status` non lo guardava nessuno: era una parola che
-    chiunque poteva riscrivere, e «ratificato» avrebbe voluto dire quel che
-    voleva dire chi l'aveva scritta.
+    Prima che queste sonde esistessero `status` non lo guardava nessuno: era
+    una parola che chiunque poteva riscrivere, e «ratificato» avrebbe voluto
+    dire quel che voleva dire chi l'aveva scritta.
     """
 
     def ratificato(self, **modifiche):
@@ -522,8 +522,8 @@ class LeSondeNominateDalContratto(unittest.TestCase):
 class UnaCostanteDefinitaDueVolte(unittest.TestCase):
     """Il falso verde che la sovrascrittura silenziosa produceva.
 
-    Non e' un caso teorico: prima di questa tranche `MAX_BYTE_DETTAGLIO` stava
-    in `busta.rs` e la porta che lo applica sta in `loss.rs`. Se una copia
+    Non e' un caso teorico: `MAX_BYTE_DETTAGLIO` stava in `busta.rs` e la
+    porta che lo applica sta in `loss.rs`. Se una copia
     sopravvivesse allo spostamento, il gate confronterebbe il manifesto con una
     sola delle due e sarebbe verde mentre il codice ne applica un'altra.
     """
@@ -652,9 +652,9 @@ if __name__ == "__main__":
 class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
     """Il gate **legge** i due sorgenti, e non crede a una seconda copia.
 
-    E' la differenza fra questa tranche e ciò che c'era prima: le tre clausole
-    erano prosa, e una prosa che descriva un codice cambiato sotto di lei resta
-    verde per sempre. Ogni sonda qui sotto cambia il **codice** e pretende che
+    E' la differenza con la forma precedente del gate: le tre clausole erano
+    prosa, e una prosa che descriva un codice cambiato sotto di lei resta verde
+    per sempre. Ogni sonda qui sotto cambia il **codice** e pretende che
     quello che il gate ricava cambi con lui.
     """
 

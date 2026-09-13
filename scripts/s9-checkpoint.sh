@@ -761,6 +761,23 @@ passo assurance_fallbacks bash scripts/check_assurance_fallbacks.sh
 # nessuno rileggera'. Il gate impedisce che la cronaca rientri.
 passo sonde_docset python3 -m unittest scripts.test_check_docset
 passo check_docset python3 scripts/check_docset.py
+
+# I commenti, la disposizione delle prove e la dimensione del prodotto.
+#
+# Stanno accanto al docset perche' rispondono alla stessa famiglia di
+# domande -- che cosa e' scritto e dove sta -- e perche' costano
+# millisecondi: il primo cammina l'albero potando le directory che non
+# sono nostre, gli altri due leggono i `mod`.
+#
+# Nessuno dei tre viene da un contratto fissato: sono scelte di questo
+# repository, e i loro moduli dicono quale e perche'.
+passo sonde_commenti python3 -m unittest scripts.test_check_comments
+passo check_commenti python3 scripts/check_comments.py
+passo sonde_disposizione_prove python3 -m unittest scripts.test_check_test_layout
+passo check_disposizione_prove python3 scripts/check_test_layout.py
+passo sonde_dimensione python3 -m unittest scripts.test_code_size
+passo check_dimensione python3 scripts/code_size.py
+
 passo sonde_assurance_n1 python3 -m unittest scripts.test_check_assurance_n1
 passo assurance_n1_integrita python3 scripts/check_assurance_n1.py --integrita
 passo sonde_assurance_n1_prove python3 -m unittest scripts.test_check_assurance_n1_prove

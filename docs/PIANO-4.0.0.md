@@ -209,8 +209,8 @@ Quel documento porta anche una domanda aperta, che diventa **D8**.
 
 | # | Requisito | Fonte | Comportamento attuale | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| E1 | Niente debito anonimo nei commenti | `check_comments.py` di database-tools | **zero** occorrenze di `TODO/FIXME/HACK/XXX` in `crates`, `scripts`, `sdk` | nessuno nei fatti; manca la **guardia** | portare `check_comments.py`, adattando `SKIP_PARTS` a `vendor/` | il gate è verde al primo colpo e rosso su un `TODO` introdotto apposta |
-| E2 | Niente cronaca del processo nei commenti | `check_comments.py` | **167 violazioni su 274 file**, da 13 marcatori distinti: vedi la ripartizione qui sotto | adottare il gate così com'è significa 167 riscritture, molte delle quali toglierebbero prosa che spiega **perché** | decidere marcatore per marcatore — D6 | il gate gira su tutto l'albero; ogni violazione o è corretta o il marcatore è escluso con la ragione scritta |
+| E1 | Niente debito anonimo nei commenti | scelta di questo repository | **zero** occorrenze di `TODO/FIXME/HACK/XXX` in 293 file commentabili | nessuno nei fatti; mancava la **guardia** | **chiusa.** `scripts/check_comments.py`, scritto qui e non importato: il gate di database-tools non esiste piu' in quel repository, e la regola andava decisa comunque marcatore per marcatore | verde al primo colpo, e otto sonde lo dimostrano capace di dire di no — i quattro marcatori respinti uno per uno, e `METODO_CHIUSO` **non** respinto, che e' il difetto di un gate scritto con una sottostringa: accusa una costante di essere un promemoria, e si impara a rinominare la costante |
+| E2 | Niente cronaca del processo nei commenti | scelta di questo repository | erano **167 occorrenze su 274 file**, da 13 marcatori | adottare un elenco di marcatori senza guardarli toglierebbe la prosa che spiega **perché** | **chiusa, e la decisione D6 e' piu' stretta di quanto sembrasse necessario.** Vietato e' il commento che nomina un **artefatto di processo che il lettore non puo' risolvere**: `tranche <n>`, «questa tranche», «la stessa tranche», `pre-fix`. Venti occorrenze riscritte al presente, e in ognuna il contenuto tecnico era gia' nella riga accanto — «la regressione della tranche 2» diventa «la regressione che il gate dei quartetti esiste per fermare». Gli altri undici marcatori **non** sono vietati, con la ragione scritta nel gate: `roadmap` e' un campo del documento capability e una sezione viva di `RELEASE.md`; `tranche` da sola e' vocabolario che `ENGINEERING.md` definisce; «prima stesura», «versione precedente», «da allora», «qui c'era» introducono una motivazione ancora vera | una sonda costruisce le otto frasi **da non vietare** e pretende zero violazioni: e' la meta' difficile della regola, e senza quella sonda il gate potrebbe diventare severo senza che nessuno se ne accorga |
 | E3 | I documenti non ripetono fatti che vivono nel codice | `AGENTS.md` di database-tools, regola 3 | parzialmente adottato: il blocco di stato di `docs/RELEASE.md` è **generato** e un gate lo verifica | il resto della prosa non è generato | estendere la generazione dove il fatto esiste già strutturato | rigenerare non produce differenze, come già per `docs/RELEASE.md` |
 | E4 | Docset minimo ed esatto | `check_docset.py` (nostro) | cinque canonici più sette operativi, allowlist esatta | **nessuno**: la regola esiste ed è più severa di quella di database-tools | ammettere questo documento e collegarlo, senza toccare gli altri controlli | `check_docset.py` verde con `docs/PIANO-4.0.0.md` in `CANONICI` e linkato da `README.md` |
 | E6 | Un cambiamento editoriale non deve pretendere una rimisura completa | osservato scrivendo questo piano | aggiungere un documento canonico cambia `docset.markdown_canonici` in `assurance/current-state.json`, e le sonde del contratto di release diventano rosse — dentro L1 | un documento in più costa una corsa di checkpoint. Il conteggio è **derivato** dall'allowlist e **duplicato** nello stato: due posti per lo stesso fatto | **derivare** il conteggio dall'allowlist invece di copiarlo nello stato. Togliere la sonda da L1 non elimina la duplicazione: la nasconde, e i due valori tornerebbero a divergere senza che nessuno lo veda | `docset.markdown_canonici` non esiste più come valore scritto: si legge da `CANONICI`. Aggiungere un documento non tocca `assurance/current-state.json`, e i controlli del docset bastano |
@@ -252,10 +252,10 @@ La decisione è **D6**, e ora ha un numero sotto.
 
 | # | Requisito | Fonte | Comportamento attuale (misurato) | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| F1 | Nessun modulo `cfg(test)` inline nei sorgenti di prodotto | `check_test_layout.py` di database-tools | **44 moduli inline** su 55 sorgenti Rust; un solo modulo esterno, un solo file dedicato | lo scostamento più grande per numero di file toccati | spostare ciascun modulo in un file dedicato; restano moduli figli, quindi vedono i privati e non allargano l'API | `check_test_layout.py` verde; `cargo test` esegue lo **stesso** numero di test di prima |
-| F2 | Misura del solo codice di prodotto | `code_size.py` di database-tools | non misurato | senza denominatore, «ridurre» non è verificabile | portare `code_size.py` e fissare un tetto | misurate oggi: **47 930** righe di prodotto e **36 730** di test dentro i file di prodotto, cioè il **43,4 %** |
-| F3 | Il tetto è un budget, non una fotografia | `code_size_budget.json` | assente | un tetto fissato sul valore corrente non impedisce nulla | budget esplicito con la ragione del numero | il gate è rosso se il prodotto cresce oltre il budget senza che il budget sia stato cambiato in un commit visibile |
-| F4 | Modularità: il confine fra `plenora-io-model` e il resto | `release/cli-protocol-v2.json`, nota R15.4.1 | il protocollo dichiara già l'estrazione dei tipi di confine da `plenora-io-model` come prevista | intento dichiarato, non eseguito | eseguire l'estrazione **prima** di esporre la superficie Rust: è ciò che rende esponibile un confine stretto | i tipi pubblici della superficie Rust vengono da `plenora-io-model`, non dai driver |
+| F1 | Nessun modulo `cfg(test)` inline nei sorgenti di prodotto | scelta di questo repository | erano **42 moduli** dentro 41 file di prodotto | lo scostamento piu' grande per numero di file toccati | **chiusa.** Quarantadue moduli spostati in file loro, dichiarati `#[cfg(test)] mod X;` — restano moduli **figli**, quindi vedono gli stessi privati e non allargano di una riga la superficie pubblica. Restano dentro i file di prodotto **57** `#[cfg(test)]` su singoli elementi — un aiutante, una fixture, un `thread_local!` di una sonda — e non sono vietati: spostarli vorrebbe dire renderli visibili al crate per importarli, cioe' allargare una superficie interna per far contento un gate | 942 `#[test]` prima e 942 dopo, 1060 prove eseguite e passate. **Il costo vero e' stato un altro, e non l'avevo previsto**: sette gate distinguevano prodotto da prove cercando `#[cfg(test)]` nello stesso file, e sarebbero diventati tutti sbagliati nello stesso verso — contando come prodotto cio' che prodotto non e'. La risposta e' `scripts/perimetro_dei_sorgenti.py`, che legge i `mod` e risponde una volta per tutti; dodici sonde lo provano, compreso il caso in cui un file non e' raggiunto da nessun `mod` e va dichiarato invece che classificato per difetto |
+| F2 | Misura del solo codice di prodotto | scelta di questo repository | non misurato | senza denominatore, «ridurre» non e' verificabile | **chiusa.** `scripts/code_size.py` misura **44 941** righe di prodotto e **2 411** di prove ancora dentro i file di prodotto (5,1%). Prima della separazione erano 47 660 e 36 438, cioe' il 43,4%: la differenza non e' codice tolto, e' codice riclassificato — il registro lo dice per non far passare una riclassificazione per una riduzione | undici sonde, fra cui il file con le prove **in mezzo** e non in fondo, che un contatore scritto con «dalla prima occorrenza in poi e' prova» sbaglierebbe di tutto cio' che sta sotto |
+| F3 | Il tetto è un budget, non una fotografia | scelta di questo repository | assente | un tetto fissato sul valore corrente non impedisce nulla | **chiusa.** `assurance/registries/code-size-budget.json`: 50 000 righe, 5 059 di margine, e la ragione del numero scelta sul **modo in cui questo codice cresce** — gli ultimi blocchi aggiungono qualche centinaio di righe per volta, un driver nuovo no | il gate e' rosso se il prodotto supera il tetto **e** se la misura registrata accanto al tetto e' vecchia: una misura ferma farebbe sembrare il margine piu' largo di quello che e'. `--aggiorna` tocca la misura e mai il tetto, cosi' che alzarlo resti un commit visibile |
+| F4 | Modularità: il confine fra `plenora-io-model` e il resto | `release/cli-protocol-v2.json`, nota R15.4.1 | il protocollo dichiarava l'estrazione dei tipi di confine come prevista | intento dichiarato, non eseguito | **chiusa da una misura, non da un intervento.** La superficie Rust pubblica non espone **nessun** tipo di dominio: `Richiesta` e' nostra e costruita con builder, `Esito` e' `Result<serde_json::Value, serde_json::Value>`, e le sei operazioni rendono `Value`. Non c'e' un tipo da estrarre da `plenora-io-model` perche' non ce n'e' uno sul confine: il confine e' JSON | `contracts/superficie-rust.json` elenca nove export e tre tipi pubblici, nessuno dei quali viene da un driver o dal modello; `check_superficie_rust.py` confronta la mappatura col consumatore esterno nei due versi |
 
 ### G — Riduzione delle dipendenze
 
@@ -597,18 +597,31 @@ requisito non si applica e va dichiarato `not_applicable`; se qualcuna lo è,
 del componente vicino rende confrontabili le due adozioni; fissare `main` prende
 le correzioni successive. Va scelta una sola revisione e scritta.
 
-**D6 — come chiudere le 167 occorrenze di cronaca.** La misura c'è; resta la
-scelta del metodo. Non è fra «cancellare il perché» ed «escludere il marcatore»:
-c'è una terza strada, ed è la migliore. La motivazione si **riscrive al
-presente**, e perde la cronaca senza perdere il contenuto — «la prima stesura la
-trattava come un difetto, e sbagliava» diventa «non è un difetto: è il
-comportamento dichiarato del formato». Il perché resta, il riferimento al
-momento in cui qualcuno ha sbagliato se ne va, e la frase smette di invecchiare.
+**D6 — come chiudere le 167 occorrenze di cronaca. Decisa.** La terza strada
+era quella giusta — riscrivere la motivazione **al presente** invece di
+cancellarla o di escludere il marcatore — ma guardando le occorrenze una per
+una il perimetro si è rivelato molto più stretto di 167.
 
-Resta da decidere solo il **perimetro**: riscrivere tutte e 167 in un intervento
-solo, o marcatore per marcatore lungo il ciclo. Due dei tredici marcatori
-colpiscono i gate stessi, che citano documenti eliminati, e quelli si chiudono
-da sé quando la cronaca viene tolta.
+La domanda che separa non è «questo commento parla del passato?». È: **il
+lettore può risolvere ciò che il commento nomina?** «La prima stesura la
+trattava come un difetto, e sbagliava» nomina un ragionamento, e il
+ragionamento è lì, nella frase. «La regressione della tranche 2» nomina un lotto
+di lavoro numerato che nessun documento elenca: il riferimento non si può
+seguire, e nei venti casi reali il contenuto tecnico era già nella riga accanto.
+Togliere il numero non ha tolto niente.
+
+Vietati quindi quattro marcatori — `tranche <n>`, «questa tranche», «la stessa
+tranche», `pre-fix` — e venti occorrenze riscritte. Gli altri undici **non**
+sono vietati, e il gate scrive per ciascuno la ragione: `roadmap` è un campo del
+documento capability e una sezione viva di `RELEASE.md`, non cronaca; `tranche`
+da sola è vocabolario che `ENGINEERING.md` definisce; le forme «prima stesura»,
+«versione precedente», «da allora», «qui c'era», «prima era» introducono una
+motivazione ancora vera, e vietarle darebbe commenti più corti e meno utili.
+
+La parte del gate che vale di più non è quella che vieta: è la sonda che
+costruisce le otto frasi **da non vietare** e pretende zero violazioni. Senza,
+la regola potrebbe diventare severa un marcatore alla volta senza che nessuno
+lo decida.
 
 **D8 — un driver di formato è un `provider`?** La domanda è già registrata in
 `docs/contracts/handoff-plenora-error.json` con identificatore

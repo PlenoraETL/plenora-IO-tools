@@ -75,6 +75,20 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_docset
           python3 scripts/check_docset.py
+      # Tre regole di struttura, nessuna delle quali viene da un contratto
+      # fissato: i commenti che non nominano artefatti di processo
+      # irrisolvibili, le prove fuori dai file di prodotto, e il budget sulle
+      # righe di prodotto. Girano qui e non solo nel checkpoint perche' si
+      # rompono in una riga -- un `TODO` in una PR, un modulo di prove scritto
+      # inline per abitudine -- e perche' costano millisecondi.
+      - name: Verify comments, test layout and code size
+        run: |
+          python3 -m unittest scripts.test_check_comments
+          python3 scripts/check_comments.py
+          python3 -m unittest scripts.test_check_test_layout
+          python3 scripts/check_test_layout.py
+          python3 -m unittest scripts.test_code_size
+          python3 scripts/code_size.py
       # Il gate tiene in piedi la correzione di `copertura.variazione-fra-corse`:
       # senza le sonde che esercitano i rami scheduling-dipendenti, la copertura
       # torna a cambiare fra due corse sullo stesso albero. Il gate stesso gira

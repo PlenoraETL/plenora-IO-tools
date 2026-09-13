@@ -35,7 +35,12 @@ from __future__ import annotations
 
 import json
 import re
+import pathlib
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,9 +123,13 @@ def confine_delle_prove(righe: list[str]) -> int:
 
 
 def sorgenti() -> list[tuple[str, str]]:
+    # I file di prove non sono prodotto, e dalla separazione dei test non lo
+    # si vede piu' aprendo il file: la risposta la da' `perimetro_dei_sorgenti`,
+    # che legge i `mod` e sa quali stanno sotto `#[cfg(test)]`.
     return [
         (f.relative_to(ROOT).as_posix(), f.read_text(encoding="utf-8"))
         for f in sorted(CRATES.rglob("*.rs"))
+        if not perimetro.e_codice_di_prova(f)
     ]
 
 

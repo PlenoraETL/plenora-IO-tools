@@ -138,8 +138,8 @@ pub enum AzioneDelSegnale {
 /// processo vero, e la seconda avrebbe richiesto di vincere una corsa contro il
 /// rientro della prima: fra il primo segnale e l'uscita del processo passano
 /// millisecondi. Una sonda costruita cosi' non prova la transizione, prova chi
-/// arriva primo — ed e' esattamente il difetto che questa tranche ha gia'
-/// trovato una volta, in una sonda tarata sul carico della macchina.
+/// arriva primo — ed e' un difetto gia' visto qui: una sonda tarata sul carico
+/// della macchina, verde o rossa a seconda di quanto fosse occupata.
 ///
 /// Qui le transizioni sono due chiamate e l'ordine lo decide il test.
 ///

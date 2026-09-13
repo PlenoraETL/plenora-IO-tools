@@ -48,6 +48,10 @@ from __future__ import annotations
 
 import re
 import sys
+
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -329,7 +333,14 @@ def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
         percorso = sorgente.relative_to(radice).as_posix()
         parti = sorgente.relative_to(radice).parts
         crate = parti[1] if percorso.startswith("crates/") else parti[0]
-        in_test = righe_di_test(testo)
+        # Un file **intero** di prove conta come test, riga per riga: da quando
+        # i moduli `#[cfg(test)]` sono usciti dai file di prodotto, cercare
+        # l'attributo dentro il file direbbe che ottantuno occorrenze di prova
+        # sono produzione. La classificazione la da' `perimetro_dei_sorgenti`.
+        if perimetro.e_codice_di_prova(sorgente):
+            in_test = set(range(1, testo.count(chr(10)) + 2))
+        else:
+            in_test = righe_di_test(testo)
         intervalli = intervalli_di_funzione(testo)
         for trovata in OCCORRENZA.finditer(testo):
             riga = testo.count("\n", 0, trovata.start()) + 1

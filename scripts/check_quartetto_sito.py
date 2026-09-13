@@ -33,9 +33,9 @@ Il quartetto si legge dal costruttore, perche' e' il costruttore a fissarlo:
 * `new` -- finche' esiste -- impone `code = Generic` e riceve gli assi.
 
 Cambiare costruttore a un sito cambia lo snapshot, e il gate lo dice. E' cosi'
-che si sarebbe visto il difetto della tranche 2: `new(Schema, Validate, ...)`
-diventato `schema_redatto` sposta il codice da `Generic` a `Schema` **senza
-cambiare una sola riga di assi nel diff**.
+che si sarebbe visto il difetto che ha fatto nascere questo gate:
+`new(Schema, Validate, ...)` diventato `schema_redatto` sposta il codice da
+`Generic` a `Schema` **senza cambiare una sola riga di assi nel diff**.
 
 # Che cosa NON verifica
 

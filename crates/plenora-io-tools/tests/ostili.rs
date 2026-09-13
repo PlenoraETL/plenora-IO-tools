@@ -133,8 +133,8 @@ struct Assi {
 /// La seconda non e' una concessione: `field` porta un nome che viene da un
 /// contratto — per una scrittura e' il nome che il chiamante ha scritto nel
 /// proprio piano, per una lettura e' un nome inferito dal file. La decisione
-/// di spostarlo li' invece di interpolarlo nel messaggio e' della tranche 2, ed
-/// e' proprio cio' che rende il testo curato. **`field` non e' sul wire v1**:
+/// di spostarlo li' invece di interpolarlo nel messaggio e' proprio cio' che
+/// rende il testo curato. **`field` non e' sul wire v1**:
 /// `err_doc` emette sei chiavi e quella non e' fra loro — lo verifica il test
 /// che esegue il binario.
 fn verifica(contesto: &str, errore: &PlenoraIoError, assi: Option<Assi>) {

@@ -430,9 +430,10 @@ FOGLIE_LEGATE = frozenset(
         "chiuso.fuzz_filegdb.contatori_di_copertura",
         "chiuso.fuzz_filegdb.file_sorgente_gdal_strumentati",
         "chiuso.fuzz_filegdb.simboli_asan_nella_libreria",
-        # l'allowlist del docset
-        "docset.markdown_canonici",
-        "docset.markdown_operativi",
+        # l'allowlist del docset. I conteggi non ci sono piu': si leggono da
+        # `check_docset.CANONICI`, che e' la fonte. Quando stavano anche qui,
+        # aggiungere un documento canonico rendeva rosso questo contratto per un
+        # cambiamento editoriale.
         "docset.verificato_da",
     }
 )
@@ -510,6 +511,10 @@ FOGLIE_DICHIARATE = {
     "ultima_misura.copertura.nota": "prosa",
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "chiuso.fuzz_filegdb.nota": "prosa",
+    "docset.perche_non_ci_sono_i_conteggi": (
+        "prosa: dice perche' i due conteggi non stanno qui. Non e' un numero da "
+        "legare a una fonte, e' la ragione per cui il numero non c'e'"
+    ),
     "aperto.loss_report.decisioni_ratificate": (
         "le cinque decisioni che la ratifica del contratto LossReport ha "
         "chiuso. Non sono misurate da niente -- sono l'elenco di cio' su cui "
@@ -3604,12 +3609,22 @@ def _docset_legato(stato: dict[str, Any]) -> list[str]:
     dichiarato = _dentro(stato, ("docset",))
     if not isinstance(dichiarato, dict):
         return ["`docset` assente"]
-    atteso = {
-        "markdown_canonici": len(CANONICI),
-        "markdown_operativi": len(OPERATIVI),
-        "verificato_da": "scripts/check_docset.py",
-    }
+    # Solo chi verifica. I **quanti** li conta `check_docset.py` sulla propria
+    # allowlist, e ripeterli qui li farebbe divergere il giorno in cui uno dei
+    # due posti viene aggiornato e l'altro no -- che e' il modo in cui una
+    # duplicazione si fa notare: tardi.
+    atteso = {"verificato_da": "scripts/check_docset.py"}
+    vietati = [
+        chiave
+        for chiave in ("markdown_canonici", "markdown_operativi")
+        if chiave in dichiarato
+    ]
     errori = [
+        f"`docset.{chiave}` e' un conteggio copiato: l'allowlist di check_docset "
+        "e' la fonte, e un numero scritto due volte diverge appena uno dei due "
+        "posti cambia. Toglilo dallo stato."
+        for chiave in vietati
+    ] + [
         f"`docset.{chiave}` vale «{dichiarato.get(chiave)}», l'allowlist di "
         f"check_docset ne dichiara «{valore}»"
         for chiave, valore in atteso.items()

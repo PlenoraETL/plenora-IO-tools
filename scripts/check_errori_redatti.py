@@ -43,6 +43,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # I costruttori che accettano testo libero. `new` e' incluso: e' quello da cui
@@ -85,8 +89,8 @@ MIGRATI = (
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
 #
-# E' il **registro del debito**: 226 occorrenze in 122 funzioni alla chiusura
-# della tranche 1. Ogni voce sparira' quando il suo crate sara' migrato, e il
+# E' il **registro del debito**: 226 occorrenze in 122 funzioni quando il
+# registro e' nato. Ogni voce sparira' quando il suo crate sara' migrato, e il
 # gate lo pretende — una voce che sopravvive al proprio codice e' una violazione
 # quanto una chiamata non censita.
 #
@@ -315,13 +319,15 @@ def e_test_per_posizione(percorso: Path, radice: Path) -> bool:
     Non e' un'esclusione dal censimento: li' i test contano come la produzione.
     Serve ai gate che il codice di test lo escludono **gia'**, perche' lo
     escludano per una regola sola invece che per due meta'.
+
+    Dalla separazione dei test la posizione non basta piu': un file sotto
+    `src/` puo' essere prove perche' il `mod` che lo porta sta sotto
+    `#[cfg(test)]`. La risposta la da' `perimetro_dei_sorgenti`, che legge i
+    `mod` invece di indovinare dal percorso. Il parametro `radice` resta per i
+    chiamanti che lo passano, e il caso normale e' la radice del repository.
     """
-    parti = percorso.relative_to(radice).parts
-    return len(parti) > 2 and parti[0] == "crates" and parti[2] in (
-        "tests",
-        "benches",
-        "examples",
-    )
+    del radice
+    return perimetro.e_codice_di_prova(percorso)
 
 
 def righe_di_test(testo: str) -> set[int]:

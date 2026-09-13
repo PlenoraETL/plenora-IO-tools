@@ -236,9 +236,8 @@
     }
   },
   "docset": {
-    "markdown_canonici": 6,
-    "markdown_operativi": 7,
-    "verificato_da": "scripts/check_docset.py"
+    "verificato_da": "scripts/check_docset.py",
+    "perche_non_ci_sono_i_conteggi": "perche' erano una copia. L'allowlist di `check_docset.py` e' la fonte: quanti documenti canonici e operativi ci siano si legge da li'. Scriverli anche qui voleva dire che aggiungere un documento -- un cambiamento editoriale -- rendeva rosso il contratto di release finche' qualcuno non riallineava il secondo posto, e la rimisura che seguiva non misurava niente di nuovo. Togliere la sonda avrebbe nascosto la duplicazione invece di chiuderla: i due valori sarebbero tornati a divergere senza che nulla lo dicesse."
   },
   "blocchi": {
     "fonte": "assurance/registries/release-contract-current.json",

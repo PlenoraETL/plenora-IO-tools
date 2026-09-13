@@ -63,6 +63,10 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "assurance-n1-copertura-negativa.json"
 
@@ -176,6 +180,24 @@ def _verifica_prova(nome: str, voce: dict, percorso: str | None) -> list[str]:
             testo = (ROOT / dove).read_text(encoding="utf-8")
             identita = voce_prova.get("test", "")
             finale = identita.rsplit("::", 1)[-1]
+            # Il simbolo puo' stare nel file dichiarato **o** in un file di prove
+            # dello stesso crate. Finche' i moduli `#[cfg(test)]` stavano dentro
+            # il file di prodotto le due cose coincidevano; da quando le prove
+            # hanno un file loro, `tests::n1_qualcosa` vive in `src/tests.rs` e
+            # cercarlo solo in `src/lib.rs` direbbe che ogni prova e' sparita.
+            #
+            # Si cerca nel file dichiarato per primo: e' li' che la prova sta
+            # quando il registro lo dice, e allargare sempre la ricerca
+            # nasconderebbe un `file` sbagliato.
+            if finale and f"fn {finale}(" not in testo:
+                crate = (ROOT / dove).resolve()
+                while crate.parent.name != "crates" and crate.parent != crate:
+                    crate = crate.parent
+                _, prove = perimetro.classifica(crate)
+                for altro in sorted(prove):
+                    if f"fn {finale}(" in altro.read_text(encoding="utf-8"):
+                        testo = altro.read_text(encoding="utf-8")
+                        break
             if not finale or f"fn {finale}(" not in testo:
                 errori.append(
                     f"{nome}: la prova «{identita}» non ha un simbolo in "

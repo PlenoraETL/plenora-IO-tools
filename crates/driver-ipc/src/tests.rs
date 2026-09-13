@@ -1,0 +1,1111 @@
+//! Le prove di [`super`], in un file loro.
+//!
+//! Restano un **modulo figlio**: vedono i privati del genitore
+//! esattamente come quando stavano dentro di lui, e non allargano di
+//! una riga la superficie pubblica del crate.
+
+use super::*;
+
+/// Opzioni di lettura sul modello unificato.
+///
+/// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+/// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+/// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+/// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+/// Opzioni di scrittura sul modello unificato.
+///
+/// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+/// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+fn opzioni_scrittura() -> WriteOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+    }
+}
+
+fn opzioni_lettura() -> ReadOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+        Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+    }
+}
+
+use std::sync::Arc;
+
+use arrow_array::{BinaryArray, Int64Array};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
+use plenora_io_core::WriteLayer;
+use plenora_io_model::contract::{
+    CoordinateDimensions, CoordinatePrecision, GeometryEncoding, GeometryType, SpatialSemantics,
+};
+use plenora_io_model::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+use plenora_io_model::CancellationToken;
+
+/// Il file che faceva panicare arrow viene ora **rifiutato prima** che
+/// arrow lo tocchi (FZ-0).
+///
+/// Prima di FZ-0 questo test osservava la barriera `catch_unwind`: il
+/// panico avveniva e veniva convertito. Non bastava — un panico catturato
+/// e' pur sempre un panico, e sotto `libfuzzer-sys` diventa `abort()`
+/// prima dell'unwinding, quindi il target restava rosso e in quarantena.
+///
+/// Ora il difetto e' impedito: `valida_file_ipc` verifica schema e buffer
+/// dichiarati contro il corpo del messaggio, e questo file dichiara un
+/// buffer oltre la fine del proprio corpo. La verifica e' che l'errore
+/// **non** venga dalla barriera.
+#[test]
+fn un_ipc_non_conforme_e_rifiutato_prima_di_arrow() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/schema-che-fa-panicare-arrow.arrow");
+
+    let errore = match IpcDriver.open(Source::Path(seme), opzioni_lettura()) {
+        Err(errore) => errore,
+        Ok(dataset) => {
+            let request = ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            };
+            match dataset.open_layer_reader(&request) {
+                Err(errore) => errore,
+                Ok(mut reader) => loop {
+                    match reader.next_batch() {
+                        Ok(Some(_)) => {}
+                        Ok(None) => panic!("il file doveva essere rifiutato"),
+                        Err(errore) => break errore,
+                    }
+                },
+            }
+        }
+    };
+    assert!(
+        !errore.to_string().contains("in panico"),
+        "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+}
+
+/// Un IPC conforme continua a essere letto: la prevalidazione non rifiuta
+/// cio' che il formato ammette.
+///
+/// Senza questo, una verifica troppo severa passerebbe il test sopra e
+/// romperebbe ogni file reale senza che nessuno se ne accorgesse qui.
+#[test]
+fn un_ipc_conforme_supera_la_prevalidazione() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/minimal.arrow");
+    assert!(seme.is_file(), "seme assente: {}", seme.display());
+    driver_common::prevalida_arrow::valida_file_ipc("arrow", &seme)
+        .expect("un IPC conforme non deve essere rifiutato");
+}
+
+/// I metadati del footer con un campo assente sono rifiutati **prima** di
+/// arrow, e i due campi si verificano separatamente.
+///
+/// # Il difetto
+///
+/// `arrow-ipc` legge i metadati del footer con `kv.key().unwrap()` e
+/// `kv.value().unwrap()` (`reader.rs:1263-1264`). Nella grammatica
+/// flatbuffer quei due campi sono **facoltativi**, e arrow stessa lo sa: in
+/// `convert.rs` -- sui metadati di un campo e su quelli dello schema --
+/// salta la voce incompleta invece di aprirla. Sono i soli due `unwrap` su
+/// questi campi in tutto il crate, ed e' un'incoerenza interna ad arrow: la
+/// stessa struttura, letta in modo sicuro in due punti e non nel terzo.
+///
+/// Trovato dalla campagna fuzz del 2026-09-07 su `ipc_reader`, con un input
+/// di 2764 byte che portava dieci voci vuote nel footer. I due semi qui
+/// sotto sono costruiti invece che ridotti: partono da un file che arrow
+/// scrive, e ne azzerano **uno** slot del vtable -- che e' il modo in cui
+/// flatbuffer omette un campo, non una corruzione. Cosi' ciascuno prova un
+/// campo solo, cosa che il caso originale, con entrambi assenti, non
+/// distingue.
+///
+/// # Perche' rifiutare, dato che c'e' `catch_unwind`
+///
+/// Perche' il panico avviene comunque. La barriera lo converte in un
+/// errore, ma sotto `libfuzzer-sys` un panico diventa `abort()` prima
+/// dell'unwinding: il bersaglio resta rosso e va in quarantena. E' la stessa
+/// ragione di FZ-0, e questa e' la voce che quella verifica non guardava.
+#[test]
+fn un_metadato_del_footer_senza_un_campo_e_rifiutato_prima_di_arrow() {
+    for (seme, atteso) in [
+        ("footer-senza-chiave.arrow", "senza chiave"),
+        ("footer-senza-valore.arrow", "senza valore"),
+    ] {
+        let percorso = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader")
+            .join(seme);
+        assert!(percorso.is_file(), "seme assente: {}", percorso.display());
+
+        let Err(errore) = IpcDriver.open(Source::Path(percorso), opzioni_lettura()) else {
+            panic!("{seme} doveva essere rifiutato")
+        };
+        assert!(
+            !errore.to_string().contains("in panico"),
+            "{seme}: il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+        );
+        assert!(
+            errore.to_string().contains(atteso),
+            "{seme}: l'errore deve dire quale campo manca, e dice «{errore}»"
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+}
+
+/// Un messaggio di dizionario **senza dati** e' rifiutato prima di arrow.
+///
+/// `DictionaryBatch.data` e' facoltativo nella grammatica flatbuffer e
+/// obbligatorio nel formato. `get_dictionary_values` lo apre con `unwrap`
+/// (`arrow-ipc/src/reader.rs:895`), quindi un messaggio che lo omette fa
+/// panicare la libreria prima di arrivare a qualunque errore. Rifiutarlo non
+/// e' piu' severo di arrow: e' la **stessa** assunzione, restituita come
+/// errore invece che come panico.
+///
+/// Trovato dalla campagna fuzz della CI il 2026-09-07, corsa
+/// [34155579047][corsa]. E' il terzo panico della famiglia -- dopo i
+/// metadati del footer e la bitmap del dizionario -- e il terzo ha
+/// suggerito di smettere di rincorrerli uno per uno.
+///
+/// # Gli `unwrap` di `arrow-ipc/src/reader.rs`, e chi li copre
+///
+/// | riga | che cosa apre | copertura |
+/// |---|---|---|
+/// | 572 | `child.as_ref().unwrap()` | irraggiungibile: `if child.is_none()` lo riempie due righe sopra |
+/// | 636 | `skip_buffer`: `buffers.next().unwrap()` | `preleva_buffer` rifiuta «meno buffer dello schema», e la passeggiata consuma i buffer di **ogni** campo, anche quelli che una proiezione salterebbe |
+/// | 895 | `batch.data().unwrap()` | **questa** verifica |
+/// | 918-920 | lunghezze del blocco, `to_usize` e `checked_add` | `valida_blocco`: lunghezze negative rifiutate, e offset piu' lunghezza dentro il file |
+/// | 950 | `buf[..4].try_into().unwrap()` | il minimo che pretendiamo dal file e' `MAGIC * 2 + 2 + 4` |
+/// | 1098 | `header_as_dictionary_batch().unwrap()` | irraggiungibile: preceduto dal controllo del tipo di header |
+/// | 1251 | `footer.schema().unwrap()` | «footer Arrow senza schema» |
+/// | 1264-1265 | `kv.key()` e `kv.value()` | il finding sui metadati del footer, chiuso lo stesso giorno |
+///
+/// # Che cosa questo elenco **non** dice
+///
+/// Non dice che arrow non possa panicare leggendo un file. Copre gli otto
+/// `unwrap()` di **questo** file in **questa** versione, e nient'altro.
+/// Restano fuori gli `assert!`, le indicizzazioni dirette, le aritmetiche
+/// che possono traboccare, e ogni panico nelle funzioni **chiamate** dal
+/// reader, che stanno in altri crate.
+///
+/// La prova che non basta e' nella stessa giornata: il secondo finding del
+/// 2026-09-07 -- la bitmap del dizionario piu' corta della lunghezza
+/// dichiarata -- era un `assert!` in **`arrow-buffer`**, raggiunto
+/// attraverso `arrow-ipc`. Un censimento degli `unwrap()` di `reader.rs`
+/// non lo avrebbe trovato, e infatti non lo ha trovato: lo ha trovato il
+/// fuzzing.
+///
+/// L'elenco chiude **una classe** -- `unwrap()` su un campo facoltativo del
+/// flatbuffer, qui dentro -- e va rifatto a ogni aggiornamento di arrow.
+/// Le altre forme restano dove sono sempre state: il fuzzing e la barriera.
+///
+/// [corsa]: https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/34155579047
+#[test]
+fn un_dizionario_senza_dati_e_rifiutato_prima_di_arrow() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/dizionario-senza-dati.arrow");
+    assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+    let Err(errore) = IpcDriver.open(Source::Path(seme), opzioni_lettura()) else {
+        panic!("un dizionario senza dati non deve aprirsi")
+    };
+    let testo = errore.to_string();
+    assert!(
+        !testo.contains("in panico"),
+        "il rifiuto deve precedere arrow, non seguirne il panico: {testo}"
+    );
+    assert!(
+        testo.contains("senza dati"),
+        "l'errore deve dire che cosa manca, e dice «{testo}»"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+}
+
+/// Il batch del **dizionario** con una bitmap piu' corta della lunghezza
+/// dichiarata e' rifiutato prima di arrow.
+///
+/// # Il buco
+///
+/// La prevalidazione guardava il messaggio del dizionario solo con
+/// `valida_buffer`, che verifica che ogni buffer stia dentro il corpo.
+/// Nessuno accoppiava la lunghezza del nodo alla bitmap di validita', e
+/// quel controllo e' proprio cio' che impedisce l'assert di
+/// `BooleanBuffer::new`. Il record batch lo aveva; il dizionario no.
+///
+/// Il caso dichiara un nodo lungo 4 278 190 083 con **un byte** di bitmap:
+///
+/// ```text
+/// arrow-buffer/src/buffer/boolean.rs:128:
+/// buffer not large enough (bit_offset: 0, bit_len: 4278190083, buffer_len: 1)
+/// ```
+///
+/// # Da dove viene, e che cosa non e'
+///
+/// Dalla campagna fuzz della CI su `ipc_reader`, il 2026-09-07, corsa
+/// [34145597421][corsa]. **Non** e' una regressione dell'aggiornamento ad
+/// arrow 59.3.0: lo stesso file panica identico contro la 59.1.0 -- provato
+/// costruendo il binario alla revisione `3681d26` -- e l'`assert!` sta alla
+/// stessa riga in entrambe le versioni. Era una lacuna nostra, che la
+/// campagna ha raggiunto ora. Il seme a dizionario aggiunto poche ore prima
+/// col salto ad arrow 59.3.0 ha probabilmente aiutato il fuzzer ad
+/// arrivarci: e' cio' per cui i semi si aggiungono.
+///
+/// [corsa]: https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/34145597421
+#[test]
+fn un_dizionario_con_la_bitmap_corta_e_rifiutato_prima_di_arrow() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/dizionario-bitmap-corta.arrow");
+    assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+    let Err(errore) = IpcDriver.open(Source::Path(seme), opzioni_lettura()) else {
+        panic!("un dizionario con la bitmap corta non deve aprirsi")
+    };
+    let testo = errore.to_string();
+    assert!(
+        !testo.contains("in panico"),
+        "il rifiuto deve precedere arrow, non seguirne il panico: {testo}"
+    );
+    assert!(
+        testo.contains("bitmap di validita'"),
+        "l'errore deve dire che cosa non torna, e dice «{testo}»"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+}
+
+/// Una colonna a **dizionario** si rilegge con i valori giusti.
+///
+/// # Perche' questo test esiste
+///
+/// L'aggiornamento ad `arrow 59.3.0` cambia il comportamento del reader IPC
+/// proprio sui dizionari: in `arrow-ipc/src/reader.rs` cambiano le attese
+/// sulle chiavi `Int8` e un campo che il commento dichiarava «technically
+/// not legal for this field to be null» diventa non nullable. E' l'unica
+/// modifica di comportamento -- non di forma -- che quel salto di versione
+/// porta sul percorso di lettura.
+///
+/// Il prodotto non **scrive** dizionari: i tipi che i nostri writer
+/// emettono sono `Binary`, `Utf8`, `Int64`, `Float64`. Ma li **legge**, e li
+/// attraversa in prevalidazione -- `header_as_dictionary_batch` in
+/// `prevalida_arrow` -- perche' un file di terze parti puo' portarli. Senza
+/// questo test l'aggiornamento avrebbe attraversato quella modifica senza
+/// che niente la guardasse.
+///
+/// Il seme e' costruito da `driver-common/examples/scrivi_ipc_con_dizionario`:
+/// chiavi `Int8` -- il tipo su cui le attese sono cambiate -- sei righe, tre
+/// valori distinti con ripetizioni, e un nullo, che e' il caso che quella
+/// modifica riguarda.
+#[test]
+fn una_colonna_a_dizionario_si_rilegge_con_i_valori_giusti() {
+    use arrow_array::Array as _;
+
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/dizionario-int8.arrow");
+    assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+    let ds = IpcDriver
+        .open(Source::Path(seme), opzioni_lettura())
+        .expect("un file con una colonna a dizionario si apre");
+    let layer = ds.layers()[0].clone();
+    let mut reader = ds
+        .open_layer_reader(&ReadRequest {
+            layer: layer.id,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .expect("il reader si apre");
+
+    let batch = reader.next_batch().unwrap().expect("un batch c'e'");
+    assert_eq!(batch.num_rows(), 6);
+    assert!(reader.next_batch().unwrap().is_none());
+
+    // I valori, non solo il conteggio: e' la sostanza della modifica.
+    let colonna = batch.column(0);
+    let dizionario = colonna
+        .as_any()
+        .downcast_ref::<arrow_array::DictionaryArray<arrow_array::types::Int8Type>>()
+        .expect("la colonna resta un dizionario Int8");
+    let valori = dizionario
+        .values()
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .expect("i valori del dizionario sono stringhe");
+
+    let letti: Vec<Option<&str>> = (0..dizionario.len())
+        .map(|i| {
+            if dizionario.is_null(i) {
+                None
+            } else {
+                // Le chiavi sono `Int8`: l'indice non puo' essere negativo,
+                // e se lo fosse il file sarebbe corrotto e il test deve dirlo.
+                let chiave = usize::try_from(dizionario.keys().value(i))
+                    .expect("un indice del dizionario non puo' essere negativo");
+                Some(valori.value(chiave))
+            }
+        })
+        .collect();
+    assert_eq!(
+        letti,
+        vec![
+            Some("alfa"),
+            Some("beta"),
+            Some("alfa"),
+            None,
+            Some("gamma"),
+            Some("beta"),
+        ],
+        "il dizionario deve rileggersi con gli stessi valori, nullo compreso"
+    );
+}
+
+/// La controprova positiva: metadati **completi** nel footer si leggono.
+///
+/// Senza questa riga, una verifica che rifiutasse ogni metadato passerebbe
+/// il test sopra e romperebbe ogni file che ne porta uno -- e i file reali
+/// ne portano: `arrow-rs` scrive `ARROW:schema` nel footer Parquet, e i
+/// nostri stessi artefatti ne dichiarano.
+///
+/// Il seme e' lo **stesso file** da cui i due ostili derivano, senza lo slot
+/// azzerato: la differenza fra passare e non passare e' esattamente il campo
+/// che manca, e nient'altro.
+#[test]
+fn un_footer_con_metadati_completi_supera_la_prevalidazione() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/footer-con-metadati-validi.arrow");
+    assert!(seme.is_file(), "seme assente: {}", seme.display());
+    driver_common::prevalida_arrow::valida_file_ipc("arrow", &seme)
+        .expect("un footer con metadati completi non deve essere rifiutato");
+}
+
+#[test]
+fn geometry_without_crs_metadata_is_explicitly_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing-crs.arrow");
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+        std::iter::once((
+            plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+            plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+        ))
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(matches!(
+        &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
+        CrsResolution::Missing
+    ));
+}
+
+#[test]
+fn unresolved_authority_without_definition_is_preserved() {
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+        PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
+        PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+        PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("unresolved-authority.arrow");
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+        [
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (
+                PLENORA_TYPES_DECLARATION_KEY.to_owned(),
+                "unresolved".to_owned(),
+            ),
+            (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:99999".to_owned()),
+            (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    let raw = geometry.crs.raw().unwrap();
+    assert_eq!(raw.authority_hint.as_deref(), Some("EPSG:99999"));
+    assert_eq!(raw.definition, None);
+    assert_eq!(raw.definition_format, None);
+
+    let emitted =
+        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), geometry);
+    assert!(!emitted.metadata().contains_key(PLENORA_CRS_DEFINITION_KEY));
+    assert!(!emitted
+        .metadata()
+        .contains_key(PLENORA_CRS_DEFINITION_FORMAT_KEY));
+}
+
+#[test]
+fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+        PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
+        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY,
+        PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("srid-only-input.arrow");
+    let output = dir.path().join("srid-only-output.arrow");
+    let field = Field::new("geom", DataType::Binary, true).with_metadata(
+        [
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+            (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let values = BinaryArray::from(vec![Some(
+            &[
+                1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ][..],
+        )]);
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(values)]).unwrap();
+        let mut writer = FileWriter::try_new(File::create(&input).unwrap(), &schema).unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let driver = IpcDriver;
+    let dataset = driver.open(Source::Path(input), opzioni_lettura()).unwrap();
+    let layer = dataset.layers()[0].clone();
+    let geometry = layer.contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.srid, Some(4326));
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_rows(), 1);
+    assert_eq!(batch.schema(), layer.contract.schema);
+    assert!(reader.next_batch().unwrap().is_none());
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: layer.contract,
+        }],
+    };
+    driver
+        .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
+        .unwrap()
+        .finish()
+        .unwrap();
+
+    let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
+        .unwrap()
+        .schema();
+    let metadata = output_schema.field(0).metadata();
+    assert_eq!(
+        metadata.get(PLENORA_SRID_KEY).map(String::as_str),
+        Some("4326")
+    );
+    for key in [
+        PLENORA_CRS_ID_KEY,
+        PLENORA_CRS_DEFINITION_KEY,
+        PLENORA_AXIS_ORDER_KEY,
+    ] {
+        assert!(!metadata.contains_key(key), "chiave sintetizzata: {key}");
+    }
+}
+
+#[test]
+fn declared_unresolved_srid_only_with_axis_order_fails_at_open() {
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+        PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+        PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("srid-only-with-axis.arrow");
+    let field = Field::new("geom", DataType::Binary, true).with_metadata(
+        [
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+            (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+            (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    let values = BinaryArray::from(vec![Some(
+        &[
+            1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ][..],
+    )]);
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(values)]).unwrap();
+    let mut writer = FileWriter::try_new(File::create(&input).unwrap(), &schema).unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    assert!(IpcDriver
+        .open(Source::Path(input), opzioni_lettura())
+        .is_err());
+}
+
+#[test]
+fn canonical_metadata_without_geoarrow_extension_is_geometry() {
+    use plenora_io_model::geometry::{
+        PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
+        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("canonical-only.arrow");
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+        [
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+            (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:4326".to_owned()),
+            (PLENORA_AXIS_ORDER_KEY.to_owned(), "lat_lon".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.name, "geometry");
+    assert_eq!(geometry.crs.id(), Some("EPSG:4326"));
+}
+
+#[test]
+fn incomplete_or_conflicting_canonical_identity_is_rejected() {
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY,
+        PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    for (name, metadata) in [
+        (
+            "missing-version",
+            [
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        (
+            "conflicting-extension",
+            [
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+                (
+                    ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    "vendor.opaque".to_owned(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{name}.arrow"));
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadata);
+        let schema = if name == "missing-version" {
+            Arc::new(Schema::new(vec![field]))
+        } else {
+            with_contract_version(Arc::new(Schema::new(vec![field])))
+        };
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+            writer.finish().unwrap();
+        }
+        assert!(matches!(
+            IpcDriver.open(Source::Path(path), opzioni_lettura()),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
+        ));
+    }
+}
+
+#[test]
+fn multiple_geoarrow_fields_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ambiguous.arrow");
+    let geometry_field = |name| {
+        Field::new(name, DataType::Binary, true).with_metadata(
+            std::iter::once((
+                plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+            ))
+            .collect(),
+        )
+    };
+    let schema = Schema::new(vec![
+        geometry_field("geometry_a"),
+        geometry_field("geometry_b"),
+    ]);
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, &schema).unwrap();
+        writer.finish().unwrap();
+    }
+
+    assert!(matches!(
+        IpcDriver.open(Source::Path(path), opzioni_lettura()),
+        Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
+    ));
+}
+
+#[test]
+fn round_trip_ipc_preserves_geometry_metadata() {
+    use driver_common_geometry_field as geometry_field;
+
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("t.arrow");
+    let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+        12.5, 45.9,
+    )))
+    .unwrap();
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geometry", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+            Arc::new(Int64Array::from(vec![7i64])),
+        ],
+    )
+    .unwrap();
+
+    let driver = IpcDriver;
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let mut w = driver
+        .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    w.write(&batch).unwrap();
+    w.finish().unwrap();
+
+    let ds = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
+    // Il CRS e la geometria sopravvivono nei metadati Arrow (pass-through).
+    let g = ds.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(g.name, "geometry");
+    assert_eq!(g.crs.id(), Some("EPSG:4326"));
+    let mut r = ds
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let rb = r.next_batch().unwrap().unwrap();
+    assert_eq!(rb.num_rows(), 1);
+    assert!(is_geometry_field(
+        &rb.schema().field_with_name("geometry").unwrap().clone()
+    ));
+    let col = rb
+        .column_by_name("geometry")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(col.value(0), wkb.as_slice());
+    assert!(r.next_batch().unwrap().is_none());
+
+    let mut projected = ds
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: Some(vec![FieldId(1)]),
+            projection_mode: ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    assert_eq!(projected.contract().contract.schema.fields().len(), 1);
+    assert_eq!(projected.contract().contract.schema.field(0).name(), "id");
+    assert!(projected.contract().contract.geometry.is_none());
+    let projected_batch = projected.next_batch().unwrap().unwrap();
+    assert_eq!(projected_batch.num_columns(), 1);
+    assert_eq!(
+        projected_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        7
+    );
+}
+
+#[test]
+fn batch_target_slices_file_defined_ipc_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("batch-target.arrow");
+    let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(Int64Array::from(vec![0, 1, 2, 3, 4]))],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let driver = IpcDriver;
+    let mut writer = driver
+        .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    let dataset = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget {
+                target_bytes: 16,
+                max_rows: 100,
+            },
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let mut sizes = Vec::new();
+    while let Some(batch) = reader.next_batch().unwrap() {
+        sizes.push(batch.num_rows());
+    }
+    assert_eq!(sizes, vec![2, 2, 1]);
+}
+
+#[test]
+fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
+    use driver_common_geometry_field as geometry_field;
+
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("zm.arrow");
+    let ewkb = encode_wkb(
+        &WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: Some(3.0),
+                m: Some(4.0),
+            }),
+            dimensions: CoordinateDimensions::Xyzm,
+            srid: Some(4326),
+        },
+        WkbFlavor::Ewkb,
+    )
+    .unwrap();
+    let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field("geometry", "EPSG:4326")]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(ewkb.as_slice())]))],
+    )
+    .unwrap();
+    let mut geometry = GeometryColumnContract::wkb_passthrough(
+        FieldId(0),
+        "geometry",
+        ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+        true,
+    );
+    geometry.encoding = GeometryEncoding::Ewkb;
+    geometry.dimensions = CoordinateDimensions::Xyzm;
+    geometry.spatial_semantics = SpatialSemantics::Geography;
+    geometry.srid = Some(4326);
+    geometry.precision = CoordinatePrecision::Native;
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+    geometry.native_metadata.insert(
+        "postgis.typmod".to_owned(),
+        "geography(PointZM,4326)".to_owned(),
+    );
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: Some(geometry),
+            },
+        }],
+    };
+    let driver = IpcDriver;
+    let mut writer = driver
+        .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    let dataset = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
+    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.encoding, GeometryEncoding::Ewkb);
+    assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
+    assert_eq!(geometry.spatial_semantics, SpatialSemantics::Geography);
+    assert_eq!(geometry.srid, Some(4326));
+    assert_eq!(geometry.precision, CoordinatePrecision::Native);
+    assert_eq!(geometry.geometry_types, vec![GeometryType::Point]);
+    assert_eq!(
+        geometry
+            .native_metadata
+            .get("postgis.typmod")
+            .map(String::as_str),
+        Some("geography(PointZM,4326)")
+    );
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let read = reader.next_batch().unwrap().unwrap();
+    let geometry_array = read
+        .column(0)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(geometry_array.value(0), ewkb);
+}
+
+// Il test confronta uno per uno tutti i metadati canonici pubblicati: la
+// lunghezza è la lista dei metadati, spezzarla nasconderebbe la copertura.
+#[allow(clippy::too_many_lines)]
+#[test]
+fn canonical_metadata_additions_are_published_without_changing_values() {
+    use std::collections::HashMap;
+
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_CRS_RESOLUTION_KEY,
+        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_FIELD_ID_KEY,
+        PLENORA_GEOMETRY_TYPES_KEY, PLENORA_PRECISION_KEY, PLENORA_TYPES_DECLARATION_KEY,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("physical.arrow");
+    let output = dir.path().join("canonical.arrow");
+    let metadata = HashMap::from([
+        (
+            ARROW_EXTENSION_NAME_KEY.to_owned(),
+            GEOARROW_WKB_EXTENSION.to_owned(),
+        ),
+        (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+        (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+        (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+        (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+        (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+        ("producer.normative".to_owned(), "retained".to_owned()),
+    ]);
+    assert!(!metadata.contains_key(PLENORA_FIELD_ID_KEY));
+    assert!(!metadata.contains_key(PLENORA_PRECISION_KEY));
+    let physical_schema = with_contract_version(Arc::new(Schema::new(vec![Field::new(
+        "geometry",
+        DataType::Binary,
+        false,
+    )
+    .with_metadata(metadata)])));
+    let values = [
+        geo_types::Point::new(1.0, 2.0),
+        geo_types::Point::new(3.0, 4.0),
+        geo_types::Point::new(5.0, 6.0),
+    ]
+    .map(|point| to_wkb(&geo_types::Geometry::Point(point)).unwrap());
+    let physical_batch = RecordBatch::try_new(
+        physical_schema.clone(),
+        vec![Arc::new(BinaryArray::from_iter_values(
+            values.iter().map(Vec::as_slice),
+        ))],
+    )
+    .unwrap();
+    {
+        let file = File::create(&source).unwrap();
+        let mut writer = FileWriter::try_new(file, physical_schema.as_ref()).unwrap();
+        writer.write(&physical_batch).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let driver = IpcDriver;
+    let dataset = driver
+        .open(Source::Path(source), opzioni_lettura())
+        .unwrap();
+    let layer = dataset.layers()[0].clone();
+    let canonical_field = layer.contract.schema.field(0);
+    assert_eq!(
+        canonical_field
+            .metadata()
+            .get(PLENORA_FIELD_ID_KEY)
+            .map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        canonical_field
+            .metadata()
+            .get(PLENORA_PRECISION_KEY)
+            .map(String::as_str),
+        Some("float64")
+    );
+    assert_eq!(
+        canonical_field
+            .metadata()
+            .get("producer.normative")
+            .map(String::as_str),
+        Some("retained")
+    );
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let read = reader.next_batch().unwrap().unwrap();
+    assert_eq!(read.schema(), layer.contract.schema);
+
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: layer.name,
+            contract: layer.contract,
+        }],
+    };
+    let mut writer = driver
+        .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&read).unwrap();
+    writer.finish().unwrap();
+
+    let mut published = FileReader::try_new(File::open(output).unwrap(), None).unwrap();
+    let published_batch = published.next().unwrap().unwrap();
+    assert_eq!(published_batch.num_rows(), 3);
+    let published_values = published_batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    for (row, expected) in values.iter().enumerate() {
+        assert_eq!(published_values.value(row), expected);
+    }
+}
+
+// geometry_field locale (evita la dipendenza driver-common nei test).
+fn driver_common_geometry_field(name: &str, crs: &str) -> Field {
+    use std::collections::HashMap;
+    let mut md = HashMap::new();
+    md.insert(
+        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+    );
+    md.insert(GEO_CRS_KEY.to_owned(), crs.to_owned());
+    Field::new(name, DataType::Binary, true).with_metadata(md)
+}

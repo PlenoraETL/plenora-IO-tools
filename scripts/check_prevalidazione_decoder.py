@@ -33,7 +33,12 @@ non serve a niente, perche' il panico avviene durante la costruzione.
 from __future__ import annotations
 
 import re
+import pathlib
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -257,7 +262,12 @@ def verifica(radice: Path) -> list[str]:
 
     # Esclusivita': il costruttore non deve comparire fuori dalle crate ammesse.
     for costruttore, ammesse in CRATE_AMMESSE.items():
+    # I file di prove non sono prodotto, e dalla separazione dei test non lo
+    # si vede piu' aprendo il file: la risposta la da' `perimetro_dei_sorgenti`,
+    # che legge i `mod` e sa quali stanno sotto `#[cfg(test)]`.
         for sorgente in sorted((radice / "crates").rglob("*.rs")):
+            if perimetro.e_codice_di_prova(sorgente):
+                continue
             relativo = sorgente.relative_to(radice).as_posix()
             if any(relativo.startswith(f"{crate}/") for crate in ammesse):
                 continue
