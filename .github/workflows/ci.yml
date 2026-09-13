@@ -81,14 +81,6 @@ jobs:
       # righe di prodotto. Girano qui e non solo nel checkpoint perche' si
       # rompono in una riga -- un `TODO` in una PR, un modulo di prove scritto
       # inline per abitudine -- e perche' costano millisecondi.
-      # Il manifesto di adozione, parte redatta. Gira qui e non solo nel
-      # checkpoint perche' e' il documento che dichiara la conformita': una
-      # deviazione dimenticata non fa rosso nessun altro gate e si legge come
-      # conformita' piena.
-      - name: Verify the adoption manifest
-        run: |
-          python3 -m unittest scripts.test_check_manifesto_adozione
-          python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
       - name: Verify comments, test layout and code size
         run: |
           python3 -m unittest scripts.test_check_comments
@@ -594,6 +586,19 @@ jobs:
 
       - name: Le sonde del verificatore
         run: python3 -m unittest scripts.test_check_public_contracts
+
+      # Il manifesto di adozione, parte redatta. Sta in questo job e non fra i
+      # gate rapidi perche' legge **dal checkout fissato** due cose: lo schema
+      # v4 che lo valida e l'elenco dei contratti che il profilo dichiara
+      # applicabili. Altrove `.plenora-contracts` non esiste.
+      #
+      # Gira in CI e non solo nel checkpoint perche' e' il documento che
+      # dichiara la conformita': una deviazione dimenticata non fa rosso nessun
+      # altro gate e si legge come conformita' piena.
+      - name: Verify the adoption manifest
+        run: |
+          python3 -m unittest scripts.test_check_manifesto_adozione
+          python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
 
       # Qui la domanda e' «il codice di questo commit rispetta i contratti?», e
       # si interroga il binario appena costruito. L'altra domanda -- «l'artefatto
