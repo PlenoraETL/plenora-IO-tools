@@ -7,7 +7,7 @@ funzione che lo decide: `rilevante`.
 # Perche' esiste una seconda misura
 
 Lo scope della soglia si chiama «library coverage» e tiene fuori le crate non
-libreria, `plenora-io-cli` compresa. La scelta resta -- una soglia sulle
+libreria, `plenora-io-tools` compresa. La scelta resta -- una soglia sulle
 librerie e' una scelta difendibile -- ma «fuori dalla soglia» era diventato
 «fuori da ogni misura», e il binario che gli utenti eseguono era l'unica cosa
 che nessuno guardava.
@@ -27,7 +27,7 @@ from scripts import coverage_diff as strumento
 
 class SondePerimetro(unittest.TestCase):
     LIBRERIA = "crates/driver-shp/src/lib.rs"
-    CLI = "crates/plenora-io-cli/src/main.rs"
+    CLI = "crates/plenora-io-tools/src/main.rs"
     BENCH = "crates/plenora-bench/src/main.rs"
     FUZZ = "crates/plenora-fuzz/src/lib.rs"
 
@@ -74,7 +74,7 @@ class SondePerimetro(unittest.TestCase):
         Due letterali -- uno qui e uno nel checkpoint -- divergerebbero senza
         che nessuno se ne accorga, e la sonda proverebbe un perimetro che la
         corsa non usa."""
-        self.assertEqual(strumento.SOLO_CLI, "plenora-io-cli")
+        self.assertEqual(strumento.SOLO_CLI, "plenora-io-tools")
         self.assertIn(strumento.SOLO_CLI, strumento.ESCLUSI)
 
 

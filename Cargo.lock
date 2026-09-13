@@ -1555,32 +1555,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plenora-io-cli"
-version = "3.0.0"
-dependencies = [
- "arrow-array",
- "arrow-ipc",
- "arrow-schema",
- "ctrlc",
- "driver-csv",
- "driver-dxf",
- "driver-filegdb",
- "driver-geojson",
- "driver-geoparquet",
- "driver-gpkg",
- "driver-ipc",
- "driver-kml",
- "driver-shp",
- "driver-xls",
- "jsonschema",
- "plenora-io-core",
- "plenora-io-model",
- "serde_json",
- "tempfile",
- "zip",
-]
-
-[[package]]
 name = "plenora-io-core"
 version = "3.0.0"
 dependencies = [
@@ -1603,6 +1577,32 @@ dependencies = [
  "geo-types",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "plenora-io-tools"
+version = "3.0.0"
+dependencies = [
+ "arrow-array",
+ "arrow-ipc",
+ "arrow-schema",
+ "ctrlc",
+ "driver-csv",
+ "driver-dxf",
+ "driver-filegdb",
+ "driver-geojson",
+ "driver-geoparquet",
+ "driver-gpkg",
+ "driver-ipc",
+ "driver-kml",
+ "driver-shp",
+ "driver-xls",
+ "jsonschema",
+ "plenora-io-core",
+ "plenora-io-model",
+ "serde_json",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]

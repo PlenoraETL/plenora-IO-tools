@@ -5259,7 +5259,7 @@ mod tests {
     /// ricavare uno schema ne' un reader da cui ottenere un batch -- non e'
     /// un'asserzione sul comportamento, e' la firma di `open` a non lasciare
     /// altra strada. La terza meta', che nessuna **uscita** nasca, si osserva
-    /// dove una destinazione esiste: `plenora-io-cli/tests/foglio_vuoto.rs`.
+    /// dove una destinazione esiste: `plenora-io-tools/tests/foglio_vuoto.rs`.
     #[test]
     fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
         let dir = tempfile::tempdir().unwrap();

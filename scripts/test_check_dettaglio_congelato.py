@@ -40,7 +40,7 @@ class AlberoFinto:
     def __init__(self, radice: pathlib.Path) -> None:
         self.radice = radice
         (radice / gate.CASA).parent.mkdir(parents=True, exist_ok=True)
-        (radice / "crates" / "plenora-io-cli" / "src").mkdir(parents=True, exist_ok=True)
+        (radice / "crates" / "plenora-io-tools" / "src").mkdir(parents=True, exist_ok=True)
         self.scrivi_casa(STRUTTURA_SANA)
         self.scrivi_altrove("pub fn niente() {}\n")
 
@@ -48,7 +48,7 @@ class AlberoFinto:
         (self.radice / gate.CASA).write_text(testo, encoding="utf-8")
 
     def scrivi_altrove(self, testo: str) -> None:
-        (self.radice / "crates" / "plenora-io-cli" / "src" / "busta.rs").write_text(
+        (self.radice / "crates" / "plenora-io-tools" / "src" / "busta.rs").write_text(
             testo, encoding="utf-8"
         )
 

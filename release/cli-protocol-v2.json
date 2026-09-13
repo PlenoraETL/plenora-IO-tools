@@ -230,6 +230,30 @@
           ],
           "sempre": true
         },
+        ".result.operations[].attributes": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].attributes.delivery": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].attributes.materialization": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.operations[].attributes.nota": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
         ".result.operations[].controls": {
           "tipi": [
             "object"
@@ -1742,7 +1766,7 @@
       "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
       "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
       "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
-      "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-cli`.",
+      "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-tools`.",
       "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
       "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
@@ -3771,6 +3795,7 @@
     "all_ultimo_restano_i_quattro_assi",
     "anche_gli_esempi_respinti_sono_limitati",
     "anche_l_insieme_delle_respinte_e_limitato",
+    "dalla_busta_ridotta_si_ricava_lo_stesso_codice_d_uscita",
     "i_conteggi_pubblicati_restano_esatti",
     "i_tetti_dichiarati_sommano_al_tetto_della_busta",
     "il_budget_esaurito_e_una_causa_a_parte",
@@ -3790,6 +3815,7 @@
     "la_fusione_degli_esempi_non_supera_il_trattenimento",
     "la_fusione_non_supera_il_trattenimento",
     "la_fusione_porta_con_se_le_respinte_e_le_limita",
+    "la_riduzione_conserva_gli_assi_e_l_uscita",
     "la_riduzione_e_idempotente",
     "la_sessantacinquesima_categoria_resta_fuori_ed_e_dichiarata",
     "la_sezione_v2_non_dipende_dall_ordine_di_inserimento",

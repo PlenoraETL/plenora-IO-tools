@@ -827,6 +827,15 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
 /// divergenza e' una deviazione da registrare nel manifesto di adozione, non da
 /// nascondere qui.
 /// Un'operazione che questo binario serve davvero.
+///
+/// # Perche' due superfici e non una
+///
+/// Fino alla superficie Rust, `["cli"]` era vero: le operazioni vivevano dentro
+/// un binario e un binario non si importa. Ora `plenora_io_tools::operazioni`
+/// espone le stesse sei per nome, con lo stesso risultato e lo stesso errore --
+/// e' la proprieta' che `tests/equivalenza_superfici.rs` misura -- quindi un
+/// documento che ne dichiarasse una sola direbbe meno del vero a chi sceglie
+/// come invocarci.
 fn operazione_esposta(
     id: &str,
     ingresso: &str,
@@ -838,7 +847,7 @@ fn operazione_esposta(
         "id": id,
         "version": 1,
         "status": "available",
-        "surfaces": ["cli"],
+        "surfaces": ["cli", "rust"],
         "input": { "contract": ingresso, "content_types": ["application/json"] },
         "output": { "contract": uscita, "content_types": ["application/json"] },
         "side_effect": effetto,
@@ -878,6 +887,24 @@ pub fn capabilities_document() -> Value {
                 "contract": "plenora-cli-v2",
                 "version": busta::PROTOCOLLO,
                 "artifact": "plenora-io",
+            },
+            // La superficie Rust, che dalla 4.0.0 esiste davvero. CAP-007
+            // pretende che ogni superficie dichiarata da un'operazione sia
+            // anche fra le interfacce dell'artefatto: dichiarare `rust` sulle
+            // operazioni e tacerlo qui e' esattamente cio' che il verificatore
+            // ha respinto, e aveva ragione -- un consumatore avrebbe letto una
+            // superficie senza il contratto che la descrive.
+            //
+            // Il contratto e' **nostro**: SURFACE-BINDINGS-1.0 §2 non
+            // prescrive nomi Rust e chiede invece che ogni componente pubblichi
+            // una mappatura versionata da operazione a export pubblico. Quella
+            // mappatura e' `contracts/superficie-rust.json`, e questo e' il suo
+            // identificatore.
+            {
+                "kind": "rust",
+                "contract": "plenora-io-rust-v1",
+                "version": 1,
+                "artifact": "plenora-io-tools",
             }
         ],
         "operations": [
@@ -915,7 +942,7 @@ pub fn capabilities_document() -> Value {
                 "id": "io.read",
                 "version": 1,
                 "status": "available",
-                "surfaces": ["cli"],
+                "surfaces": ["cli", "rust"],
                 "input": {
                     "contract": "plenora-io-read-input-v1",
                     "content_types": ["application/json"],
@@ -930,6 +957,11 @@ pub fn capabilities_document() -> Value {
                     "deadline": true,
                     "idempotency_key": false,
                 },
+                "attributes": {
+                    "materialization": "bounded",
+                    "delivery": "operation_atomic",
+                    "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. Il catalogo comune ammette per io.read anche application/vnd.apache.arrow.stream; questa superficie non lo annuncia, e la ragione non e' che manchi il tempo di scriverlo. Tutti i driver raggiungibili sono DeliverySemantics::OperationAtomic: se una violazione emerge in un punto qualsiasi della sorgente, l'operazione viene rifiutata come blocco unico e nessun prefisso accettato viene consegnato. Annunciare uno stream prometterebbe la consegna incrementale che quella scelta esclude. La variante Streaming esiste nell'asse ed e' dichiarabile, ma richiede una categoria d'errore nuova e un bump del protocollo, nessuno dei due ratificato."
+                },
             }),
             // `io.write` accetta un dataset Arrow e ne pubblica uno esterno,
             // quindi i content type d'ingresso sono due: il documento dei
@@ -941,7 +973,7 @@ pub fn capabilities_document() -> Value {
                 "id": "io.write",
                 "version": 1,
                 "status": "available",
-                "surfaces": ["cli"],
+                "surfaces": ["cli", "rust"],
                 "input": {
                     "contract": "plenora-io-write-input-v1",
                     "content_types": [
@@ -2140,7 +2172,7 @@ fn matrice_di_handoff() -> Value {
 
     json!({
         "contract": "plenora-io-handoff-v1",
-        "generato_da": "plenora-io-cli, test la_matrice_di_handoff_e_aggiornata",
+        "generato_da": "plenora-io-tools, test la_matrice_di_handoff_e_aggiornata",
         "sorgente": {
             "contract": "plenora-error-v1",
             "protocol_version": 1,

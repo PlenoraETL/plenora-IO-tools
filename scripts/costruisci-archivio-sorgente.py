@@ -68,7 +68,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: puo' compilare e usare la superficie; **non** puo' eseguire le suite di
 #: prova, e questa e' la conseguenza che va detta invece di scoprirla.
 ESCLUSI = (
-    "crates/plenora-io-cli/tests/fixtures",
+    "crates/plenora-io-tools/tests/fixtures",
     "crates/driver-filegdb/tests",
     "fuzz/seeds",
     "fuzz/fixtures",

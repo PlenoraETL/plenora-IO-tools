@@ -80,7 +80,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
-BUSTA = ROOT / "crates" / "plenora-io-cli" / "src" / "busta.rs"
+BUSTA = ROOT / "crates" / "plenora-io-tools" / "src" / "busta.rs"
 LOSS = ROOT / "crates" / "plenora-io-core" / "src" / "loss.rs"
 REGISTRO_CATEGORIE = ROOT / "assurance" / "registries" / "categorie-di-perdita.json"
 DRIVER = ROOT / "crates" / "plenora-io-core" / "src" / "driver.rs"
@@ -241,7 +241,7 @@ def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
 # `lib.rs` e non `main.rs`: dalla 4.0.0 le operazioni e le loro sonde stanno
 # nella libreria, e `main.rs` e' il binding di processo. Il gate cerca le sonde
 # dove vivono, non dove vivevano.
-CLI_MAIN = ROOT / "crates" / "plenora-io-cli" / "src" / "lib.rs"
+CLI_MAIN = ROOT / "crates" / "plenora-io-tools" / "src" / "lib.rs"
 
 
 def semantica_delle_buste(manifesto: dict[str, Any]) -> list[str]:

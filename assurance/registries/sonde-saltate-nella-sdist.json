@@ -9,7 +9,7 @@
   "condizioni": [
     {
       "id": "fixture-canoniche",
-      "che_cosa_manca": "`crates/plenora-io-cli/tests/fixtures/canoniche/`: i file di prova nei dieci formati, piu' il binario `plenora-io` che li legge.",
+      "che_cosa_manca": "`crates/plenora-io-tools/tests/fixtures/canoniche/`: i file di prova nei dieci formati, piu' il binario `plenora-io` che li legge.",
       "perche_non_sta_nella_sdist": "pesano, e sono del **prodotto** invece che dell'SDK. Metterle in un pacchetto Python vorrebbe dire spedire dati di prova di un altro componente a chi installa un wrapper, e legarne la versione a quella dell'SDK: due cose che cambiano per ragioni diverse.",
       "che_cosa_resta_verificato": "tutto cio' che non tocca un file: la decodifica delle buste, la gerarchia degli errori, i tetti, la scoperta del binario. Le sonde saltate sono quelle d'**integrazione**, e girano nel repository, dove il gate `python-sdk` della CI le esegue a ogni push.",
       "ragione_del_salto": "servono le fixture canoniche della CLI, che non stanno nella sdist",
@@ -65,7 +65,7 @@
     },
     {
       "id": "sorgente-della-cli",
-      "che_cosa_manca": "`crates/plenora-io-cli/src/main.rs`.",
+      "che_cosa_manca": "`crates/plenora-io-tools/src/main.rs`.",
       "perche_non_sta_nella_sdist": "e' codice Rust del prodotto. Le due sonde che lo leggono confrontano i tetti di `Limits` con `OPZIONI_AMMESSE`, che e' un confronto fra **due sorgenti** e non una proprieta' del pacchetto installato.",
       "che_cosa_resta_verificato": "che `Limits` produca gli argomenti giusti, nell'ordine giusto, con la durata in millisecondi. Che quei nomi esistano nella CLI lo verifica il repository.",
       "ragione_del_salto": "la CLI sta nel repository",

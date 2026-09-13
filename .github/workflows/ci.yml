@@ -50,7 +50,7 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_filegdb_catalog
           ogrinfo --formats | grep -F OpenFileGDB
-          cargo run --quiet -p plenora-io-cli --features gdal-backend --locked -- catalog |
+          cargo run --quiet -p plenora-io-tools --features gdal-backend --locked -- catalog |
             python3 scripts/check_filegdb_catalog.py
       - run: cargo fmt --all -- --check
       - name: Verify immutable GitHub Action references
@@ -261,7 +261,7 @@ jobs:
       - name: Verify the InputPermit workspace boundary
         run: python3 scripts/check_permit_boundary.py
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      # Il perimetro comprende i binari, non solo le librerie: `plenora-io-cli`
+      # Il perimetro comprende i binari, non solo le librerie: `plenora-io-tools`
       # viene distribuito, e fino a questo commit il suo `main.rs` era l'unico
       # codice consegnato che poteva usare `unwrap`, `expect` o `panic!` senza
       # che nulla lo vedesse. Data Tools ha sempre girato il gate su
@@ -447,7 +447,7 @@ jobs:
       - name: Verify truthful runtime FileGDB availability
         run: |
           catalog_file="$(mktemp)"
-          cargo run --quiet -p plenora-io-cli --features gdal-backend --locked -- catalog > "$catalog_file"
+          cargo run --quiet -p plenora-io-tools --features gdal-backend --locked -- catalog > "$catalog_file"
           python3 scripts/check_filegdb_catalog.py \
             --expect-available ${{ matrix.filegdb_write_available }} \
             "$catalog_file"
@@ -578,7 +578,7 @@ jobs:
       # che spediamo li rispetta?» -- vuole il binario estratto dall'archivio che
       # il digest identifica, e vive nella qualifica, non qui.
       - name: Costruisce il confine CLI
-        run: cargo build --locked -p plenora-io-cli
+        run: cargo build --locked -p plenora-io-tools
 
       - name: Verifica black-box contro il pin
         run: >-

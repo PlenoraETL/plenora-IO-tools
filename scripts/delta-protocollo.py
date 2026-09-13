@@ -34,7 +34,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CANONICHE = ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
+CANONICHE = ROOT / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
 
 #: I cinque comandi, tutti e cinque.
 #:

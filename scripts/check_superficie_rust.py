@@ -74,9 +74,9 @@ def export_importati() -> set[str]:
     """
     testo = (CONSUMATORE / "src" / "main.rs").read_text(encoding="utf-8")
     trovati: set[str] = set()
-    # `use plenora_io_cli::operazioni::{self, Esito, Richiesta};`
+    # `use plenora_io_tools::operazioni::{self, Esito, Richiesta};`
     for blocco in re.finditer(
-        r"use\s+(plenora_io_cli(?:::[a-z_]+)*)::\{([^}]*)\}", testo
+        r"use\s+(plenora_io_tools(?:::[a-z_]+)*)::\{([^}]*)\}", testo
     ):
         radice, elenco = blocco.group(1), blocco.group(2)
         for nome in (n.strip() for n in elenco.split(",")):
@@ -85,7 +85,7 @@ def export_importati() -> set[str]:
             trovati.add(f"{radice}::{nome}")
     # `operazioni::catalog(` e simili, che il `self` rende possibili.
     for uso in re.finditer(r"\boperazioni::([a-z_]+)\s*\(", testo):
-        trovati.add(f"plenora_io_cli::operazioni::{uso.group(1)}")
+        trovati.add(f"plenora_io_tools::operazioni::{uso.group(1)}")
     return trovati
 
 
@@ -176,9 +176,9 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     with tarfile.open(tar) as archivio:
         archivio.extractall(estratto)
     radice = estratto / f"plenora-io-{manifesto['versione']}"
-    if not (radice / "crates" / "plenora-io-cli" / "src" / "lib.rs").is_file():
+    if not (radice / "crates" / "plenora-io-tools" / "src" / "lib.rs").is_file():
         return [
-            "l'archivio non contiene `crates/plenora-io-cli/src/lib.rs`: la "
+            "l'archivio non contiene `crates/plenora-io-tools/src/lib.rs`: la "
             "superficie non e' distribuita"
         ]
     # Ogni file che un crate compila dentro di se' prendendolo da fuori deve
@@ -212,7 +212,7 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     shutil.copytree(CONSUMATORE, fuori)
     manifesto_consumatore = (fuori / "Cargo.toml").read_text(encoding="utf-8")
     for relativo, assoluto in (
-        ("../../crates/plenora-io-cli", radice / "crates" / "plenora-io-cli"),
+        ("../../crates/plenora-io-tools", radice / "crates" / "plenora-io-tools"),
         ("../../vendor/gdal", radice / "vendor" / "gdal"),
         ("../../vendor/shapefile", radice / "vendor" / "shapefile"),
         ("../../vendor/dxf", radice / "vendor" / "dxf"),

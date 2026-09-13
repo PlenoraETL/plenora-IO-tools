@@ -735,7 +735,7 @@ def sonda_ogni_comando_mappa_un_operazione(
 
 def _fixture(nome: str) -> Path:
     return (
-        ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche" / nome
+        ROOT / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche" / nome
     )
 
 
@@ -1118,7 +1118,7 @@ def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) ->
 
 def _fixture_ostile(nome: str) -> Path | None:
     percorso = (
-        ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "ostili" / nome
+        ROOT / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "ostili" / nome
     )
     return percorso if percorso.is_file() else None
 
@@ -1344,7 +1344,7 @@ def sonda_read_consegna(artefatto: Artefatto, vocabolario: Vocabolario) -> Esito
         sorgente = (
             ROOT
             / "crates"
-            / "plenora-io-cli"
+            / "plenora-io-tools"
             / "tests"
             / "fixtures"
             / "canoniche"

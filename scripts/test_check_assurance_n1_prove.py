@@ -100,10 +100,10 @@ class SondeRunnerCondiviso(unittest.TestCase):
     def test_il_comando_porta_configurazione_e_bersaglio(self) -> None:
         finto = mock.Mock(returncode=0, stdout="test m::t ... ok\n", stderr="")
         with mock.patch.object(gate.subprocess, "run", return_value=finto) as corsa:
-            gate.esegui_harness("plenora-io-cli", "all-features", "bins")
+            gate.esegui_harness("plenora-io-tools", "all-features", "bins")
         self.assertEqual(
             corsa.call_args.args[0],
-            ["cargo", "test", "-p", "plenora-io-cli", "--all-features", "--bins"],
+            ["cargo", "test", "-p", "plenora-io-tools", "--all-features", "--bins"],
         )
 
 
@@ -224,8 +224,8 @@ class SondeVerifica(unittest.TestCase):
         """Lo condivide `check_release_contract.py`: due costruttori
         divergerebbero, e divergerebbero in silenzio."""
         self.assertEqual(
-            gate.comando_test("plenora-io-cli", "all-features", "bins"),
-            ["cargo", "test", "-p", "plenora-io-cli", "--all-features", "--bins"],
+            gate.comando_test("plenora-io-tools", "all-features", "bins"),
+            ["cargo", "test", "-p", "plenora-io-tools", "--all-features", "--bins"],
         )
 
     def test_i_gruppi_aperti_non_dichiarano_prove(self) -> None:

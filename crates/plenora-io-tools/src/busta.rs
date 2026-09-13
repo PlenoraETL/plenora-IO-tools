@@ -727,6 +727,7 @@ pub fn documento_di_fedelta(
 #[cfg(test)]
 mod sonde {
     use super::*;
+    use plenora_io_model::ErrorCategory;
     // Il tetto sul dettaglio lo applica la porta, in core: le sonde lo
     // prendono da li' invece che dall'adattatore, che non lo nomina piu'.
     use plenora_io_core::loss::{
@@ -1758,6 +1759,128 @@ mod sonde {
         let (due_volte, riduzione) = entro_il_tetto_dell_errore(una_volta.clone(), 0);
         assert_eq!(riduzione, RiduzioneDellErrore::Nessuna);
         assert_eq!(una_volta, due_volte);
+    }
+
+    /// La riduzione non tocca cio' su cui una macchina decide.
+    ///
+    /// # Le due proprieta', e perche' stanno insieme
+    ///
+    /// La prima: i cinque campi che `error-v1.schema.json` dichiara
+    /// obbligatori -- `category`, `phase`, `remote_effect`, `retry`, `message`
+    /// -- restano a ogni livello di riduzione. Una busta che per stare nel
+    /// tetto perdesse un campo obbligatorio sarebbe fuori contratto, ed e' il
+    /// modo piu' facile di sbagliare una riduzione: si toglie dal fondo finche'
+    /// ci sta.
+    ///
+    /// La seconda: il codice d'uscita si deriva dalla **categoria**, e la
+    /// coppia (codice, documento) si compone in `local_err_doc` con la
+    /// categoria d'origine mentre il documento passa dalla riduzione. Se la
+    /// riduzione cambiasse `category`, il processo uscirebbe con un numero che
+    /// la busta contraddice -- due superfici che raccontano due esiti diversi
+    /// dello stesso errore, ed e' esattamente la classe che CLI-2.0 §8 chiude.
+    /// `retry` sta nello stesso gruppo: e' l'altro campo su cui un chiamante
+    /// decide senza leggere il testo.
+    ///
+    /// Il `code` invece **cambia**, ed e' voluto: dichiara la riduzione. Qui si
+    /// pretende solo che resti una grafia valida per il contratto.
+    #[test]
+    fn la_riduzione_conserva_gli_assi_e_l_uscita() {
+        // Un caso per livello di riduzione, cosi' che la proprieta' sia provata
+        // dove la riduzione taglia di piu' e non solo dove non taglia.
+        let casi = [
+            (busta_d_errore_con_esempi(1), RiduzioneDellErrore::Nessuna),
+            (
+                busta_d_errore_con_esempi(20_000),
+                RiduzioneDellErrore::EsempiDiRiga,
+            ),
+            (
+                busta_d_errore_con_esempi(40_000),
+                RiduzioneDellErrore::DiagnosticaDiRiga,
+            ),
+            (
+                busta_alla_misura(MAX_BYTE_ERRORE, 1),
+                RiduzioneDellErrore::EsempiDiRiga,
+            ),
+        ];
+
+        for (busta, _) in casi {
+            let categoria = busta["error"]["category"].clone();
+            let riprova = busta["error"]["retry"].clone();
+            let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+
+            for campo in ["category", "phase", "remote_effect", "retry", "message"] {
+                assert!(
+                    uscita["error"].get(campo).is_some_and(|v| !v.is_null()),
+                    "riduzione {riduzione:?}: manca il campo obbligatorio `{campo}`"
+                );
+            }
+
+            assert_eq!(
+                uscita["error"]["category"], categoria,
+                "riduzione {riduzione:?}: la categoria e' cambiata, e con essa il                  codice d'uscita che il binding ha gia' calcolato"
+            );
+            assert_eq!(
+                uscita["error"]["retry"], riprova,
+                "riduzione {riduzione:?}: `retry` e' cambiato"
+            );
+
+            let codice = uscita["error"]["code"]
+                .as_str()
+                .expect("il codice e' una stringa")
+                .to_owned();
+            // La grafia di `error-v1.schema.json`: `^[A-Z][A-Z0-9_]{1,63}$`,
+            // scritta a mano perche' una dipendenza di regex per tre righe
+            // costerebbe piu' di quanto renda.
+            assert!(
+                (2..=64).contains(&codice.len())
+                    && codice.starts_with(|c: char| c.is_ascii_uppercase())
+                    && codice
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+                "riduzione {riduzione:?}: `{codice}` non ha la grafia che                  `error-v1.schema.json` impone"
+            );
+        }
+    }
+
+    /// La stessa coerenza, presa dall'altro capo: dalla categoria della busta
+    /// ridotta si ricava lo stesso codice d'uscita della categoria d'origine.
+    ///
+    /// Non e' la sonda di sopra detta due volte. Quella confronta due valori
+    /// JSON; questa fa il giro che il prodotto fa davvero -- deserializza la
+    /// categoria e la proietta -- e cade anche se la riduzione lasciasse una
+    /// categoria che il tipo non sa piu' leggere.
+    #[test]
+    fn dalla_busta_ridotta_si_ricava_lo_stesso_codice_d_uscita() {
+        for categoria in [
+            ErrorCategory::DataMapping,
+            ErrorCategory::Io,
+            ErrorCategory::Unsupported,
+            ErrorCategory::NotFound,
+            ErrorCategory::InvalidPlan,
+            ErrorCategory::Internal,
+        ] {
+            let atteso = crate::uscita_della_categoria(categoria);
+
+            let mut busta = busta_d_errore_con_esempi(40_000);
+            busta["error"]["category"] =
+                serde_json::to_value(categoria).expect("la categoria si serializza");
+
+            let (uscita, riduzione) = entro_il_tetto_dell_errore(busta, 0);
+            assert_ne!(
+                riduzione,
+                RiduzioneDellErrore::Nessuna,
+                "il caso deve ridurre, altrimenti non prova niente"
+            );
+
+            let riletta: ErrorCategory =
+                serde_json::from_value(uscita["error"]["category"].clone())
+                    .expect("la categoria della busta ridotta si rilegge");
+            assert_eq!(
+                crate::uscita_della_categoria(riletta),
+                atteso,
+                "{categoria:?}: la busta ridotta proietta un codice d'uscita diverso"
+            );
+        }
     }
 
     /// Una busta d'errore con `n` esempi di diagnostica di riga.

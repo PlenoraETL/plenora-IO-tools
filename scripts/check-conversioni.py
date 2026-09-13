@@ -41,7 +41,7 @@ import sys
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = RADICE / "assurance" / "registries" / "conversioni-cross-format.json"
-SUITE = RADICE / "crates" / "plenora-io-cli" / "tests" / "conversioni.rs"
+SUITE = RADICE / "crates" / "plenora-io-tools" / "tests" / "conversioni.rs"
 
 # I campi che ogni driver del registro deve portare. Sono i nomi dei campi del
 # `FormatDescriptor`, non nomi nuovi: un secondo vocabolario per le stesse

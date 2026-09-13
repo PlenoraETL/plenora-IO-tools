@@ -382,7 +382,16 @@ pub fn validate_write(
                 || !ALL_GEOMETRY_TYPES
                     .iter()
                     .all(|geometry_type| caps.geometry.geometry_types.contains(geometry_type));
+            // `scansione_completa` separa i due stati che `Unresolved`
+            // conflava. Una sorgente percorsa fino in fondo che non ha tipi non
+            // ha niente da dichiarare, e pretendere da lei una dichiarazione
+            // preventiva rifiutava una conversione che il file puo' fare. Chi
+            // non l'ha percorsa resta rifiutato: li' l'ignoranza e' reale, e un
+            // sink che restringe i tipi la scoprirebbe a scrittura iniziata.
+            let assenza_accertata =
+                geometry.scansione_completa && geometry.geometry_types.is_empty();
             if restricts_geometry_types
+                && !assenza_accertata
                 && matches!(
                     geometry.types_declaration,
                     plenora_io_model::contract::TypesDeclaration::Unresolved

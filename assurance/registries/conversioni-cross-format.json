@@ -5,7 +5,7 @@
   "che_cosa_prova_ogni_caso": "non il successo del comando. Ogni caso rilegge l'uscita, confronta i dati normalizzati -- valori, tipi, CRS, nullita' -- contro il dataset canonico, e asserisce il `LossReport` per intero: le categorie presenti, quelle assenti, i conteggi. Un caso che passasse con un `LossReport` diverso da quello atteso e' rosso quanto uno che fallisce.",
   "perche_i_casi_non_si_contano": "il numero delle conversioni non e' un obiettivo e non e' dichiarato da nessuna parte. Un registro che promettesse «sedici» inviterebbe a tenerlo fermo: a un caso che si rivela irrealizzabile se ne sostituirebbe uno qualunque per non muovere la cifra, e la copertura diventerebbe un conteggio invece che una proprieta'. Qui i casi sono quanti servono, e a dire se bastano e' `scripts/check-conversioni.py`, che deriva la copertura dai descrittori.",
   "dataset_canonico": {
-    "dove": "crates/plenora-io-cli/tests/conversioni/canonico.rs",
+    "dove": "crates/plenora-io-tools/tests/conversioni/canonico.rs",
     "perche_uno_solo": "il confronto e' sempre contro **lo stesso** dataset, non contro l'uscita di un'altra conversione. Confrontare due conversioni fra loro proverebbe che sbagliano allo stesso modo.",
     "che_cosa_contiene": [
       "una colonna di testo con caratteri non ASCII",

@@ -87,7 +87,7 @@ import sys
 import zipfile
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
-DESTINAZIONE = RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
+DESTINAZIONE = RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
 
 # --- il contenuto canonico ---------------------------------------------------
 #

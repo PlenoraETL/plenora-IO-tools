@@ -141,7 +141,7 @@ def main() -> int:
         ambiente["GDAL_LIB_DIR"] = str(libreria / "lib")
         ambiente["GDAL_VERSION"] = lock["gdal_version"]
         ambiente["CARGO_TARGET_DIR"] = str(target)
-        comando = ["cargo", "build", "--release", "--locked", "-p", "plenora-io-cli"]
+        comando = ["cargo", "build", "--release", "--locked", "-p", "plenora-io-tools"]
         if arg.profilo == "filegdb":
             comando += ["--features", "gdal-backend"]
         print("1a. compilazione", flush=True)

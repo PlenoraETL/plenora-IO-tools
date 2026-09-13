@@ -382,7 +382,7 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
-  "crates/plenora-io-cli/src/lib.rs": {
+  "crates/plenora-io-tools/src/lib.rs": {
     "cmd_convert": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
@@ -400,7 +400,7 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
-  "crates/plenora-io-cli/src/segnali.rs": {
+  "crates/plenora-io-tools/src/segnali.rs": {
     "installa_gestore_dei_segnali": [
       "esplicito/esplicito/Generic/esplicito"
     ]

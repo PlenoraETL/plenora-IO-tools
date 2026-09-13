@@ -80,7 +80,7 @@ MIGRATI = (
     "driver-filegdb",
     "driver-shp",
     "driver-dxf",
-    "plenora-io-cli",
+    "plenora-io-tools",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.

@@ -411,37 +411,23 @@ fn zero_righe_con_schema_noto_si_consegnano() {
     assert_eq!(righe, 0, "non sono comparse righe dal nulla");
 }
 
-/// Tipi geometrici non determinabili verso un sink che li pretende: rifiuto.
+/// Una sorgente percorsa fino in fondo e priva di geometrie **si consegna**.
 ///
-/// # Che cosa decide questo rifiuto, e che cosa no
+/// # Che cosa cambia, e perche' non e' una deroga
 ///
-/// La regola vera non parla di righe. `capabilities.rs` rifiuta quando **due**
-/// cose valgono insieme: il sink dichiara un sottoinsieme proprio dei tipi
-/// geometrici canonici, e il contratto della sorgente arriva con
-/// `types_declaration = unresolved`. Una sorgente con mille righe di tipi
-/// indeterminati sarebbe rifiutata allo stesso modo, e una vuota con tipi
-/// dichiarati passa -- lo prova la sonda qui sopra.
+/// Il rifiuto scattava quando due cose valevano insieme: il sink dichiara un
+/// sottoinsieme proprio dei tipi geometrici canonici, e il contratto della
+/// sorgente arriva `unresolved`. La seconda condizione conflava due stati --
+/// «non ho potuto determinare i tipi» e «ho guardato tutto e geometrie non ce
+/// ne sono» -- e il secondo non e' un'ignoranza da cui difendersi: non c'e'
+/// niente da dichiarare perche' non c'e' niente da scrivere.
 ///
-/// # Il vincolo del sink rispetto al contratto
-///
-/// `ARROW-VOCABULARY-1.0 §3-4` **ha** un modo di dire «non lo so»:
-/// `types_declaration=unresolved`, che vieta la lista dei tipi. Quindi il
-/// contratto non ci obbliga a rifiutare: consegnare `unresolved` sarebbe
-/// esprimibile. Il rifiuto viene dal sink, ed e' prudente per una ragione sua:
-/// il driver IPC dichiara sette dei sedici tipi canonici
-/// (`SIMPLE_WKB_GEOMETRY_TYPES`), e un sink che non li accetta tutti non puo'
-/// promettere su dati di cui non sa i tipi.
-///
-/// Restano due questioni aperte, registrate nel piano 4.0.0 e non decise qui:
-///
-/// 1. il vocabolario chiuso del contratto non distingue «scandito, nessuna
-///    geometria» da «tipi ignoti» -- `exact` esige una lista non vuota, quindi
-///    una sorgente scandita e priva di geometrie **deve** dirsi `unresolved`;
-/// 2. il driver IPC trasporta WKB senza interpretarlo, e la dichiarazione dei
-///    sette tipi e' condivisa con quattro driver per cui non e' altrettanto
-///    conservativa.
+/// `GeometryColumnContract::scansione_completa` separa i due, e la passata di
+/// inferenza di `GeoJSON` lo valorizza perche' arriva a fine file. Il rifiuto
+/// resta dov'era per chi i tipi davvero non li sa -- lo prova la sonda qui
+/// sotto.
 #[test]
-fn tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato() {
+fn una_sorgente_senza_geometrie_ma_scandita_si_consegna() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
     let vuota = temporanea.path().join("vuota.geojson");
     std::fs::write(&vuota, br#"{"type":"FeatureCollection","features":[]}"#)
@@ -450,6 +436,62 @@ fn tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato() {
     let esito = leggi(&[
         "read",
         vuota.to_str().unwrap(),
+        "--output",
+        uscita.to_str().unwrap(),
+    ]);
+
+    assert!(esito.riuscita, "{}", esito.stdout);
+    assert!(uscita.exists(), "la consegna esiste");
+    let (batch, _) = batch_consegnati(&uscita);
+    let righe: usize = batch.iter().map(RecordBatch::num_rows).sum();
+    assert_eq!(righe, 0, "non sono comparse righe dal nulla");
+}
+
+/// Tipi geometrici davvero non determinati verso un sink che li pretende:
+/// rifiuto, e il messaggio nomina la dichiarazione e non il numero di righe.
+///
+/// # Da dove viene una sorgente che non li sa
+///
+/// Da un file Arrow che dichiara `plenora.geometry.types_declaration =
+/// unresolved`. Il lettore IPC non percorre i dati per dedurre i tipi -- non e'
+/// il suo mestiere, trasporta WKB senza interpretarlo -- quindi quel contratto
+/// arriva al sink senza tipi **e** senza la scansione che ne accerterebbe
+/// l'assenza. E' la condizione che il rifiuto esiste per coprire.
+///
+/// # Il vincolo del sink rispetto al contratto
+///
+/// `ARROW-VOCABULARY-1.0 §3-4` **ha** un modo di dire «non lo so»:
+/// `types_declaration=unresolved`, che vieta la lista dei tipi. Il contratto
+/// non ci obbliga quindi a rifiutare. Il rifiuto viene dal sink, ed e' prudente
+/// per una ragione sua: il driver IPC dichiara sette dei sedici tipi canonici
+/// (`SIMPLE_WKB_GEOMETRY_TYPES`), e un sink che non li accetta tutti non puo'
+/// promettere su dati di cui non sa i tipi.
+#[test]
+fn tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+
+    // La sorgente che non sa i tipi: la consegna di una GeoJSON vuota, che sul
+    // filo si dichiara `unresolved` perche' il vocabolario chiuso non ha un
+    // altro modo di dirlo.
+    let vuota = temporanea.path().join("vuota.geojson");
+    std::fs::write(&vuota, br#"{"type":"FeatureCollection","features":[]}"#)
+        .expect("la sorgente si scrive");
+    let ponte = temporanea.path().join("ponte.arrow");
+    assert!(
+        leggi(&[
+            "read",
+            vuota.to_str().unwrap(),
+            "--output",
+            ponte.to_str().unwrap(),
+        ])
+        .riuscita,
+        "la consegna che alimenta il caso deve riuscire"
+    );
+
+    let uscita = temporanea.path().join("secondo-giro.arrow");
+    let esito = leggi(&[
+        "read",
+        ponte.to_str().unwrap(),
         "--output",
         uscita.to_str().unwrap(),
     ]);
@@ -477,6 +519,56 @@ fn tipi_non_determinabili_verso_un_sink_che_li_pretende_e_rifiutato() {
     assert!(
         !uscita.exists(),
         "un rifiuto non lascia una destinazione a meta'"
+    );
+}
+
+/// Il prezzo della meta' che resta aperta, misurato invece che descritto.
+///
+/// # Perche' una sonda su un limite
+///
+/// Le due prove qui sopra, messe insieme, dicono una cosa scomoda: la stessa
+/// sorgente -- zero geometrie, accertate -- si consegna al primo giro e viene
+/// rifiutata al secondo. Non e' un difetto della logica locale, che in
+/// entrambi i casi fa la cosa giusta con cio' che sa. E' il **filo**:
+/// `ARROW-VOCABULARY-1.0` si dichiara chiuso e `types_declaration` ammette i
+/// soli `exact`, `mixed`, `unresolved`. Un'assenza accertata deve scriversi
+/// `unresolved`, e chi rilegge non puo' distinguerla da un'ignoranza.
+///
+/// Fissarlo in una sonda serve a due cose. La prima: quando il vocabolario
+/// successore arrivera' -- e' la decisione 0006 -- questa prova diventera'
+/// rossa, ed e' il modo giusto di accorgersene. La seconda: un limite che
+/// nessuno misura si racconta come una scelta, e questa non lo e'.
+#[test]
+fn l_assenza_accertata_non_sopravvive_al_filo() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let vuota = temporanea.path().join("vuota.geojson");
+    std::fs::write(&vuota, br#"{"type":"FeatureCollection","features":[]}"#)
+        .expect("la sorgente si scrive");
+    let consegnato = temporanea.path().join("consegnato.arrow");
+    assert!(
+        leggi(&[
+            "read",
+            vuota.to_str().unwrap(),
+            "--output",
+            consegnato.to_str().unwrap(),
+        ])
+        .riuscita
+    );
+
+    let (_, schema) = batch_consegnati(&consegnato);
+    let dichiarazione = schema.fields().iter().find_map(|f| {
+        f.metadata()
+            .get("plenora.geometry.types_declaration")
+            .cloned()
+    });
+
+    assert_eq!(
+        dichiarazione.as_deref(),
+        Some("unresolved"),
+        "il vocabolario chiuso non ha un valore per «scandito, nessuna \
+         geometria»: finche' resta chiuso, l'assenza accertata si scrive come \
+         un'ignoranza, ed e' esattamente cio' che la decisione 0006 deve \
+         sciogliere"
     );
 }
 

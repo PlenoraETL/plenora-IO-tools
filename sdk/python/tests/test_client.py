@@ -185,7 +185,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_inspect_si_decodifica_intero(self) -> None:
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.inspect(fixture)
         self.assertEqual(esito.format.id, "geojson")
         self.assertTrue(esito.format.readable and esito.format.writable)
@@ -210,7 +210,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_layers_riassume_senza_lo_schema(self) -> None:
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         esito = cliente.layers(fixture)
         self.assertEqual(esito.format, "gpkg")
         self.assertTrue(esito.layers)
@@ -226,7 +226,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         paga l'inferenza.
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         completo = cliente.inspect(fixture)
         riassunto = cliente.layers(fixture)
 
@@ -241,7 +241,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_la_fedelta_arriva_strutturata(self) -> None:
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         fedelta = cliente.layers(fixture).fidelity
 
         self.assertTrue(fedelta.level)
@@ -262,7 +262,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         categoria: `assume_crs` e' la via per dire «lo so io».
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico_punti.shp"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico_punti.shp"
         with self.assertRaises(CommandFailed) as preso:
             cliente.inspect(fixture)
         self.assertEqual(preso.exception.envelope.category, "crs")
@@ -275,7 +275,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_validate_legge_conta_e_non_da_righe(self) -> None:
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.validate(fixture)
         self.assertGreater(esito.rows_read, 0)
         self.assertGreater(esito.batches, 0)
@@ -287,7 +287,7 @@ class ContrIlBinarioVero(unittest.TestCase):
     def test_il_conteggio_di_validate_e_quello_di_inspect(self) -> None:
         """Le due strade guardano lo stesso file e devono descriverlo uguale."""
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         letto = cliente.validate(fixture)
         guardato = cliente.inspect(fixture)
 
@@ -311,7 +311,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         cosi' che un cambiamento si veda.
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         intero = cliente.validate(fixture)
         righe = intero.rows_read
 
@@ -335,7 +335,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         """La difesa che scatta e' un'informazione, non un guasto: chi la
         incontra alza il tetto o riduce il lavoro, e in entrambi i casi decide."""
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(ResourceLimitError) as preso:
             cliente.validate(fixture, limits=Limits(max_rows=1))
         self.assertEqual(preso.exception.envelope.category, "resource_limit")
@@ -349,7 +349,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         processo, e quel che resta e' «non si sa».
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         # Una deadline generosa non cambia l'esito: la sonda non misura il
         # tempo, misura che l'opzione arrivi al prodotto senza rompere niente.
         esito = cliente.validate(fixture, limits=Limits(deadline=timedelta(seconds=30)))
@@ -357,7 +357,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_un_layer_che_non_esiste_e_un_rifiuto(self) -> None:
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(CommandFailed) as preso:
             cliente.validate(fixture, layer=99)
         self.assertTrue(preso.exception.envelope.code)
@@ -397,7 +397,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         l'argomento sbagliato passerebbe le prove Rust e fallirebbe questa.
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(CommandFailed) as preso:
             cliente.validate(fixture, options={"chiave_inventata": "1"})
         self.assertEqual(preso.exception.envelope.code, "UNSUPPORTED")
@@ -411,7 +411,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         della validazione delle chiavi.
         """
         cliente = Client(binary=self.binario)
-        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.csv"
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.csv"
         esito = cliente.validate(
             fixture, assume_crs="EPSG:4326", options={"wkt_column": "geometry"}
         )

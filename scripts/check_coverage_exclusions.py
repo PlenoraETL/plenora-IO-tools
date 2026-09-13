@@ -3,11 +3,11 @@
 
 Lo scope e' **library coverage**: la soglia dell'80% vale sulle librerie del
 workspace, non su cio' che il workspace usa come attrezzaggio. Le crate non
-libreria — `plenora-bench`, `plenora-fuzz`, `plenora-io-cli` — restano fuori
+libreria — `plenora-bench`, `plenora-fuzz`, `plenora-io-tools` — restano fuori
 dal denominatore.
 
 Fino a INFRA-0.1 l'esclusione era scritta come
-`(plenora-bench|plenora-fuzz|plenora-io-cli)/src/main\\.rs$`, cioe' nominava un
+`(plenora-bench|plenora-fuzz|plenora-io-tools)/src/main\\.rs$`, cioe' nominava un
 file per crate invece della crate. `plenora-bench/src/bin/spool_ab.rs` non e'
 un `main.rs` e rientrava nella misura: 146 righe a 0% nel denominatore di una
 percentuale dichiarata "delle librerie". Il modo di sbagliare non e' finito con

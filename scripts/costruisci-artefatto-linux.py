@@ -334,7 +334,7 @@ def main() -> int:
         )
         comando = [
             "cargo", "build", "--release", "--locked",
-            "-p", "plenora-io-cli",
+            "-p", "plenora-io-tools",
         ]
         if arg.profilo == "filegdb":
             comando += ["--features", "gdal-backend"]

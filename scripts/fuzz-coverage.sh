@@ -53,7 +53,7 @@ mkdir -p "${USCITA}"
 TOOLCHAIN="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"
 export RUSTUP_TOOLCHAIN="${TOOLCHAIN}"
 
-ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$|\.cargo/registry|/rustc/|^/usr/'
+ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-tools)/src/.*\.rs$|\.cargo/registry|/rustc/|^/usr/'
 
 # `llvm-cov` viene dalla **stessa** toolchain che ha costruito il target: quella
 # di stable leggerebbe un formato di profdata che potrebbe non essere il suo.

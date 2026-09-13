@@ -13,7 +13,7 @@ from _repository import RADICE
 
 # `lib.rs` e non `main.rs`: dalla 4.0.0 il parser degli argomenti sta nella
 # libreria insieme alle operazioni, e `main.rs` e' il binding di processo.
-CLI = RADICE / "crates" / "plenora-io-cli" / "src" / "lib.rs" if RADICE else None
+CLI = RADICE / "crates" / "plenora-io-tools" / "src" / "lib.rs" if RADICE else None
 
 
 class ITetti(unittest.TestCase):

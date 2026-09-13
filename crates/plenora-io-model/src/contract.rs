@@ -205,10 +205,36 @@ pub struct GeometryColumnContract {
     /// SRID nativo quando è distinto o aggiuntivo rispetto al CRS risolto.
     pub srid: Option<i32>,
     pub precision: CoordinatePrecision,
-    /// Tipi noti staticamente. Vuoto significa non ancora determinato; non
-    /// equivale a "nessuna geometria".
+    /// Tipi noti staticamente. Vuoto **da solo** non dice quale dei due stati
+    /// sia: lo dice insieme a [`Self::scansione_completa`].
     pub geometry_types: Vec<GeometryType>,
     pub types_declaration: TypesDeclaration,
+    /// La sorgente e' stata percorsa fino in fondo, e `geometry_types` e'
+    /// quindi esaustivo.
+    ///
+    /// # I due stati che `Unresolved` conflava
+    ///
+    /// `types_declaration: Unresolved` con `geometry_types` vuoto significava
+    /// due cose molto diverse: «non ho potuto determinare i tipi» e «ho
+    /// guardato tutto e geometrie non ce ne sono». Il secondo e' una
+    /// conoscenza, non un'ignoranza, e trattarlo come il primo faceva
+    /// rifiutare una sorgente `GeoJSON` vuota verso un sink che pretende la
+    /// dichiarazione preventiva dei tipi -- con un messaggio che parlava di
+    /// dichiarazione mancante mentre non c'era niente da dichiarare.
+    ///
+    /// # Perche' resta interno
+    ///
+    /// Sul filo non compare. `ARROW-VOCABULARY-1.0` si dichiara **chiuso**, e
+    /// `plenora.geometry.types_declaration` ammette i soli valori che ammette:
+    /// aggiungerne uno vorrebbe dire un vocabolario successore, che e' la
+    /// decisione 0006 e non dipende da noi. Quindi qui la distinzione c'e' e
+    /// decide, e sul filo la sorgente vuota continua a dichiararsi
+    /// `unresolved`: e' vero -- tipi non ne ha -- ed e' quanto il vocabolario
+    /// corrente sa dire.
+    ///
+    /// `false` e' il valore prudente: chi non ha percorso la sorgente non puo'
+    /// affermare un'assenza.
+    pub scansione_completa: bool,
     /// Metadati nativi namespaced, per esempio `postgis.typmod`,
     /// `gpkg.geometry_type_name`, `sql.type_name`.
     pub native_metadata: BTreeMap<String, String>,
@@ -237,6 +263,8 @@ impl GeometryColumnContract {
             precision: CoordinatePrecision::Float64,
             geometry_types: Vec::new(),
             types_declaration: TypesDeclaration::Unresolved,
+            // Nessuno ha ancora guardato: l'assenza non si puo' affermare.
+            scansione_completa: false,
             native_metadata: BTreeMap::new(),
         }
     }
@@ -258,10 +286,17 @@ impl GeometryColumnContract {
         self.crs.as_resolved()
     }
 
+    /// Dichiara i tipi geometrici come **esatti**, e con cio' che la sorgente
+    /// e' stata percorsa fino in fondo.
+    ///
+    /// Chiamarla e' un'affermazione di esaustivita': un driver che non sa
+    /// enumerare i tipi non deve chiamarla, e un elenco **vuoto** passato qui
+    /// significa «guardato tutto, geometrie nessuna» -- non «non lo so».
     pub fn set_exact_geometry_types(&mut self, geometry_types: Vec<GeometryType>) {
         self.geometry_types = geometry_types;
         self.geometry_types.sort_unstable();
         self.geometry_types.dedup();
+        self.scansione_completa = true;
         self.types_declaration = if self.geometry_types.is_empty() {
             TypesDeclaration::Unresolved
         } else {

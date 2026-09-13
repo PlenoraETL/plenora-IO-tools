@@ -770,7 +770,7 @@ echo
 echo "--- 3. catalogo FileGDB reale --------------------------------"
 catalogo_filegdb() {
     local json="${LOG_DIR}/catalog.json"
-    cargo run --quiet -p plenora-io-cli --features gdal-backend --locked -- catalog > "${json}" || return
+    cargo run --quiet -p plenora-io-tools --features gdal-backend --locked -- catalog > "${json}" || return
     python3 scripts/check_filegdb_catalog.py < "${json}"
 }
 passo check_filegdb_catalog catalogo_filegdb
@@ -786,7 +786,7 @@ passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
 
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"
-ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-tools)/src/.*\.rs$'
 # Il secondo report **non esclude niente**, e la selezione del perimetro sta
 # nello strumento che lo legge.
 #
@@ -895,7 +895,7 @@ elif [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
         > "${LOG_DIR}/coverage_diff.log" 2>&1
     python3 scripts/coverage_diff.py --lcov "${LCOV_COMPLETO}" \
         --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" --mostra 0 \
-        --solo plenora-io-cli \
+        --solo plenora-io-tools \
         > "${LOG_DIR}/coverage_diff_cli.log" 2>&1
     esito_diff=$?
     cat "${LOG_DIR}/coverage_diff.log"

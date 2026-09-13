@@ -54,7 +54,7 @@ import sys
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = RADICE / "assurance" / "registries" / "fixture-canoniche.json"
-FIXTURE = RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
+FIXTURE = RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
 
 
 def _mostra(percorso: pathlib.Path) -> str:

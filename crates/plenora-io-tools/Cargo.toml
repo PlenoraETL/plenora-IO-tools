@@ -1,5 +1,5 @@
 [package]
-name = "plenora-io-cli"
+name = "plenora-io-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,11 +14,17 @@ workspace = true
 # binario non si importa. Le operazioni stanno in `lib.rs`; `main.rs` e' il
 # binding CLI, cioe' flussi, codici d'uscita e radici dell'artefatto.
 #
-# Il nome del pacchetto resta `plenora-io-cli` per ora: rinominarlo tocca
-# cinquantatre file fra CI, gate e manifesti, ed e' un intervento suo. La riga
-# C1b del piano lo registra.
+# Il nome del pacchetto e' quello del **componente** -- `plenora-io-tools`,
+# la forma che SURF-001 impone e che `capabilities.component` gia' emetteva --
+# e non piu' `plenora-io-cli`, che diceva «CLI» per un pacchetto che porta
+# anche la libreria pubblica. La rinomina e' arrivata prima che un consumatore
+# esterno ne dipendesse: dopo sarebbe stata una rottura sua oltre che nostra.
+#
+# Il **binario** continua a chiamarsi `plenora-io`: e' l'artefatto che gli
+# invarianti e i manifesti identificano, e cambiarlo sarebbe un'altra rottura,
+# per giunta senza ragione.
 [lib]
-name = "plenora_io_cli"
+name = "plenora_io_tools"
 path = "src/lib.rs"
 
 [[bin]]

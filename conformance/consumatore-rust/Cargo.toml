@@ -17,7 +17,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-plenora-io-cli = { path = "../../crates/plenora-io-cli" }
+plenora-io-tools = { path = "../../crates/plenora-io-tools" }
 
 # Le tre patch dei fork governati, e non e' un dettaglio di compilazione: e'
 # **cio' che un consumatore esterno deve sapere**. Il workspace di IO-tools

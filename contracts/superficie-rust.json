@@ -3,9 +3,12 @@
   "component": "plenora-io-tools",
   "che_cosa_e": "la mappatura versionata fra le operazioni del catalogo comune e gli export Rust pubblici che le servono. SURFACE-BINDINGS-1.0 §2 la richiede: «Each component MUST publish a versioned operation-to-public-export mapping for its released crate and verify it through a consumer crate that imports only those documented exports.»",
   "crate": {
-    "pacchetto": "plenora-io-cli",
-    "libreria": "plenora_io_cli",
-    "perche_il_nome_dice_cli": "perche' rinominare il pacchetto tocca cinquantatre file fra CI, gate e manifesti, ed e' un intervento suo -- la riga C1b del piano. Il nome e' infelice per una libreria e il profilo non prescrive nomi: SURFACE-BINDINGS-1.0 §2 dice esplicitamente che «this repository does not prescribe Rust module, trait, method or type names». Cio' che prescrive e' che la mappatura esista e sia verificata, e quella non dipende dal nome.",
+    "pacchetto": "plenora-io-tools",
+    "libreria": "plenora_io_tools",
+    "binario": "plenora-io",
+    "contratto": "plenora-io-rust-v1",
+    "versione_del_contratto": 1,
+    "perche_questo_nome": "e' il nome del componente -- SURF-001 impone `plenora-<domain>-tools` e `capabilities.component` lo emetteva gia'. Il nome precedente, `plenora-io-cli`, diceva «CLI» per un pacchetto che dalla 4.0.0 porta anche la libreria pubblica: infelice, non scorretto, perche' SURFACE-BINDINGS-1.0 §2 dice che «this repository does not prescribe Rust module, trait, method or type names». La ragione per cambiarlo adesso non e' l'eleganza: finche' nessun consumatore esterno dipende dal pacchetto, rinominare costa cinquantatre file nostri; dopo sarebbe una rottura anche per lui. Il binario resta `plenora-io`, che e' l'artefatto identificato dagli invarianti e dai manifesti.",
     "distribuzione": "archivio sorgente con versione e digest. crates.io non e' richiesto dal perimetro della 4.0.0, e un pacchetto pubblicato senza un consumatore che lo provi sarebbe una superficie annunciata e non verificata."
   },
   "compatibilita": {
@@ -17,7 +20,7 @@
   "operazioni": [
     {
       "operazione": "io.catalog",
-      "export": "plenora_io_cli::operazioni::catalog",
+      "export": "plenora_io_tools::operazioni::catalog",
       "firma": "fn() -> serde_json::Value",
       "contratto_ingresso": "plenora-io-catalog-query-v1",
       "contratto_uscita": "plenora-io-catalog-v1",
@@ -25,35 +28,35 @@
     },
     {
       "operazione": "io.inspect",
-      "export": "plenora_io_cli::operazioni::inspect",
+      "export": "plenora_io_tools::operazioni::inspect",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-inspect-input-v1",
       "contratto_uscita": "plenora-io-inspect-v1"
     },
     {
       "operazione": "io.layers",
-      "export": "plenora_io_cli::operazioni::layers",
+      "export": "plenora_io_tools::operazioni::layers",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-layers-input-v1",
       "contratto_uscita": "plenora-io-layers-v1"
     },
     {
       "operazione": "io.read",
-      "export": "plenora_io_cli::operazioni::read",
+      "export": "plenora_io_tools::operazioni::read",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-read-input-v1",
       "contratto_uscita": "plenora-io-read-result-v1"
     },
     {
       "operazione": "io.write",
-      "export": "plenora_io_cli::operazioni::write",
+      "export": "plenora_io_tools::operazioni::write",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-write-input-v1",
       "contratto_uscita": "plenora-io-write-result-v1"
     },
     {
       "operazione": "io.convert",
-      "export": "plenora_io_cli::operazioni::convert",
+      "export": "plenora_io_tools::operazioni::convert",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-convert-input-v1",
       "contratto_uscita": "plenora-io-convert-v1"
@@ -61,16 +64,16 @@
   ],
   "tipi_pubblici": [
     {
-      "export": "plenora_io_cli::operazioni::Richiesta",
+      "export": "plenora_io_tools::operazioni::Richiesta",
       "ruolo": "l'ingresso delle cinque operazioni che ne hanno uno, con i campi che gli schemi `*-input-v1` dichiarano.",
       "nota": "`#[non_exhaustive]`: il letterale `Richiesta { .. }` non compila da fuori, e non e' una limitazione ma il punto -- un campo aggiunto in futuro non rompe chi la costruisce. Si costruisce con `sulla_sorgente` e i metodi `con_*`, che si concatenano. La prima stesura di questa riga documentava `..Default::default()` come idioma, e non compilava nemmeno nelle prove d'integrazione del crate stesso, che per Rust sono gia' «fuori»."
     },
     {
-      "export": "plenora_io_cli::operazioni::Esito",
+      "export": "plenora_io_tools::operazioni::Esito",
       "ruolo": "`Result<Value, Value>`: il documento del contratto d'uscita, o la busta d'errore del contratto comune."
     },
     {
-      "export": "plenora_io_cli::operazioni::capabilities",
+      "export": "plenora_io_tools::operazioni::capabilities",
       "ruolo": "il documento capability dell'artefatto, `plenora-capabilities-v2`."
     }
   ],

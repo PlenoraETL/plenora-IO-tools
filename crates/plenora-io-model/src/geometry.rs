@@ -8,6 +8,7 @@ use crate::crs::{
     definition_format, AxisOrder, CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs,
 };
 use crate::{PlenoraIoError, PublicMessage, Result};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 /// Nome dell'estensione `GeoArrow` per una colonna geometria WKB.
@@ -200,17 +201,45 @@ const fn definition_format_name(format: CrsDefinitionFormat) -> &'static str {
 /// **non** viene riscritto: e' cio' che rende il round trip una conservazione
 /// invece di un ricalcolo, e cio' che rendera' corretta una proiezione futura,
 /// dove l'indice al momento della scrittura non sarebbe piu' quello d'origine.
+///
+/// # Perche' l'indice da solo non basta
+///
+/// ARROW-VOCABULARY-1.0 §2 chiede che `plenora.field_id` sia «**unique within
+/// a schema**», e stampare l'indice dove manca lo viola appena la sorgente ne
+/// dichiara uno che coincide con la posizione di un altro campo: uno schema in
+/// cui il campo 0 dichiara `3` e il campo 3 non dichiara niente uscirebbe con
+/// due campi che si chiamano entrambi `3`. Un consumatore che correla su quel
+/// numero correlerebbe due colonne diverse.
+///
+/// Gli id generati si prendono quindi dai numeri **liberi**, il piu' piccolo
+/// per volta. Quando la sorgente non dichiara niente -- il caso di gran lunga
+/// piu' comune -- i numeri liberi sono `0, 1, 2, …` nell'ordine, e il
+/// risultato coincide con l'indice: la regola non cambia il caso normale, lo
+/// contiene.
 #[must_use]
 pub fn with_field_identity(fields: Vec<arrow_schema::Field>) -> Vec<arrow_schema::Field> {
+    // Prima si legge che cosa la sorgente ha gia' dichiarato, e poi si genera:
+    // in un passaggio solo un id generato per il campo 0 potrebbe collidere con
+    // un id dichiarato dal campo 5, che non e' ancora stato visto.
+    let mut occupati: BTreeSet<u64> = fields
+        .iter()
+        .filter_map(|field| field.metadata().get(PLENORA_FIELD_ID_KEY))
+        .filter_map(|valore| valore.parse::<u64>().ok())
+        .collect();
+
+    let mut prossimo = 0_u64;
     fields
         .into_iter()
-        .enumerate()
-        .map(|(indice, field)| {
+        .map(|field| {
             if field.metadata().contains_key(PLENORA_FIELD_ID_KEY) {
                 return field;
             }
+            while occupati.contains(&prossimo) {
+                prossimo += 1;
+            }
+            occupati.insert(prossimo);
             let mut metadata = field.metadata().clone();
-            metadata.insert(PLENORA_FIELD_ID_KEY.to_owned(), indice.to_string());
+            metadata.insert(PLENORA_FIELD_ID_KEY.to_owned(), prossimo.to_string());
             field.with_metadata(metadata)
         })
         .collect()

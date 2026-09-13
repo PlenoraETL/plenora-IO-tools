@@ -29,7 +29,7 @@
 //! # Uso
 //!
 //!     cargo run --bin genera-fixture-arrow -- \
-//!         --destinazione crates/plenora-io-cli/tests/fixtures/canoniche
+//!         --destinazione crates/plenora-io-tools/tests/fixtures/canoniche
 
 use std::collections::HashMap;
 use std::fs::File;

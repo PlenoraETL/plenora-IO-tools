@@ -110,7 +110,7 @@ class SondeStruttura(unittest.TestCase):
                 voce(
                     prova={
                         "tipo": "test",
-                        "crate": "plenora-io-cli",
+                        "crate": "plenora-io-tools",
                         "configurazione": "default",
                         "bersaglio": "esempi",
                         "test": ["a"],
@@ -341,7 +341,7 @@ class SondeEsecuzioneTest(unittest.TestCase):
             voce(
                 prova={
                     "tipo": "test",
-                    "crate": "plenora-io-cli",
+                    "crate": "plenora-io-tools",
                     "configurazione": "default",
                     "bersaglio": "bins",
                     "test": ["tests::t"],
@@ -350,7 +350,7 @@ class SondeEsecuzioneTest(unittest.TestCase):
         )
         self.assertEqual(
             corsa.call_args.args[0],
-            ["cargo", "test", "-p", "plenora-io-cli", "--bins"],
+            ["cargo", "test", "-p", "plenora-io-tools", "--bins"],
         )
 
     def test_una_coppia_si_misura_una_volta_sola(self) -> None:

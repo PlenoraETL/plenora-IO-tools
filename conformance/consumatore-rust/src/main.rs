@@ -19,13 +19,13 @@
 //! # Che cosa importa, e che cosa no
 //!
 //! Solo i nomi elencati in `contracts/superficie-rust.json`. Non
-//! `plenora_io_core`, non i `driver_*`, non `plenora_io_cli::busta`: quelli
+//! `plenora_io_core`, non i `driver_*`, non `plenora_io_tools::busta`: quelli
 //! sono il motore, e un consumatore che li importasse dipenderebbe
 //! dall'implementazione invece che dalle operazioni. Il gate confronta questo
 //! elenco con la mappatura nei due versi, così che un export documentato e mai
 //! importato si veda come uno importato e mai documentato.
 
-use plenora_io_cli::operazioni::{self, Esito, Richiesta};
+use plenora_io_tools::operazioni::{self, Esito, Richiesta};
 
 /// Ogni operazione della mappatura, invocata almeno una volta.
 ///

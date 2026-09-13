@@ -45,7 +45,7 @@ def radice() -> Path | None:
 RADICE = radice()
 CONTRATTO = RADICE / MARCATORE if RADICE else None
 CANONICHE = (
-    RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
+    RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
     if RADICE
     else None
 )

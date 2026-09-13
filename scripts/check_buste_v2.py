@@ -18,7 +18,7 @@ campi dichiarati **ci siano**, non che non ce ne siano altri.
 
 # Perche' esegue il binario
 
-Le sonde di `plenora-io-cli` costruiscono le buste in-process. E' utile e non
+Le sonde di `plenora-io-tools` costruiscono le buste in-process. E' utile e non
 e' la stessa cosa: verificano che una funzione produca un documento, non che il
 comando che un utente digita lo consegni. Fra le due c'e' il dispatch, la scelta
 del protocollo, la scrittura su stdout invece che su stderr e il codice
@@ -79,7 +79,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
-FIXTURE = ROOT / "crates" / "plenora-io-cli" / "tests" / "fixtures"
+FIXTURE = ROOT / "crates" / "plenora-io-tools" / "tests" / "fixtures"
 CANONICHE = FIXTURE / "canoniche"
 OSTILI = FIXTURE / "ostili"
 
@@ -389,7 +389,7 @@ def binario() -> str:
             "cargo",
             "build",
             "-p",
-            "plenora-io-cli",
+            "plenora-io-tools",
             "--message-format=json-render-diagnostics",
         ],
         cwd=ROOT,

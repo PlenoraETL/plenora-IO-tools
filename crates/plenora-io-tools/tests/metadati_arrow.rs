@@ -45,7 +45,7 @@
 //! superficie, e lo si vede in `capabilities`. Diventa vero con B13, che porta
 //! lo streaming, e allora questa sarà la sua sonda.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -675,6 +675,85 @@ fn arrow_010_chi_si_dichiara_lossless_conserva_i_metadati_ignoti() {
          più (campo: {conservato_sul_campo}, schema: {conservato_sullo_schema}). \
          Le due cose non possono stare insieme: o si conservano, o la fedeltà \
          dichiara di averli normalizzati"
+    );
+}
+
+/// ARROW-VOCABULARY-1.0 §2: `plenora.field_id` e' «unique within a schema».
+///
+/// # Il caso che l'indice da solo sbaglia
+///
+/// Gli id generati erano l'indice del campo, e gli id della sorgente si
+/// conservavano. Le due regole insieme collidono appena la sorgente dichiara un
+/// id che coincide con la **posizione** di un campo che non ne dichiara: qui il
+/// primo campo dichiara l'indice dell'ultimo, l'ultimo non dichiara niente, e
+/// prima di questa sonda uscivano entrambi con lo stesso numero.
+///
+/// Non e' un caso di laboratorio: e' cio' che succede a un file scritto da un
+/// componente che assegna identita' stabili mentre le colonne si riordinano.
+/// Un consumatore che correla su `plenora.field_id` -- che e' l'uso per cui la
+/// chiave esiste -- correlerebbe due colonne diverse senza accorgersene.
+#[test]
+fn gli_identificatori_generati_non_collidono_con_quelli_della_sorgente() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let base = consegna(
+        temporanea.path(),
+        &fixture("canonico.geojson"),
+        "base.arrow",
+    );
+
+    let preparato = temporanea.path().join("collisione-annunciata.arrow");
+    let mut atteso_sul_primo = String::new();
+    riscrivi_con(&base, &preparato, |schema| {
+        let ultimo = schema.fields().len() - 1;
+        assert!(ultimo >= 1, "la fixture deve avere almeno due campi");
+        atteso_sul_primo = ultimo.to_string();
+        let campi: Vec<arrow_schema::Field> = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(indice, c)| {
+                let mut metadata = c.metadata().clone();
+                // Il primo campo si prende il numero che l'ultimo avrebbe
+                // ricevuto per posizione; tutti gli altri restano senza, cosi'
+                // che l'identita' vada generata proprio dove collide.
+                if indice == 0 {
+                    metadata.insert("plenora.field_id".to_owned(), ultimo.to_string());
+                } else {
+                    metadata.remove("plenora.field_id");
+                }
+                c.as_ref().clone().with_metadata(metadata)
+            })
+            .collect();
+        Schema::new_with_metadata(campi, schema.metadata().clone())
+    });
+
+    let consegnato = consegna(temporanea.path(), &preparato, "consegnato.arrow");
+    let schema = schema_di(&consegnato);
+    let identificatori: Vec<String> = schema
+        .fields()
+        .iter()
+        .map(|c| {
+            c.metadata()
+                .get("plenora.field_id")
+                .cloned()
+                .unwrap_or_else(|| panic!("«{}» non porta `plenora.field_id`", c.name()))
+        })
+        .collect();
+
+    let distinti: BTreeSet<&String> = identificatori.iter().collect();
+    assert_eq!(
+        distinti.len(),
+        identificatori.len(),
+        "ARROW-VOCABULARY §2: due campi portano la stessa identita' --          {identificatori:?}"
+    );
+
+    // E l'id dichiarato dalla sorgente e' ancora sul campo che lo dichiarava:
+    // risolvere la collisione riscrivendo il dichiarato renderebbe distinti gli
+    // identificatori e romperebbe ARROW-004, che e' il rimedio peggiore del
+    // male.
+    assert_eq!(
+        identificatori[0], atteso_sul_primo,
+        "ARROW-004: l'id dichiarato dalla sorgente non deve muoversi per fare          posto a uno generato"
     );
 }
 

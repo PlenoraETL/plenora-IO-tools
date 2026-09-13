@@ -163,9 +163,12 @@ impl FormatDriver for GeoJsonDriver {
         // e' quello che la passata fa gia'. Senza questa riga il contratto
         // arriva al writer senza tipi, e i formati che li pretendono in
         // anticipo rifiutano una conversione che il file puo' fare.
-        if !tipi.is_empty() {
-            geometria.set_exact_geometry_types(tipi);
-        }
+        // Senza condizione, e la condizione che c'era prima era il difetto: un
+        // elenco vuoto dopo una passata arrivata a fine file **e'** una
+        // conoscenza -- geometrie non ce ne sono -- e saltare la chiamata la
+        // faceva sembrare ignoranza. Una FeatureCollection vuota veniva
+        // rifiutata verso ogni sink che pretende i tipi in anticipo.
+        geometria.set_exact_geometry_types(tipi);
         let contract = DataContract::new(schema, Some(geometria));
         let name = path
             .file_stem()

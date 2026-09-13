@@ -593,7 +593,7 @@ plenora-io-<versione>-linux-x86_64-filegdb/
 L'albero e' **spostabile**: nessun percorso assoluto lo lega alla directory in
 cui e' stato costruito. Le librerie si risolvono con un `RPATH` radicato in
 `$ORIGIN`, e i dati di GDAL e di PROJ li trova il binario stesso, derivandoli
-dal proprio percorso (`crates/plenora-io-cli/src/radici.rs`).
+dal proprio percorso (`crates/plenora-io-tools/src/radici.rs`).
 
 ##### La base di costruzione
 

@@ -121,7 +121,7 @@ LIBRERIA = "libgdal"
 # target del fuzzing: quello richiede la toolchain nightly e il sanitizer, che
 # per questa domanda non servono. E' un nostro binario con lo stesso tier acceso,
 # quindi con la stessa dipendenza e lo stesso soname.
-CRATE_FEATURE_ON = "plenora-io-cli"
+CRATE_FEATURE_ON = "plenora-io-tools"
 FEATURE_GDB = "gdal-backend"
 
 # I fatti che la misura deve portare, e il valore che li rende il confine

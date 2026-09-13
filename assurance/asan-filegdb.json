@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "Il confine di AddressSanitizer nel target `filegdb_reader`, misurato sul binario strumentato e sulla libreria che collega. Prodotto da scripts/asan-filegdb.sh; letto da scripts/check_asan_filegdb.py, che rimisura la libreria locale invece di credere a questo file.",
   "target": "filegdb_reader",
-  "impronta_perimetro": "70dacee03168a5513bf031e8e1927c4c205e314c19e2818c61ea3e4cbf50bb1b",
+  "impronta_perimetro": "8d0933025f0fda7535ed5523185868334f90d814cdc725c50f953c093d99748d",
   "libreria_collegata": {
     "soname": "libgdal.so.32",
     "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.32",
@@ -15,7 +15,7 @@
   "runtime_asan_nel_binario": true,
   "libreria_gdal_dentro_l_albero_di_build": false,
   "moduli_con_contatori": 1,
-  "contatori_di_copertura": 179805,
+  "contatori_di_copertura": 179838,
   "file_sorgente_gdal_strumentati": 0,
   "file_sorgente_c_cpp_strumentati": 0,
   "file_del_wrapper_rust_strumentati": 46,

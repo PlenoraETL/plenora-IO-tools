@@ -380,6 +380,62 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |
+| `io.read` | consegna un **file** Arrow IPC, non uno stream: vedi qui sotto |
+| tutti | nessuna proiezione delle colonne: lo schema consegnato è quello della sorgente |
+
+### Perché `io.read` consegna un file e non uno stream
+
+Il catalogo comune ammette per `io.read` due content type d'uscita,
+`application/vnd.apache.arrow.stream` e `application/vnd.apache.arrow.file`.
+Questo prodotto annuncia il secondo, e la ragione non è che manchi il tempo di
+scrivere il primo.
+
+Tutti e dieci i driver hanno consegna **atomica sull'operazione**: se una
+violazione emerge in un punto qualsiasi della sorgente, l'operazione viene
+rifiutata come blocco unico e nessun prefisso accettato viene consegnato. È la
+proprietà che rende prevedibile una pipeline — o tutto, o niente — ed è
+incompatibile con la consegna incrementale, che è precisamente ciò che uno
+stream promette a chi lo consuma. Annunciarlo vorrebbe dire promettere di
+consegnare batch prima di sapere se l'operazione riuscirà.
+
+Il descrittore lo dichiara: `attributes.materialization` vale `bounded` e
+`attributes.delivery` vale `operation_atomic` sull'operazione `io.read`. Restano
+diagnostica opaca — CAP-013 riserva la selezione automatica ai contratti
+tipizzati — quindi un consumatore sceglie sul content type, che è il campo
+normativo, e legge gli attributi per sapere perché.
+
+Cambiare idea è possibile e non è gratis: la variante `Streaming` esiste
+nell'asse delle semantiche di consegna, ma vuole una categoria d'errore nuova —
+«l'operazione è fallita dopo che ti ho già dato dei dati» non è esprimibile oggi
+— e con essa un bump del protocollo.
+
+### Una sorgente senza geometrie, e una di cui non si sanno i tipi
+
+Non sono lo stesso caso, e per un po' il prodotto le ha trattate uguali.
+
+Quando la destinazione accetta solo alcuni dei sedici tipi geometrici canonici —
+il sink Arrow IPC ne dichiara sette, perché trasporta WKB senza interpretarlo —
+pretende di saperli in anticipo. Se il contratto della sorgente arriva senza
+tipi, la scrittura viene rifiutata: è prudente, perché altrimenti la
+scoprirebbe a scrittura iniziata.
+
+«Senza tipi» però copriva due situazioni diverse. Una sorgente percorsa fino in
+fondo e priva di geometrie — un GeoJSON con zero feature — non ha niente da
+dichiarare, e pretendere da lei una dichiarazione preventiva rifiutava una
+conversione che il formato può fare benissimo. Una sorgente di cui i tipi non si
+sono potuti determinare è un'altra cosa, e lì il rifiuto serve.
+
+Il contratto interno ora le distingue, e il rifiuto resta solo sulla seconda.
+
+Sul **filo** la distinzione non passa, ed è bene saperlo:
+`ARROW-VOCABULARY-1.0` è un vocabolario chiuso, e
+`plenora.geometry.types_declaration` ammette i soli `exact`, `mixed`,
+`unresolved`. Un'assenza accertata si scrive quindi `unresolved`, come
+un'ignoranza. La conseguenza si vede: un GeoJSON vuoto si consegna in Arrow, e
+quel file consegnato — riletto — viene rifiutato verso lo stesso sink, perché
+chi lo rilegge non ha modo di sapere che l'assenza era stata accertata.
+Scioglierlo richiede un vocabolario successore, che non è una decisione di
+questo componente.
 
 ---
 

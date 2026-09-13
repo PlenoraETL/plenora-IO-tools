@@ -46,7 +46,7 @@ def grafo(profilo: str, cwd: pathlib.Path | None = None) -> dict:
         "--filter-platform", _bersaglio(),
     ]
     if profilo == "filegdb":
-        comando += ["--features", "plenora-io-cli/gdal-backend"]
+        comando += ["--features", "plenora-io-tools/gdal-backend"]
     esito = subprocess.run(
         comando, capture_output=True, text=True, cwd=cwd or RADICE, check=True
     )
@@ -67,7 +67,7 @@ def _bersaglio() -> str:
     raise SystemExit("`rustc -vV` non dichiara un host: senza, il filtro non si puo' applicare")
 
 
-def linkati(metadati: dict, radice: str = "plenora-io-cli") -> list[dict]:
+def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
     """I pacchetti raggiungibili dal binario per dipendenze **normali**.
 
     `dep_kinds` distingue i tre tipi. Una `dev` serve ai test e una `build` gira

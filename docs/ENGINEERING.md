@@ -13,7 +13,7 @@ plenora-io-model     tipi semantici: contratti, geometria, WKB/WKT, errori, budg
 plenora-io-core      pipeline: registry, adapter di lettura, publish, capability
 driver-common        codice condiviso fra driver: WKT lossless, prevalidazione Arrow
 driver-<formato>     dieci driver, uno per formato
-plenora-io-cli       binario `plenora-io` e le buste JSON
+plenora-io-tools       binario `plenora-io` e le buste JSON
 plenora-bench        misure di prestazione, non spedito
 plenora-fuzz         attrezzaggio di fuzzing, non spedito
 ```

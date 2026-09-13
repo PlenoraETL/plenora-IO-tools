@@ -36,7 +36,7 @@ set -eu
 # eludere H-01 che questo commento denuncia. **Serve ratifica H-01.**
 #
 # Il 2026-08-16 la barriera anti-panic del binario CLI ha aggiunto la stessa
-# occorrenza in plenora-io-cli (18 -> 19, totale 94 -> 95): in
+# occorrenza in plenora-io-tools (18 -> 19, totale 94 -> 95): in
 # `messaggio_del_panico`, il payload di un panico che non e' ne'
 # `&'static str` ne' `String` diventa "panico senza messaggio". E' lo stesso
 # fallback gia' analizzato per plenora-io-core, applicato al confine del
@@ -87,7 +87,7 @@ set -eu
 # Nessuna revisione H-01 dovuta per le tre residue.
 #
 # Il 2026-08-16 la rimozione del modello legacy (S4.e) ha aggiunto due
-# occorrenze, una in plenora-io-core e una in plenora-io-cli (102 -> 104).
+# occorrenze, una in plenora-io-core e una in plenora-io-tools (102 -> 104).
 # Sono la stessa conversione, in due moduli `#[cfg(test)]`: il tetto di
 # colonne predefinito passa da `u64` a `usize` perche' `validate_write` lo
 # prende in `usize`. Prima veniva da `Limits::default().max_columns`, che era
@@ -160,7 +160,7 @@ set -eu
 # sembrava una conferma e non lo era — erano il punto 2 in calo e il punto 3 in
 # aumento che si annullavano. Un contatore fermo non dice che niente si e'
 # mosso. Nessuna revisione H-01 dovuta.
-# Sempre S6, tre occorrenze in piu' in plenora-io-cli (20 -> 23, totale
+# Sempre S6, tre occorrenze in piu' in plenora-io-tools (20 -> 23, totale
 # 106 -> 109), tutte nei sei test trasversali di `conformance_tests.rs`: due
 # sono `unwrap_or_else(|error| panic!(...))`, cioe' il modo in cui questo file
 # gia' riporta il fallimento di una scrittura, non una degradazione a default;
@@ -169,16 +169,16 @@ set -eu
 # governa un percorso di produzione. Riscriverle come `match` per non far
 # muovere il contatore incontrerebbe `manual_unwrap_or_else`, cioe' scambierebbe
 # un rilievo di clippy per un numero fermo. Nessuna revisione H-01 dovuta.
-# Il 2026-08-18, la correzione del test S6 sui default porta plenora-io-cli da
+# Il 2026-08-18, la correzione del test S6 sui default porta plenora-io-tools da
 # 23 a 24 (totale 108 -> 109). L'occorrenza e' in `contratto_riletto`, ed e'
 # `unwrap_or_else(|error| panic!(...))`: il modo in cui quel file riporta gia'
 # il fallimento di una rilettura, non una degradazione a un default. Nessuna
 # revisione H-01 dovuta.
-# Il 2026-08-18, S8 porta plenora-io-cli da 24 a 26 (totale 109 -> 111). Le due
+# Il 2026-08-18, S8 porta plenora-io-tools da 24 a 26 (totale 109 -> 111). Le due
 # occorrenze sono `unwrap_or_else(|| panic!(...))` nei tre snapshot del
 # descrittore: il modo in cui quel file dice «questo driver non c'e' nel
 # catalogo», non una degradazione a un default. Nessuna revisione H-01 dovuta.
-# Il 2026-08-19, S9 fase 1 porta plenora-io-cli da 26 a 28 (totale 111 -> 113).
+# Il 2026-08-19, S9 fase 1 porta plenora-io-tools da 26 a 28 (totale 111 -> 113).
 # Le due occorrenze sono `unwrap_or_else(|error| panic!(...))` nei test della
 # matrice di handoff: il modo in cui quel file riporta un file mancante, non una
 # degradazione a un default. Nessuna revisione H-01 dovuta.
@@ -203,7 +203,7 @@ set -eu
 #      test: il modo in cui quel file dice «questo seme doveva esserci», con il
 #      percorso dentro il messaggio perche' un seme assente e un seme
 #      illeggibile si diagnosticano diversamente. E' la stessa forma gia'
-#      registrata per driver-common e plenora-io-cli;
+#      registrata per driver-common e plenora-io-tools;
 #   2. e 3. due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, che
 #      ritaglia un campo DBF come lo ritaglia `dbase`. Qui l'assenza del
 #      carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo
@@ -220,7 +220,7 @@ set -eu
 # lettore della fixture del modulo di test: il modo in cui quel file dice
 # «questa fixture doveva esserci», con il percorso dentro il messaggio perche'
 # una fixture assente e una illeggibile si diagnosticano diversamente. E' la
-# stessa forma gia' registrata per driver-common, driver-shp e plenora-io-cli, e
+# stessa forma gia' registrata per driver-common, driver-shp e plenora-io-tools, e
 # non governa nessun percorso di produzione. Nessuna revisione H-01 dovuta.
 
 # Il 2026-08-25, il lotto S12 porta driver-common da 4 a 6 (totale 123 -> 125).
@@ -228,7 +228,7 @@ set -eu
 # modulo `wkt_progressivo`: il modo in cui una sonda dice «questo testo doveva
 # essere accettato» portando dentro il messaggio quale testo e quale errore --
 # senza, un elenco di dodici campioni direbbe soltanto «uno di questi». E' la
-# stessa forma gia' registrata per driver-filegdb, driver-shp e plenora-io-cli,
+# stessa forma gia' registrata per driver-filegdb, driver-shp e plenora-io-tools,
 # e nessuna delle due governa un percorso di produzione: il parser progressivo
 # che quelle sonde esercitano non ha un solo `unwrap_or*`, ed e' voluto. La
 # prima stesura ne aveva tredici, tutti `unwrap_or(CoordinateDimensions::Xy)`,
@@ -253,7 +253,7 @@ set -eu
 # quello in cui c'e' e' proprio il motivo per cui il canale laterale esiste.
 # Nessuna revisione H-01 dovuta.
 
-# Il 2026-09-12 le prove degli schemi di `io.read` hanno portato plenora-io-cli
+# Il 2026-09-12 le prove degli schemi di `io.read` hanno portato plenora-io-tools
 # da 28 a 33 (totale 129 -> 134). Le cinque occorrenze stanno tutte in
 # `tests/schemi_io_read.rs`, nella forma `unwrap_or_else(|e| panic!(...))`, e
 # servono a dire **quale** file o **quale** invocazione non ha retto: con
@@ -269,27 +269,27 @@ set -eu
 # la diagnosi sbagliata di un problema diverso. Ora e' un `expect`.
 # Nessuna revisione H-01 dovuta.
 #
-# Il 2026-09-12, poco dopo, `io.write` ha portato plenora-io-cli da 33 a 35
+# Il 2026-09-12, poco dopo, `io.write` ha portato plenora-io-tools da 33 a 35
 # (totale 134 -> 136). Le due occorrenze sono la stessa forma gia' ratificata
 # poche righe sopra: `unwrap_or_else(|e| panic!(...))` che nomina l'invocazione
 # fallita in `tests/scrittura_arrow.rs` e nella prova della busta di `io.write`.
 # Terminano la prova invece di proseguire con un default.
 # Nessuna revisione H-01 dovuta.
 #
-# Il 2026-09-12, blocco di coerenza, plenora-io-cli passa da 35 a 37 (totale
+# Il 2026-09-12, blocco di coerenza, plenora-io-tools passa da 35 a 37 (totale
 # 136 -> 138). Le due occorrenze sono nelle prove che confrontano il catalogo
 # con i driver risolti per nome: `unwrap_or_else(|| panic!(...))` nomina il
 # formato senza corrispondenza. Stessa categoria gia' ratificata due volte qui
 # sopra -- terminano la prova invece di proseguire con un default.
 # Nessuna revisione H-01 dovuta.
 #
-# Il 2026-09-12, blocco BB1-BB5, plenora-io-cli passa da 37 a 38 (totale 138 ->
+# Il 2026-09-12, blocco BB1-BB5, plenora-io-tools passa da 37 a 38 (totale 138 ->
 # 139). L'occorrenza e' in `tests/metadati_arrow.rs`: `unwrap_or_else(|| panic!(
 # "ARROW-003: ..."))` nomina il campo che non porta l'identita' attesa invece di
 # proseguire con un default. Stessa categoria gia' ratificata tre volte qui
 # sopra. Nessuna revisione H-01 dovuta.
 #
-# Il 2026-09-12, blocco C1-C4, plenora-io-cli passa da 38 a 39 (totale 139 ->
+# Il 2026-09-12, blocco C1-C4, plenora-io-tools passa da 38 a 39 (totale 139 ->
 # 140). L'occorrenza e' in `tests/equivalenza_superfici.rs`: nomina
 # l'invocazione la cui uscita non e' JSON mentre si confrontano le due porte.
 # Stessa categoria gia' ratificata quattro volte qui sopra.

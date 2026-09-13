@@ -44,11 +44,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Lo stesso perimetro della soglia: se qui entrassero crate che la soglia
 # esclude, le due misure parlerebbero di insiemi diversi con lo stesso nome.
-ESCLUSI = ("plenora-bench", "plenora-fuzz", "plenora-io-cli")
+ESCLUSI = ("plenora-bench", "plenora-fuzz", "plenora-io-tools")
 
 # Il perimetro **complementare**, per la misura dedicata alla CLI.
 #
-# `plenora-io-cli` sta fuori dallo scope «library coverage» per scelta, e la
+# `plenora-io-tools` sta fuori dallo scope «library coverage» per scelta, e la
 # scelta resta: la soglia dell'80% vale sulle librerie. Ma «fuori dalla soglia»
 # era diventato «fuori da ogni misura», e il binario che gli utenti eseguono
 # non puo' essere l'unica cosa che nessuno guarda. Da qui la seconda corsa,
@@ -58,7 +58,7 @@ ESCLUSI = ("plenora-bench", "plenora-fuzz", "plenora-io-cli")
 # Non e' una deroga all'esclusione: e' una misura **diversa**, con un nome
 # diverso, che non entra nel denominatore della prima. Sommarle darebbe un
 # terzo numero che non e' ne' l'una ne' l'altra.
-SOLO_CLI = "plenora-io-cli"
+SOLO_CLI = "plenora-io-tools"
 
 INTESTAZIONE_DIFF = re.compile(r"^\+\+\+ b/(.+)$")
 INTERVALLO = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")

@@ -37,7 +37,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use plenora_io_cli::operazioni::{self, Richiesta};
+use plenora_io_tools::operazioni::{self, Richiesta};
 use serde_json::Value;
 
 const BINARIO: &str = env!("CARGO_BIN_EXE_plenora-io");

@@ -211,7 +211,7 @@ class SondeChiamataNuda(unittest.TestCase):
         """Spostare la chiamata fuori dal driver non la mette al sicuro."""
         radice = self.albero(
             {
-                "crates/plenora-io-cli/src/main.rs": "fn leggi() {\n"
+                "crates/plenora-io-tools/src/main.rs": "fn leggi() {\n"
                 "    let reader = FileReader::try_new(File::open(&path)?, None)?;\n"
                 "}\n"
             }

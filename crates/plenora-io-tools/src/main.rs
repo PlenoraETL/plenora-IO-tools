@@ -15,11 +15,11 @@
 //! Che le due superfici siano equivalenti non e' una promessa da verificare:
 //! chiamano la stessa funzione.
 
-use plenora_io_cli::{
+use plenora_io_model::ErrorCategory;
+use plenora_io_tools::{
     busta_di_successo, con_identita, envelope_panico, installa_hook_silenzioso, radici, run,
     uscita_della_categoria, AIUTO, COMANDO_IGNOTO,
 };
-use plenora_io_model::ErrorCategory;
 use serde_json::Value;
 
 fn main() {

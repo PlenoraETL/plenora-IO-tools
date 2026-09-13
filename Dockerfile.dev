@@ -17,7 +17,7 @@
 #   cargo build --workspace --locked
 #   cargo test  --workspace --all-targets --locked
 #   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-#   cargo run -p plenora-io-cli --features gdal-backend --locked -- catalog
+#   cargo run -p plenora-io-tools --features gdal-backend --locked -- catalog
 #   bash scripts/fuzz-smoke.sh                       # 13 target sotto ASan
 #   bash scripts/fuzz-smoke.sh --seconds 10 wkt_parse   # un sottoinsieme
 #   bash scripts/fuzz-replay.sh wkt_parse            # stessa interfaccia

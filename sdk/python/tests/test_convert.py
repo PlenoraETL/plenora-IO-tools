@@ -383,7 +383,7 @@ class LaConsegnaDiRead(unittest.TestCase):
         self.temporanea.cleanup()
 
     def sorgente(self) -> Path:
-        return RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche" / "canonico.geojson"
+        return RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche" / "canonico.geojson"
 
     def test_read_consegna_e_lo_dichiara(self) -> None:
         uscita = self.tmp / "consegnato.arrow"

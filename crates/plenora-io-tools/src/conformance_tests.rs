@@ -693,9 +693,14 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             types_checked += 1;
 
+            // «Non ho potuto determinare i tipi»: niente tipi **e** nessuna
+            // scansione che ne accerti l'assenza. `scansione_completa` va
+            // rimesso a `false` a mano perche' il piano di partenza e' valido,
+            // e un piano valido ha dichiarato i suoi tipi in modo esatto.
             let mut unresolved = valid_geometry_plan(descriptor);
             let geometry = unresolved.layers[0].contract.geometry.as_mut().unwrap();
             geometry.geometry_types.clear();
+            geometry.scansione_completa = false;
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
                 descriptor.id(),
@@ -706,6 +711,31 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                     &senza_opzioni(),
                 ),
                 CapabilityReason::GeometryNotSupported,
+            );
+
+            // «Ho guardato tutto e geometrie non ce ne sono»: stesso contratto
+            // sul filo -- `unresolved`, perche' il vocabolario chiuso non ha un
+            // altro valore -- e esito opposto. E' l'unica differenza fra i due
+            // piani, quindi e' l'unica cosa che puo' spiegare l'esito diverso.
+            let mut accertata = unresolved;
+            accertata.layers[0]
+                .contract
+                .geometry
+                .as_mut()
+                .unwrap()
+                .scansione_completa = true;
+            assert!(
+                validate_write(
+                    descriptor,
+                    &accertata,
+                    colonne_predefinite(),
+                    &senza_opzioni(),
+                )
+                .is_ok(),
+                "{}: un'assenza accertata non ha niente da dichiarare, e \
+                 pretendere da lei una dichiarazione preventiva rifiuta una \
+                 scrittura che il formato puo' fare",
+                descriptor.id()
             );
             unresolved_checked += 1;
         }

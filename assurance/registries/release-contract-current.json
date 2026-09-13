@@ -13,7 +13,7 @@
       "invariante": "l'oggetto `error` porta esattamente sei chiavi — category, phase, remote_effect, retry, code, message — piu' row_diagnostics quando presente. `driver`, `field` e `capability_reason` esistono nel tipo Rust e non sul wire.",
       "prova": {
         "tipo": "test",
-        "crate": "plenora-io-cli",
+        "crate": "plenora-io-tools",
         "configurazione": "default",
         "test": [
           "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi"
