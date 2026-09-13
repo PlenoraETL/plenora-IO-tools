@@ -44,20 +44,26 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Lo stesso perimetro della soglia: se qui entrassero crate che la soglia
 # esclude, le due misure parlerebbero di insiemi diversi con lo stesso nome.
-ESCLUSI = ("plenora-bench", "plenora-fuzz", "plenora-io-tools")
+#
+# `plenora-io-tools` non c'e' piu'. Stava fuori perche' il pacchetto conteneva
+# un binario, e un binario non si misura come una libreria; dalla 4.0.0 porta
+# anche la **superficie Rust pubblica**, e tenerlo fuori toglieva dal
+# denominatore proprio il codice che la soglia deve sorvegliare. La soglia
+# l'aveva gia' incluso; qui l'esclusione era rimasta, e i due perimetri
+# divergevano -- che e' precisamente cio' che questo commento vieta.
+ESCLUSI = ("plenora-bench", "plenora-fuzz")
 
-# Il perimetro **complementare**, per la misura dedicata alla CLI.
+# Il perimetro del pacchetto pubblico, guardato **da solo**.
 #
-# `plenora-io-tools` sta fuori dallo scope «library coverage» per scelta, e la
-# scelta resta: la soglia dell'80% vale sulle librerie. Ma «fuori dalla soglia»
-# era diventato «fuori da ogni misura», e il binario che gli utenti eseguono
-# non puo' essere l'unica cosa che nessuno guarda. Da qui la seconda corsa,
-# con lo stesso strumento e un perimetro dichiarato: nessuna soglia, un numero
-# che si legge.
+# Nasceva come complemento di un'esclusione: `plenora-io-tools` stava fuori
+# dalla soglia, e «fuori dalla soglia» era diventato «fuori da ogni misura».
+# L'esclusione non c'e' piu' -- il pacchetto porta la superficie Rust pubblica
+# ed entra nel denominatore come le altre librerie -- ma la vista separata
+# resta utile: dice quanto di **quel** pacchetto e' coperto, senza che il
+# numero si diluisca nei quattordici crate.
 #
-# Non e' una deroga all'esclusione: e' una misura **diversa**, con un nome
-# diverso, che non entra nel denominatore della prima. Sommarle darebbe un
-# terzo numero che non e' ne' l'una ne' l'altra.
+# Non e' una misura che si somma alla prima: e' la stessa profdata letta con un
+# filtro. Sommarle darebbe un terzo numero che non e' ne' l'una ne' l'altra.
 SOLO_CLI = "plenora-io-tools"
 
 INTESTAZIONE_DIFF = re.compile(r"^\+\+\+ b/(.+)$")

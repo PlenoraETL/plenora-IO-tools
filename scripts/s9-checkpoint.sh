@@ -815,7 +815,16 @@ passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
 
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"
-ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-tools)/src/.*\.rs$'
+# Due soli crate fuori: strumenti di misura, non codice che si spedisce.
+#
+# Ce n'era un terzo, il pacchetto della CLI, ed era escluso perche' conteneva
+# un binario e i binari non si misurano come librerie. Dalla 4.0.0 quel
+# pacchetto porta anche la **superficie Rust pubblica**, e tenerlo fuori
+# toglieva dal denominatore proprio il codice che la soglia deve sorvegliare.
+# L'esclusione era stata tolta dalla CI e dai due gate; qui era rimasta, e la
+# rinomina l'ha solo ribattezzata invece di farla notare. L'ha trovata L2,
+# perche' la copertura e' un passo di livello 2.
+ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$'
 # Il secondo report **non esclude niente**, e la selezione del perimetro sta
 # nello strumento che lo legge.
 #
