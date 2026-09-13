@@ -252,7 +252,7 @@ La decisione è **D6**, e ora ha un numero sotto.
 
 | # | Requisito | Fonte | Comportamento attuale (misurato) | Scostamento | Intervento | Prova di accettazione |
 |---|---|---|---|---|---|---|
-| F1 | Nessun modulo `cfg(test)` inline nei sorgenti di prodotto | scelta di questo repository | erano **42 moduli** dentro 41 file di prodotto | lo scostamento piu' grande per numero di file toccati | **chiusa.** Quarantadue moduli spostati in file loro, dichiarati `#[cfg(test)] mod X;` — restano moduli **figli**, quindi vedono gli stessi privati e non allargano di una riga la superficie pubblica. Restano dentro i file di prodotto **57** `#[cfg(test)]` su singoli elementi — un aiutante, una fixture, un `thread_local!` di una sonda — e non sono vietati: spostarli vorrebbe dire renderli visibili al crate per importarli, cioe' allargare una superficie interna per far contento un gate | 942 `#[test]` prima e 942 dopo, 1060 prove eseguite e passate. **Il costo vero e' stato un altro, e non l'avevo previsto**: sette gate distinguevano prodotto da prove cercando `#[cfg(test)]` nello stesso file, e sarebbero diventati tutti sbagliati nello stesso verso — contando come prodotto cio' che prodotto non e'. La risposta e' `scripts/perimetro_dei_sorgenti.py`, che legge i `mod` e risponde una volta per tutti; dodici sonde lo provano, compreso il caso in cui un file non e' raggiunto da nessun `mod` e va dichiarato invece che classificato per difetto |
+| F1 | Nessun modulo `cfg(test)` inline nei sorgenti di prodotto | scelta di questo repository | erano **42 moduli** dentro 41 file di prodotto | lo scostamento piu' grande per numero di file toccati | **chiusa.** Quarantadue moduli spostati in file loro, dichiarati `#[cfg(test)] mod X;` — restano moduli **figli**, quindi vedono gli stessi privati e non allargano di una riga la superficie pubblica. Restano dentro i file di prodotto **57** `#[cfg(test)]` su singoli elementi — un aiutante, una fixture, un `thread_local!` di una sonda — e non sono vietati: spostarli vorrebbe dire renderli visibili al crate per importarli, cioe' allargare una superficie interna per far contento un gate | 942 `#[test]` prima e 942 dopo, 1060 prove eseguite e passate. **Il costo vero e' stato un altro, e non l'avevo previsto**: **otto** gate distinguevano prodotto da prove cercando `#[cfg(test)]` nello stesso file, e sarebbero diventati tutti sbagliati nello stesso verso — contando come prodotto cio' che prodotto non e'. La risposta e' `scripts/perimetro_dei_sorgenti.py`, che legge i `mod` e risponde una volta per tutti; dodici sonde lo provano, compreso il caso in cui un file non e' raggiunto da nessun `mod` e va dichiarato invece che classificato per difetto. **L'ottavo l'ha trovato la CI e non L1**, ed e' istruttivo: `check_coverage_exclusions.py` sbagliava solo nella modalita' che legge il report LCOV, cioe' dopo una misura di copertura — che e' un passo di livello 2 e L1 omette. Sette gate su otto erano verdi con una corsa da minuti; l'ottavo voleva mezz'ora di copertura per accendersi |
 | F2 | Misura del solo codice di prodotto | scelta di questo repository | non misurato | senza denominatore, «ridurre» non e' verificabile | **chiusa.** `scripts/code_size.py` misura **44 941** righe di prodotto e **2 411** di prove ancora dentro i file di prodotto (5,1%). Prima della separazione erano 47 660 e 36 438, cioe' il 43,4%: la differenza non e' codice tolto, e' codice riclassificato — il registro lo dice per non far passare una riclassificazione per una riduzione | undici sonde, fra cui il file con le prove **in mezzo** e non in fondo, che un contatore scritto con «dalla prima occorrenza in poi e' prova» sbaglierebbe di tutto cio' che sta sotto |
 | F3 | Il tetto è un budget, non una fotografia | scelta di questo repository | assente | un tetto fissato sul valore corrente non impedisce nulla | **chiusa.** `assurance/registries/code-size-budget.json`: 50 000 righe, 5 059 di margine, e la ragione del numero scelta sul **modo in cui questo codice cresce** — gli ultimi blocchi aggiungono qualche centinaio di righe per volta, un driver nuovo no | il gate e' rosso se il prodotto supera il tetto **e** se la misura registrata accanto al tetto e' vecchia: una misura ferma farebbe sembrare il margine piu' largo di quello che e'. `--aggiorna` tocca la misura e mai il tetto, cosi' che alzarlo resti un commit visibile |
 | F4 | Modularità: il confine fra `plenora-io-model` e il resto | `release/cli-protocol-v2.json`, nota R15.4.1 | il protocollo dichiarava l'estrazione dei tipi di confine come prevista | intento dichiarato, non eseguito | **chiusa da una misura, non da un intervento.** La superficie Rust pubblica non espone **nessun** tipo di dominio: `Richiesta` e' nostra e costruita con builder, `Esito` e' `Result<serde_json::Value, serde_json::Value>`, e le sei operazioni rendono `Value`. Non c'e' un tipo da estrarre da `plenora-io-model` perche' non ce n'e' uno sul confine: il confine e' JSON | `contracts/superficie-rust.json` elenca nove export e tre tipi pubblici, nessuno dei quali viene da un driver o dal modello; `check_superficie_rust.py` confronta la mappatura col consumatore esterno nei due versi |
@@ -632,12 +632,19 @@ intende `provider` nel primo senso, il valore appartiene a un `details`
 component-owned come `format_id`. Il documento dice che il DTO è l'unico punto
 che dovrà cambiare quando la risposta arriva.
 
-**D7 — dove fissare il tetto di dimensione.** F3 chiede un numero, e la scelta
-non è fra «un vincolo» e «nessun vincolo»: un tetto fissato al valore corrente —
-47 930 righe di prodotto — **impedisce la crescita**, ed è già un vincolo utile
-anche se non obbliga a ridurre. Fissarlo più in basso impegna anche a ridurre, e
-va scelto sapendo che l'intervento sulla busta CLI e su `io.read` aggiungerà
-codice prima di toglierne. Il numero è una decisione, non una misura.
+**D7 — decisa: 50 000 righe, con circa cinque di margine per cento.** La scelta
+non era fra «un vincolo» e «nessun vincolo»: un tetto al valore corrente
+impedisce la crescita ed è già utile anche se non obbliga a ridurre. Il numero
+è scelto sul **modo in cui questo codice cresce** — gli ultimi blocchi
+aggiungono qualche centinaio di righe per volta, un driver nuovo o una
+superficie nuova no — così che la crescita ordinaria ci stia dentro e quella
+straordinaria debba essere scritta.
+
+Una cosa è cambiata dopo la decisione e va detta: la separazione delle prove ha
+portato la misura da 47 660 a 44 941 righe. Non è una riduzione, è una
+riclassificazione, e il tetto è rimasto dov'era proprio per questo —
+abbassarlo avrebbe spacciato l'una per l'altra. Il margine reale è quindi più
+largo di quanto la decisione prevedesse, e il registro lo scrive.
 
 **D9 — decisa: `io.read` non consegna dataset parziali.** Il contratto fissato
 non lo imponeva — SURF-014 vieta soltanto di riportare un esito parziale come
@@ -722,6 +729,82 @@ i descrittori portano `recognised_suffixes` e `sink_path`, e `filegdb` risulta
 `available: true`.
 
 ---
+
+## L'elenco unico: che cosa manca davvero alla 4.0.0
+
+Chiudendo il perimetro dello sviluppo, la domanda utile smette di essere «che
+cosa resta aperto» e diventa **che cosa impedisce la qualifica**. Sono due
+elenchi, e confonderli è il modo in cui una release slitta per lavoro che
+nessuno le aveva chiesto.
+
+### Necessari alla 4.0.0
+
+Tre righe, e sono tutte lo stesso passo: dichiarare ciò che si è fatto in una
+forma che un consumatore possa leggere, e poi qualificarlo.
+
+* **A3 — il manifesto di adozione.** `adoption-manifest-v4.schema.json` con
+  `artifacts`, `contracts` e `deviations`; ogni artefatto con `version` e
+  `digest` `sha256:<64 hex>`. Senza, nessuna dichiarazione di conformità è
+  pubblicabile: il prodotto è conforme e non lo dice in nessun posto dove
+  qualcuno lo cerchi;
+* **A6 — le deviazioni dichiarate.** Esistono e sono note: il `side_effect:
+  local` di `io.read` dove il catalogo dice `none`, i nomi in `-v2` delle
+  quattro buste storiche, `row_diagnostics` su `error.` invece che su
+  `details.`, `plenora-runtime-binding-v1` e `plenora-python-sdk-v1`
+  `not_applicable`. Ciascuna diventa una `deviation` con identificatore,
+  regola, osservabilità e tracking. Una conformità parziale non dichiarata si
+  legge come completa, ed è il difetto peggiore di tutti perché è invisibile;
+* **I1 e A5b — la qualifica.** L2 su albero pulito, e il verificatore del
+  profilo pubblico che interroga il binario **estratto dall'archivio
+  identificato dal digest**, non quello dell'albero di lavoro. Oggi il
+  verificatore dice che l'artefatto costruito da questo commit rispetta i
+  contratti; la qualifica deve dire che li rispetta **l'artefatto che si
+  spedisce**.
+
+Nient'altro. In particolare **non** sono necessari alla 4.0.0, e vale la pena
+dirlo perché somigliano a lacune:
+
+* lo **stream Arrow** e la **proiezione** delle colonne — ARROW-011 si applica a
+  chi annuncia lo stream, e questa superficie annuncia il file per una scelta
+  misurata (tutti i driver sono `operation_atomic`). Il catalogo comune li
+  ammette, non li pretende;
+* il **vocabolario successore** che distinguerebbe «scandito, nessuna
+  geometria» da «tipi ignoti» sul filo — è la decisione 0006, non è nostra, e
+  la metà locale è chiusa;
+* `details` nelle buste d'errore — il profilo ammette esplicitamente di
+  ometterlo quando i quattro assi bastano, e bastano.
+
+### Miglioramenti rinviabili
+
+Nessuno di questi è richiesto da un contratto fissato. Sono buone idee con un
+costo, e vanno fatte quando servono, non prima della qualifica.
+
+* **E5 — un `AGENTS.md`.** I vincoli vivono sparsi fra `README.md`, i gate e i
+  messaggi di commit. Raccoglierli ha valore il giorno in cui qualcun altro
+  lavora qui;
+* **G2 — `cargo deny`.** Le licenze sono presidiate a livello di artefatto e i
+  pin sono esatti; quello che manca è una politica a livello di **dipendenza**,
+  un divieto su crate nominati e una allowlist delle sorgenti. Utile, non
+  dovuto;
+* **H2 — la deriva dai fork upstream.** Oggi l'allineamento è frutto di una
+  revisione manuale, e la prossima potrebbe non esserci. Serve un monitoraggio
+  periodico, che è lavoro di infrastruttura e non di conformità;
+* **D4 — la superficie runtime.** Il profilo la vuole «per ogni operazione
+  selezionata per l'orchestrazione», e nessuna lo è: la decisione è già
+  `not_applicable` e va solo **scritta** in A3, che è la riga necessaria;
+* **D8 — un driver di formato è un `provider`?** La domanda è registrata in
+  `docs/contracts/handoff-plenora-error.json`. Finché `provider` non viene
+  emesso, non decide niente;
+* **la proiezione delle colonne**, se un giorno si vorrà: è l'ingresso che
+  renderebbe utile uno stream, e le due cose si fanno insieme o non si fanno.
+
+### Perché questa separazione conta
+
+Le tre righe necessarie hanno una proprietà che le altre non hanno: **nessuna
+aggiunge codice**. Sono dichiarazione e verifica di ciò che già esiste. Il
+perimetro dello sviluppo, per la 4.0.0, si chiude qui — e da qui in poi ogni
+riga di codice nuova è una decisione di allargarlo, non una conseguenza di
+averlo chiuso male.
 
 ## Che cosa questo piano non fa
 

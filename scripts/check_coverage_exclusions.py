@@ -64,9 +64,10 @@ percio' piu' stretta di "la crate c'e'", e va detta per quello che e':
   dentro un corpo, una dichiarazione di modulo in un altro file — non hanno una
   riga di cui llvm-cov garantisca il record: il gate li conta e li dichiara
   nella propria uscita invece di far finta di guardarli;
-* i blocchi dentro un modulo `cfg(test)` restano fuori: la soglia sorveglia il
-  codice di produzione, e un helper di prova che nessuno chiama puo' non avere
-  alcun record anche a feature compilata.
+* i blocchi dentro un modulo `cfg(test)` restano fuori — e dalla separazione
+  delle prove «dentro un modulo» vuol dire anche «in un file di prove»: la
+  soglia sorveglia il codice di produzione, e un helper di prova che nessuno
+  chiama puo' non avere alcun record anche a feature compilata.
 
 La soglia e' verificata come valore, non come presenza: se la copertura scende
 sotto l'80% si aggiungono test, non si sposta la soglia. Spostarla e' una
@@ -76,8 +77,13 @@ decisione che va presa, e questo gate la rende visibile invece che comoda.
 from __future__ import annotations
 
 import argparse
+import pathlib
 import re
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import perimetro_dei_sorgenti as perimetro  # noqa: E402
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -461,6 +467,13 @@ def ancore_feature_gated(
     for nome in crate_libreria(radice):
         sorgenti = sorted((radice / CRATES / nome / "src").rglob("*.rs"))
         for percorso in sorgenti:
+            # Un file di prove **intero** sta fuori, come ci stavano i moduli
+            # `cfg(test)` quando vivevano dentro i file di prodotto. La
+            # differenza e' solo dove sta il testo, e cercare `#[cfg(test)]`
+            # dentro il file non lo vede piu': la risposta la da'
+            # `perimetro_dei_sorgenti`, che legge i `mod`.
+            if perimetro.e_codice_di_prova(percorso):
+                continue
             righe = percorso.read_text(encoding="utf-8").splitlines()
             relativo = percorso.relative_to(radice).as_posix()
             di_prova = _moduli_di_test(righe)
