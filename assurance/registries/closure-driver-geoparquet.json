@@ -520,13 +520,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "3.0.0",
+      "versione": "4.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "3.0.0",
+      "versione": "4.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -820,13 +820,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "3.0.0",
+      "versione": "4.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "3.0.0",
+      "versione": "4.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },

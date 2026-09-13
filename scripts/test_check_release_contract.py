@@ -1553,11 +1553,28 @@ class SondeFontiLegate(unittest.TestCase):
             nodo = nodo[chiave]
         nodo[percorso[-1]] = valore
 
+    #: Le foglie il cui legame ha un **ambito**, e come portarsi dentro quell'ambito.
+    #:
+    #: `versione_workspace` si confronta con `Cargo.toml` finche' la candidate e'
+    #: viva. Una candidate `pubblicata` registra un passato: la 3.0.0 e' uscita
+    #: col workspace a `3.0.0`, e quel verbale non diventa falso quando lo
+    #: sviluppo riparte. La sonda deve percio' esercitare il legame dove vale,
+    #: non concludere che non ci sia.
+    LEGAMI_CON_AMBITO = {
+        "aperto.candidate_release.versione_workspace": (
+            ["aperto", "candidate_release", "stato"],
+            "congelata",
+        ),
+    }
+
     def test_ogni_foglia_legata_e_davvero_verificata(self) -> None:
         for foglia in sorted(gate.FOGLIE_LEGATE):
             with self.subTest(foglia=foglia):
                 percorso = foglia.split(".")
                 stato = self.stato()
+                if foglia in self.LEGAMI_CON_AMBITO:
+                    dove, valore = self.LEGAMI_CON_AMBITO[foglia]
+                    self.imposta(stato, dove, valore)
                 nodo = stato
                 for chiave in percorso[:-1]:
                     nodo = nodo[chiave]
@@ -2001,12 +2018,39 @@ class SondeFontiLegate(unittest.TestCase):
         self.assertTrue(any("qualifica_head" in e for e in errori), errori)
 
     def test_una_versione_di_workspace_inventata_e_rossa(self) -> None:
+        """Su una candidate **viva**: li' congelare una versione e spedirne
+        un'altra sarebbe il difetto, e il confronto lo ferma.
+
+        Il caso della candidate `pubblicata` e' l'altro, qui sotto: registra un
+        passato, e pretendere che coincida col workspace renderebbe rosso il
+        primo commit che alza la versione per la release successiva.
+        """
         stato = self.stato()
         # `"2.0.0"` era un letterale, e questo progetto puo' arrivarci.
         candidate = stato["aperto"]["candidate_release"]
+        candidate["stato"] = "congelata"
         candidate["versione_workspace"] = self.muta(candidate["versione_workspace"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("versione_workspace" in e for e in errori), errori)
+
+    def test_una_candidate_pubblicata_puo_restare_indietro(self) -> None:
+        """Il verso opposto, ed e' quello che ha fatto nascere la distinzione.
+
+        La 3.0.0 e' uscita da `28bf62c` col workspace a `3.0.0`. Quando lo
+        sviluppo riparte e il workspace passa a `4.0.0`, quel verbale non
+        diventa falso: descrive un altro momento. Confrontarlo col presente
+        rendeva il contratto rosso proprio al passo che prepara la release
+        successiva.
+        """
+        stato = self.stato()
+        candidate = stato["aperto"]["candidate_release"]
+        candidate["stato"] = "pubblicata"
+        candidate["versione_workspace"] = "0.0.1-di-un-altro-tempo"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertFalse(
+            [e for e in errori if "versione_workspace" in e],
+            errori,
+        )
 
     def test_un_tag_che_si_dichiara_su_head_e_rosso(self) -> None:
         stato = self.stato()
@@ -3104,14 +3148,20 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         self.assertEqual({v["versione_manifesto"] for v in archivio}, {"2.0.0"})
 
     def test_la_candidate_corrente_e_un_altra_versione(self) -> None:
-        """Le due convivono: e' cio' che la migrazione doveva rendere possibile."""
+        """Le due convivono: e' cio' che la migrazione doveva rendere possibile.
+
+        Il confronto col workspace non c'e' piu' qui: la candidate corrente e'
+        `pubblicata`, e il workspace e' gia' avanti di una release. Era un
+        `assertEqual`, ed e' diventato falso il giorno in cui la 4.0.0 ha
+        cominciato a esistere -- che e' esattamente quando doveva restare vero
+        che le due convivono.
+        """
         stato = self.stato_reale()
         corrente = stato["aperto"]["candidate_release"]["versione_manifesto"]
         archiviate = {
             v["versione_manifesto"] for v in stato["chiuso"]["release_pubblicate"]
         }
         self.assertNotIn(corrente, archiviate)
-        self.assertEqual(corrente, gate.versione_workspace())
 
     def _archivio_alterato(self, **campi) -> dict:
         stato = self.stato_reale()

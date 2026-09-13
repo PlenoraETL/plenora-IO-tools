@@ -3352,8 +3352,25 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
 
     errori: list[str] = []
     errori.extend(_stato_del_manifesto(candidate))
+
+    # La versione del workspace si confronta con quella della candidate **finche'
+    # la candidate e' viva**. Una candidate `pubblicata` registra un passato: la
+    # 3.0.0 e' uscita da `28bf62c` con il workspace a `3.0.0`, e quel fatto non
+    # cambia quando lo sviluppo riparte. Pretendere che coincidano anche dopo
+    # renderebbe il contratto rosso al primo commit che alza la versione per la
+    # release successiva -- cioe' proprio al passo che la prepara.
+    #
+    # E' la stessa ragione che la nota di `commit_di_assurance` scrive per se
+    # stessa: «riferirsi a HEAD renderebbe questo campo falso al primo commit di
+    # sviluppo, su una release i cui byte nessuno ha toccato». Qui il campo
+    # nomina la versione invece della revisione, e il difetto e' lo stesso.
+    #
+    # Il confronto non sparisce: si sposta dove serve. Una candidate **non**
+    # pubblicata deve coincidere col workspace, altrimenti si congelerebbe una
+    # versione e se ne spedirebbe un'altra.
+    pubblicata = candidate.get("stato") == "pubblicata"
     versione = versione_workspace()
-    if candidate.get("versione_workspace") != versione:
+    if not pubblicata and candidate.get("versione_workspace") != versione:
         errori.append(
             f"`candidate_release.versione_workspace` vale "
             f"«{candidate.get('versione_workspace')}», Cargo.toml dichiara «{versione}»"

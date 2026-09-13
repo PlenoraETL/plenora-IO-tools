@@ -827,6 +827,69 @@ perimetro dello sviluppo, per la 4.0.0, si chiude qui — e da qui in poi ogni
 riga di codice nuova è una decisione di allargarlo, non una conseguenza di
 averlo chiuso male.
 
+## Il perimetro della qualifica
+
+Che cosa la qualifica deve fare, in quale ordine, e — la parte che conta — chi
+decide che cosa. La procedura non è inventata qui: è quella di
+`docs/RELEASE.md §5-bis`, e questa sezione dice come la 4.0.0 ci entra.
+
+### Il punto di partenza, misurato
+
+`check_release_contract.py --release` oggi dice due cose, ed entrambe sono
+corrette:
+
+* la candidate `3.0.0` è **pubblicata**, e la sua autorizzazione è un fatto
+  storico che non ne autorizza un'altra. Una release nuova vuole una candidate
+  nuova, congelata, qualificata e autorizzata per sé;
+* dopo quel congelamento sono cambiati file che l'assurance non produce — tutto
+  il lavoro della 4.0.0. È giusto che lo dica: l'albero qualificato per la
+  3.0.0 e questo sono due alberi.
+
+Non è un blocco da rimuovere. È lo stato di chi sta preparando una release
+nuova, e il gate lo riconosce come tale.
+
+### I sei passi, e chi li fa
+
+| | Passo | Chi | Costo misurato |
+|---|---|---|---|
+| 1 | **Bump della versione** del workspace a `4.0.0` | meccanico | tocca `Cargo.toml` e con esso `Cargo.lock`, che sta nel perimetro di **tutte e cinque** le misure lunghe: quattro profondità di fuzz e il confine ASan. Vanno rifatte, ed è il momento giusto per farlo — dopo, il codice non si muove più |
+| 2 | **Le cinque rimisure** | meccanico | una corsa per bersaglio, minuti ciascuna |
+| 3 | **L2 su albero pulito** | meccanico | il checkpoint intero: 104 passi, fuzz e copertura compresi. È la corsa che produce l'evidenza |
+| 4 | **Costruzione degli artefatti finali** e dell'archivio sorgente | meccanico | `costruisci-artefatto-linux.py`, `costruisci-artefatto-windows.py`, `costruisci-archivio-sorgente.py`. I digest escono da qui |
+| 5 | **Verifica black-box sull'artefatto estratto** — A5b | meccanico | `check_public_contracts.py --cli <binario estratto dall'archivio>` e `check_superficie_rust.py`, che il consumatore esterno lo compila già dall'archivio. È la differenza fra «il codice di questo commit è conforme» e «l'artefatto che si spedisce è conforme» |
+| 6 | **Il manifesto di adozione** con i digest misurati | meccanico | `costruisci-manifesto-adozione.py` verso `assurance/evidence/adoption-manifest-<sha>.json`, poi `check_manifesto_adozione.py --artefatto …` che li ricalcola |
+
+E poi tre decisioni che **non** sono meccaniche, e non le prende chi esegue:
+
+* **il congelamento** — scrivere `revisione_candidate` nello stato. Da quel
+  momento l'allowlist vale, e solo quattro percorsi possono muoversi;
+* **l'autorizzazione** — `release_authorized: true`;
+* **il tag** `v4.0.0` sulla revisione congelata, non su HEAD.
+
+### Perché i passi 1–6 stanno prima del congelamento e il manifesto dopo
+
+Sembra una contraddizione e non lo è. Il manifesto porta i digest degli
+artefatti costruiti **dalla revisione congelata**: prima del congelamento quei
+byte non esistono ancora in forma definitiva. Ma scriverlo dopo non richiede di
+toccare codice, perché `assurance/evidence/` è una delle quattro voci
+dell'allowlist. È per questo che il generatore scrive lì e non in `contracts/`:
+la destinazione è parte della procedura, non una preferenza.
+
+Lo strumento è stato provato per intero **prima** di servire — manifesto
+prodotto sul binario release e sull'archivio sorgente, digest ricalcolati, e il
+validatore ha respinto due deviazioni oltre i 512 byte. Fra il congelamento e
+il manifesto non c'è una modifica da fare: c'è una corsa.
+
+### Che cosa la qualifica **non** renderà vero
+
+Le cinque deviazioni. Sono registrate, e ADOPTION lo dice per iscritto: «a
+deviation does not redefine the common contract and does not count as
+conformance for that requirement». Una qualifica verde con cinque deviazioni
+significa «tutto ciò che è stato verificato lo è, e queste cinque regole non lo
+sono» — non «tutto è a posto». La più pesante è quella sulla composizione: i
+quattro archi `direct` della matrice rivista nominano `arrow.stream`, e questo
+artefatto produce `arrow.file`.
+
 ## Che cosa questo piano non fa
 
 Non modifica API, specifiche condivise o la versione del prodotto. Non crea
