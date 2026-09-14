@@ -475,3 +475,123 @@ fn una_serializzazione_sconosciuta_e_respinta() {
     );
     assert!(!destinazione.exists(), "e non lascia una destinazione");
 }
+
+// ---------------------------------------------------------------------------
+// Le protezioni di `valida_flusso_ipc`, una prova negativa ciascuna.
+//
+// # Perche' esistono
+//
+// La prevalidazione filtra l'input **prima** che arrivi alla libreria Arrow, e
+// la qualifica della 4.0.0 ha misurato che i suoi rami di rifiuto erano gli
+// unici del file mai eseguiti dai test: dodici righe cambiate e scoperte, tutte
+// dentro il validatore di flusso aggiunto in quel ciclo.
+//
+// Cio' che mancava non erano le protezioni -- esistono e rifiutano -- ma
+// qualcosa che le tenesse ferme: una modifica futura poteva toglierne una senza
+// che un test diventisse rosso. La copertura misurata non le vedeva perche'
+// `cargo llvm-cov` gira sui test e non sui fuzzer; il fuzz ne esercita una sola
+// per caso, i trentasei input del corpus di `ipc_reader` sotto gli otto byte.
+//
+// # Perche' si confronta il messaggio
+//
+// Perche' «rifiutato» non basta: un input malformato puo' essere rifiutato dal
+// ramo sbagliato e la prova resterebbe verde mentre la protezione che pretende
+// di pinnare e' sparita. Il messaggio dice **quale** guardia ha parlato.
+
+/// Il prefisso di continuazione dell'incapsulamento corrente.
+const CONTINUAZIONE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
+
+/// Un'intestazione di messaggio: prefisso di continuazione e lunghezza dei metadati.
+fn intestazione(lunghezza_metadati: u32) -> Vec<u8> {
+    let mut byte = CONTINUAZIONE.to_vec();
+    byte.extend_from_slice(&lunghezza_metadati.to_le_bytes());
+    byte
+}
+
+/// Scrive i byte come flusso e restituisce la busta di `inspect`.
+fn rifiuto_del_flusso(byte: &[u8]) -> (Value, tempfile::TempDir) {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let percorso = temporanea.path().join("ostile.arrows");
+    std::fs::write(&percorso, byte).expect("l'input si scrive");
+    let busta = esegui(&["inspect", percorso.to_str().expect("percorso")]);
+    (busta, temporanea)
+}
+
+/// Il rifiuto e' tipizzato e viene dalla guardia attesa.
+fn pretendi_rifiuto(byte: &[u8], frammento: &str) {
+    let (busta, _temporanea) = rifiuto_del_flusso(byte);
+    assert_eq!(
+        busta["status"], "error",
+        "l'input ostile e' accettato: {busta}"
+    );
+    let messaggio = busta["error"]["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        messaggio.contains(frammento),
+        "rifiutato dalla guardia sbagliata: atteso «{frammento}», ottenuto «{messaggio}»"
+    );
+    assert!(
+        busta["error"]["category"].is_string(),
+        "il rifiuto porta i quattro assi: {busta}"
+    );
+}
+
+/// Sotto gli otto byte non c'e' nemmeno un'intestazione da leggere.
+#[test]
+fn un_flusso_sotto_gli_otto_byte_e_rifiutato() {
+    pretendi_rifiuto(&[0x01, 0x02, 0x03], "troppo corto");
+}
+
+/// La lunghezza dichiarata dei metadati ha un tetto, e oltre quello si rifiuta.
+///
+/// Il tetto serve prima che la lunghezza diventi un'allocazione: senza, un
+/// campo di quattro byte deciderebbe quanta memoria chiedere.
+#[test]
+fn i_metadati_oltre_il_tetto_sono_rifiutati() {
+    const OLTRE_IL_TETTO: u32 = 16 * 1024 * 1024 + 1;
+    pretendi_rifiuto(&intestazione(OLTRE_IL_TETTO), "fuori dai limiti");
+}
+
+/// Un messaggio che dichiara piu' byte di quanti il flusso ne contenga.
+///
+/// E' il caso in cui la lunghezza e' plausibile ma il flusso finisce prima: si
+/// rifiuta sul confronto con la dimensione, non leggendo oltre la fine.
+#[test]
+fn un_messaggio_oltre_la_fine_del_flusso_e_rifiutato() {
+    let mut byte = intestazione(4096);
+    byte.extend_from_slice(&[0_u8; 16]);
+    pretendi_rifiuto(&byte, "oltre la fine del flusso");
+}
+
+/// Un flusso che finisce senza aver mai portato uno schema.
+///
+/// La lunghezza zero chiude il flusso: e' terminato correttamente, e non ha
+/// detto che cosa contenesse. Accettarlo significherebbe consegnare un dataset
+/// senza schema a chi ne ha chiesto uno.
+#[test]
+fn un_flusso_senza_schema_e_rifiutato() {
+    pretendi_rifiuto(&intestazione(0), "senza messaggio di schema");
+}
+
+/// Una coda piu' corta di un'intestazione non si legge come messaggio.
+///
+/// Il ramo e' un'**uscita** dal ciclo, non un rifiuto: i byte spaiati in fondo
+/// si ignorano invece di leggerli come lunghezza. Il rifiuto arriva dopo, dallo
+/// schema mai visto, ed e' quello che questa sonda pretende -- se comparisse un
+/// messaggio diverso vorrebbe dire che la coda e' stata interpretata.
+#[test]
+fn una_coda_piu_corta_di_un_intestazione_non_si_interpreta() {
+    let mut byte = intestazione(0);
+    byte.extend_from_slice(&[0x01, 0x02, 0x03]);
+    pretendi_rifiuto(&byte, "senza messaggio di schema");
+}
+
+// Il tetto sui messaggi -- `MAX_BLOCCHI`, 1048576 -- **non** ha una prova qui,
+// ed e' una scelta dichiarata invece che una dimenticanza: raggiungerlo chiede
+// piu' di un milione di messaggi decodificabili, cioe' un flusso costruito
+// apposta di oltre otto megabyte, che questa suite dovrebbe generare a ogni
+// corsa per esercitare un fondo di sicurezza. Che sia cosi' difficile da
+// raggiungere e' anche cio' che lo rende un fondo: su quasi ogni input
+// malformato scatta prima una delle guardie qui sopra.
