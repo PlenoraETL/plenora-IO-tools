@@ -3145,7 +3145,25 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         archivio = stato["chiuso"]["release_pubblicate"]
         # Non e' vuoto: un archivio vuoto passerebbe senza aver guardato niente.
         self.assertTrue(archivio, archivio)
-        self.assertEqual({v["versione_manifesto"] for v in archivio}, {"2.0.0"})
+        # Le versioni archiviate **non** si elencano qui.
+        #
+        # C'era `{"2.0.0"}` scritto a mano, ed e' diventato rosso il giorno in
+        # cui la 3.0.0 e' stata archiviata per far posto alla 4.0.0 -- cioe'
+        # quando il modello faceva esattamente cio' per cui esiste. Un letterale
+        # che elenca lo stato di oggi non prova una proprieta': prova che oggi
+        # e' oggi, e si rompe a ogni release.
+        #
+        # La proprieta' e' un'altra, e resta vera a ogni giro: ogni verbale
+        # archiviato si riverifica con gli stessi controlli di prima -- la riga
+        # sopra -- e la candidate corrente non e' fra gli archiviati, perche'
+        # una release pubblicata non e' anche quella in corso.
+        corrente = stato["aperto"]["candidate_release"]["versione_manifesto"]
+        self.assertNotIn(corrente, {v["versione_manifesto"] for v in archivio})
+        self.assertEqual(
+            len({v["versione_manifesto"] for v in archivio}),
+            len(archivio),
+            "una versione archiviata due volte sarebbe un verbale duplicato",
+        )
 
     def test_la_candidate_corrente_e_un_altra_versione(self) -> None:
         """Le due convivono: e' cio' che la migrazione doveva rendere possibile.
