@@ -246,46 +246,46 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "revisione_candidate": "133c6a8321054e358ea434928b61ef5eda61dd4f",
+      "revisione_candidate": "604bbb2230f1d15d15f8a3d95ac45dae70de11de",
       "assurance_entro_l_allowlist": true,
       "commit_di_assurance": null,
-      "nota": "Congelata su `133c6a8`, la revisione da cui i sei artefatti sono usciti: la corsa di distribuzione in canale candidate li ha costruiti tutti da quello SHA, e ogni provenance lo nomina. I digest qui fissati sono stati **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce, non su quelli che il runner produttore aveva in mano: fra i due c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\n`tag_creato` e `release_action_allowed` restano falsi. Il congelamento fissa da dove escono i byte; il tag e l'autorizzazione sono decisioni successive, e nessuna delle due e' stata presa.\n\nIl pacchetto Python passa alla 4.0.0 con gli archivi nativi. La matrice ammette che le due versioni divergano -- coincidono per scelta, non per costruzione -- e la scelta qui non e' di simmetria: l'SDK legge `details.row_diagnostics`, che una CLI 3.0.0 non emette, e un pacchetto etichettato 3.0.0 dichiarerebbe compatibilita' con una linea su cui non funziona.\n\nRestano **due deviazioni** registrate nel manifesto di adozione, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local`. E' una differenza osservabile dal contratto, non una conformita': un orchestratore che selezioni sull'effetto legge un valore diverso da quello che il catalogo gli ha promesso, e deve trattare l'operazione di conseguenza. Che il valore dichiarato sia piu' cauto non la rende conforme -- il contratto fissa quel campo, e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti. Che questo artefatto produca e accetti il content type che i quattro archi `direct` della matrice di composizione nominano riguarda la condizione a nostro carico, e non sostituisce quella verifica.",
+      "nota": "Congelata su `604bbb2`, la revisione da cui i sei artefatti sono usciti: la corsa di distribuzione in canale candidate li ha costruiti tutti da quello SHA, e ogni provenance lo nomina. I digest qui fissati sono stati **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce, non su quelli che il runner produttore aveva in mano: fra i due c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\nNon e' la prima corsa. Il congelamento precedente stava su `133c6a8` ed e' caduto perche' correggere una sonda tocca `scripts/`, che l'allowlist non ammette: gli artefatti devono uscire dall'albero congelato, e quello non lo era piu'. I due archivi Python hanno digest identici fra le due corse -- l'SDK non e' cambiato -- mentre i quattro nativi no: la loro identita' dipende dalla costruzione, non solo dal sorgente, e per questo si fissa qui invece di dedurla.\n\n`tag_creato` e `release_action_allowed` restano falsi. Il congelamento fissa da dove escono i byte; il tag e l'autorizzazione sono decisioni successive, e nessuna delle due e' stata presa.\n\nIl pacchetto Python passa alla 4.0.0 con gli archivi nativi. La matrice ammette che le due versioni divergano -- coincidono per scelta, non per costruzione -- e la scelta qui non e' di simmetria: l'SDK legge `details.row_diagnostics`, che una CLI 3.0.0 non emette, e un pacchetto etichettato 3.0.0 dichiarerebbe compatibilita' con una linea su cui non funziona.\n\nRestano **due deviazioni** registrate nel manifesto di adozione, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local`. E' una differenza osservabile dal contratto, non una conformita': un orchestratore che selezioni sull'effetto legge un valore diverso da quello che il catalogo gli ha promesso, e deve trattare l'operazione di conseguenza. Che il valore dichiarato sia piu' cauto non la rende conforme -- il contratto fissa quel campo, e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti. Che questo artefatto produca e accetti il content type che i quattro archi `direct` della matrice di composizione nominano riguarda la condizione a nostro carico, e non sostituisce quella verifica.",
       "artefatti": [
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "5ec70704e809a39ccc0f3c5447bcee45dfea52ab32532314e537ccff1cd93d90",
-          "dimensione": 8614004,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "sha256": "a8a38f350181893036213c2f81621bed47c7d30838661a32bfc1a1ebe7e1e624",
+          "dimensione": 8613985,
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         },
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "16914a31a8d6f274883b7442f05771bf98555d987870723bbe630594c7bc5fda",
-          "dimensione": 64454967,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "sha256": "f1aa496e1fbbbaf5dd4feb3cbccfdd67612816673ba91057fd4144fc7ffc8236",
+          "dimensione": 64455068,
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         },
         {
           "nome": "plenora_io-4.0.0-py3-none-any.whl",
           "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
           "dimensione": 37414,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         },
         {
           "nome": "plenora_io-4.0.0.tar.gz",
           "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
           "dimensione": 54614,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
-          "sha256": "eac40b2adcb73e1f4e576f8af315fcb83f243c88accc8e8e12e21dd9484191d4",
-          "dimensione": 8752605,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "sha256": "db0dfdba468e1f4f777f2236715b8dcae100041e4c6f7dcf4d1c18d5aedbc596",
+          "dimensione": 8752603,
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "c0ed9d74c22430096386050ae80a97554672bfa754964af5a96f607137a5b2de",
-          "dimensione": 47819244,
-          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
+          "sha256": "90af1b9051a36783ebcf923a583907c82140a35d914eae09e50ee8ef01240848",
+          "dimensione": 47819248,
+          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
         }
       ]
     }

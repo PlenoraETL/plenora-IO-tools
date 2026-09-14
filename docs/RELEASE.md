@@ -48,7 +48,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | S9, qualificato su | `28bf62c` |
 | candidate, versione del manifesto | `4.0.0` |
 | candidate, stato | attiva |
-| candidate, revisione congelata | `133c6a8321054e358ea434928b61ef5eda61dd4f` |
+| candidate, revisione congelata | `604bbb2230f1d15d15f8a3d95ac45dae70de11de` |
 | candidate, versione del workspace | `4.0.0` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.0.0` |
@@ -73,7 +73,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
-| `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 3.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. |
+| `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 4.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Che questo componente produca e accetti, alla 4.0.0, entrambe le serializzazioni Arrow che i quattro archi `direct` della matrice di composizione nominano riguarda la **condizione a nostro carico** su quei collegamenti: e' conformita' al contratto dichiarato, non interoperabilita' verificata con gli altri componenti, e non riduce di nulla cio' che questo rinvio lascia scoperto. |
 | `distribuzione.licenza-first-party` | differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale | La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
 
 <!-- generato da assurance/current-state.json: fine -->
