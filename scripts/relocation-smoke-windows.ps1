@@ -126,13 +126,18 @@ try {
         "A-1,alfa,POINT(11.25 43.77)",
         "B-2,beta,POINT(12.49 41.90)"
     )
+    # Il formato viaggia accanto alla destinazione, non dedotto dal suo nome:
+    # dalla 4.0.0 `convert` li vuole espliciti -- il catalogo comune la descrive
+    # come operazione «between **explicit** formats» -- ed e' la riga B17 del
+    # piano. Il gemello Linux di questo script ha la stessa coppia.
     $destinazione = if ($profilo -eq "filegdb") {
         Join-Path $Terza "uscita.gdb"
     } else {
         Join-Path $Terza "uscita.parquet"
     }
+    $formatoDestinazione = if ($profilo -eq "filegdb") { "filegdb" } else { "geoparquet" }
 
-    $uscita = & $binario convert $csv $destinazione --in-opt wkt_column=geometry --assume-crs EPSG:4326 2>&1 | Out-String
+    $uscita = & $binario convert $csv $destinazione --from csv --to $formatoDestinazione --in-opt wkt_column=geometry --assume-crs EPSG:4326 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "La conversione e' fallita: $uscita" }
     Write-Host "   scritto: $($uscita.Substring(0, [Math]::Min(160, $uscita.Length)))"
 

@@ -88,7 +88,15 @@ def smoke_filegdb(binario: pathlib.Path, lavoro: pathlib.Path) -> tuple[list[str
     if scrittura.returncode != 0:
         return ([f"la scrittura del FileGDB e' fallita: {busta(scrittura.stdout)}"], misure)
     documento = busta(scrittura.stdout)
-    misure["byte_scritti"] = documento.get("bytes_written")
+    # I dati dell'operazione stanno in `result`, non al primo livello.
+    #
+    # Dalla 4.0.0 la busta avvolge il risultato: i sei campi d'identita' --
+    # `status`, `protocol_version`, `component`, `component_version`,
+    # `contract`, `command` -- stanno fuori, e tutto il resto dentro. Qui si
+    # leggeva `bytes_written` alla radice, dove non c'e' mai stato dopo quel
+    # cambio: il valore arrivava `None` e lo smoke concludeva «la conversione
+    # dichiara zero byte scritti» su una conversione riuscita.
+    misure["byte_scritti"] = (documento.get("result") or {}).get("bytes_written")
     if not misure["byte_scritti"]:
         errori.append("la conversione dichiara zero byte scritti")
 
