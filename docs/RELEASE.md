@@ -21,44 +21,44 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `28bf62c` |
-| revisione misurata | `28bf62c` |
-| passi del checkpoint | 96 |
-| passi verdi | 96 |
+| ultima qualificata | `3ca3931` |
+| revisione misurata | `3ca3931` |
+| passi del checkpoint | 104 |
+| passi verdi | 104 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 82 092 |
+| input di replay | 84 450 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 91,02% |
-| righe coperte LCOV | 40 004 |
-| righe strumentate LCOV | 43 953 |
-| copertura cargo | 89,40% |
+| copertura LCOV | 86,44% |
+| righe coperte LCOV | 24 708 |
+| righe strumentate LCOV | 28 584 |
+| copertura cargo | 84,00% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `a61a081` |
-| esito differenziale | 94.99% |
+| baseline differenziale | `28bf62c` |
+| esito differenziale | 93.81% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `28bf62c` |
+| S9, qualificato su | `3ca3931` |
 | candidate, versione del manifesto | `4.0.0` |
 | candidate, stato | attiva |
-| candidate, revisione congelata | `604bbb2230f1d15d15f8a3d95ac45dae70de11de` |
+| candidate, revisione congelata | `3ca3931949cb3a090294d4f798d9d44b61e684be` |
 | candidate, versione del workspace | `4.0.0` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 2 |
-| release_authorized | `true` |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)

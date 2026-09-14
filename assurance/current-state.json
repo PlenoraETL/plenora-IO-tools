@@ -1,29 +1,30 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "28bf62c",
+      "sha": "3ca3931",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "28bf62c",
+    "sha": "3ca3931",
+    "evidenza": "assurance/evidence/checkpoint-3ca3931.json",
     "checkpoint": {
-      "passi_eseguiti": 96,
-      "passi_verdi": 96,
+      "passi_eseguiti": 104,
+      "passi_verdi": 104,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "95 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
+      "riconciliazione": "104 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 82092,
+      "replay_input": 84450,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +33,31 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 91.02,
-      "lcov_righe_coperte": 40004,
-      "lcov_righe_strumentate": 43953,
-      "cargo_lines_percentuale": 89.4,
+      "lcov_percentuale": 86.44,
+      "lcov_righe_coperte": 24708,
+      "lcov_righe_strumentate": 28584,
+      "cargo_lines_percentuale": 84.0,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
-      "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-bench` e `plenora-fuzz`, e **non** esclude piu' il crate della CLI: l'esclusione era rimasta dopo che quel codice era tornato a contare, e toglierla fa entrare le sue righe nel denominatore. Il confronto con la 3.0.0, che escludeva `plenora-io-cli`, e' percio' fra due perimetri diversi.",
+      "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Stanno entrambi qui perche' sceglierne uno e chiamarlo «la copertura» nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "a61a081",
-      "esito": "94.99%",
-      "righe_cambiate_eseguibili": 738,
-      "coperte": 701,
-      "scoperte": 37,
-      "cambiate_non_eseguibili": 771,
-      "ragione": "misurata: 738 righe cambiate ed eseguibili fra `a61a081` e `28bf62c` nel perimetro di libreria, 701 coperte e 37 no. Le 771 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
-      "che_cosa_sono_le_scoperte": "trentasette righe fra le settecentotrentotto cambiate ed eseguibili, elencate una per una nell'evidenza sotto `misure.diagnostica_differenziale.righe_scoperte`. Non e' un blocco e non e' un difetto noto: e' superficie dichiarata e non provata, ed e' cio' che questa diagnostica esiste per rendere visibile."
-    },
-    "evidenza": "assurance/evidence/checkpoint-28bf62c.json"
+      "baseline": "28bf62c",
+      "esito": "93.81%",
+      "righe_cambiate_eseguibili": 4363,
+      "coperte": 4093,
+      "scoperte": 270,
+      "cambiate_non_eseguibili": 39361,
+      "ragione": "misurata: 4363 righe cambiate ed eseguibili fra `28bf62c` e `3ca3931` nel perimetro di libreria, 4093 coperte e 270 no. Le 39361 non eseguibili sono commenti, righe di test spostate e dichiarazioni, e restano fuori misura. Il numero e' alto perche' fra le due revisioni sta la separazione dei test dal prodotto, che muove decine di migliaia di righe senza cambiare comportamento.",
+      "che_cosa_sono_le_scoperte": "duecentosettanta righe fra le 4363 cambiate ed eseguibili, elencate una per una nell'evidenza. La concentrazione conta piu' del totale: la prima famiglia e' `driver-common/src/prevalida_arrow.rs`, cioe' i rami di rifiuto del flusso IPC -- il codice che decide quando un flusso e' malformato, esercitato meno di quello che decide quando e' buono."
+    }
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "28bf62c"
+      "qualificato_su": "3ca3931"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -246,46 +246,46 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "revisione_candidate": "604bbb2230f1d15d15f8a3d95ac45dae70de11de",
-      "assurance_entro_l_allowlist": false,
+      "revisione_candidate": "3ca3931949cb3a090294d4f798d9d44b61e684be",
+      "assurance_entro_l_allowlist": true,
       "commit_di_assurance": null,
-      "nota": "**Il congelamento su `604bbb2` non copre piu' questo albero.** La correzione del manifesto tocca `contracts/`, che l'allowlist post-congelamento non ammette, e `assurance_entro_l_allowlist` e' percio' `false`. Il gate lo deriva dalla diff: dichiararlo qui, nel commit che lo rende falso, e' la differenza fra un albero che sa dov'e' e uno che lo scopre in CI -- ed e' esattamente cio' che `604bbb2` aveva sbagliato.\n\nGli artefatti elencati restano quelli usciti da `604bbb2`, con i digest ricalcolati dopo lo scaricamento: e' un fatto e non cambia. Cio' che cambia e' che non sono piu' gli artefatti di **questo** albero, e vanno ricostruiti dalla revisione definitiva perche' un congelamento valga.\n\n**Questa candidate non e' qualificata.** `ultima_misura` descrive ancora la corsa della 3.0.0 su `28bf62c`. Che nessun invariante sia rosso non dimostra che la qualifica della 4.0.0 sia completa: nessun invariante pretende oggi che la misura corrente riguardi la candidate corrente, e l'assenza di un rosso misura cio' che i gate guardano, non cio' che manca. La qualifica della 4.0.0 e' il lavoro che resta.\n\n`tag_creato` e `release_action_allowed` restano falsi. Nessuna autorizzazione al rilascio e' stata data.",
+      "nota": "Congelata su `3ca3931`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. E' la proprieta' che i due congelamenti precedenti non avevano -- su `604bbb2` la misura corrente descriveva ancora la 3.0.0 su `28bf62c`, e nessun invariante lo segnalava perche' nessuno lo pretende.\n\nI digest sono **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce, non su quelli che il runner produttore aveva in mano: fra i due c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile. I due archivi Python hanno digest identici alle tre corse di distribuzione -- l'SDK non e' cambiato -- mentre i quattro nativi no: la loro identita' dipende dalla costruzione, non solo dal sorgente, e per questo si fissa qui invece di dedurla.\n\nLa qualifica sta in `assurance/evidence/checkpoint-3ca3931.json`: 104 passi su 104, 84450 input rieseguiti su 15 bersagli senza crash, copertura 86,44% contro una soglia dell'80, e la diagnostica differenziale al 93,81% sulle 4363 righe cambiate da `28bf62c`. Il soak mirato su `dxf_reader` e `shp_reader` che il criterio d'uscita prescrive **sullo SHA congelato** e' stato eseguito, per la prima volta in una qualifica di questo componente, e non ha trovato nulla.\n\n`tag_creato` e `release_action_allowed` restano falsi, e `release_authorized` in radice e' passato a `false`: era rimasto `true` dalla 3.0.0, ed e' l'unica condizione che nessun gate deriva. Nessuna autorizzazione al rilascio e' stata data per la 4.0.0.\n\nRestano **due deviazioni** registrate nel manifesto di adozione, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local`. E' una differenza osservabile dal contratto, non una conformita': chi orchestra legge un valore diverso da quello promesso e deve trattare l'operazione di conseguenza. Che sia piu' cauto non la rende conforme -- il contratto fissa quel campo e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees.\n\nUn fatto misurato che non e' una deviazione e va letto lo stesso: `driver-common/src/prevalida_arrow.rs`, la prevalidazione del flusso IPC aggiunta in questo ciclo, e' il file meno coperto del lotto (57,16% di righe, 37,35% di rami). Lo stream e' provato per cio' che accetta; i suoi rami di rifiuto lo sono per poco piu' di un terzo.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti. Che questo artefatto produca e accetti il content type che i quattro archi `direct` della matrice di composizione nominano riguarda la condizione a nostro carico, e non sostituisce quella verifica.",
       "artefatti": [
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "a8a38f350181893036213c2f81621bed47c7d30838661a32bfc1a1ebe7e1e624",
-          "dimensione": 8613985,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "sha256": "262c9764c82dc64f51b00fe2b7a57135ed368f61c55b36a82f7cb79ab21ef055",
+          "dimensione": 8613998,
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         },
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "f1aa496e1fbbbaf5dd4feb3cbccfdd67612816673ba91057fd4144fc7ffc8236",
-          "dimensione": 64455068,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "sha256": "b62b174c22397a7f4b1aa7d73b831e72c502e8bba1b1ca640ac589d55278a166",
+          "dimensione": 64455206,
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         },
         {
           "nome": "plenora_io-4.0.0-py3-none-any.whl",
           "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
           "dimensione": 37414,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         },
         {
           "nome": "plenora_io-4.0.0.tar.gz",
           "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
           "dimensione": 54614,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
-          "sha256": "db0dfdba468e1f4f777f2236715b8dcae100041e4c6f7dcf4d1c18d5aedbc596",
-          "dimensione": 8752603,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "sha256": "1724985c726a24460688d2cd9fa5533597d5f0a860b3639bfb837740ffdecbc6",
+          "dimensione": 8752608,
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "90af1b9051a36783ebcf923a583907c82140a35d914eae09e50ee8ef01240848",
-          "dimensione": 47819248,
-          "revisione": "604bbb2230f1d15d15f8a3d95ac45dae70de11de"
+          "sha256": "0138011bd634bc482798ae2f73a49f30d2ea1e0d633727ca0ad268a7c62e67ed",
+          "dimensione": 47819253,
+          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
         }
       ]
     }
