@@ -55,7 +55,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, assurance entro l'allowlist | no |
 | candidate, release_action consentita | no |
 | release pubblicate | 2 |
 | release_authorized | `true` |

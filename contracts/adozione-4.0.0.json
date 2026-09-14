@@ -117,7 +117,7 @@
     {
       "rule": "catalogo io-tools (io.read.side_effect)",
       "surface": "cli",
-      "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; questo artefatto dichiara `local`. Con `--output` l'operazione scrive un file, e il descrittore dichiara il rischio **massimo** e non quello del caso migliore. Per il consumatore: chi orchestra tratta `io.read` come un'operazione con effetto locale -- puo' serializzarla o isolarla dove il catalogo la lascerebbe libera. La deviazione e' piu' prudente del contratto, non piu' permissiva.",
+      "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; questo artefatto dichiara `local`. Con `--output` l'operazione scrive un file, e il descrittore dichiara il rischio massimo. Per il consumatore: chi orchestra legge un valore diverso da quello promesso dal catalogo, e deve trattare l'operazione di conseguenza. Che sia piu' cauto non la rende conforme: il contratto fissa quel campo e noi ne dichiariamo un altro. La direzione cambia il rischio, non lo stato del requisito, che resta non soddisfatto.",
       "tracking": "docs/PIANO-4.0.0.md riga B10; si chiude separando la forma che consegna da quella che conta, oppure ottenendo che il catalogo comune ammetta l'effetto locale per la forma con destinazione",
       "detectable_before_invocation": true
     },
