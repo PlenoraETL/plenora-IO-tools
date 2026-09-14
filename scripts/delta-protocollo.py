@@ -52,8 +52,9 @@ COMANDI = (
     ("inspect", ["inspect", "{shp}"]),
     ("layers", ["layers", "{shp}"]),
     ("read", ["read", "{shp}"]),
-    # Il formato d'uscita lo decide l'estensione.
-    ("convert", ["convert", "{shp}", "{uscita}"]),
+    # I due formati sono espliciti dalla 4.0.0, e non si deducono
+    # dall'estensione: e' la riga B17 del piano.
+    ("convert", ["convert", "{shp}", "{uscita}", "--from", "shp", "--to", "geojson"]),
 )
 
 

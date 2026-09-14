@@ -119,10 +119,14 @@ CSV
 # La destinazione dipende dal profilo. Per `filegdb` e' un FileGDB, che
 # attraversa GDAL e PROJ; per `base` e' GeoParquet, che e' cio' che quel profilo
 # sa fare e attraversa comunque le tre radici che il binario imposta.
+# Il formato viaggia accanto alla destinazione, non dedotto dal suo nome: dalla
+# 4.0.0 `convert` li vuole espliciti, ed e' la riga B17 del piano.
 if [ "${PROFILO}" = "filegdb" ]; then
   DESTINAZIONE="${TERZA}/uscita.gdb"
+  FORMATO_DESTINAZIONE="filegdb"
 else
   DESTINAZIONE="${TERZA}/uscita.parquet"
+  FORMATO_DESTINAZIONE="geoparquet"
 fi
 
 TRACCIA="${LAVORO}/traccia.txt"
@@ -133,6 +137,7 @@ TRACCIA="${LAVORO}/traccia.txt"
 # toccati -- non soltanto per sapere che il comando non e' fallito.
 ambiente strace -f -e trace=file -o "${TRACCIA}" \
   "${BINARIO}" convert "${TERZA}/sorgente.csv" "${DESTINAZIONE}" \
+    --from csv --to "${FORMATO_DESTINAZIONE}" \
     --in-opt wkt_column=geometry \
     --assume-crs EPSG:4326 \
   > "${TERZA}/convert.json" 2> "${TERZA}/convert.err" || {

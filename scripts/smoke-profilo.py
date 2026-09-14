@@ -77,12 +77,16 @@ def smoke_filegdb(binario: pathlib.Path, lavoro: pathlib.Path) -> tuple[list[str
 
     scrittura = esegui(
         binario,
+        # I due formati sono espliciti dalla 4.0.0: il catalogo comune
+        # descrive `io.convert` come operazione «between **explicit** formats»,
+        # e dedurli dall'estensione e' cio' che il profilo vieta.
         ["convert", "sorgente.csv", "uscita.gdb",
+         "--from", "csv", "--to", "filegdb",
          "--in-opt", "wkt_column=geometry", "--assume-crs", "EPSG:4326"],
         lavoro,
     )
     if scrittura.returncode != 0:
-        return ([f"la scrittura del FileGDB e' fallita: {busta(scrittura.stderr)}"], misure)
+        return ([f"la scrittura del FileGDB e' fallita: {busta(scrittura.stdout)}"], misure)
     documento = busta(scrittura.stdout)
     misure["byte_scritti"] = documento.get("bytes_written")
     if not misure["byte_scritti"]:
@@ -90,7 +94,7 @@ def smoke_filegdb(binario: pathlib.Path, lavoro: pathlib.Path) -> tuple[list[str
 
     rilettura = esegui(binario, ["inspect", "uscita.gdb"], lavoro)
     if rilettura.returncode != 0:
-        return (errori + [f"la rilettura e' fallita: {busta(rilettura.stderr)}"], misure)
+        return (errori + [f"la rilettura e' fallita: {busta(rilettura.stdout)}"], misure)
     riletto = json.dumps(busta(rilettura.stdout), ensure_ascii=False)
 
     # Non basta che il comando esca con zero: un FileGDB vuoto uscirebbe con
@@ -121,7 +125,16 @@ def smoke_base(binario: pathlib.Path, lavoro: pathlib.Path) -> tuple[list[str], 
             {"filegdb_assente": False},
         )
 
-    documento = busta(esito.stderr)
+    # La busta sta su **stdout**, anche quando e' un errore.
+    #
+    # CLI-2.0 §4 lo dice per esteso -- un solo documento JSON su stdout -- e il
+    # verificatore del profilo pubblico lo protegge con `cli.errore-su-stdout`
+    # e `cli.successo-stderr-vuoto`. Qui si leggeva `stderr`, che e' vuoto: la
+    # categoria arrivava `None` e il controllo sotto accusava il prodotto di un
+    # rifiuto sbagliato mentre il rifiuto era giusto e lo smoke guardava
+    # altrove. Un controllo che legge il flusso sbagliato non e' piu' severo:
+    # e' cieco, e la sua severita' colpisce a caso.
+    documento = busta(esito.stdout)
     errore = documento.get("error", {})
     messaggio = str(errore.get("message", ""))
     categoria = errore.get("category")
@@ -148,15 +161,16 @@ def smoke_base(binario: pathlib.Path, lavoro: pathlib.Path) -> tuple[list[str], 
     # un rifiuto per quello direbbe qualcosa sul formato invece che sul profilo.
     conversione = esegui(
         binario,
-        ["convert", "sorgente.csv", "uscita.parquet", "--in-opt", "wkt_column=geometry",
-         "--assume-crs", "EPSG:4326"],
+        ["convert", "sorgente.csv", "uscita.parquet",
+         "--from", "csv", "--to", "geoparquet",
+         "--in-opt", "wkt_column=geometry", "--assume-crs", "EPSG:4326"],
         lavoro,
     )
     misure["converte_senza_gdal"] = conversione.returncode == 0
     if conversione.returncode != 0:
         errori.append(
             "il profilo base non converte CSV in GeoParquet: dimostrare che FileGDB manca "
-            f"non basta se manca anche il resto. {busta(conversione.stderr)}"
+            f"non basta se manca anche il resto. {busta(conversione.stdout)}"
         )
     return errori, misure
 
