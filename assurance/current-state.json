@@ -150,6 +150,61 @@
         "evidenza": "assurance/evidence/checkpoint-a61a081.json",
         "perche_e_qui": "la 2.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 3.0.0. Il superamento riguarda quale candidate sia corrente, non la validita' di cio' che e' stato pubblicato: tag, digest, evidenza e commit di registrazione restano verificati a ogni corsa da `verifica_release_storiche`, e alterarli e' ancora un errore.",
         "versione_pacchetto_python": "2.0.0"
+      },
+      {
+        "versione_manifesto": "3.0.0",
+        "tag_previsto": "v3.0.0",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "La 3.0.0 e' **pubblicata**. Il tag `v3.0.0` punta a `28bf62c`, la revisione congelata, e i sei artefatti fissati al congelamento sono gli stessi byte che la release porta: verificato due volte, sui byte riscaricati dalla bozza prima di pubblicare e su quelli riscaricati dalla release dopo, con i venti digest coincidenti fra le due.\n\n`release_action_allowed` torna **falso**: il permesso autorizzava **quella** pubblicazione ed e' stato speso. Lasciarlo vero lo farebbe valere per la successiva, che nessuno ha autorizzato.\n\n`commit_di_assurance` nomina `789853b`, il commit che ha registrato la verifica dopo la pubblicazione. E' fin li' che la diff dalla revisione qualificata deve stare nell'allowlist: riferirsi a HEAD renderebbe questo campo falso al primo commit di sviluppo, su una release i cui byte nessuno ha toccato.",
+        "revisione_candidate": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+        "assurance_entro_l_allowlist": true,
+        "artefatti": [
+          {
+            "nome": "plenora-io-3.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "b4d2e663469cec161fb57ff82baa08d2729fecd28e28c25faffe567a6d0fee37",
+            "dimensione": 8554767,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          },
+          {
+            "nome": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "9e25262598170dff0af212e7d51bc8d2682b860ea15c399b174b254c0e1916a3",
+            "dimensione": 64398154,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          },
+          {
+            "nome": "plenora_io-3.0.0-py3-none-any.whl",
+            "sha256": "30d39743d2af7d171cd46b096063558bd34d1aa911bbafc7cea5e274aef509e5",
+            "dimensione": 33794,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          },
+          {
+            "nome": "plenora_io-3.0.0.tar.gz",
+            "sha256": "fc34e92614de1bb03b7642b4d1e52954e5589c38b1c38e8dce3abb05aafbc1fa",
+            "dimensione": 48178,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          },
+          {
+            "nome": "plenora-io-3.0.0-windows-x86_64-base.zip",
+            "sha256": "25b1209a7ed2ed27fb1c67edf04630f4de07dcf8c90bfac02e72ea6457386efd",
+            "dimensione": 8687668,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          },
+          {
+            "nome": "plenora-io-3.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "cc35490274cb2e7290f4d0dbcebac6c110d14f5172d02b020baab512f4b002a3",
+            "dimensione": 47753870,
+            "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          }
+        ],
+        "tag_revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+        "commit_di_assurance": "789853b",
+        "versione_pacchetto_python": "3.0.0",
+        "evidenza": "assurance/evidence/checkpoint-28bf62c.json",
+        "perche_e_qui": "la 3.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 4.0.0. Il superamento riguarda quale candidate sia corrente, non la validita' di cio' che e' stato pubblicato: la 3.0.0 resta verificabile con gli stessi controlli di prima."
       }
     ]
   },
@@ -182,57 +237,57 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "3.0.0",
-      "versione_workspace": "3.0.0",
-      "tag_previsto": "v3.0.0",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "4.0.0",
+      "versione_workspace": "4.0.0",
+      "tag_previsto": "v4.0.0",
+      "tag_creato": false,
+      "tag_revisione": null,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "La 3.0.0 e' **pubblicata**. Il tag `v3.0.0` punta a `28bf62c`, la revisione congelata, e i sei artefatti fissati al congelamento sono gli stessi byte che la release porta: verificato due volte, sui byte riscaricati dalla bozza prima di pubblicare e su quelli riscaricati dalla release dopo, con i venti digest coincidenti fra le due.\n\n`release_action_allowed` torna **falso**: il permesso autorizzava **quella** pubblicazione ed e' stato speso. Lasciarlo vero lo farebbe valere per la successiva, che nessuno ha autorizzato.\n\n`commit_di_assurance` nomina `789853b`, il commit che ha registrato la verifica dopo la pubblicazione. E' fin li' che la diff dalla revisione qualificata deve stare nell'allowlist: riferirsi a HEAD renderebbe questo campo falso al primo commit di sviluppo, su una release i cui byte nessuno ha toccato.",
-      "revisione_candidate": "28bf62ccba49d47bda0797b9892e373c49ebea61",
+      "stato": "attiva",
+      "revisione_candidate": "133c6a8321054e358ea434928b61ef5eda61dd4f",
       "assurance_entro_l_allowlist": true,
+      "commit_di_assurance": null,
+      "nota": "Congelata su `133c6a8`, la revisione da cui i sei artefatti sono usciti: la corsa di distribuzione in canale candidate li ha costruiti tutti da quello SHA, e ogni provenance lo nomina. I digest qui fissati sono stati **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce, non su quelli che il runner produttore aveva in mano: fra i due c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\n`tag_creato` e `release_action_allowed` restano falsi. Il congelamento fissa da dove escono i byte; il tag e l'autorizzazione sono decisioni successive, e nessuna delle due e' stata presa.\n\nIl pacchetto Python passa alla 4.0.0 con gli archivi nativi. La matrice ammette che le due versioni divergano -- coincidono per scelta, non per costruzione -- e la scelta qui non e' di simmetria: l'SDK legge `details.row_diagnostics`, che una CLI 3.0.0 non emette, e un pacchetto etichettato 3.0.0 dichiarerebbe compatibilita' con una linea su cui non funziona.\n\nRestano **due deviazioni** registrate nel manifesto di adozione, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local`. E' una differenza osservabile dal contratto, non una conformita': un orchestratore che selezioni sull'effetto legge un valore diverso da quello che il catalogo gli ha promesso, e deve trattare l'operazione di conseguenza. Che il valore dichiarato sia piu' cauto non la rende conforme -- il contratto fissa quel campo, e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti. Che questo artefatto produca e accetti il content type che i quattro archi `direct` della matrice di composizione nominano riguarda la condizione a nostro carico, e non sostituisce quella verifica.",
       "artefatti": [
         {
-          "nome": "plenora-io-3.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "b4d2e663469cec161fb57ff82baa08d2729fecd28e28c25faffe567a6d0fee37",
-          "dimensione": 8554767,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "5ec70704e809a39ccc0f3c5447bcee45dfea52ab32532314e537ccff1cd93d90",
+          "dimensione": 8614004,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         },
         {
-          "nome": "plenora-io-3.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "9e25262598170dff0af212e7d51bc8d2682b860ea15c399b174b254c0e1916a3",
-          "dimensione": 64398154,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "16914a31a8d6f274883b7442f05771bf98555d987870723bbe630594c7bc5fda",
+          "dimensione": 64454967,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         },
         {
-          "nome": "plenora_io-3.0.0-py3-none-any.whl",
-          "sha256": "30d39743d2af7d171cd46b096063558bd34d1aa911bbafc7cea5e274aef509e5",
-          "dimensione": 33794,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora_io-4.0.0-py3-none-any.whl",
+          "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
+          "dimensione": 37414,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         },
         {
-          "nome": "plenora_io-3.0.0.tar.gz",
-          "sha256": "fc34e92614de1bb03b7642b4d1e52954e5589c38b1c38e8dce3abb05aafbc1fa",
-          "dimensione": 48178,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora_io-4.0.0.tar.gz",
+          "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
+          "dimensione": 54614,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         },
         {
-          "nome": "plenora-io-3.0.0-windows-x86_64-base.zip",
-          "sha256": "25b1209a7ed2ed27fb1c67edf04630f4de07dcf8c90bfac02e72ea6457386efd",
-          "dimensione": 8687668,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
+          "sha256": "eac40b2adcb73e1f4e576f8af315fcb83f243c88accc8e8e12e21dd9484191d4",
+          "dimensione": 8752605,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         },
         {
-          "nome": "plenora-io-3.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "cc35490274cb2e7290f4d0dbcebac6c110d14f5172d02b020baab512f4b002a3",
-          "dimensione": 47753870,
-          "revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61"
+          "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "c0ed9d74c22430096386050ae80a97554672bfa754964af5a96f607137a5b2de",
+          "dimensione": 47819244,
+          "revisione": "133c6a8321054e358ea434928b61ef5eda61dd4f"
         }
-      ],
-      "tag_revisione": "28bf62ccba49d47bda0797b9892e373c49ebea61",
-      "commit_di_assurance": "789853b"
+      ]
     }
   },
   "docset": {

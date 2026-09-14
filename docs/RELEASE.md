@@ -46,18 +46,18 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `28bf62c` |
-| candidate, versione del manifesto | `3.0.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `28bf62ccba49d47bda0797b9892e373c49ebea61` |
-| candidate, versione del workspace | `3.0.0` |
+| candidate, versione del manifesto | `4.0.0` |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `133c6a8321054e358ea434928b61ef5eda61dd4f` |
+| candidate, versione del workspace | `4.0.0` |
 | candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v3.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `28bf62ccba49d47bda0797b9892e373c49ebea61` |
-| candidate, tag sulla candidate | sì |
+| candidate, tag previsto | `v4.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 1 |
+| release pubblicate | 2 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
