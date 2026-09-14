@@ -524,10 +524,13 @@ fn pretendi_rifiuto(byte: &[u8], frammento: &str) {
         busta["status"], "error",
         "l'input ostile e' accettato: {busta}"
     );
-    let messaggio = busta["error"]["message"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    // Niente `unwrap_or_default()` qui: un messaggio assente diventerebbe la
+    // stringa vuota, e l'asserzione successiva fallirebbe lamentando il
+    // frammento mancante invece del messaggio mancante -- due guasti diversi
+    // con la stessa diagnosi. Meglio dire quale dei due e'.
+    let Some(messaggio) = busta["error"]["message"].as_str() else {
+        panic!("il rifiuto non porta un messaggio: {busta}");
+    };
     assert!(
         messaggio.contains(frammento),
         "rifiutato dalla guardia sbagliata: atteso «{frammento}», ottenuto «{messaggio}»"
