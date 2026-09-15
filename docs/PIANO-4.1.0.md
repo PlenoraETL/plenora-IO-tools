@@ -121,36 +121,94 @@ Non si chiude allentando l'invariante, che sul ramo di sviluppo serve.
 
 ### Q2 — panico upstream in parquet raggiunto da GeoParquet malformato
 
-Lo stesso workflow ha trovato un finding nuovo:
+Lo smoke fuzz della corsa «Release checkout qualification» 34988124226, sulla
+revisione pubblicata, ha trovato un finding nuovo su `geoparquet_reader`:
 
 ```
-target con finding: geoparquet_reader
 thread panicked at parquet-59.3.0/src/encodings/decoding/byte_stream_split_decoder.rs:61:38
 index out of bounds: the len is 2 but the index is 2
 ```
 
-Il panico è **dentro la crate upstream**, nel decoder BYTE_STREAM_SPLIT, ed è
-raggiunto attraverso `driver_geoparquet`. L'input è conservato prima della
-scadenza dell'artefatto: 3.966 byte, magic `PAR1` valido,
+L'input è conservato: 3.966 byte, magic `PAR1`,
 `sha256=18cb2a7e0e394484…`, in
 `IO-tools-evidenze-4.0.0\finding-geoparquet-34988124226\`.
 
-Che cosa **non** si può concludere dal rosso del fuzzer: che il binario spedito
-crolli su quell'input. Il repository lo documenta già in
-`crates/driver-geoparquet/src/tests.rs` — `libfuzzer-sys` installa un panic hook
-che chiama `abort()` prima dell'unwinding, quindi la barriera `catch_unwind` che
-fuori dal fuzzer trasforma il panico in errore tipizzato non entra mai in gioco,
-e il target segnala un crash anche quando la barriera è al suo posto. Nel
-workspace non c'è alcun `panic = "abort"`.
+**La causa è individuata.** In `parquet-59.3.0`,
+`ByteStreamSplitDecoder::get` ricava due quantità da due fonti diverse — lo
+`stride` dai byte **effettivi** della pagina, il conteggio del ciclo da
+`total_num_values`, cioè dal **dichiarato** — e `join_streams_const` indicizza
+`sub_src[i + j * stride]` senza confrontare l'indice con la lunghezza. Il campo
+incoerente è `num_values` nell'header della data page.
 
-Che cosa **non** si può concludere dalla barriera: che questo input sia già
-coperto. La prova esistente esercita due altri semi, non questo.
+Non è una descrizione dedotta dal panico: è dimostrata costruendola. Un
+riproduttore scrive un GeoParquet **valido** con una colonna `DOUBLE`
+`BYTE_STREAM_SPLIT`, verifica che si legga, poi altera **un solo byte** — lo
+zigzag di 63 occupa lo stesso spazio di quello di 8, quindi nessun offset si
+muove — e prova tutti i siti in cui quel varint compare. Solo l'offset 13, nel
+header di pagina, produce l'indicizzazione fuori limite; l'offset 17, un altro
+campo dello stesso header, non produce nulla. Il primo tentativo sostituiva il
+varint con uno più lungo, spostava il resto e otteneva `EOF: Invalid page
+header`: struttura rotta, non incoerenza semantica, e nessuna dimostrazione.
 
-Criterio di chiusura: l'input entra fra i semi; una prova mirata stabilisce se
-fuori dal fuzzer diventa un errore tipizzato di fase `Read` o un crash; se è un
-crash, la prevalidazione lo rifiuta prima di arrivare al decoder, come già fa
-per le altre famiglie; e in ogni caso il difetto upstream va segnalato con il
-caso minimo. Nessuna campagna lunga serve per questo: serve un input, che c'è.
+**Il prodotto non crolla, e non serve una 4.0.1.** Sul binario estratto
+dall'archivio pubblicato: `read` esce 3 con `FORMAT_ERROR`, categoria
+`data_mapping`, fase `read`, `retry: never`. Zero segnali, zero timeout. La
+barriera `catch_unwind` sta in `plenora-io-core/src/driver.rs`, cioè nella
+**libreria**: un consumatore Rust che chiama il driver direttamente riceve lo
+stesso errore tipizzato, verificato separatamente dalla CLI.
+
+Tre comandi su quattro **non** provano la barriera, e va detto: `inspect` e
+`layers` leggono footer e schema senza decodificare pagine; `convert` si ferma
+in fase `validate`, e il controfattuale lo dimostra — sullo stesso percorso con
+un file valido esce `ok`, quindi sa leggere, e sul seme non ci arriva. L'unico
+comando che esercita il decoder è `read`.
+
+**Il finding resta valido.** L'`abort()` che `libfuzzer-sys` chiama prima
+dell'unwinding impedisce al target di osservare il recupero; non rende
+inesistente il difetto a monte.
+
+#### Q2a — regressione locale: **chiusa**
+
+`crates/driver-geoparquet/tests/byte_stream_split.rs` pretende i quattro assi
+dell'errore e che il panico non sia propagato;
+`byte_stream_split_sintetico.rs` è il riproduttore che identifica il campo. La
+fixture sta in `crates/driver-geoparquet/tests/fixtures/`, **fuori** da
+`fuzz/seeds/`, `fuzz/corpus/` e `fuzz/artifacts/`, che `scripts/fuzz-replay.sh`
+riesegue tutte e tre.
+
+Che le ultime due siano ignorate da Git non le esclude dal replay: dice solo che
+una copia appena clonata parte senza. In locale persistono e il replay le legge —
+`fuzz/artifacts/geoparquet_reader/` contiene oggi tre input del 2026-08-17, che
+il replay del livello 2 su `6beb410` ha rieseguito verdi.
+
+#### Q2b — segnalazione upstream: **da inviare**
+
+Il riproduttore esiste e gira, il contributo no. Resta da preparare: un caso
+minimo autonomo, senza dipendenze dal nostro workspace, e la segnalazione al
+progetto `arrow-rs` con la versione, il punto e il campo. Q2 non è chiuso finché
+questo non è inviato.
+
+#### Q2c — gestire i finding noti del fuzz: **problema aperto, senza soluzione scelta**
+
+La quarantena del progetto è **per bersaglio**: `fuzz/quarantine.txt` elenca
+nomi di target, e un target in quarantena viene compilato sotto AddressSanitizer
+ma non eseguito. Per questo finding sarebbe troppo ampia — smetterebbe di
+esplorare `geoparquet_reader` — e non è stata usata. Il file stesso la riserva a
+finding dove «uno smoke che fallisce sempre non è un gate, è rumore», e questo
+non fallisce sempre.
+
+Il problema da risolvere, scritto prima del meccanismo:
+
+> gestire finding noti **senza** disabilitare il bersaglio, **senza** nascondere
+> difetti nuovi, e **senza** dichiarare completa una campagna che si è
+> interrotta.
+
+Una lista di digest non lo risolve, e vale la pena dire perché invece di
+scoprirlo dopo: il fuzzer può rigenerare lo stesso difetto da un input diverso,
+o produrne una variante. La prova sta nei tre artefatti locali di
+`geoparquet_reader` — due misurano 3.966 byte, la stessa dimensione del seme di
+questo finding, con digest tutti diversi dal suo: stessa famiglia, quattro
+digest. Il meccanismo va progettato a parte, e questa voce ne è il requisito.
 
 ## Compatibilità e criteri generali
 
@@ -333,8 +391,8 @@ dataset non sono librerie applicative e non si contano come tali.
 1. Integrare questo piano e il censimento nel docset — **fatto in questo
    blocco** — fissando baseline e criteri, senza spostare tag né riscrivere
    evidenze storiche.
-2. Chiudere Q1, Q2 e R1–R6 prima di una nuova candidate, così che gli strumenti
-   per qualificare e registrare esistano già.
+2. Chiudere Q1, Q2b, Q2c e R1–R6 prima di una nuova candidate, così che gli
+   strumenti per qualificare e registrare esistano già. Q2a è chiusa.
 3. Aggiornamenti L1 e L2, pin inutilizzato e riduzioni minori, in blocchi
    distinti e verificabili.
 4. Coordinare duplicazioni, fork e proposte upstream; affrontare le catene più
