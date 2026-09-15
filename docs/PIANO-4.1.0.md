@@ -89,7 +89,7 @@ quell'invariante strutturale; non sostituisce una prova del comportamento.
 | M4 | Legare capability, documentazione e prove senza duplicare le fonti | Censimento delle proprietà dichiarate da catalogo/CLI/SDK e del test che le esercita; distinzione tra compilato, eseguito, saltato e non applicabile. Stato derivato dai registri esistenti e verifica della corrispondenza con CI/checkpoint. R3–R5 governano identità delle corse e riuso; nessun secondo sistema di assurance |
 | M5 | Valutare le dipendenze come parte della manutenibilità del prodotto | L1–L4, D1–D7 e F1–F7 producono esiti motivati con API/feature, regressioni e grafo effettivo. Riduzione del lavoro da mantenere dimostrata per delta rimossi o catene semplificate; nessuna equivalenza fra meno crate, meno byte e maggiore qualità |
 
-**Priorità: M1–M3 e L1–L2 nei rispettivi blocchi, M4 con R3–R5.** Una voce
+**Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
 sono un motivo per verificare la stessa classe in IO, non un'autorizzazione a
@@ -457,7 +457,7 @@ fotografia del censimento, non obiettivi mobili della candidate.
 | ID | Intervento | Punto di partenza | Criterio di chiusura |
 |---|---|---|---|
 | L1 | Aggiornare `rust_xlsxwriter` | 0.99.0 → **0.99.1 adottata** | **Chiusa**, commit `7d3c461`: giro XLSX confrontato sulle due versioni, schema/metadati/fedeltà/valori invariati; grafo confrontato riga per riga nei quattro profili/target |
-| L2 | Aggiornare `jsonschema` | 0.55.1 → 0.56.0; minor 0.x potenzialmente incompatibile | Schemi validi e invalidi conservano i verdetti; resolver remoti restano disabilitati; closure e feature misurate |
+| L2 | Aggiornare `jsonschema` | 0.55.1 → **0.56.0 adottata** | **Chiusa**, commit `d2d35a7`: breaking upstream fuori dalla superficie usata; verdetti GeoParquet invariati; feature e grafo confrontati, resolver remoti ancora esclusi |
 | L3 | Esaminare aggiornamenti transitivi e advisory | Versioni e catene nel censimento | Patch compatibili distinte dai salti richiesti dagli upstream; nessun aggiornamento massivo incontrollato; audit e deroghe riallineati |
 | L4 | Rimuovere il solo pin diretto inutilizzato `arrow-select` | Nessun crate lo eredita; Parquet lo introduce transitivamente | Dichiarazione e registri coerenti, grafo invariato. **Non** si presenta come libreria eliminata dal binario |
 
@@ -477,7 +477,25 @@ Il confronto valido usa davvero 0.99.0 e 0.99.1: il primo tentativo, in cui
 il pin esatto aveva impedito il ritorno alla versione precedente, è stato
 scartato e rifatto. Nessuna incompatibilità osservata, nessun checkpoint
 completo o campagna. Questo aggiornamento del piano registra tali prove,
-non dichiara di averle rieseguite. L2 resta aperta e si tratta separatamente.
+non dichiara di averle rieseguite.
+
+**Chiusura L2, 16 settembre 2026.** Il commit
+[`d2d35a7`](https://github.com/PlenoraETL/plenora-IO-tools/commit/d2d35a7b21b99476b269e5eb0acfbff9e4d3b4d2)
+registra il passaggio a 0.56.0 di `jsonschema`, `jsonschema-regex`,
+`jsonschema-value` e `referencing`. I quattro grafi mantengono
+241/242/243/244 pacchetti: il confronto riga per riga cambia solo quei quattro
+crate, nessun'altra transitiva. Il breaking dichiarato riguarda
+`canonical::CanonicalView::Raw`, non usato dal prodotto. Nel grafo normale
+risolto prima e dopo risultano assenti `reqwest`, `ureq`, `hyper`, `tokio`,
+`rustls`, `native-tls`, `idna` e `url`; restano disabilitate le feature di
+risoluzione remota. I referti su sette file GeoParquet per tre comandi,
+inclusi codici d'uscita, categoria, fase e messaggio, coincidono fra le due
+versioni. Il lock della baseline è stato verificato per tutti e quattro i
+crate. Il verbale registra 145 prove di `driver-geoparquet` (17 sonde dello
+schema incluse), 124 di `plenora-io-tools`, fmt e clippy sui crate interessati.
+Nessuna incompatibilità osservata nel perimetro provato; nessun checkpoint
+completo, soak o campagna di copertura. Qui si registra il verbale del commit,
+senza attribuirsi nuove esecuzioni né estendere il risultato agli altri residui.
 
 ## Fase 3 — versioni duplicate
 
@@ -604,9 +622,10 @@ dataset non sono librerie applicative e non si contano come tali.
 1. Piano e censimento sono nel docset. Il confronto di maturità del 15–16
    settembre aggiunge la baseline database e M1–M5, conservando le evidenze
    storiche e separando A1–A7 come proposte d'interoperabilità.
-2. L1 è chiusa in `7d3c461`; procedere con L2 in un blocco distinto e con la
-   revisione mirata M1–M3. I residui della procedura non impongono di rinviare tutto il lavoro
-   sul prodotto; M4 si coordina con R3–R5 senza costruire strumenti doppi.
+2. L1 e L2 sono chiuse rispettivamente in `7d3c461` e `d2d35a7`; procedere con
+   la revisione mirata M1–M3. I residui della procedura non impongono di rinviare
+   tutto il lavoro sul prodotto; M4 si coordina con R3–R5 senza costruire
+   strumenti doppi.
 3. Chiudere Q1, Q2b, Q2c e R1–R5 **prima della candidate**, quando servono gli
    strumenti di qualifica. Q2a e R6 sono chiuse. Nessuna campagna lunga per
    giustificare una revisione del piano o uno split di moduli.
