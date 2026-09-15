@@ -10,6 +10,10 @@
 use std::sync::atomic::AtomicBool;
 
 use super::segnali::{reagisci_al_segnale, AzioneDelSegnale};
+// `kv` e `PipelineLimits` sono usciti da `lib.rs` con l'estrazione di
+// `cli.rs`: le prove li raggiungono dove sono andati, e restano le stesse.
+use super::cli::kv;
+use plenora_io_model::budget::PipelineLimits;
 
 use super::*;
 use plenora_io_model::budget::OperationCounter;
