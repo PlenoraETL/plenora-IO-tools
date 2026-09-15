@@ -1,4 +1,4 @@
-# Piano 4.1.0 — residui, dipendenze e qualifica sostenibile
+# Piano 4.1.0 — allineamento con database-tools, residui e dipendenze
 
 ## Che cos'è questo documento, e che cosa non è
 
@@ -9,6 +9,14 @@ subito dopo la pubblicazione della 4.0.0, e le integra nella documentazione
 versionata: prima viveva in `.s9-checkpoint/pianificazione/`, ignorata da Git
 per non modificare l'albero che la campagna stava misurando.
 
+La richiesta successiva dell'utente aggiunge il confronto con
+`plenora-database-tools`, precisando che interessa la **maturità del codice**.
+Il piano distingue quindi gli interventi ingegneristici M1–M5 dalle possibili
+estensioni d'interoperabilità A1–A7. Una pipeline file → database → file è un
+caso d'uso utile per provare i confini; non giustifica da sola una riscrittura
+dello SDK o l'aggiunta di nuove superfici. Questo aggiornamento analizza
+sorgenti e controlli: non implementa l'allineamento e non qualifica la pipeline.
+
 Non aggiunge condizioni alla 4.0.0, che è pubblicata. Non promette l'assenza di
 fork o di duplicazioni: promette che ogni voce si chiuda con **una soluzione
 provata oppure una motivazione precisa**. Un elenco di rimozioni sarebbe una
@@ -16,6 +24,174 @@ promessa; un elenco di esiti è un piano.
 
 Il predecessore è [docs/PIANO-4.0.0.md](PIANO-4.0.0.md), che resta in questo
 docset — vedi «Un documento che non può scadere» più sotto.
+
+## Allineamento con database-tools — maturità e interoperabilità
+
+### Baseline verificata il 15–16 settembre 2026
+
+Il confronto usa copie separate dei repository, senza aggiornare checkout di
+lavoro esterni né il pin adottato da IO-tools. I riferimenti sono immutabili:
+
+| Componente | Revisione confrontata | Versione e perimetro |
+|---|---|---|
+| IO-tools | `7fe1311` | Workspace `4.0.0`, con Q2a e R6; nessuna modifica al prodotto rispetto alla release `v4.0.0` |
+| database-tools | [`00d7613402e87a449a36e0ff7d91e7710999b822`][db-base] | Workspace `4.2.0`; sorgenti Rust, CLI, SDK Python e gate. La release GitHub [`py-v4.2.0`][db-release] risulta pubblicata il 14 settembre; i suoi asset non sono stati scaricati o qualificati in questa analisi |
+| Contratti condivisi | `453c8d1ff2eb260840e6cedc033a2b76b58a0b9e` e `5d151078142e7ed49d831659ee8be92a4975f80b` | Rispettivamente pin IO e pin database; confronto del contenuto, non dei soli identificatori |
+
+Il 16 settembre la revisione remota database è stata riconfermata invariata.
+Le modifiche di sviluppo successive alla baseline IO restano fuori da questa
+fotografia: ogni intervento ricontrolla il codice corrente prima di agire.
+
+### Valutazione della maturità del codice
+
+**Non emerge una superiorità uniforme di database-tools.** La valutazione è
+per proprietà osservabile, non per quantità di funzionalità o numero di
+versione. Database offre esempi utili di modello tipizzato e controllo delle
+duplicazioni; IO ha già difese più esplicite su alcuni confini del prodotto.
+La 4.1.0 deve adottare i miglioramenti che mancano, conservando quelli già
+presenti. Non deve «raggiungere la 4.2» copiandone l'architettura.
+
+| Proprietà | Database-tools: evidenza | IO-tools: confronto e giudizio |
+|---|---|---|
+| Responsabilità e modello unico | Separazione core, renderer SQL, engine, provider e binding; [`check_relational_ir.py`][db-ir-guard] impedisce la doppia definizione del modello query. Controllo eseguito verde sul clone | Model/core/driver/CLI sono già distinti. Il principio utile è impedire duplicazioni del significato fra libreria, CLI e SDK, non importare un IR SQL. Verificare i percorsi concreti prima di creare un nuovo layer |
+| Stati rappresentati dai tipi | [`Observation<T>`][db-observation] distingue `NotMeasured` da `Observed(T)`; l'adattatore JSON resta separato dalla reflection pubblica. La [guardia dei metadati][db-metadata-guard] è stata eseguita verde | IO distingue già CRS risolto/irrisolto/assente e conserva `scansione_completa`. Il limite noto è trasportare quest'ultima distinzione sul filo, C3. Il modello database è utile dove una combinazione di flag/valori opzionali ammette stati contraddittori; non prova che occorra riscrivere tutti i tipi IO |
+| Panici e aritmetica | Manifest con `unsafe_code = forbid`, Clippy pedantic/nursery e overflow checks in release. Il workflow Rust esaminato non impone il gruppo di lint anti-panic esplicito di IO | IO aggiunge `unwrap_used`, `expect_used`, `panic`, `unreachable`, `todo`, `unimplemented` negati su librerie **e binari** distribuiti, e barriera ai decoder di terzi. Su questa proprietà IO è già più sorvegliato; Q2 prova che ciò non elimina i difetti upstream |
+| Risorse e lifecycle | Budget condivisi e lease in `resource.rs`, cancellazione con deadline in `cancellation.rs`. Tuttavia il caricatore CLI IPC accumula i batch in `VecDeque` prima del consumo e `_to_ipc_bytes` accumula l'intero stream Python | IO ha preflight con `InputPermit`, budget prima della materializzazione e spool con quota. L'esistenza di un tipo `ResourceBudget` non dimostra che ogni ingresso lo rispetti: seguire acquisizione, rilascio e cancellazione lungo il percorso. Non adottare le materializzazioni del riferimento come modello di robustezza |
+| Coerenza fra dichiarazione e comportamento | Il catalogo annuncia file/stream; il percorso CLI esaminato usa lettore/scrittore file. È un rilievo statico da riprodurre, non una qualifica negativa dell'intero componente | Le due deviazioni IO C1/C2 mostrano che anche qui i descrittori non bastano. La maturità cresce quando un test attraversa l'operazione dichiarata e confronta l'esito reale, non quando aumenta il numero di capability |
+| Test e copertura | Test Rust separati: controllo eseguito verde su 193 sorgenti di prodotto. Budget di coverage distinti: righe Rust prodotto 39%, binding nativo 20%, SDK Python 69% e branch Python 55% | IO ha separazione verificata delle prove, regressioni ostili, sonde delle guardie e soglia righe libreria 80%. Sono **soglie configurate**, non percentuali misurate in questa analisi; i denominatori differiscono. Non ne segue una classifica 80 contro 39 né una certificazione di qualità |
+| Manutenibilità locale | `plenora-database-cli/src/main.rs`: 3.360 righe fisiche; SDK Python `__init__.py`: 1.413. Il budget di dimensione è uguale alla misura corrente | IO ha `plenora-io-tools/src/lib.rs`: 2.362 righe, `driver.rs`: 2.236, `budget.rs`: 2.028. Entrambi hanno concentrazioni da esaminare. Le dimensioni indicano dove leggere, non dimostrano da sole un difetto; lo split deve separare responsabilità, non soltanto abbassare un contatore |
+| Controlli mantenuti ed eseguiti | Stato generato dai sorgenti; self-test di corrispondenza sweep/CI. Per lo SHA esaminato GitHub riporta 18 corse concluse con successo, fra push, release e schedule | IO ha già registri, docset e riconciliazione dei passi, ma R2–R5 restano debiti espliciti. Sono verificati gli stati delle corse database, non rianalizzati tutti i log/artefatti: un workflow verde non dimostra che ogni ramo o provider sia stato esercitato |
+
+Fonti delle proprietà di verifica: [workflow Rust database][db-ci],
+[budget coverage database][db-coverage], [self-test CI][db-ci-tests] e
+[corsa Rust sullo SHA confrontato][db-ci-run]. Per IO:
+`.github/workflows/ci.yml`, `scripts/check_test_layout.py`,
+`scripts/check_coverage_exclusions.py`, `scripts/check_permit_boundary.py` e
+`assurance/registries/code-size-budget.json`.
+
+Sono stati eseguiti sul clone database **quattro controlli statici**:
+`check_relational_ir.py`, `check_typed_metadata.py`, `check_test_layout.py` e
+`code_size.py --check`, tutti verdi. Il contatore database misura 100.890 righe
+fisiche / 83.625 di codice, includendo Rust e package Python nel suo perimetro;
+il contatore IO registra 45.374 righe nel proprio perimetro Rust. Non si
+confrontano quei totali come se avessero lo stesso denominatore. Non sono
+stati eseguiti build, suite Rust/Python complete, benchmark o prove live di
+database-tools. Una guardia che cerca definizioni o marker nel sorgente prova
+quell'invariante strutturale; non sostituisce una prova del comportamento.
+
+### Interventi di maturità per la 4.1.0
+
+| ID | Intervento | Criterio di chiusura |
+|---|---|---|
+| M1 | Rivedere le responsabilità dei tre moduli IO sopra nominati | Mappa delle responsabilità e dei dipendenti; separazioni solo dove riducono accoppiamento o duplicazioni. Export pubblici preservati, prove sui chiamanti esterni e stessi esiti/effetti. È ammesso mantenere un modulo con motivazione; nessun obiettivo cosmetico di righe per file |
+| M2 | Verificare che conoscenza, assenza e valore siano distinguibili nel modello | Censimento mirato dei metadati geometrici e dei descrittori; fixture distinguono non misurato, misurato vuoto e valore presente. Stati impossibili impediti o rifiutati al confine. C2/C3 restano la sede delle modifiche sul filo; nessuna rottura dei tipi pubblici per imitare `Observation<T>` |
+| M3 | Provare l'efficacia delle guardie sui percorsi pubblici | Per ogni lacuna individuata: ingresso concreto, percorso fino alla guardia, controprova valida, errore atteso e conseguenza evitata. Priorità a lettura/scrittura IPC e ai percorsi di publish, con budget esaurito, cancellazione durante attesa e errore tardivo. Riutilizzare le regressioni esistenti; nessun aumento del solo conteggio dei test |
+| M4 | Legare capability, documentazione e prove senza duplicare le fonti | Censimento delle proprietà dichiarate da catalogo/CLI/SDK e del test che le esercita; distinzione tra compilato, eseguito, saltato e non applicabile. Stato derivato dai registri esistenti e verifica della corrispondenza con CI/checkpoint. R3–R5 governano identità delle corse e riuso; nessun secondo sistema di assurance |
+| M5 | Valutare le dipendenze come parte della manutenibilità del prodotto | L1–L4, D1–D7 e F1–F7 producono esiti motivati con API/feature, regressioni e grafo effettivo. Riduzione del lavoro da mantenere dimostrata per delta rimossi o catene semplificate; nessuna equivalenza fra meno crate, meno byte e maggiore qualità |
+
+**Priorità: M1–M3 e L1–L2 nei rispettivi blocchi, M4 con R3–R5.** Una voce
+già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
+gate per simmetria con database-tools. Le lacune osservate nel riferimento
+sono un motivo per verificare la stessa classe in IO, non un'autorizzazione a
+modificare l'altro repository. M5 raccoglie gli interventi sulle dipendenze già
+previsti e non ne duplica l'implementazione.
+
+**La base comune esiste già.** Entrambi adottano CLI v2, capability discovery
+v2, errori v1, diagnostica di riga e Arrow interchange v1. L'allineamento deve
+provare il passaggio dei dati sulle superfici effettive. Non richiede di
+portare in IO-tools engine SQL, ORM, transazioni di database, pooling o driver
+database: queste responsabilità restano nel componente che le possiede.
+
+### Interoperabilità: differenze osservate e conseguenze
+
+| Asse | Evidenza nei sorgenti | Conseguenza per la 4.1.0 |
+|---|---|---|
+| Autorità dei contratti | Il [pin database][db-adoption] è **anteriore** al pin IO. Fra i due il catalogo database passa da `provisional` a `normative`, e il profilo IO ratifica il cutover 4.0.0; il vocabolario Arrow non cambia | Non retrocedere il pin IO per far coincidere gli SHA. Riconciliare l'adozione sul lato database e verificare i requisiti applicabili a ciascun componente |
+| IPC sulla CLI | IO legge e scrive `file` e `stream` (`crates/driver-ipc/src/lib.rs`). Il [catalogo database][db-catalog] dichiara entrambi, ma `canonical_write` arriva a [`IpcFileBatchStream::open`][db-ipc], che usa solo `FileReader`; `canonical_read` scrive con `FileWriter` in [`main.rs`][db-cli] | Lo scambio via IPC **file** è il primo percorso candidato da provare. Lo stream sulla CLI database è un disallineamento statico fra dichiarazione e percorso: va riprodotto e trattato nel repository responsabile, non compensato togliendo supporto a IO |
+| Rust nello stesso processo | IO fissa Arrow `59.3.0`; il [manifest database][db-cargo] fissa `59.2.0` | Il passaggio diretto di `RecordBatch` richiede risoluzione congiunta e prova di compilazione. La differenza dei pin, da sola, non dimostra incompatibilità dei byte IPC; nessun downgrade automatico di IO |
+| Geometrie e metadati | Namespace `plenora.geometry.*` e versione schema `1` comuni. IO conserva localmente `scansione_completa`; entrambi hanno sul filo solo `exact`, `mixed`, `unresolved`. Il [lettore database][db-fields] analizza SRID e field id come `u32`; IO usa SRID `i32` e conserva identità dichiarate anche oltre la posizione fisica della colonna | Servono vettori comuni di accettazione/rifiuto, inclusi domini numerici e perdita della distinzione «scansione completa, nessuna geometria». Il riferimento resta il [vocabolario condiviso][arrow-vocabulary], che dichiara SRID signed 32-bit |
+| SDK Python | IO espone `Client.read(source, output)` e `write(...)` attraverso il processo CLI. Il [binding database][db-python] è PyO3, con `Table`, `RecordBatch`, iterable e IPC per il bulk. L'[adattatore Python][db-arrow-python] normalizza alcuni tipi Arrow e accumula l'IPC in `BytesIO` prima di `copy_from` | Progettare un adattatore Arrow opzionale in IO mantenendo le API esistenti. Un iterable accettato non prova memoria costante; il formato stream non prova esecuzione streaming. PyO3 e «zero-copy» non sono requisiti automatici |
+| Errori, retry ed esiti | Il [modello database][db-errors] contiene anche `concurrent_modification` e `quarantine`; IO non li emette. Entrambi distinguono categoria, fase, effetto remoto e retry; la scrittura locale IO e una transazione database hanno esiti propri | Confrontare la proiezione pubblica con gli schemi comuni. Un adattatore deve conservare origine, diagnostica e indicazioni di recupero; non deve ritentare una scrittura con effetto sconosciuto né equiparare pubblicazione locale e commit remoto |
+| Manutenzione e controlli | Database genera `docs/STATO.md` con [`render_state.py`][db-state] e confronta sweep offline/CI; IO dispone già di cataloghi derivati, registri e checkpoint | Riusare il principio di una fonte unica e della corrispondenza fra controlli dichiarati ed eseguiti. Evitare una seconda infrastruttura di qualifica; R2–R5 conservano il loro perimetro |
+
+Questi sono rilievi da lettura dei sorgenti. Non sono risultati di una corsa
+fra i due prodotti e non attestano il comportamento degli asset pubblicati.
+In particolare, un limite osservato nel percorso CLI non si estende
+automaticamente all'API Rust o al binding Python dello stesso componente.
+
+### Possibili interventi di interoperabilità
+
+Le voci seguenti sono **proposte aperte**, da delimitare dopo il confronto di
+maturità. A1–A3 e A5 identificano le prove dei confini utili anche a M2–M4;
+A4 e A7 aggiungono rispettivamente una superficie SDK e una qualifica fra
+componenti, e non diventano obblighi della 4.1.0 soltanto per somiglianza con
+database-tools. Le modifiche al componente vicino e ai contratti condivisi
+hanno un seguito nel rispettivo repository; non sono già disponibili.
+
+| ID | Intervento e responsabilità | Criterio di chiusura |
+|---|---|---|
+| A1 | Riconciliare profili, pin e confini pubblici — IO, database e contratti | Matrice per operazione/superficie con schema, content type, effetto e controlli; differenze normative distinte da scelte interne. Pin IO non retrocesso; ogni modifica comune concordata e versionata. C1–C4 restano riferimenti unici per le deviazioni già note |
+| A2 | Provare lo scambio Arrow in entrambe le direzioni — IO e database | Fixture prodotte da un componente e consumate dall'altro sulle revisioni fissate, per `file` e `stream` separatamente. Verifica di valori, schema, nullability, ordine, identità dei campi e metadati; riproduttore del limite CLI database e relativo seguito. Lo scambio file non chiude gli archi `direct` che dichiarano stream |
+| A3 | Allineare metadati, tipi e fedeltà — bordi Arrow dei due componenti | Vettori condivisi e casi di round-trip per geometrie/CRS, tipi tabellari e metadati nativi; perdita esplicita o rifiuto prima della scrittura se il sink non rappresenta il dato. Nessuna normalizzazione silenziosa; C2 e C3 governano tipi ignoti e assenza accertata |
+| A4 | Rendere componibile lo SDK Python IO con il bulk database — IO | Adattatore opzionale per oggetti/batch PyArrow e IPC, con ownership e chiusura esplicite, senza cambiare `Client.read`/`write` né imporre PyArrow all'installazione base. Prove dalla wheel installata, incluso input vuoto con schema e fallimento a metà. Confini di materializzazione e costi dichiarati; migrazione nativa PyO3 solo con decisione separata |
+| A5 | Verificare errori, cancellazione e atomicità nella pipeline — entrambi | Errori strutturati con componente d'origine e diagnostica conservati; timeout, cancellazione, limite e dato incompatibile distinti. Prove di interruzione a metà, cleanup, nessuna pubblicazione locale parziale e nessun retry automatico su effetto remoto `unknown`; il commit database non viene promesso come transazione distribuita col file |
+| A6 | Decidere il percorso Rust diretto e il costo delle dipendenze comuni — entrambi | Crate d'integrazione minimo con i due core e tentativo documentato di risoluzione/compilazione dei pin Arrow. Allineamento coordinato se compatibile, oppure IPC come confine esplicito; nessuna promessa di `RecordBatch` condiviso senza prova e nessun aggiornamento massivo dei lock |
+| A7 | Qualificare una pipeline di riferimento — IO con database fissato | Esempio riproducibile file → PostgreSQL/PostGIS → file, più prove nei due sensi sui tipi supportati. Evidenza nomina SHA, versioni/digest degli artefatti, provider, formato, mapping policy ed esiti. Gate offline sulle fixture durante lo sviluppo; prova live mirata sulla candidate, senza attribuire il risultato agli altri provider |
+
+Se si estende la 4.1.0 all'interoperabilità effettiva, il percorso minimo
+parte da **A1, A2 e A3**, poi dalle prove d'interruzione A5. L'adattatore Python
+A4 richiede un beneficio concreto rispetto alle API esistenti; A6 è una
+decisione distinta, perché l'IPC può essere il confine praticabile anche
+quando i due core non condividono i tipi Rust. A7 raccoglie la prova
+d'integrazione e non sostituisce la qualifica dei singoli prodotti.
+
+La matrice dei casi A2–A3 deve almeno comprendere:
+
+- schema senza righe, batch multipli, null e ordine delle colonne; identità
+  preservate attraverso rinomina/proiezione;
+- interi signed/unsigned ai limiti, decimali con precisione/scala, timestamp
+  con unità e timezone, binary/string e varianti large, dictionary e tipi
+  nested: ogni coppia sorgente/sink esplicita supporto, conversione o rifiuto;
+- WKB/EWKB, dimensioni XY/XYZ/XYM/XYZM, geometrie vuote e null, dichiarazioni
+  exact/mixed/unresolved; CRS risolto, dichiarato non risolto, assente e
+  contraddittorio; SRID negativo e field id fuori dal dominio `u32`;
+- metadati sconosciuti e provider-specifici, anche sui campi nested. Un giro
+  dichiarato lossless li conserva; un formato che non li rappresenta rende
+  osservabile la perdita prima di promettere fedeltà.
+
+Per A7 si propone PostgreSQL/PostGIS come primo provider; il perimetro iniziale
+proposto è Arrow IPC per l'identità e GeoParquet/GeoPackage per il giro geospaziale,
+nei tipi che entrambi i lati dichiarano. Altri formati e provider entrano
+solo con prove proprie. I dataset ostili e quelli fuori capacità devono
+fallire nel punto previsto, non essere «aggiustati» per far passare il giro.
+
+La 4.1.0 deve dichiarare **quali percorsi sono realmente qualificati**. Se una
+voce dipende da una modifica del componente vicino o da una major dei
+contratti, si registra il blocco e il seguito preciso: non si pubblica un
+claim di interoperabilità completa. Una nuova chiave in uno schema chiuso,
+una diversa semantica di consegna o una migrazione dello SDK non diventano
+compatibili soltanto perché servono all'allineamento.
+
+[db-base]: https://github.com/PlenoraETL/plenora-database-tools/tree/00d7613402e87a449a36e0ff7d91e7710999b822
+[db-release]: https://github.com/PlenoraETL/plenora-database-tools/releases/tag/py-v4.2.0
+[db-adoption]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/contracts/adoption-source.json
+[db-catalog]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-core/src/public_contract.rs
+[db-ipc]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-cli/src/ipc_input.rs
+[db-cli]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-cli/src/main.rs
+[db-cargo]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/Cargo.toml
+[db-fields]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-core/src/field_contract.rs
+[db-python]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-py/README.md
+[db-arrow-python]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-py/python/plenora_database/_arrow_io.py
+[db-errors]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-core/src/error.rs
+[db-state]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/scripts/render_state.py
+[arrow-vocabulary]: https://github.com/PlenoraETL/plenora-contracts/blob/453c8d1ff2eb260840e6cedc033a2b76b58a0b9e/specs/data/ARROW-VOCABULARY-1.0.md
+[db-ir-guard]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/scripts/check_relational_ir.py
+[db-observation]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/crates/plenora-database-engine/src/metadata/mod.rs
+[db-metadata-guard]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/scripts/check_typed_metadata.py
+[db-ci]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/.github/workflows/rust-ci.yml
+[db-coverage]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/scripts/coverage_budget.json
+[db-ci-tests]: https://github.com/PlenoraETL/plenora-database-tools/blob/00d7613402e87a449a36e0ff7d91e7710999b822/scripts/test_ci_workflows.py
+[db-ci-run]: https://github.com/PlenoraETL/plenora-database-tools/actions/runs/34798703096
 
 ## Riconciliazione con lo stato effettivo
 
@@ -277,7 +453,7 @@ fotografia del censimento, non obiettivi mobili della candidate.
 
 | ID | Intervento | Punto di partenza | Criterio di chiusura |
 |---|---|---|---|
-| L1 | Aggiornare `rust_xlsxwriter` | 0.99.0 → 0.99.1 disponibile | API, XLSX prodotti e riletti, metadati e diagnostiche preservati; grafo risultante misurato |
+| L1 | Aggiornare `rust_xlsxwriter` | 0.99.0 → **0.99.1 adottata** | **Chiusa**, commit `7d3c461`: giro XLSX confrontato sulle due versioni, schema/metadati/fedeltà/valori invariati; grafo confrontato riga per riga nei quattro profili/target |
 | L2 | Aggiornare `jsonschema` | 0.55.1 → 0.56.0; minor 0.x potenzialmente incompatibile | Schemi validi e invalidi conservano i verdetti; resolver remoti restano disabilitati; closure e feature misurate |
 | L3 | Esaminare aggiornamenti transitivi e advisory | Versioni e catene nel censimento | Patch compatibili distinte dai salti richiesti dagli upstream; nessun aggiornamento massivo incontrollato; audit e deroghe riallineati |
 | L4 | Rimuovere il solo pin diretto inutilizzato `arrow-select` | Nessun crate lo eredita; Parquet lo introduce transitivamente | Dichiarazione e registri coerenti, grafo invariato. **Non** si presenta come libreria eliminata dal binario |
@@ -285,6 +461,20 @@ fotografia del censimento, non obiettivi mobili della candidate.
 L1 e L2 sono identificatori di **questa tabella**, non livelli di checkpoint.
 Interventi con rischi diversi restano separati; le registrazioni dello stesso
 blocco si riuniscono prima della verifica.
+
+**Chiusura L1, 16 settembre 2026.** Il commit
+[`7d3c461`](https://github.com/PlenoraETL/plenora-IO-tools/commit/7d3c461ae8157fa16541b855284f94f0f7cd64d2)
+contiene soltanto `Cargo.toml` e `Cargo.lock`; il suo messaggio conserva il
+resoconto delle verifiche. I quattro grafi base/`gdal-backend` × Linux/Windows
+mantengono 241/242/243/244 pacchetti e differiscono soltanto nella versione di
+`rust_xlsxwriter`; nel lock cambiano versione e checksum, nessuna transitiva.
+Sono registrate 54 prove del driver, tre suite d'integrazione XLSX, fmt e
+clippy con `-D warnings`, più due giri osservabili con referti identici.
+Il confronto valido usa davvero 0.99.0 e 0.99.1: il primo tentativo, in cui
+il pin esatto aveva impedito il ritorno alla versione precedente, è stato
+scartato e rifatto. Nessuna incompatibilità osservata, nessun checkpoint
+completo o campagna. Questo aggiornamento del piano registra tali prove,
+non dichiara di averle rieseguite. L2 resta aperta e si tratta separatamente.
 
 ## Fase 3 — versioni duplicate
 
@@ -349,12 +539,18 @@ major successiva.
 
 Il pin corrente dei contratti condivisi è
 `453c8d1ff2eb260840e6cedc033a2b76b58a0b9e`. La PR #6 e la decisione 0006 si
-riesaminano **sullo stato effettivo**, senza assumere che siano integrate.
+riesaminano **sullo stato effettivo**: al controllo del 15 settembre la
+[PR #6](https://github.com/PlenoraETL/plenora-contracts/pull/6) è aperta e non
+integrata, con head `0ca3d43ce255e3acb8b8481fc90ac0cdf3ada269`. La decisione
+0006 non è nel `main` adottato. La proposta non modifica il contratto corrente.
 
 L'interoperabilità effettiva con `plenora-data-tools` e `plenora-database-tools`
-resta differita per decisione dell'utente. Il supporto dei content type previsti
-non equivale a una qualifica cross-component, e non diventa bloccante della
-4.1.0 senza una nuova decisione esplicita.
+era stata differita per decisione dell'utente. La richiesta di allineamento e
+la precisazione sulla maturità aprono ora l'analisi M1–M5 e le proposte A1–A7,
+non una qualifica già eseguita o l'adozione automatica di un nuovo SDK.
+Il supporto dei content type previsti non equivale a interoperabilità provata.
+L'estensione effettiva della candidate a una pipeline fra componenti richiede
+un perimetro scelto fra quelle proposte; data-tools resta fuori dal confronto.
 
 ## Un documento che non può scadere
 
@@ -402,18 +598,23 @@ dataset non sono librerie applicative e non si contano come tali.
 
 ## Sequenza di implementazione e verifiche
 
-1. Integrare questo piano e il censimento nel docset — **fatto in questo
-   blocco** — fissando baseline e criteri, senza spostare tag né riscrivere
-   evidenze storiche.
-2. Chiudere Q1, Q2b, Q2c e R1–R6 prima di una nuova candidate, così che gli
-   strumenti per qualificare e registrare esistano già. Q2a è chiusa.
-3. Aggiornamenti L1 e L2, pin inutilizzato e riduzioni minori, in blocchi
-   distinti e verificabili.
-4. Coordinare duplicazioni, fork e proposte upstream; affrontare le catene più
-   grandi solo dopo una decisione sul beneficio misurabile.
-5. Riconciliare contratti, deviazioni e compatibilità; chiudere ogni voce con
-   esito e prova, oppure con rinvio motivato.
-6. Preparare una sola revisione definitiva, eseguire la qualifica prevista,
+1. Piano e censimento sono nel docset. Il confronto di maturità del 15–16
+   settembre aggiunge la baseline database e M1–M5, conservando le evidenze
+   storiche e separando A1–A7 come proposte d'interoperabilità.
+2. L1 è chiusa in `7d3c461`; procedere con L2 in un blocco distinto e con la
+   revisione mirata M1–M3. I residui della procedura non impongono di rinviare tutto il lavoro
+   sul prodotto; M4 si coordina con R3–R5 senza costruire strumenti doppi.
+3. Chiudere Q1, Q2b, Q2c e R1–R5 **prima della candidate**, quando servono gli
+   strumenti di qualifica. Q2a e R6 sono chiuse. Nessuna campagna lunga per
+   giustificare una revisione del piano o uno split di moduli.
+4. Trattare il pin inutilizzato e coordinare duplicazioni, fork e proposte
+   upstream; affrontare le catene più grandi dopo una decisione sul beneficio
+   misurabile, come richiede M5.
+5. Riconciliare contratti, deviazioni e compatibilità. Se viene scelto un
+   percorso A, fissarne superfici e revisioni e chiuderlo con prove proprie:
+   la qualità interna del codice non dimostra la composizione fra componenti.
+6. Chiudere le voci di maturità con esito, prova o motivazione precisa;
+   preparare una sola revisione definitiva, eseguire la qualifica prevista,
    produrre gli artefatti sullo stesso SHA e registrare il congelamento entro
    l'allowlist.
 
@@ -435,9 +636,9 @@ Il regime delle misure:
 
 - Repository: <https://github.com/PlenoraETL/plenora-IO-tools>.
 - Contratti condivisi: <https://github.com/PlenoraETL/plenora-contracts>.
-- Riferimento ingegneristico: <https://github.com/PlenoraETL/plenora-database-tools>.
-  La copia locale era arretrata al momento del confronto: non si aggiorna né si
-  modifica implicitamente.
+- Riferimento ingegneristico: [database-tools alla revisione confrontata][db-base].
+  Analizzato da una copia separata, con fonti immutabili nella sezione iniziale;
+  il precedente checkout locale arretrato non è stato aggiornato o modificato.
 - Evidenze durature della 4.0.0: `C:\Users\marco\Desktop\IO-tools-evidenze-4.0.0\`,
   con la qualifica di `6beb410`, i confronti di bozza e release e l'input del
   finding Q2. Non sono materiale da eliminare nella pulizia.
@@ -447,12 +648,22 @@ Il regime delle misure:
 
 ## Risultato atteso
 
-La 4.1.0 conserva il comportamento pubblico della 4.0.0 e porta un elenco dei
-residui trattati, dipendenze aggiornate o motivate, duplicazioni ridotte dove
-possibile, e una procedura di qualifica meno costosa senza prove più deboli.
+La 4.1.0 conserva il comportamento pubblico della 4.0.0 e rende verificabili
+gli interventi di maturità: responsabilità meno accoppiate dove necessario,
+stati del modello non ambigui, guardie provate sul percorso reale e
+corrispondenza fra dichiarazioni e controlli eseguiti. Porta inoltre residui
+trattati, dipendenze aggiornate o motivate, duplicazioni ridotte dove possibile
+e una procedura di qualifica meno costosa senza prove più deboli. Il risultato
+non è una parità di funzionalità con database-tools né un punteggio globale
+di qualità.
 
 Il resoconto finale confronta versioni, feature, grafo per piattaforma e
 profilo, dimensione e composizione degli artefatti quando misurate, tempo di
 costruzione e di qualifica quando misurato, e delta residui dei fork. Non
 presenta pacchetti non più nel lock come byte risparmiati, né un riuso di
 evidenza come una nuova esecuzione.
+
+Se sono realizzati interventi A, il resoconto separa compatibilità dei
+contratti, prove offline e pipeline live qualificata, indicando esattamente
+quali superfici, formati e provider sono stati esercitati. Le proposte non
+scelte e i blocchi nel componente vicino restano espliciti.
