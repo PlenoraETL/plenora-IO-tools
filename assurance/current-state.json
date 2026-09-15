@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "3ca3931",
+      "sha": "6beb410",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "3ca3931",
-    "evidenza": "assurance/evidence/checkpoint-3ca3931.json",
+    "sha": "6beb410",
+    "evidenza": "assurance/evidence/checkpoint-6beb410.json",
     "checkpoint": {
       "passi_eseguiti": 104,
       "passi_verdi": 104,
@@ -24,7 +24,7 @@
       "riconciliazione": "104 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 84450,
+      "replay_input": 89707,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,21 +33,21 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.44,
-      "lcov_righe_coperte": 24708,
+      "lcov_percentuale": 86.48,
+      "lcov_righe_coperte": 24720,
       "lcov_righe_strumentate": 28584,
-      "cargo_lines_percentuale": 84.0,
+      "cargo_lines_percentuale": 84.03,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-bench` e `plenora-fuzz`, e **non** esclude piu' il crate della CLI: l'esclusione era rimasta dopo che quel codice era tornato a contare, e toglierla fa entrare le sue righe nel denominatore. Il confronto con la 3.0.0, che escludeva `plenora-io-cli`, e' percio' fra due perimetri diversi.",
       "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Stanno entrambi qui perche' sceglierne uno e chiamarlo «la copertura» nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
       "baseline": "28bf62c",
-      "esito": "93.81%",
+      "esito": "94.04%",
       "righe_cambiate_eseguibili": 4363,
-      "coperte": 4093,
-      "scoperte": 270,
-      "cambiate_non_eseguibili": 39361,
+      "coperte": 4103,
+      "scoperte": 260,
+      "cambiate_non_eseguibili": 39484,
       "ragione": "misurata: 4363 righe cambiate ed eseguibili fra `28bf62c` e `3ca3931` nel perimetro di libreria, 4093 coperte e 270 no. Le 39361 non eseguibili sono commenti, righe di test spostate e dichiarazioni, e restano fuori misura. Il numero e' alto perche' fra le due revisioni sta la separazione dei test dal prodotto, che muove decine di migliaia di righe senza cambiare comportamento.",
       "che_cosa_sono_le_scoperte": "duecentosettanta righe fra le 4363 cambiate ed eseguibili, elencate una per una nell'evidenza. La concentrazione conta piu' del totale: la prima famiglia e' `driver-common/src/prevalida_arrow.rs`, cioe' i rami di rifiuto del flusso IPC -- il codice che decide quando un flusso e' malformato, esercitato meno di quello che decide quando e' buono."
     }
@@ -57,7 +57,7 @@
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "3ca3931"
+      "qualificato_su": "6beb410"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -246,46 +246,46 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "revisione_candidate": "3ca3931949cb3a090294d4f798d9d44b61e684be",
-      "assurance_entro_l_allowlist": false,
+      "revisione_candidate": "6beb410b9984f527f3e89bba420764ac9e24e436",
+      "assurance_entro_l_allowlist": true,
       "commit_di_assurance": null,
-      "nota": "**Il congelamento su `3ca3931` non copre piu' questo albero.** Le cinque prove negative su `valida_flusso_ipc` toccano `crates/`, fuori dall'allowlist post-congelamento, e `assurance_entro_l_allowlist` e' percio' `false` -- scritto nel commit che lo rende falso, non spiegato dopo.\n\nLa qualifica su `3ca3931` resta valida per **quella** revisione, e la sua evidenza resta dov'e'. Non vale per questa: le prove aggiunte cambiano il codice di prova, quindi la misura va rifatta e gli artefatti ricostruiti dalla revisione definitiva.\n\nDue requisiti restano aperti e sono la ragione di questo giro. Il primo: le protezioni del validatore di flusso non avevano prove di regressione che le tenessero ferme -- ora ne hanno cinque, e le sei righe scoperte sono state esercitate. Il secondo: il soak di `dxf_reader` ha una durata utile non dimostrata, e va ripetuto con il tempo **misurato** invece che dedotto dal ritmo.\n\n`tag_creato`, `release_action_allowed` e `release_authorized` restano falsi. Nessuna autorizzazione al rilascio e' stata data.",
+      "nota": "Congelata su `6beb410`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce: fra quelli e quelli che il runner aveva in mano c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\n**I due requisiti che restavano aperti sono chiusi.** Le sei protezioni di `valida_flusso_ipc` -- flusso troppo corto, coda tronca, metadati oltre il tetto, messaggio oltre la fine, troppi messaggi, flusso senza schema -- erano corrette ma non trattenute da niente: cinque ora hanno una prova di regressione che confronta il **messaggio**, non solo l'esito, perche' un input puo' essere rifiutato dal ramo sbagliato e la prova resterebbe verde. Nessun difetto e' emerso. La sesta, `MAX_BLOCCHI`, resta fra i limiti noti delle prove: generare oltre otto megabyte di flusso valido a ogni corsa e' un **costo** che non si giustifica per un fondo di sicurezza, non un'impossibilita' tecnica.\n\nIl soak mirato che il criterio d'uscita prescrive sullo SHA congelato e' stato eseguito con la durata **misurata**. Su `dxf_reader`: monotonic 3644,7 s, boottime 3644,7 s, parete 3644,6 s -- i tre orologi coincidono entro un decimo di secondo, quindi ne' la macchina ne' la VM si sono fermate sotto la campagna. 780540 esecuzioni, 3175 unita' nuove, uscita 0, nessun finding. E' la proprieta' che la corsa precedente non poteva affermare, ed e' misurata invece che dedotta dal ritmo.\n\nSu `shp_reader` la corsa di `3ca3931` e' **riusata con motivazione**: il criterio ripete il soak quando cambia il codice di prodotto o compare un finding, e fra le due revisioni nessun file sotto `crates/*/src` che non sia di prova e' cambiato. Non e' attribuita a questa revisione per comodita'.\n\nIl misuratore aveva posto una soglia dell'80% sull'uso della CPU e questa corsa non l'ha superata: 280,3 s su 3644,7. La soglia e' stata corretta **dopo** la corsa, e il referto originale con quel verdetto e' conservato accanto all'evidenza perche' si veda. La ragione: la saturazione della CPU non e' mai stata un requisito del soak -- il criterio e' un'ora di campagna, ed e' dimostrata -- ma un controllo sull'ambiente che per un fuzzer non legato alla CPU boccia una campagna valida. Dove siano finiti i 3365 secondi non contabilizzati **resta non spiegato**: l'I/O sul mount 9p e' una causa possibile e non quantificata sulla campagna.\n\n`tag_creato`, `release_action_allowed` e `release_authorized` sono falsi. Quest'ultimo era rimasto `true` dalla 3.0.0 ed e' l'unica condizione che nessun gate deriva: nessuna autorizzazione al rilascio e' stata data per la 4.0.0.\n\nRestano **due deviazioni** registrate nel manifesto, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local` -- una differenza osservabile dal contratto. Che il valore sia piu' cauto non la rende conforme: il contratto fissa quel campo e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti.",
       "artefatti": [
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "262c9764c82dc64f51b00fe2b7a57135ed368f61c55b36a82f7cb79ab21ef055",
-          "dimensione": 8613998,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "sha256": "e432a2fbe8950613c03639ebade570967c4377c8df5c9b26b718b7cbcc2febbb",
+          "dimensione": 8613983,
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         },
         {
           "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "b62b174c22397a7f4b1aa7d73b831e72c502e8bba1b1ca640ac589d55278a166",
-          "dimensione": 64455206,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "sha256": "fc8cf3c93d29b67099d2e1c5e3179c7883a3565117d5fcd680008aaad2f204d3",
+          "dimensione": 64454918,
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         },
         {
           "nome": "plenora_io-4.0.0-py3-none-any.whl",
           "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
           "dimensione": 37414,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         },
         {
           "nome": "plenora_io-4.0.0.tar.gz",
           "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
           "dimensione": 54614,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
-          "sha256": "1724985c726a24460688d2cd9fa5533597d5f0a860b3639bfb837740ffdecbc6",
-          "dimensione": 8752608,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "sha256": "451f397aa57807070fb9c7f838fbc19eb373330731abf76b01dd492ceee649f2",
+          "dimensione": 8752606,
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         },
         {
           "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "0138011bd634bc482798ae2f73a49f30d2ea1e0d633727ca0ad268a7c62e67ed",
-          "dimensione": 47819253,
-          "revisione": "3ca3931949cb3a090294d4f798d9d44b61e684be"
+          "sha256": "dcde4cffd6a81da03aa21257eecbec9275ba4ce239e7351a40a29bba35db87e0",
+          "dimensione": 47819244,
+          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
         }
       ]
     }

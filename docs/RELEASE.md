@@ -21,41 +21,41 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `3ca3931` |
-| revisione misurata | `3ca3931` |
+| ultima qualificata | `6beb410` |
+| revisione misurata | `6beb410` |
 | passi del checkpoint | 104 |
 | passi verdi | 104 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 84 450 |
+| input di replay | 89 707 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,44% |
-| righe coperte LCOV | 24 708 |
+| copertura LCOV | 86,48% |
+| righe coperte LCOV | 24 720 |
 | righe strumentate LCOV | 28 584 |
-| copertura cargo | 84,00% |
+| copertura cargo | 84,03% |
 | soglia di copertura | 80,00% |
 | baseline differenziale | `28bf62c` |
-| esito differenziale | 93.81% |
+| esito differenziale | 94.04% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `3ca3931` |
+| S9, qualificato su | `6beb410` |
 | candidate, versione del manifesto | `4.0.0` |
 | candidate, stato | attiva |
-| candidate, revisione congelata | `3ca3931949cb3a090294d4f798d9d44b61e684be` |
+| candidate, revisione congelata | `6beb410b9984f527f3e89bba420764ac9e24e436` |
 | candidate, versione del workspace | `4.0.0` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 2 |
 | release_authorized | `false` |
