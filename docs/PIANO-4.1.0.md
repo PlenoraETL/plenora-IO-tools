@@ -220,13 +220,108 @@ viene dal numero di concetti che il budget deve tenere insieme, non da
 responsabilità estranee finite nello stesso file. Un taglio abbasserebbe il
 contatore e lascerebbe l'accoppiamento dov'è.
 
+#### Le due misure mancanti — 16 settembre 2026
+
+##### `lib.rs`: stato condiviso e inizializzazione
+
+**Stato globale mutabile: nessuno.** Gli `static` del file sono tutti
+`&'static str`, il crate dichiara `#![forbid(unsafe_code)]`, e non compaiono
+`OnceLock`, `thread_local`, `Mutex`, `RwLock` né atomici. L'unico atomico del
+crate sta in `segnali.rs`, è un `Arc<AtomicBool>` locale a una funzione, e quel
+modulo è già separato.
+
+**Inizializzazione: due ordini, entrambi contenuti.** `installa_hook_silenzioso`
+installa un hook di panico per l'intero processo, ed è chiamato **solo da
+`main.rs`**: è una preoccupazione del binario, non della libreria, e una
+separazione di `lib.rs` non la tocca. Dentro `run` c'è un ordine vero — il
+gestore dei segnali si arma **prima** del dispatch, e se non si installa il
+comando non parte — ma vive per intero dentro quella funzione.
+
+**Stato condiviso fra parsing e comandi: `Cli`, e nient'altro.** È una struttura
+di dati — posizionali, flag, tre mappe di opzioni, `PipelineLimits` — con un
+solo elemento vivo, il `CancellationToken` che `parse_legato` vi inietta. I
+comandi la ricevono per riferimento e non scrivono nulla che il parsing rilegga.
+
+Il grafo interno, contando i riferimenti che attraversano i confini delle
+sezioni, è **direzionale**: `dispatch → comandi → parsing → buste`, con una sola
+freccia all'indietro (`parsing → run`, un riferimento in un commento). La
+sezione «buste e identità» è la base che tutti usano; «capability» ha **un solo**
+riferimento in entrata dai comandi.
+
+**Proposta: separare due sezioni, non tutto.**
+
+- `capability` (169 righe, un riferimento in entrata): è il documento che i gate
+  del contratto leggono, e isolarlo rende esplicito il suo perimetro;
+- `parsing` e `Cli` (534 righe): è dove vive la conformità a CLI-2.0, e oggi un
+  comando può raggiungerne gli aiutanti senza che nulla lo segnali.
+
+Il beneficio concreto è quello, e va detto per quello che è: **la separazione
+non riduce un accoppiamento alto — l'accoppiamento è già basso e a senso unico.
+Rende impossibile introdurne uno nuovo**, perché una freccia all'indietro
+diventerebbe un `use` da scrivere. Restano insieme comandi, dispatch e buste,
+che si chiamano davvero fra loro.
+
+Che gli export contrattati stiano in `operazioni.rs` dice che una separazione
+non può rompere *la superficie dichiarata*. **Non dice che preservi il
+comportamento**: i sei wrapper passano attraverso i `cmd_*`, e un cambiamento
+dentro di essi arriverebbe intatto ai chiamanti esterni. La garanzia la danno le
+prove, non i wrapper.
+
+##### `driver.rs`: chiamate e tipi condivisi fra i gruppi di validazione
+
+Misura dei riferimenti che attraversano i tre confini proposti, contando anche
+le occorrenze nei commenti — il conteggio sovrastima l'accoppiamento invece di
+nasconderlo:
+
+| da → a | riferimenti |
+|---|---|
+| B macchinario → C validazione per riga | **1** (`validate_geometry_batch_at`) |
+| C → A, A → B, A → C, B → A, C → B | **0** |
+
+I tre riferimenti che la prima passata segnava come «C → A» sono falsi
+positivi, verificati uno per uno: `actual_dimensions.nome()` è un metodo di un
+altro tipo, e «categoria» compare in un commento.
+
+I tre gruppi dipendono invece dai tipi condivisi del resto del file — descrittori,
+contratti, `saturating_u64` — che resterebbero dove sono: A ne usa 23
+riferimenti, B 51, C 41.
+
+**Proposta: separare i tre gruppi.** Il beneficio è preciso, e non è il
+contatore di righe. I tredici crate che dipendono da questo modulo importano **i
+quattro trait**; non importano nulla delle 1.208 righe di validazione. Oggi le
+due cose stanno nello stesso file, e chi legge il contratto fra core e driver ne
+legge 2.236. Separando, il contratto resta in un file che lo contiene e basta, e
+l'unica chiamata che attraversa — `B → C` — diventa un `use` visibile.
+
+**Dove verificare le regressioni, che non è la stessa cosa di dove intervenire.**
+I tredici crate dipendenti non vanno modificati: i trait non cambiano firma.
+Sono il posto dove una separazione sbagliata si vedrebbe, cioè dove eseguire le
+prove — le suite dei driver, che esercitano scrittura, perdita dichiarata e
+rifiuto di righe attraverso quei trait.
+
+##### `budget.rs`
+
+Confermato il mantenimento, con la motivazione già registrata: dieci
+responsabilità, distribuzione piatta, ventuno tipi pubblici, e parti che si
+tengono per costruzione. Nessuna nuova misura lo contraddice.
+
 #### Che cosa questa analisi non dice
 
-Non dice che le separazioni proposte siano sicure: individua possibili
-confini e consumatori da considerare. Prima di decidere servono, per `lib.rs`, la
-verifica sullo stato condiviso fra parsing e comandi; e per `driver.rs`, la
-misura di quanto i tre gruppi della validazione si chiamino davvero fra loro —
-due gruppi che si scambiano venti funzioni non sono due moduli.
+Le due misure che mancavano sono state fatte, e i confini proposti reggono al
+criterio che le motivava: i tre gruppi di `driver.rs` si scambiano **una**
+chiamata, e in `lib.rs` non c'è stato condiviso oltre a `Cli`.
+
+Resta però la distanza fra «i confini sono netti» e «una separazione preserva il
+comportamento». Un'estrazione può cambiare l'ordine in cui le cose accadono, o
+il momento in cui un `Drop` rilascia una risorsa, senza che nessun conteggio di
+riferimenti lo mostri — e `LimitedWriter` e i lease del budget sono
+precisamente il genere di codice dove questo conta. Neanche i sei wrapper di
+`operazioni.rs` lo garantiscono: passano attraverso i `cmd_*`, quindi un
+cambiamento di comportamento arriverebbe intatto ai chiamanti esterni.
+
+Quello che una separazione dovrà quindi portare con sé non è un altro conteggio:
+è l'esecuzione delle suite dei tredici crate dipendenti, con gli stessi esiti e
+gli stessi effetti osservabili — pubblicazione atomica compresa.
 
 Non è stato eseguito alcun refactoring, nessun export è cambiato, e nessuna
 prova è stata aggiunta o tolta.
