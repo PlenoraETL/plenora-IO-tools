@@ -33,7 +33,7 @@
           "cpu_figli_s": 280.3,
           "sospensione_host_s": 0.0,
           "congelamento_vm_s": -0.1,
-          "che_cosa_dimostra": "i tre orologi coincidono entro 0,1 s su 3644,7 s: la macchina non e' stata sospesa e la VM non e' stata congelata. E' la proprieta' che la corsa precedente non poteva affermare, ed e' misurata invece che dedotta dal conteggio delle esecuzioni."
+          "che_cosa_dimostra": "i tre orologi coincidono entro 0,1 s su 3644,7 s: **nessuna sospensione rilevata dagli orologi usati**. La formulazione e' stretta apposta. Tre orologi che concordano dicono che loro non hanno visto una discontinuita', non che non ce ne sia stata una che nessuno dei tre puo' vedere -- ed e' il caso in cui questo misuratore era gia' caduto, quando i due orologi interni si fermarono insieme e il loro scarto resto' zero su una corsa inservibile. Cio' che resta vero e' che qui la parete e' stata confrontata con i due interni, che e' il confronto che quel caso non aveva. La corsa precedente non poteva dire nemmeno questo, e la differenza e' fra una misura e una deduzione dal ritmo."
         },
         "riepilogo_del_fuzzer": {
           "runs": 780540,
