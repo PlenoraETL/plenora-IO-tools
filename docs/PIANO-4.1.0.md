@@ -256,18 +256,21 @@ l'harness dei test con `cargo`. Dopo la pulizia post rilascio il volume target �
 vuoto, quindi una sua corsa ricompila il workspace da zero: su una modifica di
 sola documentazione costa ore e non misura nulla che la documentazione abbia
 cambiato. In questo blocco è stato avviato per abitudine e **fermato**, senza
-lasciare modifiche. Appartiene alla chiusura di un blocco di codice, non a una
-modifica di `docs/`. I controlli proporzionati qui sono `check_docset.py`, le
-sue trentanove sonde e `check_comments.py`.
+lasciare modifiche. Non è un obbligo automatico alla chiusura di ogni blocco:
+se comporta una verifica completa o lunga, appartiene alla qualifica finale.
+Durante lo sviluppo si eseguono i controlli e le sonde pertinenti alla modifica.
+Per la documentazione sono `check_docset.py`, le sue trentanove sonde e
+`check_comments.py`.
 
-**Le campagne lunghe non si lanciano durante lo sviluppo.** Le misure complete —
-livello 2, soak prolungati, qualifica degli artefatti — si eseguono **sulla
-candidate finale**, prima del rilascio. Durante lo sviluppo valgono prove mirate
-alle modifiche e controlli proporzionati alla chiusura dei blocchi. Una campagna
-lunga si ripete solo se una modifica successiva ne invalida le prove o se emerge
-un problema concreto, e in quel caso va detto **quale misura è invalidata e
-perché**. Se un gate pretendesse diversamente, il vincolo va segnalato: non
-aggirato, e non risolto avviando altre ore di test.
+**Le campagne lunghe non si lanciano durante lo sviluppo.** Checkpoint completi
+di livello 1 e 2, soak prolungati, campagne complete di copertura e qualifica
+degli artefatti si eseguono **sulla candidate finale**, prima del rilascio.
+Durante lo sviluppo valgono prove mirate alle modifiche e controlli
+proporzionati; chiudere un blocco non innesca una qualifica completa.
+Dopo la qualifica finale, una campagna si ripete solo se una modifica ne
+invalida le prove o emerge un problema concreto, dichiarando **quale misura è
+invalidata e perché**. Se un gate pretendesse diversamente, il vincolo va
+segnalato: non aggirato e non risolto avviando altre ore di test.
 
 ## Due rilievi aperti dalla pubblicazione
 
@@ -622,13 +625,15 @@ Il regime delle misure:
 
 - letture e pianificazione: nessun livello 1 né 2;
 - sola documentazione: controlli mirati del docset;
-- codice, feature e gate: prove mirate durante lo sviluppo, livello 1 alla
-  chiusura di un blocco coerente;
+- codice, feature e gate: prove mirate durante lo sviluppo e alla chiusura del
+  blocco, inclusi fmt/clippy sul perimetro pertinente; nessun checkpoint
+  completo automatico a ogni commit o aggiornamento di dipendenza;
 - rimisure solo per i perimetri invalidati, nominando quale misura cade e
   perché; nessuna campagna concorrente duplicata;
-- livello 2 completo e soak prolungati **sulla candidate definitiva**, con base
-  differenziale esplicita, log duraturi e strumenti già pronti. Distribuzione e
-  misure devono identificare la revisione effettivamente provata;
+- checkpoint completi di livello 1 e 2, soak prolungati, campagne complete di
+  copertura e qualifica degli artefatti **solo sulla candidate definitiva prima
+  del rilascio**, con base differenziale esplicita, log duraturi e strumenti
+  già pronti. Distribuzione e misure devono identificare la revisione provata;
 - nessuna aggiunta facoltativa durante il congelamento. La pubblicazione della
   4.1.0 richiede un'autorizzazione propria.
 
