@@ -257,15 +257,18 @@ riferimento in entrata dai comandi.
 
 Il beneficio concreto è quello, e va detto per quello che è: **la separazione
 non riduce un accoppiamento alto — l'accoppiamento è già basso e a senso unico.
-Rende impossibile introdurne uno nuovo**, perché una freccia all'indietro
-diventerebbe un `use` da scrivere. Restano insieme comandi, dispatch e buste,
+Rende una dipendenza inversa visibile**, perché diventerebbe un `use` scritto in
+cima a un file invece di una chiamata nello stesso modulo. Non la **impedisce**:
+un `use` si aggiunge. Impedirla richiederebbe un vincolo verificato — un gate
+che rifiuti quella direzione — e non è oggetto di questa voce. Restano insieme comandi, dispatch e buste,
 che si chiamano davvero fra loro.
 
-Che gli export contrattati stiano in `operazioni.rs` dice che una separazione
-non può rompere *la superficie dichiarata*. **Non dice che preservi il
-comportamento**: i sei wrapper passano attraverso i `cmd_*`, e un cambiamento
-dentro di essi arriverebbe intatto ai chiamanti esterni. La garanzia la danno le
-prove, non i wrapper.
+Che gli export contrattati stiano in `operazioni.rs` dice una cosa sola: i sei
+percorsi pubblici restano quelli, perché sono definiti là e non qui. **Non
+garantisce né le firme né il comportamento**: i wrapper chiamano i `cmd_*`, e
+un'estrazione che ne cambiasse una firma li romperebbe alla compilazione, mentre
+una che ne cambiasse il comportamento lo lascerebbe passare intatto ai chiamanti
+esterni. Il primo caso lo prende il compilatore, il secondo solo le prove.
 
 ##### `driver.rs`: chiamate e tipi condivisi fra i gruppi di validazione
 
@@ -321,7 +324,10 @@ cambiamento di comportamento arriverebbe intatto ai chiamanti esterni.
 
 Quello che una separazione dovrà quindi portare con sé non è un altro conteggio:
 è l'esecuzione delle suite dei tredici crate dipendenti, con gli stessi esiti e
-gli stessi effetti osservabili — pubblicazione atomica compresa.
+gli stessi effetti osservabili — pubblicazione atomica compresa. E resterà una
+parte affidata alla lettura del diff: che l'ordine delle operazioni e il punto in
+cui una risorsa viene rilasciata siano quelli di prima è una proprietà che le
+prove coprono dove hanno un caso, e che altrove si verifica guardando.
 
 Non è stato eseguito alcun refactoring, nessun export è cambiato, e nessuna
 prova è stata aggiunta o tolta.
