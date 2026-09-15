@@ -92,6 +92,9 @@ quell'invariante strutturale; non sostituisce una prova del comportamento.
 ### M1 — mappa delle responsabilità e dei dipendenti
 
 Analisi eseguita il 16 settembre 2026 sui sorgenti, senza modifiche al codice.
+Mappa registrata nel commit `89b70ce`. L'analisi iniziale è completata;
+la decisione su `lib.rs` e `driver.rs` resta aperta fino alle misure di
+accoppiamento descritte sotto. Per `budget.rs` l'esito proposto è mantenerlo.
 Le dimensioni sono state **rimisurate**, non riprese dal confronto: 2.362 righe
 in `plenora-io-tools/src/lib.rs`, 2.236 in `plenora-io-core/src/driver.rs`,
 2.028 in `plenora-io-model/src/budget.rs`.
@@ -106,15 +109,17 @@ per cui la dimensione indica dove leggere e non che cosa correggere.
 
 #### Chi dipende da che cosa
 
-| modulo | crate dipendenti | superficie dichiarata |
+| modulo | altri crate dipendenti nel workspace | superficie dichiarata |
 |---|---|---|
 | `plenora-io-core/src/driver.rs` | **13** — ogni driver, più `plenora-bench` e `plenora-io-tools` | i quattro trait sono il contratto interno fra core e driver |
 | `plenora-io-model/src/budget.rs` | **14** — come sopra, più `plenora-io-core` | `PipelineBudget`, permessi e lease attraversano tutto |
-| `plenora-io-tools/src/lib.rs` | **nessuno** | vedi sotto: la superficie dichiarata non passa di qui |
+| `plenora-io-tools/src/lib.rs` | **nessuno** | gli ingressi dichiarati in `operazioni` chiamano le implementazioni qui |
 
-L'asimmetria è il risultato principale di questa analisi. Separare `driver.rs` o
-`budget.rs` tocca tredici o quattordici crate; separare `lib.rs` non ne tocca
-nessuno.
+L'asimmetria indica l'ampiezza dei consumatori da considerare nelle verifiche,
+non quanti crate debbano essere modificati. Una separazione interna che
+preservi percorsi e firme può evitare modifiche ai tredici o quattordici
+dipendenti. Per `lib.rs`, zero altri crate nel workspace non esclude il
+binario dello stesso pacchetto, i test e i consumatori esterni.
 
 #### `plenora-io-tools/src/lib.rs` — nove responsabilità, zero export contrattati
 
@@ -130,7 +135,7 @@ nessuno.
 | dispatch e `run` | 201 |
 | hook di panico | 150 |
 
-Il fatto che decide: **la superficie Rust dichiarata non sta in questo file.**
+Gli ingressi Rust dichiarati sono definiti in un altro file.
 `contracts/superficie-rust.json` nomina sei export, e sono tutti in
 `operazioni.rs` — `plenora_io_tools::operazioni::{catalog, inspect, layers,
 read, write, convert}`, 328 righe che avvolgono i `cmd_*` di `lib.rs`. I `pub
@@ -138,11 +143,14 @@ fn cmd_read` e simili sono pubblici per Rust ma non contrattati, e il gate
 `check_superficie_rust.py` prova i sei export contro l'archivio distribuito, non
 questi.
 
-Quindi una separazione qui **non può rompere la superficie dichiarata**, e non
-ha dipendenti interni da aggiornare. Le linee di taglio naturali sono già
-visibili nella tabella — il parsing degli argomenti e il documento capability
-non condividono stato con i comandi — e tre moduli figli (`busta`, `operazioni`,
-`radici`) mostrano che l'estrazione è già la pratica del crate.
+Una separazione può quindi mantenere gli ingressi dichiarati in `operazioni`,
+ma non è per questo sicura: i wrapper dipendono dai `cmd_*` e possono cambiare
+comportamento anche a firme invariate. Il manifesto esclude esplicitamente
+gli export non elencati dalla compatibilità promessa; questo non elimina la
+necessità di verificare gli esiti dei percorsi dichiarati e della CLI.
+La tabella suggerisce possibili separazioni, da valutare misurando lo stato
+condiviso. Tre moduli figli (`busta`, `operazioni`, `radici`) mostrano che
+l'estrazione è già la pratica del crate.
 
 Resta da verificare, prima di proporla: che i `cmd_*` non condividano stato
 mutabile con il parsing oltre a `Cli`, e che l'hook di panico non dipenda
@@ -161,7 +169,7 @@ dall'ordine di inizializzazione. Nessuna delle due è stata misurata qui.
 | righe rifiutate: diagnostica | 122 |
 
 Più della metà del file sta in una sezione, e dentro quella se ne distinguono
-tre gruppi che non si parlano molto:
+tre gruppi di responsabilità, il cui accoppiamento resta da misurare:
 
 - **pianificazione della perdita** (~350 righe): `planned_write_loss`,
   `stato_per_il_piano`, `RappresentazioneDelCrs`, `assess_write_contract` —
@@ -173,9 +181,10 @@ tre gruppi che non si parlano molto:
   `nullability_violations`, `inspect_geometry_row` e gli errori di rifiuto.
 
 I quattro trait sono il contratto fra core e driver, e ogni driver li importa:
-toccarli è un cambiamento per tredici crate. I tre gruppi della validazione,
+cambiarne percorsi o firme può richiedere modifiche ai consumatori. I tre gruppi della validazione,
 invece, sono raggiunti attraverso `with_write_validation`, una sola funzione
-d'ingresso. Separarli sposterebbe codice senza cambiare quella firma.
+d'ingresso. Un'eventuale separazione deve preservare quella firma e il
+comportamento; la convenienza dipende dalle chiamate fra i gruppi.
 
 Il crate ha già sei moduli figli (`capabilities`, `descriptor`, `loss`,
 `publish`, `request`, `registry`) e `driver/` ne contiene altri tre
@@ -213,8 +222,8 @@ contatore e lascerebbe l'accoppiamento dov'è.
 
 #### Che cosa questa analisi non dice
 
-Non dice che le separazioni proposte siano sicure: dice dove passerebbero le
-linee e chi verrebbe toccato. Prima di decidere servono, per `lib.rs`, la
+Non dice che le separazioni proposte siano sicure: individua possibili
+confini e consumatori da considerare. Prima di decidere servono, per `lib.rs`, la
 verifica sullo stato condiviso fra parsing e comandi; e per `driver.rs`, la
 misura di quanto i tre gruppi della validazione si chiamino davvero fra loro —
 due gruppi che si scambiano venti funzioni non sono due moduli.
