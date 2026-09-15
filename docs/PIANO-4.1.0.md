@@ -89,6 +89,139 @@ quell'invariante strutturale; non sostituisce una prova del comportamento.
 | M4 | Legare capability, documentazione e prove senza duplicare le fonti | Censimento delle proprietà dichiarate da catalogo/CLI/SDK e del test che le esercita; distinzione tra compilato, eseguito, saltato e non applicabile. Stato derivato dai registri esistenti e verifica della corrispondenza con CI/checkpoint. R3–R5 governano identità delle corse e riuso; nessun secondo sistema di assurance |
 | M5 | Valutare le dipendenze come parte della manutenibilità del prodotto | L1–L4, D1–D7 e F1–F7 producono esiti motivati con API/feature, regressioni e grafo effettivo. Riduzione del lavoro da mantenere dimostrata per delta rimossi o catene semplificate; nessuna equivalenza fra meno crate, meno byte e maggiore qualità |
 
+### M1 — mappa delle responsabilità e dei dipendenti
+
+Analisi eseguita il 16 settembre 2026 sui sorgenti, senza modifiche al codice.
+Le dimensioni sono state **rimisurate**, non riprese dal confronto: 2.362 righe
+in `plenora-io-tools/src/lib.rs`, 2.236 in `plenora-io-core/src/driver.rs`,
+2.028 in `plenora-io-model/src/budget.rs`.
+
+Un primo fatto va detto perché cambia la lettura: **questi tre non sono i tre
+moduli più grandi.** `driver-shp/src/lib.rs` ne ha 3.858, `driver-filegdb`
+3.477, `driver-geoparquet` 2.873. La differenza non è la dimensione ma la
+natura: un driver concentra un formato, cioè una responsabilità che nessuno
+chiede di separare; questi tre stanno su percorsi trasversali, e lì la
+concentrazione può nascondere responsabilità diverse messe insieme. È il motivo
+per cui la dimensione indica dove leggere e non che cosa correggere.
+
+#### Chi dipende da che cosa
+
+| modulo | crate dipendenti | superficie dichiarata |
+|---|---|---|
+| `plenora-io-core/src/driver.rs` | **13** — ogni driver, più `plenora-bench` e `plenora-io-tools` | i quattro trait sono il contratto interno fra core e driver |
+| `plenora-io-model/src/budget.rs` | **14** — come sopra, più `plenora-io-core` | `PipelineBudget`, permessi e lease attraversano tutto |
+| `plenora-io-tools/src/lib.rs` | **nessuno** | vedi sotto: la superficie dichiarata non passa di qui |
+
+L'asimmetria è il risultato principale di questa analisi. Separare `driver.rs` o
+`budget.rs` tocca tredici o quattordici crate; separare `lib.rs` non ne tocca
+nessuno.
+
+#### `plenora-io-tools/src/lib.rs` — nove responsabilità, zero export contrattati
+
+| responsabilità | righe |
+|---|---|
+| preambolo e costanti | 218 |
+| buste e identità | 244 |
+| struttura `Cli` | 165 |
+| parsing degli argomenti | 369 |
+| documento capability | 169 |
+| comandi `catalog`, `inspect`, `layers` | 305 |
+| comandi `write`, `read`, `convert` | 537 |
+| dispatch e `run` | 201 |
+| hook di panico | 150 |
+
+Il fatto che decide: **la superficie Rust dichiarata non sta in questo file.**
+`contracts/superficie-rust.json` nomina sei export, e sono tutti in
+`operazioni.rs` — `plenora_io_tools::operazioni::{catalog, inspect, layers,
+read, write, convert}`, 328 righe che avvolgono i `cmd_*` di `lib.rs`. I `pub
+fn cmd_read` e simili sono pubblici per Rust ma non contrattati, e il gate
+`check_superficie_rust.py` prova i sei export contro l'archivio distribuito, non
+questi.
+
+Quindi una separazione qui **non può rompere la superficie dichiarata**, e non
+ha dipendenti interni da aggiornare. Le linee di taglio naturali sono già
+visibili nella tabella — il parsing degli argomenti e il documento capability
+non condividono stato con i comandi — e tre moduli figli (`busta`, `operazioni`,
+`radici`) mostrano che l'estrazione è già la pratica del crate.
+
+Resta da verificare, prima di proporla: che i `cmd_*` non condividano stato
+mutabile con il parsing oltre a `Cli`, e che l'hook di panico non dipenda
+dall'ordine di inizializzazione. Nessuna delle due è stata misurata qui.
+
+#### `plenora-io-core/src/driver.rs` — la concentrazione è in un punto solo
+
+| responsabilità | righe |
+|---|---|
+| `Source` e `Sink` | 187 |
+| `ReadOptions` e `WriteOptions` | 244 |
+| cancellazione e barriera arrow | 119 |
+| i quattro trait (`FormatDriver`, `OpenDatasetHandle`, `LayerReader`, `FormatWriter`) | 181 |
+| preflight e limiti di scrittura | 116 |
+| **validazione della scrittura** | **1.208** |
+| righe rifiutate: diagnostica | 122 |
+
+Più della metà del file sta in una sezione, e dentro quella se ne distinguono
+tre gruppi che non si parlano molto:
+
+- **pianificazione della perdita** (~350 righe): `planned_write_loss`,
+  `stato_per_il_piano`, `RappresentazioneDelCrs`, `assess_write_contract` —
+  calcola che cosa la scrittura perderà, prima di scrivere;
+- **macchinario della scrittura** (~340 righe): `LimitedWriter`,
+  `WriteBatchResources`, `GeometryValidation` — il writer con le risorse
+  limitate;
+- **validazione per riga e per batch** (~450 righe): `validate_geometry_batch_at`,
+  `nullability_violations`, `inspect_geometry_row` e gli errori di rifiuto.
+
+I quattro trait sono il contratto fra core e driver, e ogni driver li importa:
+toccarli è un cambiamento per tredici crate. I tre gruppi della validazione,
+invece, sono raggiunti attraverso `with_write_validation`, una sola funzione
+d'ingresso. Separarli sposterebbe codice senza cambiare quella firma.
+
+Il crate ha già sei moduli figli (`capabilities`, `descriptor`, `loss`,
+`publish`, `request`, `registry`) e `driver/` ne contiene altri tre
+(`batch_worker`, `reader_adapters`, `spool`): l'estrazione è la pratica
+corrente, e questi tre gruppi sono candidati coerenti con essa.
+
+#### `plenora-io-model/src/budget.rs` — dieci responsabilità, e nessuna isolata
+
+| responsabilità | righe |
+|---|---|
+| preambolo | 235 |
+| identità della sorgente: `SourceEntry`, `SourceDigest` | 327 |
+| limiti dichiarati: `PipelineLimits` | 159 |
+| pool e prenotazioni: `ResourcePool` | 100 |
+| osservazione dell'input: `ObservedInput`, `InputPermit`, footprint | 214 |
+| contesto della pipeline | 355 |
+| budget e bundle | 154 |
+| contatori e budget d'operazione | 133 |
+| lease: memoria, spill, concorrenza | 206 |
+| parti di lettura | 145 |
+
+È il modulo con più responsabilità nominabili e la distribuzione più piatta:
+nessuna sezione domina, e ventuno tipi pubblici escono da qui verso quattordici
+crate. Le parti si tengono per costruzione — `InputPermit` esiste perché il
+footprint sia osservato una volta sola, i lease perché il pool sappia quando
+restituire, il contesto perché i contatori abbiano un posto dove vivere — e una
+separazione le distribuirebbe senza ridurre l'accoppiamento, perché
+resterebbero a chiamarsi fra loro.
+
+**Esito proposto per M1 su questo modulo: mantenerlo, con motivazione.** Il
+criterio lo ammette esplicitamente, e la ragione è misurata: qui la dimensione
+viene dal numero di concetti che il budget deve tenere insieme, non da
+responsabilità estranee finite nello stesso file. Un taglio abbasserebbe il
+contatore e lascerebbe l'accoppiamento dov'è.
+
+#### Che cosa questa analisi non dice
+
+Non dice che le separazioni proposte siano sicure: dice dove passerebbero le
+linee e chi verrebbe toccato. Prima di decidere servono, per `lib.rs`, la
+verifica sullo stato condiviso fra parsing e comandi; e per `driver.rs`, la
+misura di quanto i tre gruppi della validazione si chiamino davvero fra loro —
+due gruppi che si scambiano venti funzioni non sono due moduli.
+
+Non è stato eseguito alcun refactoring, nessun export è cambiato, e nessuna
+prova è stata aggiunta o tolta.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
