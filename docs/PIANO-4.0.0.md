@@ -1,5 +1,12 @@
 # Piano 4.0.0 — adozione dei contratti pubblici
 
+> **La 4.0.0 è pubblicata.** Il seguito del lavoro sta in
+> [PIANO-4.1.0.md](PIANO-4.1.0.md). Questo documento resta nel docset
+> perché le due deviazioni registrate in `contracts/adozione-4.0.0.json`
+> indicano le sue righe B10 e B12c come proprio luogo di tracciamento: la
+> scadenza scritta più sotto si sposta a quando quelle deviazioni sono
+> chiuse.
+
 **Documento di pianificazione.** Non descrive ciò che il codice fa oggi — quello
 lo dicono [docs/PRODUCT.md](PRODUCT.md) e [docs/ENGINEERING.md](ENGINEERING.md) —
 ma lo **scostamento** fra ciò che il codice fa e ciò che

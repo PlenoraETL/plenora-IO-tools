@@ -64,6 +64,24 @@ CANONICI = [
     # andiamo. Ha una scadenza: quando la 4.0.0 e' qualificata, questo
     # documento esce dall'allowlist invece di restare a invecchiare.
     "docs/PIANO-4.0.0.md",
+    # Il settimo e l'ottavo arrivano dopo la pubblicazione della 4.0.0, e
+    # stanno insieme perche' uno legge l'altro.
+    #
+    # Il piano della 4.1.0 ha lo stesso ruolo del sesto -- dove andiamo, non
+    # come siamo fatti -- e la stessa scadenza: esce quando le sue voci sono
+    # chiuse. Il censimento e' l'unico canonico che non descrive ne' il
+    # prodotto ne' la direzione: descrive **il grafo delle dipendenze in un
+    # giorno preciso**, e per questo porta la data nel nome. Senza, un
+    # documento canonico inviterebbe a leggerlo come stato corrente, e il
+    # grafo cambia al primo aggiornamento.
+    #
+    # Il piano 4.0.0 **non** esce dall'allowlist insieme a loro, contro cio'
+    # che il suo stesso commento prescrive: le due deviazioni registrate in
+    # `contracts/adozione-4.0.0.json` indicano le sue righe B10 e B12c come
+    # luogo di tracciamento, e cancellarlo romperebbe i riferimenti di due
+    # deviazioni aperte. La scadenza si sposta, non si esegue.
+    "docs/PIANO-4.1.0.md",
+    "docs/CENSIMENTO-LIBRERIE-2026-09-15.md",
 ]
 
 # Letti da una piattaforma o da Cargo per convenzione di percorso. Non sono

@@ -176,6 +176,8 @@ Il **recovery** di un publish Shapefile interrotto è in
 | [docs/RELEASE.md](docs/RELEASE.md) | dove siamo e dove andiamo: stato misurato, blocchi aperti, ordine di lavoro |
 | [docs/INSTALL.md](docs/INSTALL.md) | installare e migrare: artefatti, profili, scoperta del binario, 1.x → 2.0.0 |
 | [docs/PIANO-4.0.0.md](docs/PIANO-4.0.0.md) | dove andiamo dopo la 3.0.0: scostamenti dai contratti pubblici, priorità, decisioni aperte |
+| [docs/PIANO-4.1.0.md](docs/PIANO-4.1.0.md) | dove andiamo dopo la 4.0.0: residui, costo delle dipendenze, strumenti di qualifica |
+| [docs/CENSIMENTO-LIBRERIE-2026-09-15.md](docs/CENSIMENTO-LIBRERIE-2026-09-15.md) | che librerie ci sono e perché: uso effettivo, catena di introduzione, condizioni di rimozione |
 
 Lo stato in forma strutturata è
 [`assurance/current-state.json`](assurance/current-state.json); `docs/RELEASE.md`

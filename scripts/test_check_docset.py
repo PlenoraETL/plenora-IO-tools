@@ -63,7 +63,7 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_tredici_voci(self) -> None:
+    def test_l_allowlist_ha_quindici_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
         Cinque canonici e sette operativi. Sono cresciuti due volte il
@@ -94,9 +94,24 @@ class SondePerimetro(unittest.TestCase):
         qualificata, il piano ha finito il proprio lavoro ed esce dall'allowlist.
         Un documento che resta dopo aver smesso di servire e' esattamente cio'
         che questo gate esiste per impedire, e vale anche per questo.
+
+        Il 2026-09-15, pubblicata la 4.0.0, sono entrati il settimo e l'ottavo.
+        `docs/PIANO-4.1.0.md` ha lo stesso ruolo del sesto e la stessa scadenza.
+        `docs/CENSIMENTO-LIBRERIE-2026-09-15.md` e' il primo canonico che non
+        descrive ne' il prodotto ne' la direzione: descrive il **grafo delle
+        dipendenze in un giorno preciso**, e la data sta nel nome perche' un
+        documento canonico senza data invita a leggerlo come stato corrente.
+
+        Il sesto **non** e' uscito con la qualifica della 4.0.0, contro la
+        scadenza scritta qui sopra: le due deviazioni registrate in
+        `contracts/adozione-4.0.0.json` indicano le sue righe B10 e B12c come
+        luogo di tracciamento, e cancellarlo romperebbe i riferimenti di due
+        deviazioni aperte. La scadenza si e' spostata a quando quelle si
+        chiudono. Vale la pena averlo scoperto qui: una scadenza scritta in un
+        documento si riconcilia, non si esegue.
         """
-        self.assertEqual(len(gate.AMMESSI), 13)
-        self.assertEqual(len(gate.CANONICI), 6)
+        self.assertEqual(len(gate.AMMESSI), 15)
+        self.assertEqual(len(gate.CANONICI), 8)
         self.assertEqual(len(gate.OPERATIVI), 7)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
