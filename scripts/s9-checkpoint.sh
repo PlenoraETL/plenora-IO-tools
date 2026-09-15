@@ -713,6 +713,7 @@ passo sonde_dettaglio_congelato python3 -m unittest scripts.test_check_dettaglio
 passo check_dettaglio_congelato python3 scripts/check_dettaglio_congelato.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
+passo sonde_soak python3 -m unittest scripts.test_soak_misurato
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder
 passo check_prevalidazione python3 scripts/check_prevalidazione_decoder.py
 passo sonde_identita python3 -m unittest scripts.test_check_public_identity

@@ -1,0 +1,185 @@
+"""Il soak con la durata **misurata**, non dedotta.
+
+# Che cosa non ha funzionato prima
+
+La corsa precedente su `dxf_reader` dichiarava 7993 secondi contro i 3600
+chiesti. Da quei log non c'era modo di dire quanta parte fosse esecuzione e
+quanta orologio che avanzava mentre il processo non avanzava: `-max_total_time`
+misura tempo di parete, e il ritmo medio si puo' solo interpretare. Dedurre i
+minuti utili dal numero di esecuzioni sarebbe la stessa deduzione con un altro
+nome -- non dimostra una durata.
+
+# Quattro orologi sullo stesso intervallo
+
+- `CLOCK_MONOTONIC` e `CLOCK_BOOTTIME`, i due orologi interni;
+- `CLOCK_REALTIME`, la parete, che al risveglio si risincronizza con l'host;
+- il tempo di CPU del figlio (`RUSAGE_CHILDREN`, utente + sistema), cioe' quanto
+  il processo ha davvero lavorato.
+
+# Perche' i due orologi interni non bastano
+
+La prima stesura di questo file confrontava MONOTONIC con BOOTTIME per scoprire
+la sospensione. Funziona su una macchina fisica sospesa, dove BOOTTIME continua
+e MONOTONIC no. **Non funziona quando a fermarsi e' tutta la VM** -- il caso di
+Docker su un portatile che va in ibernazione: i due orologi si fermano
+*insieme*, il loro scarto resta zero, e il controllo uscirebbe verde su una
+corsa inservibile. E' successo davvero, ed e' stato misurato: dopo sedici ore di
+congelamento lo scarto valeva `0 s`, mentre la VM aveva accumulato 63 minuti di
+uptime su 17 ore di orologio umano.
+
+Il confronto che lo vede e' fra un orologio **interno** e quello **di parete**,
+perche' il secondo si riallinea all'host al risveglio mentre il primo no: la
+loro divergenza *e'* il congelamento.
+
+# Le soglie qui sono controlli sull'ambiente
+
+Il criterio concordato e' un'ora di campagna sul bersaglio. Il 5% sulla
+sospensione e l'80% sulla CPU non sono requisiti del prodotto: sono controlli
+introdotti per rendere la corsa diagnosticabile. Se scattano, la diagnosi e'
+«la macchina non ha retto la misura», non «il prodotto ha un difetto».
+"""
+
+import json
+import os
+import pathlib
+import resource
+import subprocess
+import sys
+import time
+
+BERSAGLIO = os.environ.get("BERSAGLIO", "dxf_reader")
+SECONDI = int(os.environ.get("SECONDI", "3600"))
+USCITA = pathlib.Path(os.environ.get("USCITA", "/tmp/soak-misurato.json"))
+LOG = pathlib.Path(os.environ.get("LOG", "/tmp/soak-misurato.log"))
+
+
+def orologi():
+    return {
+        "monotonic": time.clock_gettime(time.CLOCK_MONOTONIC),
+        "boottime": time.clock_gettime(time.CLOCK_BOOTTIME),
+        "parete": time.time(),
+    }
+
+
+prima_cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
+prima = orologi()
+
+with LOG.open("wb") as f:
+    esito = subprocess.run(
+        ["bash", "scripts/fuzz-smoke.sh", "--seconds", str(SECONDI), BERSAGLIO],
+        cwd="/work",
+        stdout=f,
+        stderr=subprocess.STDOUT,
+    )
+
+dopo = orologi()
+dopo_cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
+
+monotono = dopo["monotonic"] - prima["monotonic"]
+boottime = dopo["boottime"] - prima["boottime"]
+parete = dopo["parete"] - prima["parete"]
+cpu = (dopo_cpu.ru_utime - prima_cpu.ru_utime) + (dopo_cpu.ru_stime - prima_cpu.ru_stime)
+# La sospensione della macchina **fisica**: BOOTTIME continua, MONOTONIC no.
+sospensione_host = boottime - monotono
+# Il congelamento della **VM**: i due interni si fermano insieme, e solo la
+# parete se ne accorge al risveglio.
+congelamento_vm = parete - monotono
+
+# Il riepilogo che libFuzzer stampa, letto dal log e non ricostruito.
+testo = LOG.read_text(encoding="utf-8", errors="replace")
+import re  # noqa: E402  -- serve solo qui, dopo che il log esiste
+
+fine = re.search(r"Done (\d+) runs in (\d+) second", testo)
+stat = dict(re.findall(r"stat::(\w+):\s+(\S+)", testo))
+
+misura = {
+    "bersaglio": BERSAGLIO,
+    "secondi_richiesti": SECONDI,
+    "codice_uscita_campagna": esito.returncode,
+    "tempi_grezzi": {
+        "monotonic_s": round(monotono, 1),
+        "boottime_s": round(boottime, 1),
+        "parete_s": round(parete, 1),
+        "cpu_figli_s": round(cpu, 1),
+    },
+    "derivati": {
+        "sospensione_host_s": round(sospensione_host, 1),
+        "congelamento_vm_s": round(congelamento_vm, 1),
+    },
+    "riepilogo_del_fuzzer": {
+        "runs": int(fine.group(1)) if fine else None,
+        "secondi_dichiarati": int(fine.group(2)) if fine else None,
+        "esecuzioni": stat.get("number_of_executed_units"),
+        "media_al_secondo": stat.get("average_exec_per_sec"),
+        "unita_nuove": stat.get("new_units_added"),
+        "rss_massimo_mb": stat.get("peak_rss_mb"),
+    },
+    "come_si_legge": (
+        "`boottime - monotonic` e' la sospensione della macchina fisica. "
+        "`parete - monotonic` e' il congelamento della VM, che i due orologi "
+        "interni non vedono perche' si fermano insieme -- ed e' il caso "
+        "dell'ibernazione dell'host. `cpu_figli` e' il lavoro effettivo del "
+        "fuzzer: vicino al monotono significa che ha lavorato per tutto "
+        "l'intervallo invece di aspettare. Nessuno di questi numeri e' dedotto "
+        "dal conteggio delle esecuzioni."
+    ),
+}
+
+tolleranza = 0.05 * SECONDI
+problemi_del_prodotto = []
+problemi_dell_ambiente = []
+
+# Un'uscita diversa da zero **non basta** a dire «finding».
+#
+# La prima stesura lo assumeva, e si e' sbagliata al primo colpo: la campagna e'
+# uscita con 1 dopo zero secondi perche' `rustup` non era sul PATH, e il
+# verdetto ha detto «PRODOTTO» su un fuzzer che non era mai partito. Un finding
+# e' una campagna che **ha girato** e ha trovato qualcosa; se non c'e' nemmeno
+# il riepilogo del fuzzer, il fallimento sta prima del prodotto.
+partita = fine is not None
+if esito.returncode != 0 and partita:
+    problemi_del_prodotto.append(
+        "la campagna esce con %d dopo aver girato: e' un finding, non un "
+        "problema di misura" % esito.returncode
+    )
+elif esito.returncode != 0:
+    problemi_dell_ambiente.append(
+        "la campagna esce con %d senza aver prodotto un riepilogo del fuzzer: "
+        "non e' partita, e non ha misurato niente" % esito.returncode
+    )
+if monotono < SECONDI:
+    problemi_dell_ambiente.append(
+        "l'intervallo e' durato %.0f s, meno dei %d chiesti" % (monotono, SECONDI)
+    )
+if sospensione_host > tolleranza:
+    problemi_dell_ambiente.append(
+        "la macchina e' stata sospesa per %.0f s: i secondi dichiarati non sono "
+        "secondi di esecuzione" % sospensione_host
+    )
+if congelamento_vm > tolleranza:
+    problemi_dell_ambiente.append(
+        "la VM e' stata ferma per %.0f s mentre la parete avanzava: i due "
+        "orologi interni non lo vedono, e la campagna non ha avuto l'intervallo "
+        "che dichiara" % congelamento_vm
+    )
+if cpu < 0.8 * SECONDI:
+    problemi_dell_ambiente.append(
+        "il fuzzer ha usato %.0f s di CPU su %.0f s di intervallo: ha atteso "
+        "invece di lavorare" % (cpu, monotono)
+    )
+
+misura["durata_dimostrata"] = not problemi_dell_ambiente
+misura["finding"] = bool(problemi_del_prodotto)
+misura["problemi_dell_ambiente"] = problemi_dell_ambiente
+misura["problemi_del_prodotto"] = problemi_del_prodotto
+
+USCITA.write_text(json.dumps(misura, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(misura["tempi_grezzi"], ensure_ascii=False))
+print(json.dumps(misura["derivati"], ensure_ascii=False))
+print(json.dumps(misura["riepilogo_del_fuzzer"], ensure_ascii=False))
+print("durata dimostrata:", misura["durata_dimostrata"], "| finding:", misura["finding"])
+for p in problemi_dell_ambiente:
+    print("  ambiente:", p)
+for p in problemi_del_prodotto:
+    print("  PRODOTTO:", p)
+sys.exit(0 if misura["durata_dimostrata"] and not misura["finding"] else 1)

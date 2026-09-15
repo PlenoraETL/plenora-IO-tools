@@ -215,6 +215,8 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_quarantena_fuzz
           python3 scripts/check_quarantena_fuzz.py
+      - name: Verify soak measurement regressions
+        run: python3 -m unittest scripts.test_soak_misurato
       # I due gate dei fork condividono `fork_comune`, che calcola l'impronta
       # sul solo insieme versionato e rifiuta a parte gli artefatti estranei.
       # Le due difese sono indipendenti, e la sonda e' cio' che impedisce a una

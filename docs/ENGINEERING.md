@@ -727,6 +727,43 @@ contraddice non è una verifica.
 
 ---
 
+## Misurare il soak
+
+Su Linux, dalla radice del repository:
+
+```bash
+python3 scripts/soak_misurato.py dxf_reader --seconds 3600 --output-dir /work/.s9-checkpoint/soak-dxf-candidate
+```
+
+La directory deve essere nuova e stare su storage persistente. Contiene
+`campagna.log` e `referto.json`, con comando, exit code, campioni iniziali e
+finali, digest del log e del misuratore, e giudizio. Il comando usa `fuzz-smoke.sh` sul singolo
+bersaglio e ne eredita toolchain, corpus e opzioni d'ambiente. Un target saltato
+o un errore di preparazione non può dare una durata dimostrata.
+
+Il tempo del wrapper comprende preparazione e build: serve anche il riepilogo
+del fuzzer con almeno i secondi richiesti. Gli scarti assoluti fra MONOTONIC,
+BOOTTIME e parete devono restare entro il 5% della durata richiesta, tolleranza
+del misuratore storico riportata nel referto. La concordanza significa nessuna
+discontinuità rilevata; uno scarto può dipendere anche da una correzione della
+parete e non identifica da solo la causa. La CPU dei figli comprende la build
+ed è **diagnostica senza soglia**, non una stima della durata utile del fuzzer.
+
+`finding: true` indica un segnale riconosciuto di libFuzzer o sanitizer nel log
+del target; `null` lascia un fallimento da classificare. Il solo exit nonzero
+non è un finding, e l'assenza di `Done` non prova il mancato avvio. Exit zero del
+misuratore richiede esito `completa`; gli altri giudizi escono 1, gli errori
+d'invocazione 2. Una terminazione forzata del misuratore può lasciare solo il
+log: senza referto conclusivo non c'è qualifica. La gestione del ciclo di vita
+resta R2 e il legame con la candidate resta R3 del piano 4.1.0.
+
+Le regressioni si eseguono con `python3 -m unittest scripts.test_soak_misurato`,
+anche su Windows. CI e checkpoint le includono senza lanciare un soak.
+`scripts/fixtures/soak/` conserva misuratore e referto originali della 4.0.0,
+più l'estratto del giudizio corretto e la provenienza; i digest degli originali
+sono verificati dalle prove. Il riepilogo usato nella sonda storica è ricostruito
+dai numeri del referto, non è presentato come il log originale.
+
 ## Comandi canonici
 
 ```bash

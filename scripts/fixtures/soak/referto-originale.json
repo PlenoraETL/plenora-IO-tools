@@ -1,0 +1,30 @@
+{
+  "bersaglio": "dxf_reader",
+  "secondi_richiesti": 3600,
+  "codice_uscita_campagna": 0,
+  "tempi_grezzi": {
+    "monotonic_s": 3644.7,
+    "boottime_s": 3644.7,
+    "parete_s": 3644.6,
+    "cpu_figli_s": 280.3
+  },
+  "derivati": {
+    "sospensione_host_s": 0.0,
+    "congelamento_vm_s": -0.1
+  },
+  "riepilogo_del_fuzzer": {
+    "runs": 780540,
+    "secondi_dichiarati": 3630,
+    "esecuzioni": "780540",
+    "media_al_secondo": "215",
+    "unita_nuove": "3175",
+    "rss_massimo_mb": "549"
+  },
+  "come_si_legge": "`boottime - monotonic` e' la sospensione della macchina fisica. `parete - monotonic` e' il congelamento della VM, che i due orologi interni non vedono perche' si fermano insieme -- ed e' il caso dell'ibernazione dell'host. `cpu_figli` e' il lavoro effettivo del fuzzer: vicino al monotono significa che ha lavorato per tutto l'intervallo invece di aspettare. Nessuno di questi numeri e' dedotto dal conteggio delle esecuzioni.",
+  "durata_dimostrata": false,
+  "finding": false,
+  "problemi_dell_ambiente": [
+    "il fuzzer ha usato 280 s di CPU su 3645 s di intervallo: ha atteso invece di lavorare"
+  ],
+  "problemi_del_prodotto": []
+}

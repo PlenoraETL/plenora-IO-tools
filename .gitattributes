@@ -11,3 +11,7 @@ fuzz/seeds/**/*.gpkgb binary
 fuzz/seeds/**/*.parquet binary
 fuzz/seeds/**/*.arrow binary
 fuzz/seeds/**/*.xlsx binary
+
+# Copie storiche usate dalle regressioni del misuratore: digest sui byte originali.
+scripts/fixtures/soak/misuratore-originale.py.txt binary
+scripts/fixtures/soak/referto-originale.json binary

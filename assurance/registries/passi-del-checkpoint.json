@@ -190,6 +190,10 @@
       "log": true
     },
     {
+      "id": "sonde_soak",
+      "log": true
+    },
+    {
       "id": "sonde_prevalidazione",
       "log": true
     },

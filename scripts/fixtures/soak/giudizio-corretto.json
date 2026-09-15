@@ -1,0 +1,12 @@
+{
+  "provenienza": "assurance/evidence/checkpoint-6beb410.json a dab2ea3, campagne_mirate.soak.la_soglia_cpu_non_superata; estratto del giudizio gia' registrato, non una nuova campagna",
+  "revisione_misurata": "6beb410b9984f527f3e89bba420764ac9e24e436",
+  "copie_originali_da": "IO-tools-evidenze-4.0.0/qualifica-6beb410/",
+  "sha256_originali": {
+    "misuratore-originale.py.txt": "2924ccc5c15292e69e01ae287b5cda8bf2f9ed943e1268350c67f2916b319355",
+    "referto-originale.json": "f6f870df7d7c3411809f7489dbd5873887f8d18abf9c91eeaa26d2049ae81738"
+  },
+  "verdetto_originale_durata_dimostrata": false,
+  "giudizio_corretto_durata_dimostrata": true,
+  "motivazione": "La saturazione della CPU non era un requisito del soak. L'intervallo misurato e' 3644,7 s, il riepilogo dichiara 3630 s contro 3600 richiesti; gli orologi concordano entro 0,1 s. Nessuna discontinuita' rilevata dagli orologi usati. I 280,3 s di CPU restano diagnostica; il tempo non contabilizzato come CPU non e' spiegato da questa misura."
+}

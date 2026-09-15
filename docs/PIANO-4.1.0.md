@@ -235,7 +235,7 @@ identificata con seguito preciso**.
 | R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | Fixture rifiutano misura assente o di un'altra revisione; distinguono registrazione entro allowlist, evidenza storica e riuso ammesso; nessun collegamento affidato soltanto al verbale umano |
 | R4 | Rendere esplicito il riuso delle evidenze | Regola per tipo di modifica e perimetro: prodotto, test, documenti, toolchain, feature, lock. Prova della validità e della provenienza del riuso; si conserva la revisione realmente misurata |
 | R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | Una misura per SHA e perimetro; esiti dei comandi controllati prima dei passi dipendenti; monitor legato allo SHA e alla corsa esatta; nessuna diagnosi basata sulla corsa precedente |
-| R6 | Versionare il misuratore del soak con le prove dei casi già osservati | Vive nel repository e non nella directory di sessione; prove per i tre difetti osservati; saturazione CPU registrata come **diagnostica**, distinta dalla durata; referto originale e giudizio corretto entrambi conservati |
+| R6 | Versionare il misuratore del soak con le prove dei casi già osservati | **Chiusa**: `scripts/soak_misurato.py`, regressioni in `scripts/test_soak_misurato.py` collegate a CI e checkpoint; CPU diagnostica; originali e giudizio corretto in `scripts/fixtures/soak/` |
 
 R4 non significa ereditare automaticamente una qualifica completa dopo una
 modifica ai test. Si definisce e si prova prima quali evidenze restano valide,
@@ -255,6 +255,20 @@ della 4.0.0, e vanno scritti perché riguardano la fiducia nella misura:
 Il confronto del corpus fra mount Windows e volume Linux usa **lo stesso
 bersaglio e gli stessi input**: l'I/O resta una causa possibile e non
 quantificata del tempo non contabilizzato, non una spiegazione dimostrata.
+
+R6 conserva i byte del misuratore e del referto originali, con digest verificati
+dalle sonde, e un estratto separato del giudizio corretto già registrato in
+`assurance/evidence/checkpoint-6beb410.json`. Il referto originale continua a
+dire `durata_dimostrata: false`. La nuova analisi degli stessi numeri accetta
+la durata senza imporre saturazione CPU; non costituisce una nuova campagna.
+
+Il misuratore pretende un riepilogo conclusivo con durata sufficiente oltre
+all'intervallo degli orologi: la preparazione non completa un soak troppo breve.
+Riconosce i segnali di finding anche senza `Done`; un exit nonzero senza tali
+segnali resta da classificare. La concordanza degli orologi significa **nessuna
+discontinuità rilevata**, e uno scarto non identifica da solo la causa.
+R2 resta aperto per il ciclo di vita della campagna e R3 per il legame con la
+candidate. Uso e limiti sono descritti in [ENGINEERING.md](ENGINEERING.md#misurare-il-soak).
 
 ## Fase 2 — aggiornamenti delle librerie esterne
 
