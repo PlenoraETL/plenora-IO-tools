@@ -44,6 +44,11 @@ const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
         1,
         1,
     );
+// Quattro elementi sono usciti con l'estrazione di `perdita_pianificata`:
+// le prove li raggiungono dove sono andati, e restano le stesse.
+use super::perdita_pianificata::{
+    record_crs_representation_loss, stato_per_il_piano, FontiDelPiano, RappresentazioneDelCrs,
+};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
