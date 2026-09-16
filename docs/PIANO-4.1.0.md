@@ -1115,8 +1115,9 @@ rinvio non si trasforma in dimenticanza.
 | 4 | ~~**R1** — regressione su `MAX_BLOCCHI`~~ | **chiusa**: tre casi in `prevalida_arrow::tetto_dei_messaggi`; costo misurato — 128 MiB generati in 60 ms e scanditi in 3,5 s — e fixture generata, non versionata | — |
 | 5 | ~~**R2** — campagne senza `sleep` a scadenza~~ | **chiusa**: le tre proprietà c'erano, mancava la quarta — `collect` rimuoveva il container portandosi via il log. Sette prove con un Docker finto. Limite residuo: due corse nello stesso secondo condividerebbero il nome del file, ed è detto nella prova invece che nascosto | — |
 | 6 | ~~**R3–R4**~~ | **chiuse**: il legame misura-evidenza era già imposto e ora è verificato per intero; la regola del riuso è scritta per i sei tipi, col gate che pretende l'esistenza dei sorveglianti | — |
-| 7 | ~~**R5** — corse concorrenti e push dopo controlli falliti~~ | **chiusa**: `start` rifiuta di sovrascrivere una corsa, l'esito viene da `inspect`, e lo SHA è inciso all'avvio e confrontato con l'albero corrente | — |
-| 8 | **M5** e le fasi D, F, U, C | secondo il proprio perimetro — **ma prima serve una decisione**, vedi sotto | tutte toccano `Cargo.lock` |
+| 7 | ~~**R5** — corse concorrenti e push dopo controlli falliti~~ | **chiusa**: `start` rifiuta di sovrascrivere una corsa e di partire su un albero sporco, l'esito viene da `inspect`, e i sorgenti sono un **clone isolato** della revisione incisa | — |
+| 8 | **D1, D5, D6, F1** — il sottoinsieme di dipendenze della 4.1.0 | ciascuna col proprio criterio, eseguite **insieme** perché una sola rimisurazione le copra | toccano `Cargo.lock`: vanno prima del congelamento |
+| 9 | ~~**M5** e le altre fasi D, F, U, C~~ | **rinviate al ciclo successivo**, per scelta di perimetro dichiarata | — |
 
 #### Da R3–R4: anche il verbale fuzz è riferito a ciò che ha eseguito
 
@@ -1153,18 +1154,39 @@ dipendenze: ciascuno tocca `Cargo.lock`, e la regola appena scritta in
 profondità del fuzz, confine ASan, copertura. Farne uno dopo il congelamento
 invaliderebbe le misure che il congelamento serve a fissare.
 
-Due vie, e la scelta non è tecnica:
+**La via scelta è la seconda**: prima si definisce e si completa il
+sottoinsieme di dipendenze destinato alla 4.1.0, poi si congela e si rimisura.
+Alternare è la via peggiore — congelare, aggiornare una dipendenza e rimisurare
+costa due campagne per un risultato solo.
 
-| via | che cosa comporta |
-|---|---|
-| **congelare ora** | la 4.1.0 dichiara chiuse M1–M4 e R1–R6, e le fasi delle dipendenze restano per un ciclo successivo. Le cinque rimisurazioni e la campagna fuzz partono subito |
-| **prima le dipendenze** | si esegue almeno un sottoinsieme di D/F/U/C, si valuta M5 sugli esiti, e **poi** si congela. Ogni aggiornamento ha il suo costo di rimisurazione, e conviene raggrupparli invece di alternarli alle misure |
+#### Il sottoinsieme proposto, e il criterio che lo seleziona
 
-Il piano non sceglie per conto dell'utente: la prima via chiude un ciclo più
-stretto e più presto, la seconda consegna la manutenibilità che M5 doveva
-valutare. Quello che il piano può dire è che **alternarle è la via peggiore** —
-congelare, aggiornare una dipendenza e rimisurare costa due campagne per un
-risultato solo.
+Il criterio è uno: **entra ciò che si chiude dentro questo repository, con una
+regressione che dica se è andata bene.** Resta fuori ciò che dipende da una
+risposta di terzi o da una decisione fra componenti, perché un ciclo non si
+tiene aperto aspettando qualcuno.
+
+| voce | dentro | perché |
+|---|---|---|
+| D1 `num-traits` | **sì** | tocca il solo fork DXF, e le regressioni del parser dicono subito se i valori enum reggono |
+| D5 `thiserror` 1 → 2 | **sì** | un chiamante solo, e il criterio è la semantica degli errori preservata, che le prove sugli assi già fissano |
+| D6 `syn` 2 → 3 | **sì** | dipendenza di macro: il costo è di compilazione e si misura, e nessun comportamento di prodotto cambia |
+| F1 ZIP → Zopfli | **sì** | spegne un compressore non usato; la coordinazione fra tre richiedenti di feature è dentro il nostro `Cargo.toml` |
+| D2 `quick-xml` | no | trattenuta insieme da `kml` e `calamine`: coordinarle è un aggiornamento di terzi |
+| D3 `num-bigint` | no | due catene tenute da upstream diversi, una delle quali è Arrow |
+| D4 `getrandom` | no | tocca target e feature di mezza closure; il costo di rimisurazione non è proporzionato |
+| D7 `windows-sys` | no | `atomicwrites` trattiene la 0.52: serve un aggiornamento upstream o una sostituzione |
+| U1–U3 | no | riconciliazione dei fork e monitoraggio: U3 dice esplicitamente che una release di terzi non deve rendere rossa una revisione qualificata |
+| C1–C4 | no | ciascuna chiede una decisione concordata sul contratto comune, cioè un'altra parte |
+| **M5** | **rinviata al ciclo successivo** | valuta le dipendenze come manutenibilità *sugli esiti* di L, D e F. Con quattro voci su quindici eseguite, la valutazione direbbe più del campione che del prodotto |
+
+**Il rinvio di M5 è una scelta di perimetro, non una dimenticanza**, ed è
+scritto qui perché si veda: la 4.1.0 non promette la valutazione di
+manutenibilità delle dipendenze. Le undici voci lasciate fuori restano dove
+sono, con il loro criterio di chiusura invariato.
+
+Le quattro voci dentro si eseguono **insieme**, non una per volta: ciascuna
+tocca `Cargo.lock`, e raggrupparle costa una rimisurazione invece di quattro.
 
 #### Sul candidato finale, per accordo
 
@@ -1644,10 +1666,10 @@ identificata con seguito preciso**.
 | ID | Intervento | Criterio di chiusura |
 |---|---|---|
 | R1 | Regressione dedicata a `MAX_BLOCCHI` nella prevalidazione Arrow | **Chiusa**: `tetto_dei_messaggi` in `driver-common/src/prevalida_arrow.rs`, tre casi. Sotto e al tetto la guardia tace; uno oltre parla, e si verifica **quale**. Costo misurato: il messaggio più piccolo senza nuove dipendenze è quello di schema, 128 byte, quindi 128 MiB generati in 60 ms e scanditi in 3,5 s. La fixture è generata a ogni corsa, non versionata. Che il caso «al tetto» discrimini è verificato spostando la guardia di uno: diventa rossa da sola |
-| R2 | Togliere alle campagne la dipendenza da `sleep` a scadenza e dalla cattura di `docker exec` | **Chiusa.** Tre delle quattro proprietà erano già in `fuzz-container.sh`: il container sopravvive al client (`run -d`), l'exit code viene da `docker inspect` e mai dal log, e il container non si rimuove prima di aver acquisito l'esito — un'interruzione senza exit code non è né verde né rossa. La quarta mancava: `collect` stampava venti righe di log e poi rimuoveva. Ora lo salva **intero** su disco prima, e se non riesce **non rimuove**. La durata la verifica `soak_misurato.py`, chiuso con R6. Sette regressioni con un Docker finto, fra cui l'ordine salva-poi-rimuove e il rifiuto di rimuovere senza log |
+| R2 | Togliere alle campagne la dipendenza da `sleep` a scadenza e dalla cattura di `docker exec` | **Chiusa.** Tre delle quattro proprietà erano già in `fuzz-container.sh`: il container sopravvive al client (`run -d`), l'exit code viene da `docker inspect` e mai dal log, e il container non si rimuove prima di aver acquisito l'esito — un'interruzione senza exit code non è né verde né rossa. La quarta mancava: `collect` stampava venti righe di log e poi rimuoveva. Ora lo salva **intero** su disco prima, e se non riesce **non rimuove**. La durata la verifica `soak_misurato.py`, chiuso con R6. Sette regressioni con un Docker finto, fra cui l'ordine salva-poi-rimuove e il rifiuto di rimuovere senza log. *Correzione successiva*: `stop` faceva `rm --force` — fermava e distruggeva insieme, senza acquisire l'esito né salvare il log, disfacendo a due righe di distanza tutto ciò che `collect` conservava. Ora ferma e lascia raccoglibile; buttare via si chiede per nome, con `scarta`. La prima prova esercitava solo il ramo «già fermo» e non vedeva il difetto, che stava in quello vivo: estesa. *Limite residuo*: due corse avviate nello stesso secondo condividerebbero il nome del file |
 | R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | **Chiusa.** *Requisito*: fixture che rifiutano una misura assente o di un'altra revisione, distinzione fra registrazione entro allowlist, evidenza storica e riuso, nessun collegamento affidato al solo verbale. *Prova*: `_misura_legata_all_evidenza` pretende che l'evidenza esista, che il suo esito sia un livello 2 superato, che lo SHA risolva e compaia nel nome del file, e che la revisione qualificata coincida; `cambiamenti_dopo_il_congelamento` separa l'allowlist dal resto; `profilo-pubblico-attestato` e `campagna-fuzz-completa` tolgono dal verbale umano i due collegamenti che vi erano rimasti. *Limite residuo*: il legame è per **revisione**, non per contenuto — due alberi con lo stesso SHA sono lo stesso albero, e la qualifica pretende già un checkout pulito, ma un'evidenza prodotta altrove e copiata nel posto giusto non è distinguibile da una prodotta qui |
 | R4 | Rendere esplicito il riuso delle evidenze | **Chiusa.** *Requisito*: una regola per tipo di modifica — prodotto, test, documenti, toolchain, feature, lock — con prova della validità e della provenienza, e la revisione realmente misurata conservata. *Prova*: `assurance/registries/riuso-delle-evidenze.json` dice per ciascuno dei sei che cosa invalida, che cosa resta valido e **chi se ne accorge**; `check_riuso_evidenze.py` pretende i sei come insieme chiuso, ogni campo pieno, e che ogni sorvegliante nominato esista sul disco. Nove regressioni. La revisione misurata resta in `ultima_misura.sha`, confrontata con la qualifica. *Limite residuo*, scritto anche nel gate: verifica che la regola sia **scritta** e che i sorveglianti **esistano**, non che se ne accorgano — quello lo provano le loro regressioni |
-| R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | **Chiusa.** *Requisito*: una misura per SHA e perimetro, esiti controllati prima dei passi dipendenti, monitor legato allo SHA e alla corsa esatta, nessuna diagnosi sulla corsa precedente. *Prova*: `comando_start` rifiuta se un container esiste già — viva o finita e non ancora letta — invece di sovrascriverlo; l'esito viene da `docker inspect` e mai dal log; lo SHA si incide nell'etichetta **all'avvio**, perché dedurlo dopo risponderebbe di un altro albero, e `status` e `collect` dicono se l'albero corrente è diverso; il nome del log lo porta. Undici regressioni con un Docker finto. *Limite residuo*: il wrapper usa un nome di container fisso, quindi due campagne **su perimetri diversi** non convivono; separarle richiederebbe `PLENORA_FUZZ_CONTAINER`, che esiste ma va scelto a mano |
+| R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | **Chiusa.** *Requisito*: una misura per SHA e perimetro, esiti controllati prima dei passi dipendenti, monitor legato allo SHA e alla corsa esatta, nessuna diagnosi sulla corsa precedente. *Prova*: `comando_start` rifiuta se un container esiste già — viva o finita e non ancora letta — invece di sovrascriverlo; l'esito viene da `docker inspect` e mai dal log; lo SHA si incide nell'etichetta **all'avvio**, perché dedurlo dopo risponderebbe di un altro albero, e `status` lo dice in **entrambi** i rami — anche a corsa finita, che è il momento in cui si conclude qualcosa. *Correzione successiva, ed è la più profonda*: l'etichetta fissava lo SHA, il mount no. Il container montava il checkout vivo, quindi una modifica durante la campagna entrava nelle compilazioni successive mentre l'etichetta conservava lo SHA iniziale — l'attribuzione diventava falsa proprio dove sembrava più solida. La corsa gira ora su un **clone isolato** della revisione, e un albero di lavoro sporco non avvia. Diciannove regressioni con un Docker finto e un repository git vero. *Limite residuo*: nome di container fisso, quindi due campagne su perimetri diversi non convivono senza scegliere `PLENORA_FUZZ_CONTAINER` a mano |
 | R6 | Versionare il misuratore del soak con le prove dei casi già osservati | **Chiusa**: `scripts/soak_misurato.py`, regressioni in `scripts/test_soak_misurato.py` collegate a CI e checkpoint; CPU diagnostica; originali e giudizio corretto in `scripts/fixtures/soak/` |
 
 I due requisiti che M4 consegna stanno in R3 e R4 e non in una voce nuova,

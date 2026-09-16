@@ -191,3 +191,207 @@ class SondeDellaRevisioneDellaCorsa(unittest.TestCase):
         wrapper = WRAPPER.read_text(encoding="utf-8")
         self.assertIn("--label \"plenora.revisione=${revisione}\"", wrapper)
         self.assertIn("rev-parse HEAD", wrapper)
+
+
+class SondeDelloStop(unittest.TestCase):
+    """`stop` ferma e lascia raccoglibile; buttare via si chiede per nome."""
+
+    def setUp(self) -> None:
+        SondeDelCollect.setUp(self)
+
+    def _comando(self, *argomenti: str, in_esecuzione: bool = False):
+        if in_esecuzione:
+            # Il ramo che conta: una campagna viva che qualcuno interrompe. E'
+            # li' che `rm --force` distruggeva, e una prova che esercitasse
+            # solo il ramo «gia' fermo» non l'avrebbe visto -- infatti non lo
+            # vedeva.
+            self.finto.write_text(
+                FINTO.replace('*Running*) echo "false"', '*Running*) echo "true"'),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.finto.chmod(0o755)
+        ambiente = dict(os.environ)
+        ambiente.update(
+            {
+                "PLENORA_DOCKER": str(self.finto),
+                "PLENORA_FUZZ_LOG_DIR": str(self.log),
+                "TRACCIA": str(self.traccia),
+                "ESITO_FINTO": "0",
+                "LOG_FALLISCE": "no",
+                "LOG_FINTO": "riga",
+                "REVISIONE_FINTA": self.revisione,
+            }
+        )
+        esecuzione = subprocess.run(
+            ["bash", str(WRAPPER), *argomenti],
+            capture_output=True,
+            text=True,
+            env=ambiente,
+            check=False,
+        )
+        chiamate = (
+            self.traccia.read_text(encoding="utf-8").splitlines()
+            if self.traccia.exists()
+            else []
+        )
+        return esecuzione, chiamate
+
+    def test_stop_non_rimuove_il_container(self) -> None:
+        """Il rilievo: `stop` faceva `rm --force`.
+
+        Fermava e distruggeva insieme, senza acquisire l'esito e senza salvare
+        il log -- disfacendo a due righe di distanza tutto cio' che `collect`
+        era stato scritto per conservare.
+        """
+        esecuzione, chiamate = self._comando("stop")
+        self.assertFalse(
+            any("container rm" in c for c in chiamate),
+            f"stop ha rimosso il container: {chiamate}",
+        )
+        self.assertIn("collect", esecuzione.stdout)
+
+    def test_stop_non_rimuove_nemmeno_una_corsa_viva(self) -> None:
+        # E' il ramo dove il difetto stava davvero.
+        esecuzione, chiamate = self._comando("stop", in_esecuzione=True)
+        self.assertTrue(any("container stop" in c for c in chiamate), chiamate)
+        self.assertFalse(
+            any("container rm" in c for c in chiamate),
+            f"stop ha distrutto una corsa viva: {chiamate}",
+        )
+        self.assertIn("collect", esecuzione.stdout)
+
+    def test_scarta_rimuove_ma_lo_dice(self) -> None:
+        # La decisione di perdere un'evidenza dev'essere detta, non essere il
+        # comportamento per difetto di un comando che si chiama «stop».
+        esecuzione, chiamate = self._comando("scarta")
+        self.assertTrue(any("container rm" in c for c in chiamate), chiamate)
+        self.assertIn("SENZA leggerne l'esito", esecuzione.stdout)
+
+    def test_status_dice_la_revisione_anche_a_corsa_finita(self) -> None:
+        """Il rilievo: il confronto stava solo nel ramo «in esecuzione».
+
+        Cioe' dove nessuno conclude niente. A corsa finita si legge un esito, e
+        un esito senza sapere a che cosa si riferisce e' la diagnosi sbagliata
+        che aspetta di succedere.
+        """
+        esecuzione, _ = self._comando("status")
+        self.assertIn("terminato con exit", esecuzione.stdout)
+        self.assertIn("revisione della corsa", esecuzione.stdout)
+
+
+class SondeDellIsolamento(unittest.TestCase):
+    """I sorgenti della corsa sono un clone fermo, non il checkout vivo.
+
+    L'etichetta con lo SHA non bastava: il container montava l'albero di
+    lavoro, e una modifica durante la campagna entrava nelle compilazioni
+    successive mentre l'etichetta conservava lo SHA iniziale. L'attribuzione
+    diventava falsa proprio dove sembrava piu' solida.
+    """
+
+    def setUp(self) -> None:
+        self.temporanea = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporanea.cleanup)
+        self.radice = pathlib.Path(self.temporanea.name)
+
+        # Un repository vero, minuscolo: il clone dev'essere esercitato, non
+        # simulato, o la prova non direbbe niente del comando che gira davvero.
+        self.repo = self.radice / "repo"
+        (self.repo / "scripts").mkdir(parents=True)
+        (self.repo / "fuzz" / "corpus").mkdir(parents=True)
+        (self.repo / "fuzz" / "artifacts").mkdir(parents=True)
+        (self.repo / "assurance" / "evidence").mkdir(parents=True)
+        (self.repo / "scripts" / "fuzz-container.sh").write_bytes(
+            WRAPPER.read_bytes()
+        )
+        (self.repo / "scripts" / "fuzz-smoke.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+        (self.repo / "sorgente.txt").write_text("prima\n", encoding="utf-8")
+        for comando in (
+            ["git", "init", "--quiet"],
+            ["git", "config", "user.email", "prova@esempio"],
+            ["git", "config", "user.name", "Prova"],
+            ["git", "add", "-A"],
+            ["git", "commit", "--quiet", "-m", "base"],
+        ):
+            subprocess.run(comando, cwd=self.repo, check=True, capture_output=True)
+
+        self.finto = self.radice / "docker-finto"
+        self.finto.write_text(FINTO, encoding="utf-8", newline="\n")
+        self.finto.chmod(0o755)
+        self.traccia = self.radice / "traccia.txt"
+
+    def _start(self):
+        ambiente = dict(os.environ)
+        ambiente.update(
+            {
+                "PLENORA_DOCKER": str(self.finto),
+                "PLENORA_FUZZ_CHECKOUT_DIR": str(self.radice / "checkout"),
+                "TRACCIA": str(self.traccia),
+                "ESITO_FINTO": "0",
+                "LOG_FALLISCE": "no",
+                "LOG_FINTO": "riga",
+                "REVISIONE_FINTA": "",
+            }
+        )
+        # `container inspect` senza `-f` decide se il container «esiste»: il
+        # finto esce 0 sempre, quindi qui si finge che non ci sia.
+        finto_assente = self.radice / "docker-assente"
+        finto_assente.write_text(
+            FINTO.replace(
+                '  "container inspect")',
+                '  "container inspect")\n    if [ "$3" != "-f" ]; then exit 1; fi',
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        finto_assente.chmod(0o755)
+        ambiente["PLENORA_DOCKER"] = str(finto_assente)
+        esecuzione = subprocess.run(
+            ["bash", str(self.repo / "scripts" / "fuzz-container.sh"), "start", "smoke"],
+            capture_output=True,
+            text=True,
+            env=ambiente,
+            check=False,
+        )
+        chiamate = (
+            self.traccia.read_text(encoding="utf-8").splitlines()
+            if self.traccia.exists()
+            else []
+        )
+        return esecuzione, chiamate
+
+    def test_i_sorgenti_montati_sono_il_clone_non_l_albero_vivo(self) -> None:
+        esecuzione, chiamate = self._start()
+        self.assertEqual(esecuzione.returncode, 0, esecuzione.stderr)
+        run = next((c for c in chiamate if c.startswith("run ")), "")
+        self.assertIn("checkout", run, run)
+        self.assertNotIn(f"{self.repo}:/work", run, run)
+
+    def test_il_corpus_e_gli_esiti_restano_dell_albero_vivo(self) -> None:
+        # Isolati i sorgenti, non gli esiti: il corpus e' un ingresso che la
+        # campagna accresce, e artefatti ed evidenze sono cio' che produce.
+        _, chiamate = self._start()
+        run = next((c for c in chiamate if c.startswith("run ")), "")
+        for relativo in ("fuzz/corpus", "fuzz/artifacts", "assurance/evidence"):
+            with self.subTest(percorso=relativo):
+                self.assertIn(f"{relativo}:/work/{relativo}", run.replace("\\", "/"))
+
+    def test_il_clone_contiene_la_revisione_e_non_le_modifiche_dopo(self) -> None:
+        self._start()
+        cloni = list((self.radice / "checkout").glob("checkout-*"))
+        self.assertEqual(len(cloni), 1, cloni)
+        self.assertEqual(
+            (cloni[0] / "sorgente.txt").read_text(encoding="utf-8"), "prima\n"
+        )
+
+    def test_un_albero_sporco_non_avvia(self) -> None:
+        """Il clone parte da HEAD, quindi non porterebbe le modifiche.
+
+        Misurare una revisione che non contiene il lavoro che si ha davanti e'
+        una diagnosi che va male dopo, non subito: meglio rifiutare.
+        """
+        (self.repo / "sorgente.txt").write_text("dopo\n", encoding="utf-8")
+        esecuzione, chiamate = self._start()
+        self.assertNotEqual(esecuzione.returncode, 0)
+        self.assertIn("albero di lavoro sporco", esecuzione.stderr)
+        self.assertFalse(any(c.startswith("run ") for c in chiamate), chiamate)

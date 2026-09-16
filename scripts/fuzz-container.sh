@@ -33,11 +33,22 @@
 #    `--rm`: la rimozione e' esplicita e avviene **dopo** la lettura, in
 #    `collect`. Un container rimosso automaticamente porta via con se' l'unica
 #    fonte dell'esito.
-# 5. **La corsa dice quale revisione misura.** Lo SHA di HEAD viene inciso
-#    nell'etichetta del container all'avvio, e `status` lo confronta con
-#    l'albero corrente. Senza, si puo' leggere lo stato di una campagna senza
-#    sapere che cosa stia misurando -- e diagnosticare la corsa sbagliata e'
-#    uno degli errori che questo ciclo ha gia' fatto.
+# 5. **La corsa misura una revisione, e quella resta ferma.** Lo SHA viene
+#    inciso nell'etichetta all'avvio, e `status` lo confronta con l'albero
+#    corrente: senza, si diagnostica la corsa sbagliata, ed e' un errore gia'
+#    fatto in questo ciclo.
+#
+#    L'etichetta pero' **non bastava**. Il container montava il checkout vivo:
+#    una modifica durante la campagna entrava nelle compilazioni successive
+#    mentre l'etichetta conservava lo SHA iniziale -- cioe' l'attribuzione
+#    diventava falsa proprio dove sembrava piu' solida. La corsa gira ora su un
+#    **clone isolato** della revisione, e l'albero di lavoro puo' muoversi senza
+#    toccarla.
+#
+#    Isolati i sorgenti, non gli esiti: `fuzz/corpus`, `fuzz/artifacts` e
+#    `assurance/evidence` restano montati dall'albero vivo. Il corpus e' un
+#    ingresso che la campagna accresce, e gli altri due sono cio' che produce:
+#    isolarli vorrebbe dire buttarli via alla fine.
 # 4. **Il log sopravvive al container.** `collect` lo scrive **per intero** su
 #    disco prima di rimuovere, e se non riesce a scriverlo **non rimuove**.
 #    Prima ne stampava venti righe e poi cancellava: l'esito restava, il
@@ -55,6 +66,7 @@
 #   scripts/fuzz-container.sh wait [secondi-di-attesa-massimi]
 #   scripts/fuzz-container.sh collect [secondi-di-attesa-massimi]
 #   scripts/fuzz-container.sh stop
+#   scripts/fuzz-container.sh scarta
 #
 # `wait` attende e lascia il container in piedi: si puo' richiamare piu' volte,
 # ed e' il modo di riprendere dopo un'interruzione del client. `collect`
@@ -86,6 +98,39 @@ radice_repo() {
     # rompe il bind mount. `pwd -W` da' la forma che Docker accetta; altrove
     # non esiste e il percorso POSIX va bene com'e'.
     (cd "${qui}" && pwd -W 2>/dev/null) || echo "${qui}"
+}
+
+# Dove vive il clone isolato della corsa. Sotto `campagne-log/`, che e' gia'
+# ignorata: tutto cio' che una campagna produce sta in un posto solo.
+directory_checkout() {
+    local base="${PLENORA_FUZZ_CHECKOUT_DIR:-}"
+    if [ -z "${base}" ]; then
+        base="$(cd "$(dirname "$0")/.." && pwd)/campagne-log"
+    fi
+    echo "${base}/checkout-${1:0:12}"
+}
+
+# Prepara il clone della revisione e ne stampa il percorso, o fallisce.
+#
+# `--no-hardlinks` e non un worktree: un worktree porta un `.git` che rimanda al
+# repository principale con un percorso **dell'host**, e dentro il container
+# quel percorso non esiste. Il clone e' autonomo -- 69 MB e cinque secondi su
+# questo repository -- e i gate che chiamano git funzionano dentro come fuori.
+prepara_checkout() {
+    local revisione="$1"
+    local destinazione
+    destinazione="$(directory_checkout "${revisione}")"
+    if [ -d "${destinazione}/.git" ]; then
+        echo "${destinazione}"
+        return 0
+    fi
+    rm -rf "${destinazione}"
+    mkdir -p "$(dirname "${destinazione}")" || return 1
+    local sorgente
+    sorgente="$(cd "$(dirname "$0")/.." && pwd)"
+    git clone --local --no-hardlinks --quiet "${sorgente}" "${destinazione}" || return 1
+    git -C "${destinazione}" checkout --detach --quiet "${revisione}" || return 1
+    echo "${destinazione}"
 }
 
 esiste() {
@@ -133,10 +178,32 @@ comando_start() {
     # risponderebbe di un'altra.
     local revisione
     revisione="$(git -C "$(dirname "$0")/.." rev-parse HEAD 2>/dev/null || echo sconosciuta)"
+    if [ "${revisione}" = "sconosciuta" ]; then
+        echo "git non risolve HEAD: una campagna che non sa che cosa misura non si avvia" >&2
+        return 1
+    fi
+    # Un albero sporco non si isola: il clone parte da HEAD e non porterebbe le
+    # modifiche non committate. Misurare una revisione che non contiene il
+    # lavoro che si ha davanti e' una diagnosi che va male dopo, non subito.
+    if [ -n "$(git -C "$(dirname "$0")/.." status --porcelain 2>/dev/null)" ]; then
+        echo "albero di lavoro sporco: committa o metti da parte prima di avviare," >&2
+        echo "o la campagna misurerebbe una revisione diversa da cio' che vedi" >&2
+        return 1
+    fi
+
+    local checkout
+    if ! checkout="$(prepara_checkout "${revisione}")"; then
+        echo "il clone isolato della revisione non si e' preparato" >&2
+        return 1
+    fi
     echo "avvio ${modalita} in '${NOME}' su ${revisione:0:12} (immagine ${IMMAGINE})"
+    echo "sorgenti isolati in ${checkout}"
     MSYS_NO_PATHCONV=1 "${DOCKER}" run --detach --name "${NOME}" \
         --label "plenora.revisione=${revisione}" \
-        --volume "${radice}:/work" \
+        --volume "${checkout}:/work" \
+        --volume "${radice}/fuzz/corpus:/work/fuzz/corpus" \
+        --volume "${radice}/fuzz/artifacts:/work/fuzz/artifacts" \
+        --volume "${radice}/assurance/evidence:/work/assurance/evidence" \
         --volume "${VOLUME_CARGO}:/usr/local/cargo/registry" \
         --volume "${VOLUME_TARGET}:/fuzztarget" \
         --env PLENORA_FUZZ_TARGET_DIR=/fuzztarget \
@@ -183,6 +250,11 @@ comando_status() {
     local codice
     codice="$(esito)"
     echo "terminato con exit ${codice}"
+    # La revisione si dice **anche** qui, ed e' il momento in cui serve di piu':
+    # a corsa finita si legge un esito, e un esito senza sapere a che cosa si
+    # riferisce e' la diagnosi sbagliata che aspetta di succedere. Stava solo
+    # nel ramo «in esecuzione», cioe' dove nessuno conclude niente.
+    riga_della_revisione
     return "${codice}"
 }
 
@@ -258,6 +330,7 @@ comando_collect() {
     tail -n 20 "${destinazione}"
     echo "--- log completo in ${destinazione} ---"
     "${DOCKER}" container rm "${NOME}" >/dev/null
+    pulisci_checkout
     echo "--- container rimosso, esito acquisito: ${codice} ---"
     return "${codice}"
 }
@@ -287,13 +360,50 @@ salva_log() {
     echo "${destinazione}"
 }
 
+# Ferma la corsa e la lascia **raccoglibile**.
+#
+# Faceva `rm --force`: fermava e distruggeva insieme, senza acquisire l'esito e
+# senza salvare il log. Era la via che disfaceva tutto cio' che `collect` era
+# stato scritto per conservare, e stava a due righe di distanza.
+#
+# Fermare e leggere sono due decisioni, e chi ferma una campagna vuole quasi
+# sempre sapere com'era andata fin li'. Chi invece vuole buttare via deve dirlo:
+# `scarta` esiste per quello, e il suo nome non si digita per sbaglio.
+# Rimuove il clone isolato, se c'e'. Si chiama **dopo** aver acquisito l'esito:
+# i sorgenti di una corsa servono finche' qualcuno potrebbe volerli rileggere.
+pulisci_checkout() {
+    local incisa destinazione
+    incisa="$(revisione_della_corsa)"
+    [ -n "${incisa}" ] || return 0
+    destinazione="$(directory_checkout "${incisa}")"
+    [ -d "${destinazione}" ] || return 0
+    rm -rf "${destinazione}" && echo "sorgenti isolati rimossi: ${destinazione}"
+}
+
 comando_stop() {
     if ! esiste; then
         echo "nessun container '${NOME}'"
         return 0
     fi
-    "${DOCKER}" container rm --force "${NOME}" >/dev/null
-    echo "container '${NOME}' rimosso senza leggerne l'esito"
+    if in_esecuzione; then
+        "${DOCKER}" container stop "${NOME}" >/dev/null
+        echo "container '${NOME}' fermato: l'esito e il log si leggono con 'collect'"
+    else
+        echo "container '${NOME}' gia' fermo: l'esito e il log si leggono con 'collect'"
+    fi
+}
+
+# Butta via container e clone senza leggerne l'esito. Esiste perche' la
+# decisione di perdere un'evidenza sia **detta**, invece di essere il modo in
+# cui `stop` si comportava per difetto.
+comando_scarta() {
+    if esiste; then
+        "${DOCKER}" container rm --force "${NOME}" >/dev/null
+        echo "container '${NOME}' rimosso SENZA leggerne l'esito ne' salvarne il log"
+    else
+        echo "nessun container '${NOME}'"
+    fi
+    pulisci_checkout
 }
 
 case "${1:-}" in
@@ -303,8 +413,9 @@ case "${1:-}" in
     wait) shift; comando_wait "$@" ;;
     collect) shift; comando_collect "$@" ;;
     stop) comando_stop ;;
+    scarta) comando_scarta ;;
     *)
-        echo "uso: $0 {start replay|start smoke|status|logs|wait|collect|stop} [argomenti]" >&2
+        echo "uso: $0 {start replay|start smoke|status|logs|wait|collect|stop|scarta} [argomenti]" >&2
         exit 2
         ;;
 esac
