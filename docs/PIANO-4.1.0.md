@@ -665,6 +665,38 @@ Il rilascio dei lease non è osservabile dalla riga di comando — il processo
 termina, e con lui tutto. Le regressioni che lo coprono restano quelle interne
 già censite in M1: sedici sui lease, ottantaquattro sui budget.
 
+#### M3 rispetto al proprio perimetro
+
+La voce nominava cinque cose: lettura e scrittura IPC, i percorsi di publish,
+budget esaurito, cancellazione durante attesa, errore tardivo. Due erano lacune,
+e sono quelle che questo blocco ha chiuso; le altre tre avevano già prove, e il
+confronto serve a dirlo con i nomi invece che con un conteggio.
+
+| percorso del perimetro | stato | dove |
+|---|---|---|
+| budget esaurito | **chiuso in questo blocco** | `fallimento_tardivo.rs`, pubblico |
+| errore tardivo | **chiuso in questo blocco** | pubblico per gli invarianti, interno per il momento |
+| cancellazione durante attesa | già coperto | `cancellable_send_exits_when_a_full_channel_is_cancelled` e due sorelle |
+| lettura e scrittura IPC | già coperto | ventidue prove fra flusso, serializzazione e prevalidazione |
+| percorsi di publish | già coperto | cinquantaquattro prove fra pubblicazione, atomicità, staging e destinazione |
+
+La cancellazione durante attesa merita una riga perché il nome non la
+annunciava: il canale è pieno, il thread è bloccato in invio, e la cancellazione
+lo sblocca. Le due sorelle coprono il token già cancellato prima dell'attesa e
+il ricevente che sparisce mentre si attende — tre modi di uscire da un blocco,
+non uno.
+
+**Residui.** Uno, e non è un percorso scoperto: la fase dichiarata dal guasto
+dei dati a metà stream resta `validate`, come lo era quella del budget prima
+della correzione. Lì però non c'è una fase «giusta» da dedurre, perché la
+superficie pubblica non espone quanto sia stato fatto: correggerla
+richiederebbe prima di decidere che cosa il prodotto sappia dire di sé in quel
+punto, e non è una modifica che M3 possa fare da sola.
+
+Il resto del perimetro non ha residui che queste prove lascino scoperti. Non
+significa che le guardie siano complete: significa che le cinque che la voce
+nominava hanno ciascuna una prova, e che due di quelle prove non c'erano prima.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
