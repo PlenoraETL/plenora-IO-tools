@@ -1563,7 +1563,11 @@ fn write_feature<W: Write>(
     if geom_col.is_null(row) {
         w.write_all(b"null")?;
     } else {
-        let geom = decode_wkb(geom_col.value(row), limits)?;
+        // `decode_wkb` e `format_wkt` sono analizzatori condivisi: il loro
+        // costruttore fissa `Validate` perche' non sanno in quale passata
+        // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
+        let geom = decode_wkb(geom_col.value(row), limits)
+            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
         geometry::write_wkb_geojson(w, &geom)?;
     }
     w.write_all(b",\"properties\":{")?;

@@ -898,7 +898,11 @@ impl FormatWriter for XlsWriterState {
                     }
                 }
                 if !geom_col.is_null(row) {
-                    let g = decode_wkb(geom_col.value(row), &limits)?;
+                    // `Finalize` e non `Write`: il writer XLSX accumula i batch e
+                    // materializza il foglio in `finish`, che e' dove siamo. E'
+                    // la stessa fase che `scrittura_limitata` dichiara li'.
+                    let g = decode_wkb(geom_col.value(row), &limits)
+                        .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Finalize))?;
                     if self.xy {
                         match &g.value {
                             WkbValue::Point(point) if g.dimensions == CoordinateDimensions::Xy => {
@@ -913,7 +917,13 @@ impl FormatWriter for XlsWriterState {
                         }
                     } else {
                         sheet
-                            .write_string(r, col, format_wkt(&g)?)
+                            .write_string(
+                                r,
+                                col,
+                                format_wkt(&g).map_err(|errore| {
+                                    errore.during(plenora_io_model::ErrorPhase::Finalize)
+                                })?,
+                            )
                             .map_err(xls_err)?;
                     }
                 }
@@ -1187,7 +1197,9 @@ fn encode_geometry_cell(
             // Da S5 e' la quota **configurata** dal chiamante: chi stringe
             // `--max-wkb-cell-bytes` vede il rifiuto qui, dove l'AST verrebbe
             // allocato, invece che dopo.
-            let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)?;
+            // `infer_layout` gira dentro `open`, come l'inferenza del CSV.
+            let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();

@@ -502,7 +502,11 @@ impl FormatWriter for DxfWriterState {
                 decoded.push(None);
                 continue;
             }
-            let geometry = decode_wkb(geom_col.value(row), &limits)?;
+            // `decode_wkb` e `format_wkt` sono analizzatori condivisi: il loro
+            // costruttore fissa `Validate` perche' non sanno in quale passata
+            // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
+            let geometry = decode_wkb(geom_col.value(row), &limits)
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
             let cause = if geometry.srid.is_some() {
                 Some("dxf.embedded_srid_unsupported")
             } else if matches!(
@@ -932,10 +936,20 @@ impl DxfSpoolReader {
                 let geometry = match read_dxf_spool_value(input)? {
                     None => None,
                     Some(bytes) => {
-                        if inspect_wkb(&bytes, limits)?.dimensions == dimensions {
+                        // L'ispezione e' il controllo **raggiungibile** dei due:
+                        // applica gli stessi limiti, e la decodifica sotto non
+                        // gira finche' questa non e' passata. La fase e' la
+                        // lettura, e lo spool che stiamo scorrendo ne fa parte.
+                        let ispezione = inspect_wkb(&bytes, limits)
+                            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
+                        if ispezione.dimensions == dimensions {
                             Some(bytes)
                         } else {
-                            let mut geometry = decode_wkb(&bytes, limits)?;
+                            // Qui lo stadio e' la **lettura**, non la scrittura:
+                            // `next_row` serve lo spool del reader.
+                            let mut geometry = decode_wkb(&bytes, limits).map_err(|errore| {
+                                errore.during(plenora_io_model::ErrorPhase::Read)
+                            })?;
                             set_geometry_dimensions(&mut geometry, dimensions);
                             Some(encode_wkb(&geometry, WkbFlavor::Iso)?)
                         }

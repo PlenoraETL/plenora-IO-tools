@@ -3537,3 +3537,81 @@ fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
         errore.message
     );
 }
+
+/// Il `decode_wkb` del writer XLSX dichiara `Finalize`, e nient'altro cambia.
+///
+/// # Perche' `Finalize` e non `Write`
+///
+/// Perche' il writer XLSX non scrive per batch: li **accumula**, e materializza
+/// il foglio in `finish`. La geometria viene decodificata li', quindi la fase in
+/// corso quando l'errore nasce e' la finalizzazione. E' la stessa fase che
+/// `scrittura_limitata` dichiara per quello stadio.
+///
+/// # Perche' lo stato si costruisce a mano
+///
+/// Perche' `create` lo avvolge con `with_write_validation`, che ispeziona la
+/// geometria e registra una **violazione di riga** invece di propagare: per la
+/// via normale un WKB illeggibile viene respinto li'. Il ramo e' **difensivo**,
+/// e difensivo non vuol dire esente.
+#[test]
+fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("guasto.xlsx");
+
+    let geometry_contract =
+        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
+    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+        &geometry_field(GEOMETRY, "EPSG:4326"),
+        &geometry_contract,
+    )]));
+    // Byte order valido, tipo 99 che non esiste.
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![Some(
+            &[0x01_u8, 0x63, 0x00, 0x00, 0x00][..],
+        )]))],
+    )
+    .unwrap();
+
+    let mut sotto_prova = Box::new(XlsWriterState {
+        path: output,
+        durable: false,
+        xy: false,
+        batches: Vec::new(),
+        wkb_limits: WkbLimits::default(),
+        max_output_bytes: u64::MAX,
+    });
+
+    // `write` accumula soltanto: qui non puo' fallire, ed e' il motivo per cui
+    // la fase giusta non e' `Write`.
+    sotto_prova
+        .write(&batch)
+        .expect("l'accumulo del batch non decodifica niente");
+
+    let Err(errore) = sotto_prova.finish() else {
+        unreachable!("un WKB illeggibile non si materializza");
+    };
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Finalize,
+        "il foglio si materializza in `finish`: valeva `validate` finche' la          fase la dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}

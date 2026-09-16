@@ -718,11 +718,98 @@ Entrambi i valori sono verificati sul percorso pubblico, e il valore di prima è
 stato verificato **rimuovendo la correzione e rieseguendo**: la busta tornava a
 dire `validate`.
 
-**Che cosa resta fuori.** La correzione copre il driver CSV. Lo stesso default
-`Validate` arriva ai `decode_wkb` che i writer di DXF, GeoJSON, KML e Shapefile
-invocano in uscita, dove la fase in corso è `write`. È lo stesso difetto su un
-altro percorso, censito qui e non corretto in questo blocco: non è una lacuna di
-prove di M3, ed entra fra le voci da valutare.
+#### Lo stesso difetto sugli altri percorsi: censito, e corretto
+
+Avevo scritto che riguardava «DXF, GeoJSON, KML e Shapefile». Il censimento per
+propagazione lo smentisce in parte, e la differenza conta perché due di quei
+quattro non avevano niente da correggere.
+
+| driver | punto | stadio | esito |
+|---|---|---|---|
+| CSV | `write`, due chiamate | scrittura | `validate` → **`write`** |
+| DXF | `write` | scrittura | `validate` → **`write`** |
+| DXF | `next_row`, spool su file | lettura | `validate` → **`read`** |
+| GeoJSON | `write_feature` ← `write` | scrittura | `validate` → **`write`** |
+| XLS | `finish`, due chiamate | finalizzazione | `validate` → **`finalize`** |
+| XLS | `encode_geometry_cell` ← `open` | allestimento | `validate` → **`prepare`** |
+| KML | `write` | — | **nessun difetto**: l'errore è scartato |
+| Shapefile | `write` | — | **nessun difetto**: l'errore è scartato |
+| Shapefile, GPKG | entry point di fuzz | — | non è percorso di pipeline |
+
+KML e Shapefile usano `let Ok(…) else`: spingono un rifiuto di riga e
+continuano. La fase di un errore che nessuno legge non è un difetto. CSV e XLS,
+che non avevo nominato, propagano invece davvero.
+
+XLS prende `Finalize` e non `Write` perché il suo writer **accumula** i batch e
+materializza il foglio in `finish`: è lì che decodifica, ed è lì che siamo.
+
+#### Il ramo è difensivo, e questo cambia dove stanno le prove
+
+Le sei correzioni sono giuste, ma cinque su sei non si raggiungono dalla riga di
+comando, e vale la pena dire perché invece di scrivere prove che sembrano
+esercitarle.
+
+Davanti a ogni decodifica di scrittura ci sono **due strati**. Il primo è in
+lettura: corrompendo uno per uno i cinque WKB di un file Arrow IPC — non
+compresso, quindi correggibile byte per byte a lunghezza costante — l'errore
+arriva cinque volte su cinque con `phase: read`, che è già la fase giusta. Il
+secondo è `with_write_validation`, che `create` avvolge attorno al writer di
+ogni driver: ispeziona la geometria e registra una **violazione di riga**
+(`conversion.invalid_geometry`) invece di propagare.
+
+`inspect_wkb` e `decode_wkb` prendono gli stessi limiti e percorrono la stessa
+struttura — la doc del secondo dice «gli stessi errori del primo» — quindi ciò
+che supera l'ispezione supera anche la decodifica. Non è che il ramo sia
+improbabile: è che il prodotto è costruito perché non ci si arrivi.
+
+Difensivo non vuol dire esente. Se ci si arriva, la fase dev'essere quella in
+corso, e le regressioni stanno al livello da cui il ramo si raggiunge davvero:
+dentro i crate, invocando `write_feature` o costruendo lo stato del writer come
+fa `create` ma senza la guardia. È la stessa distinzione di M3 fra ciò che è
+provato sul percorso pubblico e ciò che è verificato internamente.
+
+**La sola pubblica è l'inferenza XLS**, che si raggiunge stringendo
+`--max-wkb-cell-bytes` sotto la lunghezza del testo WKT: `phase: prepare`, con
+la corsa di controllo senza tetto che riesce.
+
+#### Una riga corretta non era quella raggiungibile
+
+In `next_row` avevo corretto il `decode_wkb`. Due righe sopra c'è
+`inspect_wkb(&bytes, limits)?`, con gli **stessi limiti**, e la decodifica gira
+solo se l'ispezione è passata: un tetto superato ferma l'ispezione, e la riga
+che avevo corretto non viene mai raggiunta. La correzione utile era l'altra, e
+la prova la esercita.
+
+È la stessa lezione di `FLAG_FORMATO` in una forma nuova: lì compilare non
+bastava, qui non basta nemmeno che la riga corretta sia quella giusta per
+descrizione. La prova deve arrivarci.
+
+#### Le sei prove, e la verifica in entrambi i versi
+
+| prova | dove | fase fissata |
+|---|---|---|
+| `l_inferenza_xlsx_dichiara_l_allestimento_del_reader` | `tests/fase_degli_errori.rs`, **pubblica** | `prepare` |
+| `la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura` | driver-csv, interna | `write` |
+| idem | driver-dxf, interna | `write` |
+| idem | driver-geojson, interna, via `write_feature` | `write` |
+| `la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione` | driver-xls, interna | `finalize` |
+| `lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella` | driver-dxf, interna | `read` |
+
+Ciascuna controlla la fase **e** che gli altri quattro assi non si muovano:
+codice, categoria, riprovabilità, effetto remoto. La correzione riguarda un
+campo solo, e le prove lo dicono invece di fidarsi.
+
+Che misurino la correzione è verificato nei due versi: mettendo da parte i
+quattro file corretti e rieseguendo, tutte e sei diventano rosse; ripristinando,
+tutte e sei tornano verdi.
+
+#### Il controllo di clippy che non copriva tutto
+
+Registrato come fatto, perché spiega perché un rilievo vecchio è emerso ora: il
+controllo che eseguivo non copriva tutte le feature, e `--all-features` bocciava
+quattro `format_push_string` e un `missing_const_for_fn` introdotti nel blocco
+precedente. Corretti; il controllo completo — `--workspace --all-targets
+--all-features -D warnings` — ora passa, ed è quello del checkpoint.
 
 #### M3 rispetto al proprio perimetro
 
@@ -865,6 +952,12 @@ secondo sistema per l'SDK: la sua granularità diversa resta un fatto registrato
 
 Il residuo concreto, detto in una riga sola, è **collegare le verifiche eseguite
 ai byte dell'artefatto**.
+
+La corsa 32/32 fatta a mano vale per il binario che ha verificato, e non chiude
+il collegamento: resta un'esecuzione decisa da chi la esegue, non pretesa da un
+gate, e il suo esito non è ancorato al digest di quell'artefatto. Registrarla
+come prova della capacità sarebbe scambiare una verifica riuscita per il legame
+che ancora manca.
 
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo

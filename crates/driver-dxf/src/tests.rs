@@ -773,3 +773,157 @@ fn missing_geometry_contract_is_rejected_before_output_creation() {
         .is_err());
     assert!(!output.exists());
 }
+
+/// Il `decode_wkb` del writer DXF dichiara `Write`, e nient'altro cambia.
+///
+/// # Perche' lo stato del writer si costruisce a mano
+///
+/// Perche' `create` lo avvolge con `with_write_validation`, che ispeziona la
+/// geometria e registra una **violazione di riga** invece di propagare: per la
+/// via normale un WKB illeggibile viene respinto li'. Davanti a questa
+/// decodifica ci sono due strati -- la validazione in lettura e quella in
+/// scrittura -- e il ramo e' percio' **difensivo**.
+///
+/// Difensivo non vuol dire esente: se ci si arriva, la fase dev'essere quella
+/// in corso. Costruire lo stato come fa `create`, ma senza la guardia, e' il
+/// modo di raggiungere il ramo davvero invece di dichiararlo corretto e basta.
+#[test]
+fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("guasto.dxf");
+    let mut geometry = GeometryColumnContract::wkb_xy(
+        FieldId(0),
+        GEOMETRY,
+        CrsResolution::resolved(resolved_wgs84()),
+        true,
+    );
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+        &geometry_field(GEOMETRY, "EPSG:4326"),
+        &geometry,
+    )]));
+    // Byte order valido, tipo 99 che non esiste.
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![Some(
+            &[0x01_u8, 0x63, 0x00, 0x00, 0x00][..],
+        )]))],
+    )
+    .unwrap();
+
+    let mut sotto_prova = DxfWriterState {
+        drawing: Drawing::new(),
+        path: output,
+        durable: false,
+        loss: LossReport::default(),
+        dropped_cols: Vec::new(),
+        rows: 0,
+        input_total: None,
+        first: true,
+        wkb_limits: WkbLimits::default(),
+        max_output_bytes: u64::MAX,
+    };
+
+    let errore = sotto_prova
+        .write(&batch)
+        .expect_err("un WKB illeggibile non si scrive");
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Write,
+        "la scrittura e' in corso: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}
+
+/// Lo spool su file rifiuta una cella oltre il tetto, e dichiara la lettura.
+///
+/// # Quale delle due righe e' in esame
+///
+/// L'**ispezione**, non la decodifica sotto di essa. `next_row` chiama
+/// `inspect_wkb` con gli stessi limiti e solo dopo, se le dimensioni non
+/// coincidono, decodifica: un tetto superato ferma percio' l'ispezione, e la
+/// decodifica non gira. Correggere la sola decodifica avrebbe lasciato scoperta
+/// l'unica delle due che si raggiunge.
+///
+/// # Perche' la prova e' interna
+///
+/// Perche' il ramo `File` dello spool si apre oltre i 64 MB, che e' una costante
+/// del driver e non un'opzione della riga di comando: dal percorso pubblico
+/// servirebbe una fixture di quella misura. `with_memory_limit` esiste per
+/// questo, ed e' gia' usata dalla prova sullo spill.
+#[test]
+fn lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella() {
+    let mut spool = DxfSpoolWriter::with_memory_limit(4096, 1);
+    spool
+        .push(DxfSpoolRow {
+            geometry: Some(WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            }),
+            layer: Some("layer".to_owned()),
+            entity_type: Some("POINT".to_owned()),
+            text: None,
+        })
+        .unwrap();
+    let storage = spool.finish().unwrap();
+    assert!(
+        matches!(storage, DxfSpoolStorage::File(_)),
+        "la premessa: il ramo in esame e' quello su file"
+    );
+    let mut reader = storage.reader().unwrap();
+
+    // Un WKB di Point misura ventuno byte: cinque non bastano.
+    let stretti = WkbLimits {
+        max_cell_bytes: 5,
+        ..WkbLimits::default()
+    };
+    let Err(errore) = reader.next_row(CoordinateDimensions::Xy, &stretti) else {
+        unreachable!("il tetto per cella deve rifiutare");
+    };
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Read,
+        "lo spool si sta scorrendo: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}
