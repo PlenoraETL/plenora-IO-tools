@@ -593,9 +593,11 @@ di ottantasei per correggerne tre. La regressione pubblica pretende ora
 
 È un valore osservabile che cambia, ed è il motivo per cui la correzione si fa:
 porta la busta a dire ciò che ERR-003 le chiede di dire. Lo stesso rilievo vale
-per il guasto dei dati a metà stream, che dichiara pure `phase: validate`; lì
-però il momento non è osservabile dalla superficie pubblica, quindi non c'è
-niente da cui dedurre la fase giusta.
+per il guasto dei dati, che dichiarava pure `phase: validate`; lì avevo scritto
+che il momento non era osservabile e che quindi non c'era una fase giusta da
+dedurre. **Era sbagliato**: ERR-003 riguarda la fase nota al prodotto, non
+quella che il test riesce a vedere. L'assenza di osservabilità pubblica limita
+la prova, non determina il valore. La tracciatura è più sotto.
 
 #### Che cosa `--max-output-bytes` limita davvero
 
@@ -618,7 +620,8 @@ nessuna prova di questo blocco lo promette.
 | prova | che cosa fissa |
 |---|---|
 | `il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui` | i quattro assi con `phase: commit`, la destinazione assente, la directory senza staging, **e** che il messaggio nomini i byte prodotti |
-| `un_guasto_dei_dati_a_meta_stream_non_lascia_destinazione_ne_residui` | gli stessi invarianti con un guasto WKT a riga 15.000 di 20.000 |
+| `un_wkt_malformato_e_rifiutato_dall_inferenza_prima_dello_stream` | gli stessi invarianti con un WKT rotto a riga 15.000, e `phase: prepare` |
+| `un_guasto_nel_loop_di_lettura_dichiara_la_fase_di_lettura` | `phase: read` su un guasto che l'inferenza non può intercettare |
 | `una_destinazione_preesistente_resta_invariata_dopo_un_fallimento` | che il file di prima sia byte per byte quello di prima, e la fase `commit` |
 
 E una prova **interna**, in `plenora-io-core/src/driver/tests.rs`, perché il
@@ -665,6 +668,62 @@ Il rilascio dei lease non è osservabile dalla riga di comando — il processo
 termina, e con lui tutto. Le regressioni che lo coprono restano quelle interne
 già censite in M1: sedici sui lease, ottantaquattro sui budget.
 
+#### Il residuo sulla fase: tracciato, e corretto in due punti
+
+Avevo giustificato `phase: validate` dicendo che la CLI non espone l'avanzamento.
+Non regge: ERR-003 parla della fase **nota al prodotto**. Quindi ho tracciato
+dove l'errore nasce davvero, invece di dedurlo.
+
+**Primo fatto, dal codice.** L'errore nasce in `wkt_progressivo`, un analizzatore
+puro, e il suo costruttore `wkb_redatto` fissa `ErrorPhase::Validate`. Ma il
+parser serve tre passate diverse — l'inferenza, il loop di lettura e i writer che
+ricodificano in uscita — e non sa in quale sta girando. Quella fase è perciò un
+**default**, non una determinazione: cambiare il costruttore avrebbe spostato la
+fase anche agli encoder del lato scrittura, che direbbero `read`.
+
+**Secondo fatto, dal vicinato.** Nello stesso loop, due righe più in là,
+`required_cell` dichiara `Read` via `formato_redatto`. Stessa iterazione, stessa
+conoscenza dello stato, due fasi diverse: non possono essere entrambe giuste. Non
+è una deduzione dal test — è il prodotto che si contraddice da solo.
+
+**Terzo fatto, misurato.** Marcando temporaneamente il sito dell'inferenza con
+una fase riconoscibile, la busta della prova ha riportato quel marcatore. Quindi
+il guasto di quella prova **non** avviene a metà stream: `infer_wkt_geometry`
+gira dentro `open` e visita la colonna geometrica fino a `max_rows`, incontrando
+la riga rotta mentre il reader viene allestito. Lo stream non è cominciato e il
+writer non esiste.
+
+Ne segue che il nome della prova, `..._a_meta_stream_...`, affermava un momento
+che non avviene, ed è stato corretto insieme alla fase: è la stessa lezione del
+blocco precedente, cioè che il nome di una prova non stabilisce quando.
+
+**Le due correzioni.** Ciascuna al livello che la fase la sa, con `during()`, che
+è l'idioma già in uso in `scrittura_limitata` — costruttore con default, corretto
+da chi conosce lo stadio.
+
+| sito | prima | dopo | perché |
+|---|---|---|---|
+| `infer_wkt_geometry`, dentro `open` | `validate` | **`prepare`** | è lo stadio di `reader_busy` e `projection_unsupported`, che nascono nello stesso `open`; `probe` etichetta la scoperta della sorgente, che viene prima |
+| il loop di `spawn_parser` | `validate` | **`read`** | `read_record` è già riuscito, e la riga accanto lo dichiara |
+
+**Che il secondo sito sia raggiungibile è stato provato, non assunto.** Se
+l'inferenza vede sempre le stesse celle prima del loop, la correzione nel loop
+sarebbe codice morto. Esiste però un'asimmetria: l'inferenza **analizza**
+soltanto, il loop analizza e poi **codifica** in WKB. Una `LINESTRING` con
+coordinate corte occupa in WKB circa quattro volte il suo testo, quindi con
+`--max-wkb-cell-bytes 1000` un WKT da 411 byte passa l'inferenza e i suoi 1613
+byte di WKB falliscono nel loop. La prova nasce da lì.
+
+Entrambi i valori sono verificati sul percorso pubblico, e il valore di prima è
+stato verificato **rimuovendo la correzione e rieseguendo**: la busta tornava a
+dire `validate`.
+
+**Che cosa resta fuori.** La correzione copre il driver CSV. Lo stesso default
+`Validate` arriva ai `decode_wkb` che i writer di DXF, GeoJSON, KML e Shapefile
+invocano in uscita, dove la fase in corso è `write`. È lo stesso difetto su un
+altro percorso, censito qui e non corretto in questo blocco: non è una lacuna di
+prove di M3, ed entra fra le voci da valutare.
+
 #### M3 rispetto al proprio perimetro
 
 La voce nominava cinque cose: lettura e scrittura IPC, i percorsi di publish,
@@ -686,12 +745,8 @@ lo sblocca. Le due sorelle coprono il token già cancellato prima dell'attesa e
 il ricevente che sparisce mentre si attende — tre modi di uscire da un blocco,
 non uno.
 
-**Residui.** Uno, e non è un percorso scoperto: la fase dichiarata dal guasto
-dei dati a metà stream resta `validate`, come lo era quella del budget prima
-della correzione. Lì però non c'è una fase «giusta» da dedurre, perché la
-superficie pubblica non espone quanto sia stato fatto: correggerla
-richiederebbe prima di decidere che cosa il prodotto sappia dire di sé in quel
-punto, e non è una modifica che M3 possa fare da sola.
+**Residui: nessuno.** Il solo che restava era la fase del guasto dei dati, ed è
+chiuso nella sezione qui sotto.
 
 Il resto del perimetro non ha residui che queste prove lascino scoperti. Non
 significa che le guardie siano complete: significa che le cinque che la voce
@@ -795,11 +850,21 @@ La corrispondenza dichiarato → prova è **già chiusa e verificata** per la
 superficie pubblica, ed è il risultato principale di questo censimento: la voce
 si chiude indicando ciò che esiste, non aggiungendo.
 
-Restano due cose, entrambe sull'**esecuzione** e non sull'esistenza: il
-verificatore del profilo pubblico non è un passo del checkpoint, e i comandi di
-`verification` del manifesto non sono verificati come eseguiti. Vanno con
-R3–R5, che è la voce sul legame fra ciò che si dichiara e ciò che è stato
-davvero misurato.
+**Registrato: M4 è un censimento completato**, con due residui assegnati a
+R3–R5. Sono entrambi sull'**esecuzione** e non sull'esistenza, e sono riformulati
+lì come requisiti di chiusura invece di restare osservazioni:
+
+1. rendere **obbligatoria** la verifica dei 32 requisiti pubblici nella
+   qualificazione finale dell'artefatto distribuito;
+2. **collegare** l'esito di quella verifica al digest dell'artefatto
+   effettivamente provato, e verificare la corrispondenza prima dell'adozione.
+   Un elenco di comandi nel manifesto non basta.
+
+Si riusano registro, sonde ed evidenze che già esistono. Non si aggiunge un
+secondo sistema per l'SDK: la sua granularità diversa resta un fatto registrato.
+
+Il residuo concreto, detto in una riga sola, è **collegare le verifiche eseguite
+ai byte dell'artefatto**.
 
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
@@ -1123,10 +1188,16 @@ identificata con seguito preciso**.
 |---|---|---|
 | R1 | Regressione dedicata a `MAX_BLOCCHI` nella prevalidazione Arrow | Caso sotto, al e oltre il limite; rifiuto della guardia prevista; costo misurato e collocazione proporzionata. Le dimensioni della fixture sono un costo da gestire, non un'impossibilità |
 | R2 | Togliere alle campagne la dipendenza da `sleep` a scadenza e dalla cattura di `docker exec` | Processo di campagna e suo exit code osservabili; log persistenti fuori dal container; interruzione distinta dal successo; durata verificata senza ricavarla dal ritmo medio |
-| R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | Fixture rifiutano misura assente o di un'altra revisione; distinguono registrazione entro allowlist, evidenza storica e riuso ammesso; nessun collegamento affidato soltanto al verbale umano |
-| R4 | Rendere esplicito il riuso delle evidenze | Regola per tipo di modifica e perimetro: prodotto, test, documenti, toolchain, feature, lock. Prova della validità e della provenienza del riuso; si conserva la revisione realmente misurata |
+| R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | Fixture rifiutano misura assente o di un'altra revisione; distinguono registrazione entro allowlist, evidenza storica e riuso ammesso; nessun collegamento affidato soltanto al verbale umano. **Da M4**: la verifica dei 32 requisiti pubblici è obbligatoria nella qualificazione finale dell'artefatto distribuito, non facoltativa perché qualcuno la esegue |
+| R4 | Rendere esplicito il riuso delle evidenze | Regola per tipo di modifica e perimetro: prodotto, test, documenti, toolchain, feature, lock. Prova della validità e della provenienza del riuso; si conserva la revisione realmente misurata. **Da M4**: l'esito della verifica è collegato al **digest** dell'artefatto provato, e la corrispondenza è controllata prima dell'adozione; un elenco di comandi nel manifesto non basta |
 | R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | Una misura per SHA e perimetro; esiti dei comandi controllati prima dei passi dipendenti; monitor legato allo SHA e alla corsa esatta; nessuna diagnosi basata sulla corsa precedente |
 | R6 | Versionare il misuratore del soak con le prove dei casi già osservati | **Chiusa**: `scripts/soak_misurato.py`, regressioni in `scripts/test_soak_misurato.py` collegate a CI e checkpoint; CPU diagnostica; originali e giudizio corretto in `scripts/fixtures/soak/` |
+
+I due requisiti che M4 consegna stanno in R3 e R4 e non in una voce nuova,
+perché sono la stessa domanda già posta lì: che cosa lega ciò che si dichiara a
+ciò che è stato davvero misurato. Il registro dei requisiti, le sonde e le
+evidenze esistono già e vanno riusati; ciò che manca è che l'esecuzione sia
+imposta e che il suo esito sia ancorato ai byte.
 
 R4 non significa ereditare automaticamente una qualifica completa dopo una
 modifica ai test. Si definisce e si prova prima quali evidenze restano valide,

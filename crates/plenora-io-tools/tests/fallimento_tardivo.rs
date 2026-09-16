@@ -26,12 +26,13 @@
 //! parte del valore della prova: una che affermasse il momento senza poterlo
 //! osservare sarebbe peggio di una che tace.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
 
-fn binario() -> &'static str {
+const fn binario() -> &'static str {
     env!("CARGO_BIN_EXE_plenora-io")
 }
 
@@ -43,9 +44,9 @@ fn sorgente(percorso: &Path, righe: usize, guasto: Option<usize>) {
     let mut testo = String::from("id,nome,geometry\n");
     for i in 0..righe {
         if Some(i) == guasto {
-            testo.push_str(&format!("{i},rotto,POINT(non un numero)\n"));
+            writeln!(testo, "{i},rotto,POINT(non un numero)").expect("la riga si compone");
         } else {
-            testo.push_str(&format!("{i},n{i},POINT({i} {i})\n"));
+            writeln!(testo, "{i},n{i},POINT({i} {i})").expect("la riga si compone");
         }
     }
     std::fs::write(percorso, testo).expect("la sorgente si scrive");
@@ -151,13 +152,20 @@ fn il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui() {
     );
 }
 
-/// Un guasto dei dati oltre il primo batch: errore tipizzato, e niente resta.
+/// Un WKT malformato a riga 15.000: l'inferenza lo trova **prima** dello stream.
 ///
-/// **Non** attesta che la scrittura fosse cominciata: la superficie pubblica non
-/// espone quanto sia stato fatto, e affermarlo qui sarebbe dedurlo dal numero di
-/// riga. Cio' che la prova fissa sono gli invarianti che valgono comunque.
+/// # Perche' il nome e' cambiato
+///
+/// Si chiamava «a meta' stream», e il nome affermava un momento che non
+/// avviene. La passata di inferenza di `open` visita la colonna geometrica fino
+/// a `max_rows`, quindi incontra la riga rotta mentre allestisce il reader: lo
+/// stream non e' cominciato, il writer non esiste. Misurato, non dedotto --
+/// marcando il sito dell'inferenza la busta riporta quel marcatore.
+///
+/// E' percio' la prova del guasto **precoce**, e `phase: prepare` lo dice. Il
+/// guasto dentro il loop di lettura ha una prova sua, qui sotto.
 #[test]
-fn un_guasto_dei_dati_a_meta_stream_non_lascia_destinazione_ne_residui() {
+fn un_wkt_malformato_e_rifiutato_dall_inferenza_prima_dello_stream() {
     let (radice, ingresso, uscita) = ambiente(20_000, Some(15_000));
 
     let (codice, busta) = converti(&ingresso, &uscita, &[]);
@@ -165,6 +173,71 @@ fn un_guasto_dei_dati_a_meta_stream_non_lascia_destinazione_ne_residui() {
     assert_eq!(codice, Some(3), "il codice d'uscita del formato: {busta}");
     let errore = &busta["error"];
     assert_eq!(errore["code"], "FORMAT_ERROR", "{busta}");
+    assert_eq!(errore["category"], "data_mapping", "{busta}");
+    assert_eq!(errore["retry"]["kind"], "never", "{busta}");
+    assert_eq!(errore["remote_effect"], "none", "{busta}");
+    // ERR-003: la fase e' quella in corso, e qui e' l'allestimento del reader.
+    // Valeva `validate` finche' la fase la dichiarava il parser, che non sa in
+    // quale passata sta girando.
+    assert_eq!(
+        errore["phase"], "prepare",
+        "l'inferenza gira dentro `open`, come `reader_busy`: {busta}"
+    );
+
+    assert!(!uscita.exists(), "la destinazione non deve esistere");
+    assert_eq!(
+        contenuto(radice.path()),
+        vec!["in.csv".to_owned()],
+        "nella directory non deve restare uno staging"
+    );
+}
+
+/// Un guasto **dentro il loop di lettura**, e la fase che lo dichiara.
+///
+/// # Come si arriva qui, visto che l'inferenza vede le stesse celle
+///
+/// Sfruttando l'unica asimmetria fra le due passate: l'inferenza **analizza**
+/// soltanto, il loop analizza e poi **codifica** in WKB. Una LINESTRING scritta
+/// con coordinate corte occupa in WKB circa quattro volte il suo testo, quindi
+/// esiste un tetto per cella che il WKT passa e il WKB no: 411 byte di testo
+/// contro 1613 di WKB, con la soglia a 1000.
+///
+/// Senza quell'asimmetria questa prova non esisterebbe, e la correzione della
+/// fase nel loop sarebbe codice che nessun ingresso raggiunge.
+///
+/// # Che cosa fissa
+///
+/// `phase: read`. Il valore prima della correzione era `validate`, verificato
+/// rimuovendola e rieseguendo: la busta diceva «non ho cominciato» dopo aver
+/// letto e convertito le righe precedenti.
+#[test]
+fn un_guasto_nel_loop_di_lettura_dichiara_la_fase_di_lettura() {
+    let radice = tempfile::tempdir().expect("directory temporanea");
+    let ingresso = radice.path().join("in.csv");
+    let uscita = radice.path().join("uscita.geojson");
+
+    let vertici: Vec<String> = (0..100).map(|i| format!("{} {}", i % 9, i % 9)).collect();
+    let linea = format!("LINESTRING({})", vertici.join(","));
+    assert!(
+        linea.len() < 1_000 && 13 + 16 * 100 > 1_000,
+        "il caso vale solo se il WKT sta sotto il tetto e il WKB no: WKT {} byte",
+        linea.len()
+    );
+
+    let mut testo = String::from("id,geometry\n");
+    for i in 0..50 {
+        writeln!(testo, "{i},\"{linea}\"").expect("la riga si compone");
+    }
+    std::fs::write(&ingresso, testo).expect("la sorgente si scrive");
+
+    let (codice, busta) = converti(&ingresso, &uscita, &["--max-wkb-cell-bytes", "1000"]);
+
+    assert_eq!(codice, Some(3), "il codice d'uscita del formato: {busta}");
+    let errore = &busta["error"];
+    assert_eq!(
+        errore["phase"], "read",
+        "il rifiuto arriva nel loop, dopo che `read_record` e' riuscito: {busta}"
+    );
     assert_eq!(errore["category"], "data_mapping", "{busta}");
     assert_eq!(errore["retry"]["kind"], "never", "{busta}");
     assert_eq!(errore["remote_effect"], "none", "{busta}");
