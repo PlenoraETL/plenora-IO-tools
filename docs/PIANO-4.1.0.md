@@ -697,6 +697,110 @@ Il resto del perimetro non ha residui che queste prove lascino scoperti. Non
 significa che le guardie siano complete: significa che le cinque che la voce
 nominava hanno ciascuna una prova, e che due di quelle prove non c'erano prima.
 
+### M4 — censimento della corrispondenza
+
+Censimento sui registri esistenti, senza secondo sistema di assurance e senza
+nuovi gate. La domanda è se ogni proprietà dichiarata abbia una prova, e se
+quella prova venga davvero eseguita.
+
+#### Il legame dichiarato → prova esiste, ed è chiuso nei due versi
+
+`contracts/requisiti-pubblici.json` porta **32 requisiti**, ciascuno con `id`,
+la regola del contratto che lo impone, e uno stato fra `implementato` e
+`non_ancora`. `scripts/check_public_contracts.py` tiene `SONDE`, una mappa da
+`id` alla funzione che lo esercita, e la corrispondenza è verificata in
+entrambe le direzioni:
+
+- un requisito senza sonda è un errore del gate;
+- una sonda senza requisito è «orfana», e pure quella è un errore;
+- una prova del gate confronta i due insiemi **contro il registro reale**, non
+  contro una copia.
+
+È la proprietà che M4 chiede, e per la superficie pubblica c'è già. Non va
+aggiunta: va riconosciuta, e il censimento serve a dire dove.
+
+#### I quattro stati, e chi li distingue
+
+| stato | chi lo dice |
+|---|---|
+| eseguito e passato | `implementato` + sonda verde → conta fra i **protetti** |
+| eseguito e fallito | `implementato` + sonda rossa → **regressione**, e il gate è rosso |
+| non applicabile | `non_ancora` + sonda rossa → **mancante**, atteso e dichiarato |
+| eseguito oltre il dichiarato | `non_ancora` + sonda verde → **avanzamento**, da registrare |
+
+C'è un quinto stato che il gate tratta a parte, e merita di essere nominato: un
+artefatto che va in crash, si blocca o non parte non sta dicendo «questo
+requisito non è ancora implementato» — non sta dicendo niente. Classificarlo con
+lo stato del registro trasformerebbe un binario rotto in un piano di lavoro.
+
+Il «saltato» ha un registro suo, `sonde-saltate-nella-sdist.json`, che elenca le
+prove che nell'archivio sorgente non girano, con la condizione per cui non
+girano e dove girano invece.
+
+#### Dove le prove vengono eseguite davvero — e il residuo
+
+| gate | CI | checkpoint L2 |
+|---|---|---|
+| `check_public_contracts.py` (i 32 requisiti) | sì, job `profilo-pubblico`, su ogni push | **no** |
+| `check_public_identity.py` | sì | sì, due passi |
+| gli altri gate del checkpoint | sì | sì, 105 passi |
+
+Il verificatore del profilo pubblico **non è un passo del checkpoint**: zero
+riferimenti in `s9-checkpoint.sh`, e nessuno dei 105 passi lo nomina. La ragione
+è visibile — è un gate black-box che pretende un binario costruito, e il job di
+CI infatti lo costruisce prima di invocarlo — ma la conseguenza va detta: **una
+corsa di livello 2 può passare senza che i 32 requisiti pubblici siano stati
+verificati.**
+
+Per la 4.0.0 quella verifica è stata fatta, su un binario **estratto
+dall'archivio** e non su una ricostruzione, con esito 32 su 32, ed è registrata
+nell'evidenza. Ma è stata fatta perché qualcuno l'ha eseguita, non perché un
+gate la pretendesse.
+
+#### Il punto dove la corrispondenza si affida al verbale
+
+Il manifesto di adozione porta, per ogni artefatto, un elenco `verification` coi
+comandi che lo hanno verificato — per l'archivio Linux base il primo è proprio
+`check_public_contracts.py`. Quelle stringhe sono **scritte**, non eseguite dal
+gate che le valida, e `check_manifesto_adozione.py` lo dichiara apertamente:
+verifica che il documento sia onesto nella forma, non che il prodotto sia
+conforme, perché «un gate che pretendesse di rispondere a entrambe risponderebbe
+male alla seconda».
+
+La distinzione è corretta e va conservata. Ciò che resta scoperto è il terzo
+passo: **nessuno verifica che quei comandi siano stati eseguiti su quei byte**.
+Un manifesto che elencasse una verifica mai fatta sarebbe formalmente valido.
+
+È esattamente il perimetro di R3–R5 — il legame fra candidate, revisione
+qualificata ed evidenza, e il riuso che non si eredita — e questa voce vi
+appartiene invece di generare un meccanismo proprio.
+
+#### Catalogo, CLI e SDK
+
+Il **catalogo** e la **CLI** sono coperti dai 32 requisiti, che nascono da
+`CAPABILITY-DISCOVERY`, `CLI-2.0`, `ERRORS-1.0` e dalle altre regole nominate in
+`regola`. L'**SDK Python** ha le proprie prove, tre job `python-sdk` in CI su
+3.11, 3.12 e 3.13, e il gate che confronta i suoi modelli col protocollo — ma
+non ha un registro `id → prova` come quello del profilo pubblico: la
+corrispondenza lì è per suite, non per requisito.
+
+Non propongo di costruirgliene uno. Sarebbe un secondo sistema di assurance per
+una superficie che il profilo dichiara **non richiesta**, e il costo cadrebbe su
+ogni requisito futuro. Che la granularità sia diversa è un fatto da registrare,
+non una lacuna da chiudere per simmetria.
+
+#### Esito
+
+La corrispondenza dichiarato → prova è **già chiusa e verificata** per la
+superficie pubblica, ed è il risultato principale di questo censimento: la voce
+si chiude indicando ciò che esiste, non aggiungendo.
+
+Restano due cose, entrambe sull'**esecuzione** e non sull'esistenza: il
+verificatore del profilo pubblico non è un passo del checkpoint, e i comandi di
+`verification` del manifesto non sono verificati come eseguiti. Vanno con
+R3–R5, che è la voce sul legame fra ciò che si dichiara e ciò che è stato
+davvero misurato.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
