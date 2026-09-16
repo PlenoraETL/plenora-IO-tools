@@ -1116,7 +1116,7 @@ rinvio non si trasforma in dimenticanza.
 | 5 | ~~**R2** — campagne senza `sleep` a scadenza~~ | **chiusa**: le tre proprietà c'erano, mancava la quarta — `collect` rimuoveva il container portandosi via il log. Sette prove con un Docker finto. Limite residuo: due corse nello stesso secondo condividerebbero il nome del file, ed è detto nella prova invece che nascosto | — |
 | 6 | ~~**R3–R4**~~ | **chiuse**: il legame misura-evidenza era già imposto e ora è verificato per intero; la regola del riuso è scritta per i sei tipi, col gate che pretende l'esistenza dei sorveglianti | — |
 | 7 | ~~**R5** — corse concorrenti e push dopo controlli falliti~~ | **chiusa**: `start` rifiuta di sovrascrivere una corsa, l'esito viene da `inspect`, e lo SHA è inciso all'avvio e confrontato con l'albero corrente | — |
-| 8 | **M5** e le fasi D, F, U, C | secondo il proprio perimetro | — |
+| 8 | **M5** e le fasi D, F, U, C | secondo il proprio perimetro — **ma prima serve una decisione**, vedi sotto | tutte toccano `Cargo.lock` |
 
 #### Da R3–R4: anche il verbale fuzz è riferito a ciò che ha eseguito
 
@@ -1140,6 +1140,32 @@ Due campi lo legano, e ciascuno chiude una via diversa:
 Cinque regressioni, fra cui il verbale di un'altra revisione e la corsa su un
 sottoinsieme.
 
+#### La decisione che precede il congelamento
+
+Le priorità che il piano dichiara — M1–M3, poi M4 con R3–R5 — sono chiuse, e
+con esse R1, R2 e R6. Resta aperta Q2b, che dipende da un invio, e resta la
+voce 8: M5 con le fasi D, F, U, C.
+
+**Quella voce non si può rimandare a dopo il congelamento**, ed è il motivo per
+cui la decisione viene prima. D1–D7, F1–F7 e le altre sono aggiornamenti di
+dipendenze: ciascuno tocca `Cargo.lock`, e la regola appena scritta in
+`riuso-delle-evidenze.json` dice che cosa comporta — censimento della closure,
+profondità del fuzz, confine ASan, copertura. Farne uno dopo il congelamento
+invaliderebbe le misure che il congelamento serve a fissare.
+
+Due vie, e la scelta non è tecnica:
+
+| via | che cosa comporta |
+|---|---|
+| **congelare ora** | la 4.1.0 dichiara chiuse M1–M4 e R1–R6, e le fasi delle dipendenze restano per un ciclo successivo. Le cinque rimisurazioni e la campagna fuzz partono subito |
+| **prima le dipendenze** | si esegue almeno un sottoinsieme di D/F/U/C, si valuta M5 sugli esiti, e **poi** si congela. Ogni aggiornamento ha il suo costo di rimisurazione, e conviene raggrupparli invece di alternarli alle misure |
+
+Il piano non sceglie per conto dell'utente: la prima via chiude un ciclo più
+stretto e più presto, la seconda consegna la manutenibilità che M5 doveva
+valutare. Quello che il piano può dire è che **alternarle è la via peggiore** —
+congelare, aggiornare una dipendenza e rimisurare costa due campagne per un
+risultato solo.
+
 #### Sul candidato finale, per accordo
 
 Cinque rimisurazioni — profondità per i quattro bersagli e confine ASan — più
@@ -1152,7 +1178,11 @@ bersagli dopo la misura. È il motivo per cui le rimisurazioni vanno **ultime**,
 e per cui il rinvio porta l'impronta dell'albero corrente: se il codice cambia
 ancora, la dichiarazione diventa stantia e il gate torna rosso da solo.
 
-**Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
+**Priorità: chiuse.** M1–M4 e R1–R6 sono completate; restano Q2b, che dipende
+da un invio, e la decisione sulle fasi delle dipendenze. Le righe che seguono
+restano com'erano scritte, perché dicono perché quell'ordine fu scelto.
+
+**Come era formulata: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
 sono un motivo per verificare la stessa classe in IO, non un'autorizzazione a
