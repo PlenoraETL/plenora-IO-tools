@@ -1004,6 +1004,42 @@ certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
 lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
 dopo la terminazione forzata.
 
+### L'attestazione del profilo pubblico
+
+Dalla 4.1.0 l'autorizzazione ha una condizione in piu', e comporta un passo
+operativo: **prima** di eseguire `check_release_contract.py --release`, ogni
+artefatto `cli` del manifesto va attestato.
+
+```
+python3 scripts/check_public_contracts.py \
+  --contracts .plenora-contracts \
+  --artefatto dist/plenora-io-X.Y.Z-linux-x86_64-base.tar.gz \
+  --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-base.json
+```
+
+`--artefatto` non e' una comodita' rispetto a `--cli`: cambia che cosa viene
+provato. Il binario non lo indica chi lancia il comando, lo si **estrae
+dall'archivio**, e il digest che finisce nell'attestazione e' quello dei byte su
+cui le sonde hanno girato. La condizione confronta quel digest con quello che il
+manifesto distribuisce, e un'attestazione che parlasse di altri byte non e' una
+verifica parziale di questi: non dice niente di questi.
+
+Le due opzioni si escludono, per la stessa ragione: `--cli` interroga un binario
+senza dire da dove venga, ed e' quello che serve in CI; ammetterli insieme
+vorrebbe dire poter attestare un archivio interrogandone un altro.
+
+**Su ogni piattaforma.** Un binario Windows non si esegue in una corsa Linux,
+quindi la sua attestazione si produce dove quel binario gira, e si versiona
+insieme alle altre. Non c'e' una via differita: sarebbe la stessa cosa che
+manca. `assurance/evidence/` resta scrivibile dopo il congelamento proprio
+perche' evidenze come questa nascono li'.
+
+**Che cosa non fa.** Non sostituisce lo smoke sull'artefatto installato, che e'
+un'altra delle sei condizioni di uscita: risponde a «i requisiti pubblici sono
+verificati su questi byte», non a «il pacchetto si installa e funziona».
+
+---
+
 ### 5-bis. Il congelamento, e le due revisioni
 
 **Perché esiste questa sezione.** Il modello ne aveva una sola, e con una sola

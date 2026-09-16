@@ -959,6 +959,90 @@ gate, e il suo esito non è ancorato al digest di quell'artefatto. Registrarla
 come prova della capacità sarebbe scambiare una verifica riuscita per il legame
 che ancora manca.
 
+### R3–R4 — i due residui di M4, implementati
+
+M4 aveva lasciato due cose, entrambe sull'esecuzione: la verifica dei 32
+requisiti pubblici non era pretesa da nessun gate sull'artefatto distribuito, e
+i comandi di `verification` del manifesto erano stringhe scritte, non
+collegate ai byte. Il residuo, in una riga, era **collegare le verifiche
+eseguite ai byte dell'artefatto**.
+
+#### Il legame si costruisce, non si dichiara
+
+`check_public_contracts.py` prende un ingresso nuovo, `--artefatto`, e la
+differenza con `--cli` non è di comodità: cambia che cosa viene provato. Il
+binario non lo indica chi lancia il comando, lo si **estrae dall'archivio**, e
+il digest che finisce nell'attestazione è quello dei byte su cui le sonde hanno
+girato. «Questi requisiti sono verificati su questi byte» diventa così una
+conseguenza di come la verifica è stata eseguita.
+
+Le due opzioni si escludono, per la stessa ragione per cui esistono entrambe:
+`--cli` interroga un binario senza dire da dove venga, ed è ciò che serve in CI;
+ammetterle insieme vorrebbe dire poter attestare un archivio interrogandone un
+altro.
+
+Tre scelte che vale la pena dire, perché ciascuna chiude una via al verde
+facile:
+
+- l'attestazione è **sempre esigente**. Una corsa non esigente direbbe
+  «conforme» con requisiti non soddisfatti, e la conformità parziale non
+  qualifica.
+- si scrive **anche quando la verifica fallisce**. Scriverla solo in caso di
+  successo lascerebbe una corsa rossa senza traccia, e la via più breve al verde
+  sarebbe rieseguire finché non passa.
+- un archivio con **due** binari della CLI è un errore, non una scelta: due
+  candidati vorrebbero dire che non si sa quale sia stato interrogato, ed è
+  proprio l'ambiguità che l'attestazione esiste per togliere.
+
+#### La sesta condizione
+
+L'insieme delle condizioni di autorizzazione passa da cinque a sei.
+`profilo-pubblico-attestato` pretende, per **ogni** artefatto `cli` del
+manifesto, un'attestazione il cui digest coincida con quello distribuito, con
+conformità dichiarata, esigenza dichiarata, pin dei contratti uguale a quello
+del manifesto e nessuna regressione, nessun avanzamento non dichiarato, nessuna
+invocazione guasta.
+
+È rossa anche in tre casi che non sono «manca un'attestazione», e ciascuno era
+una via al verde:
+
+| caso | perché è rosso |
+|---|---|
+| il manifesto non c'è | senza, non si sa quali byte si stiano distribuendo |
+| nessun artefatto `cli` | un insieme vuoto soddisfa ogni «per ogni» |
+| un'attestazione che non corrisponde a niente | è il residuo di una distribuzione precedente |
+
+E un file illeggibile non viene trattato come assente: il messaggio direbbe
+«manca» di un file che c'è, e chi cerca il guasto lo cercherebbe altrove.
+
+**Non c'è una via differita, ed è deliberato.** Un binario Windows non si esegue
+in una corsa Linux: la sua attestazione si produce dove quel binario gira e si
+versiona insieme alle altre. Ammettere un rinvio qui sarebbe riammettere
+esattamente ciò che mancava. È un costo operativo, e va detto che è nuovo.
+
+#### Che cosa lo prova
+
+Ventinove regressioni: sedici sulla condizione, nove sull'ingresso del
+verificatore, più le esistenti che contano le condizioni e che ora ne pretendono
+sei. Ciascuna guasta **una** proprietà e lascia le altre sane, così il rosso
+nomina la causa invece di essere la somma di più cose rotte insieme.
+
+Oltre a queste, la catena è stata percorsa intera sui byte veri: archivio
+costruito col binario dentro, attestazione prodotta, condizione verde; poi il
+digest del manifesto cambiato lasciando l'attestazione dov'era, e la condizione
+rossa con il messaggio che nomina entrambi i digest.
+
+#### Che cosa resta aperto
+
+La corsa 32/32 fatta a mano per la 4.0.0 resta ciò che era: una verifica
+riuscita su un binario, non il legame. Vale per quell'artefatto e non lo
+attesta nel senso che la condizione ora pretende.
+
+E `check_public_contracts.py` continua a non essere un passo del **checkpoint**.
+La voce chiedeva che fosse obbligatorio nella qualificazione finale
+dell'artefatto distribuito, ed è lì che ora lo è; il checkpoint gira su un
+albero, non su un archivio, e portarcelo sarebbe una voce diversa da queste due.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
@@ -1281,8 +1365,8 @@ identificata con seguito preciso**.
 |---|---|---|
 | R1 | Regressione dedicata a `MAX_BLOCCHI` nella prevalidazione Arrow | Caso sotto, al e oltre il limite; rifiuto della guardia prevista; costo misurato e collocazione proporzionata. Le dimensioni della fixture sono un costo da gestire, non un'impossibilità |
 | R2 | Togliere alle campagne la dipendenza da `sleep` a scadenza e dalla cattura di `docker exec` | Processo di campagna e suo exit code osservabili; log persistenti fuori dal container; interruzione distinta dal successo; durata verificata senza ricavarla dal ritmo medio |
-| R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | Fixture rifiutano misura assente o di un'altra revisione; distinguono registrazione entro allowlist, evidenza storica e riuso ammesso; nessun collegamento affidato soltanto al verbale umano. **Da M4**: la verifica dei 32 requisiti pubblici è obbligatoria nella qualificazione finale dell'artefatto distribuito, non facoltativa perché qualcuno la esegue |
-| R4 | Rendere esplicito il riuso delle evidenze | Regola per tipo di modifica e perimetro: prodotto, test, documenti, toolchain, feature, lock. Prova della validità e della provenienza del riuso; si conserva la revisione realmente misurata. **Da M4**: l'esito della verifica è collegato al **digest** dell'artefatto provato, e la corrispondenza è controllata prima dell'adozione; un elenco di comandi nel manifesto non basta |
+| R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | Fixture rifiutano misura assente o di un'altra revisione; distinguono registrazione entro allowlist, evidenza storica e riuso ammesso; nessun collegamento affidato soltanto al verbale umano. **Da M4, fatto**: la condizione `profilo-pubblico-attestato` rende obbligatoria la verifica dei 32 requisiti sull'artefatto distribuito. Resta aperto il resto della voce |
+| R4 | Rendere esplicito il riuso delle evidenze | Regola per tipo di modifica e perimetro: prodotto, test, documenti, toolchain, feature, lock. Prova della validità e della provenienza del riuso; si conserva la revisione realmente misurata. **Da M4, fatto**: l'attestazione nasce dai byte estratti dall'archivio, e la condizione confronta quel digest con quello distribuito. Resta aperto il resto della voce |
 | R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | Una misura per SHA e perimetro; esiti dei comandi controllati prima dei passi dipendenti; monitor legato allo SHA e alla corsa esatta; nessuna diagnosi basata sulla corsa precedente |
 | R6 | Versionare il misuratore del soak con le prove dei casi già osservati | **Chiusa**: `scripts/soak_misurato.py`, regressioni in `scripts/test_soak_misurato.py` collegate a CI e checkpoint; CPU diagnostica; originali e giudizio corretto in `scripts/fixtures/soak/` |
 

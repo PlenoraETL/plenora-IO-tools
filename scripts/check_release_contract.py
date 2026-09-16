@@ -270,8 +270,18 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
         "decisione-scritta",
         "candidate-coerente",
         "qualifica-cross-component",
+        "profilo-pubblico-attestato",
     }
 )
+
+# Dove vivono le attestazioni del profilo pubblico, e dove il manifesto.
+#
+# Il manifesto e' **gitignored**: nasce quando la distribuzione viene costruita,
+# e porta i digest degli archivi veri. Le attestazioni invece si versionano,
+# perche' sono evidenza: `assurance/evidence/` e' nell'allowlist che resta
+# scrivibile dopo il congelamento, ed e' li' che devono stare.
+MANIFESTO = ROOT / "contracts" / "adoption-manifest.json"
+ATTESTAZIONI = ROOT / "assurance" / "evidence" / "profilo-pubblico"
 
 STATO_CORRENTE = ROOT / "assurance" / "current-state.json"
 
@@ -1644,6 +1654,188 @@ def _coda_della_candidate(candidate: dict[str, Any]) -> list[str]:
     if candidate.get("release_action_allowed") is not True:
         return ["`release_action.allowed` non e' consentita"]
     return []
+
+
+def _mostra(percorso: Path) -> str:
+    """Il percorso come lo legge chi sta nel repository.
+
+    Fuori dal repository si mostra intero: e' il caso delle prove, che puntano
+    questi percorsi a una directory temporanea, e un errore di rendering li'
+    nasconderebbe l'errore vero che la prova sta cercando.
+    """
+    try:
+        return percorso.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(percorso)
+
+
+def _attestazioni_lette() -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Le attestazioni presenti, indicizzate per nome d'artefatto.
+
+    Un file illeggibile non e' un'attestazione assente: se lo trattassimo come
+    tale, il messaggio direbbe «manca» di un file che c'e', e chi cerca il
+    guasto lo cercherebbe nel posto sbagliato.
+    """
+    per_nome: dict[str, dict[str, Any]] = {}
+    motivi: list[str] = []
+    if not ATTESTAZIONI.is_dir():
+        return per_nome, motivi
+    for percorso in sorted(ATTESTAZIONI.glob("*.json")):
+        relativo = _mostra(percorso)
+        try:
+            documento = json.loads(percorso.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as guasto:
+            motivi.append(f"{relativo}: non si legge come JSON ({guasto})")
+            continue
+        nome = (documento.get("artefatto") or {}).get("nome")
+        if not isinstance(nome, str) or not nome:
+            motivi.append(f"{relativo}: non nomina l'artefatto attestato")
+            continue
+        if nome in per_nome:
+            motivi.append(
+                f"{relativo}: seconda attestazione per «{nome}». Due attestazioni "
+                "per lo stesso artefatto non dicono quale valga, e la scelta "
+                "cadrebbe su chi legge."
+            )
+            continue
+        per_nome[nome] = documento
+    return per_nome, motivi
+
+
+def _attestazione_regge(
+    attestazione: dict[str, Any], artefatto: dict[str, Any], pin: str
+) -> list[str]:
+    """I motivi per cui un'attestazione non copre questo artefatto."""
+    nome = artefatto.get("name")
+    motivi: list[str] = []
+
+    dichiarato = (attestazione.get("artefatto") or {}).get("digest")
+    atteso = artefatto.get("digest")
+    if dichiarato != atteso:
+        motivi.append(
+            f"«{nome}»: l'attestazione parla dei byte «{dichiarato}», il "
+            f"manifesto distribuisce «{atteso}». Una verifica riuscita su altri "
+            "byte non dice niente di questi."
+        )
+
+    if attestazione.get("conforme") is not True:
+        motivi.append(f"«{nome}»: l'attestazione non dichiara la conformita'")
+    if attestazione.get("esigente") is not True:
+        motivi.append(
+            f"«{nome}»: l'attestazione non e' esigente, e la conformita' "
+            "parziale non qualifica"
+        )
+
+    visto = (attestazione.get("contratti") or {}).get("pin")
+    if visto != pin:
+        motivi.append(
+            f"«{nome}»: verificata contro i contratti «{visto}», il manifesto "
+            f"dichiara «{pin}»"
+        )
+
+    requisiti = attestazione.get("requisiti") or {}
+    totale = requisiti.get("totale")
+    protetti = requisiti.get("protetti")
+    if not isinstance(totale, int) or not isinstance(protetti, int):
+        motivi.append(f"«{nome}»: l'attestazione non conta i requisiti")
+    elif protetti != totale:
+        motivi.append(
+            f"«{nome}»: {protetti} requisiti protetti su {totale}"
+        )
+    for chiave in ("regressioni", "da_dichiarare", "non_soddisfatti", "invocazioni_guaste"):
+        elenco = requisiti.get(chiave) or []
+        if elenco:
+            motivi.append(f"«{nome}»: {len(elenco)} voci in `{chiave}`")
+    return motivi
+
+
+def condizione_profilo_pubblico_attestato(documento: dict[str, Any]) -> list[str]:
+    """Ogni artefatto CLI distribuito ha una verifica **legata ai suoi byte**.
+
+    # Che cosa mancava
+
+    La corrispondenza fra requisito pubblico e sonda esiste da sempre ed e'
+    chiusa nei due versi: un requisito senza sonda e' un errore, una sonda senza
+    requisito e' orfana. Mancavano le altre due cose, ed erano sull'esecuzione.
+
+    La prima: `check_public_contracts.py` girava in CI ma **non** era un passo
+    del checkpoint, e nessun gate ne pretendeva la corsa sull'artefatto
+    distribuito. Per la 4.0.0 quella verifica c'e' stata, 32 su 32 sul binario
+    estratto dall'archivio, ma perche' qualcuno l'ha eseguita.
+
+    La seconda: il manifesto elenca, per ogni artefatto, i comandi che lo hanno
+    verificato. Sono stringhe, e nessuno controlla che siano state eseguite ne'
+    su quali byte. Un manifesto che elencasse una verifica mai fatta sarebbe
+    formalmente valido.
+
+    # Che cosa pretende adesso
+
+    Per **ogni** artefatto `cli` del manifesto, un'attestazione prodotta da
+    `check_public_contracts.py --artefatto`, che non riceve il binario dal
+    chiamante ma lo estrae dall'archivio: il digest nell'attestazione e' quello
+    dei byte su cui le sonde hanno davvero girato, non quello di un file
+    nominato accanto.
+
+    Il confronto e' col digest che il manifesto distribuisce. Un'attestazione
+    che parlasse di altri byte non e' un'attestazione parziale: non dice niente
+    di cio' che si sta pubblicando.
+
+    # Perche' non c'e' una via differita
+
+    Perche' sarebbe la stessa cosa che manca. Un artefatto che non si puo'
+    verificare dov'e' costruito -- un binario Windows in una corsa Linux -- va
+    attestato dove si puo' eseguire, e l'attestazione va versionata insieme
+    alle altre: `assurance/evidence/` resta scrivibile dopo il congelamento
+    proprio per questo. E' un costo operativo, non un'impossibilita'.
+    """
+    del documento  # la condizione guarda la distribuzione, non il registro
+
+    if not MANIFESTO.exists():
+        return [
+            f"{_mostra(MANIFESTO)} assente: senza il "
+            "manifesto non si sa quali byte si stiano distribuendo, e non c'e' "
+            "niente a cui legare una verifica."
+        ]
+    try:
+        manifesto = json.loads(MANIFESTO.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as guasto:
+        return [f"manifesto illeggibile: {guasto}"]
+
+    pin = ((manifesto.get("contracts_source") or {}).get("revision")) or ""
+    artefatti = [
+        voce
+        for voce in manifesto.get("artifacts", [])
+        if voce.get("surface") == "cli"
+    ]
+    if not artefatti:
+        return [
+            "il manifesto non distribuisce nessun artefatto `cli`: la "
+            "condizione non avrebbe niente da verificare, e un insieme vuoto "
+            "non e' una verifica riuscita."
+        ]
+
+    per_nome, motivi = _attestazioni_lette()
+    for artefatto in artefatti:
+        nome = artefatto.get("name")
+        attestazione = per_nome.get(nome)
+        if attestazione is None:
+            motivi.append(
+                f"«{nome}»: nessuna attestazione del profilo pubblico. Attesa "
+                f"in {_mostra(ATTESTAZIONI)}/, prodotta da "
+                "`check_public_contracts.py --artefatto <archivio> "
+                "--attestazione <file>`."
+            )
+            continue
+        motivi.extend(_attestazione_regge(attestazione, artefatto, pin))
+
+    non_usate = sorted(set(per_nome) - {v.get("name") for v in artefatti})
+    for nome in non_usate:
+        motivi.append(
+            f"«{nome}»: attestazione presente per un artefatto che il manifesto "
+            "non distribuisce. Un'evidenza che non corrisponde a niente e' un "
+            "residuo di una distribuzione precedente, e va tolta o spiegata."
+        )
+    return motivi
 
 
 def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]:

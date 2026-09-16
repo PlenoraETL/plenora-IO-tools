@@ -760,6 +760,14 @@
           "tipo": "interna",
           "funzione": "condizione_qualifica_cross_component"
         }
+      },
+      {
+        "id": "profilo-pubblico-attestato",
+        "descrizione": "ogni artefatto CLI distribuito ha un'attestazione del profilo pubblico legata al digest dei byte su cui le sonde hanno girato",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_profilo_pubblico_attestato"
+        }
       }
     ]
   },

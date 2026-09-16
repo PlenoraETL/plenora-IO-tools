@@ -4265,3 +4265,205 @@ class SondeDelCongelamentoAncoraAttivo(unittest.TestCase):
     def test_una_diff_di_sola_assurance_e_accettata(self) -> None:
         """L'altro verso: l'assurance **deve** poter avanzare."""
         self.assertEqual(self.motivi([]), [])
+
+
+PIN = "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+
+
+def _attestazione(nome: str, digest: str, **sovrascritture: object) -> dict:
+    """Un'attestazione conforme, da guastare una proprieta' per volta."""
+    documento = {
+        "schema_version": 1,
+        "artefatto": {"nome": nome, "digest": digest, "byte": 10},
+        "binario": {"percorso_nell_archivio": "bin/plenora-io", "digest": "sha256:bb"},
+        "contratti": {"pin": PIN},
+        "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": [],
+        },
+        "esigente": True,
+        "conforme": True,
+    }
+    documento.update(sovrascritture)
+    return documento
+
+
+class SondeProfiloPubblicoAttestato(unittest.TestCase):
+    """La condizione che lega la verifica ai byte dell'artefatto.
+
+    Ogni prova guasta **una** proprieta' e lascia le altre sane: cosi' il rosso
+    nomina la causa invece di essere la somma di piu' cose rotte insieme.
+    """
+
+    def setUp(self) -> None:
+        self.temporanea = tempfile.TemporaryDirectory()
+        radice = pathlib.Path(self.temporanea.name)
+        self.manifesto = radice / "adoption-manifest.json"
+        self.attestazioni = radice / "profilo-pubblico"
+        self.attestazioni.mkdir()
+        self._manifesto_originale = gate.MANIFESTO
+        self._attestazioni_originali = gate.ATTESTAZIONI
+        gate.MANIFESTO = self.manifesto
+        gate.ATTESTAZIONI = self.attestazioni
+        self.addCleanup(self._ripristina)
+
+    def _ripristina(self) -> None:
+        gate.MANIFESTO = self._manifesto_originale
+        gate.ATTESTAZIONI = self._attestazioni_originali
+        self.temporanea.cleanup()
+
+    def _scrivi_manifesto(self, *artefatti: dict) -> None:
+        self.manifesto.write_text(
+            json.dumps(
+                {
+                    "contracts_source": {"revision": PIN},
+                    "artifacts": list(artefatti),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _deposita(self, nome_file: str, documento: dict) -> None:
+        (self.attestazioni / nome_file).write_text(
+            json.dumps(documento), encoding="utf-8"
+        )
+
+    @staticmethod
+    def _artefatto(nome: str, digest: str, superficie: str = "cli") -> dict:
+        return {"name": nome, "surface": superficie, "digest": digest}
+
+    def _motivi(self) -> list[str]:
+        return gate.condizione_profilo_pubblico_attestato({})
+
+    def test_un_artefatto_attestato_sui_suoi_byte_e_verde(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self.assertEqual(self._motivi(), [])
+
+    def test_senza_manifesto_e_rossa(self) -> None:
+        # Non e' un caso di laboratorio: e' la corsa di rilascio lanciata prima
+        # di costruire la distribuzione.
+        motivi = self._motivi()
+        self.assertTrue(any("assente" in m for m in motivi), motivi)
+
+    def test_un_artefatto_senza_attestazione_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        motivi = self._motivi()
+        self.assertTrue(any("nessuna attestazione" in m for m in motivi), motivi)
+
+    def test_un_digest_diverso_e_rosso_e_li_nomina_entrambi(self) -> None:
+        # Il cuore della voce: una verifica riuscita su altri byte non e' una
+        # verifica parziale di questi, e il messaggio deve far vedere lo scarto.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:bb"))
+        motivi = self._motivi()
+        self.assertEqual(len(motivi), 1, motivi)
+        self.assertIn("sha256:aa", motivi[0])
+        self.assertIn("sha256:bb", motivi[0])
+
+    def test_un_attestazione_non_conforme_e_rossa(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita(
+            "base.json", _attestazione("base.tar.gz", "sha256:aa", conforme=False)
+        )
+        motivi = self._motivi()
+        self.assertTrue(any("conformita" in m for m in motivi), motivi)
+
+    def test_un_attestazione_non_esigente_e_rossa(self) -> None:
+        # Una corsa non esigente dichiara «conforme» con requisiti non
+        # soddisfatti: accettarla qui sarebbe scambiare la conformita' parziale
+        # per una qualifica.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita(
+            "base.json", _attestazione("base.tar.gz", "sha256:aa", esigente=False)
+        )
+        motivi = self._motivi()
+        self.assertTrue(any("esigente" in m for m in motivi), motivi)
+
+    def test_un_pin_dei_contratti_diverso_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["contratti"] = {"pin": "0" * 40}
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("contratti" in m for m in motivi), motivi)
+
+    def test_meno_requisiti_protetti_del_totale_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["requisiti"]["protetti"] = 31
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("31" in m and "32" in m for m in motivi), motivi)
+
+    def test_una_regressione_registrata_e_rossa(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["requisiti"]["regressioni"] = ["CLI-2.0-qualcosa"]
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("regressioni" in m for m in motivi), motivi)
+
+    def test_un_attestazione_che_non_corrisponde_a_niente_e_rossa(self) -> None:
+        # Un residuo di una distribuzione precedente: resterebbe li' a sembrare
+        # evidenza di qualcosa che non si sta pubblicando.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self._deposita("vecchia.json", _attestazione("vecchia.tar.gz", "sha256:cc"))
+        motivi = self._motivi()
+        self.assertTrue(any("non distribuisce" in m for m in motivi), motivi)
+
+    def test_due_attestazioni_per_lo_stesso_artefatto_sono_rosse(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("prima.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self._deposita("seconda.json", _attestazione("base.tar.gz", "sha256:zz"))
+        motivi = self._motivi()
+        self.assertTrue(any("seconda attestazione" in m for m in motivi), motivi)
+
+    def test_un_attestazione_illeggibile_non_e_un_attestazione_assente(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        (self.attestazioni / "rotta.json").write_text("{ non json", encoding="utf-8")
+        motivi = self._motivi()
+        self.assertTrue(any("non si legge" in m for m in motivi), motivi)
+
+    def test_nessun_artefatto_cli_non_e_un_verde(self) -> None:
+        # Un insieme vuoto soddisfa ogni «per ogni», e sarebbe la via piu' breve
+        # al verde: distribuire senza dichiarare nessun artefatto CLI.
+        self._scrivi_manifesto(self._artefatto("src.tar.gz", "sha256:aa", "rust"))
+        motivi = self._motivi()
+        self.assertTrue(any("nessun artefatto" in m for m in motivi), motivi)
+
+    def test_le_superfici_non_cli_non_pretendono_attestazione(self) -> None:
+        self._scrivi_manifesto(
+            self._artefatto("base.tar.gz", "sha256:aa"),
+            self._artefatto("src.tar.gz", "sha256:dd", "rust"),
+        )
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self.assertEqual(self._motivi(), [])
+
+    def test_la_condizione_e_fra_quelle_obbligatorie(self) -> None:
+        # Senza questa riga, togliere la voce dal registro sarebbe la via piu'
+        # breve al verde: la condizione che non passa sparisce.
+        self.assertIn("profilo-pubblico-attestato", gate.CONDIZIONI_OBBLIGATORIE)
+
+    def test_il_registro_reale_la_dichiara_con_la_funzione_giusta(self) -> None:
+        registro = json.loads(
+            (
+                pathlib.Path(gate.__file__).resolve().parents[1]
+                / "assurance"
+                / "registries"
+                / "release-contract-current.json"
+            ).read_text(encoding="utf-8")
+        )
+        voce = next(
+            c
+            for c in registro["autorizzazione_di_release"]["condizioni"]
+            if c["id"] == "profilo-pubblico-attestato"
+        )
+        self.assertEqual(
+            voce["verifica"]["funzione"], "condizione_profilo_pubblico_attestato"
+        )
