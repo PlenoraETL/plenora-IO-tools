@@ -299,8 +299,10 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate **iniziale**: il perimetro della 4.1.0 e' chiuso -- M1-M4, R1-R6, Q1 e Q2c -- e l'albero non e' ancora congelato. Le misure finali non sono state eseguite, e finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata: il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso.\n\nChe cosa la 4.1.0 **non** promette: la valutazione di manutenibilita' delle dipendenze (M5, fuori perimetro) e gli aggiornamenti delle fasi D, F, U, C, D1 compresa. Resta aperta Q2b, il cui contributo e' pronto e il cui invio non e' avvenuto."
+      "stato": "attiva",
+      "nota": "Candidate **attiva**, congelata su una revisione che il commit precedente ha chiuso: questo commit la nomina, perche un commit non puo' nominare se stesso. Da qui in poi cio' che si puo' toccare senza ritirarla e solo cio' che l'assurance produce, e il gate lo deriva dalla diff invece di crederlo.\n\nLe misure finali non sono ancora state eseguite: cinque rimisurazioni -- profondita' per i quattro bersagli e confine ASan -- piu' la campagna dello smoke, il soak e la qualifica degli artefatti. Le tre condizioni che le pretendono sono rosse, ed e' giusto che lo siano.\n\nChe cosa la 4.1.0 non promette: la valutazione di manutenibilita' delle dipendenze e gli aggiornamenti delle fasi D, F, U, C. Resta aperta Q2b.",
+      "revisione_candidate": "7746b1f053b41d3708faffb9cb55cc0fe69aef82",
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {
