@@ -396,6 +396,129 @@ prove coprono dove hanno un caso, e che altrove si verifica guardando.
 Non è stato eseguito alcun refactoring, nessun export è cambiato, e nessuna
 prova è stata aggiunta o tolta.
 
+### M2 — censimento dei tre stati
+
+Censimento del 16 settembre 2026 sui sorgenti. Nessuna modifica al codice:
+questo blocco riporta come gli stati sono rappresentati, dove si producono, come
+li leggono i consumatori e quali prove li fissano.
+
+#### La distinzione che governa il censimento
+
+Non tutti i campi devono ammettere tre stati, e confonderli sarebbe il difetto
+opposto a quello che si cerca. **Un descrittore dichiara, un contratto misura**:
+per una dichiarazione statica «non misurato» non esiste, perché nessuno stava
+misurando. `FormatDescriptor` ha diciassette campi opzionali — `write_mode`,
+`write_determinism`, `spec_version_supported`, `write_capabilities` — e in tutti
+`None` significa «questo formato non ha quella capacità», non «non l'ho
+osservata». Sono due stati per costruzione, e vanno lasciati a due.
+
+La domanda dei tre stati vale dove c'è una **misura**: il contratto geometrico e
+le diagnostiche di riga.
+
+#### `geometry_types` più `scansione_completa` — tre stati, e il terzo è recente
+
+| stato | rappresentazione |
+|---|---|
+| valore presente | `geometry_types` non vuoto |
+| misurato vuoto | `geometry_types` vuoto **e** `scansione_completa = true` |
+| non misurato | `geometry_types` vuoto **e** `scansione_completa = false` |
+
+Il campo lo dice da sé: «vuoto **da solo** non dice quale dei due stati sia». È
+la coppia a decidere, e `false` è il valore prudente — chi non ha percorso la
+sorgente non può affermare un'assenza.
+
+**Dove si produce**: la passata di inferenza di GeoJSON lo valorizza a fine
+file; `set_exact_geometry_types` lo pone a `true`.
+**Chi lo consuma**: `validate_write` accetta il secondo stato — un'assenza
+accertata non ha niente da dichiarare — e rifiuta il terzo.
+**Prove**: `conformance_tests.rs` esercita entrambi gli stati su **ogni** driver
+scrivibile, con `scansione_completa` come unica differenza fra i due piani.
+
+**Il limite è sul filo, non nel modello**: `l_assenza_accertata_non_sopravvive_al_filo`
+fissa il prezzo — la stessa sorgente si consegna al primo giro e viene rifiutata
+al secondo, perché `ARROW-VOCABULARY-1.0` si dichiara chiuso e
+`types_declaration` ammette i soli `exact`, `mixed`, `unresolved`. È C3, e
+dipende dalla decisione 0006: non è una correzione che questo blocco possa fare.
+
+#### `CrsResolution` — tre stati in un enum, senza campi impossibili
+
+`Resolved(ResolvedCrs)`, `DeclaredButUnresolved(RawCrs)`, `Missing`. Il tipo
+impedisce lo stato impossibile per costruzione: un CRS non risolto non può
+essere letto come un `ResolvedCrs` valido, perché non c'è un `ResolvedCrs` da
+leggere. La documentazione del tipo lo dice: «evita di rappresentare `unknown`
+come se fosse un `ResolvedCrs` valido».
+
+`DeclaredButUnresolved` è lo stato che molte modellazioni perdono: la sorgente
+**ha dichiarato** qualcosa che non sappiamo risolvere, e il dichiarato si
+conserva invece di essere appiattito su `Missing`.
+
+**Prove**: `unresolved_geodata_is_preserved_in_typed_error`,
+`projjson_without_identifier_is_a_typed_unresolved_crs`,
+`missing_geodata_requires_explicit_assumption`.
+
+Su `Missing` resta una domanda che il censimento non chiude con una prova: due
+soli driver lo producono — `driver-geoparquet` e `driver-ipc` — e in entrambi i
+casi è «la sorgente non dichiara un CRS», non «non ho guardato». Che non esista
+un percorso in cui `Missing` significhi il secondo non è stato **dimostrato**:
+è stato osservato sui due punti di produzione.
+
+#### `KnownOrUnknownCount` — il modello fatto per intero
+
+`Known { value }` contro `Unknown`, e con `value: 0` i tre stati ci sono tutti:
+non so quante righe, so che sono zero, so che sono `n`. È usato dai quattro
+conteggi di `RowDiagnosticWriteOutcome`, dove la differenza fra «zero righe
+rifiutate» e «non so quante ne siano state rifiutate» è precisamente ciò che un
+consumatore deve poter distinguere prima di dichiarare un esito.
+
+Accanto c'è `WriteDiagnosticStateCounts`, che porta gli stessi quattro nomi come
+`u64` nudi: è l'aggregato **dopo** che l'incertezza è stata risolta, e i due
+tipi non vanno confusi.
+
+#### `srid: Option<i32>` — due stati, e la verifica ha corretto una mia misura
+
+`None` significa «nessun SRID nativo distinto o aggiuntivo rispetto al CRS
+risolto». Nove driver su dieci lo valorizzano; l'unico che non lo tocca è
+`driver-ipc`, e la ragione è che il vocabolario Arrow non ha una chiave dove
+metterlo — `None` lì è «il formato non ha posto per dirlo», che è ancora una
+dichiarazione e non una misura mancata.
+
+Una prima misura diceva **zero** driver, ed era sbagliata: il criterio cercava
+`= Some(...)` e `driver-gpkg` scrive `geometry.srid = i32::try_from(srs_id).ok()`.
+Va detto perché il censimento vale quanto il modo in cui è stato fatto, e un
+criterio che cerca una forma sintattica invece di un effetto trova quello che la
+forma ammette.
+
+#### `native_metadata: BTreeMap<String, String>` — mappa vuota, due letture
+
+È l'unico campo dove la domanda resta aperta senza un compagno che la chiuda.
+Una mappa vuota può significare «la sorgente non porta metadati nativi» o «questo
+driver non ne raccoglie», e nulla nel tipo le separa. Sei driver la popolano —
+`csv`, `dxf`, `filegdb`, `geoparquet`, `gpkg` e altri — con chiavi namespaced
+come `gpkg.geometry_type_name` e `filegdb.ogr_geometry_type`.
+
+**Perché non propongo di correggerlo.** La conseguenza osservabile non c'è: il
+campo non decide nulla a valle. La perdita di metadati nativi non è dedotta dal
+confronto fra due mappe — sarebbe quella la lettura che l'ambiguità
+falserebbe — ma **riportata dai driver** come categoria di perdita, che
+`FidelityReasonCode::NativeMetadataLoss` poi classifica. Un driver che non
+raccoglie metadati non dichiara nemmeno di averli persi.
+
+Aggiungere un compagno tipo `scansione_completa` costerebbe un campo pubblico in
+un tipo che attraversa dieci driver, per una distinzione che oggi nessun
+consumatore osserva. Se un consumatore futuro dovesse dedurre l'assenza dalla
+mappa vuota, allora servirebbe — e questa riga è il posto dove ritrovare la
+ragione.
+
+#### Esito
+
+Nessuna ambiguità con conseguenza osservabile è stata trovata. I due punti dove
+la distinzione conta davvero — i tipi geometrici e il CRS — sono modellati con
+tre stati espliciti, e hanno prove che li fissano; le diagnostiche di riga
+hanno il tipo che li porta tutti e tre.
+
+Nessuna correzione proposta, e quindi nessuna modifica ai tipi pubblici. Ciò che
+resta aperto è il limite del **filo**, che è C3 e dipende dalla decisione 0006.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
