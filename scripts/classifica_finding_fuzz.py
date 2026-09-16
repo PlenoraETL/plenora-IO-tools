@@ -34,12 +34,31 @@ Il numero di riga **non** e' nella firma: si sposta fra versioni, e legarlo
 renderebbe la voce stantia a ogni aggiornamento. Resta registrato come dato,
 perche' chi rilegge la voce voglia vedere dove si era manifestato.
 
-# Perche' non nasconde difetti nuovi
+# Che cosa garantisce, e che cosa no
 
-Perche' la firma e' stretta e la corrispondenza e' **congiunta**: modulo **e**
-forma del messaggio. Un panico nello stesso modulo con un altro messaggio e' un
-finding nuovo; lo stesso messaggio in un altro modulo pure. E qualunque crash
-che non corrisponda a nessuna voce fa fallire lo smoke come prima.
+Garantisce di riconoscere un crash **compatibile** con una firma registrata. Non
+garantisce che sia lo stesso difetto.
+
+La distinzione non e' formale. Due difetti diversi possono produrre lo stesso
+errore d'indice nello stesso modulo -- un conteggio incoerente e un offset
+calcolato male finiscono entrambi su `index out of bounds`, e la firma non li
+separa. «Noto» vuol dire percio' «gia' visto qualcosa che si presenta cosi'»,
+non «gia' capito».
+
+Da questo discendono due conseguenze, e sono il prezzo della garanzia piu'
+debole:
+
+* **ogni input si conserva**, anche quando la classificazione dice «noto»,
+  insieme al referto che la sostiene. Se fosse identita' certa si potrebbe
+  scartare il duplicato; essendo compatibilita', l'input e' l'unica cosa che
+  permette di riesaminare la classificazione piu' tardi;
+* la firma resta **stretta** e la corrispondenza **congiunta** -- modulo *e*
+  forma del messaggio, per il bersaglio dichiarato -- perche' allargarla
+  aumenterebbe i crash che finiscono nella stessa cesta senza aumentare di
+  nulla cio' che si sa di loro. Un altro messaggio nello stesso modulo, lo
+  stesso messaggio in un altro modulo, lo stesso crash su un altro bersaglio:
+  tutti fuori. E un crash che non corrisponde a nessuna voce fa fallire lo
+  smoke come prima.
 
 # Perche' non dichiara completa una campagna interrotta
 
@@ -52,6 +71,7 @@ riporta: un bersaglio fermato a meta' non si conta fra quelli che hanno finito.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -76,6 +96,13 @@ PANICO = re.compile(r"panicked at ([^\s:]+(?:/[^\s:]+)*):(\d+):(\d+)")
 
 #: Una crate nel registro di cargo: `nome-1.2.3` oppure `nome-1.2.3-rc.1`.
 VERSIONE = re.compile(r"^(?P<nome>.+?)-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+
+#: `Test unit written to fuzz/artifacts/<target>/crash-<sha1>`
+#:
+#: L'artefatto si prende da qui e non dal file piu' recente della directory: due
+#: corse vicine, o una corsa parallela, e «il piu' recente» sarebbe l'input di
+#: un'altra. Il referto deve nominare **questo** input.
+ARTEFATTO = re.compile(r"Test unit written to (\S+)")
 
 
 def modulo_normalizzato(percorso: str) -> str:
@@ -119,11 +146,13 @@ def crash_osservato(testo: str) -> dict[str, str] | None:
     coda = testo[trovato.end() :]
     a_capo = coda.find("\n")
     prima_riga = "" if a_capo == -1 else coda[a_capo + 1 :].split("\n", 1)[0]
+    artefatto = ARTEFATTO.search(testo)
     return {
         "modulo": modulo_normalizzato(trovato.group(1)),
         "riga": trovato.group(2),
         "messaggio": prima_riga.strip(),
         "forma_del_messaggio": forma_del_messaggio(prima_riga),
+        "artefatto": artefatto.group(1) if artefatto else "",
     }
 
 
@@ -172,16 +201,236 @@ def classifica(bersaglio: str, testo: str, documento: Any) -> dict[str, Any]:
     return {"stato": "nuovo", "osservato": osservato}
 
 
+def _mostra(percorso: Path) -> str:
+    """Il percorso come lo legge chi sta nel repository.
+
+    Fuori dal repository si mostra intero: e' il caso delle prove, che scrivono
+    in una directory temporanea, e un errore di rendering li' nasconderebbe
+    l'errore vero che la prova sta cercando.
+    """
+    try:
+        return percorso.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(percorso)
+
+
+def conserva(
+    destinazione: Path, bersaglio: str, esito: dict[str, Any], voce: Any
+) -> list[str]:
+    """Scrive input e referto, e ritorna i percorsi scritti.
+
+    Si conserva **sempre**, noto o nuovo. Un «noto» e' una compatibilita' di
+    firma, non un'identita' dimostrata: buttare l'input perche' somiglia a uno
+    gia' visto vorrebbe dire decidere che sono lo stesso difetto proprio nel
+    momento in cui non lo si sa.
+
+    Il nome viene dal digest dei byte, non dall'ora: due corse che trovano lo
+    stesso input scrivono lo stesso file invece di accumularne copie, e due
+    input diversi non si sovrascrivono mai.
+    """
+    osservato = esito["osservato"]
+    cartella = destinazione / bersaglio
+    cartella.mkdir(parents=True, exist_ok=True)
+
+    byte: bytes | None = None
+    percorso = osservato.get("artefatto") or ""
+    if percorso:
+        sorgente = Path(percorso)
+        if not sorgente.is_absolute():
+            sorgente = ROOT / sorgente
+        if sorgente.is_file():
+            byte = sorgente.read_bytes()
+
+    nome = (
+        hashlib.sha256(byte).hexdigest()[:16]
+        if byte is not None
+        else "input-non-trovato"
+    )
+    scritti: list[str] = []
+    if byte is not None:
+        ingresso = cartella / f"{nome}.input"
+        ingresso.write_bytes(byte)
+        scritti.append(_mostra(ingresso))
+
+    referto = {
+        "schema_version": 1,
+        "bersaglio": bersaglio,
+        "classificazione": esito["stato"],
+        "che_cosa_significa": (
+            "«noto» vuol dire che il crash e' **compatibile** con la firma "
+            "registrata -- stesso modulo, stessa forma del messaggio -- non che "
+            "sia lo stesso difetto. Due difetti diversi possono presentarsi "
+            "cosi'. L'input e' conservato qui perche' la classificazione si "
+            "possa riesaminare."
+        ),
+        "firma_osservata": {
+            "modulo": osservato["modulo"],
+            "riga": osservato["riga"],
+            "messaggio": osservato["messaggio"],
+            "forma_del_messaggio": osservato["forma_del_messaggio"],
+        },
+        "artefatto_dichiarato_dalla_corsa": percorso,
+        "input_conservato": scritti[0] if scritti else None,
+    }
+    if esito["stato"] == "noto":
+        referto["finding_compatibile"] = esito["id"]
+        referto["dove_e_tracciato"] = voce["dove_e_tracciato"]
+
+    documento = cartella / f"{nome}.json"
+    documento.write_text(
+        json.dumps(referto, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    scritti.append(_mostra(documento))
+    return scritti
+
+
+def verifica_campagna(percorso: Path) -> list[str]:
+    """I motivi per cui l'ultima campagna non e' **completa**; vuoto se lo e'.
+
+    Un bersaglio fermato a un finding noto ha smesso di esplorare: libFuzzer non
+    riparte dopo un crash, e il tempo restante non e' stato usato. Lo smoke
+    esce 0 perche' lo sviluppo prosegua sugli altri bersagli -- ed e' giusto --
+    ma quello 0 non deve diventare «campagna completata» piu' in la' nella
+    catena. Questa funzione e' il punto in cui i due si separano, e gira nella
+    qualificazione finale.
+    """
+    if not percorso.exists():
+        return [
+            f"{percorso.name} assente: nessuna campagna registrata, e "
+            "l'assenza di un verbale non e' una campagna riuscita"
+        ]
+    try:
+        documento = json.loads(percorso.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as guasto:
+        return [f"{percorso.name}: non si legge ({guasto})"]
+
+    fermati = documento.get("fermati_a_finding_noto")
+    if not isinstance(fermati, list):
+        return [f"{percorso.name}: non dichiara quali bersagli si siano fermati"]
+    falliti = documento.get("falliti_su_finding_nuovo") or []
+    if falliti:
+        return [
+            "la campagna non e' completa: "
+            f"{', '.join(sorted(falliti))} sono falliti su un crash che nessuna "
+            "voce riconosce"
+        ]
+    if fermati:
+        return [
+            "la campagna non e' completa: "
+            f"{', '.join(sorted(fermati))} si sono fermati a un finding noto e "
+            "non hanno esplorato il tempo restante"
+        ]
+    if not documento.get("hanno_finito"):
+        return [f"{percorso.name}: nessun bersaglio ha finito il proprio tempo"]
+    return []
+
+
+VERBALE = ROOT / "assurance" / "evidence" / "fuzz-smoke-ultima.json"
+
+
+def scrivi_verbale(
+    secondi: int, finiti: list[str], fermati: list[str], falliti: list[str]
+) -> None:
+    """Il verbale della corsa: chi ha finito e chi si e' fermato.
+
+    Lo costruisce questo modulo e non lo shell: un JSON assemblato a colpi di
+    espansione di array e' illeggibile, e soprattutto non si prova. Qui ha una
+    firma, e le sue proprieta' hanno regressioni.
+    """
+    VERBALE.parent.mkdir(parents=True, exist_ok=True)
+    VERBALE.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "descrizione": (
+                    "L'esito dell'ultima corsa di `scripts/fuzz-smoke.sh`, per "
+                    "bersaglio. Un bersaglio fermato a un crash compatibile con "
+                    "un finding noto non ha esplorato il tempo restante: lo "
+                    "smoke esce 0 perche' lo sviluppo prosegua sugli altri, e "
+                    "questo verbale tiene separata la campagna completa da "
+                    "quella interrotta."
+                ),
+                "secondi_per_bersaglio": secondi,
+                "hanno_finito": sorted(finiti),
+                "fermati_a_finding_noto": sorted(fermati),
+                "falliti_su_finding_nuovo": sorted(falliti),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    print(f"verbale della corsa in {_mostra(VERBALE)}")
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
-    argomenti.add_argument("bersaglio", help="il fuzz target che ha girato")
+    argomenti.add_argument(
+        "bersaglio", nargs="?", help="il fuzz target che ha girato"
+    )
     argomenti.add_argument(
         "--uscita",
         type=Path,
-        required=True,
         help="il file con l'output della corsa, stdout e stderr insieme",
     )
+    argomenti.add_argument(
+        "--conserva",
+        type=Path,
+        help=(
+            "dove scrivere input e referto del crash: si conserva sempre, "
+            "noto o nuovo, perche' «noto» e' una compatibilita' e non "
+            "un'identita'"
+        ),
+    )
+    argomenti.add_argument(
+        "--scrivi-verbale",
+        type=int,
+        metavar="SECONDI",
+        help="scrive il verbale della corsa; con --finiti e --fermati",
+    )
+    argomenti.add_argument("--finiti", nargs="*", default=[], help="chi ha finito")
+    argomenti.add_argument(
+        "--fermati", nargs="*", default=[], help="chi si e' fermato a un crash noto"
+    )
+    argomenti.add_argument(
+        "--falliti", nargs="*", default=[], help="chi e' fallito su un crash nuovo"
+    )
+    argomenti.add_argument(
+        "--verifica-campagna",
+        type=Path,
+        help=(
+            "il verbale di una corsa dello smoke: rossa se un bersaglio si e' "
+            "fermato a un finding noto. E' la modalita' della qualificazione "
+            "finale, dove «interrotta» non vale come «completata»"
+        ),
+    )
     opzioni = argomenti.parse_args(argv)
+
+    if opzioni.scrivi_verbale is not None:
+        scrivi_verbale(
+            opzioni.scrivi_verbale, opzioni.finiti, opzioni.fermati, opzioni.falliti
+        )
+        return 0
+
+    if opzioni.verifica_campagna is not None:
+        motivi = verifica_campagna(opzioni.verifica_campagna)
+        for motivo in motivi:
+            print(motivo, file=sys.stderr)
+        if motivi:
+            return 1
+        print("campagna fuzz completa: nessun bersaglio fermato a un finding noto")
+        return 0
+
+    if opzioni.bersaglio is None or opzioni.uscita is None:
+        print(
+            "servono il bersaglio e `--uscita`, oppure `--verifica-campagna`",
+            file=sys.stderr,
+        )
+        return 2
 
     if not REGISTRO.exists():
         print(f"{REGISTRO}: registro assente", file=sys.stderr)
@@ -206,15 +455,23 @@ def main(argv: list[str] | None = None) -> int:
     if esito["stato"] == "senza-crash":
         print(f"{opzioni.bersaglio}: nessun crash nell'uscita")
         return 0
+    voce = (
+        next(v for v in documento["finding"] if v["id"] == esito["id"])
+        if esito["stato"] == "noto"
+        else None
+    )
+    if opzioni.conserva is not None:
+        for scritto in conserva(opzioni.conserva, opzioni.bersaglio, esito, voce):
+            print(f"{opzioni.bersaglio}: conservato {scritto}")
+
     if esito["stato"] == "noto":
-        voce = next(
-            v for v in documento["finding"] if v["id"] == esito["id"]
-        )
         print(
-            f"{opzioni.bersaglio}: finding NOTO «{esito['id']}» "
-            f"({voce['dove_e_tracciato']}). {voce['non_promette']} "
-            f"Il bersaglio si e' fermato qui: il tempo restante non e' stato "
-            f"esplorato."
+            f"{opzioni.bersaglio}: crash COMPATIBILE con il finding noto "
+            f"«{esito['id']}» ({voce['dove_e_tracciato']}). Compatibile non "
+            f"vuol dire identico: la firma non dimostra la stessa causa, e "
+            f"l'input e' conservato per poterlo riesaminare. "
+            f"{voce['non_promette']} Il bersaglio si e' fermato qui: il tempo "
+            f"restante non e' stato esplorato."
         )
         return 3
     osservato = esito["osservato"]

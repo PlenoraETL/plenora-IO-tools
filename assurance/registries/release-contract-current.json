@@ -792,6 +792,19 @@
             "--qualifica"
           ]
         }
+      },
+      {
+        "id": "campagna-fuzz-completa",
+        "descrizione": "l'ultima corsa dello smoke ha portato ogni bersaglio a fine tempo: un bersaglio fermato a un crash compatibile con un finding noto non soddisfa il requisito, anche se lo smoke esce 0 perche' lo sviluppo prosegua",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/classifica_finding_fuzz.py",
+            "--verifica-campagna",
+            "assurance/evidence/fuzz-smoke-ultima.json"
+          ]
+        }
       }
     ]
   },

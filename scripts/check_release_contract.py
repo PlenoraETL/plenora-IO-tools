@@ -273,6 +273,7 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
         "profilo-pubblico-attestato",
         "profondita-fuzz-rimisurata",
         "confine-asan-rimisurato",
+        "campagna-fuzz-completa",
     }
 )
 

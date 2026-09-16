@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "I finding del fuzz gia' noti, riconosciuti per famiglia e non per digest. Una voce qui non disabilita il bersaglio e non rende completa la campagna che si e' interrotta: dice soltanto che quel crash e' gia' tracciato altrove.",
   "perche_non_una_lista_di_digest": "Il fuzzer rigenera lo stesso difetto da un input diverso, o ne produce una variante. Gli artefatti locali di `geoparquet_reader` lo mostrano: due misurano 3.966 byte, la stessa dimensione del seme del finding, con digest tutti diversi dal suo. Una lista di digest li riconoscerebbe uno per volta.",
-  "come_si_riconosce": "Modulo **e** forma del messaggio, congiunti. Il modulo porta il nome della crate spogliato della versione, perche' un difetto aperto a monte non smette di esserlo quando il pin sale. La forma del messaggio ha le cifre ridotte a `N`. Il numero di riga non e' nella firma: si sposta fra versioni, ed e' registrato come dato e non come criterio.",
+  "come_si_riconosce": "Modulo **e** forma del messaggio, congiunti, per il bersaglio dichiarato. Il modulo porta il nome della crate spogliato della versione, perche' un difetto aperto a monte non smette di esserlo quando il pin sale. La forma del messaggio ha le cifre ridotte a N. Il numero di riga non e' nella firma: si sposta fra versioni, ed e' registrato come dato e non come criterio. La firma resta stretta non perche' basti a identificare la causa, ma perche' allargarla aumenterebbe i crash nella stessa cesta senza aumentare cio' che si sa di loro.",
   "finding": [
     {
       "id": "arrow-rs-byte-stream-split-oob",
@@ -18,5 +18,7 @@
       "non_promette": "Non e' affermato che `geoparquet_reader` sia libero da crash su GeoParquet malformato: questo difetto e' a monte, nel decoder BYTE_STREAM_SPLIT di `parquet`, e il nostro prodotto lo intercetta sulla superficie pubblica ma il target del fuzz non puo' osservarlo, perche' `libfuzzer-sys` chiama `abort()` prima dell'unwinding.",
       "quando_si_toglie": "Quando la correzione upstream e' pubblicata e il pin di `parquet` la include. La prova che la voce e' ancora dovuta sta nel riproduttore: se smette di riprodurre, la voce va tolta invece di essere ereditata."
     }
-  ]
+  ],
+  "che_cosa_garantisce": "Di riconoscere un crash **compatibile** con una firma registrata. Non che sia lo stesso difetto: due difetti diversi possono produrre lo stesso errore d'indice nello stesso modulo, e la firma non li separa. «Noto» vuol dire «gia' visto qualcosa che si presenta cosi'», non «gia' capito».",
+  "percio_ogni_input_si_conserva": "In assurance/evidence/finding-fuzz/, insieme al referto che sostiene la classificazione, anche quando questa dice «noto». Se fosse identita' certa si potrebbe scartare il duplicato; essendo compatibilita', l'input e' l'unica cosa che permette di riesaminare la classificazione piu' tardi."
 }

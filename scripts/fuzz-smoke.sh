@@ -176,12 +176,15 @@ done
 # insiemi, e nessuno dei tre si confonde con gli altri:
 #
 #   * nessun crash    -- il bersaglio ha finito il proprio tempo;
-#   * finding noto    -- il crash e' quello registrato in
-#                        `assurance/registries/finding-noti-fuzz.json`. Non fa
-#                        fallire lo smoke, **ma il bersaglio si e' fermato li'**:
-#                        libFuzzer non riparte dopo un crash, e il tempo
-#                        restante non e' stato esplorato. Non entra fra quelli
-#                        che hanno finito;
+#   * crash compatibile con un finding noto -- la firma corrisponde a una voce
+#                        di `assurance/registries/finding-noti-fuzz.json`.
+#                        **Compatibile, non identico**: due difetti diversi
+#                        possono dare lo stesso errore nello stesso modulo, e la
+#                        firma non li separa. Non fa fallire lo smoke, ma il
+#                        bersaglio **si e\' fermato li\'**: libFuzzer non riparte
+#                        dopo un crash. Non entra fra quelli che hanno finito, e
+#                        l\'input viene conservato con il suo referto perche\' la
+#                        classificazione si possa riesaminare;
 #   * finding nuovo   -- rosso, come prima.
 #
 # Un crash che il classificatore non riesce a leggere e' rosso anch'esso: una
@@ -214,12 +217,52 @@ for target in "${targets[@]}"; do
     if [ "${PIPESTATUS[0]}" -eq 0 ]; then
         continue
     fi
-    python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" --uscita "${uscita}"
+    python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
+        --uscita "${uscita}" \
+        --conserva "assurance/evidence/finding-fuzz"
     case "$?" in
         3) noti+=("${target}") ;;
         *) failed+=("${target}") ;;
     esac
 done
+
+# Il verbale della corsa, e perche' esiste.
+#
+# Lo smoke esce 0 anche quando un bersaglio si e' fermato a un crash noto: e'
+# voluto, perche' lo sviluppo prosegua sugli altri. Quello 0 pero' non deve
+# diventare «campagna completata» piu' in la' nella catena -- la CI e il passo
+# `fuzz_smoke` del checkpoint leggono l'esito, non la riga stampata.
+#
+# Il verbale separa i due stati e li rende leggibili da un gate. La
+# qualificazione finale lo rilegge con
+# `classifica_finding_fuzz.py --verifica-campagna`, che e' rossa se qualcuno si
+# e' fermato.
+# «Finito» vuol dire **una** cosa: il bersaglio ha consumato il proprio
+# tempo senza fermarsi. Chi si e' fermato a un crash noto non ci sta, e
+# nemmeno chi e' fallito su un finding nuovo -- quello si e' fermato pure
+# lui, e contarlo fra i completi renderebbe il verbale piu' generoso della
+# corsa che descrive.
+finiti=()
+for target in "${targets[@]}"; do
+    fermo=0
+    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"}; do
+        [ "${gia}" = "${target}" ] && fermo=1
+    done
+    if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
+        fermo=1
+    fi
+    [ "${fermo}" -eq 0 ] && finiti+=("${target}")
+done
+
+# Il verbale si scrive **prima** dell'uscita rossa: una corsa che ha
+# trovato un finding nuovo e' comunque una corsa avvenuta, e cancellarne
+# la traccia lascerebbe la qualificazione a rileggere il verbale di quella
+# precedente.
+python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
+    --scrivi-verbale "${duration}" \
+    --finiti ${finiti[@]+"${finiti[@]}"} \
+    --fermati ${noti[@]+"${noti[@]}"} \
+    --falliti ${failed[@]+"${failed[@]}"}
 
 if [ "${#failed[@]}" -ne 0 ]; then
     echo "target con finding: ${failed[*]}" >&2
@@ -232,7 +275,7 @@ if [ "${#noti[@]}" -ne 0 ]; then
     # non hanno esplorato il tempo che restava, e una riga che li contasse fra
     # i completi direbbe di una campagna piu' di quanto sia successo.
     finiti=$(( eseguiti - ${#noti[@]} ))
-    echo "smoke fuzz: ${finiti} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un finding NOTO (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante."
+    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
     exit 0
 fi
 

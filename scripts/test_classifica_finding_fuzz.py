@@ -51,6 +51,24 @@ class SondeDellaFirma(unittest.TestCase):
             gate.classifica("geoparquet_reader", altro, registro())["stato"], "noto"
         )
 
+    def test_la_firma_dice_compatibile_e_non_identico(self) -> None:
+        """La garanzia e' piu' debole di quanto sembri, ed e' scritta.
+
+        Modulo e forma del messaggio identificano un crash **compatibile** con
+        una voce, non lo stesso difetto: un conteggio incoerente e un offset
+        calcolato male finiscono entrambi su `index out of bounds` nello stesso
+        modulo. Cio' che il classificatore dice a chi legge deve dirlo.
+        """
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "uscita.txt"
+            percorso.write_text(CRASH, encoding="utf-8")
+            catturato = io.StringIO()
+            with contextlib.redirect_stdout(catturato):
+                gate.main(["geoparquet_reader", "--uscita", str(percorso)])
+        detto = catturato.getvalue()
+        self.assertIn("COMPATIBILE", detto)
+        self.assertIn("non dimostra la stessa causa", detto)
+
     def test_un_altro_messaggio_nello_stesso_modulo_e_nuovo(self) -> None:
         altro = CRASH.replace(
             "index out of bounds: the len is 2 but the index is 2",
@@ -169,3 +187,180 @@ class SondaDelCollegamento(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SondeDellaConservazione(unittest.TestCase):
+    """Ogni input si conserva, anche quando la classificazione dice «noto».
+
+    Se fosse identita' certa si potrebbe scartare il duplicato. Essendo
+    compatibilita', l'input e' l'unica cosa che permette di riesaminare la
+    classificazione piu' tardi, ed e' il motivo per cui si conserva sempre.
+    """
+
+    def _corsa(self, testo: str, contenuto: bytes = b"input di prova\n"):
+        temporanea = tempfile.TemporaryDirectory()
+        self.addCleanup(temporanea.cleanup)
+        radice = pathlib.Path(temporanea.name)
+        artefatto = radice / "crash-abc"
+        artefatto.write_bytes(contenuto)
+        uscita = radice / "uscita.txt"
+        uscita.write_text(
+            testo.replace("ARTEFATTO", str(artefatto)), encoding="utf-8"
+        )
+        conserva = radice / "conservati"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            codice = gate.main(
+                [
+                    "geoparquet_reader",
+                    "--uscita",
+                    str(uscita),
+                    "--conserva",
+                    str(conserva),
+                ]
+            )
+        return codice, conserva / "geoparquet_reader"
+
+    CON_ARTEFATTO = CRASH + "Test unit written to ARTEFATTO\n"
+
+    def test_un_crash_noto_conserva_input_e_referto(self) -> None:
+        codice, cartella = self._corsa(self.CON_ARTEFATTO)
+        self.assertEqual(codice, 3)
+        self.assertEqual(len(list(cartella.glob("*.input"))), 1)
+        self.assertEqual(len(list(cartella.glob("*.json"))), 1)
+
+    def test_un_crash_nuovo_conserva_anche_lui(self) -> None:
+        nuovo = self.CON_ARTEFATTO.replace(
+            "index out of bounds", "attempt to divide by zero"
+        )
+        codice, cartella = self._corsa(nuovo)
+        self.assertEqual(codice, 1)
+        self.assertEqual(len(list(cartella.glob("*.input"))), 1)
+
+    def test_il_referto_dice_che_e_compatibile_non_identico(self) -> None:
+        _, cartella = self._corsa(self.CON_ARTEFATTO)
+        referto = json.loads(
+            next(cartella.glob("*.json")).read_text(encoding="utf-8")
+        )
+        self.assertEqual(referto["classificazione"], "noto")
+        self.assertIn("compatibile", referto["che_cosa_significa"])
+        self.assertIn("non che", referto["che_cosa_significa"])
+        self.assertEqual(
+            referto["finding_compatibile"], "arrow-rs-byte-stream-split-oob"
+        )
+
+    def test_il_nome_viene_dal_digest_e_non_si_duplica(self) -> None:
+        # Due corse sullo stesso input scrivono lo stesso file invece di
+        # accumulare copie; due input diversi non si sovrascrivono.
+        _, cartella = self._corsa(self.CON_ARTEFATTO, b"identico\n")
+        primo = sorted(v.name for v in cartella.iterdir())
+        _, cartella = self._corsa(self.CON_ARTEFATTO, b"identico\n")
+        self.assertEqual(sorted(v.name for v in cartella.iterdir()), primo)
+
+    def test_l_artefatto_si_prende_dalla_corsa_non_dal_piu_recente(self) -> None:
+        # «Il file piu' recente della directory» sarebbe l'input di un'altra
+        # corsa quando due girano vicine. Senza la riga della corsa, il referto
+        # dichiara di non avere l'input invece di indovinarlo.
+        _, cartella = self._corsa(CRASH)
+        referto = json.loads(
+            next(cartella.glob("*.json")).read_text(encoding="utf-8")
+        )
+        self.assertIsNone(referto["input_conservato"])
+        self.assertEqual(referto["artefatto_dichiarato_dalla_corsa"], "")
+
+
+class SondeDellaCampagnaInterrotta(unittest.TestCase):
+    """Il codice 3 resta «interrotta» fino alla qualificazione finale.
+
+    Lo smoke esce 0 perche' lo sviluppo prosegua sugli altri bersagli. Quello 0
+    non deve pero' diventare «campagna completata»: la CI e il passo
+    `fuzz_smoke` del checkpoint leggono l'esito, non la riga stampata, e senza
+    il verbale un'interruzione nota sarebbe indistinguibile da un successo.
+    """
+
+    def _verbale(self, **campi) -> list[str]:
+        documento = {
+            "hanno_finito": ["shp_reader"],
+            "fermati_a_finding_noto": [],
+            "falliti_su_finding_nuovo": [],
+        }
+        documento.update(campi)
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "verbale.json"
+            percorso.write_text(json.dumps(documento), encoding="utf-8")
+            return gate.verifica_campagna(percorso)
+
+    def test_una_corsa_senza_fermate_e_completa(self) -> None:
+        self.assertEqual(self._verbale(), [])
+
+    def test_un_bersaglio_fermato_non_e_una_campagna_completa(self) -> None:
+        motivi = self._verbale(fermati_a_finding_noto=["geoparquet_reader"])
+        self.assertTrue(any("non e' completa" in m for m in motivi), motivi)
+        self.assertTrue(any("geoparquet_reader" in m for m in motivi), motivi)
+
+    def test_un_bersaglio_fallito_non_e_una_campagna_completa(self) -> None:
+        motivi = self._verbale(falliti_su_finding_nuovo=["gpkg_reader"])
+        self.assertTrue(any("non e' completa" in m for m in motivi), motivi)
+
+    def test_nessun_bersaglio_finito_non_e_una_campagna(self) -> None:
+        # Un insieme vuoto soddisfa ogni «nessuno si e' fermato».
+        motivi = self._verbale(hanno_finito=[])
+        self.assertTrue(motivi)
+
+    def test_senza_verbale_la_campagna_non_e_riuscita(self) -> None:
+        # L'assenza di un verbale non e' una campagna riuscita: e' l'assenza di
+        # una campagna.
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "non-c-e.json"
+            motivi = gate.verifica_campagna(percorso)
+        self.assertTrue(any("assente" in m for m in motivi), motivi)
+
+    def test_un_verbale_muto_sulle_fermate_e_rosso(self) -> None:
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "verbale.json"
+            percorso.write_text(json.dumps({"hanno_finito": ["a"]}), encoding="utf-8")
+            motivi = gate.verifica_campagna(percorso)
+        self.assertTrue(any("non dichiara" in m for m in motivi), motivi)
+
+    def test_la_condizione_di_rilascio_legge_quel_verbale(self) -> None:
+        """La catena, per intero: registro, condizione obbligatoria, comando.
+
+        Se la condizione sparisse dal registro, o smettesse di essere
+        obbligatoria, un'interruzione nota tornerebbe a passare come campagna
+        completa -- che e' precisamente cio' che il codice 3 esiste per
+        impedire.
+        """
+        from scripts import check_release_contract as contratto
+
+        self.assertIn("campagna-fuzz-completa", contratto.CONDIZIONI_OBBLIGATORIE)
+        registro = json.loads(
+            (
+                gate.ROOT
+                / "assurance"
+                / "registries"
+                / "release-contract-current.json"
+            ).read_text(encoding="utf-8")
+        )
+        voce = next(
+            c
+            for c in registro["autorizzazione_di_release"]["condizioni"]
+            if c["id"] == "campagna-fuzz-completa"
+        )
+        self.assertEqual(
+            voce["verifica"]["comando"],
+            [
+                "python3",
+                "scripts/classifica_finding_fuzz.py",
+                "--verifica-campagna",
+                "assurance/evidence/fuzz-smoke-ultima.json",
+            ],
+        )
+
+    def test_lo_smoke_scrive_il_verbale_e_non_conta_i_falliti(self) -> None:
+        smoke = (gate.ROOT / "scripts" / "fuzz-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("--scrivi-verbale", smoke)
+        self.assertIn("--conserva", smoke)
+        # I falliti escono dai «finiti»: contarli fra i completi renderebbe il
+        # verbale piu' generoso della corsa.
+        self.assertIn('${failed[@]+"${failed[@]}"}; do', smoke)

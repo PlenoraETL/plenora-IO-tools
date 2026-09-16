@@ -1067,6 +1067,7 @@ candidate che non esiste ancora.
 | `profilo-pubblico-attestato` | nessun artefatto è stato costruito né attestato |
 | `profondita-fuzz-rimisurata` | quattro misure dichiarate scadute |
 | `confine-asan-rimisurato` | il confine ASan dichiarato scaduto |
+| `campagna-fuzz-completa` | nessun verbale di campagna: lo smoke non è stato eseguito su questo albero |
 
 Le ultime tre si chiudono **solo** sul candidato finale. Non sono debito: sono
 il rinvio che funziona, e il fatto che `--release` le nomini è la prova che il
@@ -1076,8 +1077,8 @@ rinvio non si trasforma in dimenticanza.
 
 | # | voce | criterio di chiusura | dipende da |
 |---|---|---|---|
-| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **preparata**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude quando è inviata e il numero della issue è registrato accanto alla fixture | — |
-| 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce la famiglia del crash, non il digest; le tre proprietà hanno le loro prove | — |
+| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue | — |
+| 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
 | 3 | **Q1** — contraddizione del workflow «Release checkout qualification» | il workflow dichiara un solo comportamento, e una prova lo esercita | — |
 | 4 | **R1** — regressione su `MAX_BLOCCHI` | caso sotto, al e oltre il limite; rifiuto della guardia; costo della fixture misurato e dichiarato | — |
 | 5 | **R2** — campagne senza `sleep` a scadenza | processo e codice d'uscita osservabili; log fuori dal container; interruzione distinta dal successo | — |
@@ -1368,7 +1369,7 @@ una copia appena clonata parte senza. In locale persistono e il replay le legge 
 `fuzz/artifacts/geoparquet_reader/` contiene oggi tre input del 2026-08-17, che
 il replay del livello 2 su `6beb410` ha rieseguito verdi.
 
-#### Q2b — segnalazione upstream: **preparata, da inviare**
+#### Q2b — segnalazione upstream: **contributo pronto, invio pendente**
 
 Il contributo è in `upstream/arrow-rs-byte-stream-split/`: un progetto Cargo
 autonomo, fuori dal workspace, che dipende solo da `parquet`, `arrow-array` e
@@ -1398,8 +1399,9 @@ varint compare invece di scegliere quello giusto: l'offset 13 scatta, il 17, un
 altro campo dello stesso header, non produce niente. Lascia i tre file sul disco
 perché chi legge possa aprirli con altri strumenti.
 
-**Criterio di chiusura**: segnalazione inviata e numero della issue registrato
-accanto alla fixture. Q2 non è chiuso finché questo non è fatto.
+**Criterio di chiusura**: il riferimento alla issue. Finché non c'è, la voce
+resta aperta — il contributo è pronto, non inviato, e le due cose non si
+confondono.
 
 #### Q2c — gestire i finding noti del fuzz: **chiusa**
 
@@ -1441,25 +1443,63 @@ Il percorso perde anche il prefisso del registro di cargo: altrimenti la firma
 dipenderebbe da **dove gira il fuzzer**, e la stessa corsa su un'altra macchina
 non riconoscerebbe nulla.
 
-##### Le tre proprietà, e come ciascuna è ottenuta
+##### Che cosa garantisce, e che cosa no
+
+**La garanzia va detta per quello che è, e la prima stesura la diceva troppo
+forte.** Modulo e forma del messaggio riconoscono un crash **compatibile** con
+una firma registrata. Non dimostrano che sia lo stesso difetto: un conteggio
+incoerente e un offset calcolato male finiscono entrambi su `index out of
+bounds` nello stesso modulo, e la firma non li separa. «Noto» vuol dire «già
+visto qualcosa che si presenta così», non «già capito».
+
+Da qui discende il prezzo della garanzia più debole, e sono due cose concrete.
+
+**Ogni input si conserva**, con il referto che sostiene la classificazione, in
+`assurance/evidence/finding-fuzz/`. Se fosse identità certa si potrebbe scartare
+il duplicato; essendo compatibilità, l'input è l'unica cosa che permette di
+riesaminare la classificazione più tardi. Vale anche per i crash nuovi, e il
+referto scrive a chiare lettere che «noto» è una compatibilità.
+
+**La firma resta stretta** — modulo *e* forma del messaggio, congiunti, per il
+bersaglio dichiarato — non perché basti a identificare la causa, ma perché
+allargarla aumenterebbe i crash nella stessa cesta senza aumentare di nulla ciò
+che si sa di loro. Un altro messaggio nello stesso modulo è fuori; lo stesso
+messaggio in un altro modulo è fuori; lo stesso crash su un altro bersaglio è
+fuori. Ciascuna delle tre ha la sua prova, e un crash che il classificatore non
+riesce a leggere è rosso: una corsa fallita senza panico riconoscibile è un
+guasto, non un finding noto.
 
 **Non disabilita il bersaglio.** Il target continua a girare, con tutto il suo
 corpus. Ciò che cambia è la lettura del crash, non l'esecuzione.
 
-**Non nasconde difetti nuovi.** La corrispondenza è **congiunta** — modulo *e*
-forma del messaggio — e vale per il bersaglio che la voce dichiara. Un altro
-messaggio nello stesso modulo è nuovo; lo stesso messaggio in un altro modulo è
-nuovo; lo stesso crash su un altro bersaglio è nuovo. Ciascuna di queste tre ha
-la sua prova. E un crash che il classificatore non riesce a leggere è rosso: una
-corsa fallita senza panico riconoscibile è un guasto, non un finding noto.
+##### L'interruzione nota, e dove si perdeva
 
-**Non dichiara completa una campagna interrotta.** È il punto che costa di più e
-si vede nell'esito. libFuzzer si ferma al primo crash: un bersaglio fermato a un
-finding noto **non ha esplorato il tempo restante**. I tre stati hanno perciò
-tre codici d'uscita — 0 nessun crash, **3** noto, 1 nuovo — e il 3 non è 0
-apposta. Lo smoke li tiene in tre insiemi separati e la riga finale non può dire
-«completato»: dice quanti hanno finito il proprio tempo, quanti si sono fermati
-a un finding noto, e che chi si è fermato non ha esplorato il resto.
+È la garanzia solida delle tre, ed è quella che costa di più. libFuzzer si ferma
+al primo crash: un bersaglio fermato **non ha esplorato il tempo restante**. I
+tre stati hanno perciò tre codici — 0 nessun crash, **3** compatibile con un
+noto, 1 nuovo — e il 3 non è 0 apposta.
+
+Ma una riga stampata non basta, e qui c'era una falla: la CI e il passo
+`fuzz_smoke` del checkpoint leggono l'**esito** dello smoke, non ciò che
+stampa. Con lo smoke a 0, una corsa interrotta sarebbe stata registrata come
+passo riuscito, e l'evidenza di livello 2 avrebbe affermato una campagna che non
+c'è stata. La nota dell'invariante `fuzz.quarantena` lo dice da sé: la
+completezza dell'esecuzione è verificata «dai passi `fuzz_replay` e
+`fuzz_smoke`».
+
+Lo smoke lascia perciò un **verbale**, `assurance/evidence/fuzz-smoke-ultima.json`,
+con chi ha finito, chi si è fermato a un crash compatibile con un noto e chi è
+fallito su uno nuovo — e i falliti non sono contati fra i finiti, o il verbale
+sarebbe più generoso della corsa. Il verbale si scrive **prima** dell'uscita
+rossa: una corsa che ha trovato un finding nuovo è comunque una corsa avvenuta,
+e cancellarne la traccia lascerebbe la qualificazione a rileggere quella di
+prima.
+
+La nona condizione di autorizzazione, `campagna-fuzz-completa`, rilegge quel
+verbale e rifiuta se qualcuno si è fermato. È la stessa forma del rinvio delle
+rimisurazioni: **verde in sviluppo, rossa in qualificazione**. E l'assenza del
+verbale è rossa anch'essa — non è una campagna riuscita, è l'assenza di una
+campagna.
 
 ##### Che cosa costa una voce
 
