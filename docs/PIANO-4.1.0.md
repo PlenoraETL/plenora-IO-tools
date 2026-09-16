@@ -1022,7 +1022,7 @@ esattamente ciò che mancava. È un costo operativo, e va detto che è nuovo.
 
 #### Che cosa lo prova
 
-Ventinove regressioni: sedici sulla condizione, nove sull'ingresso del
+Venticinque regressioni nuove: sedici sulla condizione, nove sull'ingresso del
 verificatore, più le esistenti che contano le condizioni e che ora ne pretendono
 sei. Ciascuna guasta **una** proprietà e lascia le altre sane, così il rosso
 nomina la causa invece di essere la somma di più cose rotte insieme.
