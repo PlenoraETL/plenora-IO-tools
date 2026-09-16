@@ -960,20 +960,16 @@ def main(argv: list[str] | None = None) -> int:
     opzioni = argomenti.parse_args(argv)
 
     if opzioni.bersaglio is None:
-        if not opzioni.qualifica:
-            print(
-                "serve un bersaglio: senza, il gate non saprebbe quale misura "
-                "rileggere. Solo `--qualifica` li prende tutti.",
-                file=sys.stderr,
-            )
-            return 2
+        # Nessun bersaglio vuol dire **tutti**, in entrambe le modalita'. Legarlo
+        # a `--qualifica` rendeva la sola via di sviluppo impossibile da scrivere
+        # senza elencarli, e un elenco ripetuto altrove invecchia per primo.
         if opzioni.registra:
             print("--registra riguarda un bersaglio solo", file=sys.stderr)
             return 2
+        coda = ["--qualifica"] if opzioni.qualifica else []
         peggiore = 0
         for nome in sorted(BERSAGLI):
-            esito = main([nome, "--qualifica"])
-            peggiore = max(peggiore, esito)
+            peggiore = max(peggiore, main([nome, *coda]))
         return peggiore
 
     bersaglio = BERSAGLI[opzioni.bersaglio]

@@ -137,7 +137,13 @@ fn il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui() {
     // L'attestazione del lavoro svolto: il messaggio nomina i byte **prodotti**,
     // che coincidono con quelli della corsa riuscita. Solo uno staging scritto
     // per intero puo' dare quel numero.
-    let messaggio = errore["message"].as_str().unwrap_or_default();
+    // `expect` e non `unwrap_or_default`: col ripiego a stringa vuota
+    // l'asserzione qui sotto fallirebbe comunque, ma dicendo «il messaggio non
+    // nomina i byte» di un messaggio che non c'e'. Sono due guasti diversi, e
+    // conviene che si leggano diversi.
+    let messaggio = errore["message"]
+        .as_str()
+        .expect("la busta d'errore porta un messaggio testuale");
     assert!(
         messaggio.contains(&prodotti.to_string()),
         "il messaggio deve nominare i byte prodotti ({prodotti}), cioe' attestare \

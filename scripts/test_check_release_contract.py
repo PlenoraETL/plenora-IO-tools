@@ -4467,3 +4467,87 @@ class SondeProfiloPubblicoAttestato(unittest.TestCase):
         self.assertEqual(
             voce["verifica"]["funzione"], "condizione_profilo_pubblico_attestato"
         )
+
+
+class SondeRinvioControQualificazione(unittest.TestCase):
+    """Le due facce del rinvio, provate sui comandi che il registro dichiara.
+
+    Un rinvio che passasse anche in qualificazione sarebbe un permesso, non una
+    registrazione: la misura scaduta risulterebbe valida e nessuno la
+    rifarebbe. Un rinvio che bloccasse anche lo sviluppo fermerebbe il lavoro
+    fino alla campagna, che e' proprio cio' che si e' deciso di rinviare.
+
+    Le prove non nominano i comandi: li **leggono dal registro**, cosi' che
+    cambiarli li' senza cambiare il comportamento non lasci queste prove a
+    verificare un comando che nessuno esegue piu'.
+    """
+
+    CONDIZIONI = ("profondita-fuzz-rimisurata", "confine-asan-rimisurato")
+
+    @staticmethod
+    def _registro() -> dict:
+        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    def _comando(self, identita: str) -> list[str]:
+        voce = next(
+            c
+            for c in self._registro()["autorizzazione_di_release"]["condizioni"]
+            if c["id"] == identita
+        )
+        self.assertEqual(voce["verifica"]["tipo"], "gate")
+        return voce["verifica"]["comando"]
+
+    def test_in_sviluppo_il_rinvio_passa(self) -> None:
+        # Lo stesso gate senza `--qualifica`: e' quello che gira in CI e nel
+        # checkpoint, e deve restare verde mentre la campagna e' rinviata.
+        for identita in self.CONDIZIONI:
+            comando = [v for v in self._comando(identita) if v != "--qualifica"]
+            with self.subTest(condizione=identita):
+                esito = subprocess.run(
+                    comando, cwd=gate.ROOT, capture_output=True, text=True, check=False
+                )
+                # Su una copia di lavoro con CRLF l'impronta non e' calcolabile,
+                # e il gate lo dice invece di misurare male. Non e' l'oggetto di
+                # questa prova: si salta **solo** su quel messaggio, cosi' un
+                # rosso vero non ci si nasconde dentro.
+                if "non sarebbe riproducibile su un checkout pulito" in esito.stderr:
+                    self.skipTest(
+                        "copia di lavoro con fine riga non normalizzati: "
+                        "l'impronta si misura su un checkout pulito, come in CI"
+                    )
+                self.assertEqual(esito.returncode, 0, esito.stderr[-600:])
+                self.assertIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
+
+    def test_in_qualificazione_il_rinvio_ferma(self) -> None:
+        for identita in self.CONDIZIONI:
+            comando = self._comando(identita)
+            self.assertIn("--qualifica", comando)
+            with self.subTest(condizione=identita):
+                esito = subprocess.run(
+                    comando, cwd=gate.ROOT, capture_output=True, text=True, check=False
+                )
+                self.assertNotEqual(esito.returncode, 0, esito.stdout[-600:])
+
+    def test_il_comando_di_rilascio_rifiuta_e_dice_quali(self) -> None:
+        """La via vera: `verifica_condizione`, la stessa che `--release` chiama.
+
+        Invocare qui l'intero `--release` vorrebbe dire rieseguire ogni prova di
+        ogni invariante -- minuti di corsa per verificare due righe. La funzione
+        che le condizioni le esegue e' questa, ed e' il punto in cui un rinvio
+        deve diventare un rifiuto.
+        """
+        documento = self._registro()
+        for identita in self.CONDIZIONI:
+            condizione = next(
+                c
+                for c in documento["autorizzazione_di_release"]["condizioni"]
+                if c["id"] == identita
+            )
+            with self.subTest(condizione=identita):
+                motivi = gate.verifica_condizione(condizione, documento)
+                self.assertTrue(motivi, "un rinvio non puo' autorizzare il rilascio")
+
+    def test_le_due_condizioni_sono_obbligatorie(self) -> None:
+        # Senza, la via piu' breve al verde sarebbe toglierle dal registro.
+        for identita in self.CONDIZIONI:
+            self.assertIn(identita, gate.CONDIZIONI_OBBLIGATORIE)

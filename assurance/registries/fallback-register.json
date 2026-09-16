@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 146,
+  "totale": 148,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -24,8 +24,8 @@
       "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso; piu' il messaggio che distingue un JSON malformato da un rifiuto di una nostra regola, quando il canale laterale dell'errore e' vuoto"
     },
     "driver-geoparquet": {
-      "conteggio": 3,
-      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza"
+      "conteggio": 5,
+      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; due nelle prove Q2, dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore"
     },
     "driver-gpkg": {
       "conteggio": 3,

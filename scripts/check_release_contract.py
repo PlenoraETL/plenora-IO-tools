@@ -272,6 +272,7 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
         "qualifica-cross-component",
         "profilo-pubblico-attestato",
         "profondita-fuzz-rimisurata",
+        "confine-asan-rimisurato",
     }
 )
 

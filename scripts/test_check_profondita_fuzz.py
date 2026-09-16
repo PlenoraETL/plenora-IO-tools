@@ -851,8 +851,20 @@ class SondeQualificaDellaProfondita(unittest.TestCase):
             ["python3", "scripts/check_profondita_fuzz.py", "--qualifica"],
         )
 
-    def test_senza_bersaglio_e_senza_qualifica_e_un_errore(self) -> None:
-        # Omettere il bersaglio vale solo in qualificazione: altrove il gate non
-        # saprebbe quale misura rileggere.
+    def test_senza_bersaglio_li_prende_tutti_in_entrambe_le_modalita(self) -> None:
+        """Omettere il bersaglio vuol dire **tutti**, con o senza `--qualifica`.
+
+        Legarlo alla sola qualificazione rendeva impossibile scrivere la via di
+        sviluppo senza elencare i bersagli, e un elenco ripetuto in un registro
+        e' la rappresentazione che invecchia per prima.
+
+        Che li prenda davvero tutti si vede dal fatto che `--qualifica` rifiuta:
+        i rinvii dichiarati stanno nei registri, e un giro a vuoto uscirebbe 0.
+        """
+        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            self.assertNotEqual(gate.main(["--qualifica"]), 0)
+
+    def test_registra_pretende_un_bersaglio(self) -> None:
+        # `--registra` scrive **una** misura: senza bersaglio non saprebbe quale.
         with redirect_stderr(io.StringIO()):
-            self.assertEqual(gate.main([]), 2)
+            self.assertEqual(gate.main(["--registra", "finto.json"]), 2)

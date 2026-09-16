@@ -194,8 +194,15 @@ fn inizio_del_footer(byte: &[u8]) -> usize {
         byte[byte.len() - 5],
     ]);
     // `u32` in `usize` non perde nulla sui bersagli supportati, e scriverlo
-    // con `from` invece di `as` lo rende una conversione dichiarata.
-    byte.len() - 8 - usize::try_from(lunghezza).unwrap_or(usize::MAX)
+    // con `try_from` invece che con `as` lo rende una conversione dichiarata.
+    //
+    // `expect` e non `unwrap_or`: il ripiego era `usize::MAX`, che non produce
+    // un offset sbagliato in silenzio -- la sottrazione andrebbe sotto zero --
+    // ma nemmeno dice che cosa si stava assumendo. Un bersaglio a 16 bit lo
+    // farebbe fallire qui, con la ragione scritta.
+    byte.len()
+        - 8
+        - usize::try_from(lunghezza).expect("un u32 sta in usize sui bersagli supportati")
 }
 
 /// Gli offset dove compare `0x15` seguito dal varint del valore atteso.
@@ -224,7 +231,10 @@ fn varint_zigzag(valore: i64) -> Vec<u8> {
     let mut n = ((valore << 1) ^ (valore >> 63)).cast_unsigned();
     let mut fuori = Vec::new();
     loop {
-        let sette = u8::try_from(n & 0x7F).unwrap_or_default();
+        // La maschera tiene il valore sotto 128, quindi la conversione non
+        // puo' fallire. Il ripiego a zero, se mai scattasse, corromperebbe il
+        // varint in silenzio: `expect` dice l'invariante invece di coprirlo.
+        let sette = u8::try_from(n & 0x7F).expect("la maschera 0x7F tiene il valore sotto 128");
         if n < 0x80 {
             fuori.push(sette);
             return fuori;

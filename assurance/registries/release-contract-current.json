@@ -780,6 +780,18 @@
             "--qualifica"
           ]
         }
+      },
+      {
+        "id": "confine-asan-rimisurato",
+        "descrizione": "il confine di AddressSanitizer non e' dichiarato non piu' valido: condivide il perimetro con la profondita', non l'evidenza, e si rifa' con un comando suo",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/check_asan_filegdb.py",
+            "--qualifica"
+          ]
+        }
       }
     ]
   },
