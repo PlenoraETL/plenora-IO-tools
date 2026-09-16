@@ -1076,8 +1076,8 @@ rinvio non si trasforma in dimenticanza.
 
 | # | voce | criterio di chiusura | dipende da |
 |---|---|---|---|
-| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | caso minimo inviato, numero della issue registrato accanto alla fixture | — |
-| 2 | **Q2c** — finding noti del fuzz | un meccanismo che gestisca un finding noto senza disabilitare il bersaglio, senza nascondere difetti nuovi e senza dichiarare completa una campagna interrotta; con una prova per ciascuna delle tre | Q2b: la risposta di upstream può cambiarne il perimetro |
+| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **preparata**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude quando è inviata e il numero della issue è registrato accanto alla fixture | — |
+| 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce la famiglia del crash, non il digest; le tre proprietà hanno le loro prove | — |
 | 3 | **Q1** — contraddizione del workflow «Release checkout qualification» | il workflow dichiara un solo comportamento, e una prova lo esercita | — |
 | 4 | **R1** — regressione su `MAX_BLOCCHI` | caso sotto, al e oltre il limite; rifiuto della guardia; costo della fixture misurato e dichiarato | — |
 | 5 | **R2** — campagne senza `sleep` a scadenza | processo e codice d'uscita osservabili; log fuori dal container; interruzione distinta dal successo | — |
@@ -1401,27 +1401,87 @@ perché chi legge possa aprirli con altri strumenti.
 **Criterio di chiusura**: segnalazione inviata e numero della issue registrato
 accanto alla fixture. Q2 non è chiuso finché questo non è fatto.
 
-#### Q2c — gestire i finding noti del fuzz: **problema aperto, senza soluzione scelta**
+#### Q2c — gestire i finding noti del fuzz: **chiusa**
 
-La quarantena del progetto è **per bersaglio**: `fuzz/quarantine.txt` elenca
-nomi di target, e un target in quarantena viene compilato sotto AddressSanitizer
-ma non eseguito. Per questo finding sarebbe troppo ampia — smetterebbe di
-esplorare `geoparquet_reader` — e non è stata usata. Il file stesso la riserva a
-finding dove «uno smoke che fallisce sempre non è un gate, è rumore», e questo
-non fallisce sempre.
-
-Il problema da risolvere, scritto prima del meccanismo:
+Il problema, scritto prima del meccanismo e lasciato com'era:
 
 > gestire finding noti **senza** disabilitare il bersaglio, **senza** nascondere
 > difetti nuovi, e **senza** dichiarare completa una campagna che si è
 > interrotta.
 
-Una lista di digest non lo risolve, e vale la pena dire perché invece di
-scoprirlo dopo: il fuzzer può rigenerare lo stesso difetto da un input diverso,
-o produrne una variante. La prova sta nei tre artefatti locali di
-`geoparquet_reader` — due misurano 3.966 byte, la stessa dimensione del seme di
-questo finding, con digest tutti diversi dal suo: stessa famiglia, quattro
-digest. Il meccanismo va progettato a parte, e questa voce ne è il requisito.
+##### Perché non la quarantena, e perché non una lista di digest
+
+La quarantena del progetto è per **bersaglio**: mettere `geoparquet_reader` in
+`fuzz/quarantine.txt` smetterebbe di esplorarlo, e il file stesso riserva quella
+via ai finding dove «uno smoke che fallisce sempre non è un gate, è rumore». Un
+finding solo non giustifica di smettere di cercarne altri.
+
+Una lista di digest non basta, e la prova era già nel repository: il fuzzer
+rigenera lo stesso difetto da un input diverso. Gli artefatti locali di
+`geoparquet_reader` lo mostrano — due misurano 3.966 byte, la stessa dimensione
+del seme del finding, con digest tutti diversi dal suo. Stessa famiglia, quattro
+digest, e una lista li riconoscerebbe uno per volta.
+
+##### Che cosa si riconosce: la famiglia
+
+`scripts/classifica_finding_fuzz.py` legge l'uscita della corsa e ne ricava una
+firma di **due** parti, contro il registro
+`assurance/registries/finding-noti-fuzz.json`:
+
+| parte | perché così |
+|---|---|
+| il modulo, col nome della crate **spogliato della versione** | `parquet-59.3.0` e `parquet-60.0.0` sono la stessa crate, e un difetto aperto a monte non smette di esserlo quando il pin sale |
+| la **forma** del messaggio, con le cifre ridotte a `N` | «the len is 2 but the index is 2» e «the len is 56…» sono lo stesso difetto su due ingressi |
+
+Il numero di riga **non** è nella firma: si sposta fra versioni, e legarlo
+renderebbe stantia una voce che descrive un difetto ancora aperto. Resta
+registrato come dato, perché chi rilegge voglia vedere dove si era manifestato.
+
+Il percorso perde anche il prefisso del registro di cargo: altrimenti la firma
+dipenderebbe da **dove gira il fuzzer**, e la stessa corsa su un'altra macchina
+non riconoscerebbe nulla.
+
+##### Le tre proprietà, e come ciascuna è ottenuta
+
+**Non disabilita il bersaglio.** Il target continua a girare, con tutto il suo
+corpus. Ciò che cambia è la lettura del crash, non l'esecuzione.
+
+**Non nasconde difetti nuovi.** La corrispondenza è **congiunta** — modulo *e*
+forma del messaggio — e vale per il bersaglio che la voce dichiara. Un altro
+messaggio nello stesso modulo è nuovo; lo stesso messaggio in un altro modulo è
+nuovo; lo stesso crash su un altro bersaglio è nuovo. Ciascuna di queste tre ha
+la sua prova. E un crash che il classificatore non riesce a leggere è rosso: una
+corsa fallita senza panico riconoscibile è un guasto, non un finding noto.
+
+**Non dichiara completa una campagna interrotta.** È il punto che costa di più e
+si vede nell'esito. libFuzzer si ferma al primo crash: un bersaglio fermato a un
+finding noto **non ha esplorato il tempo restante**. I tre stati hanno perciò
+tre codici d'uscita — 0 nessun crash, **3** noto, 1 nuovo — e il 3 non è 0
+apposta. Lo smoke li tiene in tre insiemi separati e la riga finale non può dire
+«completato»: dice quanti hanno finito il proprio tempo, quanti si sono fermati
+a un finding noto, e che chi si è fermato non ha esplorato il resto.
+
+##### Che cosa costa una voce
+
+Sette campi obbligatori, e due meritano di essere nominati: `non_promette`, cioè
+che cosa la campagna smette di affermare finché la voce c'è, e
+`quando_si_toglie`, cioè la condizione che la chiude. Una voce senza questi due
+non è una registrazione, è un permesso a tempo indeterminato — e ciascuno dei
+sette ha una prova che lo pretende.
+
+La voce di oggi è una sola, `arrow-rs-byte-stream-split-oob`, e si toglie quando
+la correzione upstream è pubblicata e il pin la include. La prova che sia ancora
+dovuta è il riproduttore di Q2b: se smette di riprodurre, la voce va tolta
+invece di essere ereditata.
+
+##### Dove gira
+
+Le diciotto regressioni stanno in CI accanto a quelle della quarantena, e nel
+checkpoint come `sonde_finding_noti`: le due vie — per bersaglio e per famiglia
+di crash — si leggono insieme. Una delle prove verifica che lo smoke invochi il
+classificatore e distingua il codice 3, perché se quel collegamento sparisse un
+finding noto tornerebbe a far fallire la corsa e l'unica via sarebbe di nuovo la
+quarantena per bersaglio.
 
 ## Compatibilità e criteri generali
 

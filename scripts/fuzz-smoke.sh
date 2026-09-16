@@ -166,8 +166,32 @@ for target in "${targets[@]}"; do
     fi
 done
 
+# --- la classificazione del crash ------------------------------------------
+#
+# Prima un crash faceva fallire lo smoke e basta. Un finding gia' tracciato a
+# monte lo faceva fallire ogni volta, e l'unica via era la quarantena -- che e'
+# per **bersaglio**, cioe' smetteva di esplorarlo del tutto.
+#
+# Ora l'uscita di ogni corsa si conserva e si classifica. Tre esiti, tre
+# insiemi, e nessuno dei tre si confonde con gli altri:
+#
+#   * nessun crash    -- il bersaglio ha finito il proprio tempo;
+#   * finding noto    -- il crash e' quello registrato in
+#                        `assurance/registries/finding-noti-fuzz.json`. Non fa
+#                        fallire lo smoke, **ma il bersaglio si e' fermato li'**:
+#                        libFuzzer non riparte dopo un crash, e il tempo
+#                        restante non e' stato esplorato. Non entra fra quelli
+#                        che hanno finito;
+#   * finding nuovo   -- rosso, come prima.
+#
+# Un crash che il classificatore non riesce a leggere e' rosso anch'esso: una
+# corsa fallita senza panico riconoscibile e' un guasto, non un finding noto.
 failed=()
+noti=()
 skipped=0
+uscite=$(mktemp -d)
+trap 'rm -rf "${uscite}"' EXIT
+
 for target in "${targets[@]}"; do
     if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
         echo "=== ${target}: saltato (quarantena) ==="
@@ -175,15 +199,26 @@ for target in "${targets[@]}"; do
         continue
     fi
     echo "=== ${target}: ${duration}s ==="
-    if ! cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
+    uscita="${uscite}/${target}.txt"
+    if cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \
         "-timeout=15" \
         "-print_final_stats=1" \
-        "-artifact_prefix=fuzz/artifacts/${target}/"; then
-        failed+=("${target}")
+        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}"; then
+        continue
     fi
+    # `pipefail` non e' attivo qui: l'esito della corsa e' quello di `cargo`,
+    # non di `tee`, e si rilegge da PIPESTATUS.
+    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+        continue
+    fi
+    python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" --uscita "${uscita}"
+    case "$?" in
+        3) noti+=("${target}") ;;
+        *) failed+=("${target}") ;;
+    esac
 done
 
 if [ "${#failed[@]}" -ne 0 ]; then
@@ -192,6 +227,15 @@ if [ "${#failed[@]}" -ne 0 ]; then
 fi
 
 eseguiti=$(( ${#targets[@]} - skipped ))
+if [ "${#noti[@]}" -ne 0 ]; then
+    # La riga non puo' dire «completato»: i bersagli fermati a un finding noto
+    # non hanno esplorato il tempo che restava, e una riga che li contasse fra
+    # i completi direbbe di una campagna piu' di quanto sia successo.
+    finiti=$(( eseguiti - ${#noti[@]} ))
+    echo "smoke fuzz: ${finiti} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un finding NOTO (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante."
+    exit 0
+fi
+
 if [ "${#targets[@]}" -eq "${#dichiarati[@]}" ]; then
     echo "smoke fuzz completato senza finding su ${eseguiti} target eseguiti (${skipped} in quarantena, comunque compilati)"
 else
