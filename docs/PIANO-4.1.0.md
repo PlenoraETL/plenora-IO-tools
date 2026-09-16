@@ -537,6 +537,93 @@ esplicita, che il censimento registra senza confonderla con questa.
 Nessuna correzione proposta, e quindi nessuna modifica ai tipi pubblici. Ciò che
 resta aperto è il limite del **filo**, che è C3 e dipende dalla decisione 0006.
 
+### M3 — le due lacune sul fallimento tardivo
+
+M1 aveva registrato che una sola prova fissava il momento del fallimento, e per
+un solo modo di fallire. Le due lacune nominate erano il budget esaurito durante
+la scrittura e l'errore dopo una scrittura parziale.
+
+#### Che cosa esisteva, e che cosa no
+
+`--max-output-bytes` è un flag della CLI e **nessuna prova lo esercitava**: la
+ricerca fra le suite non ne trova un uso. I limiti che avevano prove —
+`max_rows`, i tetti su WKT e componenti — agiscono tutti **in lettura**, prima
+che un writer esista.
+
+#### Il budget d'uscita si applica a scrittura finita, ed è misurabile
+
+`publish_file_atomic_limited` legge la dimensione del file di staging —
+`temp.as_file().metadata()?.len()` — e rifiuta prima del rename. La scrittura è
+quindi completa quando il limite scatta, e la busta lo attesta senza bisogno di
+guardare dentro il processo: il messaggio nomina i byte prodotti, e quel numero
+coincide con `bytes_written` della stessa conversione senza limite. Un rifiuto
+preventivo non potrebbe conoscerlo.
+
+Su 2.000 righe: uscita piena 229.601 byte, tetto a 100.000, e la busta dice
+«output da 229601 byte oltre il limite di 100000». Destinazione assente,
+directory senza residui.
+
+#### Il rilievo: `phase` non rispetta ERR-003 su questo percorso
+
+ERR-003 dice che `phase` «identifies the last externally meaningful phase known
+to have started». Il rifiuto del budget d'uscita dichiara `phase: validate`,
+mentre la lettura è avvenuta, la scrittura è finita e si è alla pubblicazione.
+
+Non è una semplificazione generale del prodotto: il rifiuto per destinazione
+preesistente dichiara `phase: commit`, ed è corretto. La causa è puntuale —
+`PlenoraIoError::limite_redatto` fissa `ErrorPhase::Validate` — e quel
+costruttore serve anche limiti che scattano davvero in validazione, dove la fase
+è giusta.
+
+**Ingresso concreto**: una conversione CSV→GeoJSON di 2.000 righe con
+`--max-output-bytes` sotto la dimensione prodotta.
+**Conseguenza osservabile**: un orchestratore che legge `phase` per sapere
+quanto lontano sia arrivata l'operazione legge `validate`, cioè «non ha
+cominciato», mentre l'intero output è stato prodotto e scartato. Gli altri tre
+assi restano corretti — `resource_limit`, `retry: never`, `remote_effect: none`
+— e la destinazione non esiste davvero: l'errore non è nell'effetto, è in quanto
+lavoro dichiara di aver fatto.
+
+**Correzione proposta, non applicata**: dare a `publish_file_atomic_limited` un
+costruttore che dichiari la fase del punto in cui si trova, lasciando
+`limite_redatto` a chi rifiuta in validazione. È una modifica alla semantica di
+un campo pubblico della busta, e va decisa, non fatta di passaggio.
+
+Lo stesso rilievo vale per il guasto dei dati a metà stream, che dichiara pure
+`phase: validate`. Lì però il momento non è osservabile dalla superficie
+pubblica, quindi la prova non lo afferma — vedi sotto.
+
+#### Le prove aggiunte
+
+`crates/plenora-io-tools/tests/fallimento_tardivo.rs`, tre prove sul percorso
+**pubblico**, cioè invocando il binario:
+
+| prova | che cosa fissa |
+|---|---|
+| `il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui` | i quattro assi, la destinazione assente, la directory senza staging, **e** che il messaggio nomini i byte prodotti |
+| `un_guasto_dei_dati_a_meta_stream_non_lascia_destinazione_ne_residui` | gli stessi invarianti con un guasto WKT a riga 15.000 di 20.000 |
+| `una_destinazione_preesistente_resta_invariata_dopo_un_fallimento` | che il file di prima sia byte per byte quello di prima, e la fase `commit` |
+
+Sono deterministiche: nessun segnale, nessuna attesa, nessuna corsa contro il
+tempo. Il tetto della prima si calcola dalla corsa di riferimento invece di
+essere un numero fisso, così non invecchia con il formato.
+
+#### Provato sul percorso pubblico contro verificato internamente
+
+Tutto quanto sopra è **pubblico**: buste, codici d'uscita, filesystem. Nulla
+guarda dentro il processo.
+
+Ciò che resta **non attestato** è che la scrittura fosse cominciata nel caso del
+guasto dei dati: la superficie pubblica non espone quanto sia stato fatto, e la
+prova lo dice invece di dedurlo dal numero di riga. Che il file di staging
+esista e venga rimosso è verificato per **assenza di residui**, non per
+osservazione diretta: è un'evidenza più debole, e il nome della prova non
+promette di più.
+
+Il rilascio dei lease non è osservabile dalla riga di comando — il processo
+termina, e con lui tutto. Le regressioni che lo coprono restano quelle interne
+già censite in M1: sedici sui lease, ottantaquattro sui budget.
+
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
 gate per simmetria con database-tools. Le lacune osservate nel riferimento
