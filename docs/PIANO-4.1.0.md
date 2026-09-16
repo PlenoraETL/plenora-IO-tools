@@ -1079,7 +1079,7 @@ rinvio non si trasforma in dimenticanza.
 |---|---|---|---|
 | 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue | — |
 | 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
-| 3 | **Q1** — contraddizione del workflow «Release checkout qualification» | il workflow dichiara un solo comportamento, e una prova lo esercita | — |
+| 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**: il gate distingue l'albero congelato dal commit di registrazione; sei prove, e la prima riproduce il guasto | — |
 | 4 | **R1** — regressione su `MAX_BLOCCHI` | caso sotto, al e oltre il limite; rifiuto della guardia; costo della fixture misurato e dichiarato | — |
 | 5 | **R2** — campagne senza `sleep` a scadenza | processo e codice d'uscita osservabili; log fuori dal container; interruzione distinta dal successo | — |
 | 6 | **R3–R4**, il resto | la parte consegnata da M4 è chiusa; resta il legame fra candidate, revisione qualificata ed evidenza, e la regola del riuso per tipo di modifica | — |
@@ -1286,7 +1286,7 @@ segnalato: non aggirato e non risolto avviando altre ore di test.
 Non erano nel piano concordato perché sono emersi dopo. Nessuno dei due mette in
 discussione la 4.0.0 pubblicata; entrambi vanno trattati nella 4.1.0.
 
-### Q1 — il workflow del tag contraddice il modello a due revisioni
+### Q1 — il workflow del tag contraddiceva il modello a due revisioni: **chiusa**
 
 La push di `v4.0.0` ha innescato «Release checkout qualification» sulla revisione
 congelata, e il job `rust` è rosso con:
@@ -1302,10 +1302,26 @@ successivo, perché un commit non può nominare se stesso. Il workflow qualifica
 il checkout del tag e vi applica un invariante che a quel checkout è falso per
 costruzione.
 
-Criterio di chiusura: il workflow distingue ciò che si verifica **sull'albero
-congelato** da ciò che si verifica **sul commit di registrazione**, oppure
-dichiara di non applicare gli invarianti di registrazione a un checkout di tag.
-Non si chiude allentando l'invariante, che sul ramo di sviluppo serve.
+**Chiusa distinguendo i due alberi, non allentando l'invariante.**
+
+Il confronto fra `tag_creato` e git resta intero dove è nato: sul ramo di
+sviluppo lo stato dichiarava `tag_creato: false` mentre `v1.0.1` esisteva, ed è
+quella copia scritta a mano che il controllo esiste per prendere.
+
+Sull'albero **congelato** la stessa domanda cambia oggetto, perché non ha una
+risposta che quel commit possa dare. Lì la pretesa diventa: `tag_creato`
+**dev'essere falso**, e un `true` sarebbe un commit che afferma di conoscere un
+tag creato dopo di sé. La registrazione del tag si verifica dov'è scritta, cioè
+sul commit di assurance, dove il confronto gira nella sua forma piena.
+
+La distinzione sta nel gate, in `_candidate_legata_alle_fonti`, e non nel
+workflow: è una proprietà del modello a due revisioni, non di quella corsa, e
+ripeterla nel workflow vorrebbe dire due luoghi che possono divergere. Il
+workflow la **nomina**, e una prova pretende che continui a farlo.
+
+Sei regressioni, e la prima riproduce il guasto: HEAD sulla revisione
+congelata, il tag che esiste e punta lì, lo stato che dice `false`. Verificato
+che fallisca senza la correzione.
 
 ### Q2 — panico upstream in parquet raggiunto da GeoParquet malformato
 

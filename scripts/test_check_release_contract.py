@@ -4551,3 +4551,130 @@ class SondeRinvioControQualificazione(unittest.TestCase):
         # Senza, la via piu' breve al verde sarebbe toglierle dal registro.
         for identita in self.CONDIZIONI:
             self.assertIn(identita, gate.CONDIZIONI_OBBLIGATORIE)
+
+
+class SondeDelTagSuiDueAlberi(unittest.TestCase):
+    """`tag_creato` ha risposte diverse sull'albero congelato e su quello dopo.
+
+    La push di `v4.0.0` ha innescato «Release checkout qualification» sulla
+    revisione congelata, e il gate e' andato rosso: lo stato diceva
+    `tag_creato: false`, git il tag lo trovava. Nessuno dei due mentiva. Il tag
+    punta a quella revisione, e il campo che lo registra sta in un commit
+    successivo, perche' un commit non puo' nominare se stesso.
+
+    La chiusura non allenta il confronto -- sul ramo di sviluppo serve, ed e'
+    nato perche' lo stato dichiarava `tag_creato: false` mentre `v1.0.1`
+    esisteva. Cambia **oggetto** sull'albero congelato: li' il campo dev'essere
+    falso, e un `true` sarebbe un commit che afferma di conoscere un tag creato
+    dopo di se'.
+    """
+
+    CONGELATA = "a" * 40
+    ASSURANCE = "b" * 40
+
+    def _stato(self, **modifiche):
+        candidate = {
+            "stato": "attiva",
+            "versione_manifesto": "9.9.9",
+            "versione_workspace": gate.versione_workspace(),
+            "revisione_candidate": self.CONGELATA,
+            "tag_previsto": "v9.9.9",
+            "tag_creato": False,
+            "release_authorized": False,
+            "release_action_allowed": False,
+            "assurance_entro_l_allowlist": True,
+        }
+        candidate.update(modifiche)
+        return {"aperto": {"candidate_release": candidate}}
+
+    def _errori(self, head: str, tag_esiste: bool, **modifiche) -> list[str]:
+        """Gli errori con HEAD e il tag scelti, e git per il resto finto."""
+
+        def finto_git(*argomenti):
+            # Il solo uso di `_git` qui e' la ricerca del tag.
+            if argomenti[:2] == ("rev-parse", "--verify"):
+                return self.CONGELATA if tag_esiste else None
+            return None
+
+        def finta_risoluzione(revisione):
+            # `revisione_risolta` e' memoizzata, quindi il mock va messo su di
+            # lei e non sul `_git` che ha sotto: altrimenti la cache
+            # risponderebbe con lo SHA vero del repository.
+            if revisione == "HEAD":
+                return head
+            return self.CONGELATA if revisione == self.CONGELATA else None
+
+        with mock.patch.object(gate, "_git", side_effect=finto_git), mock.patch.object(
+            gate, "revisione_risolta", side_effect=finta_risoluzione
+        ):
+            return gate._candidate_legata_alle_fonti(self._stato(**modifiche))
+
+    def _sul_tag(self) -> list[str]:
+        return [
+            e for e in self._errori(self.CONGELATA, True) if "tag_creato" in e
+        ]
+
+    def test_il_checkout_del_tag_non_e_piu_rosso(self) -> None:
+        """Il difetto originale, riprodotto e chiuso.
+
+        HEAD e' la revisione congelata, il tag esiste e punta li', lo stato dice
+        `tag_creato: false`. Prima questa combinazione dava «vale «False» ma git
+        trova il tag»: era la qualifica che chiedeva a un commit di sapere
+        qualcosa scritto dopo di lui.
+        """
+        self.assertEqual(self._sul_tag(), [])
+
+    def test_sull_albero_congelato_un_tag_creato_vero_e_rosso(self) -> None:
+        # La pretesa non sparisce, cambia oggetto: quel commit non puo'
+        # affermare di conoscere un tag creato dopo di se'.
+        errori = [
+            e
+            for e in self._errori(self.CONGELATA, True, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(errori, "un `true` sul congelato deve restare rosso")
+        self.assertTrue(
+            any("non puo' conoscere un tag creato" in e for e in errori), errori
+        )
+
+    def test_fuori_dall_albero_congelato_il_confronto_resta_intero(self) -> None:
+        """Il caso per cui il controllo e' nato, e che non va perso.
+
+        HEAD e' il commit di assurance, il tag esiste, lo stato dice di no: e'
+        la copia scritta a mano che nessuno confrontava con git, ed e' rossa
+        come prima.
+        """
+        errori = [
+            e for e in self._errori(self.ASSURANCE, True) if "tag_creato" in e
+        ]
+        self.assertTrue(errori, "sul ramo di sviluppo il confronto deve restare")
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+
+    def test_fuori_dal_congelato_anche_il_verso_opposto_e_rosso(self) -> None:
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, False, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(any("non trova il tag" in e for e in errori), errori)
+
+    def test_fuori_dal_congelato_la_verita_passa(self) -> None:
+        # La controprova positiva: senza, «sempre rosso» sarebbe una difesa.
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, True, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertEqual(errori, [])
+
+    def test_il_workflow_rimanda_al_gate_e_non_ripete_la_regola(self) -> None:
+        """Due luoghi che dicono la stessa regola possono divergere.
+
+        La distinzione e' una proprieta' del modello a due revisioni, non di
+        quel workflow: sta nel gate, e il workflow la nomina invece di
+        riscriverla.
+        """
+        workflow = (
+            gate.ROOT / ".github" / "workflows" / "release-qualification.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("_candidate_legata_alle_fonti", workflow)

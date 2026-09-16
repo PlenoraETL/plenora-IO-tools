@@ -3590,8 +3590,43 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
             f"segue «{atteso}»"
         )
 
+    # --- il tag, e i due alberi su cui questa domanda ha risposte diverse ---
+    #
+    # Sul ramo di sviluppo la domanda e' semplice: lo stato dichiara se il tag
+    # esiste, git lo sa, e i due si confrontano. Serve, ed e' come nasce questo
+    # controllo -- lo stato dichiarava `tag_creato: false` mentre `v1.0.1`
+    # esisteva.
+    #
+    # Sull'albero **congelato** la stessa domanda non ha una risposta che quel
+    # commit possa dare. Il tag punta li', e il campo che lo registra sta in un
+    # commit **successivo**: un commit non puo' nominare se stesso, quindi
+    # `tag_creato` viene scritto nel commit di assurance e `commit_di_assurance`
+    # in quello dopo ancora. Chi fa il checkout del tag misura percio' un albero
+    # in cui `tag_creato: false` non e' una dichiarazione falsa, e' l'unica che
+    # quel commit poteva scrivere.
+    #
+    # E' la contraddizione che «Release checkout qualification» ha trovato alla
+    # push di `v4.0.0`, e non si chiude allentando il confronto -- servirebbe
+    # rinunciarvi anche dove serve. Si chiude **distinguendo i due alberi**:
+    # sul congelato la pretesa cambia oggetto, non sparisce. Li' `tag_creato`
+    # dev'essere falso, e un `true` sarebbe un commit che afferma di conoscere
+    # un tag creato dopo di se'. La registrazione del tag si verifica dov'e'
+    # scritta, cioe' sul commit di assurance, dove questo stesso confronto gira
+    # nella sua forma piena.
     puntato = _git("rev-parse", "--verify", atteso + "^{commit}")
-    if candidate.get("tag_creato") is not (puntato is not None):
+    sull_albero_congelato = (
+        congelata is not None and head is not None and head == congelata
+    )
+    if sull_albero_congelato:
+        if candidate.get("tag_creato") is not False:
+            errori.append(
+                "`candidate_release.tag_creato` vale "
+                f"«{candidate.get('tag_creato')}» sulla revisione congelata, "
+                "che e' HEAD. Quel commit non puo' conoscere un tag creato "
+                "dopo di se': il campo lo scrive il commit di assurance, ed e' "
+                "li' che il confronto con git si fa."
+            )
+    elif candidate.get("tag_creato") is not (puntato is not None):
         errori.append(
             f"`candidate_release.tag_creato` vale «{candidate.get('tag_creato')}» "
             f"ma git {'trova' if puntato else 'non trova'} il tag «{atteso}»"
