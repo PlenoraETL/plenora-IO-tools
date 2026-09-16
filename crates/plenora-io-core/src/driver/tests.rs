@@ -51,7 +51,7 @@ use super::perdita_pianificata::{
 };
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use arrow_array::{BinaryArray, Int64Array};
@@ -246,6 +246,146 @@ impl FormatWriter for FinishTrackingWriter {
             outcome: crate::publish::PublishOutcome::Published,
         })
     }
+}
+
+/// Un writer che scrive davvero su uno staging, e fallisce al secondo batch.
+///
+/// # Perche' scrive davvero
+///
+/// Perche' la lacuna che questa prova chiude e' sul **momento**: un guasto che
+/// arriva prima di ogni scrittura non esercita il percorso tardivo, e un
+/// contatore che non tocca il disco non distingue i due casi. Qui il primo
+/// batch finisce nello staging e la sua dimensione lo attesta.
+struct WriterCheFallisceDopoIlPrimoBatch {
+    staging: crate::publish::StagedFile,
+    scritti: Arc<AtomicUsize>,
+}
+
+impl FormatWriter for WriterCheFallisceDopoIlPrimoBatch {
+    fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let precedenti = self.scritti.fetch_add(1, Ordering::SeqCst);
+        if precedenti == 0 {
+            // Il primo batch si scrive per intero: e' l'attestazione.
+            use std::io::Write as _;
+            let file = self.staging.as_file_mut()?;
+            file.write_all(&vec![b'x'; batch.num_rows().max(1) * 64])
+                .map_err(PlenoraIoError::from)?;
+            file.flush().map_err(PlenoraIoError::from)?;
+            return Ok(());
+        }
+        // Il secondo simula il backend che cede a scrittura iniziata.
+        // La fase e' `Write` perche' e' li' che siamo: e' la stessa
+        // proprieta' che la correzione su `limite_alla_pubblicazione_redatto`
+        // ha reso vera per il budget.
+        Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Io,
+            plenora_io_model::ErrorCategory::Internal,
+            plenora_io_model::ErrorPhase::Write,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            &PublicMessage::Curated("il backend ha ceduto dopo una scrittura parziale"),
+        ))
+    }
+
+    fn finish(self: Box<Self>) -> Result<Published> {
+        unreachable!("`finish` non deve essere raggiunto dopo un `write` fallito")
+    }
+}
+
+/// Un guasto del backend **dopo** una scrittura riuscita: che cosa resta.
+///
+/// # Che cosa questa prova attesta, e la precedente no
+///
+/// Che la scrittura fosse cominciata. La prova pubblica sul guasto dei dati
+/// verifica gli invarianti ma non il momento -- dalla riga di comando non si
+/// osserva quanto sia stato fatto. Qui il writer conta i batch e il primo
+/// lascia byte sullo staging: il fallimento e' tardivo per costruzione, non per
+/// inferenza.
+///
+/// # Che cosa verifica
+///
+/// L'errore che si propaga, lo staging che sparisce quando il writer viene
+/// distrutto, e la destinazione preesistente che resta quella di prima.
+#[test]
+fn un_guasto_del_backend_dopo_una_scrittura_riuscita_non_pubblica_niente() {
+    let radice = tempfile::tempdir().expect("directory temporanea");
+    let destinazione = radice.path().join("uscita.bin");
+    let preesistente = b"contenuto preesistente, da non toccare\n";
+    std::fs::write(&destinazione, preesistente).expect("la preesistente si scrive");
+
+    let scritti = Arc::new(AtomicUsize::new(0));
+    let staging = crate::publish::StagedFile::new(&destinazione, false, u64::MAX)
+        .expect("lo staging si crea");
+    let percorso_staging = staging
+        .path()
+        .expect("lo staging ha un percorso")
+        .to_path_buf();
+    assert!(
+        percorso_staging.exists(),
+        "lo staging deve esistere prima della scrittura"
+    );
+
+    let mut writer = Box::new(WriterCheFallisceDopoIlPrimoBatch {
+        staging,
+        scritti: Arc::clone(&scritti),
+    });
+
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1, 2]))]).unwrap();
+
+    // Primo batch: riesce, e lascia byte sullo staging. E' l'attestazione del
+    // lavoro svolto, ed e' misurata invece che assunta.
+    writer.write(&batch).expect("il primo batch deve riuscire");
+    let dimensione = std::fs::metadata(&percorso_staging)
+        .expect("lo staging si misura")
+        .len();
+    assert!(
+        dimensione > 0,
+        "il primo batch deve aver lasciato byte sullo staging: la prova sul          fallimento tardivo non varrebbe niente se il guasto arrivasse prima"
+    );
+
+    // Secondo batch: il backend cede.
+    let errore = writer
+        .write(&batch)
+        .expect_err("il secondo batch deve fallire");
+    assert_eq!(
+        scritti.load(Ordering::SeqCst),
+        2,
+        "entrambi i write tentati"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Write);
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "un backend che cede non si riprova da solo: {errore}"
+    );
+
+    // Il writer viene distrutto senza `finish`, ed e' il punto: lo staging se
+    // ne va con lui, e la destinazione non e' mai stata toccata.
+    drop(writer);
+    assert!(
+        !percorso_staging.exists(),
+        "lo staging deve sparire quando il writer viene distrutto senza pubblicare"
+    );
+    assert_eq!(
+        std::fs::read(&destinazione).expect("la destinazione si rilegge"),
+        preesistente,
+        "la destinazione preesistente non deve essere stata toccata"
+    );
+
+    let rimasti: Vec<_> = std::fs::read_dir(radice.path())
+        .expect("la directory si legge")
+        .map(|v| v.expect("voce").file_name())
+        .collect();
+    assert_eq!(
+        rimasti.len(),
+        1,
+        "nella directory deve restare la sola destinazione: {rimasti:?}"
+    );
 }
 
 #[test]

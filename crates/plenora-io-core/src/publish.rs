@@ -209,7 +209,7 @@ pub fn publish_file_atomic_limited(
 ) -> Result<(u64, PublishOutcome)> {
     let bytes = temp.as_file().metadata()?.len();
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::limite_redatto(
+        return Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
             &PublicMessage::CuratedBetween(
                 "output da",
                 NumeroStrutturale::Conteggio(bytes),
@@ -294,13 +294,13 @@ pub fn publish_files_ordered_limited(
         }
         ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::Curated(
                 "overflow nel conteggio dell'output",
             ))
         })?;
     }
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::limite_redatto(
+        return Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
             &PublicMessage::CuratedBetween(
                 "output da",
                 NumeroStrutturale::Conteggio(bytes),

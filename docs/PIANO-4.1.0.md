@@ -584,14 +584,31 @@ assi restano corretti — `resource_limit`, `retry: never`, `remote_effect: none
 — e la destinazione non esiste davvero: l'errore non è nell'effetto, è in quanto
 lavoro dichiara di aver fatto.
 
-**Correzione proposta, non applicata**: dare a `publish_file_atomic_limited` un
-costruttore che dichiari la fase del punto in cui si trova, lasciando
-`limite_redatto` a chi rifiuta in validazione. È una modifica alla semantica di
-un campo pubblico della busta, e va decisa, non fatta di passaggio.
+**Correzione applicata.** `PlenoraIoError::limite_alla_pubblicazione_redatto`
+dichiara `ErrorPhase::Commit`, e i tre controlli di `publish.rs` la usano.
+`limite_redatto` resta invariato per gli altri ottantasei chiamanti, che
+rifiutano davvero in validazione: cambiarlo per tutti avrebbe spostato la fase
+di ottantasei per correggerne tre. La regressione pubblica pretende ora
+`phase: commit`.
 
-Lo stesso rilievo vale per il guasto dei dati a metà stream, che dichiara pure
-`phase: validate`. Lì però il momento non è osservabile dalla superficie
-pubblica, quindi la prova non lo afferma — vedi sotto.
+È un valore osservabile che cambia, ed è il motivo per cui la correzione si fa:
+porta la busta a dire ciò che ERR-003 le chiede di dire. Lo stesso rilievo vale
+per il guasto dei dati a metà stream, che dichiara pure `phase: validate`; lì
+però il momento non è osservabile dalla superficie pubblica, quindi non c'è
+niente da cui dedurre la fase giusta.
+
+#### Che cosa `--max-output-bytes` limita davvero
+
+Limita **la pubblicazione**: il confronto avviene sulla dimensione dello staging
+appena prima del rename, e ciò che il flag impedisce è che un output più grande
+del tetto diventi la destinazione.
+
+**Non** è un tetto ai byte scritti temporaneamente su disco. Lo staging viene
+prodotto per intero prima che il limite scatti, e la prova qui sotto lo mostra
+invece di nasconderlo: il messaggio d'errore nomina 229.601 byte sotto un tetto
+di 100.000, cioè dichiara di aver scritto più del doppio del consentito. Chi
+avesse bisogno di un tetto sullo spazio temporaneo non lo troverebbe qui, e
+nessuna prova di questo blocco lo promette.
 
 #### Le prove aggiunte
 
@@ -600,9 +617,22 @@ pubblica, quindi la prova non lo afferma — vedi sotto.
 
 | prova | che cosa fissa |
 |---|---|
-| `il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui` | i quattro assi, la destinazione assente, la directory senza staging, **e** che il messaggio nomini i byte prodotti |
+| `il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui` | i quattro assi con `phase: commit`, la destinazione assente, la directory senza staging, **e** che il messaggio nomini i byte prodotti |
 | `un_guasto_dei_dati_a_meta_stream_non_lascia_destinazione_ne_residui` | gli stessi invarianti con un guasto WKT a riga 15.000 di 20.000 |
 | `una_destinazione_preesistente_resta_invariata_dopo_un_fallimento` | che il file di prima sia byte per byte quello di prima, e la fase `commit` |
+
+E una prova **interna**, in `plenora-io-core/src/driver/tests.rs`, perché il
+momento del guasto dalla riga di comando non si osserva:
+
+| prova | che cosa fissa |
+|---|---|
+| `un_guasto_del_backend_dopo_una_scrittura_riuscita_non_pubblica_niente` | il primo batch scrive davvero sullo staging e la sua dimensione lo **attesta**; il secondo fallisce con `phase: Write` e `retry: Never`; lo staging sparisce alla distruzione del writer; la destinazione preesistente resta byte per byte quella di prima |
+
+Che quella prova misuri il momento non è affermato: è stato verificato
+rompendola. Facendo fallire il writer **subito** invece che al secondo batch,
+diventa rossa sull'asserzione «il primo batch deve riuscire». Una prova sul
+fallimento tardivo che resta verde anche quando il fallimento è immediato non
+misura il momento, e questa non lo fa.
 
 Sono deterministiche: nessun segnale, nessuna attesa, nessuna corsa contro il
 tempo. Il tetto della prima si calcola dalla corsa di riferimento invece di
@@ -613,12 +643,23 @@ essere un numero fisso, così non invecchia con il formato.
 Tutto quanto sopra è **pubblico**: buste, codici d'uscita, filesystem. Nulla
 guarda dentro il processo.
 
-Ciò che resta **non attestato** è che la scrittura fosse cominciata nel caso del
-guasto dei dati: la superficie pubblica non espone quanto sia stato fatto, e la
-prova lo dice invece di dedurlo dal numero di riga. Che il file di staging
-esista e venga rimosso è verificato per **assenza di residui**, non per
-osservazione diretta: è un'evidenza più debole, e il nome della prova non
-promette di più.
+Ciò che resta **non attestato dalla CLI** è che la scrittura fosse cominciata
+nel caso del guasto dei dati: la superficie pubblica non espone quanto sia stato
+fatto, e la prova lo dice invece di dedurlo dal numero di riga. Che il file di
+staging esista e venga rimosso è verificato lì per **assenza di residui**, non
+per osservazione diretta.
+
+La prova interna copre esattamente quella distanza, e su un percorso diverso:
+osserva lo staging mentre esiste, ne misura la dimensione dopo il primo batch, e
+lo ritrova assente dopo la distruzione del writer. È evidenza più forte, e per
+questo sta dentro il crate: chiederla alla riga di comando avrebbe voluto dire
+inventare un'osservazione che quella superficie non offre.
+
+**Le due lacune non sono chiuse allo stesso modo.** Il limite d'uscita rilevato
+prima della pubblicazione è coperto, e la correzione della fase lo accompagna.
+Il guasto del backend dopo una scrittura parziale è ora coperto **internamente**;
+sul percorso pubblico resta senza una prova che ne fissi il momento, e il guasto
+sui dati non è un equivalente.
 
 Il rilascio dei lease non è osservabile dalla riga di comando — il processo
 termina, e con lui tutto. Le regressioni che lo coprono restano quelle interne

@@ -126,6 +126,12 @@ fn il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui() {
         errore["remote_effect"], "none",
         "niente e' uscito dal processo: {busta}"
     );
+    // La fase e' `commit`, e non `validate`: ERR-003 dice che `phase` nomina
+    // l'ultima fase esternamente significativa **iniziata**, e qui la lettura
+    // e' avvenuta, la scrittura e' finita e si sta pubblicando. Era `validate`
+    // fino a questa correzione, e diceva a chi legge che l'operazione non
+    // aveva cominciato.
+    assert_eq!(errore["phase"], "commit", "{busta}");
 
     // L'attestazione del lavoro svolto: il messaggio nomina i byte **prodotti**,
     // che coincidono con quelli della corsa riuscita. Solo uno staging scritto

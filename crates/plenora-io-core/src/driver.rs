@@ -957,10 +957,7 @@ pub fn with_write_validation(
 }
 
 mod perdita_pianificata;
-use perdita_pianificata::{
-    assess_write_contract, planned_write_loss, record_crs_representation_loss, stato_per_il_piano,
-    FontiDelPiano, RappresentazioneDelCrs,
-};
+use perdita_pianificata::{assess_write_contract, planned_write_loss};
 
 mod scrittura_limitata;
 use scrittura_limitata::{GeometryValidation, LimitedWriter};
