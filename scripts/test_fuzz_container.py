@@ -36,6 +36,7 @@ case "$1 $2" in
       case "$4" in
         *Running*) echo "false" ;;
         *ExitCode*) echo "$ESITO_FINTO" ;;
+        *plenora.revisione*) echo "$REVISIONE_FINTA" ;;
         *) echo "" ;;
       esac
     fi
@@ -59,6 +60,7 @@ class SondeDelCollect(unittest.TestCase):
         self.finto.write_text(FINTO, encoding="utf-8", newline="\n")
         self.finto.chmod(0o755)
         self.traccia = self.radice / "traccia.txt"
+        self.revisione = "c" * 40
         self.log = self.radice / "log"
 
     def _collect(self, esito: str = "0", log_fallisce: str = "no"):
@@ -71,6 +73,7 @@ class SondeDelCollect(unittest.TestCase):
                 "ESITO_FINTO": esito,
                 "LOG_FALLISCE": log_fallisce,
                 "LOG_FINTO": "prima seconda terza",
+                "REVISIONE_FINTA": self.revisione,
             }
         )
         esecuzione = subprocess.run(
@@ -148,3 +151,43 @@ class SondeDelCollect(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SondeDellaRevisioneDellaCorsa(unittest.TestCase):
+    """La corsa dice quale revisione misura, e se l'albero si e' mosso.
+
+    Non e' un errore che si siano mossi: una campagna lunga e un ramo che
+    avanza convivono. E' un errore **non saperlo**, e leggere l'esito come se
+    riguardasse l'albero che si ha davanti. E' uno degli errori che questo
+    ciclo ha gia' fatto.
+    """
+
+    def setUp(self) -> None:
+        SondeDelCollect.setUp(self)
+
+    _collect = SondeDelCollect._collect
+
+    def test_il_nome_del_log_porta_la_revisione(self) -> None:
+        # Un log ritrovato mesi dopo deve dire da solo che cosa misurava.
+        self._collect()
+        scritti = sorted(self.log.glob("*.log"))
+        self.assertEqual(len(scritti), 1, scritti)
+        self.assertIn(self.revisione[:12], scritti[0].name)
+
+    def test_collect_dice_se_l_albero_si_e_mosso(self) -> None:
+        esecuzione, _ = self._collect()
+        self.assertIn("DIVERSA dall'albero corrente", esecuzione.stdout)
+
+    def test_una_corsa_senza_revisione_incisa_lo_dichiara(self) -> None:
+        # I container avviati da una versione precedente del wrapper non hanno
+        # l'etichetta: il wrapper lo dice invece di inventare una revisione.
+        self.revisione = ""
+        esecuzione, _ = self._collect()
+        self.assertIn("NON incisa", esecuzione.stdout)
+
+    def test_l_avvio_incide_la_revisione(self) -> None:
+        # La si incide **all'avvio**: l'albero puo' muoversi mentre la campagna
+        # gira, e dedurla dopo risponderebbe di un'altra.
+        wrapper = WRAPPER.read_text(encoding="utf-8")
+        self.assertIn("--label \"plenora.revisione=${revisione}\"", wrapper)
+        self.assertIn("rev-parse HEAD", wrapper)

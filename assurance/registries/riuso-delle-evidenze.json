@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa resta valido dopo una modifica, per tipo. La regola c'era nella pratica -- ogni misura porta l'impronta del proprio perimetro, e chi la tocca la invalida -- ma non era scritta in nessun posto che si potesse rileggere prima di decidere un riuso. Qui e' scritta, e ogni riga nomina **chi se ne accorge**: un gate che esiste, non una buona intenzione.",
+  "che_cosa_questo_registro_non_e": "Non e' un permesso. Dire che le modifiche ai documenti non invalidano la copertura non autorizza a riusare una misura: dice soltanto che, se si riusa, non e' quel tipo di modifica a renderla invalida. La revisione realmente misurata resta scritta in `ultima_misura.sha`, e il gate del contratto la confronta con la qualifica.",
+  "tipi_di_modifica": [
+    {
+      "tipo": "prodotto",
+      "che_cos_e": "una riga di codice dentro `crates/`, escluse le prove",
+      "che_cosa_invalida": "tutto cio' che si misura sul codice: copertura, profondita' del fuzz, confine ASan, campagna dello smoke, e la qualificazione stessa",
+      "che_cosa_resta_valido": "niente che riguardi il comportamento. Restano i censimenti delle dipendenze, se il grafo non e' cambiato, e la loro validita' la verifica il proprio gate",
+      "chi_se_ne_accorge": [
+        "scripts/check_profondita_fuzz.py",
+        "scripts/check_asan_filegdb.py",
+        "scripts/classifica_finding_fuzz.py",
+        "scripts/check_release_contract.py"
+      ]
+    },
+    {
+      "tipo": "test",
+      "che_cos_e": "una prova nuova o cambiata, senza toccare il prodotto",
+      "che_cosa_invalida": "la copertura, che cambia per costruzione. **Non** la profondita' del fuzz ne' il confine ASan quando le prove stanno fuori dal perimetro dichiarato del target; quando ci stanno dentro -- e succede, perche' un perimetro include i file che il target attraversa -- l'impronta cambia e la misura scade",
+      "che_cosa_resta_valido": "il profilo pubblico, che si misura sull'artefatto distribuito e non sulle prove",
+      "chi_se_ne_accorge": [
+        "scripts/check_profondita_fuzz.py",
+        "scripts/check_release_contract.py"
+      ]
+    },
+    {
+      "tipo": "documenti",
+      "che_cos_e": "Markdown e prosa dei registri, senza campi che un gate legga",
+      "che_cosa_invalida": "niente di misurato. E' il solo tipo che non tocca nessuna misura, ed e' anche il motivo per cui l'allowlist post-congelamento li ammette",
+      "che_cosa_resta_valido": "tutto",
+      "chi_se_ne_accorge": [
+        "scripts/check_docset.py",
+        "scripts/check_release_contract.py"
+      ]
+    },
+    {
+      "tipo": "toolchain",
+      "che_cos_e": "la versione di Rust, di cargo-fuzz o dell'immagine di sviluppo",
+      "che_cosa_invalida": "la profondita' del fuzz e il confine ASan, che si misurano su un binario strumentato: un compilatore diverso produce un binario diverso. E la copertura, per la stessa ragione",
+      "che_cosa_resta_valido": "il profilo pubblico se l'artefatto distribuito non e' stato ricostruito: quella verifica e' legata al digest dei byte, non alla toolchain che li ha prodotti",
+      "chi_se_ne_accorge": [
+        "scripts/check_asan_filegdb.py",
+        "scripts/check_public_contracts.py"
+      ]
+    },
+    {
+      "tipo": "feature",
+      "che_cos_e": "le feature di Cargo accese o spente, per un crate o per il workspace",
+      "che_cosa_invalida": "il censimento delle dipendenze, perche' le feature decidono il grafo; la copertura e la profondita', perche' decidono quale codice viene compilato",
+      "che_cosa_resta_valido": "niente che si misuri sul codice compilato, finche' non si rimisura",
+      "chi_se_ne_accorge": [
+        "scripts/check_schemi_geoparquet.py",
+        "scripts/check_profondita_fuzz.py"
+      ]
+    },
+    {
+      "tipo": "lock",
+      "che_cos_e": "`Cargo.lock`, cioe' le versioni risolte delle dipendenze",
+      "che_cosa_invalida": "il censimento della closure e le sue licenze; la profondita' e il confine ASan, perche' il lock e' dentro il perimetro dei target. Una dipendenza aggiornata invalida piu' misure di quante se ne tocchino",
+      "che_cosa_resta_valido": "i documenti, e il profilo pubblico dell'artefatto gia' distribuito",
+      "chi_se_ne_accorge": [
+        "scripts/check_schemi_geoparquet.py",
+        "scripts/check_profondita_fuzz.py",
+        "scripts/check_asan_filegdb.py"
+      ]
+    }
+  ]
+}

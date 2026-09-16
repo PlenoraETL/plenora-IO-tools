@@ -33,6 +33,11 @@
 #    `--rm`: la rimozione e' esplicita e avviene **dopo** la lettura, in
 #    `collect`. Un container rimosso automaticamente porta via con se' l'unica
 #    fonte dell'esito.
+# 5. **La corsa dice quale revisione misura.** Lo SHA di HEAD viene inciso
+#    nell'etichetta del container all'avvio, e `status` lo confronta con
+#    l'albero corrente. Senza, si puo' leggere lo stato di una campagna senza
+#    sapere che cosa stia misurando -- e diagnosticare la corsa sbagliata e'
+#    uno degli errori che questo ciclo ha gia' fatto.
 # 4. **Il log sopravvive al container.** `collect` lo scrive **per intero** su
 #    disco prima di rimuovere, e se non riesce a scriverlo **non rimuove**.
 #    Prima ne stampava venti righe e poi cancellava: l'esito restava, il
@@ -123,14 +128,46 @@ comando_start() {
 
     local radice
     radice="$(radice_repo)"
-    echo "avvio ${modalita} in '${NOME}' (immagine ${IMMAGINE})"
+    # La revisione si incide all'avvio, non si deduce dopo: l'albero puo'
+    # muoversi mentre la campagna gira, e `git rev-parse` fra un'ora
+    # risponderebbe di un'altra.
+    local revisione
+    revisione="$(git -C "$(dirname "$0")/.." rev-parse HEAD 2>/dev/null || echo sconosciuta)"
+    echo "avvio ${modalita} in '${NOME}' su ${revisione:0:12} (immagine ${IMMAGINE})"
     MSYS_NO_PATHCONV=1 "${DOCKER}" run --detach --name "${NOME}" \
+        --label "plenora.revisione=${revisione}" \
         --volume "${radice}:/work" \
         --volume "${VOLUME_CARGO}:/usr/local/cargo/registry" \
         --volume "${VOLUME_TARGET}:/fuzztarget" \
         --env PLENORA_FUZZ_TARGET_DIR=/fuzztarget \
         "${IMMAGINE}" bash "${script}" "$@" >/dev/null || return 1
     echo "avviato: segui con 'status', 'logs', 'wait'"
+}
+
+# La revisione incisa all'avvio, o la stringa vuota.
+revisione_della_corsa() {
+    "${DOCKER}" container inspect -f '{{index .Config.Labels "plenora.revisione"}}' \
+        "${NOME}" 2>/dev/null
+}
+
+# Dice su che cosa gira la corsa, e se l'albero nel frattempo si e' mosso.
+#
+# Non e' un errore che si siano mossi: una campagna lunga e un ramo che avanza
+# convivono. E' un errore **non saperlo**, e leggere l'esito come se
+# riguardasse l'albero che si ha davanti.
+riga_della_revisione() {
+    local incisa corrente
+    incisa="$(revisione_della_corsa)"
+    if [ -z "${incisa}" ] || [ "${incisa}" = "sconosciuta" ]; then
+        echo "revisione della corsa: NON incisa (container avviato da una versione precedente del wrapper)"
+        return 0
+    fi
+    corrente="$(git -C "$(dirname "$0")/.." rev-parse HEAD 2>/dev/null || echo "")"
+    if [ "${incisa}" = "${corrente}" ]; then
+        echo "revisione della corsa: ${incisa:0:12}, uguale all'albero corrente"
+    else
+        echo "revisione della corsa: ${incisa:0:12}, DIVERSA dall'albero corrente (${corrente:0:12}): l'esito non riguarda cio' che hai davanti"
+    fi
 }
 
 comando_status() {
@@ -140,6 +177,7 @@ comando_status() {
     fi
     if in_esecuzione; then
         echo "in esecuzione da $("${DOCKER}" container inspect -f '{{.State.StartedAt}}' "${NOME}")"
+        riga_della_revisione
         return 3
     fi
     local codice
@@ -215,6 +253,7 @@ comando_collect() {
         echo "cosi' resta l'unica copia. Esito acquisito: ${codice}" >&2
         return "${codice}"
     fi
+    riga_della_revisione
     echo "--- coda del log ---"
     tail -n 20 "${destinazione}"
     echo "--- log completo in ${destinazione} ---"
@@ -237,8 +276,12 @@ salva_log() {
         cartella="$(cd "$(dirname "$0")/.." && pwd)/campagne-log"
     fi
     mkdir -p "${cartella}" || return 1
-    local destinazione
-    destinazione="${cartella}/${NOME}-$(date -u +%Y%m%dT%H%M%SZ).log"
+    local incisa destinazione
+    incisa="$(revisione_della_corsa)"
+    [ -n "${incisa}" ] || incisa="sconosciuta"
+    # Il nome porta la revisione: un log ritrovato mesi dopo deve dire da solo
+    # che cosa misurava, senza dipendere da chi si ricorda di averlo prodotto.
+    destinazione="${cartella}/${NOME}-${incisa:0:12}-$(date -u +%Y%m%dT%H%M%SZ).log"
     "${DOCKER}" container logs "${NOME}" > "${destinazione}" 2>&1 || return 1
     [ -s "${destinazione}" ] || [ -f "${destinazione}" ] || return 1
     echo "${destinazione}"
