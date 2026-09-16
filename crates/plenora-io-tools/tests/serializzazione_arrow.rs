@@ -591,10 +591,15 @@ fn una_coda_piu_corta_di_un_intestazione_non_si_interpreta() {
     pretendi_rifiuto(&byte, "senza messaggio di schema");
 }
 
-// Il tetto sui messaggi -- `MAX_BLOCCHI`, 1048576 -- **non** ha una prova qui,
-// ed e' una scelta dichiarata invece che una dimenticanza: raggiungerlo chiede
-// piu' di un milione di messaggi decodificabili, cioe' un flusso costruito
-// apposta di oltre otto megabyte, che questa suite dovrebbe generare a ogni
-// corsa per esercitare un fondo di sicurezza. Che sia cosi' difficile da
-// raggiungere e' anche cio' che lo rende un fondo: su quasi ogni input
-// malformato scatta prima una delle guardie qui sopra.
+// Il tetto sui messaggi -- `MAX_BLOCCHI`, 1048576 -- non ha una prova **qui**,
+// e ora ne ha una altrove: in `driver-common/src/prevalida_arrow.rs`, nel
+// modulo `tetto_dei_messaggi`, con i tre casi sotto, al e oltre il tetto.
+//
+// Sta li' e non qui perche' esercita quella funzione: il flusso che supera il
+// tetto misura 128 MiB -- il messaggio piu' piccolo disponibile e' quello di
+// schema, 128 byte -- e farlo passare dal binario aggiungerebbe il costo di
+// ogni strato in mezzo senza aggiungere niente a cio' che si vuole fissare.
+// La fixture e' generata a ogni corsa, non versionata.
+//
+// Che sia cosi' difficile da raggiungere e' anche cio' che lo rende un fondo:
+// su quasi ogni input malformato scatta prima una delle guardie qui sopra.
