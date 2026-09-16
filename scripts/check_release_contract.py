@@ -271,6 +271,7 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
         "candidate-coerente",
         "qualifica-cross-component",
         "profilo-pubblico-attestato",
+        "profondita-fuzz-rimisurata",
     }
 )
 

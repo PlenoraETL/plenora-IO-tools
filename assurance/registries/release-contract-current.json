@@ -768,6 +768,18 @@
           "tipo": "interna",
           "funzione": "condizione_profilo_pubblico_attestato"
         }
+      },
+      {
+        "id": "profondita-fuzz-rimisurata",
+        "descrizione": "nessuna misura di profondita' e' dichiarata non piu' valida: il rinvio vale durante lo sviluppo, non sul candidato finale",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "--qualifica"
+          ]
+        }
       }
     ]
   },
