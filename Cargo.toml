@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-exclude = ["vendor/dxf", "vendor/gdal", "vendor/shapefile"]
+# `upstream/` porta i casi minimi da mandare a monte: devono compilare per chi
+# non ha questo repository, quindi non sono membri del workspace.
+exclude = ["vendor/dxf", "vendor/gdal", "vendor/shapefile", "upstream/arrow-rs-byte-stream-split"]
 
 [workspace.package]
 version = "4.0.0"

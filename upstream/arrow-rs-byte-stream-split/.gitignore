@@ -1,0 +1,7 @@
+# Il riproduttore scrive i tre Parquet e li lascia sul disco per chi vuole
+# ispezionarli: sono output, non materiale del repository.
+*.parquet
+target/
+# Nessun lock: chi riceve la segnalazione deve risolvere le dipendenze da
+# se', altrimenti riproverebbe la nostra chiusura invece della propria.
+Cargo.lock

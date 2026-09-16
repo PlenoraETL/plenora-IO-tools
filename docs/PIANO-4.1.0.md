@@ -1368,12 +1368,38 @@ una copia appena clonata parte senza. In locale persistono e il replay le legge 
 `fuzz/artifacts/geoparquet_reader/` contiene oggi tre input del 2026-08-17, che
 il replay del livello 2 su `6beb410` ha rieseguito verdi.
 
-#### Q2b — segnalazione upstream: **da inviare**
+#### Q2b — segnalazione upstream: **preparata, da inviare**
 
-Il riproduttore esiste e gira, il contributo no. Resta da preparare: un caso
-minimo autonomo, senza dipendenze dal nostro workspace, e la segnalazione al
-progetto `arrow-rs` con la versione, il punto e il campo. Q2 non è chiuso finché
-questo non è inviato.
+Il contributo è in `upstream/arrow-rs-byte-stream-split/`: un progetto Cargo
+autonomo, fuori dal workspace, che dipende solo da `parquet`, `arrow-array` e
+`arrow-schema`. Chi riceve la segnalazione lo compila senza avere questo
+repository. Accanto sta `SEGNALAZIONE.md`, il testo da mandare, in inglese
+perché il destinatario è un progetto di terzi.
+
+**Un fatto nuovo, ed è quello che rende la segnalazione utile: la 60.0.0 è
+ancora interessata.** Il nostro pin è la 59.3.0, e il difetto si sarebbe potuto
+chiudere aggiornandolo; non è così. Verificato portando il riproduttore alla
+60.0.0 e rieseguendolo: stesso panico, stessa riga 61 del decoder, stesso
+messaggio. Il riproduttore punta perciò alla versione corrente, e il documento
+dice che la 59.3.0 riproduce identica.
+
+**La causa, letta sul codice e non dedotta.** `set_data` tiene affiancate due
+grandezze di origine diversa — `encoded_bytes`, i byte **effettivi** della
+pagina, e `total_num_values`, il conteggio **dichiarato** nell'header — e non le
+riconcilia. `get` prende poi lo stride dai primi e il limite del ciclo dal
+secondo, e `join_streams_const` indicizza senza confronto. Vale la pena notare
+che il decoder a larghezza **variabile** un controllo in `set_data` ce l'ha:
+qui sembra un'omissione, non una scelta.
+
+**Che cosa il riproduttore fa, e in quale ordine.** Scrive un Parquet valido, lo
+rilegge — il controfattuale viene prima, o l'alterazione non spiegherebbe nulla
+— altera **un solo byte** e rilegge. Prova **tutti** gli offset in cui quel
+varint compare invece di scegliere quello giusto: l'offset 13 scatta, il 17, un
+altro campo dello stesso header, non produce niente. Lascia i tre file sul disco
+perché chi legge possa aprirli con altri strumenti.
+
+**Criterio di chiusura**: segnalazione inviata e numero della issue registrato
+accanto alla fixture. Q2 non è chiuso finché questo non è fatto.
 
 #### Q2c — gestire i finding noti del fuzz: **problema aperto, senza soluzione scelta**
 

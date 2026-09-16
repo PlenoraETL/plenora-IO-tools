@@ -63,7 +63,7 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_quindici_voci(self) -> None:
+    def test_l_allowlist_ha_sedici_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
         Cinque canonici e sette operativi. Sono cresciuti due volte il
@@ -109,10 +109,19 @@ class SondePerimetro(unittest.TestCase):
         deviazioni aperte. La scadenza si e' spostata a quando quelle si
         chiudono. Vale la pena averlo scoperto qui: una scadenza scritta in un
         documento si riconcilia, non si esegue.
+
+        Il 2026-09-16 e' entrato l'ottavo **operativo**, e appartiene a una
+        famiglia nuova: `upstream/arrow-rs-byte-stream-split/SEGNALAZIONE.md`
+        non descrive il nostro prodotto, e' il testo di una segnalazione a un
+        progetto di terzi. Vive accanto al caso minimo perche' i due si leggono
+        insieme -- il documento cita l'output che il programma stampa -- e
+        tenerlo fuori dal repository lo lascerebbe dove nessun gate presiede.
+        Come il piano, ha una scadenza: quando la segnalazione e' inviata e la
+        issue registrata, resta finche' upstream non ha risposto.
         """
-        self.assertEqual(len(gate.AMMESSI), 15)
+        self.assertEqual(len(gate.AMMESSI), 16)
         self.assertEqual(len(gate.CANONICI), 8)
-        self.assertEqual(len(gate.OPERATIVI), 7)
+        self.assertEqual(len(gate.OPERATIVI), 8)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
         """Il falso positivo che l'SDK ha rivelato.
