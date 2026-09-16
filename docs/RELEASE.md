@@ -47,15 +47,15 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | capacità differite | 2 |
 | S9, qualificato su | `6beb410` |
 | candidate, versione del manifesto | `4.1.0` |
-| candidate, stato | ritirata |
-| candidate, revisione congelata | `7746b1f053b41d3708faffb9cb55cc0fe69aef82` |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `5875af775b0bd0638f6c95de6e08d3e1f105cfbd` |
 | candidate, versione del workspace | `4.1.0` |
 | candidate, artefatti congelati | non congelati |
 | candidate, tag previsto | `v4.1.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 3 |
 | release_authorized | `true` |
