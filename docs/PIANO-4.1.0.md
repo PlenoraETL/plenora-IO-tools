@@ -308,6 +308,70 @@ Confermato il mantenimento, con la motivazione già registrata: dieci
 responsabilità, distribuzione piatta, ventuno tipi pubblici, e parti che si
 tengono per costruzione. Nessuna nuova misura lo contraddice.
 
+#### M1 — completata
+
+| | |
+|---|---|
+| analisi e mappa | `89b70ce`, `1c53fb3`, `25b2174` |
+| estrazione in `tools` | `9017e27`, corretta da `c1ecdb7` |
+| estrazione in `core` | `76bed7e` |
+
+`plenora-io-tools/src/lib.rs` passa da 2.362 righe a 1.779, con `cli.rs` (307) e
+`capability.rs` (325). `plenora-io-core/src/driver.rs` passa da 2.236 a 1.110,
+con `perdita_pianificata.rs` (370), `scrittura_limitata.rs` (372) e
+`validazione_geometrie.rs` (474). `budget.rs` resta com'è.
+
+L'API esterna non cambia: i sei export contrattati stanno in `operazioni.rs`,
+non toccato, e la superficie del crate non guadagna né perde un elemento. Ciò
+che si è allargato è l'accesso **dentro** il crate, dove costanti e aiutanti
+sono passati da privati a `pub(crate)`.
+
+**Verificato dalle prove**: 47 suite e 1.078 prove sull'intero workspace, zero
+fallimenti; `equivalenza_superfici` confronta le sei operazioni Rust con la CLI.
+fmt, clippy con `-D warnings`, disposizione delle prove, commenti, registro
+delle dimensioni.
+
+**Controllato nel diff**, dove le prove non arrivano: che in
+`scrittura_limitata` nessun `drop` sia stato aggiunto o tolto, nessun ritorno
+anticipato spostato, nessuno scope allargato o ristretto, e che la sequenza
+staging → commit → fallimento sia rimasta nell'ordine di prima.
+
+##### La controprova su `FLAG_FORMATO`
+
+L'estrazione in `tools` ha prodotto un cambiamento di comportamento silenzioso:
+`FLAG_FORMATO => {` senza la costante importata è un **binding** che cattura
+tutto, non un confronto, e il compilatore lo dice soltanto con un avviso.
+
+Che la regressione fosse coperta non è stato dedotto: reintrodotto il difetto,
+**otto prove di `consegna_arrow` diventano rosse**. Il pattern usa ora
+`crate::FLAG_FORMATO`, così un nome che non risolve è un errore e non un
+catch-all.
+
+##### Copertura dell'errore tardivo: una prova, non due
+
+Il resoconto dell'estrazione in `core` ne citava due, e **una delle due non lo
+dimostra**. Il nome di una prova e l'assenza di residui dicono che il rifiuto
+non lascia sporcizia; non dicono **quando** il fallimento avvenga, e un
+fallimento che precede la scrittura non esercita il percorso tardivo.
+
+- `sigint_annulla_la_conversione_e_non_lascia_staging` **lo dimostra**: attende
+  che il file di staging compaia prima di mandare il segnale, e fallisce
+  esplicitamente se il figlio esce prima — «la conversione non ha raggiunto la
+  creazione del writer». Il fallimento è quindi a scrittura iniziata.
+- `una_scrittura_rifiutata_non_lascia_destinazione_ne_payload` **non lo
+  dimostra**: rifiuta a `driver.create`, cioè alla validazione del piano, prima
+  che la scrittura cominci. Il test stesso lo dice: «alcuni driver accettano il
+  piano e rifiutano alla scrittura: il rifiuto è comunque coperto, ma qui non
+  c'è errore da ispezionare».
+- `una_deadline_di_un_millisecondo_ferma_la_conversione_prima_del_publish` non
+  stabilisce il momento: verifica che la destinazione resti vuota, ma un
+  millisecondo può scadere prima che il writer esista.
+
+Resta quindi **una** prova che copre il fallimento a scrittura iniziata, e per
+un solo modo di fallire — il segnale. Budget esaurito e errore del backend a
+metà scrittura non hanno una prova che ne fissi il momento: è una lacuna
+concreta, e appartiene a M3, che è la voce sull'efficacia delle guardie.
+
 #### Che cosa questa analisi non dice
 
 Le due misure che mancavano sono state fatte, e i confini proposti reggono al
