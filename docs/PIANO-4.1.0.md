@@ -1048,65 +1048,54 @@ La voce chiedeva che fosse obbligatorio nella qualificazione finale
 dell'artefatto distribuito, ed è lì che ora lo è; il checkpoint gira su un
 albero, non su un archivio, e portarcelo sarebbe una voce diversa da queste due.
 
-### Residui aperti e ordine di chiusura
+### Residui aperti — elenco unico
 
-Aggiornato dopo il blocco che ha rifatto il censimento GeoParquet e dichiarato
-le misure di profondità scadute. L'ordine è quello di lavoro: ogni voce dice
-perché viene prima o dopo, e nessuna esce dal perimetro già deciso.
+Uno solo, e sostituisce quello del blocco precedente. Ogni voce dice **come si
+chiude** e **da che cosa dipende**; le voci senza dipendenze si possono prendere
+in qualunque ordine.
 
-#### Il gate complessivo è ancora rosso, e questo va detto per primo
+#### Stato dei gate
 
-`check_release_contract.py` esce con 1 su un checkout pulito. Le voci chiuse
-sono voci, non il gate: due invarianti che erano rossi ora passano, e tre
-restano. Contarli come «quasi verde» sarebbe la stessa aritmetica che ha fatto
-nascere la sesta condizione.
+`check_release_contract.py` esce **0** su un checkout pulito: i tre invarianti
+che erano rossi sono chiusi. Con `--release` esce **1**, ed è giusto che lo
+faccia: le quattro condizioni non soddisfatte sono lo stato reale di una
+candidate che non esiste ancora.
 
-| invariante | causa | residuo di |
-|---|---|---|
-| `wire.error-v1.quartetto` | «sito sparito»: i siti registrati stanno ai percorsi vecchi | **M1**, che ha estratto tre moduli da `driver.rs` |
-| `fallback.registro` | conteggi derivati: geoparquet 3 registrati contro 7 trovati, tools 44 contro 45 | blocchi precedenti |
-| `fuzz.filegdb-confine-asan` | impronta del perimetro diversa — **le stesse due** di `filegdb_reader` | M1, stesso perimetro |
+| condizione non soddisfatta | perché |
+|---|---|
+| `candidate-coerente` | nessuna candidate è preparata |
+| `profilo-pubblico-attestato` | nessun artefatto è stato costruito né attestato |
+| `profondita-fuzz-rimisurata` | quattro misure dichiarate scadute |
+| `confine-asan-rimisurato` | il confine ASan dichiarato scaduto |
 
-Nessuno dei tre è stato introdotto da questo blocco: verificato rileggendoli su
-un checkout pulito di `198060c`. Uno invece **sì** ed è stato corretto nello
-stesso blocco: `budget.limiti-wkb` era verde prima delle prove sulla fase, che
-aggiungono cinque `WkbLimits::default()`; il conteggio è stato classificato e
-alzato, non solo alzato.
+Le ultime tre si chiudono **solo** sul candidato finale. Non sono debito: sono
+il rinvio che funziona, e il fatto che `--release` le nomini è la prova che il
+rinvio non si trasforma in dimenticanza.
 
-#### L'ordine proposto
+#### Lavoro aperto
 
-1. **`fuzz.filegdb-confine-asan`** — è già risolto in linea di principio: ha le
-   stesse due impronte di `filegdb_reader`, quindi la stessa causa e la stessa
-   cura. La grammatica del rinvio esiste già in `check_profondita_fuzz.py` e
-   va portata in `check_asan_filegdb.py`. Viene primo perché è il più corto e
-   perché lasciare due gate con la stessa causa trattati in modo diverso è il
-   modo di dimenticarne uno.
-2. **`wire.error-v1.quartetto`** — il registro dei siti va rifatto sui percorsi
-   nuovi. Non è una rinumerazione: i quartetti dichiarati vanno riverificati
-   dove il codice è finito, e questo blocco ha appena mostrato che una fase può
-   essere sbagliata proprio dove nessuno guardava. Viene secondo perché tocca
-   la stessa materia delle correzioni appena fatte, finché il contesto è fresco.
-3. **`fallback.registro`** — i fallback nuovi vanno classificati come sono stati
-   classificati i cinque `WkbLimits::default()`: uno per uno, con la ragione.
-   Viene terzo perché è indipendente dagli altri due e non li sblocca.
-4. **Q2b**, la segnalazione upstream ad `arrow-rs` col caso minimo. Indipendente
-   dai gate, e l'unica voce che ha una controparte esterna: prima si manda,
-   prima si sa.
-5. **Q2c**, il meccanismo per i finding noti del fuzz. Il problema è registrato
-   e la soluzione no; viene dopo Q2b perché la risposta di upstream può
-   cambiarne il perimetro.
-6. **Q1**, la contraddizione del workflow «Release checkout qualification».
-7. **R1, R2, R5** e il resto di **R3–R4**. Le due voci che M4 aveva consegnato
-   sono chiuse; il resto delle voci R no.
-8. **M5** e le fasi D, F, U, C.
+| # | voce | criterio di chiusura | dipende da |
+|---|---|---|---|
+| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | caso minimo inviato, numero della issue registrato accanto alla fixture | — |
+| 2 | **Q2c** — finding noti del fuzz | un meccanismo che gestisca un finding noto senza disabilitare il bersaglio, senza nascondere difetti nuovi e senza dichiarare completa una campagna interrotta; con una prova per ciascuna delle tre | Q2b: la risposta di upstream può cambiarne il perimetro |
+| 3 | **Q1** — contraddizione del workflow «Release checkout qualification» | il workflow dichiara un solo comportamento, e una prova lo esercita | — |
+| 4 | **R1** — regressione su `MAX_BLOCCHI` | caso sotto, al e oltre il limite; rifiuto della guardia; costo della fixture misurato e dichiarato | — |
+| 5 | **R2** — campagne senza `sleep` a scadenza | processo e codice d'uscita osservabili; log fuori dal container; interruzione distinta dal successo | — |
+| 6 | **R3–R4**, il resto | la parte consegnata da M4 è chiusa; resta il legame fra candidate, revisione qualificata ed evidenza, e la regola del riuso per tipo di modifica | — |
+| 7 | **R5** — corse concorrenti e push dopo controlli falliti | una misura per SHA e perimetro; esiti controllati prima dei passi dipendenti | — |
+| 8 | **M5** e le fasi D, F, U, C | secondo il proprio perimetro | — |
 
-#### Che cosa resta fuori da questo ordine, per accordo
+#### Sul candidato finale, per accordo
 
-Le campagne lunghe: L2, i soak prolungati, la qualifica completa degli
-artefatti e le **cinque rimisurazioni** di profondità e ASAN. Vanno sul
-candidato finale, prima del rilascio, e la condizione
-`profondita-fuzz-rimisurata` è ciò che impedisce di dimenticarle: un rinvio
-vale durante lo sviluppo e non qualifica.
+Cinque rimisurazioni — profondità per i quattro bersagli e confine ASan — più
+L2, i soak prolungati e la qualifica completa degli artefatti. Il criterio di
+chiusura è che `check_release_contract.py --release` non nomini più nessuna
+delle tre condizioni di cui sopra.
+
+Dipendono da una cosa sola: che l'albero non cambi più nel perimetro di quei
+bersagli dopo la misura. È il motivo per cui le rimisurazioni vanno **ultime**,
+e per cui il rinvio porta l'impronta dell'albero corrente: se il codice cambia
+ancora, la dichiarazione diventa stantia e il gate torna rosso da solo.
 
 **Priorità: M1–M3, dopo L1–L2 ora chiuse; M4 con R3–R5.** Una voce
 già coperta si chiude indicando la prova esistente, senza aggiungere un nuovo
