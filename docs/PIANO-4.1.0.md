@@ -421,11 +421,19 @@ le diagnostiche di riga.
 |---|---|
 | valore presente | `geometry_types` non vuoto |
 | misurato vuoto | `geometry_types` vuoto **e** `scansione_completa = true` |
-| non misurato | `geometry_types` vuoto **e** `scansione_completa = false` |
+| **scansione non completa** | `geometry_types` vuoto **e** `scansione_completa = false` |
 
 Il campo lo dice da sé: «vuoto **da solo** non dice quale dei due stati sia». È
 la coppia a decidere, e `false` è il valore prudente — chi non ha percorso la
 sorgente non può affermare un'assenza.
+
+La terza riga va letta per quello che il nome dice, e non di più.
+`scansione_completa = false` significa **scansione non completa**, che non
+equivale a «non misurato»: può esserci stata una misura parziale, e
+`geometry_types` può perfino non essere vuoto. Il campo dichiara che
+l'enumerazione non è esaustiva, non che non sia avvenuta. Ai fini della
+decisione a valle le due cose coincidono — un elenco non esaustivo non si può
+dichiarare come esatto — ma coincidono nell'uso, non nel significato.
 
 **Dove si produce**: la passata di inferenza di GeoJSON lo valorizza a fine
 file; `set_exact_geometry_types` lo pone a `true`.
@@ -442,8 +450,17 @@ dipende dalla decisione 0006: non è una correzione che questo blocco possa fare
 
 #### `CrsResolution` — tre stati in un enum, senza campi impossibili
 
-`Resolved(ResolvedCrs)`, `DeclaredButUnresolved(RawCrs)`, `Missing`. Il tipo
-impedisce lo stato impossibile per costruzione: un CRS non risolto non può
+`Resolved(ResolvedCrs)`, `DeclaredButUnresolved(RawCrs)`, `Missing`.
+
+**Sono tre stati utili, ma non sono la terna di questo censimento.** La terna è
+«non misurato / misurato vuoto / valore presente»; questa è «risolto /
+dichiarato ma non risolto / assente». Le due si sovrappongono solo in parte:
+`Missing` dice che una dichiarazione non c'è, non se qualcuno sia andato a
+cercarla. Il censimento la include perché è la modellazione dell'incertezza che
+il contratto geometrico porta accanto ai tipi, non perché risponda alla stessa
+domanda.
+
+Il tipo impedisce lo stato impossibile per costruzione: un CRS non risolto non può
 essere letto come un `ResolvedCrs` valido, perché non c'è un `ResolvedCrs` da
 leggere. La documentazione del tipo lo dice: «evita di rappresentare `unknown`
 come se fosse un `ResolvedCrs` valido».
@@ -511,10 +528,11 @@ ragione.
 
 #### Esito
 
-Nessuna ambiguità con conseguenza osservabile è stata trovata. I due punti dove
-la distinzione conta davvero — i tipi geometrici e il CRS — sono modellati con
-tre stati espliciti, e hanno prove che li fissano; le diagnostiche di riga
-hanno il tipo che li porta tutti e tre.
+Nessuna ambiguità con conseguenza osservabile è stata trovata **nei percorsi
+esaminati**. La terna del censimento è modellata per intero in due posti: la
+coppia `geometry_types` / `scansione_completa`, e `KnownOrUnknownCount` nelle
+diagnostiche di riga. `CrsResolution` porta una terna diversa e altrettanto
+esplicita, che il censimento registra senza confonderla con questa.
 
 Nessuna correzione proposta, e quindi nessuna modifica ai tipi pubblici. Ciò che
 resta aperto è il limite del **filo**, che è C3 e dipende dalla decisione 0006.
