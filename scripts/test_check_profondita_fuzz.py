@@ -858,13 +858,107 @@ class SondeQualificaDellaProfondita(unittest.TestCase):
         sviluppo senza elencare i bersagli, e un elenco ripetuto in un registro
         e' la rappresentazione che invecchia per prima.
 
-        Che li prenda davvero tutti si vede dal fatto che `--qualifica` rifiuta:
-        i rinvii dichiarati stanno nei registri, e un giro a vuoto uscirebbe 0.
+        **L'oracolo non e' piu' «`--qualifica` rifiuta».** Lo era finche' i
+        registri dichiaravano un rinvio, cioe' fino al candidato finale: chiuse
+        le dichiarazioni dopo la rimisura, questa prova sarebbe diventata rossa
+        mentre la proprieta' che verifica restava vera. Una prova il cui oracolo
+        e' lo stato transitorio del repository si spegne da sola proprio nel
+        momento in cui conta. Si guarda percio' la proprieta': ogni bersaglio
+        compare nell'esito, e questo vale in entrambi i regimi.
+
+        Il rosso davanti a un rinvio resta provato, su un rinvio costruito dalla
+        prova, in `SondeDelRinvioSuUnRegistroCostruito`.
         """
-        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            self.assertNotEqual(gate.main(["--qualifica"]), 0)
+        for coda in ([], ["--qualifica"]):
+            with self.subTest(modalita=" ".join(coda) or "sviluppo"):
+                uscita, errori = io.StringIO(), io.StringIO()
+                with redirect_stderr(errori), redirect_stdout(uscita):
+                    gate.main(list(coda))
+                detto = uscita.getvalue() + errori.getvalue()
+                for nome in sorted(gate.BERSAGLI):
+                    self.assertIn(nome, detto, detto[-600:])
 
     def test_registra_pretende_un_bersaglio(self) -> None:
         # `--registra` scrive **una** misura: senza bersaglio non saprebbe quale.
         with redirect_stderr(io.StringIO()):
             self.assertEqual(gate.main(["--registra", "finto.json"]), 2)
+
+
+class SondeDelRinvioSuUnRegistroCostruito(unittest.TestCase):
+    """Le due facce del rinvio, su un rinvio che **costruisce la prova**.
+
+    Il meccanismo -- in sviluppo passa e lo dichiara, in qualificazione ferma --
+    era provato sui registri veri. Funzionava finche' un rinvio era dichiarato,
+    e cioe' fino al candidato finale: rifatte le misure, le dichiarazioni si
+    chiudono e quelle prove si invertono tutte insieme. E' l'unico momento in
+    cui il meccanismo conta davvero, ed era l'unico in cui nessuno lo provava.
+
+    Qui il rinvio non si cerca nel repository: si costruisce. Cosi' la
+    proprieta' resta provata in entrambi i regimi, e la chiusura di una
+    dichiarazione non porta via con se' la prova di cio' che la governa.
+
+    Il legame con i comandi veri non si perde: resta in
+    `SondeRinvioControQualificazione` di `test_check_release_contract`, che li
+    esegue sull'albero vero e pretende l'uno o l'altro regime secondo quello che
+    i registri dichiarano **oggi**.
+    """
+
+    BERSAGLIO = "wkt_parse"
+    ALBERO = "e" * 64
+
+    def setUp(self) -> None:
+        bersaglio = gate.BERSAGLI[self.BERSAGLIO]
+        registro = gate.leggi_registro(bersaglio)
+        misura = json.loads(
+            (gate.ROOT / registro["artefatto"]).read_text(encoding="utf-8")
+        )
+        # Il rinvio dev'essere **ben dichiarato**, o il gate lo rifiuterebbe per
+        # la forma e la prova direbbe rosso per il motivo sbagliato: nomina
+        # l'impronta della misura vera e quella dell'albero che si finge.
+        registro["rimisurazione_dovuta"] = {
+            "perche": "costruito da questa prova: il perimetro e' cambiato",
+            "impronta_della_misura": misura["impronta_perimetro"],
+            "impronta_attesa": self.ALBERO,
+            "non_promette": (
+                "Nessuna profondita' e' affermata sull'albero corrente."
+            ),
+            "quando": "sul candidato finale",
+            "comando": f"scripts/fuzz-profondita.sh {self.BERSAGLIO}",
+        }
+
+        self.registro = registro
+        precedente_registro = gate.leggi_registro
+        precedente_impronta = gate.impronta_del_perimetro
+        gate.leggi_registro = lambda _bersaglio: registro
+        gate.impronta_del_perimetro = lambda _percorsi: (self.ALBERO, [])
+        self.addCleanup(setattr, gate, "leggi_registro", precedente_registro)
+        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente_impronta)
+
+    def _corsa(self, *coda: str) -> tuple[int, str, str]:
+        uscita, errori = io.StringIO(), io.StringIO()
+        with redirect_stdout(uscita), redirect_stderr(errori):
+            codice = gate.main([self.BERSAGLIO, *coda])
+        return codice, uscita.getvalue(), errori.getvalue()
+
+    def test_in_sviluppo_il_rinvio_passa_e_lo_dichiara(self) -> None:
+        # Verde, ma non in silenzio: un rinvio che passasse senza dirlo sarebbe
+        # indistinguibile da una misura valida.
+        codice, detto, _ = self._corsa()
+        self.assertEqual(codice, 0, detto[-600:])
+        self.assertIn("DIFFERITO", detto)
+        self.assertIn("NON vale per il perimetro corrente", detto)
+
+    def test_in_qualificazione_il_rinvio_ferma(self) -> None:
+        # E' la proprieta' che impedisce al rinvio di diventare un permesso.
+        codice, _, errori = self._corsa("--qualifica")
+        self.assertNotEqual(codice, 0, errori[-600:])
+        self.assertIn("la qualificazione non accetta un rinvio", errori)
+
+    def test_un_rinvio_mal_dichiarato_e_rosso_in_entrambe_le_modalita(self) -> None:
+        # Senza, la via piu' comoda sarebbe dichiarare un rinvio qualunque.
+        self.registro["rimisurazione_dovuta"]["quando"] = "  "
+        for coda in ([], ["--qualifica"]):
+            with self.subTest(modalita=" ".join(coda) or "sviluppo"):
+                codice, _, errori = self._corsa(*coda)
+                self.assertNotEqual(codice, 0)
+                self.assertIn("quando", errori)

@@ -109,13 +109,5 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
-  "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato durante lo sviluppo della 4.1.0: le correzioni di `phase` toccano i driver CSV, DXF, GeoJSON e XLS che il target attraversa. La misura era gia' invalida sul commit 198060c, cioe' prima del blocco che introduce questa dichiarazione: verificato rileggendola su un checkout pulito di quella revisione. L'impronta esiste per rendere visibile proprio questo, e aggiornarla e basta farebbe dire alla misura vecchia che descrive l'albero nuovo.",
-    "impronta_della_misura": "c96a0abc48640fac108bb6af998bba5cec1c84cc35da04cb0fbfd026e7a7e2c6",
-    "impronta_attesa": "4ae723b22da334d634e5c85a3d0a324e2a1c3146359dcc7c8092e7a2dcd042ae",
-    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
-    "quando": "sul candidato finale della 4.1.0, prima del rilascio",
-    "comando": "scripts/fuzz-profondita.sh wkt_parse"
-  }
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
 }

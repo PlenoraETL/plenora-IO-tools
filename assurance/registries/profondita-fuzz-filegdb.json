@@ -136,21 +136,5 @@
   "non_e_qui": {
     "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
-  },
-  "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato durante lo sviluppo della 4.1.0: M1 ha estratto tre moduli da `plenora-io-core/src/driver.rs`, che il target attraversa. La misura era gia' invalida sul commit 198060c, cioe' prima del blocco che introduce questa dichiarazione: verificato rileggendola su un checkout pulito di quella revisione. L'impronta esiste per rendere visibile proprio questo, e aggiornarla e basta farebbe dire alla misura vecchia che descrive l'albero nuovo.",
-    "impronta_della_misura": "f060f93e57a47ae9fb91b4a836ee61c878ad1fe907db62907b279997d5fff509",
-    "impronta_attesa": "e0dd517259618a38061332ec93536931fc66d98ad0ce2baaa36a81fc69b799b3",
-    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
-    "quando": "sul candidato finale della 4.1.0, prima del rilascio",
-    "comando": "scripts/fuzz-profondita.sh filegdb_reader"
-  },
-  "rimisurazione_asan_dovuta": {
-    "perche": "Il perimetro e' lo stesso della misura di profondita', e quando cambia le due scadono insieme: M1 ha estratto tre moduli da `plenora-io-core/src/driver.rs`, che il target attraversa. La misura era gia' invalida sul commit 198060c, verificato su un checkout pulito di quella revisione. Le due misure condividono la causa, non l'evidenza: questa attesta il confine del sanitizer, non la profondita' raggiunta, e si rifa' con un comando diverso.",
-    "impronta_della_misura": "f060f93e57a47ae9fb91b4a836ee61c878ad1fe907db62907b279997d5fff509",
-    "impronta_attesa": "e0dd517259618a38061332ec93536931fc66d98ad0ce2baaa36a81fc69b799b3",
-    "non_promette": "Non e' affermato dove passi il confine di AddressSanitizer sull'albero corrente: che GDAL non sia strumentata, che il runtime sia nel binario e quanti file del wrapper siano coperti restano misurati sull'albero su cui la campagna e' girata, e non su questo. Finche' il rinvio dura, un fuzz di `filegdb_reader` non dichiara che cosa il sanitizer possa vedere.",
-    "quando": "sul candidato finale della 4.1.0, prima del rilascio",
-    "comando": "bash scripts/asan-filegdb.sh"
   }
 }

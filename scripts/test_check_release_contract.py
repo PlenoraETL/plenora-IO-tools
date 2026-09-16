@@ -4480,6 +4480,24 @@ class SondeRinvioControQualificazione(unittest.TestCase):
     Le prove non nominano i comandi: li **leggono dal registro**, cosi' che
     cambiarli li' senza cambiare il comportamento non lasci queste prove a
     verificare un comando che nessuno esegue piu'.
+
+    # I due regimi, e perche' l'atteso non e' fisso
+
+    Queste prove pretendevano il rinvio: sviluppo verde con `DIFFERITO`,
+    qualificazione rossa. Era giusto finche' un rinvio era dichiarato, e cioe'
+    fino al candidato finale -- dove le misure si rifanno, le dichiarazioni si
+    chiudono e tutte e tre si invertono insieme. Un oracolo che e' lo stato
+    transitorio del repository si spegne da solo proprio quando conta.
+
+    L'atteso si legge percio' dai registri: se un rinvio e' dichiarato valgono
+    le due facce di prima; se non ce n'e' nessuno, la qualificazione dev'essere
+    **verde** e nessuna riga puo' dire `DIFFERITO`. Il secondo ramo non e' piu'
+    debole del primo: dice che una misura rifatta non lascia dietro di se' una
+    dichiarazione che nessuno rilegge.
+
+    Che il meccanismo funzioni resta provato **in entrambi i regimi** da
+    `SondeDelRinvioSuUnRegistroCostruito` in `test_check_profondita_fuzz`, che
+    il rinvio se lo costruisce invece di cercarlo.
     """
 
     CONDIZIONI = ("profondita-fuzz-rimisurata", "confine-asan-rimisurato")
@@ -4487,6 +4505,26 @@ class SondeRinvioControQualificazione(unittest.TestCase):
     @staticmethod
     def _registro() -> dict:
         return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _rinvio_dichiarato(identita: str) -> bool:
+        """Se **oggi**, nei registri, un rinvio e' dichiarato per la condizione.
+
+        Si chiede ai registri e non all'uscita del comando: chiedere al comando
+        renderebbe la prova circolare, perche' e' proprio il suo esito che si
+        vuole verificare.
+        """
+        from scripts import check_asan_filegdb as asan
+        from scripts import check_profondita_fuzz as profondita
+
+        if identita == "profondita-fuzz-rimisurata":
+            return any(
+                profondita.leggi_registro(bersaglio).get("rimisurazione_dovuta")
+                is not None
+                for bersaglio in profondita.BERSAGLI.values()
+            )
+        registro = profondita.leggi_registro(profondita.BERSAGLI["filegdb_reader"])
+        return registro.get(asan.CHIAVE_RINVIO) is not None
 
     def _comando(self, identita: str) -> list[str]:
         voce = next(
@@ -4516,7 +4554,13 @@ class SondeRinvioControQualificazione(unittest.TestCase):
                         "l'impronta si misura su un checkout pulito, come in CI"
                     )
                 self.assertEqual(esito.returncode, 0, esito.stderr[-600:])
-                self.assertIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
+                if self._rinvio_dichiarato(identita):
+                    self.assertIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
+                else:
+                    # Nessun rinvio dichiarato: la riga che lo annuncerebbe non
+                    # puo' esserci. Una misura rifatta non lascia dietro di se'
+                    # una dichiarazione che nessun gate rilegge.
+                    self.assertNotIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
 
     def test_in_qualificazione_il_rinvio_ferma(self) -> None:
         for identita in self.CONDIZIONI:
@@ -4526,7 +4570,13 @@ class SondeRinvioControQualificazione(unittest.TestCase):
                 esito = subprocess.run(
                     comando, cwd=gate.ROOT, capture_output=True, text=True, check=False
                 )
-                self.assertNotEqual(esito.returncode, 0, esito.stdout[-600:])
+                if self._rinvio_dichiarato(identita):
+                    self.assertNotEqual(esito.returncode, 0, esito.stdout[-600:])
+                else:
+                    # Senza rinvii la qualificazione non ha niente da rifiutare:
+                    # pretenderla rossa vorrebbe dire pretendere che la release
+                    # non si possa qualificare mai.
+                    self.assertEqual(esito.returncode, 0, esito.stderr[-600:])
 
     def test_il_comando_di_rilascio_rifiuta_e_dice_quali(self) -> None:
         """La via vera: `verifica_condizione`, la stessa che `--release` chiama.
@@ -4545,7 +4595,12 @@ class SondeRinvioControQualificazione(unittest.TestCase):
             )
             with self.subTest(condizione=identita):
                 motivi = gate.verifica_condizione(condizione, documento)
-                self.assertTrue(motivi, "un rinvio non puo' autorizzare il rilascio")
+                if self._rinvio_dichiarato(identita):
+                    self.assertTrue(
+                        motivi, "un rinvio non puo' autorizzare il rilascio"
+                    )
+                else:
+                    self.assertFalse(motivi, motivi)
 
     def test_le_due_condizioni_sono_obbligatorie(self) -> None:
         # Senza, la via piu' breve al verde sarebbe toglierle dal registro.
