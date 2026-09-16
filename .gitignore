@@ -58,3 +58,7 @@ __pycache__/
 # garanzia. La parte redatta sta in `contracts/adozione-4.0.0.json`, quella
 # misurata si produce in qualifica e finisce fra le evidenze.
 contracts/adoption-manifest.json
+
+# I log delle campagne che `fuzz-container.sh` salva prima di rimuovere il
+# container: artefatti di corsa, non materiale versionato.
+campagne-log/

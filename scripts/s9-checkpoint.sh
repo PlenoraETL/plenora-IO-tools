@@ -716,6 +716,9 @@ passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 # Il registro dei finding noti e il suo classificatore: la quarantena e' per
 # bersaglio, questo e' per famiglia di crash, e le due vie si leggono insieme.
 passo sonde_finding_noti python3 -m unittest scripts.test_classifica_finding_fuzz
+# Il wrapper che tiene in vita la campagna oltre il client, e che ora salva
+# il log prima di rimuovere il container.
+passo sonde_wrapper_campagna python3 -m unittest scripts.test_fuzz_container
 passo sonde_soak python3 -m unittest scripts.test_soak_misurato
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder
 passo check_prevalidazione python3 scripts/check_prevalidazione_decoder.py

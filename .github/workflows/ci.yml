@@ -216,6 +216,7 @@ jobs:
           python3 -m unittest scripts.test_check_quarantena_fuzz
           python3 scripts/check_quarantena_fuzz.py
           python3 -m unittest scripts.test_classifica_finding_fuzz
+          python3 -m unittest scripts.test_fuzz_container
       - name: Verify soak measurement regressions
         run: python3 -m unittest scripts.test_soak_misurato
       # I due gate dei fork condividono `fork_comune`, che calcola l'impronta

@@ -33,6 +33,13 @@
 #    `--rm`: la rimozione e' esplicita e avviene **dopo** la lettura, in
 #    `collect`. Un container rimosso automaticamente porta via con se' l'unica
 #    fonte dell'esito.
+# 4. **Il log sopravvive al container.** `collect` lo scrive **per intero** su
+#    disco prima di rimuovere, e se non riesce a scriverlo **non rimuove**.
+#    Prima ne stampava venti righe e poi cancellava: l'esito restava, il
+#    racconto di come ci si era arrivati no. E' successo davvero -- una
+#    campagna interrotta i cui log erano solo dentro il container -- ed e' la
+#    ragione per cui questa proprieta' e' scritta qui e non lasciata a chi si
+#    ricorda di salvarli.
 #
 # ## Uso
 #
@@ -46,8 +53,20 @@
 #
 # `wait` attende e lascia il container in piedi: si puo' richiamare piu' volte,
 # ed e' il modo di riprendere dopo un'interruzione del client. `collect`
-# attende, stampa l'esito, **poi** rimuove — ed e' l'unico comando che rimuove.
+# attende, **salva il log intero**, stampa l'esito, poi rimuove — ed e' l'unico
+# comando che rimuove. La destinazione del log si sceglie con
+# `PLENORA_FUZZ_LOG_DIR`; per difetto e' `campagne-log/` accanto al repository.
 set -uo pipefail
+
+# `docker` passa da una variabile per una ragione sola: le prove sostituiscono
+# un finto al suo posto. Un wrapper che si puo' esercitare solo avendo Docker,
+# un'immagine e una campagna vera non ha prove, e infatti non ne aveva.
+DOCKER="${PLENORA_DOCKER:-docker}"
+
+# Dove finiscono i log delle campagne. Fuori dal repository per difetto: un log
+# di campagna e' un artefatto di corsa, non materiale versionato, e metterlo
+# dentro l'albero lo farebbe comparire nei gate che contano cio' che c'e'.
+DIRECTORY_LOG="${PLENORA_FUZZ_LOG_DIR:-}"
 
 NOME="${PLENORA_FUZZ_CONTAINER:-plenora-fuzz}"
 IMMAGINE="${PLENORA_FUZZ_IMAGE:-plenora-io-dev}"
@@ -65,15 +84,15 @@ radice_repo() {
 }
 
 esiste() {
-    docker container inspect "${NOME}" >/dev/null 2>&1
+    "${DOCKER}" container inspect "${NOME}" >/dev/null 2>&1
 }
 
 in_esecuzione() {
-    [ "$(docker container inspect -f '{{.State.Running}}' "${NOME}" 2>/dev/null)" = "true" ]
+    [ "$("${DOCKER}" container inspect -f '{{.State.Running}}' "${NOME}" 2>/dev/null)" = "true" ]
 }
 
 esito() {
-    docker container inspect -f '{{.State.ExitCode}}' "${NOME}" 2>/dev/null
+    "${DOCKER}" container inspect -f '{{.State.ExitCode}}' "${NOME}" 2>/dev/null
 }
 
 comando_start() {
@@ -105,7 +124,7 @@ comando_start() {
     local radice
     radice="$(radice_repo)"
     echo "avvio ${modalita} in '${NOME}' (immagine ${IMMAGINE})"
-    MSYS_NO_PATHCONV=1 docker run --detach --name "${NOME}" \
+    MSYS_NO_PATHCONV=1 "${DOCKER}" run --detach --name "${NOME}" \
         --volume "${radice}:/work" \
         --volume "${VOLUME_CARGO}:/usr/local/cargo/registry" \
         --volume "${VOLUME_TARGET}:/fuzztarget" \
@@ -120,7 +139,7 @@ comando_status() {
         return 3
     fi
     if in_esecuzione; then
-        echo "in esecuzione da $(docker container inspect -f '{{.State.StartedAt}}' "${NOME}")"
+        echo "in esecuzione da $("${DOCKER}" container inspect -f '{{.State.StartedAt}}' "${NOME}")"
         return 3
     fi
     local codice
@@ -135,7 +154,7 @@ comando_logs() {
         echo "nessun container '${NOME}'" >&2
         return 2
     fi
-    docker container logs "${NOME}" 2>&1 | tail -n "${righe}"
+    "${DOCKER}" container logs "${NOME}" 2>&1 | tail -n "${righe}"
 }
 
 # `si` solo quando `comando_wait` ha letto un exit code vero dal demone.
@@ -190,11 +209,39 @@ comando_collect() {
     if [ "${ESITO_ACQUISITO}" != "si" ]; then
         return "${codice}"
     fi
+    local destinazione
+    if ! destinazione="$(salva_log)"; then
+        echo "il log non si e' potuto salvare: il container NON viene rimosso, " >&2
+        echo "cosi' resta l'unica copia. Esito acquisito: ${codice}" >&2
+        return "${codice}"
+    fi
     echo "--- coda del log ---"
-    docker container logs "${NOME}" 2>&1 | tail -n 20
-    docker container rm "${NOME}" >/dev/null
+    tail -n 20 "${destinazione}"
+    echo "--- log completo in ${destinazione} ---"
+    "${DOCKER}" container rm "${NOME}" >/dev/null
     echo "--- container rimosso, esito acquisito: ${codice} ---"
     return "${codice}"
+}
+
+# Scrive il log **intero** su disco e ne stampa il percorso, o fallisce.
+#
+# Il nome porta la data e il nome del container: due campagne non si
+# sovrascrivono, e chi rilegge sa quale corsa sta guardando senza aprirlo.
+#
+# Fallisce rumorosamente invece di ripiegare su un percorso qualunque. Un
+# salvataggio che riesce sempre, da qualche parte, e' la stessa cosa del non
+# salvare: nessuno sa dove guardare.
+salva_log() {
+    local cartella="${DIRECTORY_LOG}"
+    if [ -z "${cartella}" ]; then
+        cartella="$(cd "$(dirname "$0")/.." && pwd)/campagne-log"
+    fi
+    mkdir -p "${cartella}" || return 1
+    local destinazione
+    destinazione="${cartella}/${NOME}-$(date -u +%Y%m%dT%H%M%SZ).log"
+    "${DOCKER}" container logs "${NOME}" > "${destinazione}" 2>&1 || return 1
+    [ -s "${destinazione}" ] || [ -f "${destinazione}" ] || return 1
+    echo "${destinazione}"
 }
 
 comando_stop() {
@@ -202,7 +249,7 @@ comando_stop() {
         echo "nessun container '${NOME}'"
         return 0
     fi
-    docker container rm --force "${NOME}" >/dev/null
+    "${DOCKER}" container rm --force "${NOME}" >/dev/null
     echo "container '${NOME}' rimosso senza leggerne l'esito"
 }
 
