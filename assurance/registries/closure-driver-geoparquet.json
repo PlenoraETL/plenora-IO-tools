@@ -520,13 +520,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "4.0.0",
+      "versione": "4.1.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "4.0.0",
+      "versione": "4.1.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -820,13 +820,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "4.0.0",
+      "versione": "4.1.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "4.0.0",
+      "versione": "4.1.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1322,5 +1322,29 @@
     "perche": "L'aggiornamento e' stato fatto nel blocco L2 e il censimento non e' stato rifatto, quindi il gate degli schemi GeoParquet era rosso da allora. A cambiare e' la sola **versione** delle quattro coppie: nessun nome nuovo nel perimetro, nessun nome uscito, origine invariata a «prodotto» e conteggi fermi a 128 dichiarate e 170 estese. La licenza non e' stata riportata dalla riga vecchia ma **riletta** da `cargo metadata` alla versione nuova, che e' il punto del controllo: una versione sbagliata censisce la licenza di un'altra crate.",
     "nomi_entrati": [],
     "nomi_usciti": []
+  },
+  "variazione_versione_4_1_0": {
+    "quando": "2026-09-16, portando il workspace da 4.0.0 a 4.1.0",
+    "da": 128,
+    "a": 128,
+    "entrate": [
+      "driver-common 4.1.0",
+      "driver-geoparquet 4.1.0",
+      "plenora-io-core 4.1.0",
+      "plenora-io-model 4.1.0"
+    ],
+    "uscite": [
+      "driver-common 4.0.0",
+      "driver-geoparquet 4.0.0",
+      "plenora-io-core 4.0.0",
+      "plenora-io-model 4.0.0"
+    ],
+    "licenze_riverificate": [
+      "driver-common 4.1.0: interna-al-workspace",
+      "driver-geoparquet 4.1.0: interna-al-workspace",
+      "plenora-io-core 4.1.0: interna-al-workspace",
+      "plenora-io-model 4.1.0: interna-al-workspace"
+    ],
+    "perche": "Le quattro crate del workspace nella closure passano da 4.0.0 a 4.1.0 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: e' la variazione piu' innocua che questo censimento registri, ed e' registrata lo stesso perche' il gate confronta le versioni e non i nomi."
   }
 }
