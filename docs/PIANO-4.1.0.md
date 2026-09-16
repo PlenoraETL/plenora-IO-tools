@@ -1116,8 +1116,8 @@ rinvio non si trasforma in dimenticanza.
 | 5 | ~~**R2** — campagne senza `sleep` a scadenza~~ | **chiusa**: le tre proprietà c'erano, mancava la quarta — `collect` rimuoveva il container portandosi via il log. Sette prove con un Docker finto. Limite residuo: due corse nello stesso secondo condividerebbero il nome del file, ed è detto nella prova invece che nascosto | — |
 | 6 | ~~**R3–R4**~~ | **chiuse**: il legame misura-evidenza era già imposto e ora è verificato per intero; la regola del riuso è scritta per i sei tipi, col gate che pretende l'esistenza dei sorveglianti | — |
 | 7 | ~~**R5** — corse concorrenti e push dopo controlli falliti~~ | **chiusa**: `start` rifiuta di sovrascrivere una corsa e di partire su un albero sporco, l'esito viene da `inspect`, e i sorgenti sono un **clone isolato** della revisione incisa | — |
-| 8 | **D1, D5, D6, F1** — il sottoinsieme di dipendenze della 4.1.0 | ciascuna col proprio criterio, eseguite **insieme** perché una sola rimisurazione le copra | toccano `Cargo.lock`: vanno prima del congelamento |
-| 9 | ~~**M5** e le altre fasi D, F, U, C~~ | **rinviate al ciclo successivo**, per scelta di perimetro dichiarata | — |
+| 8 | **D1** — l'unica voce di dipendenze fattibile qui | `num-traits 0.1` esce dalla closure modernizzando `enum_primitive` nel fork DXF; le regressioni del parser dicono se i valori enum reggono | tocca `Cargo.lock`: va prima del congelamento, **se si decide di farla** |
+| 9 | ~~**M5** e le altre fasi D, F, U, C~~ | **rinviate al ciclo successivo**, per scelta di perimetro dichiarata. D5, D6 e F1 non sono rinviate per comodità: il lock dice che non si chiudono da qui | — |
 
 #### Da R3–R4: anche il verbale fuzz è riferito a ciò che ha eseguito
 
@@ -1163,30 +1163,38 @@ costa due campagne per un risultato solo.
 
 Il criterio è uno: **entra ciò che si chiude dentro questo repository, con una
 regressione che dica se è andata bene.** Resta fuori ciò che dipende da una
-risposta di terzi o da una decisione fra componenti, perché un ciclo non si
-tiene aperto aspettando qualcuno.
+risposta di terzi, perché un ciclo non si tiene aperto aspettando qualcuno.
 
-| voce | dentro | perché |
+**La prima selezione era sbagliata in tre punti su quattro**, e vale dirlo
+perché l'errore è istruttivo: avevo applicato il criterio leggendo i titoli
+delle voci invece del lock. «Un chiamante solo» e «dentro il nostro
+`Cargo.toml`» erano affermazioni sul piano, non sul grafo. Questa tabella nasce
+da `cargo tree -i`, e dice chi trattiene davvero ciascuna versione.
+
+| voce | dentro | che cosa dice il lock |
 |---|---|---|
-| D1 `num-traits` | **sì** | tocca il solo fork DXF, e le regressioni del parser dicono subito se i valori enum reggono |
-| D5 `thiserror` 1 → 2 | **sì** | un chiamante solo, e il criterio è la semantica degli errori preservata, che le prove sugli assi già fissano |
-| D6 `syn` 2 → 3 | **sì** | dipendenza di macro: il costo è di compilazione e si misura, e nessun comportamento di prodotto cambia |
-| F1 ZIP → Zopfli | **sì** | spegne un compressore non usato; la coordinazione fra tre richiedenti di feature è dentro il nostro `Cargo.toml` |
-| D2 `quick-xml` | no | trattenuta insieme da `kml` e `calamine`: coordinarle è un aggiornamento di terzi |
-| D3 `num-bigint` | no | due catene tenute da upstream diversi, una delle quali è Arrow |
-| D4 `getrandom` | no | tocca target e feature di mezza closure; il costo di rimisurazione non è proporzionato |
-| D7 `windows-sys` | no | `atomicwrites` trattiene la 0.52: serve un aggiornamento upstream o una sostituzione |
+| D1 `num-traits` 0.1 | **sì** | `num-traits 0.1.43` ← `enum_primitive 0.1.1` ← **`dxf 0.6.1`, il nostro fork**. È l'unica catena, e passa da codice che governiamo |
+| D5 `thiserror` 1 → 2 | **no** | `thiserror 1.0.69` ← **`wkt 0.14.0`**, non da noi. Non dichiariamo `thiserror`: aggiornarlo richiede che `wkt` si muova, o un fork nostro |
+| D6 `syn` 2 → 3 | **no** | `syn 2` ← `strum_macros`, `thiserror-impl` e `zerocopy-derive`, tutte esterne. Nessuna la governa questo repository |
+| F1 ZIP → Zopfli | **no** | la feature `deflate` di `zip` accende `deflate-zopfli`, e `deflate` la richiede **`calamine`**, non solo il nostro `Cargo.toml`. Spegnerla da qui non basta, ed è ciò che la voce stessa avvertiva |
+| D2, D3, D4, D7 | no | trattenute da `kml`/`calamine`, da Arrow, da mezza closure, da `atomicwrites` |
 | U1–U3 | no | riconciliazione dei fork e monitoraggio: U3 dice esplicitamente che una release di terzi non deve rendere rossa una revisione qualificata |
 | C1–C4 | no | ciascuna chiede una decisione concordata sul contratto comune, cioè un'altra parte |
-| **M5** | **rinviata al ciclo successivo** | valuta le dipendenze come manutenibilità *sugli esiti* di L, D e F. Con quattro voci su quindici eseguite, la valutazione direbbe più del campione che del prodotto |
+| **M5** | **rinviata al ciclo successivo** | valuta le dipendenze come manutenibilità *sugli esiti* di L, D e F. Con una voce su quindici eseguita, la valutazione direbbe del campione e non del prodotto |
 
-**Il rinvio di M5 è una scelta di perimetro, non una dimenticanza**, ed è
-scritto qui perché si veda: la 4.1.0 non promette la valutazione di
-manutenibilità delle dipendenze. Le undici voci lasciate fuori restano dove
-sono, con il loro criterio di chiusura invariato.
+**Resta dentro D1, e nient'altro.** Tre delle quattro che avevo scelto chiedono
+che si muova un progetto di terzi o che si apra un fork nuovo, e nessuna delle
+due cose sta dentro il criterio.
 
-Le quattro voci dentro si eseguono **insieme**, non una per volta: ciascuna
-tocca `Cargo.lock`, e raggrupparle costa una rimisurazione invece di quattro.
+**Il rinvio di M5 è una scelta di perimetro, non una dimenticanza**: la 4.1.0
+non promette la valutazione di manutenibilità delle dipendenze. Le voci
+lasciate fuori restano dove sono, col loro criterio invariato.
+
+**Che un sottoinsieme di una voce giustifichi un ciclo prima del congelamento è
+una domanda aperta.** D1 toglie dalla closure una `num-traits 0.1` che nessun
+altro trattiene, e costa una sola rimisurazione. Se la risposta è no, si
+congela adesso e D1 va col ciclo successivo insieme alle altre: il piano dice
+il costo di entrambe le vie e non sceglie.
 
 #### Sul candidato finale, per accordo
 
@@ -1669,7 +1677,7 @@ identificata con seguito preciso**.
 | R2 | Togliere alle campagne la dipendenza da `sleep` a scadenza e dalla cattura di `docker exec` | **Chiusa.** Tre delle quattro proprietà erano già in `fuzz-container.sh`: il container sopravvive al client (`run -d`), l'exit code viene da `docker inspect` e mai dal log, e il container non si rimuove prima di aver acquisito l'esito — un'interruzione senza exit code non è né verde né rossa. La quarta mancava: `collect` stampava venti righe di log e poi rimuoveva. Ora lo salva **intero** su disco prima, e se non riesce **non rimuove**. La durata la verifica `soak_misurato.py`, chiuso con R6. Sette regressioni con un Docker finto, fra cui l'ordine salva-poi-rimuove e il rifiuto di rimuovere senza log. *Correzione successiva*: `stop` faceva `rm --force` — fermava e distruggeva insieme, senza acquisire l'esito né salvare il log, disfacendo a due righe di distanza tutto ciò che `collect` conservava. Ora ferma e lascia raccoglibile; buttare via si chiede per nome, con `scarta`. La prima prova esercitava solo il ramo «già fermo» e non vedeva il difetto, che stava in quello vivo: estesa. *Limite residuo*: due corse avviate nello stesso secondo condividerebbero il nome del file |
 | R3 | Imporre il legame fra candidate, revisione qualificata ed evidenza corrente | **Chiusa.** *Requisito*: fixture che rifiutano una misura assente o di un'altra revisione, distinzione fra registrazione entro allowlist, evidenza storica e riuso, nessun collegamento affidato al solo verbale. *Prova*: `_misura_legata_all_evidenza` pretende che l'evidenza esista, che il suo esito sia un livello 2 superato, che lo SHA risolva e compaia nel nome del file, e che la revisione qualificata coincida; `cambiamenti_dopo_il_congelamento` separa l'allowlist dal resto; `profilo-pubblico-attestato` e `campagna-fuzz-completa` tolgono dal verbale umano i due collegamenti che vi erano rimasti. *Limite residuo*: il legame è per **revisione**, non per contenuto — due alberi con lo stesso SHA sono lo stesso albero, e la qualifica pretende già un checkout pulito, ma un'evidenza prodotta altrove e copiata nel posto giusto non è distinguibile da una prodotta qui |
 | R4 | Rendere esplicito il riuso delle evidenze | **Chiusa.** *Requisito*: una regola per tipo di modifica — prodotto, test, documenti, toolchain, feature, lock — con prova della validità e della provenienza, e la revisione realmente misurata conservata. *Prova*: `assurance/registries/riuso-delle-evidenze.json` dice per ciascuno dei sei che cosa invalida, che cosa resta valido e **chi se ne accorge**; `check_riuso_evidenze.py` pretende i sei come insieme chiuso, ogni campo pieno, e che ogni sorvegliante nominato esista sul disco. Nove regressioni. La revisione misurata resta in `ultima_misura.sha`, confrontata con la qualifica. *Limite residuo*, scritto anche nel gate: verifica che la regola sia **scritta** e che i sorveglianti **esistano**, non che se ne accorgano — quello lo provano le loro regressioni |
-| R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | **Chiusa.** *Requisito*: una misura per SHA e perimetro, esiti controllati prima dei passi dipendenti, monitor legato allo SHA e alla corsa esatta, nessuna diagnosi sulla corsa precedente. *Prova*: `comando_start` rifiuta se un container esiste già — viva o finita e non ancora letta — invece di sovrascriverlo; l'esito viene da `docker inspect` e mai dal log; lo SHA si incide nell'etichetta **all'avvio**, perché dedurlo dopo risponderebbe di un altro albero, e `status` lo dice in **entrambi** i rami — anche a corsa finita, che è il momento in cui si conclude qualcosa. *Correzione successiva, ed è la più profonda*: l'etichetta fissava lo SHA, il mount no. Il container montava il checkout vivo, quindi una modifica durante la campagna entrava nelle compilazioni successive mentre l'etichetta conservava lo SHA iniziale — l'attribuzione diventava falsa proprio dove sembrava più solida. La corsa gira ora su un **clone isolato** della revisione, e un albero di lavoro sporco non avvia. Diciannove regressioni con un Docker finto e un repository git vero. *Limite residuo*: nome di container fisso, quindi due campagne su perimetri diversi non convivono senza scegliere `PLENORA_FUZZ_CONTAINER` a mano |
+| R5 | Evitare corse concorrenti duplicate e push dopo controlli già falliti | **Chiusa.** *Requisito*: una misura per SHA e perimetro, esiti controllati prima dei passi dipendenti, monitor legato allo SHA e alla corsa esatta, nessuna diagnosi sulla corsa precedente. *Prova*: `comando_start` rifiuta se un container esiste già — viva o finita e non ancora letta — invece di sovrascriverlo; l'esito viene da `docker inspect` e mai dal log; lo SHA si incide nell'etichetta **all'avvio**, perché dedurlo dopo risponderebbe di un altro albero, e `status` lo dice in **entrambi** i rami — anche a corsa finita, che è il momento in cui si conclude qualcosa. *Correzioni successive, e sono le più profonde*: l'etichetta fissava lo SHA, il mount no. Il container montava il checkout vivo, quindi una modifica durante la campagna entrava nelle compilazioni successive mentre l'etichetta conservava lo SHA iniziale — l'attribuzione diventava falsa proprio dove sembrava più solida. La corsa gira ora su un **clone isolato** della revisione, e un albero di lavoro sporco non avvia. Poi tre difetti nell'isolamento stesso: il clone si riusava senza verificarlo — bastava che esistesse `.git`, e un sorgente toccato dentro veniva compilato con l'etichetta che continuava a nominare la revisione — la pulizia leggeva l'etichetta **dopo** aver rimosso il container, quindi non trovava niente e il clone restava, e il percorso del clone non passava dalla conversione per Docker che `radice_repo` faceva già. Ventisei regressioni con un Docker finto e un repository git vero. *Limiti residui*: nome di container fisso, quindi due campagne su perimetri diversi non convivono senza scegliere `PLENORA_FUZZ_CONTAINER`; e la conversione del percorso ha un ramo Windows che le prove, girando su Linux, non esercitano |
 | R6 | Versionare il misuratore del soak con le prove dei casi già osservati | **Chiusa**: `scripts/soak_misurato.py`, regressioni in `scripts/test_soak_misurato.py` collegate a CI e checkpoint; CPU diagnostica; originali e giudizio corretto in `scripts/fixtures/soak/` |
 
 I due requisiti che M4 consegna stanno in R3 e R4 e non in una voce nuova,

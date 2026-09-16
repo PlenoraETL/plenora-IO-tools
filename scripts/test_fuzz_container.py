@@ -36,7 +36,9 @@ case "$1 $2" in
       case "$4" in
         *Running*) echo "false" ;;
         *ExitCode*) echo "$ESITO_FINTO" ;;
-        *plenora.revisione*) echo "$REVISIONE_FINTA" ;;
+        *plenora.revisione*)
+          # Dopo `rm` l'etichetta non c'e' piu': e' il punto del difetto.
+          if [ -f "$TRACCIA.rimosso" ]; then echo ""; else echo "$REVISIONE_FINTA"; fi ;;
         *) echo "" ;;
       esac
     fi
@@ -45,7 +47,7 @@ case "$1 $2" in
     if [ "$LOG_FALLISCE" = "si" ]; then exit 1; fi
     printf '%s\\n' $LOG_FINTO
     exit 0 ;;
-  "container rm") exit 0 ;;
+  "container rm") touch "$TRACCIA.rimosso"; exit 0 ;;
 esac
 exit 0
 """
@@ -395,3 +397,159 @@ class SondeDellIsolamento(unittest.TestCase):
         self.assertNotEqual(esecuzione.returncode, 0)
         self.assertIn("albero di lavoro sporco", esecuzione.stderr)
         self.assertFalse(any(c.startswith("run ") for c in chiamate), chiamate)
+
+
+class SondeDellaPuliziaDelClone(unittest.TestCase):
+    """Il clone si rimuove davvero, e il percorso si acquisisce prima.
+
+    L'etichetta vive nel container: leggerla dopo `rm` non restituisce niente,
+    e il clone restava sul disco mentre il wrapper diceva di aver pulito. E' lo
+    stesso ordine che `collect` gia' rispettava per l'esito, e che la pulizia
+    non rispettava.
+    """
+
+    def setUp(self) -> None:
+        SondeDelCollect.setUp(self)
+        self.revisione = "d" * 40
+        self.clone = self.radice / "checkout" / f"checkout-{self.revisione[:12]}"
+        self.clone.mkdir(parents=True)
+        (self.clone / "segno.txt").write_text("ci sono\n", encoding="utf-8")
+
+    def _comando(self, *argomenti: str):
+        ambiente = dict(os.environ)
+        ambiente.update(
+            {
+                "PLENORA_DOCKER": str(self.finto),
+                "PLENORA_FUZZ_LOG_DIR": str(self.log),
+                "PLENORA_FUZZ_CHECKOUT_DIR": str(self.radice / "checkout"),
+                "TRACCIA": str(self.traccia),
+                "ESITO_FINTO": "0",
+                "LOG_FALLISCE": "no",
+                "LOG_FINTO": "riga",
+                "REVISIONE_FINTA": self.revisione,
+            }
+        )
+        return subprocess.run(
+            ["bash", str(WRAPPER), *argomenti],
+            capture_output=True,
+            text=True,
+            env=ambiente,
+            check=False,
+        )
+
+    def test_collect_rimuove_anche_il_clone(self) -> None:
+        esecuzione = self._comando("collect", "5")
+        self.assertFalse(
+            self.clone.exists(),
+            f"il clone e' rimasto dopo collect: {esecuzione.stdout}",
+        )
+        self.assertIn("sorgenti isolati rimossi", esecuzione.stdout)
+
+    def test_scarta_rimuove_anche_il_clone(self) -> None:
+        esecuzione = self._comando("scarta")
+        self.assertFalse(self.clone.exists(), esecuzione.stdout)
+
+
+class SondeDelRiusoDelClone(unittest.TestCase):
+    """Un clone si riusa **solo se e' ancora quello che dice di essere**.
+
+    Bastava che esistesse `.git`: un sorgente toccato dentro il clone veniva
+    compilato al posto di quello della revisione, con l'etichetta che
+    continuava a nominarla. E' lo stesso difetto del mount vivo, un livello
+    piu' in basso.
+    """
+
+    def setUp(self) -> None:
+        SondeDellIsolamento.setUp(self)
+
+    _start = SondeDellIsolamento._start
+
+    def _clone(self) -> pathlib.Path:
+        cloni = list((self.radice / "checkout").glob("checkout-*"))
+        self.assertEqual(len(cloni), 1, cloni)
+        return cloni[0]
+
+    def test_un_clone_sporco_viene_rifatto(self) -> None:
+        self._start()
+        clone = self._clone()
+        (clone / "sorgente.txt").write_text("manomesso\n", encoding="utf-8")
+
+        esecuzione, chiamate = self._start()
+        self.assertEqual(esecuzione.returncode, 0, esecuzione.stderr)
+        self.assertEqual(
+            (self._clone() / "sorgente.txt").read_text(encoding="utf-8"),
+            "prima\n",
+            "il clone manomesso e' stato riusato",
+        )
+        self.assertIn("non riusabile", esecuzione.stderr)
+        self.assertTrue(any(c.startswith("run ") for c in chiamate), chiamate)
+
+    def test_un_clone_su_un_altra_revisione_viene_rifatto(self) -> None:
+        # Stesso nome di directory, contenuto di un'altra revisione: succede
+        # riusando un percorso, e il controllo e' sulla revisione vera.
+        self._start()
+        clone = self._clone()
+        (clone / "sorgente.txt").write_text("seconda\n", encoding="utf-8")
+        for comando in (
+            # Il clone non eredita l'identita' locale: senza, `commit` esce 128
+            # e la prova fallirebbe per una ragione che non sta esaminando.
+            ["git", "config", "user.email", "prova@esempio"],
+            ["git", "config", "user.name", "Prova"],
+            ["git", "add", "-A"],
+            ["git", "commit", "--quiet", "-m", "altra"],
+        ):
+            subprocess.run(comando, cwd=clone, check=True, capture_output=True)
+
+        esecuzione, _ = self._start()
+        self.assertEqual(esecuzione.returncode, 0, esecuzione.stderr)
+        self.assertEqual(
+            (self._clone() / "sorgente.txt").read_text(encoding="utf-8"), "prima\n"
+        )
+
+    def test_un_clone_pulito_e_alla_revisione_giusta_si_riusa(self) -> None:
+        # La controprova positiva: senza, «riclona sempre» sarebbe una difesa
+        # che costa cinque secondi a ogni avvio e non prova niente.
+        self._start()
+        segno = self._clone() / ".segno-del-riuso"
+        segno.write_text("x", encoding="utf-8")
+        # Un file non tracciato **sporca** l'albero: va tolto dall'indice della
+        # prova, o si misurerebbe il contrario di cio' che si vuole.
+        (self._clone() / ".git" / "info").mkdir(exist_ok=True)
+        (self._clone() / ".git" / "info" / "exclude").write_text(
+            ".segno-del-riuso\n", encoding="utf-8"
+        )
+        esecuzione, _ = self._start()
+        self.assertEqual(esecuzione.returncode, 0, esecuzione.stderr)
+        self.assertTrue(segno.exists(), "il clone pulito e' stato rifatto senza bisogno")
+
+
+class SondaDelPercorsoPerDocker(unittest.TestCase):
+    """La forma del percorso che il mount riceve.
+
+    Su Git Bash `MSYS_NO_PATHCONV=1` disattiva la riscrittura automatica,
+    quindi la forma giusta va data. `radice_repo` lo faceva gia'; il clone e' un
+    secondo percorso che finisce in un bind mount, e senza la stessa
+    conversione il mount si rompe.
+
+    **Limite dichiarato**: queste prove girano su Linux, dove `pwd -W` non
+    esiste e il ramo che conta non si esercita. Qui si verifica che la
+    conversione ci sia e che sia applicata al mount, non che produca la forma
+    giusta su Windows.
+    """
+
+    def test_il_mount_del_clone_passa_dalla_conversione(self) -> None:
+        wrapper = WRAPPER.read_text(encoding="utf-8")
+        self.assertIn('percorso_per_docker "${checkout}"', wrapper)
+
+    def test_su_linux_il_mount_riceve_il_percorso_del_clone(self) -> None:
+        # Non si sorgenta il wrapper per chiamarne una funzione: in fondo ha un
+        # `case` che gira e uscirebbe. Si guarda invece cio' che il mount
+        # riceve davvero, che e' la domanda vera.
+        sonda = SondeDellIsolamento("run")
+        sonda.setUp()
+        self.addCleanup(sonda.temporanea.cleanup)
+        _, chiamate = SondeDellIsolamento._start(sonda)
+        run = next((c for c in chiamate if c.startswith("run ")), "")
+        cloni = list((sonda.radice / "checkout").glob("checkout-*"))
+        self.assertEqual(len(cloni), 1, cloni)
+        self.assertIn(f"{cloni[0]}:/work", run)

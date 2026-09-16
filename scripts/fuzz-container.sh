@@ -100,6 +100,19 @@ radice_repo() {
     (cd "${qui}" && pwd -W 2>/dev/null) || echo "${qui}"
 }
 
+# La forma che Docker accetta per un percorso qualunque.
+#
+# `radice_repo` faceva gia' questa conversione per la radice; il clone e' un
+# secondo percorso che finisce in un bind mount, e senza la stessa conversione
+# su Git Bash il mount si rompe -- `MSYS_NO_PATHCONV=1` disattiva la riscrittura
+# automatica, quindi la forma giusta va data, non sperata.
+#
+# Le prove girano su Linux, dove `pwd -W` non esiste e il ramo che conta non si
+# esercita: e' un limite dichiarato, non coperto.
+percorso_per_docker() {
+    (cd "$1" && pwd -W 2>/dev/null) || echo "$1"
+}
+
 # Dove vive il clone isolato della corsa. Sotto `campagne-log/`, che e' gia'
 # ignorata: tutto cio' che una campagna produce sta in un posto solo.
 directory_checkout() {
@@ -116,13 +129,28 @@ directory_checkout() {
 # repository principale con un percorso **dell'host**, e dentro il container
 # quel percorso non esiste. Il clone e' autonomo -- 69 MB e cinque secondi su
 # questo repository -- e i gate che chiamano git funzionano dentro come fuori.
+#
+# Un clone gia' presente si **riusa solo se e' ancora quello che dice di
+# essere**: stessa revisione e nessuna modifica. Bastava che esistesse `.git`,
+# e un sorgente toccato dentro il clone veniva compilato al posto di quello
+# della revisione, con l'etichetta che continuava a nominarla. E' lo stesso
+# difetto del mount vivo, un livello piu' in basso.
+#
+# Chi non supera il controllo non fa fallire l'avvio: si ributta e si riclona.
+# Cinque secondi valgono meno di una campagna misurata sul codice sbagliato.
 prepara_checkout() {
     local revisione="$1"
     local destinazione
     destinazione="$(directory_checkout "${revisione}")"
     if [ -d "${destinazione}/.git" ]; then
-        echo "${destinazione}"
-        return 0
+        local dentro sporco
+        dentro="$(git -C "${destinazione}" rev-parse HEAD 2>/dev/null || echo "")"
+        sporco="$(git -C "${destinazione}" status --porcelain 2>/dev/null)"
+        if [ "${dentro}" = "${revisione}" ] && [ -z "${sporco}" ]; then
+            echo "${destinazione}"
+            return 0
+        fi
+        echo "clone esistente non riusabile (revisione o pulizia): lo rifaccio" >&2
     fi
     rm -rf "${destinazione}"
     mkdir -p "$(dirname "${destinazione}")" || return 1
@@ -200,7 +228,7 @@ comando_start() {
     echo "sorgenti isolati in ${checkout}"
     MSYS_NO_PATHCONV=1 "${DOCKER}" run --detach --name "${NOME}" \
         --label "plenora.revisione=${revisione}" \
-        --volume "${checkout}:/work" \
+        --volume "$(percorso_per_docker "${checkout}"):/work" \
         --volume "${radice}/fuzz/corpus:/work/fuzz/corpus" \
         --volume "${radice}/fuzz/artifacts:/work/fuzz/artifacts" \
         --volume "${radice}/assurance/evidence:/work/assurance/evidence" \
@@ -329,8 +357,11 @@ comando_collect() {
     echo "--- coda del log ---"
     tail -n 20 "${destinazione}"
     echo "--- log completo in ${destinazione} ---"
+    # Prima il percorso, poi la rimozione: l'etichetta muore col container.
+    local sorgenti
+    sorgenti="$(percorso_del_checkout)"
     "${DOCKER}" container rm "${NOME}" >/dev/null
-    pulisci_checkout
+    pulisci_checkout "${sorgenti}"
     echo "--- container rimosso, esito acquisito: ${codice} ---"
     return "${codice}"
 }
@@ -371,11 +402,22 @@ salva_log() {
 # `scarta` esiste per quello, e il suo nome non si digita per sbaglio.
 # Rimuove il clone isolato, se c'e'. Si chiama **dopo** aver acquisito l'esito:
 # i sorgenti di una corsa servono finche' qualcuno potrebbe volerli rileggere.
-pulisci_checkout() {
-    local incisa destinazione
+# Il percorso del clone, letto **finche' il container c'e'**.
+#
+# L'etichetta vive nel container: leggerla dopo `rm` non restituisce niente, e
+# il clone restava sul disco mentre il wrapper diceva di aver pulito. Chi
+# rimuove deve acquisire il percorso prima, come gia' fa con l'esito.
+percorso_del_checkout() {
+    local incisa
     incisa="$(revisione_della_corsa)"
     [ -n "${incisa}" ] || return 0
-    destinazione="$(directory_checkout "${incisa}")"
+    directory_checkout "${incisa}"
+}
+
+# Rimuove il clone di cui si e' gia' acquisito il percorso.
+pulisci_checkout() {
+    local destinazione="${1:-}"
+    [ -n "${destinazione}" ] || return 0
     [ -d "${destinazione}" ] || return 0
     rm -rf "${destinazione}" && echo "sorgenti isolati rimossi: ${destinazione}"
 }
@@ -397,13 +439,15 @@ comando_stop() {
 # decisione di perdere un'evidenza sia **detta**, invece di essere il modo in
 # cui `stop` si comportava per difetto.
 comando_scarta() {
+    local sorgenti=""
     if esiste; then
+        sorgenti="$(percorso_del_checkout)"
         "${DOCKER}" container rm --force "${NOME}" >/dev/null
         echo "container '${NOME}' rimosso SENZA leggerne l'esito ne' salvarne il log"
     else
         echo "nessun container '${NOME}'"
     fi
-    pulisci_checkout
+    pulisci_checkout "${sorgenti}"
 }
 
 case "${1:-}" in
