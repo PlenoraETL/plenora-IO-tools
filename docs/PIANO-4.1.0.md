@@ -1109,15 +1109,15 @@ rinvio non si trasforma in dimenticanza.
 
 | # | voce | criterio di chiusura | dipende da |
 |---|---|---|---|
-| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue, non prima | ne dipende la prima via per `campagna-fuzz-completa` |
+| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue, non prima. **È l'unica voce di lavoro che resta aperta nella 4.1.0** | ne dipende la prima via per `campagna-fuzz-completa` |
 | 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
 | 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**: il gate distingue l'albero congelato dal commit di registrazione; sei prove, e la prima riproduce il guasto | — |
 | 4 | ~~**R1** — regressione su `MAX_BLOCCHI`~~ | **chiusa**: tre casi in `prevalida_arrow::tetto_dei_messaggi`; costo misurato — 128 MiB generati in 60 ms e scanditi in 3,5 s — e fixture generata, non versionata | — |
 | 5 | ~~**R2** — campagne senza `sleep` a scadenza~~ | **chiusa**: le tre proprietà c'erano, mancava la quarta — `collect` rimuoveva il container portandosi via il log. Sette prove con un Docker finto. Limite residuo: due corse nello stesso secondo condividerebbero il nome del file, ed è detto nella prova invece che nascosto | — |
 | 6 | ~~**R3–R4**~~ | **chiuse**: il legame misura-evidenza era già imposto e ora è verificato per intero; la regola del riuso è scritta per i sei tipi, col gate che pretende l'esistenza dei sorveglianti | — |
 | 7 | ~~**R5** — corse concorrenti e push dopo controlli falliti~~ | **chiusa**: `start` rifiuta di sovrascrivere una corsa e di partire su un albero sporco, l'esito viene da `inspect`, e i sorgenti sono un **clone isolato** della revisione incisa | — |
-| 8 | **D1** — l'unica voce di dipendenze fattibile qui | `num-traits 0.1` esce dalla closure modernizzando `enum_primitive` nel fork DXF; le regressioni del parser dicono se i valori enum reggono | tocca `Cargo.lock`: va prima del congelamento, **se si decide di farla** |
-| 9 | ~~**M5** e le altre fasi D, F, U, C~~ | **rinviate al ciclo successivo**, per scelta di perimetro dichiarata. D5, D6 e F1 non sono rinviate per comodità: il lock dice che non si chiudono da qui | — |
+| 8 | ~~**D1**~~ | **rinviata al ciclo successivo**: il beneficio è una versione duplicata in meno, il costo è un delta nuovo da mantenere nel fork — `enum_primitive` serve numerose enum e quattro generatori | — |
+| 9 | ~~**M5** e le fasi D, F, U, C~~ | **fuori dalla 4.1.0**, per scelta di perimetro dichiarata. D5, D6 e F1 non sono rinviate per comodità: il lock dice che non si chiudono da qui | — |
 
 #### Da R3–R4: anche il verbale fuzz è riferito a ciò che ha eseguito
 
@@ -1186,15 +1186,33 @@ da `cargo tree -i`, e dice chi trattiene davvero ciascuna versione.
 che si muova un progetto di terzi o che si apra un fork nuovo, e nessuna delle
 due cose sta dentro il criterio.
 
-**Il rinvio di M5 è una scelta di perimetro, non una dimenticanza**: la 4.1.0
-non promette la valutazione di manutenibilità delle dipendenze. Le voci
-lasciate fuori restano dove sono, col loro criterio invariato.
+#### Il perimetro della 4.1.0 è chiuso: anche D1 è fuori
 
-**Che un sottoinsieme di una voce giustifichi un ciclo prima del congelamento è
-una domanda aperta.** D1 toglie dalla closure una `num-traits 0.1` che nessun
-altro trattiene, e costa una sola rimisurazione. Se la risposta è no, si
-congela adesso e D1 va col ciclo successivo insieme alle altre: il piano dice
-il costo di entrambe le vie e non sceglie.
+**D1 è rinviata esplicitamente al ciclo successivo**, e la ragione è un conto
+che avevo fatto male.
+
+Il beneficio è dimostrato ma stretto: togliere dalla closure una versione
+duplicata, `num-traits 0.1`. Il costo l'avevo descritto come «una sola
+rimisurazione», e non è quello. **Le misure finali sono dovute comunque**: il
+congelamento le pretende con o senza D1, quindi non sono un costo di D1. Ciò
+che D1 costa davvero è un'altra cosa — implementazione, regressioni, e **un
+delta nuovo da mantenere nel fork**: `enum_primitive` serve numerose enum e
+quattro generatori, quindi bisogna preservare conversioni, gestione dei valori
+non validi e superficie, e poi aggiornare la provenienza del fork.
+
+Non emerge un beneficio funzionale o di manutenzione che giustifichi di
+prolungare il ciclo per questo. Una versione duplicata in meno è un risultato;
+un delta in più da riconciliare a ogni release upstream è un impegno, e i due
+non si compensano.
+
+**M5 resta fuori dalla 4.1.0**, per la stessa scelta di perimetro: valuta le
+dipendenze come manutenibilità sugli esiti di L, D e F, e con zero voci D ed F
+eseguite direbbe del campione e non del prodotto.
+
+**Il perimetro è chiuso.** La 4.1.0 consegna M1–M4, R1–R6, Q1 e Q2c; non
+promette la valutazione di manutenibilità delle dipendenze né alcun
+aggiornamento delle fasi D, F, U, C. Q2b resta visibile come azione pendente:
+il contributo è pronto, l'invio no, e il criterio è il riferimento alla issue.
 
 #### Sul candidato finale, per accordo
 
