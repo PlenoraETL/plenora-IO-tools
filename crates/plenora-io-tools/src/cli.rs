@@ -22,7 +22,7 @@ use serde_json::Value;
 use plenora_io_model::budget::PipelineLimits;
 use plenora_io_model::{CancellationToken, PublicMessage};
 
-use crate::{usage_err, FLAG_FORMATO, FORMATO_JSON, OPZIONI_AMMESSE};
+use crate::{usage_err, FORMATO_JSON, OPZIONI_AMMESSE};
 
 // --- parsing argomenti ------------------------------------------------------
 
@@ -216,7 +216,14 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             // Il selettore del modo macchina e' accettato da ogni comando, ed
             // e' l'unico valore ammesso: `--format` con altro non e' una
             // modalita' che non abbiamo, e' un refuso che fallisce chiuso.
-            FLAG_FORMATO => {
+            //
+            // Il percorso e' **qualificato**, e non e' uno stile. Un nome nudo
+            // in posizione di pattern che non risolve a una costante diventa un
+            // binding che cattura tutto, e il compilatore lo dice soltanto con
+            // un avviso: e' successo estraendo questo modulo, e otto prove di
+            // `consegna_arrow` sono diventate rosse. Con `crate::` davanti, un
+            // nome che non risolve e' un **errore**, non un catch-all.
+            crate::FLAG_FORMATO => {
                 let v = it.next().ok_or_else(|| {
                     usage_err(&PublicMessage::Curated("--format richiede un valore"))
                 })?;
