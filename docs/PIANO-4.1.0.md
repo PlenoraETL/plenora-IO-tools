@@ -1069,6 +1069,38 @@ candidate che non esiste ancora.
 | `confine-asan-rimisurato` | il confine ASan dichiarato scaduto |
 | `campagna-fuzz-completa` | nessun verbale di campagna: lo smoke non è stato eseguito su questo albero |
 
+#### Il rischio da nominare adesso, non alla vigilia
+
+**Il finding GeoParquet può impedire la campagna completa, e quindi la
+qualificazione del candidato.**
+
+Il classificatore gestisce l'*esito* di quel crash; non toglie il difetto che lo
+produce. Se il fuzzer lo ritrova sul candidato finale — e non c'è ragione di
+credere che non lo ritrovi, visto che il difetto è a monte e ancora aperto anche
+nella 60.0.0 — `geoparquet_reader` si ferma, il verbale lo registra fra i
+fermati, e `campagna-fuzz-completa` è rossa.
+
+**Non c'è deroga implicita per i crash compatibili con il noto**, ed è
+deliberato. Un rinvio che coprisse anche questo caso trasformerebbe la
+registrazione in un permesso: la campagna resterebbe interrotta e nessuno
+dovrebbe più farci niente.
+
+Le vie che chiudono il rischio sono tre, e nessuna è «ignorarlo»:
+
+| via | che cosa richiede |
+|---|---|
+| la correzione upstream è pubblicata e il pin la include | dipende da Q2b, cioè dall'invio, e dai tempi di `arrow-rs` |
+| il difetto è aggirato nel nostro percorso, prima che il decoder lo incontri | è una modifica al prodotto, e va decisa: non è una prevalidazione scelta per comodità, è un cambiamento di ciò che il driver accetta |
+| la deroga è **esplicita**, dichiarata e datata | costa una decisione scritta, come le due deviazioni della 4.0.0, e dice che cosa la release smette di promettere |
+
+Le prime due possono richiedere tempo; la terza è una scelta, non un
+meccanismo. Il punto di scriverlo qui è che nessuna delle tre si improvvisa la
+sera prima del rilascio.
+
+Questo è anche il motivo per cui la voce Q2b non è chiusa: il suo criterio non è
+«il caso minimo esiste», è il riferimento alla issue. Finché non c'è, la prima
+via non è nemmeno cominciata.
+
 Le ultime tre si chiudono **solo** sul candidato finale. Non sono debito: sono
 il rinvio che funziona, e il fatto che `--release` le nomini è la prova che il
 rinvio non si trasforma in dimenticanza.
@@ -1077,14 +1109,36 @@ rinvio non si trasforma in dimenticanza.
 
 | # | voce | criterio di chiusura | dipende da |
 |---|---|---|---|
-| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue | — |
+| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue, non prima | ne dipende la prima via per `campagna-fuzz-completa` |
 | 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
 | 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**: il gate distingue l'albero congelato dal commit di registrazione; sei prove, e la prima riproduce il guasto | — |
 | 4 | **R1** — regressione su `MAX_BLOCCHI` | caso sotto, al e oltre il limite; rifiuto della guardia; costo della fixture misurato e dichiarato | — |
 | 5 | **R2** — campagne senza `sleep` a scadenza | processo e codice d'uscita osservabili; log fuori dal container; interruzione distinta dal successo | — |
-| 6 | **R3–R4**, il resto | la parte consegnata da M4 è chiusa; resta il legame fra candidate, revisione qualificata ed evidenza, e la regola del riuso per tipo di modifica | — |
+| 6 | **R3–R4**, il resto | la parte consegnata da M4 è chiusa, e con essa il legame del verbale fuzz alla revisione e al perimetro; resta il legame fra candidate, revisione qualificata ed evidenza per le altre misure, e la regola del riuso per tipo di modifica | — |
 | 7 | **R5** — corse concorrenti e push dopo controlli falliti | una misura per SHA e perimetro; esiti controllati prima dei passi dipendenti | — |
 | 8 | **M5** e le fasi D, F, U, C | secondo il proprio perimetro | — |
+
+#### Da R3–R4: anche il verbale fuzz è riferito a ciò che ha eseguito
+
+La stessa domanda che R3–R4 pongono alle evidenze vale per il verbale della
+campagna, e all'inizio non ci valeva: registrava chi avesse finito, non su quale
+albero. Un verbale **completo** di una revisione precedente avrebbe qualificato
+quella corrente.
+
+Due campi lo legano, e ciascuno chiude una via diversa:
+
+- la **revisione**. Una campagna vale per il codice su cui è girata, ed è la
+  stessa ragione per cui le misure di profondità portano l'impronta del
+  perimetro. Qui la revisione basta: la qualifica pretende già un albero pulito
+  allo SHA atteso, quindi due SHA uguali sono due alberi uguali. È il riuso del
+  collegamento che esiste, non un meccanismo nuovo.
+- i **bersagli dichiarati**, cioè `cargo fuzz list`. Lo smoke sa girare su un
+  sottoinsieme, e un target in quarantena esce comunque dai finiti: in entrambi
+  i casi «nessuno si è fermato» sarebbe vero e direbbe pochissimo. La qualifica
+  pretende che i finiti siano **tutti** quelli dichiarati.
+
+Cinque regressioni, fra cui il verbale di un'altra revisione e la corsa su un
+sottoinsieme.
 
 #### Sul candidato finale, per accordo
 

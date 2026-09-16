@@ -74,6 +74,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -306,6 +307,34 @@ def verifica_campagna(percorso: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as guasto:
         return [f"{percorso.name}: non si legge ({guasto})"]
 
+    # La revisione prima di tutto: se il verbale parla di un altro albero, cio'
+    # che dice degli esiti non riguarda questo, e leggerlo sarebbe peggio che
+    # non averlo.
+    corrente = revisione_corrente()
+    dichiarata = documento.get("revisione")
+    if not isinstance(dichiarata, str) or not dichiarata:
+        return [
+            f"{percorso.name}: non dichiara la revisione su cui la campagna e' "
+            "girata. Un verbale senza revisione qualifica qualunque albero, e "
+            "non e' quello che una campagna prova."
+        ]
+    if corrente is None:
+        return [f"{percorso.name}: git non risolve HEAD, e il confronto non si fa"]
+    if dichiarata != corrente:
+        return [
+            f"la campagna e' girata su «{dichiarata[:12]}», questo albero e' "
+            f"«{corrente[:12]}». Un verbale completo di un'altra revisione non "
+            "qualifica questa."
+        ]
+
+    dichiarati = documento.get("bersagli_dichiarati")
+    if not isinstance(dichiarati, list) or not dichiarati:
+        return [
+            f"{percorso.name}: non dichiara quali bersagli esistessero. Senza, "
+            "una corsa su un sottoinsieme sarebbe indistinguibile da una su "
+            "tutti."
+        ]
+
     fermati = documento.get("fermati_a_finding_noto")
     if not isinstance(fermati, list):
         return [f"{percorso.name}: non dichiara quali bersagli si siano fermati"]
@@ -322,22 +351,64 @@ def verifica_campagna(percorso: Path) -> list[str]:
             f"{', '.join(sorted(fermati))} si sono fermati a un finding noto e "
             "non hanno esplorato il tempo restante"
         ]
-    if not documento.get("hanno_finito"):
+    finiti = documento.get("hanno_finito") or []
+    if not finiti:
         return [f"{percorso.name}: nessun bersaglio ha finito il proprio tempo"]
+    mancanti = sorted(set(dichiarati) - set(finiti))
+    if mancanti:
+        # Ci si arriva con un sottoinsieme richiesto, o con un target in
+        # quarantena: in nessuno dei due casi la campagna e' quella dichiarata.
+        return [
+            "la campagna non copre i bersagli dichiarati: "
+            f"{', '.join(mancanti)} non hanno finito il proprio tempo"
+        ]
     return []
 
 
 VERBALE = ROOT / "assurance" / "evidence" / "fuzz-smoke-ultima.json"
 
 
+def revisione_corrente() -> str | None:
+    """Lo SHA di HEAD, o `None` se git non risponde."""
+    try:
+        esito = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    return esito.stdout.strip() if esito.returncode == 0 else None
+
+
 def scrivi_verbale(
-    secondi: int, finiti: list[str], fermati: list[str], falliti: list[str]
+    secondi: int,
+    finiti: list[str],
+    fermati: list[str],
+    falliti: list[str],
+    dichiarati: list[str],
 ) -> None:
-    """Il verbale della corsa: chi ha finito e chi si e' fermato.
+    """Il verbale della corsa: su che cosa ha girato, e com'e' finita.
 
     Lo costruisce questo modulo e non lo shell: un JSON assemblato a colpi di
     espansione di array e' illeggibile, e soprattutto non si prova. Qui ha una
     firma, e le sue proprieta' hanno regressioni.
+
+    # Perche' porta la revisione e i bersagli dichiarati
+
+    Perche' altrimenti un verbale **completo** di ieri qualificherebbe l'albero
+    di oggi. Una campagna vale per il codice su cui e' girata, ed e' la stessa
+    ragione per cui le misure di profondita' portano l'impronta del perimetro.
+    Qui la revisione basta: la qualifica pretende gia' un albero pulito allo
+    SHA atteso, quindi due SHA uguali sono due alberi uguali.
+
+    I bersagli dichiarati servono alla seconda meta' della stessa domanda. Lo
+    smoke sa girare su un **sottoinsieme**, e una corsa su un target solo puo'
+    finire senza fermate: «nessuno si e' fermato» sarebbe vero e direbbe
+    pochissimo. Il verbale registra percio' cio' che `cargo fuzz list`
+    dichiarava, e la qualifica pretende che i finiti siano tutti.
     """
     VERBALE.parent.mkdir(parents=True, exist_ok=True)
     VERBALE.write_text(
@@ -352,6 +423,8 @@ def scrivi_verbale(
                     "questo verbale tiene separata la campagna completa da "
                     "quella interrotta."
                 ),
+                "revisione": revisione_corrente(),
+                "bersagli_dichiarati": sorted(dichiarati),
                 "secondi_per_bersaglio": secondi,
                 "hanno_finito": sorted(finiti),
                 "fermati_a_finding_noto": sorted(fermati),
@@ -400,6 +473,12 @@ def main(argv: list[str] | None = None) -> int:
         "--falliti", nargs="*", default=[], help="chi e' fallito su un crash nuovo"
     )
     argomenti.add_argument(
+        "--dichiarati",
+        nargs="*",
+        default=[],
+        help="i bersagli che `cargo fuzz list` dichiara, cioe' il perimetro intero",
+    )
+    argomenti.add_argument(
         "--verifica-campagna",
         type=Path,
         help=(
@@ -412,7 +491,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if opzioni.scrivi_verbale is not None:
         scrivi_verbale(
-            opzioni.scrivi_verbale, opzioni.finiti, opzioni.fermati, opzioni.falliti
+            opzioni.scrivi_verbale,
+            opzioni.finiti,
+            opzioni.fermati,
+            opzioni.falliti,
+            opzioni.dichiarati,
         )
         return 0
 

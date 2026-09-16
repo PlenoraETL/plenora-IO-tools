@@ -262,7 +262,8 @@ python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
     --scrivi-verbale "${duration}" \
     --finiti ${finiti[@]+"${finiti[@]}"} \
     --fermati ${noti[@]+"${noti[@]}"} \
-    --falliti ${failed[@]+"${failed[@]}"}
+    --falliti ${failed[@]+"${failed[@]}"} \
+    --dichiarati ${dichiarati[@]+"${dichiarati[@]}"}
 
 if [ "${#failed[@]}" -ne 0 ]; then
     echo "target con finding: ${failed[*]}" >&2

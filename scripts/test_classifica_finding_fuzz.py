@@ -281,6 +281,8 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
 
     def _verbale(self, **campi) -> list[str]:
         documento = {
+            "revisione": gate.revisione_corrente(),
+            "bersagli_dichiarati": ["shp_reader"],
             "hanno_finito": ["shp_reader"],
             "fermati_a_finding_noto": [],
             "falliti_su_finding_nuovo": [],
@@ -317,11 +319,48 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
         self.assertTrue(any("assente" in m for m in motivi), motivi)
 
     def test_un_verbale_muto_sulle_fermate_e_rosso(self) -> None:
-        with tempfile.TemporaryDirectory() as temporanea:
-            percorso = pathlib.Path(temporanea) / "verbale.json"
-            percorso.write_text(json.dumps({"hanno_finito": ["a"]}), encoding="utf-8")
-            motivi = gate.verifica_campagna(percorso)
+        motivi = self._verbale(fermati_a_finding_noto=None)
         self.assertTrue(any("non dichiara" in m for m in motivi), motivi)
+
+    def test_un_verbale_di_un_altra_revisione_non_qualifica_questa(self) -> None:
+        """La conseguenza che il verbale, da solo, non impediva.
+
+        Una campagna vale per il codice su cui e' girata. Senza la revisione,
+        un verbale **completo** di ieri qualificherebbe l'albero di oggi -- ed
+        e' la stessa famiglia della misura di profondita' che porta l'impronta
+        del perimetro.
+        """
+        motivi = self._verbale(revisione="0" * 40)
+        self.assertTrue(any("non qualifica questa" in m for m in motivi), motivi)
+        self.assertTrue(any("000000000000" in m for m in motivi), motivi)
+
+    def test_un_verbale_senza_revisione_e_rosso(self) -> None:
+        motivi = self._verbale(revisione=None)
+        self.assertTrue(any("non dichiara la revisione" in m for m in motivi), motivi)
+
+    def test_una_corsa_su_un_sottoinsieme_non_e_la_campagna(self) -> None:
+        """«Nessuno si e' fermato» su un bersaglio solo e' vero e dice poco.
+
+        Lo smoke sa girare su un sottoinsieme, e un target in quarantena esce
+        comunque dai finiti. In nessuno dei due casi la campagna e' quella
+        dichiarata, e il verbale porta `cargo fuzz list` per poterlo dire.
+        """
+        motivi = self._verbale(
+            bersagli_dichiarati=["shp_reader", "gpkg_reader", "kml_reader"]
+        )
+        self.assertTrue(any("non copre i bersagli" in m for m in motivi), motivi)
+        self.assertTrue(any("gpkg_reader" in m for m in motivi), motivi)
+
+    def test_un_verbale_senza_i_bersagli_dichiarati_e_rosso(self) -> None:
+        motivi = self._verbale(bersagli_dichiarati=[])
+        self.assertTrue(
+            any("non dichiara quali bersagli esistessero" in m for m in motivi), motivi
+        )
+
+    def test_lo_smoke_passa_il_perimetro_dichiarato(self) -> None:
+        smoke = (gate.ROOT / "scripts" / "fuzz-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("--dichiarati", smoke)
+        self.assertIn('${dichiarati[@]+"${dichiarati[@]}"}', smoke)
 
     def test_la_condizione_di_rilascio_legge_quel_verbale(self) -> None:
         """La catena, per intero: registro, condizione obbligatoria, comando.
