@@ -205,6 +205,61 @@
         "versione_pacchetto_python": "3.0.0",
         "evidenza": "assurance/evidence/checkpoint-28bf62c.json",
         "perche_e_qui": "la 3.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 4.0.0. Il superamento riguarda quale candidate sia corrente, non la validita' di cio' che e' stato pubblicato: la 3.0.0 resta verificabile con gli stessi controlli di prima."
+      },
+      {
+        "versione_manifesto": "4.0.0",
+        "tag_previsto": "v4.0.0",
+        "tag_creato": true,
+        "tag_revisione": "6beb410b9984f527f3e89bba420764ac9e24e436",
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "revisione_candidate": "6beb410b9984f527f3e89bba420764ac9e24e436",
+        "assurance_entro_l_allowlist": true,
+        "commit_di_assurance": "2484019",
+        "nota": "Congelata su `6beb410`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce: fra quelli e quelli che il runner aveva in mano c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\n**I due requisiti che restavano aperti sono chiusi.** Le sei protezioni di `valida_flusso_ipc` -- flusso troppo corto, coda tronca, metadati oltre il tetto, messaggio oltre la fine, troppi messaggi, flusso senza schema -- erano corrette ma non trattenute da niente: cinque ora hanno una prova di regressione che confronta il **messaggio**, non solo l'esito, perche' un input puo' essere rifiutato dal ramo sbagliato e la prova resterebbe verde. Nessun difetto e' emerso. La sesta, `MAX_BLOCCHI`, resta fra i limiti noti delle prove: generare oltre otto megabyte di flusso valido a ogni corsa e' un **costo** che non si giustifica per un fondo di sicurezza, non un'impossibilita' tecnica.\n\nIl soak mirato che il criterio d'uscita prescrive sullo SHA congelato e' stato eseguito con la durata **misurata**. Su `dxf_reader`: monotonic 3644,7 s, boottime 3644,7 s, parete 3644,6 s -- i tre orologi coincidono entro un decimo di secondo, cioe' **nessuna sospensione rilevata dagli orologi usati**. La formulazione e' stretta apposta: tre orologi concordi dicono che loro non hanno visto una discontinuita', non che non ce ne sia stata una che nessuno dei tre puo' vedere. 780540 esecuzioni, 3175 unita' nuove, uscita 0, nessun finding. E' la proprieta' che la corsa precedente non poteva affermare, ed e' misurata invece che dedotta dal ritmo.\n\nSu `shp_reader` la corsa di `3ca3931` e' **riusata con motivazione**: il criterio ripete il soak quando cambia il codice di prodotto o compare un finding, e fra le due revisioni nessun file sotto `crates/*/src` che non sia di prova e' cambiato. Non e' attribuita a questa revisione per comodita'.\n\nIl misuratore aveva posto una soglia dell'80% sull'uso della CPU e questa corsa non l'ha superata: 280,3 s su 3644,7. La soglia e' stata corretta **dopo** la corsa, e il referto originale con quel verdetto e' conservato accanto all'evidenza perche' si veda. La ragione: la saturazione della CPU non e' mai stata un requisito del soak -- il criterio e' un'ora di campagna, ed e' dimostrata -- ma un controllo sull'ambiente che per un fuzzer non legato alla CPU boccia una campagna valida. Dove siano finiti i 3365 secondi non contabilizzati **resta non spiegato**: l'I/O sul mount 9p e' una causa possibile e non quantificata sulla campagna.\n\n**Pubblicata il 2026-09-15.** Il tag `v4.0.0` punta alla revisione congelata, e `release_authorized` e' `true`: e' una decisione scritta, non l'esito automatico di caselle verdi, ed e' l'unica condizione che nessun gate deriva. Il permesso operativo `release_action_allowed` e' stato speso pubblicando e torna `false`.\n\nLa bozza e' stata pubblicata **immutata**: i 23 asset riscaricati dalla release hanno digest e dimensioni identici a quelli riscaricati dalla bozza prima della pubblicazione, e i due confronti che l'invariante nomina sono entrambi eseguiti -- sei archivi congelati su sei, cinque artefatti del manifesto su cinque, sorgente Rust compreso. Nessun archivio e' stato ricostruito: sono i byte usciti dalla corsa di distribuzione su `6beb410`.\n\nRestano **due deviazioni** registrate nel manifesto, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local` -- una differenza osservabile dal contratto. Che il valore sia piu' cauto non la rende conforme: il contratto fissa quel campo e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti.",
+        "artefatti": [
+          {
+            "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "e432a2fbe8950613c03639ebade570967c4377c8df5c9b26b718b7cbcc2febbb",
+            "dimensione": 8613983,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          },
+          {
+            "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "fc8cf3c93d29b67099d2e1c5e3179c7883a3565117d5fcd680008aaad2f204d3",
+            "dimensione": 64454918,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          },
+          {
+            "nome": "plenora_io-4.0.0-py3-none-any.whl",
+            "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
+            "dimensione": 37414,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          },
+          {
+            "nome": "plenora_io-4.0.0.tar.gz",
+            "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
+            "dimensione": 54614,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          },
+          {
+            "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
+            "sha256": "451f397aa57807070fb9c7f838fbc19eb373330731abf76b01dd492ceee649f2",
+            "dimensione": 8752606,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          },
+          {
+            "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "dcde4cffd6a81da03aa21257eecbec9275ba4ce239e7351a40a29bba35db87e0",
+            "dimensione": 47819244,
+            "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
+          }
+        ],
+        "evidenza": "assurance/evidence/checkpoint-6beb410.json",
+        "versione_pacchetto_python": "4.0.0",
+        "perche_e_qui": "La 4.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 4.1.0. Lo spostamento non ne allenta niente: i campi restano quelli del congelamento, e il gate li rilegge dall'archivio con le stesse domande -- revisione congelata risolvibile, tag su quella revisione, artefatti fissati, evidenza leggibile, commit di registrazione discendente."
       }
     ]
   },
@@ -237,57 +292,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "4.0.0",
-      "versione_workspace": "4.0.0",
-      "tag_previsto": "v4.0.0",
-      "tag_creato": true,
-      "tag_revisione": "6beb410b9984f527f3e89bba420764ac9e24e436",
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "4.1.0",
+      "versione_workspace": "4.1.0",
+      "tag_previsto": "v4.1.0",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "revisione_candidate": "6beb410b9984f527f3e89bba420764ac9e24e436",
-      "assurance_entro_l_allowlist": true,
-      "commit_di_assurance": "2484019",
-      "nota": "Congelata su `6beb410`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati dopo lo scaricamento**, sui byte che il servizio artifact restituisce: fra quelli e quelli che il runner aveva in mano c'e' il trasporto, ed e' li' che una differenza diventerebbe invisibile.\n\n**I due requisiti che restavano aperti sono chiusi.** Le sei protezioni di `valida_flusso_ipc` -- flusso troppo corto, coda tronca, metadati oltre il tetto, messaggio oltre la fine, troppi messaggi, flusso senza schema -- erano corrette ma non trattenute da niente: cinque ora hanno una prova di regressione che confronta il **messaggio**, non solo l'esito, perche' un input puo' essere rifiutato dal ramo sbagliato e la prova resterebbe verde. Nessun difetto e' emerso. La sesta, `MAX_BLOCCHI`, resta fra i limiti noti delle prove: generare oltre otto megabyte di flusso valido a ogni corsa e' un **costo** che non si giustifica per un fondo di sicurezza, non un'impossibilita' tecnica.\n\nIl soak mirato che il criterio d'uscita prescrive sullo SHA congelato e' stato eseguito con la durata **misurata**. Su `dxf_reader`: monotonic 3644,7 s, boottime 3644,7 s, parete 3644,6 s -- i tre orologi coincidono entro un decimo di secondo, cioe' **nessuna sospensione rilevata dagli orologi usati**. La formulazione e' stretta apposta: tre orologi concordi dicono che loro non hanno visto una discontinuita', non che non ce ne sia stata una che nessuno dei tre puo' vedere. 780540 esecuzioni, 3175 unita' nuove, uscita 0, nessun finding. E' la proprieta' che la corsa precedente non poteva affermare, ed e' misurata invece che dedotta dal ritmo.\n\nSu `shp_reader` la corsa di `3ca3931` e' **riusata con motivazione**: il criterio ripete il soak quando cambia il codice di prodotto o compare un finding, e fra le due revisioni nessun file sotto `crates/*/src` che non sia di prova e' cambiato. Non e' attribuita a questa revisione per comodita'.\n\nIl misuratore aveva posto una soglia dell'80% sull'uso della CPU e questa corsa non l'ha superata: 280,3 s su 3644,7. La soglia e' stata corretta **dopo** la corsa, e il referto originale con quel verdetto e' conservato accanto all'evidenza perche' si veda. La ragione: la saturazione della CPU non e' mai stata un requisito del soak -- il criterio e' un'ora di campagna, ed e' dimostrata -- ma un controllo sull'ambiente che per un fuzzer non legato alla CPU boccia una campagna valida. Dove siano finiti i 3365 secondi non contabilizzati **resta non spiegato**: l'I/O sul mount 9p e' una causa possibile e non quantificata sulla campagna.\n\n**Pubblicata il 2026-09-15.** Il tag `v4.0.0` punta alla revisione congelata, e `release_authorized` e' `true`: e' una decisione scritta, non l'esito automatico di caselle verdi, ed e' l'unica condizione che nessun gate deriva. Il permesso operativo `release_action_allowed` e' stato speso pubblicando e torna `false`.\n\nLa bozza e' stata pubblicata **immutata**: i 23 asset riscaricati dalla release hanno digest e dimensioni identici a quelli riscaricati dalla bozza prima della pubblicazione, e i due confronti che l'invariante nomina sono entrambi eseguiti -- sei archivi congelati su sei, cinque artefatti del manifesto su cinque, sorgente Rust compreso. Nessun archivio e' stato ricostruito: sono i byte usciti dalla corsa di distribuzione su `6beb410`.\n\nRestano **due deviazioni** registrate nel manifesto, e ADOPTION dice per iscritto che non contano come conformita' per le regole che nominano. La prima: il catalogo comune dichiara `io.read` con `side_effect: none`, questo artefatto dichiara `local` -- una differenza osservabile dal contratto. Che il valore sia piu' cauto non la rende conforme: il contratto fissa quel campo e noi ne dichiariamo un altro. La seconda: la precondizione di pubblicazione per cui un dataset con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink non e' esprimibile nel risultato di `io.catalog`.\n\nLa qualifica cross-component con data-tools e database-tools resta **differita**: la 4.0.0 non promette interoperabilita' verificata end-to-end con gli altri componenti.",
-      "artefatti": [
-        {
-          "nome": "plenora-io-4.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "e432a2fbe8950613c03639ebade570967c4377c8df5c9b26b718b7cbcc2febbb",
-          "dimensione": 8613983,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        },
-        {
-          "nome": "plenora-io-4.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "fc8cf3c93d29b67099d2e1c5e3179c7883a3565117d5fcd680008aaad2f204d3",
-          "dimensione": 64454918,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        },
-        {
-          "nome": "plenora_io-4.0.0-py3-none-any.whl",
-          "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
-          "dimensione": 37414,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        },
-        {
-          "nome": "plenora_io-4.0.0.tar.gz",
-          "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
-          "dimensione": 54614,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        },
-        {
-          "nome": "plenora-io-4.0.0-windows-x86_64-base.zip",
-          "sha256": "451f397aa57807070fb9c7f838fbc19eb373330731abf76b01dd492ceee649f2",
-          "dimensione": 8752606,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        },
-        {
-          "nome": "plenora-io-4.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "dcde4cffd6a81da03aa21257eecbec9275ba4ce239e7351a40a29bba35db87e0",
-          "dimensione": 47819244,
-          "revisione": "6beb410b9984f527f3e89bba420764ac9e24e436"
-        }
-      ]
+      "stato": "iniziale",
+      "nota": "Candidate **iniziale**: il perimetro della 4.1.0 e' chiuso -- M1-M4, R1-R6, Q1 e Q2c -- e l'albero non e' ancora congelato. Le misure finali non sono state eseguite, e finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata: il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso.\n\nChe cosa la 4.1.0 **non** promette: la valutazione di manutenibilita' delle dipendenze (M5, fuori perimetro) e gli aggiornamenti delle fasi D, F, U, C, D1 compresa. Resta aperta Q2b, il cui contributo e' pronto e il cui invio non e' avvenuto."
     }
   },
   "docset": {
