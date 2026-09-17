@@ -310,7 +310,20 @@ def verifica_campagna(percorso: Path) -> list[str]:
     # La revisione prima di tutto: se il verbale parla di un altro albero, cio'
     # che dice degli esiti non riguarda questo, e leggerlo sarebbe peggio che
     # non averlo.
-    corrente = revisione_corrente()
+    # La revisione prima di tutto, e la regola non e' l'uguaglianza con HEAD.
+    #
+    # Lo e' stata, e rendeva il verbale impossibile da registrare: il file e'
+    # evidenza versionata, committarlo sposta HEAD, e la campagna smetteva di
+    # valere nell'istante in cui veniva messa al sicuro. Si e' visto alla prima
+    # campagna completa -- verde, e non registrabile.
+    #
+    # La regola e' quella del congelamento, e vive in `check_release_contract`
+    # insieme all'allowlist: discendenza piu' diff ammessa. L'import e' locale
+    # perche' questo modulo scrive il verbale **durante** lo smoke, dove il gate
+    # del contratto non serve e non deve poter rompere la scrittura.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_release_contract import evidenza_ancora_valida  # noqa: PLC0415
+
     dichiarata = documento.get("revisione")
     if not isinstance(dichiarata, str) or not dichiarata:
         return [
@@ -318,14 +331,9 @@ def verifica_campagna(percorso: Path) -> list[str]:
             "girata. Un verbale senza revisione qualifica qualunque albero, e "
             "non e' quello che una campagna prova."
         ]
-    if corrente is None:
-        return [f"{percorso.name}: git non risolve HEAD, e il confronto non si fa"]
-    if dichiarata != corrente:
-        return [
-            f"la campagna e' girata su «{dichiarata[:12]}», questo albero e' "
-            f"«{corrente[:12]}». Un verbale completo di un'altra revisione non "
-            "qualifica questa."
-        ]
+    motivi = evidenza_ancora_valida(dichiarata)
+    if motivi:
+        return [f"{percorso.name}: {motivo}" for motivo in motivi]
 
     dichiarati = documento.get("bersagli_dichiarati")
     if not isinstance(dichiarati, list) or not dichiarati:

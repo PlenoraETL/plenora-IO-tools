@@ -370,6 +370,10 @@ FOGLIE_LEGATE = frozenset(
         "revisioni.ultima_qualificata.sha",
         "ultima_misura.sha",
         "ultima_misura.evidenza",
+        # il verbale dell'ultima campagna, e la revisione su cui e' girata: due
+        # copie, e `_campagna_legata_al_verbale` le riconfronta con la fonte
+        "ultima_campagna_fuzz.sha",
+        "ultima_campagna_fuzz.verbale",
         "ultima_misura.checkpoint.passi_eseguiti",
         "ultima_misura.checkpoint.passi_verdi",
         "ultima_misura.checkpoint.passi_omessi",
@@ -518,6 +522,11 @@ FOGLIE_DICHIARATE = {
         "e' il motivo per cui esiste come campo scritto"
     ),
     "revisioni.baseline_documentale.significato": "prosa",
+    "ultima_campagna_fuzz.significato": (
+        "prosa: che cosa la campagna qualifica e che cosa no. I due valori "
+        "accanto -- la revisione e il verbale -- sono legati alla fonte, questa "
+        "riga spiega perche' non e' HEAD e non deve esserlo"
+    ),
     "revisioni.ultima_qualificata.significato": "prosa",
     "revisioni.ultima_qualificata.nota": "prosa",
     "ultima_misura.checkpoint.riconciliazione": "prosa: descrive il metodo, non un numero",
@@ -1334,6 +1343,69 @@ def cambiamenti_dopo_il_congelamento(
     return [p for p in percorsi if not _ammesso_dopo_il_congelamento(p)], []
 
 
+def evidenza_ancora_valida(misurata: Any, albero: Any = None) -> list[str]:
+    """I motivi per cui una misura girata su `misurata` non vale per quest'albero.
+
+    # Perche' «uguale a HEAD» e' troppo stretto, e «nella storia» troppo largo
+
+    Una misura appartiene alla revisione su cui e' girata, e la sua evidenza si
+    pubblica in un commit successivo: quel commit ha uno SHA diverso e **non
+    eredita** la misura. E' il modello gia' scritto in
+    `revisioni.ultima_qualificata`, e vale per i checkpoint da sempre.
+
+    Pretendere `misurata == HEAD` rende impossibile registrare l'evidenza:
+    committarla sposta HEAD, e la misura smette di valere nell'istante esatto in
+    cui viene messa al sicuro. Il verbale della campagna fuzz lo pretendeva, e
+    il difetto si e' visto alla prima campagna verde -- che non si poteva
+    registrare senza invalidarla.
+
+    Accettare qualunque antenato e' l'errore opposto, e piu' pericoloso: una
+    campagna di dieci commit fa qualificherebbe il codice di oggi. La sola
+    appartenenza alla storia non dice niente su che cosa sia cambiato nel
+    frattempo.
+
+    La regola sta in mezzo, ed e' quella del congelamento: discendenza **piu'**
+    diff dentro l'allowlist. Cio' che l'assurance produce puo' cambiare dopo la
+    misura senza invalidarla -- e' il motivo per cui quell'allowlist esiste --;
+    il prodotto no.
+
+    L'allowlist resta qui e non si duplica: chi ha bisogno di questa regola
+    importa questa funzione.
+    """
+    if not isinstance(misurata, str) or not misurata.strip():
+        return [
+            "la revisione su cui la misura e' girata non e' dichiarata: una "
+            "misura senza revisione qualificherebbe qualunque albero"
+        ]
+    risolta = revisione_risolta(misurata)
+    if risolta is None:
+        return [
+            f"la revisione misurata «{misurata[:12]}» non esiste in questo "
+            "repository: non e' una misura di questa storia"
+        ]
+    corrente = revisione_risolta("HEAD" if albero is None else albero)
+    if corrente is None:
+        return ["git non risolve l'albero corrente, e il confronto non si fa"]
+    if risolta == corrente:
+        return []
+    if not _discende_da(risolta, corrente):
+        return [
+            f"la misura e' girata su «{risolta[:12]}», che non e' un antenato "
+            f"di «{corrente[:12]}»: e' un altro ramo della storia, e non dice "
+            "niente di questo albero"
+        ]
+    fuori, guasti = cambiamenti_dopo_il_congelamento(risolta, corrente)
+    if guasti:
+        return guasti
+    if fuori:
+        return [
+            f"la misura e' girata su «{risolta[:12]}», e da li' sono cambiati "
+            f"file che l'assurance non produce: {sorted(fuori)[:5]}. Una misura "
+            "vale per il codice su cui e' girata, e questo non e' piu' quello."
+        ]
+    return []
+
+
 #: Dove vive la versione del pacchetto Python.
 #:
 #: Non e' quella del workspace, e la distinzione non e' teorica: il nome degli
@@ -1957,9 +2029,18 @@ def percorso_canonico(valore: Any) -> str | None:
 def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     """`{nome del file: chi lo cita}` per ogni evidenza che lo stato riferisce.
 
-    Sono due le fonti, e non una: la misura corrente e **ogni release
-    pubblicata**. Tenerle separate darebbe due controlli che si contraddicono,
-    ed e' esattamente cio' che e' successo.
+    Sono **tre** le fonti, e non una: la misura corrente, ogni release
+    pubblicata, e il verbale dell'ultima campagna di fuzzing. Tenerle separate
+    darebbe controlli che si contraddicono, ed e' esattamente cio' che e'
+    successo.
+
+    La terza e' arrivata dopo le altre due, e per la stessa ragione per cui
+    esistono: lo smoke deposita il proprio verbale in `assurance/evidence/`, e
+    finche' nessun campo lo citava quel file rendeva rosso l'insieme esatto
+    **a ogni corsa**. Le vie comode erano due, e sono state scartate entrambe:
+    riconoscerlo dal nome avrebbe messo nel gate un'eccezione che nessuno
+    rilegge, e spostarlo fuori dall'evidenza avrebbe tolto la traccia versionata
+    proprio alla campagna che qualifica il rilascio.
     """
     riferite: dict[str, str] = {}
     errori: list[str] = []
@@ -1998,6 +2079,24 @@ def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]
                 )
                 continue
             riferite.setdefault(Path(relativo).name, dove)
+
+    campagna = percorso_canonico(_dentro(stato, ("ultima_campagna_fuzz", "verbale")))
+    if campagna is None:
+        errori.append(
+            "`ultima_campagna_fuzz.verbale` assente o non canonico: la campagna "
+            "che qualifica il rilascio lascia un verbale in "
+            f"`{CARTELLA_DELLE_EVIDENZE}/`, e senza un campo che lo nomini "
+            "quell'evidenza non la rilegge nessuno"
+        )
+    elif Path(campagna).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
+        errori.append(
+            f"`ultima_campagna_fuzz.verbale` vale «{campagna}», che non sta in "
+            f"`{CARTELLA_DELLE_EVIDENZE}/`. Il verbale e' evidenza come le "
+            "altre: fuori di li' starebbe anche fuori dall'allowlist del "
+            "congelamento, e registrarlo diventerebbe impossibile."
+        )
+    else:
+        riferite.setdefault(Path(campagna).name, "`ultima_campagna_fuzz.verbale`")
     return riferite, errori
 
 
@@ -2048,7 +2147,48 @@ def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
         # illeggibile che li ha resi tali.
         return errori
 
-    presenti = sorted(voce.name for voce in DIRECTORY_EVIDENZE.iterdir())
+    # `assurance/evidence/` tiene due cose di natura diversa. I verbali sono
+    # file, e lo stato li cita uno per uno. Le attestazioni del profilo pubblico
+    # sono una **directory**, con un invariante suo:
+    # `condizione_profilo_pubblico_attestato` la legge per intero, artefatto per
+    # artefatto. Una directory governata altrove non e' un'evidenza orfana; una
+    # che nessuno governa lo e', e resta rossa.
+    #
+    # Senza questa distinzione il confronto per insieme avrebbe bloccato il
+    # rilascio **alla prima attestazione prodotta**: la voce `profilo-pubblico`
+    # sarebbe comparsa fra i presenti, nessun campo dello stato la cita, e il
+    # gate avrebbe chiesto di citare una directory al posto di un verbale. Il
+    # difetto era latente e si sarebbe visto al passo in cui costa di piu'.
+    #
+    # La si riconosce da `ATTESTAZIONI`, cioe' dalla costante che quel controllo
+    # usa: ripeterne il nome qui sarebbe la seconda rappresentazione che diverge
+    # per prima.
+    presenti_file: list[str] = []
+    for voce in sorted(DIRECTORY_EVIDENZE.iterdir()):
+        if voce.is_dir():
+            # Un link a una directory, chiamato come quella ammessa, passerebbe
+            # di qui **e** dal controllo dei link piu' sotto, che gira sui soli
+            # nomi attesi. La deroga vale per la directory vera.
+            if voce.is_symlink():
+                return [
+                    f"assurance/evidence/{voce.name} e' un link a una "
+                    "directory. L'evidenza dev'essere quello che dichiara di "
+                    "essere, e un link punta a un contenuto che l'albero non "
+                    "registra."
+                ]
+            if voce.name != ATTESTAZIONI.name:
+                return [
+                    f"assurance/evidence contiene la directory «{voce.name}», "
+                    "che nessun controllo governa. L'unica directory ammessa "
+                    f"e' «{ATTESTAZIONI.name}», che "
+                    "`condizione_profilo_pubblico_attestato` legge per intero; "
+                    "tutto il resto qui dentro e' un verbale, e i verbali sono "
+                    "file che lo stato cita."
+                ]
+            continue
+        presenti_file.append(voce.name)
+
+    presenti = sorted(presenti_file)
     attese = sorted(riferite)
     if presenti != attese:
         estranei = sorted(set(presenti) - set(attese))
@@ -4054,6 +4194,73 @@ def _classificazione(stato: dict[str, Any]) -> list[str]:
     return errori
 
 
+def _campagna_legata_al_verbale(stato: dict[str, Any]) -> list[str]:
+    """`ultima_campagna_fuzz` dice quello che il verbale dice, o e' rossa.
+
+    Il campo non e' un'etichetta: nomina un file e una revisione, e tutti e due
+    si rileggono dalla fonte. Senza, «citata dallo stato» sarebbe soddisfatta da
+    un nome di file qualunque, e l'insieme esatto delle evidenze tornerebbe a
+    essere una formalita' -- il difetto che il campo esiste per chiudere.
+
+    Qui si verificano **forma e identita'**: che il file sia il verbale di una
+    campagna, e che la revisione che lo stato riporta sia quella che il verbale
+    dichiara. Se la campagna sia **completa** lo dice
+    `classifica_finding_fuzz.py --verifica-campagna`, che il registro nomina
+    come prova di `campagna-fuzz-completa`. Le due domande restano separate:
+    ripetere il verdetto qui darebbe due controlli capaci di divergere, ed e'
+    esattamente la duplicazione che questo gate esiste per impedire.
+    """
+    relativo = percorso_canonico(_dentro(stato, ("ultima_campagna_fuzz", "verbale")))
+    if relativo is None:
+        # Lo dice gia' `_evidenze_riferite`, con il messaggio giusto: ripeterlo
+        # qui darebbe due righe per un guasto solo.
+        return []
+    percorso = ROOT / relativo
+    if not percorso.is_file():
+        return [
+            f"`ultima_campagna_fuzz.verbale` nomina «{relativo}», che non "
+            "esiste: una campagna citata e assente non e' piu' leggibile"
+        ]
+    try:
+        verbale = json.loads(percorso.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as guasto:
+        return [f"{relativo}: non si legge ({guasto})"]
+    if not isinstance(verbale, dict):
+        return [f"{relativo}: non e' un oggetto"]
+
+    mancanti = [
+        campo
+        for campo in (
+            "revisione",
+            "bersagli_dichiarati",
+            "hanno_finito",
+            "fermati_a_finding_noto",
+            "secondi_per_bersaglio",
+        )
+        if campo not in verbale
+    ]
+    if mancanti:
+        return [
+            f"{relativo}: mancano {mancanti}. Non e' il verbale di una campagna, "
+            "e citarlo come tale direbbe piu' di quel che c'e'."
+        ]
+
+    dichiarata = _dentro(stato, ("ultima_campagna_fuzz", "sha"))
+    risolta_verbale = revisione_risolta(verbale.get("revisione"))
+    if risolta_verbale is None:
+        return [
+            f"{relativo}: dichiara la revisione «{verbale.get('revisione')}», "
+            "che git non risolve"
+        ]
+    if revisione_risolta(dichiarata) != risolta_verbale:
+        return [
+            f"`ultima_campagna_fuzz.sha` vale «{str(dichiarata)[:12]}» e il "
+            f"verbale e' girato su «{risolta_verbale[:12]}»: lo stato copia una "
+            "revisione che la sua fonte non dichiara"
+        ]
+    return []
+
+
 def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     """`assurance/current-state.json` non e' una fonte: e' una **giunzione**.
 
@@ -4072,6 +4279,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _sola_evidenza_corrente(stato)
         + _forma_legata(stato)
         + _misura_legata_all_evidenza(stato)
+        + _campagna_legata_al_verbale(stato)
         + _conteggi_n1_legati_al_registro(stato)
         + _candidate_legata_alle_fonti(stato)
         + verifica_release_storiche(stato)

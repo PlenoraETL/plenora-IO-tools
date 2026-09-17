@@ -1109,7 +1109,7 @@ rinvio non si trasforma in dimenticanza.
 
 | # | voce | criterio di chiusura | dipende da |
 |---|---|---|---|
-| 1 | **Q2b** — segnalazione upstream ad `arrow-rs` | **contributo pronto, invio pendente**: caso minimo in `upstream/arrow-rs-byte-stream-split/`, testo in `SEGNALAZIONE.md`. Chiude con il riferimento alla issue, non prima. **È l'unica voce di lavoro che resta aperta nella 4.1.0** | ne dipende la prima via per `campagna-fuzz-completa` |
+| 1 | ~~**Q2b** — segnalazione upstream ad `arrow-rs`~~ | **chiusa**: inviata il 2026-09-17, [`apache/arrow-rs#11121`](https://github.com/apache/arrow-rs/issues/11121), con `Cargo.toml` e `src/main.rs` del caso minimo nel corpo. Chiudeva con il riferimento alla issue, e il riferimento c'è. **Inviare non è correggere**: il difetto a monte resta aperto, e la prima via per `campagna-fuzz-completa` dipende ora dai tempi di `arrow-rs` | — |
 | 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
 | 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**: il gate distingue l'albero congelato dal commit di registrazione; sei prove, e la prima riproduce il guasto | — |
 | 4 | ~~**R1** — regressione su `MAX_BLOCCHI`~~ | **chiusa**: tre casi in `prevalida_arrow::tetto_dei_messaggi`; costo misurato — 128 MiB generati in 60 ms e scanditi in 3,5 s — e fixture generata, non versionata | — |
@@ -1517,7 +1517,7 @@ una copia appena clonata parte senza. In locale persistono e il replay le legge 
 `fuzz/artifacts/geoparquet_reader/` contiene oggi tre input del 2026-08-17, che
 il replay del livello 2 su `6beb410` ha rieseguito verdi.
 
-#### Q2b — segnalazione upstream: **contributo pronto, invio pendente**
+#### Q2b — segnalazione upstream: **chiusa, inviata il 2026-09-17**
 
 Il contributo è in `upstream/arrow-rs-byte-stream-split/`: un progetto Cargo
 autonomo, fuori dal workspace, che dipende solo da `parquet`, `arrow-array` e
@@ -1550,6 +1550,24 @@ perché chi legge possa aprirli con altri strumenti.
 **Criterio di chiusura**: il riferimento alla issue. Finché non c'è, la voce
 resta aperta — il contributo è pronto, non inviato, e le due cose non si
 confondono.
+
+**Chiusa il 2026-09-17**: [`apache/arrow-rs#11121`][arrow-11121], aperta con
+l'identità `PlenoraETL`, la stessa dei sei contributi precedenti. Il corpo porta
+`Cargo.toml` e `src/main.rs` per intero, in modo che il caso si compili senza
+avere questo repository; l'unico adattamento rispetto ai file versionati è la
+traduzione di due righe di commento che nominavano il nostro workspace, perché
+correggerle qui avrebbe toccato `upstream/`, che sta fuori dall'allowlist del
+congelamento.
+
+**Che cosa questa chiusura non dice.** Non dice che il difetto sia corretto:
+inviare e correggere sono due cose diverse, ed è la stessa distinzione che il
+censimento dei contributi fa fra «preparato», «inviato» e «accettato e
+rilasciato». La prima via per `campagna-fuzz-completa` — la correzione upstream
+nel pin — è ora *cominciata*, non percorsa, e dipende dai tempi di `arrow-rs`.
+La verifica dovuta resta: se il riproduttore smette di riprodurre, la voce va
+tolta invece di lasciarla invecchiare.
+
+[arrow-11121]: https://github.com/apache/arrow-rs/issues/11121
 
 #### Q2c — gestire i finding noti del fuzz: **chiusa**
 

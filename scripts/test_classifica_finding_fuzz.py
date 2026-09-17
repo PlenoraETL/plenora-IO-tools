@@ -329,10 +329,21 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
         un verbale **completo** di ieri qualificherebbe l'albero di oggi -- ed
         e' la stessa famiglia della misura di profondita' che porta l'impronta
         del perimetro.
+
+        La regola non e' piu' l'uguaglianza con HEAD -- che rendeva il verbale
+        impossibile da registrare, perche' committarlo sposta HEAD. E'
+        discendenza **piu'** diff dentro l'allowlist, e vive in
+        `check_release_contract.evidenza_ancora_valida` insieme all'allowlist
+        stessa, che non si duplica. Qui si prova che la campagna la **usa** e
+        che il motivo nomina il verbale; le quattro direzioni della regola hanno
+        le proprie regressioni dove la regola sta.
         """
         motivi = self._verbale(revisione="0" * 40)
-        self.assertTrue(any("non qualifica questa" in m for m in motivi), motivi)
+        self.assertTrue(motivi)
         self.assertTrue(any("000000000000" in m for m in motivi), motivi)
+        self.assertTrue(
+            any(m.startswith("verbale.json:") for m in motivi), motivi
+        )
 
     def test_un_verbale_senza_revisione_e_rosso(self) -> None:
         motivi = self._verbale(revisione=None)

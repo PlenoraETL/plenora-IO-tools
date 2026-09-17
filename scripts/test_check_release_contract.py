@@ -3517,7 +3517,13 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         self.assertEqual(gate._sola_evidenza_corrente(stato), [])
         riferite, errori = gate._evidenze_riferite(stato)
         self.assertEqual(errori, [], errori)
-        presenti = sorted(v.name for v in gate.DIRECTORY_EVIDENZE.iterdir())
+        # I **file**, non ogni voce: la directory delle attestazioni del profilo
+        # pubblico ha un invariante suo, e confrontarla con i riferimenti la
+        # farebbe comparire fra gli estranei appena la prima attestazione venisse
+        # prodotta -- cioe' al passo del rilascio in cui costa di piu'.
+        presenti = sorted(
+            v.name for v in gate.DIRECTORY_EVIDENZE.iterdir() if v.is_file()
+        )
         self.assertEqual(presenti, sorted(riferite), presenti)
 
     def test_un_evidenza_precedente_rimasta_e_rossa(self) -> None:
@@ -3608,6 +3614,68 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
 
+    def test_la_directory_delle_attestazioni_non_e_un_estranea(self) -> None:
+        """Il difetto latente che si sarebbe visto al primo artefatto attestato.
+
+        `ATTESTAZIONI` vive **dentro** `assurance/evidence/`, e il confronto per
+        insieme guardava ogni voce: la directory sarebbe comparsa fra gli
+        estranei, nessun campo dello stato la cita, e il gate avrebbe chiesto di
+        citare una directory al posto di un verbale. Il rilascio si sarebbe
+        fermato li' -- al passo in cui costa di piu', con gli archivi gia'
+        costruiti.
+        """
+        stato = self.stato()
+        riferite, _ = gate._evidenze_riferite(stato)
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            for nome in riferite:
+                (radice / nome).write_text("{}", encoding="utf-8")
+            attestazioni = radice / gate.ATTESTAZIONI.name
+            attestazioni.mkdir()
+            (attestazioni / "plenora-io-cli-linux.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+
+    def test_una_directory_delle_attestazioni_che_e_un_link_e_rossa(self) -> None:
+        """La deroga vale per la directory vera, non per il suo nome.
+
+        Un link chiamato come quella ammessa passerebbe di qui **e** dal
+        controllo dei link, che gira sui soli nomi attesi.
+        """
+        stato = self.stato()
+        riferite, _ = gate._evidenze_riferite(stato)
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            for nome in riferite:
+                (radice / nome).write_text("{}", encoding="utf-8")
+            altrove = radice.parent / "altrove"
+            altrove.mkdir()
+            try:
+                (radice / gate.ATTESTAZIONI.name).symlink_to(
+                    altrove, target_is_directory=True
+                )
+            except (OSError, NotImplementedError) as impedimento:
+                self.skipTest(f"symlink non creabili qui: {impedimento}")
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+            altrove.rmdir()
+        self.assertTrue(any("e' un link" in m for m in errori), errori)
+
+    def test_un_verbale_di_campagna_non_riferito_e_rosso(self) -> None:
+        """Senza il campo che lo nomina, il verbale e' un'evidenza orfana.
+
+        E' il guasto vero incontrato alla prima campagna completa: lo smoke
+        deposita il proprio verbale qui dentro, nessuna fonte lo citava, e
+        l'insieme esatto tornava rosso a ogni corsa.
+        """
+        stato = self.stato()
+        stato.pop("ultima_campagna_fuzz", None)
+        _, errori = gate._evidenze_riferite(stato)
+        self.assertTrue(
+            any("ultima_campagna_fuzz.verbale" in m for m in errori), errori
+        )
 
     # --- la transizione fra due release, con fixture isolate ---------------
     #
@@ -3618,14 +3686,23 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
 
     STORICA = "checkpoint-a61a081.json"
     CORRENTE = "checkpoint-aa86f5f.json"
+    CAMPAGNA = "fuzz-smoke-ultima.json"
     REV_STORICA = "a61a0815b000f2856594375a2858c41e32a1fff7"
 
     def scenario(self, radice: pathlib.Path, *, file: tuple[str, ...]) -> dict:
         """Release 2.0.0 archiviata piu' candidate 3.0.0 con evidenza propria."""
         for nome in file:
             (radice / nome).write_text("{}", encoding="utf-8")
+        # Il verbale della campagna fa parte di **ogni** scenario, come la
+        # misura corrente: lo stato lo cita sempre. Lasciarlo fuori renderebbe
+        # rosso l'insieme per una ragione che non e' quella in prova, e il
+        # messaggio parlerebbe del riferimento mancante invece che del file.
+        (radice / self.CAMPAGNA).write_text("{}", encoding="utf-8")
         return {
             "ultima_misura": {"evidenza": f"assurance/evidence/{self.CORRENTE}"},
+            "ultima_campagna_fuzz": {
+                "verbale": f"assurance/evidence/{self.CAMPAGNA}"
+            },
             "chiuso": {
                 "release_pubblicate": [
                     {
@@ -4733,3 +4810,170 @@ class SondeDelTagSuiDueAlberi(unittest.TestCase):
             gate.ROOT / ".github" / "workflows" / "release-qualification.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("_candidate_legata_alle_fonti", workflow)
+
+
+class SondeDellEvidenzaAncoraValida(unittest.TestCase):
+    """Quando una misura girata altrove vale ancora per l'albero corrente.
+
+    La regola sta fra due errori opposti. «Uguale a HEAD» rende impossibile
+    registrare l'evidenza: committarla sposta HEAD, e la misura smette di valere
+    nell'istante in cui viene messa al sicuro -- e' il guasto trovato alla prima
+    campagna fuzz completa. «Basta che sia nella storia» e' peggio: una campagna
+    di dieci commit fa qualificherebbe il codice di oggi.
+
+    Le quattro direzioni sono provate una per una, e nessuna si deduce dalle
+    altre.
+    """
+
+    MISURATA = "a" * 40
+    ALBERO = "b" * 40
+
+    def _motivi(
+        self, misurata, *, discende=True, cambiati=(), diff_rotta=False
+    ) -> list[str]:
+        def finta_risoluzione(revisione):
+            if revisione == "HEAD":
+                return self.ALBERO
+            if revisione in (self.MISURATA, self.ALBERO):
+                return revisione
+            return None
+
+        def finta_diff(_antenato, _fino_a):
+            # `None` non e' una diff vuota: e' git che non ha risposto.
+            return None if diff_rotta else "\n".join(cambiati)
+
+        with mock.patch.object(
+            gate, "revisione_risolta", side_effect=finta_risoluzione
+        ), mock.patch.object(
+            gate, "_discende_da", side_effect=lambda *_: discende
+        ), mock.patch.object(gate, "_uscita_della_diff", side_effect=finta_diff):
+            return gate.evidenza_ancora_valida(misurata)
+
+    def test_la_misura_sull_albero_corrente_vale(self) -> None:
+        self.assertEqual(self._motivi(self.ALBERO), [])
+
+    def test_l_evidenza_pubblicata_in_un_commit_ammesso_vale(self) -> None:
+        """Il caso per cui la regola esiste.
+
+        Il commit che registra la campagna tocca soltanto cio' che l'assurance
+        produce: la misura continua a qualificare l'albero, ed e' esattamente
+        quello che l'allowlist del congelamento significa.
+        """
+        self.assertEqual(
+            self._motivi(
+                self.MISURATA,
+                cambiati=[
+                    "assurance/evidence/fuzz-smoke-ultima.json",
+                    "assurance/current-state.json",
+                    "docs/RELEASE.md",
+                ],
+            ),
+            [],
+        )
+
+    def test_una_modifica_del_prodotto_invalida_la_misura(self) -> None:
+        motivi = self._motivi(
+            self.MISURATA, cambiati=["crates/driver-shp/src/lib.rs"]
+        )
+        self.assertTrue(motivi)
+        self.assertTrue(any("driver-shp" in m for m in motivi), motivi)
+
+    def test_una_revisione_che_non_e_un_antenato_e_rossa(self) -> None:
+        """La sola appartenenza alla storia non basta, e nemmeno la esistenza.
+
+        Un altro ramo non dice niente di questo albero, e la diff fra i due non
+        e' la domanda che si sta ponendo.
+        """
+        motivi = self._motivi(self.MISURATA, discende=False)
+        self.assertTrue(any("non e' un antenato" in m for m in motivi), motivi)
+
+    def test_una_revisione_che_git_non_risolve_e_rossa(self) -> None:
+        motivi = self._motivi("f" * 40)
+        self.assertTrue(
+            any("non esiste in questo repository" in m for m in motivi), motivi
+        )
+
+    def test_una_revisione_non_dichiarata_e_rossa(self) -> None:
+        for valore in ("", "   ", None, 7, []):
+            with self.subTest(valore=valore):
+                self.assertTrue(self._motivi(valore))
+
+    def test_una_diff_che_non_acquisisce_non_e_una_diff_vuota(self) -> None:
+        # Sarebbe il verde per assenza di domanda: nessun percorso fuori
+        # allowlist perche' nessun percorso.
+        self.assertTrue(self._motivi(self.MISURATA, diff_rotta=True))
+
+
+class SondeDellaCampagnaCitataDalloStato(unittest.TestCase):
+    """`ultima_campagna_fuzz` non e' un'etichetta: si rilegge dalla fonte.
+
+    Senza questo controllo «citata dallo stato» sarebbe soddisfatta da un nome
+    di file qualunque, e l'insieme esatto delle evidenze -- che quel campo
+    esiste per rendere di nuovo possibile -- tornerebbe una formalita'.
+    """
+
+    VERBALE = "assurance/evidence/fuzz-smoke-ultima.json"
+    SHA = "a" * 40
+
+    def _verbale_completo(self, revisione: str) -> dict:
+        return {
+            "schema_version": 1,
+            "revisione": revisione,
+            "bersagli_dichiarati": ["shp_reader"],
+            "secondi_per_bersaglio": 60,
+            "hanno_finito": ["shp_reader"],
+            "fermati_a_finding_noto": [],
+            "falliti_su_finding_nuovo": [],
+        }
+
+    def _motivi(self, *, contenuto=None, sha=None, crea=True) -> list[str]:
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            if crea:
+                destinazione = radice / self.VERBALE
+                destinazione.parent.mkdir(parents=True, exist_ok=True)
+                destinazione.write_text(
+                    json.dumps(
+                        self._verbale_completo(self.SHA)
+                        if contenuto is None
+                        else contenuto
+                    ),
+                    encoding="utf-8",
+                )
+            stato = {
+                "ultima_campagna_fuzz": {
+                    "sha": self.SHA if sha is None else sha,
+                    "verbale": self.VERBALE,
+                    "significato": "prosa",
+                }
+            }
+            with mock.patch.object(gate, "ROOT", radice), mock.patch.object(
+                gate,
+                "revisione_risolta",
+                side_effect=lambda r: r if isinstance(r, str) and len(r) == 40 else None,
+            ):
+                return gate._campagna_legata_al_verbale(stato)
+
+    def test_un_verbale_coerente_passa(self) -> None:
+        self.assertEqual(self._motivi(), [])
+
+    def test_un_verbale_assente_e_rosso(self) -> None:
+        motivi = self._motivi(crea=False)
+        self.assertTrue(any("non esiste" in m for m in motivi), motivi)
+
+    def test_un_file_che_non_e_un_verbale_e_rosso(self) -> None:
+        # Citare come campagna un file qualunque direbbe piu' di quel che c'e'.
+        parziale = self._verbale_completo(self.SHA)
+        del parziale["hanno_finito"]
+        motivi = self._motivi(contenuto=parziale)
+        self.assertTrue(any("hanno_finito" in m for m in motivi), motivi)
+
+    def test_uno_sha_che_la_fonte_non_dichiara_e_rosso(self) -> None:
+        motivi = self._motivi(sha="b" * 40)
+        self.assertTrue(
+            any("la sua fonte non dichiara" in m for m in motivi), motivi
+        )
+
+    def test_una_revisione_che_git_non_risolve_e_rossa(self) -> None:
+        motivi = self._motivi(contenuto=self._verbale_completo("corta"))
+        self.assertTrue(any("git non risolve" in m for m in motivi), motivi)
