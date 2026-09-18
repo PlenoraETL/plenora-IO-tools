@@ -14,6 +14,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+import unittest.mock
 
 from scripts import classifica_finding_fuzz as gate
 
@@ -414,3 +415,127 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
         # I falliti escono dai «finiti»: contarli fra i completi renderebbe il
         # verbale piu' generoso della corsa.
         self.assertIn('${failed[@]+"${failed[@]}"}; do', smoke)
+
+
+class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
+    """Il verbale della corsa si scrive dove la corsa dice, e il checkpoint
+    consuma **il proprio**.
+
+    # Il difetto che queste sonde chiudono
+
+    Lo smoke e' un passo del livello 2, e il verbale e' un file **tracciato**.
+    Scriverlo durante la corsa fa cambiare l'albero che la corsa sta
+    verificando, e `albero_invariato` diventa rosso: un checkpoint che modifica
+    l'albero che qualifica non qualifica niente. Si e' visto alla prima corsa
+    completa, dopo che il verbale era stato tracciato per renderlo registrabile.
+
+    Cambia il **momento** della registrazione, non il requisito: la campagna
+    resta completa e attribuita alla revisione eseguita, e a pubblicarla
+    nell'albero e' `registra-evidenza-s9.py`, dopo.
+    """
+
+    def _scrivi(self, destinazione: pathlib.Path | None) -> None:
+        with contextlib.ExitStack() as pila:
+            if destinazione is not None:
+                pila.enter_context(
+                    unittest.mock.patch.dict(
+                        "os.environ", {gate.VARIABILE_VERBALE: str(destinazione)}
+                    )
+                )
+            with contextlib.redirect_stdout(io.StringIO()):
+                gate.scrivi_verbale(
+                    60, ["shp_reader"], [], [], ["shp_reader"]
+                )
+
+    def test_la_corsa_scrive_fuori_dall_albero(self) -> None:
+        """Produzione esterna: il file nasce dove la variabile dice."""
+        with tempfile.TemporaryDirectory() as temporanea:
+            fuori = pathlib.Path(temporanea) / "corsa" / "fuzz-smoke-ultima.json"
+            self._scrivi(fuori)
+            self.assertTrue(fuori.is_file(), "il verbale non e' stato scritto fuori")
+            documento = json.loads(fuori.read_text(encoding="utf-8"))
+            self.assertEqual(documento["hanno_finito"], ["shp_reader"])
+
+    def test_l_albero_resta_invariato(self) -> None:
+        """La proprieta' per cui la variabile esiste.
+
+        Il file versionato non viene toccato: e' cio' che tiene verde
+        `albero_invariato` mentre la campagna gira dentro il checkpoint.
+        """
+        prima = (
+            gate.VERBALE.read_bytes() if gate.VERBALE.exists() else None
+        )
+        with tempfile.TemporaryDirectory() as temporanea:
+            self._scrivi(pathlib.Path(temporanea) / "fuzz-smoke-ultima.json")
+        dopo = gate.VERBALE.read_bytes() if gate.VERBALE.exists() else None
+        self.assertEqual(prima, dopo, "la corsa ha toccato il verbale versionato")
+
+    def test_senza_variabile_scrive_dove_vive_l_evidenza(self) -> None:
+        """La via ordinaria non cambia: fuori dal checkpoint il verbale sta
+        dove lo stato lo cita."""
+        self.assertEqual(gate.percorso_del_verbale(), gate.VERBALE)
+
+    def _verifica(self, documento, revisione_attesa, crea=True) -> list[str]:
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "fuzz-smoke-ultima.json"
+            if crea:
+                percorso.write_text(json.dumps(documento), encoding="utf-8")
+            return gate.verifica_campagna(percorso, revisione_attesa)
+
+    def _completo(self, revisione: str) -> dict:
+        return {
+            "revisione": revisione,
+            "bersagli_dichiarati": ["shp_reader"],
+            "secondi_per_bersaglio": 60,
+            "hanno_finito": ["shp_reader"],
+            "fermati_a_finding_noto": [],
+            "falliti_su_finding_nuovo": [],
+        }
+
+    def test_il_verbale_della_corsa_passa(self) -> None:
+        self.assertEqual(self._verifica(self._completo("a" * 40), "a" * 40), [])
+
+    def test_un_verbale_mancante_e_rosso(self) -> None:
+        """Assente non e' «riuscita»: e' l'assenza di una campagna."""
+        motivi = self._verifica(None, "a" * 40, crea=False)
+        self.assertTrue(any("assente" in m for m in motivi), motivi)
+
+    def test_un_verbale_precedente_non_vale_per_questa_corsa(self) -> None:
+        """Il ripiego che il passo esiste per impedire.
+
+        Con la regola del rilascio -- discendenza piu' diff ammessa -- il
+        verbale di un antenato passerebbe. Dentro il checkpoint la domanda e'
+        un'altra: «e' il verbale di **questa** corsa?», e li' l'uguaglianza e'
+        la risposta giusta.
+        """
+        motivi = self._verifica(self._completo("b" * 40), "a" * 40)
+        self.assertTrue(any("non ripiega" in m for m in motivi), motivi)
+        self.assertTrue(any("bbbbbbbbbbbb" in m for m in motivi), motivi)
+
+    def test_una_campagna_interrotta_resta_incompleta(self) -> None:
+        """La completezza si legge dal **contenuto**, non dall'exit code.
+
+        Lo smoke esce 0 anche quando un bersaglio si e' fermato a un finding
+        noto: dedurre la completezza da quello 0 renderebbe il livello 2 piu'
+        generoso del gate del rilascio.
+        """
+        documento = self._completo("a" * 40)
+        documento["fermati_a_finding_noto"] = ["geoparquet_reader"]
+        documento["hanno_finito"] = []
+        motivi = self._verifica(documento, "a" * 40)
+        self.assertTrue(any("non e' completa" in m for m in motivi), motivi)
+        self.assertTrue(any("geoparquet_reader" in m for m in motivi), motivi)
+
+    def test_il_checkpoint_consuma_il_verbale_della_corsa(self) -> None:
+        """Il legame fra lo script e questa regola, perche' non si sciolga.
+
+        Il passo deve leggere il file della corsa e pretendere la revisione
+        misurata: senza l'uno o l'altro, un verbale gia' versionato passerebbe
+        al posto suo.
+        """
+        script = (gate.ROOT / "scripts" / "s9-checkpoint.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"export {gate.VARIABILE_VERBALE}=", script)
+        self.assertIn("--verifica-campagna", script)
+        self.assertIn("--revisione-della-corsa", script)

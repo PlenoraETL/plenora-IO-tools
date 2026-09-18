@@ -73,6 +73,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -287,7 +288,9 @@ def conserva(
     return scritti
 
 
-def verifica_campagna(percorso: Path) -> list[str]:
+def verifica_campagna(
+    percorso: Path, revisione_attesa: str | None = None
+) -> list[str]:
     """I motivi per cui l'ultima campagna non e' **completa**; vuoto se lo e'.
 
     Un bersaglio fermato a un finding noto ha smesso di esplorare: libFuzzer non
@@ -309,21 +312,7 @@ def verifica_campagna(percorso: Path) -> list[str]:
 
     # La revisione prima di tutto: se il verbale parla di un altro albero, cio'
     # che dice degli esiti non riguarda questo, e leggerlo sarebbe peggio che
-    # non averlo.
-    # La revisione prima di tutto, e la regola non e' l'uguaglianza con HEAD.
-    #
-    # Lo e' stata, e rendeva il verbale impossibile da registrare: il file e'
-    # evidenza versionata, committarlo sposta HEAD, e la campagna smetteva di
-    # valere nell'istante in cui veniva messa al sicuro. Si e' visto alla prima
-    # campagna completa -- verde, e non registrabile.
-    #
-    # La regola e' quella del congelamento, e vive in `check_release_contract`
-    # insieme all'allowlist: discendenza piu' diff ammessa. L'import e' locale
-    # perche' questo modulo scrive il verbale **durante** lo smoke, dove il gate
-    # del contratto non serve e non deve poter rompere la scrittura.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from check_release_contract import evidenza_ancora_valida  # noqa: PLC0415
-
+    # non averlo. Le domande pero' sono **due**, e non hanno la stessa risposta.
     dichiarata = documento.get("revisione")
     if not isinstance(dichiarata, str) or not dichiarata:
         return [
@@ -331,9 +320,38 @@ def verifica_campagna(percorso: Path) -> list[str]:
             "girata. Un verbale senza revisione qualifica qualunque albero, e "
             "non e' quello che una campagna prova."
         ]
-    motivi = evidenza_ancora_valida(dichiarata)
-    if motivi:
-        return [f"{percorso.name}: {motivo}" for motivo in motivi]
+
+    if revisione_attesa is not None:
+        # La domanda del **checkpoint**: «e' il verbale di questa corsa?». Qui
+        # l'uguaglianza e' la risposta giusta, e la regola dell'allowlist
+        # sarebbe troppo larga -- accetterebbe il verbale di un antenato, cioe'
+        # proprio il ripiego su una campagna precedente che il livello 2 non
+        # deve poter fare. Il verbale lo produce la corsa, fuori dall'albero, e
+        # il passo lo consuma da li'.
+        if dichiarata != revisione_attesa:
+            return [
+                f"{percorso.name}: la campagna dichiara «{dichiarata[:12]}» "
+                f"mentre la corsa misura «{revisione_attesa[:12]}». Il "
+                "checkpoint consuma il verbale prodotto da se stesso e non "
+                "ripiega su quello gia' versionato."
+            ]
+    else:
+        # La domanda del **rilascio**: «questa campagna qualifica ancora
+        # quest'albero?». La regola non e' l'uguaglianza con HEAD -- lo e'
+        # stata, e rendeva il verbale impossibile da registrare, perche'
+        # committarlo sposta HEAD. E' quella del congelamento, e vive in
+        # `check_release_contract` insieme all'allowlist: discendenza piu' diff
+        # ammessa.
+        #
+        # L'import e' locale perche' questo modulo scrive il verbale **durante**
+        # lo smoke, dove il gate del contratto non serve e non deve poter
+        # rompere la scrittura.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from check_release_contract import evidenza_ancora_valida  # noqa: PLC0415
+
+        motivi = evidenza_ancora_valida(dichiarata)
+        if motivi:
+            return [f"{percorso.name}: {motivo}" for motivo in motivi]
 
     dichiarati = documento.get("bersagli_dichiarati")
     if not isinstance(dichiarati, list) or not dichiarati:
@@ -374,6 +392,28 @@ def verifica_campagna(percorso: Path) -> list[str]:
 
 
 VERBALE = ROOT / "assurance" / "evidence" / "fuzz-smoke-ultima.json"
+
+#: Dove **questa** corsa scrive il proprio verbale.
+#:
+#: Per difetto l'albero dell'assurance, che e' dove il verbale vive come
+#: evidenza citata dallo stato. Il checkpoint lo dirotta fuori dall'albero con
+#: `PLENORA_VERBALE_CAMPAGNA`, e non e' una comodita': lo smoke e' un passo del
+#: livello 2, il verbale e' un file **tracciato**, e scriverlo durante la corsa
+#: rende rosso `albero_invariato`. Un checkpoint che modifica l'albero che sta
+#: qualificando non qualifica niente -- e' la stessa ragione per cui
+#: `fuzz-profondita.sh` non e' un passo del checkpoint, scritta nel suo commento
+#: da molto prima che questa scattasse.
+#:
+#: Cambia il **momento** della registrazione, non il requisito: la campagna deve
+#: restare completa e attribuibile alla revisione su cui e' girata, e
+#: `registra-evidenza-s9.py` pubblica poi quel verbale nell'albero.
+VARIABILE_VERBALE = "PLENORA_VERBALE_CAMPAGNA"
+
+
+def percorso_del_verbale() -> Path:
+    """Il file su cui questa corsa scrive, che non e' sempre quello versionato."""
+    fuori = os.environ.get(VARIABILE_VERBALE)
+    return Path(fuori) if fuori else VERBALE
 
 
 def revisione_corrente() -> str | None:
@@ -418,8 +458,9 @@ def scrivi_verbale(
     pochissimo. Il verbale registra percio' cio' che `cargo fuzz list`
     dichiarava, e la qualifica pretende che i finiti siano tutti.
     """
-    VERBALE.parent.mkdir(parents=True, exist_ok=True)
-    VERBALE.write_text(
+    destinazione = percorso_del_verbale()
+    destinazione.parent.mkdir(parents=True, exist_ok=True)
+    destinazione.write_text(
         json.dumps(
             {
                 "schema_version": 1,
@@ -445,7 +486,7 @@ def scrivi_verbale(
         encoding="utf-8",
         newline="\n",
     )
-    print(f"verbale della corsa in {_mostra(VERBALE)}")
+    print(f"verbale della corsa in {_mostra(destinazione)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -487,6 +528,14 @@ def main(argv: list[str] | None = None) -> int:
         help="i bersagli che `cargo fuzz list` dichiara, cioe' il perimetro intero",
     )
     argomenti.add_argument(
+        "--revisione-della-corsa",
+        help=(
+            "lo SHA che la corsa sta misurando: con questo il verbale deve "
+            "dichiarare esattamente quella revisione, ed e' come il "
+            "checkpoint pretende il proprio invece di uno precedente"
+        ),
+    )
+    argomenti.add_argument(
         "--verifica-campagna",
         type=Path,
         help=(
@@ -508,7 +557,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if opzioni.verifica_campagna is not None:
-        motivi = verifica_campagna(opzioni.verifica_campagna)
+        motivi = verifica_campagna(
+            opzioni.verifica_campagna, opzioni.revisione_della_corsa
+        )
         for motivo in motivi:
             print(motivo, file=sys.stderr)
         if motivi:

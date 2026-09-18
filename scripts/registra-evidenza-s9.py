@@ -300,6 +300,59 @@ def manifesto_dei_log(corsa: pathlib.Path) -> dict:
     }
 
 
+#: Il verbale della campagna, come la corsa lo produce e dove va pubblicato.
+#:
+#: Il checkpoint lo fa scrivere **fuori dall'albero**, nella propria directory
+#: di corsa: un passo che scrivesse un file tracciato mentre il livello 2
+#: verifica l'albero renderebbe rosso `albero_invariato`. Qui finisce il
+#: percorso: registrata la corsa, il verbale diventa evidenza versionata come
+#: le altre, ed e' `ultima_campagna_fuzz` nello stato a citarlo.
+NOME_DEL_VERBALE = "fuzz-smoke-ultima.json"
+VERBALE_PUBBLICATO = ROOT / "assurance" / "evidence" / NOME_DEL_VERBALE
+
+
+def pubblica_verbale(corsa: pathlib.Path, risultato: dict) -> list[str]:
+    """Copia il verbale della corsa nell'albero; i motivi per cui non si puo'.
+
+    Tre rifiuti, e nessuno si deduce dagli altri: **assente** vuol dire che lo
+    smoke non ha prodotto niente, e una campagna che non ha lasciato traccia non
+    e' una campagna riuscita; **illeggibile** vuol dire che c'e' un file ma non
+    dice niente, ed e' peggio che non averlo; **di un'altra revisione** vuol
+    dire che si sta per pubblicare come qualifica di questa corsa il verbale di
+    un'altra, che e' il ripiego piu' comodo e il piu' dannoso.
+
+    I byte si copiano, non si riscrivono: un verbale rigenerato qui sarebbe un
+    secondo documento che dice di essere il primo.
+    """
+    sorgente = corsa / NOME_DEL_VERBALE
+    if not sorgente.is_file():
+        return [
+            f"il verbale della campagna non c'e' in {sorgente}. Lo scrive lo "
+            "smoke della corsa, e senza non esiste una campagna da registrare."
+        ]
+    try:
+        verbale = json.loads(sorgente.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as guasto:
+        return [f"{sorgente}: il verbale non si legge ({guasto})"]
+    if not isinstance(verbale, dict):
+        return [f"{sorgente}: il verbale non e' un oggetto"]
+
+    misurata = risultato.get("revisione_finale") or risultato.get("revisione_iniziale")
+    dichiarata = verbale.get("revisione")
+    if not isinstance(dichiarata, str) or not dichiarata:
+        return [f"{sorgente}: il verbale non dichiara la revisione"]
+    if misurata and dichiarata != misurata:
+        return [
+            f"{sorgente}: il verbale e' della revisione «{dichiarata[:12]}» "
+            f"mentre la corsa ha misurato «{misurata[:12]}». Pubblicarlo "
+            "attribuirebbe a questa corsa una campagna che non e' la sua."
+        ]
+
+    VERBALE_PUBBLICATO.parent.mkdir(parents=True, exist_ok=True)
+    VERBALE_PUBBLICATO.write_bytes(sorgente.read_bytes())
+    return []
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument(
@@ -408,6 +461,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     evidenza["esito"] = ESITI[risultato["esito"]]
 
+    motivi_verbale = pubblica_verbale(opzioni.corsa, risultato)
+    if motivi_verbale:
+        for motivo in motivi_verbale:
+            print(motivo, file=sys.stderr)
+        return 1
+
     opzioni.uscita.write_text(
         json.dumps(evidenza, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -418,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{valori['fuzz_replay']['input']} input rieseguiti, "
         f"copertura {valori['copertura']['lcov_percentuale']}%"
     )
+    print(f"verbale della campagna pubblicato in {VERBALE_PUBBLICATO}")
     return 0
 
 

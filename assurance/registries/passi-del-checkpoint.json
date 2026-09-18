@@ -190,6 +190,26 @@
       "log": true
     },
     {
+      "id": "sonde_finding_noti",
+      "log": true
+    },
+    {
+      "id": "sonde_wrapper_campagna",
+      "log": true
+    },
+    {
+      "id": "sonde_riuso_evidenze",
+      "log": true
+    },
+    {
+      "id": "check_riuso_evidenze",
+      "log": true
+    },
+    {
+      "id": "sonde_registra_evidenza",
+      "log": true
+    },
+    {
       "id": "sonde_soak",
       "log": true
     },
@@ -379,6 +399,10 @@
     },
     {
       "id": "fuzz_smoke",
+      "log": true
+    },
+    {
+      "id": "fuzz_campagna_completa",
       "log": true
     },
     {
