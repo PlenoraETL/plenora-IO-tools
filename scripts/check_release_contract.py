@@ -2545,6 +2545,18 @@ ARTEFATTO_DEL_PASSO = {
     "check_filegdb_catalog": "catalog.json",
     "coverage_export": "lcov.info",
     "coverage_export_cli": "lcov-completo.info",
+    # Il verbale della campagna. Lo scrive lo smoke **fuori dall'albero**, nella
+    # directory di corsa, perche' un passo che scrivesse un file tracciato
+    # renderebbe rosso `albero_invariato`; lo legge `fuzz_campagna_completa`, ed
+    # e' a quel passo che appartiene.
+    #
+    # Sta qui e non fra i file tollerati: il manifest e' **esattamente** cio'
+    # che la corsa ha scritto, e un verbale fuori dal manifest sarebbe la fonte
+    # dei numeri dello smoke senza un digest che la leghi a questa corsa. La
+    # voce nomina il percorso esatto, non un'estensione: ammettere «i JSON della
+    # directory» rimetterebbe la deriva che questa mappa ha gia' avuto una
+    # volta, e un file estraneo tornerebbe invisibile.
+    "fuzz_campagna_completa": "fuzz-smoke-ultima.json",
 }
 
 # I log della diagnostica differenziale, scritti **solo** quando la diagnostica

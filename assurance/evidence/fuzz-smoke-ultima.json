@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "L'esito dell'ultima corsa di `scripts/fuzz-smoke.sh`, per bersaglio. Un bersaglio fermato a un crash compatibile con un finding noto non ha esplorato il tempo restante: lo smoke esce 0 perche' lo sviluppo prosegua sugli altri, e questo verbale tiene separata la campagna completa da quella interrotta.",
-  "revisione": "972bffd0af9d192bd9e5bc0f076653723e029238",
+  "revisione": "23df4d5a9e7accc4924cd8c958e821598360a623",
   "bersagli_dichiarati": [
     "csv_reader",
     "dxf_reader",

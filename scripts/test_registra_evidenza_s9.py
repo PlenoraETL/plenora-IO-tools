@@ -24,6 +24,10 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 import io
+import sys
+
+sys.path.insert(0, str(RADICE_SCRIPTS := pathlib.Path(__file__).resolve().parent))
+import check_release_contract as gate  # noqa: E402
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 
@@ -125,6 +129,139 @@ class SondeDellaPubblicazioneDelVerbale(unittest.TestCase):
         self._scrivi(documento)
         motivi = self._pubblica()
         self.assertTrue(any("non dichiara la revisione" in m for m in motivi), motivi)
+
+
+class SondeDellaCatenaDiRegistrazione(unittest.TestCase):
+    """Dalla directory di corsa all'evidenza validata, in una prova sola.
+
+    # Perche' una prova che attraversa tutta la catena
+
+    I difetti di questo ciclo si sono scoperti **tardi**, e sempre nello stesso
+    modo: ogni pezzo era verde da solo, e il guasto stava nella giuntura. Il
+    verbale della campagna e' nato fuori dall'albero perche' scriverlo dentro
+    rendeva rosso `albero_invariato`; da fuori e' finito nel manifesto dei log;
+    e il validatore, che pretende che ogni voce del manifesto appartenga a un
+    passo, lo ha respinto -- alla registrazione, dopo ore di corse.
+
+    Qui la catena si percorre intera su una corsa finta: si costruisce la
+    directory, si compone il manifesto come fa il registrar, e si valida come fa
+    il gate. Costa millisecondi e copre la giuntura che e' costata ore.
+    """
+
+    PASSI = [
+        {"id": "fuzz_smoke", "log": "fuzz_smoke.log"},
+        {"id": "fuzz_campagna_completa", "log": "fuzz_campagna_completa.log"},
+    ]
+    MISURATA = "c" * 40
+
+    def setUp(self) -> None:
+        self.registrar = registrar()
+        temporanea = tempfile.TemporaryDirectory()
+        self.addCleanup(temporanea.cleanup)
+        self.corsa = pathlib.Path(temporanea.name) / "corsa"
+        self.corsa.mkdir()
+        for passo in self.PASSI:
+            (self.corsa / passo["log"]).write_text("ok\n", encoding="utf-8")
+        (self.corsa / "risultato.json").write_text("{}", encoding="utf-8")
+        self.destinazione = pathlib.Path(temporanea.name) / "pubblicato.json"
+        precedente = self.registrar.VERBALE_PUBBLICATO
+        self.registrar.VERBALE_PUBBLICATO = self.destinazione
+        self.addCleanup(setattr, self.registrar, "VERBALE_PUBBLICATO", precedente)
+
+    def _verbale(self, revisione: str) -> dict:
+        return {
+            "schema_version": 1,
+            "revisione": revisione,
+            "bersagli_dichiarati": ["shp_reader"],
+            "secondi_per_bersaglio": 60,
+            "hanno_finito": ["shp_reader"],
+            "fermati_a_finding_noto": [],
+            "falliti_su_finding_nuovo": [],
+        }
+
+    def _scrivi_verbale(self, contenuto) -> None:
+        percorso = self.corsa / self.registrar.NOME_DEL_VERBALE
+        percorso.write_text(
+            contenuto if isinstance(contenuto, str) else json.dumps(contenuto),
+            encoding="utf-8",
+        )
+
+    def _evidenza(self) -> dict:
+        """L'evidenza come il registrar la comporrebbe da questa corsa."""
+        return {
+            "artefatti": self.registrar.manifesto_dei_log(self.corsa),
+            "misure": {"diagnostica_differenziale": {"base": ""}},
+        }
+
+    def _valida(self) -> list[str]:
+        return gate._manifest_legato_ai_passi(self._evidenza(), self.PASSI)
+
+    def _pubblica(self) -> list[str]:
+        with redirect_stderr(io.StringIO()):
+            return self.registrar.pubblica_verbale(
+                self.corsa, {"revisione_finale": self.MISURATA}
+            )
+
+    def test_il_verbale_della_corsa_passa_tutta_la_catena(self) -> None:
+        """Il caso valido, e la controprova del resto: senza, «sempre rosso»
+        sarebbe una difesa."""
+        self._scrivi_verbale(self._verbale(self.MISURATA))
+        self.assertEqual(self._pubblica(), [], "la pubblicazione deve riuscire")
+        self.assertTrue(self.destinazione.is_file())
+        manifest = self._evidenza()["artefatti"]["manifest"]
+        self.assertIn(
+            self.registrar.NOME_DEL_VERBALE,
+            manifest,
+            "il verbale resta nel manifesto: e' la fonte dei numeri dello smoke",
+        )
+        self.assertEqual(self._valida(), [], "e il validatore lo riconosce")
+
+    def test_il_verbale_e_legato_al_passo_che_lo_legge(self) -> None:
+        """L'associazione e' esplicita, e nomina il percorso esatto.
+
+        Non «un JSON nella directory»: quella deroga rimetterebbe la deriva che
+        la mappa degli artefatti ha gia' avuto una volta.
+        """
+        self.assertEqual(
+            gate.ARTEFATTO_DEL_PASSO["fuzz_campagna_completa"],
+            self.registrar.NOME_DEL_VERBALE,
+        )
+        senza = [p for p in self.PASSI if p["id"] != "fuzz_campagna_completa"]
+        self._scrivi_verbale(self._verbale(self.MISURATA))
+        motivi = gate._manifest_legato_ai_passi(self._evidenza(), senza)
+        self.assertTrue(
+            any("non appartengono" in m for m in motivi),
+            "senza quel passo il verbale torna un estraneo",
+        )
+
+    def test_un_verbale_mancante_e_respinto(self) -> None:
+        motivi = self._pubblica()
+        self.assertTrue(any("non c'e'" in m for m in motivi), motivi)
+        self.assertFalse(self.destinazione.exists())
+
+    def test_un_verbale_alterato_e_respinto(self) -> None:
+        """Alterato vuol dire illeggibile o non un verbale: in tutti e due i
+        casi c'e' un file, e non dice quello che il passo deve leggere."""
+        for contenuto in ("{ non e' json", {"schema_version": 1}):
+            with self.subTest(contenuto=str(contenuto)[:20]):
+                self._scrivi_verbale(contenuto)
+                motivi = self._pubblica()
+                self.assertTrue(motivi)
+                self.assertFalse(self.destinazione.exists())
+
+    def test_un_verbale_di_un_altra_revisione_e_respinto(self) -> None:
+        self._scrivi_verbale(self._verbale("d" * 40))
+        motivi = self._pubblica()
+        self.assertTrue(any("non e' la sua" in m for m in motivi), motivi)
+        self.assertFalse(self.destinazione.exists())
+
+    def test_un_file_estraneo_resta_respinto(self) -> None:
+        """La deroga vale per un percorso solo: tutto il resto e' orfano."""
+        self._scrivi_verbale(self._verbale(self.MISURATA))
+        (self.corsa / "appunti.json").write_text("{}", encoding="utf-8")
+        motivi = self._valida()
+        self.assertTrue(any("non appartengono" in m for m in motivi), motivi)
+        self.assertTrue(any("appunti.json" in m for m in motivi), motivi)
 
 
 if __name__ == "__main__":
