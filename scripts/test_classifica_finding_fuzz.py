@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -472,8 +473,17 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
 
     def test_senza_variabile_scrive_dove_vive_l_evidenza(self) -> None:
         """La via ordinaria non cambia: fuori dal checkpoint il verbale sta
-        dove lo stato lo cita."""
-        self.assertEqual(gate.percorso_del_verbale(), gate.VERBALE)
+        dove lo stato lo cita.
+
+        L'ambiente si **azzera**, invece di darlo per azzerato. Dentro il
+        checkpoint la variabile e' esportata per tutta la corsa: una sonda che
+        la desse per assente misurerebbe l'ambiente in cui gira invece della
+        proprieta' che verifica, e sarebbe verde da sola e rossa li'. E' il
+        difetto che questa riga ha avuto, e a mostrarlo e' stato il livello 2.
+        """
+        with unittest.mock.patch.dict(os.environ):
+            os.environ.pop(gate.VARIABILE_VERBALE, None)
+            self.assertEqual(gate.percorso_del_verbale(), gate.VERBALE)
 
     def _verifica(self, documento, revisione_attesa, crea=True) -> list[str]:
         with tempfile.TemporaryDirectory() as temporanea:
