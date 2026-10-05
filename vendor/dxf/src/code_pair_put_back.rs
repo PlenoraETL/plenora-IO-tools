@@ -80,8 +80,39 @@ impl CodePairPutBack {
             Some(Ok(pair)) => pair.offset,
             _ => 0,
         };
-        self.fermo = Some(offset);
-        Err(DxfError::ParseError(offset))
+        Err(self.ferma(offset))
+    }
+
+    /// Ferma l'iteratore per sempre e restituisce l'errore da propagare.
+    ///
+    /// Da quando e' fermo, ogni lettura e' `ParseError(offset)`. Serve a ogni
+    /// errore che rischia di essere inghiottito: `EntityIter` e `ObjectIter`
+    /// trasformano un errore in fine sequenza, e dentro un BLOCK o nella
+    /// sezione OBJECTS il chiamante proseguiva come se la sequenza fosse
+    /// finita li', accettando il documento senza cio' che non aveva saputo
+    /// leggere. Con l'iteratore fermo, la lettura successiva -- qualunque sia
+    /// -- porta l'errore fino al lettore esterno.
+    pub fn ferma(&mut self, offset: usize) -> DxfError {
+        if self.fermo.is_none() {
+            self.fermo = Some(offset);
+        }
+        DxfError::ParseError(offset)
+    }
+}
+
+/// L'offset che un errore porta con se', o zero. Solo l'offset: mai il valore.
+pub(crate) fn offset_dell_errore(errore: &DxfError) -> usize {
+    match errore {
+        DxfError::ParseFloatError(_, o)
+        | DxfError::ParseIntError(_, o)
+        | DxfError::ParseError(o)
+        | DxfError::UnexpectedCode(_, o)
+        | DxfError::UnexpectedByte(_, o)
+        | DxfError::UnexpectedEnumValue(o)
+        | DxfError::ExpectedTableType(o)
+        | DxfError::WrongValueType(o) => *o,
+        DxfError::UnexpectedCodePair(pair, _) => pair.offset,
+        _ => 0,
     }
 }
 

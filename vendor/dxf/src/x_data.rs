@@ -97,38 +97,61 @@ impl XDataItem {
         iter: &mut CodePairPutBack,
         profondita: usize,
     ) -> DxfResult<XDataItem> {
+        if pair.code == XDATA_CONTROLGROUP {
+            XDataItem::read_control_group(pair.offset, iter, profondita)
+        } else {
+            XDataItem::read_scalar(pair, iter)
+        }
+    }
+    /// Un gruppo di controllo `1002/{ ... }`.
+    ///
+    /// La ricorsione passa solo di qui, e non per `read_scalar`: in una build
+    /// non ottimizzata il `match` dei valori scalari occupa da solo diversi
+    /// kilobyte di stack per livello, e con la ricorsione dentro di lui il
+    /// thread principale di Windows (1 MiB) traboccava a circa 105 livelli.
+    /// Il tetto e' `MASSIMA_PROFONDITA_DEI_GRUPPI`.
+    fn read_control_group(
+        offset: usize,
+        iter: &mut CodePairPutBack,
+        profondita: usize,
+    ) -> DxfResult<XDataItem> {
+        if profondita > MASSIMA_PROFONDITA_DEI_GRUPPI {
+            return Err(iter.ferma(offset));
+        }
+        let mut items = vec![];
+        loop {
+            let pair = match iter.next() {
+                Some(Ok(pair)) => {
+                    if pair.code < XDATA_STRING {
+                        return Err(DxfError::UnexpectedCodePair(
+                            pair,
+                            String::from("expected XDATA item"),
+                        ));
+                    }
+                    pair
+                }
+                Some(Err(e)) => return Err(e),
+                None => return Err(DxfError::UnexpectedEndOfInput),
+            };
+            if pair.code == XDATA_CONTROLGROUP {
+                if pair.assert_string()? == "}" {
+                    // end of group
+                    break;
+                }
+                items.push(XDataItem::read_control_group(
+                    pair.offset,
+                    iter,
+                    profondita + 1,
+                )?);
+            } else {
+                items.push(XDataItem::read_scalar(&pair, iter)?);
+            }
+        }
+        Ok(XDataItem::ControlGroup(items))
+    }
+    fn read_scalar(pair: &CodePair, iter: &mut CodePairPutBack) -> DxfResult<XDataItem> {
         match pair.code {
             XDATA_STRING => Ok(XDataItem::Str(pair.assert_string()?)),
-            XDATA_CONTROLGROUP => {
-                // Ricorsivo come i gruppi `102`, e con lo stesso tetto: vedi
-                // `MASSIMA_PROFONDITA_DEI_GRUPPI`.
-                if profondita > MASSIMA_PROFONDITA_DEI_GRUPPI {
-                    return Err(DxfError::ParseError(pair.offset));
-                }
-                let mut items = vec![];
-                loop {
-                    let pair = match iter.next() {
-                        Some(Ok(pair)) => {
-                            if pair.code < XDATA_STRING {
-                                return Err(DxfError::UnexpectedCodePair(
-                                    pair,
-                                    String::from("expected XDATA item"),
-                                ));
-                            }
-                            pair
-                        }
-                        Some(Err(e)) => return Err(e),
-                        None => return Err(DxfError::UnexpectedEndOfInput),
-                    };
-                    if pair.code == XDATA_CONTROLGROUP && pair.assert_string()? == "}" {
-                        // end of group
-                        break;
-                    }
-
-                    items.push(XDataItem::read_item(&pair, iter, profondita + 1)?);
-                }
-                Ok(XDataItem::ControlGroup(items))
-            }
             XDATA_LAYER => Ok(XDataItem::LayerName(pair.assert_string()?)),
             XDATA_BINARYDATA => {
                 let mut data = vec![];

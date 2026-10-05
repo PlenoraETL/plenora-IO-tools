@@ -32,7 +32,7 @@
     },
     {
       "file": "src/code_pair_put_back.rs",
-      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento.",
+      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento. Dal secondo giro di revisione l'arresto ha anche un ingresso diretto, `ferma(offset)`, che usano gli errori a rischio di essere inghiottiti: la profondita' dei gruppi e ogni errore che `EntityIter` e `ObjectIter` ricevono.",
       "trovato_da": "il soak di `dxf_reader` del 2026-10-05 sulla VM di qualifica, con un input di 235 byte (sha256 b4e08808afa9d8ded0573dc0407f3b15046fc6f14029ceb7c7b161e3c59e0b42). La 4.0.0 e la 4.1.0 allocavano 5,9 GB e abortivano con exit 134, senza busta.",
       "provato_da": "i cinque test del modulo, eseguiti con la suite del crate (`cargo test --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>`: 297 verdi), fra cui `il_fondo_ferma_un_ciclo_che_rilegge_senza_fine` e `le_riletture_legittime_non_si_accumulano`. Misurato anche dall'esterno: con il solo fondo, senza le guardie esplicite, il caso del soak esce con la busta e le prove di `driver-dxf` e della CLI passano.",
       "perche_un_fondo": "le guardie esplicite stanno nei cicli che il censimento ha trovato; il fondo ferma quelli che nessuno ha ancora trovato. Un ciclo che gira senza consumare e continua a leggere rilegge per forza dalla pila: e' l'unico modo di non avanzare, ed e' li' che si conta. 1024 sta due ordini di grandezza sopra la catena di riletture legittime piu' profonda del fork, e molto sotto cio' che serve per diventare un problema di memoria."
@@ -52,15 +52,28 @@
     },
     {
       "file": "src/extension_data.rs",
-      "cambiamento": "`ExtensionGroup::read_group` legge i gruppi `102/{...}` annidati per ricorsione, e ora con un tetto: oltre `MASSIMA_PROFONDITA_DEI_GRUPPI` (64, lo stesso di `--max-wkb-depth`) la lettura si rifiuta con `DxfError::ParseError(offset)`. La firma interna chiamata dal codice generato non cambia; la profondita' viaggia in una funzione privata.",
+      "cambiamento": "`ExtensionGroup::read_group` legge i gruppi `102/{...}` annidati per ricorsione, e ora con un tetto: oltre `MASSIMA_PROFONDITA_DEI_GRUPPI` (256) la lettura si rifiuta con `ParseError(offset)` e **ferma l'iteratore**. La prima stesura (64) restituiva l'errore senza fermarlo: dentro BLOCKS `EntityIter` lo trasformava in fine sequenza, la guardia di `read_block` passava perche' qualcosa era stato consumato, e il BLOCK veniva accettato senza la LINE. La firma interna chiamata dal codice generato non cambia.",
       "trovato_da": "la ricerca della classe piu' ampia -- un ingresso che esaurisce una risorsa invece di essere rifiutato -- fatta con la correzione del 2026-10-05. Duecentomila `102/{a` di fila, 2,6 MB, facevano traboccare lo stack del thread principale: abort senza busta, sulla 4.1.0 come prima.",
-      "provato_da": "`driver_dxf::tests::i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack`, `driver_dxf::tests::il_tetto_dei_gruppi_annidati_e_esattamente_sessantaquattro` e, sul binario, `i_gruppi_annidati_escono_con_la_busta_invece_di_esaurire_lo_stack` in `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione il primo termina il processo di prova per stack esaurito, il secondo accetta 65 livelli, il terzo trova stderr non vuoto e nessuna busta."
+      "provato_da": "`driver_dxf::tests::i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack`, `driver_dxf::tests::il_tetto_dei_gruppi_annidati_e_esattamente_duecentocinquantasei` (256 si leggono, 257 no, in un thread da 1 MiB anche in debug), `driver_dxf::tests::una_linea_illeggibile_dentro_un_blocco_rifiuta_il_documento` e, sul binario, `i_gruppi_annidati_escono_con_la_busta_invece_di_esaurire_lo_stack` e `un_blocco_con_una_linea_illeggibile_esce_con_la_busta_e_non_con_zero_righe`. Sulla revisione 207d7e9 (tetto 64, arresto non persistente) il BLOCK con 65 livelli era accettato con zero righe."
     },
     {
       "file": "src/x_data.rs",
-      "cambiamento": "i gruppi di controllo XDATA `1002/{` sono ricorsivi come i `102`, e hanno lo stesso tetto: oltre 64 livelli `ParseError(offset)`.",
+      "cambiamento": "i gruppi di controllo XDATA `1002/{` sono ricorsivi come i `102`, con lo stesso tetto e lo stesso arresto persistente. La ricorsione passa ora per la sola `read_control_group`, separata dal `match` dei valori scalari (`read_scalar`): in debug quel `match` occupava da solo diversi kilobyte per livello, e il thread principale di Windows traboccava a circa 105 livelli; dopo la separazione ne regge circa 439. Semantica invariata: una `1002` apre un gruppo qualunque sia il valore, `1002/}` lo chiude.",
       "trovato_da": "come `src/extension_data.rs`: duecentomila `1002/{` di fila esaurivano lo stack.",
-      "provato_da": "le stesse due prove di `driver-dxf`, nel ramo `xdata`."
+      "provato_da": "le stesse prove di `src/extension_data.rs`, nel ramo `xdata`."
+    },
+    {
+      "file": "src/entity_iter.rs",
+      "cambiamento": "`EntityIter` trasformava ogni errore di `Entity::read` in fine sequenza. Ora l'errore ferma l'iteratore (`CodePairPutBack::ferma`), e la lettura successiva del chiamante -- qualunque sia -- lo porta fino al lettore esterno.",
+      "trovato_da": "la revisione di #23 (2026-10-05), sul tetto di profondita'; misurato poi in generale: sulla 4.1.0 un BLOCK la cui LINE ha `10/abc`, usato da un INSERT, dava `read` con `status: ok` e `rows_read: 0`.",
+      "provato_da": "`driver_dxf::tests::una_linea_illeggibile_dentro_un_blocco_rifiuta_il_documento` (lettore completo e progressivo) e `un_blocco_con_una_linea_illeggibile_esce_con_la_busta_e_non_con_zero_righe` sul binario; rosse sulla revisione precedente.",
+      "perche_non_si_propaga_e_basta": "`EntityIter` e' un `Iterator<Item = Entity>` consumato da `collect_entities` attraverso `itertools::PutBack`: cambiargli il tipo d'elemento tocca tutto il raggruppamento di POLYLINE, INSERT e ATTRIB. Fermare l'iteratore ottiene lo stesso effetto -- nessun chiamante puo' proseguire -- senza riscrivere upstream piu' del necessario."
+    },
+    {
+      "file": "src/object_iter.rs",
+      "cambiamento": "come `EntityIter`: un errore di `Object::read` ferma l'iteratore invece di chiudere in silenzio la sezione OBJECTS. Prima un oggetto illeggibile seguito da `0/ENDSEC` faceva accettare il documento senza gli oggetti successivi -- un `GEODATA` fra loro avrebbe cambiato il CRS risolto.",
+      "trovato_da": "la ricerca degli altri errori inghiottiti, nella stessa revisione.",
+      "provato_da": "`driver_dxf::tests::un_oggetto_illeggibile_rifiuta_il_documento`, rossa sulla revisione precedente."
     }
   ],
   "invarianti_del_fork": [
@@ -157,8 +170,19 @@
     "rilievi_fuori_classe": [
       "`SectionTypeSettings::read` legge la `1` che apre il `SectionTypeSettings` successivo come nome del file del precedente: due impostazioni scritte dal fork si rileggono come una. Perdita silenziosa su un oggetto che il driver non usa; misurata identica senza la correzione.",
       "`TableCellStyle::read` consuma la coppia `0` che chiude l'oggetto invece di rimetterla indietro: un `TABLESTYLE` scritto dal fork non si rilegge (`UnexpectedEndOfInput`). Fallisce chiuso; misurato identico senza la correzione.",
-      "`EntityIter` e `ObjectIter` trasformano ogni errore in fine sequenza. Dentro un BLOCK un'entita' malformata interrompe la lettura delle entita', e le coppie che restano vengono offerte al BLOCK: resta da verificare se esista un ingresso che arrivi cosi' a un documento accettato e diverso da quello scritto."
+      "conversioni permissive di valori, non di sequenza, rimaste come upstream: un escape `\\U+XXXX` non valido diventa `?` (code_pair_value.rs), un GUID illeggibile diventa nullo (helper_functions.rs), un valore di enumerazione fuori intervallo diventa il default (`enum_from_number!`). Sono sostituzioni di valore senza errore: da valutare con la regola delle failure silenziose, fuori da questo giro."
     ],
-    "classe_vicina_corretta": "l'esaurimento dello stack per ricorsione non limitata: `ExtensionGroup::read_group` e `XDataItem::read_item` sui gruppi `102/{` e `1002/{`. Sono le sole ricorsioni trovate nei lettori del fork, e hanno ora un tetto di 64 livelli."
-  }
+    "classe_vicina_corretta": "l'esaurimento dello stack per ricorsione: `ExtensionGroup::read_group` e i gruppi XDATA `1002/{`, le sole ricorsioni trovate nei lettori del fork. Tetto di 256 livelli, misurato; vedi `limiti_dichiarati`.",
+    "errori_inghiottiti": "la stessa famiglia, vista dal lato opposto: un errore che un iteratore trasforma in fine sequenza. Nel fork lo fanno solo `EntityIter` e `ObjectIter` (ricerca su `Err(_)`, `.ok()`, `if let Ok`, `let _ =` nei sorgenti e nel codice generato); entrambi ora fermano l'iteratore."
+  },
+  "limiti_dichiarati": [
+    {
+      "id": "dxf.profondita-dei-gruppi",
+      "regola": "un gruppo `102/{` o XDATA `1002/{` annidato oltre 256 livelli rende il documento illeggibile: `FORMAT_ERROR`, exit 3. La specifica DXF non fissa un massimo.",
+      "ambito": "lettura DXF, CLI e libreria, entrambi i lettori del fork (completo e progressivo); i gruppi nelle entita', nei BLOCK, negli oggetti e nelle tabelle.",
+      "hazard": "un file valido per la specifica con piu' di 256 livelli viene rifiutato. E' un rifiuto esplicito, mai una lettura parziale. Il rischio opposto -- un tetto troppo alto -- e' l'abort senza busta per stack esaurito, ed e' quello che il tetto esiste per escludere.",
+      "misura": "lettura completa (BLOCK, INSERT esploso, entita') senza tetto, thread principale Windows da 1 MiB: binario di rilascio ~1660 livelli XDATA e ~2340 di gruppi `102`; build di debug ~439 e ~415. 256 lascia un margine di 6,5x sul rilascio e di 1,6x sul caso peggiore di debug. Su Linux il thread principale ha 8 MiB; i thread Rust ne hanno 2. La prova di confine gira in un thread da 1 MiB.",
+      "condizione_di_rientro": "il tetto si alza o si toglie quando l'albero dei gruppi non e' piu' attraversato per ricorsione -- lettura, `Clone`, `Drop`, `PartialEq`, `Debug`, scrittura -- oppure quando la lettura gira su un thread con uno stack dimensionato e misurato per un tetto piu' alto. Un file reale che lo superi e' la ragione per farlo."
+    }
+  ]
 }

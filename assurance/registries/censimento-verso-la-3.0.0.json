@@ -181,7 +181,15 @@
           "file": "src/extension_data.rs, src/x_data.rs",
           "stato": "ancora necessaria",
           "misura": "riletto nel fork il 2026-10-05: `ExtensionGroup::read_group` e `XDataItem::read_item` sono ricorsivi senza tetto. Non riletto su `master` upstream in questo giro.",
-          "perche_serve": "duecentomila gruppi `102/{` o `1002/{` esaurivano lo stack: abort senza busta",
+          "perche_serve": "duecentomila gruppi `102/{` o `1002/{` esaurivano lo stack: abort senza busta. Tetto misurato di 256 livelli, limite dichiarato nel registro del fork",
+          "contributo": "da preparare"
+        },
+        {
+          "nome": "un errore inghiottito da EntityIter o ObjectIter ferma la lettura",
+          "file": "src/entity_iter.rs, src/object_iter.rs",
+          "stato": "ancora necessaria",
+          "misura": "riletto nel fork il 2026-10-05: entrambi trasformano `Err` in `None`. Non riletto su `master` upstream in questo giro.",
+          "perche_serve": "un BLOCK con una LINE illeggibile veniva accettato senza la LINE: `read` riusciva con zero righe",
           "contributo": "da preparare"
         }
       ]

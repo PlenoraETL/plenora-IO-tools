@@ -501,38 +501,139 @@ fn linea_con_gruppi_annidati(livelli: usize, xdata: bool) -> Vec<u8> {
     testo.into_bytes()
 }
 
+/// Lo stack del thread principale di Windows: il piu' piccolo su cui la CLI
+/// legge un DXF. Le prove sui gruppi annidati girano in un thread di questa
+/// misura, cosi' che un'eventuale crescita del consumo per livello si veda qui
+/// e non in produzione.
+const STACK_DEL_THREAD_PRINCIPALE_WINDOWS: usize = 1024 * 1024;
+
+fn in_uno_stack_da_un_mebibyte<T: Send + 'static>(prova: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(STACK_DEL_THREAD_PRINCIPALE_WINDOWS)
+        .spawn(prova)
+        .expect("il thread di prova parte")
+        .join()
+        .expect("la prova non trabocca lo stack")
+}
+
 /// I gruppi annidati si leggono per ricorsione, e senza tetto un ingresso di
 /// pochi megabyte esauriva lo stack: un abort senza busta, della stessa
 /// famiglia del caso del soak -- un ingresso ostile che esaurisce una risorsa
 /// invece di essere rifiutato. Sessantamila livelli stanno sotto il tetto di
 /// byte dell'entry point di fuzz, e senza la correzione bastano a far
-/// traboccare lo stack di un thread di prova.
+/// traboccare lo stack.
 #[test]
 fn i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack() {
-    for xdata in [false, true] {
-        let dxf = linea_con_gruppi_annidati(60_000, xdata);
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            let dxf = linea_con_gruppi_annidati(60_000, xdata);
+            assert!(
+                dxf.len() < 1_048_576,
+                "sotto il tetto dell'entry point di fuzz"
+            );
+            assert!(__fuzz_read_dxf(&dxf).is_err(), "xdata={xdata}");
+        }
+    });
+}
+
+/// Il tetto e' un confine, non un divieto: 256 livelli si leggono, 257 no. E si
+/// leggono in un MiB di stack, quello del thread principale di Windows, anche
+/// in una build non ottimizzata.
+#[test]
+fn il_tetto_dei_gruppi_annidati_e_esattamente_duecentocinquantasei() {
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            assert_eq!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(256, xdata)).unwrap(),
+                1,
+                "xdata={xdata}: 256 livelli sono leggibili"
+            );
+            assert!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(257, xdata)).is_err(),
+                "xdata={xdata}: 257 livelli si rifiutano"
+            );
+        }
+    });
+}
+
+/// Un BLOCK la cui LINE porta un difetto, e un INSERT che lo usa.
+fn blocco_con_linea_difettosa(difetto: &str) -> Vec<u8> {
+    let mut testo = String::from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n0\nLINE\n");
+    testo.push_str(difetto);
+    testo.push_str(
+        "0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nB\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n",
+    );
+    testo.into_bytes()
+}
+
+/// Rilevato in revisione: dentro BLOCKS, `EntityIter` trasformava l'errore
+/// della LINE in fine sequenza, la guardia di progresso di `read_block`
+/// passava -- qualcosa era stato consumato --, e il BLOCK veniva accettato
+/// **senza la LINE**: l'INSERT esplodeva in zero righe e la lettura riusciva.
+/// Perdita silenziosa, e non solo per la profondita': un `10/abc` faceva lo
+/// stesso, gia' sulla 4.1.0.
+///
+/// Ora ogni errore che `EntityIter` o `ObjectIter` inghiottono ferma
+/// l'iteratore, e il documento si rifiuta. La prova e' su entrambi i lettori:
+/// quello completo e quello progressivo della CLI.
+#[test]
+fn una_linea_illeggibile_dentro_un_blocco_rifiuta_il_documento() {
+    let difetti = [
+        (
+            "profondita",
+            format!(
+                "10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n{}{}",
+                "1002\n{\n".repeat(257),
+                "1002\n}\n".repeat(257)
+            ),
+        ),
+        ("coordinata", String::from("10\nabc\n20\n0\n11\n1\n21\n1\n")),
+    ];
+    for (nome, difetto) in difetti {
+        let dxf = blocco_con_linea_difettosa(&difetto);
+        let completo = in_uno_stack_da_un_mebibyte({
+            let dxf = dxf.clone();
+            move || __fuzz_read_dxf(&dxf).is_err()
+        });
         assert!(
-            dxf.len() < 1_048_576,
-            "sotto il tetto dell'entry point di fuzz"
+            completo,
+            "{nome}: lettore completo, il BLOCK non si accetta senza la LINE"
         );
-        assert!(__fuzz_read_dxf(&dxf).is_err(), "xdata={xdata}");
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocco.dxf");
+        std::fs::write(&path, &dxf).unwrap();
+        let aperto = in_uno_stack_da_un_mebibyte(move || {
+            DxfDriver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("EPSG:4326"),
+                )
+                .is_err()
+        });
+        assert!(
+            aperto,
+            "{nome}: lettore progressivo, il BLOCK non si accetta senza la LINE"
+        );
     }
 }
 
-/// Il tetto e' un confine, non un divieto: 64 livelli si leggono, 65 no.
+/// Lo stesso nella sezione OBJECTS: un oggetto illeggibile interrompeva
+/// `ObjectIter`, e se dopo veniva `0/ENDSEC` il documento passava senza gli
+/// oggetti che seguivano -- un `GEODATA` fra loro avrebbe cambiato il CRS.
 #[test]
-fn il_tetto_dei_gruppi_annidati_e_esattamente_sessantaquattro() {
-    for xdata in [false, true] {
-        assert_eq!(
-            __fuzz_read_dxf(&linea_con_gruppi_annidati(64, xdata)).unwrap(),
-            1,
-            "xdata={xdata}: 64 livelli sono leggibili"
-        );
-        assert!(
-            __fuzz_read_dxf(&linea_con_gruppi_annidati(65, xdata)).is_err(),
-            "xdata={xdata}: 65 livelli si rifiutano"
-        );
-    }
+fn un_oggetto_illeggibile_rifiuta_il_documento() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\nnon-esadecimale\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n";
+    assert!(__fuzz_read_dxf(dxf).is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oggetto.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    assert!(DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .is_err());
 }
 
 #[test]

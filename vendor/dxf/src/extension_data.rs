@@ -7,13 +7,21 @@ pub(crate) const EXTENSION_DATA_GROUP: i32 = 102;
 /// Quanti gruppi `{ ... }` possono stare uno dentro l'altro, qui e nei gruppi
 /// di controllo XDATA (`1002`).
 ///
-/// La lettura dei gruppi annidati e' ricorsiva, e senza tetto un ingresso di
-/// pochi megabyte -- duecentomila `102/{a` di fila -- esauriva lo stack del
-/// thread principale: un abort, senza busta, misurato il 2026-10-05. I file
-/// reali annidano due o tre livelli; 64 e' lo stesso tetto di
-/// `--max-wkb-depth`, e oltre la lettura si rifiuta con `ParseError` invece di
-/// lasciare che sia lo stack a decidere.
-pub(crate) const MASSIMA_PROFONDITA_DEI_GRUPPI: usize = 64;
+/// La specifica non fissa un massimo, e un tetto c'e' lo stesso perche' la
+/// lettura e' ricorsiva: senza, un ingresso di pochi megabyte -- duecentomila
+/// `102/{a` di fila -- esauriva lo stack del thread principale, un abort senza
+/// busta misurato il 2026-10-05. Rendere iterativa la sola lettura non
+/// basterebbe: il tipo resta un albero, e `Clone`, `Drop`, `PartialEq`,
+/// `Debug` e la scrittura (`add_code_pairs`) lo attraversano per ricorsione.
+///
+/// 256 e' misurato, non stimato. Sul binario di rilascio, nel thread principale
+/// di Windows (1 MiB, il piu' piccolo su cui la CLI legge), la lettura
+/// completa -- BLOCK, INSERT esploso, entita' -- regge circa 1660 livelli di
+/// XDATA e 2340 di gruppi `102`; in una build non ottimizzata circa 415 e 439.
+/// Su Linux il thread principale ha 8 MiB. Oltre il tetto la lettura si
+/// rifiuta con `ParseError` e ferma l'iteratore. E' un limite dichiarato nel
+/// registro del fork, con la condizione per toglierlo.
+pub(crate) const MASSIMA_PROFONDITA_DEI_GRUPPI: usize = 256;
 
 /// Represents an application name and a collection of extension group data in the form of `CodePair`s.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,7 +54,7 @@ impl ExtensionGroup {
         profondita: usize,
     ) -> DxfResult<ExtensionGroup> {
         if profondita > MASSIMA_PROFONDITA_DEI_GRUPPI {
-            return Err(DxfError::ParseError(offset));
+            return Err(iter.ferma(offset));
         }
         if !application_name.starts_with('{') {
             return Err(DxfError::ParseError(offset));

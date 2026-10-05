@@ -171,3 +171,40 @@ fn i_gruppi_annidati_escono_con_la_busta_invece_di_esaurire_lo_stack() {
     let esito = esegui(&["read", percorso.to_str().expect("percorso UTF-8")]);
     verifica_busta("read", &esito);
 }
+
+/// Un BLOCK la cui LINE non si legge non e' un BLOCK vuoto.
+///
+/// Sulla 4.1.0 `read` rispondeva `status: ok` con `rows_read: 0`: l'errore
+/// della LINE veniva inghiottito dall'iteratore delle entita', il BLOCK
+/// accettato senza di lei, e l'INSERT esplodeva in niente. Qui il difetto e'
+/// una coordinata non numerica e, nell'altro caso, 257 gruppi XDATA annidati,
+/// uno oltre il tetto.
+#[test]
+fn un_blocco_con_una_linea_illeggibile_esce_con_la_busta_e_non_con_zero_righe() {
+    let difetti = [
+        String::from("10\nabc\n20\n0\n11\n1\n21\n1\n"),
+        format!(
+            "10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n{}{}",
+            "1002\n{\n".repeat(257),
+            "1002\n}\n".repeat(257)
+        ),
+    ];
+    let radice = tempfile::tempdir().expect("directory temporanea");
+    for (indice, difetto) in difetti.iter().enumerate() {
+        let percorso = radice.path().join(format!("blocco-{indice}.dxf"));
+        let mut testo =
+            String::from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n0\nLINE\n");
+        testo.push_str(difetto);
+        testo.push_str(
+            "0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nB\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n",
+        );
+        std::fs::write(&percorso, testo).expect("la sorgente si scrive");
+        let esito = esegui(&[
+            "read",
+            percorso.to_str().expect("percorso UTF-8"),
+            "--assume-crs",
+            "EPSG:4326",
+        ]);
+        verifica_busta("read", &esito);
+    }
+}
