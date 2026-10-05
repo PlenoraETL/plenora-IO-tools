@@ -4,6 +4,17 @@ use crate::code_pair_put_back::CodePairPutBack;
 
 pub(crate) const EXTENSION_DATA_GROUP: i32 = 102;
 
+/// Quanti gruppi `{ ... }` possono stare uno dentro l'altro, qui e nei gruppi
+/// di controllo XDATA (`1002`).
+///
+/// La lettura dei gruppi annidati e' ricorsiva, e senza tetto un ingresso di
+/// pochi megabyte -- duecentomila `102/{a` di fila -- esauriva lo stack del
+/// thread principale: un abort, senza busta, misurato il 2026-10-05. I file
+/// reali annidano due o tre livelli; 64 e' lo stesso tetto di
+/// `--max-wkb-depth`, e oltre la lettura si rifiuta con `ParseError` invece di
+/// lasciare che sia lo stack a decidere.
+pub(crate) const MASSIMA_PROFONDITA_DEI_GRUPPI: usize = 64;
+
 /// Represents an application name and a collection of extension group data in the form of `CodePair`s.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -26,6 +37,17 @@ impl ExtensionGroup {
         iter: &mut CodePairPutBack,
         offset: usize,
     ) -> DxfResult<ExtensionGroup> {
+        ExtensionGroup::read_group_a_profondita(application_name, iter, offset, 1)
+    }
+    fn read_group_a_profondita(
+        application_name: String,
+        iter: &mut CodePairPutBack,
+        offset: usize,
+        profondita: usize,
+    ) -> DxfResult<ExtensionGroup> {
+        if profondita > MASSIMA_PROFONDITA_DEI_GRUPPI {
+            return Err(DxfError::ParseError(offset));
+        }
         if !application_name.starts_with('{') {
             return Err(DxfError::ParseError(offset));
         }
@@ -46,7 +68,12 @@ impl ExtensionGroup {
                     break;
                 } else if name.starts_with('{') {
                     // nested group
-                    let sub_group = ExtensionGroup::read_group(name, iter, pair.offset)?;
+                    let sub_group = ExtensionGroup::read_group_a_profondita(
+                        name,
+                        iter,
+                        pair.offset,
+                        profondita + 1,
+                    )?;
                     items.push(ExtensionGroupItem::Group(sub_group));
                 } else {
                     return Err(DxfError::UnexpectedCodePair(

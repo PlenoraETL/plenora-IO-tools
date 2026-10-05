@@ -1,6 +1,7 @@
 use crate::{CodePair, DxfError, DxfResult, Handle, Point, Vector};
 
 use crate::code_pair_put_back::CodePairPutBack;
+use crate::extension_data::MASSIMA_PROFONDITA_DEI_GRUPPI;
 use crate::enums::AcadVersion;
 use crate::helper_functions::*;
 
@@ -72,7 +73,7 @@ impl XData {
                 iter.put_back(Ok(pair));
                 break;
             }
-            xdata.items.push(XDataItem::read_item(&pair, iter)?);
+            xdata.items.push(XDataItem::read_item(&pair, iter, 1)?);
         }
         Ok(xdata)
     }
@@ -91,10 +92,19 @@ impl XData {
 }
 
 impl XDataItem {
-    fn read_item(pair: &CodePair, iter: &mut CodePairPutBack) -> DxfResult<XDataItem> {
+    fn read_item(
+        pair: &CodePair,
+        iter: &mut CodePairPutBack,
+        profondita: usize,
+    ) -> DxfResult<XDataItem> {
         match pair.code {
             XDATA_STRING => Ok(XDataItem::Str(pair.assert_string()?)),
             XDATA_CONTROLGROUP => {
+                // Ricorsivo come i gruppi `102`, e con lo stesso tetto: vedi
+                // `MASSIMA_PROFONDITA_DEI_GRUPPI`.
+                if profondita > MASSIMA_PROFONDITA_DEI_GRUPPI {
+                    return Err(DxfError::ParseError(pair.offset));
+                }
                 let mut items = vec![];
                 loop {
                     let pair = match iter.next() {
@@ -115,7 +125,7 @@ impl XDataItem {
                         break;
                     }
 
-                    items.push(XDataItem::read_item(&pair, iter)?);
+                    items.push(XDataItem::read_item(&pair, iter, profondita + 1)?);
                 }
                 Ok(XDataItem::ControlGroup(items))
             }

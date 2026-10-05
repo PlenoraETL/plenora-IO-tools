@@ -25,10 +25,42 @@
     },
     {
       "file": "src/block.rs",
-      "cambiamento": "`read_block` pretende che ogni giro del proprio ciclo abbia progredito. `Entity::read` restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC` -- cioe' quando la sezione BLOCKS finisce e il BLOCK corrente non ha mai visto il proprio ENDBLK -- e il ciclo riprendeva la stessa coppia all'infinito, allocando a ogni giro. Undici righe di DXF tenevano il lettore occupato senza fine.",
+      "cambiamento": "`read_block` pretende che ogni giro del proprio ciclo abbia progredito. `Entity::read` restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC` -- cioe' quando la sezione BLOCKS finisce e il BLOCK corrente non ha mai visto il proprio ENDBLK -- e il ciclo riprendeva la stessa coppia all'infinito, allocando a ogni giro. Undici righe di DXF tenevano il lettore occupato senza fine. Dal 2026-10-05 il progresso si misura con `CodePairPutBack::posizione` -- le coppie consumate -- invece che confrontando il valore della coppia ritrovata con quella di partenza: la stessa misura governa ora tutti i cicli della classe, ed e' indipendente dagli offset, che negli helper di test upstream valgono tutti zero.",
       "trovato_da": "la fuzz smoke su `dxf_reader`, il 2026-09-02, con un input di 213 byte. Riprodotto in locale per novanta secondi senza mai arrivare in fondo, e ridotto a un seme di undici righe che sul codice non corretto scade e su quello corretto esce in 0,089 s.",
       "provato_da": "`fuzz/seeds/dxf_reader/block-senza-endblk.dxf`, versionato, e `driver_dxf::tests::un_blocco_senza_endblk_non_gira_a_vuoto`. Il seme conta perche' un test non puo' asserire su una funzione che non ritorna: il tetto di libFuzzer trasforma l'attesa in un rosso, il test invece resterebbe appeso.",
       "perche_non_un_caso_speciale": "la guardia non nomina `ENDSEC`. Nominare la sola coppia che oggi si comporta cosi' lascerebbe la porta aperta alla prossima, e questo ciclo non ha modo di accorgersene da solo."
+    },
+    {
+      "file": "src/code_pair_put_back.rs",
+      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento.",
+      "trovato_da": "il soak di `dxf_reader` del 2026-10-05 sulla VM di qualifica, con un input di 235 byte (sha256 b4e08808afa9d8ded0573dc0407f3b15046fc6f14029ceb7c7b161e3c59e0b42). La 4.0.0 e la 4.1.0 allocavano 5,9 GB e abortivano con exit 134, senza busta.",
+      "provato_da": "i cinque test del modulo, eseguiti con la suite del crate (`cargo test --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>`: 297 verdi), fra cui `il_fondo_ferma_un_ciclo_che_rilegge_senza_fine` e `le_riletture_legittime_non_si_accumulano`. Misurato anche dall'esterno: con il solo fondo, senza le guardie esplicite, il caso del soak esce con la busta e le prove di `driver-dxf` e della CLI passano.",
+      "perche_un_fondo": "le guardie esplicite stanno nei cicli che il censimento ha trovato; il fondo ferma quelli che nessuno ha ancora trovato. Un ciclo che gira senza consumare e continua a leggere rilegge per forza dalla pila: e' l'unico modo di non avanzare, ed e' li' che si conta. 1024 sta due ordini di grandezza sopra la catena di riletture legittime piu' profonda del fork, e molto sotto cio' che serve per diventare un problema di memoria."
+    },
+    {
+      "file": "src/object.rs",
+      "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo.",
+      "trovato_da": "il primo ciclo dal soak di `dxf_reader` del 2026-10-05; il secondo dal censimento della classe fatto con la correzione.",
+      "provato_da": "`fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf` (il caso originale, versionato), `driver_dxf::tests::il_caso_del_soak_sectionsettings_ritorna_con_un_errore`, `driver_dxf::tests::un_section_type_settings_che_non_consuma_si_rifiuta` (lettore completo e progressivo), `driver_dxf::tests::la_guardia_di_tablestyle_lascia_passare_un_documento_valido` e, sul binario con un tempo massimo, `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione le prove ostili superano i 2 GB di memoria privata in meno di quattro secondi e vengono uccise; con le sole guardie esplicite, fondo disattivato, passano.",
+      "perche_non_un_caso_speciale": "la guardia non nomina il codice `72` del caso: pretende che il giro abbia consumato. Nominare il codice lascerebbe aperti tutti gli altri che `SectionTypeSettings::read` non conosce."
+    },
+    {
+      "file": "src/section_type_settings.rs",
+      "cambiamento": "il ciclo attorno a `SectionGeometrySettings::read` pretende il progresso. Oggi quella funzione restituisce `Some` solo dopo aver consumato la coppia `90` da cui parte: la guardia e' preventiva, e lo dice.",
+      "trovato_da": "il censimento della classe del 2026-10-05.",
+      "provato_da": "`driver_dxf::tests::le_guardie_di_sectionsettings_lasciano_passare_un_documento_valido`: una prova ostile non si puo' costruire, e la prova fissa che la guardia non rifiuti un documento scritto dal fork stesso."
+    },
+    {
+      "file": "src/extension_data.rs",
+      "cambiamento": "`ExtensionGroup::read_group` legge i gruppi `102/{...}` annidati per ricorsione, e ora con un tetto: oltre `MASSIMA_PROFONDITA_DEI_GRUPPI` (64, lo stesso di `--max-wkb-depth`) la lettura si rifiuta con `DxfError::ParseError(offset)`. La firma interna chiamata dal codice generato non cambia; la profondita' viaggia in una funzione privata.",
+      "trovato_da": "la ricerca della classe piu' ampia -- un ingresso che esaurisce una risorsa invece di essere rifiutato -- fatta con la correzione del 2026-10-05. Duecentomila `102/{a` di fila, 2,6 MB, facevano traboccare lo stack del thread principale: abort senza busta, sulla 4.1.0 come prima.",
+      "provato_da": "`driver_dxf::tests::i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack`, `driver_dxf::tests::il_tetto_dei_gruppi_annidati_e_esattamente_sessantaquattro` e, sul binario, `i_gruppi_annidati_escono_con_la_busta_invece_di_esaurire_lo_stack` in `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione il primo termina il processo di prova per stack esaurito, il secondo accetta 65 livelli, il terzo trova stderr non vuoto e nessuna busta."
+    },
+    {
+      "file": "src/x_data.rs",
+      "cambiamento": "i gruppi di controllo XDATA `1002/{` sono ricorsivi come i `102`, e hanno lo stesso tetto: oltre 64 livelli `ParseError(offset)`.",
+      "trovato_da": "come `src/extension_data.rs`: duecentomila `1002/{` di fila esaurivano lo stack.",
+      "provato_da": "le stesse due prove di `driver-dxf`, nel ramo `xdata`."
     }
   ],
   "invarianti_del_fork": [
@@ -72,5 +104,61 @@
       "changelog"
     ],
     "ragione": "ridurre il perimetro governato ai file che entrano nella compilazione. Nessuno degli esclusi lo fa: cargo, quando compila una **dipendenza**, non guarda esempi, test, benchmark ne' l'integrazione continua di chi l'ha scritta. `scripts/audit-fork.py` verifica proprio questo, e la regola non e' un elenco per fork -- sarebbe un elenco che si allinea a cio' che si e' fatto invece che a cio' che serve -- ma la domanda se il file sarebbe stato compilato."
+  },
+  "censimento_della_classe_senza_progresso": {
+    "data": "2026-10-05",
+    "classe": "un lettore che restituisce un valore (o il controllo) senza aver consumato input, richiamato da un ciclo che si ferma solo quando il lettore restituisce `None`: il ciclo ricomincia identico, e se a ogni giro accumula finisce in un'allocazione senza tetto.",
+    "metodo": "ogni `put_back` del fork, sorgenti e generatori in `build/`, e ogni ciclo che richiama un lettore, letti guardando la funzione e non cercando un nome; il codice generato riletto da `OUT_DIR`.",
+    "lettori": [
+      {
+        "lettore": "`SectionTypeSettings::read`",
+        "esito": "`Some` senza consumare su un codice non suo",
+        "ciclo": "`apply_custom_reader_sectionsettings` (object.rs)",
+        "stato": "**vulnerabile**: il caso del soak. Guardia esplicita, prova ostile."
+      },
+      {
+        "lettore": "`SectionGeometrySettings::read`",
+        "esito": "`None` senza consumare; `Some` solo dopo aver letto la `90`",
+        "ciclo": "`SectionTypeSettings::read` (section_type_settings.rs)",
+        "stato": "non vulnerabile; guardia preventiva, prova sul documento valido."
+      },
+      {
+        "lettore": "`TableCellStyle::read`",
+        "esito": "consuma sempre la `7` da cui parte",
+        "ciclo": "`apply_custom_reader_tablestyle` (object.rs), che rimette indietro la `7` e la fa rileggere",
+        "stato": "non vulnerabile; guardia preventiva, prova sul documento valido."
+      },
+      {
+        "lettore": "`Entity::read`",
+        "esito": "`None` senza consumare su `ENDSEC`/`ENDBLK`; `Some` solo dopo aver letto `0/<tipo>`",
+        "ciclo": "`read_block` (block.rs); `collect_entities`, `DrawingEntityReader::next_entity` e `finish` escono su `None`",
+        "stato": "`read_block` era vulnerabile, corretto il 2026-09-02; guardia riscritta sulla posizione. Gli altri cicli escono su `None`."
+      },
+      {
+        "lettore": "`Object::read`",
+        "esito": "come `Entity::read`",
+        "ciclo": "`ObjectIter` in `read_objects`, che esce su `None`",
+        "stato": "non vulnerabile."
+      },
+      {
+        "lettore": "`next_pair!` (helper_functions.rs)",
+        "esito": "`Ok(true)` senza consumare su una coppia `0`",
+        "ciclo": "i lettori personalizzati di entita' e oggetti, che restituiscono a `Entity::read`/`Object::read`: quelli hanno gia' consumato `0/<tipo>`",
+        "stato": "non vulnerabile."
+      },
+      {
+        "lettore": "`XData::read_item`, `ExtensionGroup::read_group`, `thumbnail`, `Header::read`, `Class::read_classes`, i lettori di tabella generati, `swallow_section`, `swallow_table`, `read_section_item`",
+        "esito": "il chiamante ha gia' consumato la coppia che li apre, oppure ogni giro del loro ciclo consuma una coppia",
+        "ciclo": "--",
+        "stato": "non vulnerabili."
+      }
+    ],
+    "fondo": "cio' che il censimento non ha visto e' fermato da `CodePairPutBack` dopo 1024 riletture senza progresso.",
+    "rilievi_fuori_classe": [
+      "`SectionTypeSettings::read` legge la `1` che apre il `SectionTypeSettings` successivo come nome del file del precedente: due impostazioni scritte dal fork si rileggono come una. Perdita silenziosa su un oggetto che il driver non usa; misurata identica senza la correzione.",
+      "`TableCellStyle::read` consuma la coppia `0` che chiude l'oggetto invece di rimetterla indietro: un `TABLESTYLE` scritto dal fork non si rilegge (`UnexpectedEndOfInput`). Fallisce chiuso; misurato identico senza la correzione.",
+      "`EntityIter` e `ObjectIter` trasformano ogni errore in fine sequenza. Dentro un BLOCK un'entita' malformata interrompe la lettura delle entita', e le coppie che restano vengono offerte al BLOCK: resta da verificare se esista un ingresso che arrivi cosi' a un documento accettato e diverso da quello scritto."
+    ],
+    "classe_vicina_corretta": "l'esaurimento dello stack per ricorsione non limitata: `ExtensionGroup::read_group` e `XDataItem::read_item` sui gruppi `102/{` e `1002/{`. Sono le sole ricorsioni trovate nei lettori del fork, e hanno ora un tetto di 64 livelli."
   }
 }
