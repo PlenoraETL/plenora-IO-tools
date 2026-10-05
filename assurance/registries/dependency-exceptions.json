@@ -30,5 +30,23 @@
       "come": "`paste` **non e' piu' nel grafo**. Era una dipendenza build-time di `parquet 59.1.0`; la 59.3.0 non la tira, e con l'aggiornamento del 2026-09-07 esce dal lockfile e dalla closure di `driver-geoparquet`. Un advisory su una crate che non compiliamo non ha bisogno di un'eccezione: non c'e' niente da accettare. Questo chiude la voce per intero, e non a meta'.",
       "nota": "il testo con cui l'eccezione fu accettata il 2026-07-27 legava due cose diverse: la rimozione di `paste` e i test di interoperabilita' con `plenora-data-tools`. La prima e' fatta e chiude questa voce. La seconda **non e' una condizione residua di questo advisory** e non va tenuta qui, dove finirebbe fra le cose risolte e nessuno la rileggerebbe: e' una verifica aperta per conto suo, che vive nell'invariante differita `sistema.qualifica-cross-component` del contratto di release e nella voce `verifiche_aperte.interoperabilita_arrow_con_data_tools` del censimento verso la 3.0.0. L'aggiornamento ad Arrow 59.3.0 la rende piu' urgente, non soddisfatta."
     }
+  ],
+  "unsafe_nelle_dipendenze": [
+    {
+      "crate_del_workspace": "plenora-io-py",
+      "dipendenza": "pyo3",
+      "versione": "=0.29.2",
+      "che_cosa": "le macro `#[pymodule]` e `#[pyfunction]` generano codice `unsafe` per l'interfaccia C di CPython. E' espansione di una macro di un altro crate, che il lint `unsafe_code` non esamina; il codice scritto nel crate non ha `unsafe`, e `unsafe_code = \"forbid\"` del workspace vale anche per lui.",
+      "verifica": "`scripts/check_unsafe_forbid.py`: `forbid` nel workspace, `[lints] workspace = true` in ogni crate, nessun `unsafe` ne' `allow(unsafe_code)` scritto nei sorgenti, e questa voce per ogni crate che dipende da `pyo3`.",
+      "come_negli_altri_repository": "plenora-database-tools e plenora-data-tools tengono lo stesso `forbid` di workspace sui loro crate PyO3, senza `allow` ne' eccezioni al lint.",
+      "trigger_di_riesame": "aggiornamento di `pyo3`, o un crate nuovo che lo usa"
+    }
+  ],
+  "deroghe_al_forbid": [
+    {
+      "crate_del_workspace": "plenora-bench",
+      "perche": "harness di misura, non spedito (`publish = false`, fuori dagli artefatti): un `GlobalAlloc` contatore e `getrusage` richiedono `unsafe`, e il crate non eredita i lint del workspace. La deroga e' dichiarata nel suo `Cargo.toml`.",
+      "verifica": "`scripts/check_unsafe_forbid.py` salta soltanto i crate elencati qui, e pretende che non siano pubblicabili."
+    }
   ]
 }

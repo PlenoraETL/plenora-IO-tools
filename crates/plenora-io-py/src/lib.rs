@@ -20,12 +20,16 @@
 //!
 //! Il comando gira in un thread suo, e il thread di Python aspetta il
 //! risultato a intervalli brevi senza tenere il GIL. Fra un intervallo e
-//! l'altro guarda i segnali: un Ctrl-C arma il token di cancellazione, e il
-//! comando torna con la busta `CANCELLED` e il codice 130 -- la stessa
-//! cancellazione cooperativa che il binario fa al primo `SIGINT`. Il secondo
-//! `SIGINT`, che il binario usa per uscire subito, qui non ha equivalente: un
-//! thread non si uccide, e il comando si attende fino al proprio punto di
-//! verifica.
+//! l'altro guarda i segnali. Se il gestore Python di un segnale solleva -- il
+//! Ctrl-C predefinito solleva `KeyboardInterrupt` -- il comando si annulla in
+//! modo cooperativo, come il binario al primo `SIGINT`, si **attende** che si
+//! fermi (staging e spool cadono, nessuna pubblicazione), e poi l'eccezione
+//! del gestore risale a chi ha chiamato, quella e non un'altra. Inghiottirla
+//! per rendere la busta `CANCELLED` toglieva a Python la sua semantica dei
+//! segnali: un gestore installato dall'applicazione non arrivava mai. Il
+//! secondo `SIGINT`, che il binario usa per uscire subito, qui non ha
+//! equivalente: un thread non si uccide, e il comando si attende fino al
+//! proprio punto di verifica.
 //!
 //! Un `timeout` passato dallo SDK fa la stessa cosa allo scadere, e lo dice:
 //! il terzo elemento del risultato e' `True`, e lo SDK solleva il proprio
@@ -54,8 +58,10 @@ const INTERVALLO: Duration = Duration::from_millis(50);
 /// # Errors
 ///
 /// `RuntimeError` se il thread del comando non parte o si interrompe senza
-/// rendere un esito. Un errore del comando non e' un'eccezione: e' una busta
-/// d'errore con il suo codice, come per il binario.
+/// rendere un esito. L'eccezione sollevata dal gestore Python di un segnale
+/// mentre il comando gira, dopo che il comando si e' fermato. Un errore del
+/// comando non e' un'eccezione: e' una busta d'errore con il suo codice, come
+/// per il binario.
 #[pyfunction]
 #[pyo3(signature = (argomenti, timeout=None))]
 // PyO3 consegna gli argomenti per valore, e il thread del comando li deve
@@ -92,6 +98,9 @@ fn esegui(
 
     let inizio = Instant::now();
     let mut scaduto = false;
+    // L'eccezione di un gestore di segnale, tenuta finche' il comando non si
+    // e' fermato: risale dopo, non al posto dell'attesa.
+    let mut dal_segnale: Option<PyErr> = None;
     let mut ricevi = ricevi;
     loop {
         // Il ricevitore entra ed esce dalla chiusura per valore: e' `Send` ma
@@ -103,15 +112,22 @@ fn esegui(
         });
         ricevi = indietro;
         match atteso {
-            Ok((codice, stdout)) => return Ok((codice, stdout, scaduto)),
+            Ok(esito) => {
+                return match dal_segnale {
+                    // Il comando si e' fermato (o era gia' finito): ora
+                    // l'eccezione del gestore risale, quella e non un'altra.
+                    Some(errore) => Err(errore),
+                    None => Ok((esito.0, esito.1, scaduto)),
+                };
+            }
             Err(RecvTimeoutError::Timeout) => {
                 if cancellazione.is_cancelled() {
                     continue;
                 }
-                // Un segnale si consuma qui: il Ctrl-C diventa la
-                // cancellazione cooperativa, e l'eccezione non risale. Lo
-                // SDK la riceve come busta `CANCELLED`, come dal binario.
-                if py.check_signals().is_err() {
+                // Il gestore Python dei segnali gira qui. Se solleva, il
+                // comando si annulla e l'eccezione si tiene per dopo.
+                if let Err(errore) = py.check_signals() {
+                    dal_segnale = Some(errore);
                     cancellazione.cancel();
                 } else if limite.is_some_and(|limite| inizio.elapsed() >= limite) {
                     scaduto = true;

@@ -454,6 +454,28 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
 
 
 
+#: I comandi che l'SDK invoca: il solo pezzo di `argv` che un messaggio
+#: d'errore puo' riportare, perche' e' vocabolario del prodotto e non un dato
+#: di chi chiama.
+COMANDI = frozenset(
+    {"--version", "catalog", "capabilities", "inspect", "layers", "read", "write", "convert"}
+)
+
+
+def comando(argv: list[str]) -> str:
+    """Il comando di `argv`, mai i suoi argomenti.
+
+    I messaggi riportavano l'intera riga di comando: percorsi delle sorgenti e
+    delle destinazioni, valori delle opzioni, l'opzione `--in-opt` con le sue
+    chiavi. Sono dati di chi chiama, e un errore non porta dati (regola 5).
+    Resta il nome del comando, se e' uno di quelli che l'SDK conosce; un
+    primo argomento diverso non si riporta nemmeno lui.
+    """
+    if argv and argv[0] in COMANDI:
+        return argv[0]
+    return "<comando>"
+
+
 class CommandFailed(PlenoraError):
     """Il comando e' stato eseguito e ha risposto con una busta d'errore.
 
@@ -474,8 +496,10 @@ class CommandFailed(PlenoraError):
         self.envelope = envelope
         self.exit_code = exit_code
         self.argv = list(argv or [])
+        # Il comando e non i suoi argomenti: percorsi e opzioni sono dati di
+        # chi chiama, e restano in `argv` per chi li vuole leggere.
         super().__init__(
-            f"`plenora-io {' '.join(self.argv)}` e' uscito con {exit_code}: "
+            f"`plenora-io {comando(self.argv)}` e' uscito con {exit_code}: "
             f"[{envelope.category}/{envelope.phase}] "
             f"{envelope.code}: {envelope.message}"
         )

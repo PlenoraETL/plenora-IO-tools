@@ -17,9 +17,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import json
+
 from plenora_io import CommandFailed, NotFoundError, ProtocolError
 from plenora_io.discovery import NOME
-from plenora_io.process import Runner
+from plenora_io.errors import comando, failure_from_envelope
+from plenora_io.process import NativeRunner, Runner
 
 BUSTA_ERRORE = (
     '{"status": "error", "protocol_version": 1, '
@@ -241,6 +244,66 @@ class LEsecutore(unittest.TestCase):
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
         self.assertIn("non si e' potuto eseguire", str(preso.exception))
+
+    def test_il_timeout_non_riporta_gli_argomenti(self) -> None:
+        """Il comando si', i suoi argomenti no: sono dati di chi chiama."""
+        runner = self.runner("import time\ntime.sleep(5)\n", timeout=0.3)
+        with self.assertRaises(ProtocolError) as preso:
+            runner.run(["read", "/dati/segreti.geojson", "--output", "/uscita/x.arrow"])
+        messaggio = str(preso.exception)
+        self.assertIn("plenora-io read", messaggio)
+        self.assertNotIn("segreti", messaggio)
+        self.assertNotIn("uscita", messaggio)
+        # Nemmeno nella causa, che il traceback stamperebbe: `TimeoutExpired`
+        # porta la riga di comando intera.
+        self.assertIsNone(preso.exception.__cause__)
+        self.assertTrue(preso.exception.__suppress_context__)
+
+
+class IMessaggiNonPortanoDati(unittest.TestCase):
+    """Regola 5: nessun argomento di chi chiama nei messaggi d'errore.
+
+    Gira anche su Windows: nessuna di queste sonde ha bisogno di uno script
+    POSIX.
+    """
+
+    ARGOMENTI = ["convert", "C:/dati/clienti.csv", "/uscita/privata.gpkg", "--in-opt", "k=v"]
+
+    def assertSenzaDati(self, messaggio: str) -> None:
+        for frammento in ("clienti", "privata", "k=v", "dati", "uscita"):
+            self.assertNotIn(frammento, messaggio)
+
+    def test_il_timeout_del_modulo_nativo(self) -> None:
+        class Finto:
+            def esegui(self, argv, timeout):
+                return (130, "{}", True)
+
+        with self.assertRaises(ProtocolError) as preso:
+            NativeRunner(Finto(), timeout=1.0).run(self.ARGOMENTI)
+        self.assertIn("plenora-io convert", str(preso.exception))
+        self.assertSenzaDati(str(preso.exception))
+
+    def test_il_rifiuto_del_prodotto(self) -> None:
+        busta = json.loads(BUSTA_ERRORE)
+        with self.assertRaises(NotFoundError) as preso:
+            raise failure_from_envelope(busta, 5, self.ARGOMENTI)
+        self.assertIn("plenora-io convert", str(preso.exception))
+        self.assertSenzaDati(str(preso.exception))
+        # Gli argomenti restano leggibili da chi li vuole, come attributo.
+        self.assertEqual(preso.exception.argv, self.ARGOMENTI)
+
+    def test_un_binario_che_non_si_esegue_non_dice_dove(self) -> None:
+        with TemporaryDirectory(prefix="plenora-sdk-dati-") as cartella:
+            runner = Runner(Path(cartella) / "clienti-privata")
+            with self.assertRaises(ProtocolError) as preso:
+                runner.run(self.ARGOMENTI)
+        self.assertSenzaDati(str(preso.exception))
+        self.assertIsNone(preso.exception.__cause__)
+
+    def test_un_primo_argomento_ignoto_non_si_riporta(self) -> None:
+        self.assertEqual(comando(["/dati/clienti.csv"]), "<comando>")
+        self.assertEqual(comando([]), "<comando>")
+        self.assertEqual(comando(["--version"]), "--version")
 
 
 @unittest.skipIf(sys.platform == "win32", "il finto e' uno script POSIX")

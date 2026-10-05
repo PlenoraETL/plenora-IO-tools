@@ -438,6 +438,69 @@ class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[mi
         """Lo SDK e il prodotto che esegue escono con la stessa versione."""
         self.assertEqual(self.nuovo_client().version().version, __version__)
 
+    def test_un_segnale_che_solleva_risale_dopo_l_annullamento(self) -> None:
+        """L'eccezione del gestore Python di un segnale risale, a comando fermato.
+
+        Il modulo la inghiottiva e rendeva la busta `CANCELLED`: un gestore
+        installato dall'applicazione non arrivava mai. Ora il comando si
+        annulla in modo cooperativo, il modulo attende che si fermi -- nessuna
+        destinazione pubblicata -- e poi risale l'eccezione del gestore.
+        """
+        import signal
+        import threading
+
+        class DalGestore(Exception):
+            pass
+
+        def gestore(_numero, _quadro):
+            raise DalGestore
+
+        client = self.nuovo_client()
+        with TemporaryDirectory(prefix="plenora-sdk-segnale-") as cartella:
+            radice = Path(cartella)
+            sorgente = radice / "grande.csv"
+            # Abbastanza grande da lasciare una finestra fra la comparsa dello
+            # staging e la fine della conversione -- in build di rilascio sono
+            # circa 0,3 s ogni 70 MB -- e sotto il tetto di default dei byte
+            # d'ingresso (256 MiB).
+            riempimento = "x" * 320
+            with sorgente.open("w", encoding="utf-8") as file:
+                file.write("id,etichetta,geom\n")
+                for indice in range(600_000):
+                    file.write(f"{indice},{riempimento},POINT({indice % 360}.5 {indice % 180}.5)\n")
+            uscita = radice / "uscita.arrow"
+
+            # Il segnale parte quando lo staging compare accanto alla
+            # destinazione: da li' il comando e' certamente in corso, e non
+            # finito. Un ritardo fisso dipenderebbe dalla macchina.
+            fermo = threading.Event()
+
+            def al_primo_staging() -> None:
+                while not fermo.wait(0.001):
+                    if any(voce != sorgente for voce in radice.iterdir()):
+                        signal.raise_signal(signal.SIGINT)
+                        return
+
+            precedente = signal.signal(signal.SIGINT, gestore)
+            timer = threading.Thread(target=al_primo_staging, daemon=True)
+            try:
+                timer.start()
+                with self.assertRaises(DalGestore):
+                    client.convert(
+                        sorgente,
+                        uscita,
+                        source_format="csv",
+                        target_format="ipc",
+                        assume_crs="EPSG:4326",
+                        read_options={"wkt_column": "geom"},
+                    )
+            finally:
+                fermo.set()
+                timer.join()
+                signal.signal(signal.SIGINT, precedente)
+            self.assertFalse(uscita.exists(), "nessuna destinazione pubblicata")
+            self.assertEqual(sorted(radice.iterdir()), [sorgente], "nessuno staging rimasto")
+
 
 class IlRunnerNativo(unittest.TestCase):
     """`NativeRunner` contro un modulo finto: le condizioni che il vero non produce."""

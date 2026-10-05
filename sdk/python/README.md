@@ -56,9 +56,12 @@ cooperativo: la pipeline lo osserva ai propri punti di verifica e torna un
 `CancelledError` con la destinazione ripulita. Al secondo, il processo esce.
 
 Col modulo nativo il Ctrl-C non si inoltra: lo raccoglie il modulo stesso dal
-thread principale e arma lo stesso token, anche su Windows. Il secondo Ctrl-C
-non ha equivalente -- un thread non si uccide -- e il comando si attende fino al
-proprio punto di verifica.
+thread principale e arma lo stesso token, anche su Windows. Il modulo attende
+che il comando si fermi -- destinazione ripulita -- e poi lascia risalire
+l'eccezione del gestore Python del segnale: `KeyboardInterrupt` con quello
+predefinito, la propria con un gestore dell'applicazione, non un
+`CancelledError`. Il secondo Ctrl-C non ha equivalente -- un thread non si
+uccide -- e il comando si attende fino al proprio punto di verifica.
 
 Il gestore vive per la durata della singola esecuzione e viene rimesso com'era:
 una libreria non e' padrona del gestore dei segnali di chi la ospita. Fuori dal

@@ -89,6 +89,8 @@ jobs:
           python3 scripts/check_test_layout.py
           python3 -m unittest scripts.test_code_size
           python3 scripts/code_size.py
+          python3 -m unittest scripts.test_check_unsafe_forbid
+          python3 scripts/check_unsafe_forbid.py
       # Il gate tiene in piedi la correzione di `copertura.variazione-fra-corse`:
       # senza le sonde che esercitano i rami scheduling-dipendenti, la copertura
       # torna a cambiare fra due corse sullo stesso albero. Il gate stesso gira
