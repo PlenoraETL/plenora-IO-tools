@@ -30,10 +30,11 @@ use plenora_io_model::CancellationToken;
 use plenora_io_tools::operazioni::{self, Richiesta};
 use plenora_io_tools::runtime::{
     campi_ammessi, capacita, istante_rfc3339_utc, riferimento_opaco, verifica_instradamento,
-    BindingRuntime, Carico, Instradamento, Invocazione, RifiutoArtefatto, RisolutoreArtefatti,
-    Risultato, CONTENT_TYPE_ERRORE, CONTENT_TYPE_FLUSSO_ARROW, OPERAZIONI,
+    BindingRuntime, Carico, Instradamento, Invocazione, IstanteRfc3339, RifiutoArtefatto,
+    RisolutoreArtefatti, Risultato, CONTENT_TYPE_ERRORE, CONTENT_TYPE_FLUSSO_ARROW, OPERAZIONI,
 };
 use serde_json::{json, Value};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn radice() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -75,6 +76,22 @@ fn fixture(nome: &str) -> PathBuf {
         .join(nome)
 }
 
+/// Il 2026-10-05T00:00:00Z: l'orologio delle prove, perche' l'esito di una
+/// scadenza assoluta -- quella del vettore e' il 2030-01-01 -- non dipenda dal
+/// giorno in cui la suite gira.
+fn orologio_fisso() -> SystemTime {
+    UNIX_EPOCH + Duration::from_hours(497_544)
+}
+
+/// Un orologio oltre la scadenza del vettore.
+fn orologio_del_2031() -> SystemTime {
+    UNIX_EPOCH + Duration::from_hours(534_720)
+}
+
+fn binding(deposito: &Deposito) -> BindingRuntime<'_> {
+    BindingRuntime::new(deposito).con_orologio(orologio_fisso)
+}
+
 /// Il risolutore di prova: `artifact://input/<nome>` e `artifact://output/<nome>`.
 ///
 /// Conta le chiamate: un'invocazione che deve fallire prima di toccare gli
@@ -83,6 +100,8 @@ struct Deposito {
     ingressi: Vec<(&'static str, PathBuf)>,
     uscite: PathBuf,
     chiamate: Cell<usize>,
+    /// Quanto il risolutore impiega a materializzare una sorgente.
+    attesa: Duration,
 }
 
 impl Deposito {
@@ -103,18 +122,19 @@ impl Deposito {
             materializza(
                 "artifact://input/canonico-geojson",
                 "canonico.geojson",
-                "canonico-ingresso.geojson",
+                "canonico-geojson.geojson",
             ),
             materializza(
                 "artifact://input/canonico-arrow",
                 "canonico.arrow",
-                "canonico-ingresso.arrow",
+                "canonico-arrow.arrow",
             ),
         ];
         Self {
             ingressi,
             uscite: uscite.to_path_buf(),
             chiamate: Cell::new(0),
+            attesa: Duration::ZERO,
         }
     }
 
@@ -130,6 +150,7 @@ impl Deposito {
 impl RisolutoreArtefatti for Deposito {
     fn sorgente(&self, riferimento: &str) -> Result<PathBuf, RifiutoArtefatto> {
         self.chiamate.set(self.chiamate.get() + 1);
+        std::thread::sleep(self.attesa);
         self.ingressi
             .iter()
             .find(|(r, _)| *r == riferimento)
@@ -253,8 +274,8 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             json!("plenora.data-tools"),
             "protocol",
         ),
-        ("plenora.capability.version", json!("2"), "protocol"),
-        ("plenora.capability.version", json!("01"), "protocol"),
+        ("plenora.capability.version", json!("2"), "unsupported"),
+        ("plenora.capability.version", json!("01"), "unsupported"),
         (
             "plenora.capability.operation",
             json!("io.scan"),
@@ -280,7 +301,7 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
     ];
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     for (chiave, valore, categoria) in mutazioni {
         let mut mutata = richiesta.clone();
         mutata["metadata"][chiave] = valore.clone();
@@ -365,7 +386,7 @@ fn il_payload_illustrativo_del_vettore_e_rifiutato_dal_nostro_schema() {
     );
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let risultato = BindingRuntime::new(&deposito).invoca(
+    let risultato = binding(&deposito).invoca(
         &invocazione(&richiesta, Value::Null),
         CancellationToken::new(),
     );
@@ -389,7 +410,7 @@ fn la_lettura_rende_il_flusso_arrow_del_vettore_di_successo() {
     let atteso = vettore("io-read-success.json");
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let risultato = BindingRuntime::new(&deposito).invoca(
+    let risultato = binding(&deposito).invoca(
         &invocazione(
             &richiesta,
             json!({"source": "artifact://input/io-read-vector"}),
@@ -458,7 +479,7 @@ fn la_cancellazione_rende_l_errore_del_vettore() {
     let deposito = Deposito::nuovo(temporanea.path());
     let cancellazione = CancellationToken::new();
     cancellazione.cancel();
-    let risultato = BindingRuntime::new(&deposito).invoca(
+    let risultato = binding(&deposito).invoca(
         &invocazione(
             &richiesta,
             json!({"source": "artifact://input/io-read-vector"}),
@@ -490,7 +511,7 @@ fn le_identita_non_canoniche_sono_rifiutate_e_non_rimandate() {
     let richiesta = vettore("io-read-request.json");
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     for (chiave, valore) in [
         ("plenora.message.id", "018F3D84-7B2C-7F00-8000-000000000105"),
         (
@@ -530,7 +551,7 @@ fn le_identita_non_canoniche_sono_rifiutate_e_non_rimandate() {
 fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
 
     let mut chiave = per_operazione(
         "io.read",
@@ -552,8 +573,10 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     );
     passata.metadata.scadenza = Some("2020-01-01T00:00:00Z".to_owned());
     let risultato = binding.invoca(&passata, CancellationToken::new());
-    assert_eq!(errore(&risultato)["code"], "DEADLINE_EXCEEDED");
-    assert_eq!(errore(&risultato)["category"], "timeout");
+    // Lo stesso errore della durata esaurita durante l'esecuzione: una
+    // scadenza sola, un errore solo.
+    assert_eq!(errore(&risultato)["code"], "LIMIT_EXCEEDED");
+    assert_eq!(errore(&risultato)["category"], "resource_limit");
 
     for storta in [
         "2030-01-01T00:00:00+01:00",
@@ -593,7 +616,7 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
 fn i_percorsi_locali_non_raggiungono_il_risolutore() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     for storto in [
         "C:\\dati\\canonico.gpkg",
         "c:/dati/canonico.gpkg",
@@ -637,7 +660,7 @@ fn i_percorsi_locali_non_raggiungono_il_risolutore() {
 fn un_riferimento_che_l_applicazione_non_risolve_e_not_found() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let risultato = BindingRuntime::new(&deposito).invoca(
+    let risultato = binding(&deposito).invoca(
         &per_operazione("io.inspect", json!({"source": "artifact://input/assente"})),
         CancellationToken::new(),
     );
@@ -652,7 +675,7 @@ fn un_riferimento_che_l_applicazione_non_risolve_e_not_found() {
 fn il_payload_si_legge_contro_lo_schema_dell_operazione() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     let fonte = "artifact://input/io-read-vector";
     let casi = [
         (
@@ -840,7 +863,7 @@ fn il_documento_capability_runtime_dice_cio_che_il_registro_e_il_catalogo_chiedo
 fn inspect_e_layers_coincidono_con_la_superficie_rust() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     let fonte = "artifact://input/io-read-vector";
     for operazione in ["io.inspect", "io.layers"] {
         let risultato = binding.invoca(
@@ -869,7 +892,7 @@ fn inspect_e_layers_coincidono_con_la_superficie_rust() {
 fn convert_e_write_pubblicano_nella_destinazione_risolta() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
-    let binding = BindingRuntime::new(&deposito);
+    let binding = binding(&deposito);
     let convertito = binding.invoca(
         &per_operazione(
             "io.convert",
@@ -931,7 +954,7 @@ fn la_lettura_runtime_non_scrive_nel_deposito() {
         .expect("dir")
         .map(|e| e.expect("voce").path())
         .collect();
-    let risultato = BindingRuntime::new(&deposito).invoca(
+    let risultato = binding(&deposito).invoca(
         &per_operazione(
             "io.read",
             json!({"source": "artifact://input/io-read-vector"}),
@@ -966,11 +989,7 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
             for giorno in 1..=lunghezza {
                 let testo = format!("{anno:04}-{mese:02}-{giorno:02}T01:02:03Z");
                 let atteso = giorni_totali * 86_400 + 3_723;
-                assert_eq!(
-                    istante_rfc3339_utc(&testo).map(|d| d.as_secs()),
-                    Some(atteso),
-                    "{testo}"
-                );
+                assert_eq!(secondi(&testo), Some(atteso), "{testo}");
                 giorni_totali += 1;
             }
             let oltre = format!("{anno:04}-{mese:02}-{:02}T00:00:00Z", lunghezza + 1);
@@ -978,19 +997,25 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
         }
     }
     // Le forme ammesse e quelle rifiutate.
+    assert_eq!(secondi("2030-01-01T00:00:00Z"), Some(1_893_456_000));
     assert_eq!(
-        istante_rfc3339_utc("2030-01-01T00:00:00Z").map(|d| d.as_secs()),
-        Some(1_893_456_000)
+        istante_rfc3339_utc("2030-01-01t00:00:00.25+00:00"),
+        Some(IstanteRfc3339::DallEpoca(Duration::from_millis(
+            1_893_456_000_250
+        )))
     );
+    // Prima del 1970: un istante valido e passato, non un testo invalido;
+    // una data impossibile resta invalida anche li'.
     assert_eq!(
-        istante_rfc3339_utc("2030-01-01t00:00:00.25+00:00").map(|d| d.as_millis()),
-        Some(1_893_456_000_250)
+        istante_rfc3339_utc("1969-12-31T23:59:59Z"),
+        Some(IstanteRfc3339::PrimaDellEpoca)
     );
+    assert_eq!(istante_rfc3339_utc("1900-02-29T00:00:00Z"), None);
+    assert!(istante_rfc3339_utc("2000-02-29T00:00:00Z").is_some());
     for storta in [
         "2030-01-01T00:00:60Z",
         "2030-13-01T00:00:00Z",
         "2030-01-01T24:00:00Z",
-        "1969-12-31T23:59:59Z",
         "2030-01-01T00:00:00.Z",
         "2030-01-01T00:00:00.1234567891Z",
         "2030-01-01T00:00:00",
@@ -999,4 +1024,199 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
     ] {
         assert_eq!(istante_rfc3339_utc(storta), None, "{storta}");
     }
+}
+
+fn secondi(testo: &str) -> Option<u64> {
+    match istante_rfc3339_utc(testo)? {
+        IstanteRfc3339::DallEpoca(durata) => Some(durata.as_secs()),
+        IstanteRfc3339::PrimaDellEpoca => None,
+    }
+}
+
+/// La scadenza del vettore e' il 2030-01-01: con un orologio del 2031 la
+/// stessa invocazione e' rifiutata prima del risolutore, con l'errore della
+/// durata esaurita.
+#[test]
+fn la_scadenza_del_vettore_vale_davvero() {
+    let richiesta = vettore("io-read-request.json");
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let risultato = BindingRuntime::new(&deposito)
+        .con_orologio(orologio_del_2031)
+        .invoca(
+            &invocazione(
+                &richiesta,
+                json!({"source": "artifact://input/io-read-vector"}),
+            ),
+            CancellationToken::new(),
+        );
+    let documento = errore(&risultato);
+    assert_eq!(documento["code"], "LIMIT_EXCEEDED");
+    assert_eq!(documento["remote_effect"], "none");
+    assert_eq!(deposito.chiamate.get(), 0);
+}
+
+/// Il tempo del risolutore consuma la scadenza, invece di aggiungersi a lei.
+#[test]
+fn il_risolutore_lento_consuma_la_scadenza() {
+    fn quasi_adesso() -> SystemTime {
+        UNIX_EPOCH + Duration::from_hours(497_544)
+    }
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let mut deposito = Deposito::nuovo(temporanea.path());
+    deposito.attesa = Duration::from_millis(600);
+    let mut invocazione = per_operazione(
+        "io.read",
+        json!({"source": "artifact://input/io-read-vector"}),
+    );
+    // Duecento millisecondi dopo l'orologio del binding.
+    invocazione.metadata.scadenza = Some("2026-10-05T00:00:00.2Z".to_owned());
+    let risultato = BindingRuntime::new(&deposito)
+        .con_orologio(quasi_adesso)
+        .invoca(&invocazione, CancellationToken::new());
+    let documento = errore(&risultato);
+    assert_eq!(documento["code"], "LIMIT_EXCEEDED", "{documento}");
+    assert_eq!(
+        deposito.chiamate.get(),
+        1,
+        "la scadenza scade durante il risolutore"
+    );
+}
+
+/// RT-013: il nome che l'applicazione da' al file non esce nei risultati.
+#[test]
+fn il_nome_del_file_materializzato_e_quello_del_riferimento() {
+    struct Segreto(PathBuf);
+    impl RisolutoreArtefatti for Segreto {
+        fn sorgente(&self, _riferimento: &str) -> Result<PathBuf, RifiutoArtefatto> {
+            Ok(self.0.clone())
+        }
+        fn destinazione(&self, _riferimento: &str) -> Result<PathBuf, RifiutoArtefatto> {
+            Err(RifiutoArtefatto::NonAutorizzato)
+        }
+    }
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let segreto = temporanea.path().join("segreto-cliente-42.geojson");
+    std::fs::copy(fixture("canonico.geojson"), &segreto).expect("copia");
+    let risolutore = Segreto(segreto);
+    let risultato = BindingRuntime::new(&risolutore).invoca(
+        &per_operazione(
+            "io.layers",
+            json!({"source": "artifact://input/canonico-geojson"}),
+        ),
+        CancellationToken::new(),
+    );
+    let documento = errore(&risultato);
+    assert_eq!(documento["code"], "RUNTIME_ARTIFACT_NAME_MISMATCH");
+    assert!(!documento.to_string().contains("segreto"));
+
+    // Con il nome del riferimento, il layer porta quel nome e nessun altro.
+    let deposito = Deposito::nuovo(temporanea.path());
+    let risultato = binding(&deposito).invoca(
+        &per_operazione(
+            "io.layers",
+            json!({"source": "artifact://input/canonico-geojson"}),
+        ),
+        CancellationToken::new(),
+    );
+    let testo = successo_json(&risultato).to_string();
+    assert!(testo.contains("\"canonico-geojson\""), "{testo}");
+}
+
+/// Un formato fuori dall'enum si rifiuta prima di chiedere gli artefatti.
+#[test]
+fn un_formato_ignoto_non_raggiunge_il_risolutore() {
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    for payload in [
+        json!({"source": "artifact://input/canonico-arrow", "destination": "artifact://output/x.csv", "format": "GeoJSON"}),
+        json!({"source": "artifact://input/canonico-geojson", "destination": "artifact://output/x.csv", "source_format": "json", "target_format": "csv"}),
+    ] {
+        let operazione = if payload.get("format").is_some() {
+            "io.write"
+        } else {
+            "io.convert"
+        };
+        let risultato = binding(&deposito).invoca(
+            &per_operazione(operazione, payload),
+            CancellationToken::new(),
+        );
+        assert_eq!(errore(&risultato)["code"], "UNKNOWN_FORMAT");
+        assert_eq!(errore(&risultato)["category"], "unsupported");
+    }
+    assert_eq!(deposito.chiamate.get(), 0);
+}
+
+/// La directory privata della consegna sparisce, anche quando la lettura fallisce.
+#[test]
+fn la_directory_privata_sparisce_sempre() {
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let genitore = tempfile::tempdir().expect("tempdir");
+    let binding = binding(&deposito).con_directory_temporanea(genitore.path());
+    let vuota = || {
+        std::fs::read_dir(genitore.path())
+            .expect("dir")
+            .next()
+            .is_none()
+    };
+
+    let riuscita = binding.invoca(
+        &per_operazione(
+            "io.read",
+            json!({"source": "artifact://input/io-read-vector"}),
+        ),
+        CancellationToken::new(),
+    );
+    assert_eq!(riuscita.content_type, CONTENT_TYPE_FLUSSO_ARROW);
+    assert!(vuota(), "dopo una lettura riuscita");
+
+    let annullata = CancellationToken::new();
+    annullata.cancel();
+    let fallita = binding.invoca(
+        &per_operazione(
+            "io.read",
+            json!({"source": "artifact://input/io-read-vector"}),
+        ),
+        annullata,
+    );
+    assert_eq!(errore(&fallita)["category"], "cancelled");
+    assert!(vuota(), "dopo una lettura fallita");
+}
+
+/// `Invocazione::da_json`: un errore curato, senza i dati dell'ingresso.
+#[test]
+fn un_invocazione_malformata_e_un_errore_curato() {
+    let richiesta = vettore("io-read-request.json");
+    let testo = serde_json::to_vec(&json!({
+        "content_type": richiesta["content_type"],
+        "metadata": richiesta["metadata"],
+        "payload": {"source": "artifact://input/io-read-vector"},
+    }))
+    .expect("json");
+    assert!(Invocazione::da_json(&testo).is_ok());
+
+    for storto in [
+        b"{".to_vec(),
+        b"{\"content_type\": 5}".to_vec(),
+        br#"{"content_type":"application/json","metadata":{},"payload":{}}"#.to_vec(),
+    ] {
+        let errore = Invocazione::da_json(&storto).expect_err("malformata");
+        assert_eq!(errore["code"], "RUNTIME_INVOCATION_INVALID");
+        assert_eq!(errore["category"], "protocol");
+        assert_eq!(errore["remote_effect"], "none");
+        assert!(
+            !errore.to_string().contains('5'),
+            "nessun valore dell'ingresso"
+        );
+    }
+
+    // Una chiave ripetuta nel payload non si legge come l'ultima delle due.
+    let ripetuta = String::from_utf8(testo).expect("utf-8").replace(
+        "{\"source\":\"artifact://input/io-read-vector\"}",
+        "{\"source\":\"artifact://input/a\",\"source\":\"artifact://input/io-read-vector\"}",
+    );
+    assert!(ripetuta.contains("input/a"), "la sostituzione e' avvenuta");
+    let errore = Invocazione::da_json(ripetuta.as_bytes()).expect_err("chiave ripetuta");
+    assert_eq!(errore["code"], "RUNTIME_INVOCATION_INVALID");
 }

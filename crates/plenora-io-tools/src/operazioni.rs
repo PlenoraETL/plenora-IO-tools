@@ -248,6 +248,27 @@ fn senza_uscita(esito: crate::CliResult) -> Esito {
     esito.map_err(|(_uscita, documento)| documento)
 }
 
+/// I percorsi della richiesta sono testo, o la richiesta si rifiuta.
+///
+/// Le operazioni leggono sorgente e destinazione come stringhe, e la
+/// conversione da `PathBuf` e' con perdita: un percorso che non e' Unicode
+/// valido -- byte arbitrari su Unix, surrogati isolati su Windows -- vi
+/// diventerebbe un altro percorso, e `write` o `convert` pubblicherebbero sotto
+/// un nome che nessuno ha chiesto. Si rifiuta prima, come errore d'uso.
+fn rappresentabile(richiesta: &Richiesta) -> Result<(), Value> {
+    let illeggibile = [&richiesta.source, &richiesta.destination]
+        .into_iter()
+        .flatten()
+        .any(|percorso| percorso.to_str().is_none());
+    if illeggibile {
+        return Err(crate::usage_err(&plenora_io_model::PublicMessage::Curated(
+            "un percorso della richiesta non e' testo Unicode valido, e convertirlo ne              nominerebbe un altro",
+        ))
+        .1);
+    }
+    Ok(())
+}
+
 /// `io.catalog` — i formati e le capacità osservabili dell'artefatto.
 ///
 /// Non prende ingresso: il contratto `plenora-io-catalog-query-v1` è vuoto,
@@ -267,6 +288,7 @@ pub fn catalog() -> Value {
 /// ritentare. Non c'e' un codice d'uscita, che e' del processo: lo proietta il
 /// binding con `uscita_della_categoria`.
 pub fn inspect(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
     senza_uscita(crate::cmd_inspect(&richiesta.into()))
 }
 
@@ -279,6 +301,7 @@ pub fn inspect(richiesta: Richiesta) -> Esito {
 /// ritentare. Non c'e' un codice d'uscita, che e' del processo: lo proietta il
 /// binding con `uscita_della_categoria`.
 pub fn layers(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
     senza_uscita(crate::cmd_layers(&richiesta.into()))
 }
 
@@ -292,6 +315,7 @@ pub fn layers(richiesta: Richiesta) -> Esito {
 /// ritentare. Non c'e' un codice d'uscita, che e' del processo: lo proietta il
 /// binding con `uscita_della_categoria`.
 pub fn read(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
     senza_uscita(crate::cmd_read(&richiesta.into()))
 }
 
@@ -305,6 +329,7 @@ pub fn read(richiesta: Richiesta) -> Esito {
 /// ritentare. Non c'e' un codice d'uscita, che e' del processo: lo proietta il
 /// binding con `uscita_della_categoria`.
 pub fn write(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
     senza_uscita(crate::cmd_write(&richiesta.into()))
 }
 
@@ -318,6 +343,7 @@ pub fn write(richiesta: Richiesta) -> Esito {
 /// ritentare. Non c'e' un codice d'uscita, che e' del processo: lo proietta il
 /// binding con `uscita_della_categoria`.
 pub fn convert(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
     senza_uscita(crate::cmd_convert(&richiesta.into()))
 }
 

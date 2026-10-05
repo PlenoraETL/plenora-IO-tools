@@ -49,14 +49,15 @@
 //! CLI e la superficie Rust consegnano su file.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use plenora_io_model::budget::PipelineLimits;
-use plenora_io_model::{ErrorCategory, ErrorPhase, PublicMessage};
+use plenora_io_model::{ErrorCategory, ErrorPhase, PlenoraIoError, PublicMessage};
 
 /// Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].
 ///
@@ -82,13 +83,13 @@ pub const CONTENT_TYPE_ERRORE: &str = "application/vnd.plenora.error+json";
 /// Il contratto di un errore terminale.
 pub const CONTRATTO_ERRORE: &str = "plenora-error-v1";
 
-/// La lunghezza massima di un riferimento ad artefatto, in byte.
+/// La lunghezza massima di un riferimento ad artefatto, in caratteri.
 ///
 /// La stessa di `plenora-data-execution-input-v3`, l'unico schema comune che
 /// a questo pin fissa la forma di un riferimento: due componenti che
 /// accettassero riferimenti di forma diversa renderebbero impossibile a chi
 /// orchestra passare l'uscita dell'uno all'ingresso dell'altro.
-const MAX_BYTE_RIFERIMENTO: usize = 2048;
+const MAX_CARATTERI_RIFERIMENTO: usize = 2048;
 
 /// Che cosa fa il binding con gli artefatti di un'operazione.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +214,43 @@ pub struct Invocazione {
     /// I metadati riservati della richiesta.
     pub metadata: MetadatiRichiesta,
     /// Il payload JSON dell'operazione, secondo il suo schema `*-input-v1`.
+    ///
+    /// Letto rifiutando le chiavi ripetute: `serde_json` le accetta tenendo
+    /// l'ultima, e `{"source": "a", "source": "b"}` sarebbe diventato in
+    /// silenzio una lettura di `b`.
+    #[serde(deserialize_with = "senza_chiavi_ripetute")]
     pub payload: Value,
+}
+
+impl Invocazione {
+    /// Legge un'invocazione serializzata, o rende l'errore `plenora-error-v1`
+    /// del rifiuto.
+    ///
+    /// E' la via da preferire alla deserializzazione diretta: l'errore di
+    /// `serde_json` porta nomi di campo e valori dell'ingresso, e qui diventa
+    /// un errore curato senza dati, `protocol` e `remote_effect: none`
+    /// (RT-011). Le chiavi di metadati sconosciute sono rifiutate e non
+    /// ignorate: un refuso su una chiave facoltativa -- la scadenza -- farebbe
+    /// partire l'operazione senza il controllo che il chiamante ha chiesto.
+    ///
+    /// # Errors
+    ///
+    /// Il documento `plenora-error-v1` se i byte non sono un'invocazione.
+    pub fn da_json(byte: &[u8]) -> Result<Self, Value> {
+        serde_json::from_slice(byte).map_err(|_| {
+            local_err_doc(
+                "RUNTIME_INVOCATION_INVALID",
+                ErrorCategory::Protocol,
+                ErrorPhase::Validate,
+                &PublicMessage::Curated(
+                    "l'invocazione runtime non e' un documento con content_type, metadata \
+                     e payload nella forma del binding",
+                ),
+            )
+            .1["error"]
+                .clone()
+        })
+    }
 }
 
 /// I metadati riservati di una richiesta (RUNTIME-BINDING-1.0 §3 e §4).
@@ -384,13 +421,42 @@ pub trait RisolutoreArtefatti {
 /// Il binding, legato al risolutore dell'applicazione.
 pub struct BindingRuntime<'a> {
     artefatti: &'a dyn RisolutoreArtefatti,
+    orologio: fn() -> SystemTime,
+    directory_temporanea: Option<PathBuf>,
 }
 
 impl<'a> BindingRuntime<'a> {
     /// Lega il binding al risolutore senza aprire nulla.
     #[must_use]
-    pub const fn new(artefatti: &'a dyn RisolutoreArtefatti) -> Self {
-        Self { artefatti }
+    pub fn new(artefatti: &'a dyn RisolutoreArtefatti) -> Self {
+        Self {
+            artefatti,
+            orologio: SystemTime::now,
+            directory_temporanea: None,
+        }
+    }
+
+    /// L'orologio con cui si legge `plenora.execution.deadline`.
+    ///
+    /// Di default quello di sistema. Un'applicazione che ha gia' un orologio
+    /// suo -- o una prova che non deve dipendere dal giorno in cui gira -- lo
+    /// inietta qui: la scadenza e' un istante assoluto, e senza un orologio
+    /// fissato il suo esito dipende dalla data.
+    #[must_use]
+    pub fn con_orologio(mut self, orologio: fn() -> SystemTime) -> Self {
+        self.orologio = orologio;
+        self
+    }
+
+    /// Dove `io.read` crea la directory privata della consegna.
+    ///
+    /// Di default la directory temporanea di sistema. La directory privata si
+    /// crea e si rimuove dentro questa a ogni lettura, e un errore di
+    /// rimozione e' un errore dell'operazione, non un residuo taciuto.
+    #[must_use]
+    pub fn con_directory_temporanea(mut self, genitore: impl Into<PathBuf>) -> Self {
+        self.directory_temporanea = Some(genitore.into());
+        self
     }
 
     /// Ammette ed esegue un'invocazione, e rende il risultato terminale.
@@ -442,20 +508,29 @@ impl<'a> BindingRuntime<'a> {
         cancellazione: CancellationToken,
     ) -> Result<(&'static DescrittoreRuntime, Carico), Value> {
         let descrittore = ammetti(invocazione)?;
+        // La scadenza diventa un `Instant` **adesso**, all'ammissione, e i
+        // millisecondi rimasti si ricalcolano dopo il risolutore: il tempo che
+        // l'applicazione impiega a materializzare gli artefatti consuma la
+        // stessa scadenza, invece di aggiungersi a lei.
         let scadenza = invocazione
             .metadata
             .scadenza
             .as_deref()
-            .map(millisecondi_alla_scadenza)
+            .map(|testo| istante_della_scadenza(testo, (self.orologio)()))
             .transpose()?;
         let campi = campi_del_payload(descrittore, &invocazione.payload)?;
-        let mut richiesta = self.richiesta(descrittore, &campi, scadenza)?;
+        let mut richiesta = self.richiesta(descrittore, &campi)?;
+        let rimasti = scadenza.map(millisecondi_rimasti).transpose()?;
+        richiesta.limits = tetti(&campi, rimasti);
         richiesta = richiesta.con_cancellazione(cancellazione);
         let esito = match descrittore.operazione {
             "io.catalog" => return Ok((descrittore, Carico::Json(operazioni::catalog()))),
             "io.inspect" => operazioni::inspect(richiesta),
             "io.layers" => operazioni::layers(richiesta),
-            "io.read" => return consegna_in_flusso(richiesta).map(|carico| (descrittore, carico)),
+            "io.read" => {
+                return consegna_in_flusso(richiesta, self.directory_temporanea.as_deref())
+                    .map(|carico| (descrittore, carico))
+            }
             "io.write" => operazioni::write(richiesta),
             "io.convert" => operazioni::convert(richiesta),
             _ => return Err(errore_di_instradamento(RifiutoDiInstradamento::Operazione)),
@@ -470,7 +545,6 @@ impl<'a> BindingRuntime<'a> {
         &self,
         descrittore: &DescrittoreRuntime,
         campi: &Campi,
-        scadenza_ms: Option<u64>,
     ) -> Result<Richiesta, Value> {
         let mut richiesta = Richiesta::default();
         if descrittore.artefatti == Artefatti::Nessuno {
@@ -490,18 +564,18 @@ impl<'a> BindingRuntime<'a> {
             .map(riferimento_ammesso)
             .transpose()?;
         if let Some(riferimento) = sorgente {
-            richiesta.source = Some(
-                self.artefatti
-                    .sorgente(riferimento)
-                    .map_err(errore_del_risolutore)?,
-            );
+            let percorso = self
+                .artefatti
+                .sorgente(riferimento)
+                .map_err(errore_del_risolutore)?;
+            richiesta.source = Some(nome_coerente(riferimento, percorso)?);
         }
         if let Some(riferimento) = destinazione {
-            richiesta.destination = Some(
-                self.artefatti
-                    .destinazione(riferimento)
-                    .map_err(errore_del_risolutore)?,
-            );
+            let percorso = self
+                .artefatti
+                .destinazione(riferimento)
+                .map_err(errore_del_risolutore)?;
+            richiesta.destination = Some(nome_coerente(riferimento, percorso)?);
         }
         // `limit` non si trasferisce: lo schema lo ammette soltanto in
         // `io.read`, e su questa superficie `io.read` lo rifiuta prima di
@@ -514,7 +588,6 @@ impl<'a> BindingRuntime<'a> {
         richiesta.output_options = campi.output_options.clone().unwrap_or_default();
         richiesta.source_format.clone_from(&campi.source_format);
         richiesta.target_format = campi.target_format.clone().or_else(|| campi.format.clone());
-        richiesta.limits = tetti(campi, scadenza_ms);
         Ok(richiesta)
     }
 }
@@ -523,20 +596,39 @@ impl<'a> BindingRuntime<'a> {
 ///
 /// La consegna e' la stessa della CLI -- staging, validazione fino a EOF,
 /// pubblicazione atomica -- con la serializzazione `stream` imposta. Cambia
-/// soltanto dove finisce: in una directory temporanea che questo processo crea
-/// e cancella, invece che in un percorso del chiamante.
-fn consegna_in_flusso(richiesta: Richiesta) -> Result<Carico, Value> {
-    let privata = tempfile::tempdir().map_err(|_| errore_della_consegna())?;
+/// soltanto dove finisce: in una directory privata che questo processo crea e
+/// rimuove, invece che in un percorso del chiamante.
+///
+/// La rimozione si verifica su **ogni** percorso, riuscito o fallito. Se non
+/// riesce, l'errore e' quello della rimozione anche quando l'operazione era
+/// fallita per conto suo: un file rimasto su disco e' l'effetto che il
+/// descrittore runtime dichiara di non avere, ed e' la cosa che l'applicazione
+/// deve sapere per prima.
+fn consegna_in_flusso(richiesta: Richiesta, genitore: Option<&Path>) -> Result<Carico, Value> {
+    let mut costruttore = tempfile::Builder::new();
+    costruttore.prefix("plenora-io-consegna-");
+    let privata = genitore
+        .map_or_else(
+            || costruttore.tempdir(),
+            |genitore| costruttore.tempdir_in(genitore),
+        )
+        .map_err(|_| errore_della_consegna(Consegna::Apertura))?;
     let file = privata.path().join("consegna.arrows");
     let richiesta = richiesta
         .con_destinazione(&file)
         .con_opzione_di_scrittura("serialization", "stream");
-    let rapporto = operazioni::read(richiesta).map_err(errore_della_busta)?;
-    let byte = std::fs::read(&file).map_err(|_| errore_della_consegna())?;
-    // La directory si chiude qui, e l'errore di chiusura non si tace: un file
-    // che resta su disco e' un effetto che il descrittore dice di non avere.
-    privata.close().map_err(|_| errore_della_consegna())?;
-    Ok(Carico::FlussoArrow { byte, rapporto })
+    let esito = operazioni::read(richiesta)
+        .map_err(errore_della_busta)
+        .and_then(|rapporto| {
+            std::fs::read(&file)
+                .map(|byte| Carico::FlussoArrow { byte, rapporto })
+                .map_err(|_| errore_della_consegna(Consegna::Lettura))
+        });
+    let rimossa = privata.close();
+    match (esito, rimossa) {
+        (_, Err(_)) => Err(errore_della_consegna(Consegna::Rimozione)),
+        (esito, Ok(())) => esito,
+    }
 }
 
 fn tetti(campi: &Campi, scadenza_ms: Option<u64>) -> PipelineLimits {
@@ -577,10 +669,12 @@ fn tetti(campi: &Campi, scadenza_ms: Option<u64>) -> PipelineLimits {
         }
     }
     // Una scadenza sola, la piu' vicina. `deadline_ms` del payload (o il suo
-    // default, se assente) e la scadenza assoluta dei metadati sono due modi
-    // di dire la stessa quota, e vince la piu' stretta: e' cio' che rende la
-    // scadenza runtime la stessa semantica di `--deadline-ms` (RT-007), con
-    // lo stesso errore quando scade.
+    // default, se assente) e i millisecondi che restano alla scadenza assoluta
+    // dei metadati sono due modi di dire la stessa quota, e vince la piu'
+    // stretta: e' cio' che rende la scadenza runtime la stessa semantica di
+    // `--deadline-ms` (RT-007). Quando scade durante l'esecuzione l'errore e'
+    // quello della pipeline, `LIMIT_EXCEEDED`; e lo stesso errore rende
+    // l'ammissione quando la scadenza e' gia' passata (`errore_di_scadenza`).
     let relativa = campi.deadline_ms.unwrap_or_else(|| tetti.duration_ms());
     tetti.with_duration_ms(scadenza_ms.map_or(relativa, |assoluta| assoluta.min(relativa)))
 }
@@ -786,6 +880,15 @@ fn vincoli_dello_schema(campi: &Campi) -> Result<(), Value> {
             "il payload runtime porta una stringa vuota o una quota a zero dove lo schema le vieta",
         )));
     }
+    // L'enum dei formati di `io.write` e `io.convert`, prima del risolutore:
+    // lo stesso rifiuto della CLI (`UNKNOWN_FORMAT`, dalla stessa funzione),
+    // ma senza chiedere all'applicazione di materializzare nulla.
+    for formato in [&campi.format, &campi.source_format, &campi.target_format]
+        .into_iter()
+        .flatten()
+    {
+        crate::driver_per_formato(formato).map_err(|(_, busta)| errore_della_busta(busta))?;
+    }
     Ok(())
 }
 
@@ -855,7 +958,8 @@ fn riferimento_ammesso(riferimento: &str) -> Result<&str, Value> {
 /// rifiutare in anticipo cio' che il binding rifiuterebbe.
 #[must_use]
 pub fn riferimento_opaco(riferimento: &str) -> bool {
-    if riferimento.len() > MAX_BYTE_RIFERIMENTO {
+    // `maxLength` di JSON Schema conta i caratteri, non i byte.
+    if riferimento.chars().count() > MAX_CARATTERI_RIFERIMENTO {
         return false;
     }
     let Some((schema, resto)) = riferimento.split_once(':') else {
@@ -873,7 +977,7 @@ pub fn riferimento_opaco(riferimento: &str) -> bool {
     let corpo_valido = !corpo.is_empty()
         && !corpo
             .chars()
-            .any(|carattere| carattere.is_whitespace() || carattere == '\\');
+            .any(|carattere| spazio_ecma(carattere) || carattere == '\\');
     let minuscolo = riferimento.to_ascii_lowercase();
     let segmento_punto = resto
         .split(['/', ':'])
@@ -935,17 +1039,23 @@ pub struct Instradamento<'a> {
 ///
 /// # Errors
 ///
-/// Il documento `plenora-error-v1` del rifiuto: `protocol` per un'identita'
-/// di capacita', un contratto o un content type che non corrispondono,
-/// `unsupported` per un'operazione o una versione che questo artefatto non
-/// serve. Sempre `remote_effect: none`.
+/// Il documento `plenora-error-v1` del rifiuto: `protocol` per un nome di
+/// capacita', un contratto o un content type che non corrispondono,
+/// `unsupported` per un'operazione o una versione -- del binding o
+/// dell'operazione -- che questo artefatto non serve (ERR-002). Sempre
+/// `remote_effect: none`.
 pub fn verifica_instradamento(
     instradamento: &Instradamento<'_>,
 ) -> Result<&'static DescrittoreRuntime, Value> {
-    if instradamento.nome_capacita != NOME_CAPACITA
-        || versione_canonica(instradamento.versione_capacita) != Some(VERSIONE_BINDING)
-    {
-        return Err(errore_di_instradamento(RifiutoDiInstradamento::Capacita));
+    if instradamento.nome_capacita != NOME_CAPACITA {
+        return Err(errore_di_instradamento(
+            RifiutoDiInstradamento::NomeCapacita,
+        ));
+    }
+    if versione_canonica(instradamento.versione_capacita) != Some(VERSIONE_BINDING) {
+        return Err(errore_di_instradamento(
+            RifiutoDiInstradamento::VersioneCapacita,
+        ));
     }
     let descrittore = OPERAZIONI
         .iter()
@@ -993,45 +1103,107 @@ fn uuid_pubblico(valore: &str) -> String {
     }
 }
 
-/// I millisecondi da adesso alla scadenza assoluta.
+/// L'`Instant` della scadenza assoluta, letta con l'orologio del binding.
 ///
 /// # Errors
 ///
-/// Una scadenza che non e' RFC 3339 in UTC e' `invalid_configuration`; una
-/// scadenza gia' passata e' `timeout`, prima di aprire qualunque cosa.
-fn millisecondi_alla_scadenza(testo: &str) -> Result<u64, Value> {
-    let scadenza = istante_rfc3339_utc(testo).ok_or_else(|| {
+/// Una scadenza che non e' RFC 3339 in UTC e' `invalid_configuration`. Una
+/// scadenza gia' passata -- compresa una anteriore al 1970 -- rende lo stesso
+/// errore che la pipeline rende quando la durata si esaurisce durante
+/// l'esecuzione: una scadenza sola, un errore solo (`errore_di_scadenza`). Un
+/// orologio anteriore all'epoca Unix e' rifiutato: leggerlo come zero
+/// allenterebbe in silenzio ogni scadenza.
+fn istante_della_scadenza(testo: &str, adesso: SystemTime) -> Result<Instant, Value> {
+    let scadenza = match istante_rfc3339_utc(testo) {
+        Some(IstanteRfc3339::DallEpoca(durata)) => durata,
+        Some(IstanteRfc3339::PrimaDellEpoca) => return Err(errore_di_scadenza()),
+        None => {
+            return Err(local_err_doc(
+                "RUNTIME_DEADLINE_INVALID",
+                ErrorCategory::InvalidConfiguration,
+                ErrorPhase::Validate,
+                &PublicMessage::Curated(
+                    "plenora.execution.deadline e' un istante RFC 3339 in UTC, con Z o +00:00",
+                ),
+            )
+            .1["error"]
+                .clone())
+        }
+    };
+    let adesso = adesso.duration_since(UNIX_EPOCH).map_err(|_| {
         local_err_doc(
-            "RUNTIME_DEADLINE_INVALID",
-            ErrorCategory::InvalidConfiguration,
+            "RUNTIME_CLOCK_INVALID",
+            ErrorCategory::Internal,
             ErrorPhase::Validate,
             &PublicMessage::Curated(
-                "plenora.execution.deadline e' un istante RFC 3339 in UTC, con Z o +00:00",
+                "l'orologio del binding e' anteriore all'epoca Unix: la scadenza non si puo' leggere",
             ),
         )
         .1["error"]
             .clone()
     })?;
-    let adesso = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO);
-    let restano = scadenza.checked_sub(adesso).map_or(0, |durata| {
-        u64::try_from(durata.as_millis()).unwrap_or(u64::MAX)
-    });
-    if restano == 0 {
-        return Err(local_err_doc(
-            "DEADLINE_EXCEEDED",
-            ErrorCategory::Timeout,
+    let restano = scadenza
+        .checked_sub(adesso)
+        .filter(|durata| !durata.is_zero())
+        .ok_or_else(errore_di_scadenza)?;
+    Instant::now().checked_add(restano).ok_or_else(|| {
+        local_err_doc(
+            "RUNTIME_DEADLINE_INVALID",
+            ErrorCategory::InvalidConfiguration,
             ErrorPhase::Validate,
-            &PublicMessage::Curated("la scadenza dell'invocazione e' gia' passata"),
+            &PublicMessage::Curated(
+                "plenora.execution.deadline e' oltre l'orizzonte che il processo sa rappresentare",
+            ),
         )
         .1["error"]
-            .clone());
+            .clone()
+    })
+}
+
+/// I millisecondi interi che restano fino a `istante`, misurati adesso.
+///
+/// Arrotonda per **difetto**: mezzo millisecondo rimasto e' gia' una scadenza
+/// passata, perche' la quota della pipeline si esprime in millisecondi interi
+/// e arrotondare per eccesso la allungherebbe.
+///
+/// # Errors
+///
+/// [`errore_di_scadenza`] se non resta almeno un millisecondo.
+fn millisecondi_rimasti(istante: Instant) -> Result<u64, Value> {
+    let restano = istante
+        .checked_duration_since(Instant::now())
+        .map_or(0, |durata| {
+            u64::try_from(durata.as_millis()).unwrap_or(u64::MAX)
+        });
+    if restano == 0 {
+        return Err(errore_di_scadenza());
     }
     Ok(restano)
 }
 
-/// La durata dall'epoca Unix di un istante RFC 3339 in UTC, o `None`.
+/// Lo stesso errore della pipeline quando la sua durata si esaurisce.
+///
+/// Non un errore suo: la scadenza dei metadati e `deadline_ms` sono la stessa
+/// quota, e due errori diversi per la stessa cosa costringerebbero chi
+/// orchestra a riconoscerli entrambi.
+fn errore_di_scadenza() -> Value {
+    crate::map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+        "durata della pipeline esaurita",
+    )))
+    .1["error"]
+        .clone()
+}
+
+/// Un istante RFC 3339 in UTC, rispetto all'epoca Unix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IstanteRfc3339 {
+    /// Un istante valido anteriore al 1970-01-01T00:00:00Z.
+    PrimaDellEpoca,
+    /// La durata dall'epoca Unix.
+    DallEpoca(Duration),
+}
+
+/// Un istante RFC 3339 in UTC, o `None` se il testo non lo e'.
 ///
 /// La forma ammessa e' `AAAA-MM-GGTHH:MM:SS[.frazione](Z|+00:00)`, con `T` e
 /// `Z` anche minuscole come RFC 3339 §5.6 consente. Uno scostamento diverso da
@@ -1040,7 +1212,7 @@ fn millisecondi_alla_scadenza(testo: &str) -> Result<u64, Value> {
 /// locale sarebbe indovinare. Il secondo intercalare (`60`) e' rifiutato
 /// esplicitamente: non ha un istante Unix.
 #[must_use]
-pub fn istante_rfc3339_utc(testo: &str) -> Option<Duration> {
+pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     let corpo = testo
         .strip_suffix('Z')
         .or_else(|| testo.strip_suffix('z'))
@@ -1083,7 +1255,7 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<Duration> {
         }
         None => return None,
     };
-    if !(1..=12).contains(&mese) || ora > 23 || minuto > 59 || secondo > 59 || anno < 1970 {
+    if !(1..=12).contains(&mese) || ora > 23 || minuto > 59 || secondo > 59 {
         return None;
     }
     let bisestile = (anno % 4 == 0 && anno % 100 != 0) || anno % 400 == 0;
@@ -1096,16 +1268,26 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<Duration> {
     if giorno == 0 || giorno > giorni_del_mese {
         return None;
     }
+    // Validato prima di guardare l'anno: `1969-02-30` non e' un istante, e
+    // dirlo «passato» lo farebbe sembrare tale.
+    if anno < 1970 {
+        return Some(IstanteRfc3339::PrimaDellEpoca);
+    }
     let dall_epoca = giorni_dall_epoca(anno, mese, giorno)?
         .checked_mul(86_400)?
         .checked_add(ora * 3_600 + minuto * 60 + secondo)?;
-    Some(Duration::new(dall_epoca, nanosecondi))
+    Some(IstanteRfc3339::DallEpoca(Duration::new(
+        dall_epoca,
+        nanosecondi,
+    )))
 }
 
 /// I giorni dal 1970-01-01 al giorno civile dato (calendario gregoriano).
 ///
 /// L'algoritmo «days from civil» di Howard Hinnant, ristretto agli anni dal
 /// 1970 in poi: niente aritmetica con segno, e i conteggi stanno in `u64`.
+/// Il chiamante garantisce `anno >= 1970`, `1 <= mese <= 12` e `giorno >= 1`,
+/// che e' cio' che rende le sottrazioni prive di trabocco.
 const fn giorni_dall_epoca(anno: u64, mese: u64, giorno: u64) -> Option<u64> {
     let anno = if mese <= 2 { anno - 1 } else { anno };
     let era = anno / 400;
@@ -1117,10 +1299,171 @@ const fn giorni_dall_epoca(anno: u64, mese: u64, giorno: u64) -> Option<u64> {
     (era * 146_097 + giorno_dell_era).checked_sub(719_468)
 }
 
+/// Il percorso risolto, se il suo nome coincide con quello del riferimento.
+///
+/// Diversi driver derivano il nome del layer dal nome del file -- `GeoJSON`,
+/// CSV, KML, DXF, Shapefile, `GeoParquet`, Arrow IPC -- e quel nome esce nel
+/// risultato e, con `io.write` e `io.convert`, dentro l'artefatto scritto. Sul
+/// runtime il file e' materializzato dall'applicazione: un nome scelto da lei
+/// (temporaneo, casuale, interno) uscirebbe nei risultati pubblici, e lo
+/// stesso riferimento renderebbe risultati diversi secondo come l'applicazione
+/// nomina i propri file.
+///
+/// La regola e' quindi che il nome del file, senza estensione, sia quello
+/// dell'ultimo segmento del riferimento, senza estensione: cio' che esce e'
+/// derivato soltanto da cio' che il chiamante ha scritto. Il percorso deve
+/// anche essere rappresentabile come testo, perche' le operazioni lo leggono
+/// cosi'; uno che non lo e' sarebbe stato scritto altrove.
+fn nome_coerente(riferimento: &str, percorso: PathBuf) -> Result<PathBuf, Value> {
+    let segmento = riferimento.rsplit(['/', ':']).next().unwrap_or(riferimento);
+    let atteso = Path::new(segmento).file_stem();
+    let trovato = percorso.file_stem();
+    if percorso.to_str().is_some() && atteso.is_some() && atteso == trovato {
+        return Ok(percorso);
+    }
+    Err(local_err_doc(
+        "RUNTIME_ARTIFACT_NAME_MISMATCH",
+        ErrorCategory::InvalidConfiguration,
+        ErrorPhase::Prepare,
+        &PublicMessage::Curated(
+            "l'applicazione ha materializzato l'artefatto con un nome diverso da quello del \
+             riferimento, o non rappresentabile come testo: il nome del file entra nei risultati",
+        ),
+    )
+    .1["error"]
+        .clone())
+}
+
+/// `\s` di ECMA-262, cioe' cio' che il `pattern` degli schemi comuni vieta.
+///
+/// Non `char::is_whitespace`, che segue la proprieta' Unicode `White_Space`:
+/// ammette U+FEFF e rifiuta U+0085, e il binding accetterebbe un insieme di
+/// riferimenti diverso da quello che lo schema dichiara.
+const fn spazio_ecma(carattere: char) -> bool {
+    matches!(
+        carattere,
+        '\u{0009}'
+            | '\u{000A}'
+            | '\u{000B}'
+            | '\u{000C}'
+            | '\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
+}
+
+/// Un JSON qualunque, con le chiavi ripetute rifiutate a ogni livello.
+fn senza_chiavi_ripetute<'de, D>(deserializer: D) -> Result<Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_any(ValoreSenzaDoppioni)
+}
+
+struct ValoreSenzaDoppioni;
+
+impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
+    type Value = Value;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("un valore JSON senza chiavi ripetute")
+    }
+
+    fn visit_bool<E>(self, valore: bool) -> Result<Value, E> {
+        Ok(Value::Bool(valore))
+    }
+
+    fn visit_i64<E>(self, valore: i64) -> Result<Value, E> {
+        Ok(Value::from(valore))
+    }
+
+    fn visit_u64<E>(self, valore: u64) -> Result<Value, E> {
+        Ok(Value::from(valore))
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, valore: f64) -> Result<Value, E> {
+        // Un numero non finito non e' JSON: `null` qui sarebbe un valore
+        // inventato, e si rifiuta invece di convertirlo.
+        serde_json::Number::from_f64(valore)
+            .map(Value::Number)
+            .ok_or_else(|| serde::de::Error::custom("numero non rappresentabile"))
+    }
+
+    fn visit_str<E>(self, valore: &str) -> Result<Value, E> {
+        Ok(Value::String(valore.to_owned()))
+    }
+
+    fn visit_string<E>(self, valore: String) -> Result<Value, E> {
+        Ok(Value::String(valore))
+    }
+
+    fn visit_unit<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_none<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        senza_chiavi_ripetute(deserializer)
+    }
+
+    fn visit_seq<A>(self, mut sequenza: A) -> Result<Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut elementi = Vec::new();
+        while let Some(SenzaDoppioni(elemento)) = sequenza.next_element()? {
+            elementi.push(elemento);
+        }
+        Ok(Value::Array(elementi))
+    }
+
+    fn visit_map<A>(self, mut mappa: A) -> Result<Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut campi = Map::new();
+        while let Some((chiave, SenzaDoppioni(valore))) =
+            mappa.next_entry::<String, SenzaDoppioni>()?
+        {
+            if campi.insert(chiave, valore).is_some() {
+                return Err(serde::de::Error::custom("chiave ripetuta nel payload"));
+            }
+        }
+        Ok(Value::Object(campi))
+    }
+}
+
+struct SenzaDoppioni(Value);
+
+impl<'de> Deserialize<'de> for SenzaDoppioni {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        senza_chiavi_ripetute(deserializer).map(SenzaDoppioni)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum RifiutoDiInstradamento {
     Identita,
-    Capacita,
+    NomeCapacita,
+    VersioneCapacita,
     Operazione,
     Versione,
     Contratto,
@@ -1135,10 +1478,16 @@ fn errore_di_instradamento(rifiuto: RifiutoDiInstradamento) -> Value {
             ErrorCategory::Protocol,
             "le identita' runtime sono UUID canonici, minuscoli e con i trattini",
         ),
-        RifiutoDiInstradamento::Capacita => (
+        RifiutoDiInstradamento::NomeCapacita => (
             "RUNTIME_ROUTE_INVALID",
             ErrorCategory::Protocol,
-            "la capacita' runtime non e' plenora.io-tools versione 1",
+            "la capacita' runtime non e' plenora.io-tools",
+        ),
+        // ERR-002: una versione non supportata e' `unsupported`.
+        RifiutoDiInstradamento::VersioneCapacita => (
+            "RUNTIME_BINDING_VERSION_UNSUPPORTED",
+            ErrorCategory::Unsupported,
+            "questo artefatto serve soltanto la versione 1 del binding runtime",
         ),
         RifiutoDiInstradamento::Operazione => (
             "RUNTIME_OPERATION_UNSUPPORTED",
@@ -1210,14 +1559,35 @@ fn errore_del_risolutore(rifiuto: RifiutoArtefatto) -> Value {
         .clone()
 }
 
-fn errore_della_consegna() -> Value {
+/// Dove la consegna di `io.read` si e' fermata.
+#[derive(Clone, Copy)]
+enum Consegna {
+    Apertura,
+    Lettura,
+    Rimozione,
+}
+
+fn errore_della_consegna(passo: Consegna) -> Value {
+    let (fase, messaggio) = match passo {
+        Consegna::Apertura => (
+            ErrorPhase::Prepare,
+            "la directory privata della consegna non si e' potuta creare",
+        ),
+        Consegna::Lettura => (
+            ErrorPhase::Commit,
+            "il flusso Arrow consegnato non si e' potuto leggere dalla directory privata",
+        ),
+        Consegna::Rimozione => (
+            ErrorPhase::Cleanup,
+            "la directory privata della consegna non si e' potuta rimuovere: puo' restare un \
+             file temporaneo",
+        ),
+    };
     local_err_doc(
         "RUNTIME_DELIVERY_FAILED",
         ErrorCategory::Io,
-        ErrorPhase::Commit,
-        &PublicMessage::Curated(
-            "il flusso Arrow consegnato non si e' potuto leggere dalla directory privata",
-        ),
+        fase,
+        &PublicMessage::Curated(messaggio),
     )
     .1["error"]
         .clone()
@@ -1305,3 +1675,6 @@ pub fn capacita() -> Value {
         "operations": operazioni,
     })
 }
+
+#[cfg(test)]
+mod sonde;

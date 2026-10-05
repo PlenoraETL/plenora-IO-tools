@@ -79,18 +79,24 @@ runtime-tools o un'altra — consegna un'`Invocazione` serializzata e riceve un
 ```rust
 use plenora_io_tools::runtime::{BindingRuntime, CancellationToken, Invocazione};
 
-let invocazione: Invocazione = serde_json::from_slice(&messaggio)?;
-let risultato = BindingRuntime::new(&risolutore).invoca(&invocazione, CancellationToken::new());
+let risultato = match Invocazione::da_json(&messaggio) {
+    Ok(invocazione) => BindingRuntime::new(&risolutore).invoca(&invocazione, CancellationToken::new()),
+    Err(errore) => return rispondi_con(errore), // plenora-error-v1, senza dati dell'ingresso
+};
 ```
 
 - i payload sono quelli degli schemi `*-input-v1`, letti a campi chiusi;
   `source` e `destination` sono **riferimenti opachi** (`artifact://…`), che
   l'applicazione risolve in percorsi locali con un `RisolutoreArtefatti`: un
-  percorso locale nel payload è rifiutato prima di raggiungerla;
+  percorso locale nel payload è rifiutato prima di raggiungerla, e il file
+  materializzato deve portare il nome dell'ultimo segmento del riferimento
+  (diversi formati ne derivano il nome del layer, che esce nei risultati);
 - `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
   **nel risultato**, con il documento `plenora-io-read-result-v1` accanto, e su
   questa superficie non scrive file del chiamante;
-- `plenora.execution.deadline` entra nello stesso tetto di `deadline_ms`; la
+- `plenora.execution.deadline` entra nello stesso tetto di `deadline_ms`, si
+  misura dall'ammissione (il tempo del risolutore la consuma) e scade con lo
+  stesso errore, `LIMIT_EXCEEDED`; l'orologio si inietta con `con_orologio`. La
   chiave d'idempotenza è rifiutata, perché nessuna operazione la ammette;
 - un errore è un risultato `application/vnd.plenora.error+json` con i quattro
   assi di `plenora-error-v1`, mai un panico.
