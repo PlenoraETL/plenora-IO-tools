@@ -44,6 +44,9 @@ jobs:
           toolchain: "1.98.1"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Verify real feature-on FileGDB catalog evidence
@@ -321,17 +324,27 @@ jobs:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
+      # Versione esatta: senza, `install-action` installa l'ultima pubblicata, e
+      # lo stesso commit puo' passare o fallire secondo il giorno in cui gira.
+      # E' la versione che la CI usava gia' quando il pin mancava.
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.2
       # Gli ID ignorati vengono dal registro, non da un elenco scritto qui: due
       # elenchi divergono, e il secondo non porta la ragione dell'eccezione.
+      #
+      # I lockfile sono due. `fuzz/` e' un workspace staccato con il proprio
+      # `Cargo.lock`, e quel grafo compila i driver contro input ostili: un
+      # advisory li' e' un advisory sul codice che il fuzz esercita, e
+      # auditarne uno solo lasciava l'altro senza nessuno che lo guardasse.
       - name: Audit locked dependencies
         run: |
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
           # shellcheck disable=SC2046
           cargo audit --deny warnings $(python3 scripts/audit_ignores.py)
+          # shellcheck disable=SC2046
+          cargo audit --file fuzz/Cargo.lock --deny warnings $(python3 scripts/audit_ignores.py)
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -456,6 +469,9 @@ jobs:
         with:
           toolchain: "1.98.1"
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install distribution GDAL/OpenFileGDB
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Record native dependency and filesystem identities
@@ -527,6 +543,9 @@ jobs:
       # GDAL serve **alla misura**, non solo ai test: con `--all-features` la
       # copertura compila anche il percorso `gdal-backend` di driver-filegdb, e
       # senza la libreria non compilerebbe affatto.
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Measure coverage
@@ -646,6 +665,9 @@ jobs:
         with:
           toolchain: "1.98.1"
 
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Installa GDAL
         run: sudo apt-get update && sudo apt-get install -y libgdal-dev
 
