@@ -61,9 +61,9 @@ fn main() {
         "il catalogo rende i driver dell'artefatto"
     );
 
-    let capacita = operazioni::capabilities();
+    let documento_capability = operazioni::capabilities();
     assert!(
-        capacita.get("operations").is_some(),
+        documento_capability.get("operations").is_some(),
         "il documento capability elenca le operazioni"
     );
 
