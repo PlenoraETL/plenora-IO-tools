@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import BinaryNotFound, ManifestError, ProfileError
+from .errors import BinaryNotFound, ManifestError, ProfileError, ProtocolError, _tipo, carica_json, copia_json
 
 #: Il nome dell'eseguibile, senza estensione: `shutil.which` aggiunge da se'
 #: quelle che la piattaforma usa.
@@ -122,6 +122,8 @@ class Manifest:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Manifest":
+        if _tipo(documento) != "object":
+            raise ManifestError(f"MANIFEST.json e' {_tipo(documento)} e non un oggetto.")
         mancanti = [
             campo
             for campo in ("nome", "versione", "piattaforma", "profilo", "canale", "non_release")
@@ -133,6 +135,29 @@ class Manifest:
                 "entrambi i costruttori devono scrivere, e uno che manca vuol "
                 "dire che l'artefatto non e' stato prodotto dalla pipeline."
             )
+        # I tipi, non solo le chiavi. `release = not documento["non_release"]`
+        # dava `True` -- «e' una release» -- per un `null`, e `False` per la
+        # stringa `"false"`: un manifesto rotto si dichiarava release. I tipi
+        # sono esatti per la stessa ragione di `errors._tipo`.
+        attesi = {
+            "nome": ("string",),
+            "versione": ("string",),
+            "piattaforma": ("string",),
+            "profilo": ("string",),
+            "canale": ("string",),
+            "non_release": ("boolean",),
+            "revisione": ("string", "null"),
+        }
+        for campo, tipi in attesi.items():
+            if campo in documento and _tipo(documento[campo]) not in tipi:
+                raise ManifestError(
+                    f"MANIFEST.json: `{campo}` e' {_tipo(documento[campo])} e non "
+                    f"{' o '.join(tipi)}."
+                )
+        try:
+            documento = copia_json(documento, "MANIFEST.json")
+        except ProtocolError as errore:
+            raise ManifestError(str(errore)) from errore
         return cls(
             name=documento["nome"],
             version=documento["versione"],
@@ -163,13 +188,15 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     except OSError as errore:
         raise ManifestError(f"{percorso} non si legge: {errore}") from errore
     try:
-        documento = json.loads(testo)
+        documento = carica_json(testo)
+    except ProtocolError as errore:
+        raise ManifestError(f"{percorso}: {errore}") from errore
     except json.JSONDecodeError as errore:
         raise ManifestError(
             f"{percorso} c'e' e non e' JSON valido: {errore}. Un manifesto "
             "rotto non e' un manifesto assente: l'artefatto e' guasto."
         ) from errore
-    if not isinstance(documento, dict):
+    if _tipo(documento) != "object":
         raise ManifestError(f"{percorso} non contiene un oggetto JSON.")
     return Manifest.from_json(documento)
 

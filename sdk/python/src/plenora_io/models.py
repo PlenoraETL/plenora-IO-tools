@@ -39,7 +39,7 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
-from .errors import ProtocolError, _tipo
+from .errors import ProtocolError, _tipo, copia_json
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -110,7 +110,7 @@ def _pretendi(
     campi: tuple[str, ...],
     dove: str,
     modello: type | None = None,
-) -> None:
+) -> dict[str, Any]:
     """I campi ci sono, e hanno il tipo che il modello dichiara.
 
     Controllava soltanto la **presenza** delle chiavi: un `null` o una stringa
@@ -119,9 +119,16 @@ def _pretendi(
     nessuno riconosce piu' l'incompatibilita'. Ora il tipo si confronta con
     l'annotazione della dataclass, e i campi `OPZIONALI`, quando ci sono, non
     ammettono `null`: la loro assenza si scrive omettendoli.
+
+    Rende una **copia** profonda del documento, fatta solo di tipi JSON esatti:
+    il modello costruisce i propri campi da quella, e un documento che il
+    chiamante cambia dopo non cambia il modello. Le sottoclassi di `dict`,
+    `str` e simili sono rifiutate a qualunque profondita' -- vedi `_tipo` in
+    `errors.py` per la ragione.
     """
-    if not isinstance(documento, dict):
+    if _tipo(documento) != "object":
         raise ProtocolError(f"{dove}: e' {_tipo(documento)} e non un oggetto.")
+    documento = copia_json(documento, dove)
     mancanti = [campo for campo in campi if campo not in documento]
     if mancanti:
         raise ProtocolError(
@@ -130,7 +137,7 @@ def _pretendi(
             "documento non e' quello che dice di essere."
         )
     if modello is None:
-        return
+        return documento
     suggerimenti = typing.get_type_hints(modello)
     rinominati = getattr(modello, "RINOMINATI", {})
     opzionali = getattr(modello, "OPZIONALI", ())
@@ -148,13 +155,14 @@ def _pretendi(
                 "come il protocollo v2 lo dichiara."
             )
         elementi = _tipi_degli_elementi(annotazione)
-        if isinstance(valore, list) and elementi is not None:
+        if _tipo(valore) == "array" and elementi is not None:
             for posizione, voce in enumerate(valore):
                 if _tipo(voce) not in elementi:
                     raise ProtocolError(
                         f"{dove}.{campo}[{posizione}] e' {_tipo(voce)} e non "
                         f"{_nomi(elementi)}, come il protocollo v2 lo dichiara."
                     )
+    return documento
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -188,7 +196,7 @@ class Version:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Version":
         attesi = ("component_version", "cli_protocol_version")
-        _pretendi(documento, attesi, "risultato di --version", cls)
+        documento = _pretendi(documento, attesi, "risultato di --version", cls)
         in_piu = sorted(set(documento) - set(attesi))
         if in_piu:
             raise ProtocolError(
@@ -287,7 +295,7 @@ class FormatDescriptor:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FormatDescriptor":
-        _pretendi(documento, cls.OBBLIGATORI, "format", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "format", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -328,7 +336,7 @@ class Driver(FormatDescriptor):
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Driver":
         campi = FormatDescriptor.OBBLIGATORI + cls.PROPRI
-        _pretendi(documento, campi, "catalog.drivers[]", cls)
+        documento = _pretendi(documento, campi, "catalog.drivers[]", cls)
         return cls(
             **{campo: documento[campo] for campo in campi},
             raw=dict(documento),
@@ -352,9 +360,9 @@ class Catalog:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Catalog":
-        _pretendi(documento, cls.OBBLIGATORI, "catalog", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "catalog", cls)
         elenco = documento["drivers"]
-        if not isinstance(elenco, list):
+        if _tipo(elenco) != "array":
             raise ProtocolError(
                 f"catalog.drivers e' {type(elenco).__name__} e non un elenco."
             )
@@ -411,7 +419,7 @@ class Omissions:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Omissions":
-        _pretendi(documento, cls.OBBLIGATORI, "fidelity.omesse", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.omesse", cls)
         return cls(**{campo: documento[campo] for campo in cls.OBBLIGATORI})
 
     @property
@@ -440,7 +448,7 @@ class FidelityReason:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
-        _pretendi(documento, cls.OBBLIGATORI, "fidelity.reasons[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.reasons[]", cls)
         return cls(
             code=documento["code"],
             detail=documento["detail"],
@@ -475,9 +483,9 @@ class Fidelity:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Fidelity":
-        _pretendi(documento, cls.OBBLIGATORI, "fidelity", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity", cls)
         ragioni = documento["reasons"]
-        if not isinstance(ragioni, list):
+        if _tipo(ragioni) != "array":
             raise ProtocolError(
                 f"fidelity.reasons e' {type(ragioni).__name__} e non un elenco."
             )
@@ -517,7 +525,7 @@ class Field:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Field":
-        _pretendi(documento, cls.OBBLIGATORI, "layer.fields[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.fields[]", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -546,7 +554,7 @@ class CrsResolution:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
-        _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -567,7 +575,7 @@ class Geometry:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Geometry":
-        _pretendi(documento, cls.OBBLIGATORI, "layer.geometry", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry", cls)
         return cls(
             name=documento["name"],
             kind=documento["kind"],
@@ -591,9 +599,9 @@ class Layer:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
-        _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]", cls)
         colonne = documento["fields"]
-        if not isinstance(colonne, list):
+        if _tipo(colonne) != "array":
             raise ProtocolError(
                 f"layers[].fields e' {type(colonne).__name__} e non un elenco."
             )
@@ -639,7 +647,7 @@ class LayerSummary:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
-        _pretendi(documento, cls.OBBLIGATORI, "layers.layers[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "layers.layers[]", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -662,9 +670,9 @@ class Inspect:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Inspect":
-        _pretendi(documento, cls.OBBLIGATORI, "inspect", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect", cls)
         elenco = documento["layers"]
-        if not isinstance(elenco, list):
+        if _tipo(elenco) != "array":
             raise ProtocolError(
                 f"inspect.layers e' {type(elenco).__name__} e non un elenco."
             )
@@ -703,9 +711,9 @@ class Layers:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layers":
-        _pretendi(documento, cls.OBBLIGATORI, "layers", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "layers", cls)
         elenco = documento["layers"]
-        if not isinstance(elenco, list):
+        if _tipo(elenco) != "array":
             raise ProtocolError(
                 f"layers.layers e' {type(elenco).__name__} e non un elenco."
             )
@@ -748,7 +756,7 @@ class Delivered:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Delivered":
-        _pretendi(documento, cls.OBBLIGATORI, "read.delivered", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "read.delivered", cls)
         return cls(
             content_type=documento["content_type"],
             interchange_contract=documento["interchange_contract"],
@@ -804,7 +812,7 @@ class Validation:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Validation":
-        _pretendi(documento, cls.OBBLIGATORI, "read", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "read", cls)
         consegna = documento["delivered"]
         return cls(
             format=documento["format"],
@@ -852,7 +860,7 @@ class LossCount:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossCount":
-        _pretendi(documento, cls.OBBLIGATORI, "loss.counts[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.counts[]", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -878,7 +886,7 @@ class LossExample:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossExample":
-        _pretendi(documento, cls.OBBLIGATORI, "loss.esempi[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.esempi[]", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -910,9 +918,9 @@ class LossReport:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossReport":
-        _pretendi(documento, cls.OBBLIGATORI, "loss", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "loss", cls)
         for campo in ("counts", "esempi"):
-            if not isinstance(documento[campo], list):
+            if _tipo(documento[campo]) != "array":
                 raise ProtocolError(
                     f"loss.{campo} e' {type(documento[campo]).__name__} e non "
                     "un elenco."
@@ -957,7 +965,7 @@ class ConvertedLayer:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertedLayer":
-        _pretendi(documento, cls.OBBLIGATORI, "convert.layers[]", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "convert.layers[]", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -1021,9 +1029,9 @@ class ConvertResult:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertResult":
-        _pretendi(documento, cls.OBBLIGATORI, "convert", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "convert", cls)
         elenco = documento["layers"]
-        if not isinstance(elenco, list):
+        if _tipo(elenco) != "array":
             raise ProtocolError(
                 f"convert.layers e' {type(elenco).__name__} e non un elenco."
             )
@@ -1082,7 +1090,7 @@ class WriteInput:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteInput":
-        _pretendi(documento, cls.OBBLIGATORI, "write.input", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "write.input", cls)
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -1141,9 +1149,9 @@ class WriteResult:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteResult":
-        _pretendi(documento, cls.OBBLIGATORI, "write", cls)
+        documento = _pretendi(documento, cls.OBBLIGATORI, "write", cls)
         elenco = documento["layers"]
-        if not isinstance(elenco, list):
+        if _tipo(elenco) != "array":
             raise ProtocolError(
                 f"write.layers e' {type(elenco).__name__} e non un elenco."
             )

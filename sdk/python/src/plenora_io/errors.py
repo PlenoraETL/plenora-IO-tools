@@ -26,7 +26,11 @@ riscrivere.
 
 from __future__ import annotations
 
+import json
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 
@@ -103,34 +107,63 @@ class ErrorEnvelope:
     contro quello schema; l'attributo qui resta piatto perche' e' la comodita'
     che serve a chi lo legge, e la posizione sul filo la sa questa classe.
 
-    Resta un dizionario grezzo: ha un contratto proprio --
+    Resta un documento grezzo: ha un contratto proprio --
     `plenora-row-diagnostics-v1` -- e modellarlo qui vorrebbe dire ratificare
     in questo ciclo una superficie che non e' stata censita per l'SDK.
+
+    # Di sola lettura, e copiati
+
+    `retry` e `row_diagnostics` sono **copie** congelate di cio' che si e'
+    passato -- `MappingProxyType` per gli oggetti, tuple per gli elenchi -- e
+    non il dizionario del chiamante. Prima la busta conservava quel
+    dizionario: validata con `remote_effect: unknown` e `retry: {kind: never}`,
+    bastava cambiare dopo il dizionario in `{kind: safe}` perche' `retryable`
+    diventasse vero senza nessuna nuova validazione. Ora cio' che si valida e'
+    cio' che resta.
     """
 
     code: str
     category: str
     phase: str
     remote_effect: str
-    retry: dict[str, Any]
+    retry: Mapping[str, Any]
     message: str
-    row_diagnostics: dict[str, Any] | None = None
+    row_diagnostics: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         # La validazione sta **qui** e non solo in `from_json`: una busta
         # costruita a mano -- in un test, in un adattatore -- arriva alle stesse
         # proprieta' di `CommandFailed`, e un valore fuori vocabolario deve
         # fermarsi prima di diventare una risposta su «ritentare e' sicuro».
+        #
+        # Prima si copia, poi si valida la copia, poi si conserva la copia: la
+        # cosa validata e la cosa conservata sono lo stesso oggetto, e nessuno
+        # fuori ne ha un riferimento.
+        if _tipo(self.retry) != "object":
+            raise ProtocolError(
+                f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
+            )
+        object.__setattr__(self, "retry", copia_json(self.retry, "error.retry", congela=True))
+        if self.row_diagnostics is not None:
+            if _tipo(self.row_diagnostics) != "object":
+                raise ProtocolError(
+                    f"`row_diagnostics` e' {_tipo(self.row_diagnostics)} e non un oggetto."
+                )
+            object.__setattr__(
+                self,
+                "row_diagnostics",
+                copia_json(self.row_diagnostics, "row_diagnostics", congela=True),
+            )
         _valida_busta(self)
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
-        if not isinstance(documento, dict):
+        if _tipo(documento) != "object":
             raise ProtocolError(
                 f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
             )
         errore = documento.get("error")
-        if not isinstance(errore, dict):
+        if _tipo(errore) != "object":
             raise ProtocolError(
                 "busta d'errore senza l'oggetto `error`: "
                 f"{sorted(documento)}"
@@ -149,15 +182,13 @@ class ErrorEnvelope:
         # `error-v1` non ammette `null`. Prima un `null` diventava `{}` in
         # silenzio mentre una stringa sollevava `AttributeError` -- due esiti
         # diversi per lo stesso difetto, nessuno dei due nominato.
-        if "details" in errore and not isinstance(errore["details"], dict):
+        if "details" in errore and _tipo(errore["details"]) != "object":
             raise ProtocolError(
                 f"`error.details` e' {_tipo(errore['details'])} e non un oggetto: "
                 "lo schema `plenora-error-v1` lo dichiara oggetto quando c'e'."
             )
         dettagli = errore.get("details", {})
-        if "row_diagnostics" in dettagli and not isinstance(
-            dettagli["row_diagnostics"], dict
-        ):
+        if "row_diagnostics" in dettagli and _tipo(dettagli["row_diagnostics"]) != "object":
             raise ProtocolError(
                 "`error.details.row_diagnostics` e' "
                 f"{_tipo(dettagli['row_diagnostics'])} e non un oggetto."
@@ -230,23 +261,94 @@ RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
 RITARDO_MASSIMO_MS = 86_400_000
 
 
+#: I tipi Python che `json.loads` produce, e il tipo JSON di ciascuno.
+#:
+#: Il confronto e' sul tipo **esatto**, non con `isinstance`. Una sottoclasse
+#: di `str` con `__eq__` e `__hash__` riscritti superava `in EFFETTI_REMOTI`
+#: fingendosi `none`; una di `dict` con `get` riscritto rispondeva a `kind` con
+#: un valore che non aveva. Il wire non le produce mai: chi le passa non sta
+#: passando JSON, e la risposta giusta e' rifiutarle, non interpretarle.
+_TIPI_JSON: dict[type, str] = {
+    type(None): "null",
+    bool: "boolean",
+    int: "integer",
+    float: "number",
+    str: "string",
+    list: "array",
+    dict: "object",
+}
+
+
 def _tipo(valore: Any) -> str:
-    """Il tipo JSON di un valore, per i messaggi: mai il valore stesso."""
-    if valore is None:
-        return "null"
-    if isinstance(valore, bool):
-        return "boolean"
-    if isinstance(valore, int):
-        return "integer"
-    if isinstance(valore, float):
-        return "number"
-    if isinstance(valore, str):
-        return "string"
-    if isinstance(valore, list):
-        return "array"
-    if isinstance(valore, dict):
-        return "object"
-    return type(valore).__name__
+    """Il tipo JSON **esatto** di un valore, per controlli e messaggi.
+
+    Mai il valore stesso. Per cio' che non e' un tipo prodotto da `json.loads`
+    -- sottoclassi comprese -- rende un nome che nessun controllo accetta.
+    """
+    return _TIPI_JSON.get(type(valore), f"non JSON ({type(valore).__name__})")
+
+
+def copia_json(valore: Any, dove: str, *, congela: bool = False) -> Any:
+    """Una copia profonda di un valore JSON, con i soli tipi di `json.loads`.
+
+    Rifiuta con `ProtocolError` ogni tipo non JSON a qualunque profondita',
+    chiavi comprese (solo `str` esatte), e i numeri non finiti. Con `congela`
+    gli oggetti diventano `MappingProxyType` e gli elenchi tuple: nessuno, ne'
+    il chiamante ne' chi riceve la copia, puo' cambiarla dopo.
+    """
+    tipo = _tipo(valore)
+    if tipo == "object":
+        copia = {}
+        for chiave, interno in valore.items():
+            if type(chiave) is not str:
+                raise ProtocolError(
+                    f"`{dove}` ha una chiave {_tipo(chiave)} e non una stringa."
+                )
+            copia[chiave] = copia_json(interno, f"{dove}.{chiave}", congela=congela)
+        return MappingProxyType(copia) if congela else copia
+    if tipo == "array":
+        copia = [
+            copia_json(interno, f"{dove}[{posizione}]", congela=congela)
+            for posizione, interno in enumerate(valore)
+        ]
+        return tuple(copia) if congela else copia
+    if tipo == "number" and not math.isfinite(valore):
+        raise ProtocolError(f"`{dove}` e' un numero non finito, che JSON non ha.")
+    if tipo.startswith("non JSON"):
+        raise ProtocolError(f"`{dove}` e' {tipo}.")
+    return valore
+
+
+def _rifiuta_costante(nome: str) -> Any:
+    raise ProtocolError(f"il documento contiene `{nome}`, che JSON non ha.")
+
+
+def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
+    oggetto: dict[str, Any] = {}
+    for chiave, valore in coppie:
+        if chiave in oggetto:
+            raise ProtocolError(
+                "il documento ripete una chiave nello stesso oggetto: "
+                "`json.loads` terrebbe in silenzio l'ultima."
+            )
+        oggetto[chiave] = valore
+    return oggetto
+
+
+def carica_json(testo: str) -> Any:
+    """`json.loads` senza le sue due tolleranze.
+
+    `NaN`, `Infinity` e `-Infinity` non sono JSON, e `json.loads` li accetta;
+    una chiave ripetuta nello stesso oggetto la risolve tenendo l'ultima. Sono
+    due modi in cui un documento diverso da quello scritto arriverebbe ai
+    modelli senza che nessuno lo veda: qui sono `ProtocolError`. Gli errori di
+    sintassi restano `json.JSONDecodeError`, come prima.
+    """
+    return json.loads(
+        testo,
+        object_pairs_hook=_rifiuta_chiavi_doppie,
+        parse_constant=_rifiuta_costante,
+    )
 
 
 def _valida_busta(busta: "ErrorEnvelope") -> None:
@@ -257,13 +359,13 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
     """
     for campo in ("code", "category", "phase", "message"):
         valore = getattr(busta, campo)
-        if not isinstance(valore, str) or not valore:
+        if _tipo(valore) != "string" or not valore:
             raise ProtocolError(
                 f"`error.{campo}` e' {_tipo(valore)} e non una stringa non vuota."
             )
 
     effetto = busta.remote_effect
-    if not isinstance(effetto, str) or effetto not in EFFETTI_REMOTI:
+    if _tipo(effetto) != "string" or effetto not in EFFETTI_REMOTI:
         raise ProtocolError(
             f"`error.remote_effect` ({_tipo(effetto)}) non e' nel vocabolario "
             f"chiuso di `plenora-error-v1`: {sorted(EFFETTI_REMOTI)}. Senza "
@@ -271,13 +373,10 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
             "un ritentativo e' sicura."
         )
 
+    # `retry` e' gia' la copia congelata fatta in `__post_init__`.
     retry = busta.retry
-    if not isinstance(retry, dict):
-        raise ProtocolError(
-            f"`error.retry` e' {_tipo(retry)} e non un oggetto `{{kind}}`."
-        )
     tipo = retry.get("kind")
-    if not isinstance(tipo, str) or tipo not in TIPI_DI_RITENTATIVO:
+    if _tipo(tipo) != "string" or tipo not in TIPI_DI_RITENTATIVO:
         raise ProtocolError(
             f"`error.retry.kind` ({_tipo(tipo)}) non e' nel vocabolario chiuso "
             f"di `plenora-error-v1`: {sorted(TIPI_DI_RITENTATIVO)}."
@@ -290,11 +389,7 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
         )
     if tipo == "after":
         ritardo = retry["delay_ms"]
-        if (
-            not isinstance(ritardo, int)
-            or isinstance(ritardo, bool)
-            or not 0 <= ritardo <= RITARDO_MASSIMO_MS
-        ):
+        if _tipo(ritardo) != "integer" or not 0 <= ritardo <= RITARDO_MASSIMO_MS:
             raise ProtocolError(
                 f"`error.retry.delay_ms` ({_tipo(ritardo)}) non e' un intero fra "
                 f"0 e {RITARDO_MASSIMO_MS}."
@@ -307,10 +402,6 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
             "non si dichiara sicuro senza sapere che cosa e' successo."
         )
 
-    if busta.row_diagnostics is not None and not isinstance(busta.row_diagnostics, dict):
-        raise ProtocolError(
-            f"`row_diagnostics` e' {_tipo(busta.row_diagnostics)} e non un oggetto."
-        )
 
 
 class CommandFailed(PlenoraError):

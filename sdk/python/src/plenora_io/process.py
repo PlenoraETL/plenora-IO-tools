@@ -85,7 +85,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import ProtocolError, failure_from_envelope
+from .errors import ProtocolError, _tipo, carica_json, failure_from_envelope
 
 
 
@@ -263,7 +263,7 @@ class Runner:
         # `--help` non passa di qui: non e' una busta, e il client non lo
         # chiama.
         risultato = documento.get("result")
-        if not isinstance(risultato, dict):
+        if _tipo(risultato) != "object":
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' riuscito ma la sua "
                 "busta non porta un oggetto `result`: il protocollo mette li' i "
@@ -310,15 +310,15 @@ class Runner:
                 f"{altro}: {completed.stream(altro)[:200]!r}"
             )
         try:
-            documento = json.loads(testo)
+            documento = carica_json(testo)
         except json.JSONDecodeError as errore:
             raise ProtocolError(
                 f"cio' che `plenora-io {' '.join(completed.argv)}` ha scritto "
                 f"su {stream} non e' JSON: {errore}\n{testo[:200]!r}"
             ) from errore
-        if not isinstance(documento, dict):
+        if _tipo(documento) != "object":
             raise ProtocolError(
-                f"la busta su {stream} e' {type(documento).__name__} e non un "
+                f"la busta su {stream} e' {_tipo(documento)} e non un "
                 "oggetto JSON."
             )
         return documento

@@ -103,6 +103,13 @@ permesso. `retryable` e' vero per `safe`, `after`, `requires_idempotency_key` e
 resta aperta: una sconosciuta ripiega su `CommandFailed`, perche' sceglie solo
 la classe dell'eccezione e non decide niente al posto di chi la riceve.
 
+`envelope.retry` e `envelope.row_diagnostics` sono **copie di sola lettura**
+(`MappingProxyType`, elenchi come tuple): cambiare dopo il dizionario da cui la
+busta e' nata non cambia la busta, e la busta non si cambia. L'SDK accetta solo
+i tipi che `json.loads` produce, **esatti**: una sottoclasse di `str` o di
+`dict` e' `ProtocolError`, come una chiave ripetuta o un `NaN` nel documento. I
+modelli tengono una copia propria del documento da cui nascono.
+
 ## L'SDK parla v2, e basta
 
 Con successo il v2 non scrive niente su `stderr`, e l'SDK lo pretende: qualunque
