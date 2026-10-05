@@ -57,7 +57,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 
 use plenora_io_model::budget::PipelineLimits;
-use plenora_io_model::{ErrorCategory, ErrorPhase, PlenoraIoError, PublicMessage};
+use plenora_io_model::{ErrorCategory, ErrorPhase, PublicMessage};
 
 /// Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].
 ///
@@ -82,6 +82,9 @@ pub const CONTENT_TYPE_FLUSSO_ARROW: &str = "application/vnd.apache.arrow.stream
 pub const CONTENT_TYPE_ERRORE: &str = "application/vnd.plenora.error+json";
 /// Il contratto di un errore terminale.
 pub const CONTRATTO_ERRORE: &str = "plenora-error-v1";
+
+/// Di quanto la durata della pipeline supera la scadenza assoluta.
+const MARGINE_DELLA_DURATA_MS: u64 = 1_000;
 
 /// La lunghezza massima di un riferimento ad artefatto, in caratteri.
 ///
@@ -312,11 +315,20 @@ pub struct MetadatiRichiesta {
 /// I metadati di un risultato (RUNTIME-BINDING-1.0 §6 e §7).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+///
+/// Che cosa si riflette dalla richiesta segue la regola R2 della matrice
+/// comune del binding runtime (proposta, in attesa di ratifica in
+/// plenora-contracts): un valore d'instradamento o d'identita' si copia byte
+/// per byte **solo se canonico**; altrimenti la chiave si omette. Mai un
+/// valore normalizzato, mai un segnaposto come `"0"` o `io.unknown`.
 pub struct MetadatiRisultato {
-    /// L'identita' del messaggio d'invocazione a cui si risponde.
+    /// L'identita' di **questo** messaggio: sempre nuova, UUID v4 canonico
+    /// (RUNTIME-BINDING-1.0 §3, «unique message identity»).
     #[serde(rename = "plenora.message.id")]
     pub id_messaggio: String,
-    /// La causa dichiarata dall'invocazione, se c'era ed era canonica.
+    /// La causa diretta del risultato, cioe' il `plenora.message.id` della
+    /// richiesta quando era canonico (proposta P della matrice, caso 6). La
+    /// causazione della richiesta non si copia: affermerebbe una causa falsa.
     #[serde(
         rename = "plenora.message.causation_id",
         default,
@@ -324,18 +336,33 @@ pub struct MetadatiRisultato {
         skip_serializing_if = "Option::is_none"
     )]
     pub id_causa: Option<String>,
-    /// L'operazione, o `io.unknown` se l'invocazione non ne nominava una nota.
-    #[serde(rename = "plenora.capability.operation")]
-    pub operazione: String,
-    /// La versione dell'operazione, o `0` se non era leggibile.
-    #[serde(rename = "plenora.operation.version")]
-    pub versione_operazione: String,
+    /// L'operazione della richiesta, se scritta in forma canonica.
+    #[serde(
+        rename = "plenora.capability.operation",
+        default,
+        deserialize_with = "presente",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub operazione: Option<String>,
+    /// La versione dell'operazione della richiesta, se canonica.
+    #[serde(
+        rename = "plenora.operation.version",
+        default,
+        deserialize_with = "presente",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub versione_operazione: Option<String>,
     /// Il contratto d'uscita, o `plenora-error-v1` per un errore.
     #[serde(rename = "plenora.output.contract")]
     pub contratto_uscita: String,
-    /// La correlazione dell'invocazione.
-    #[serde(rename = "plenora.trace.correlation_id")]
-    pub id_correlazione: String,
+    /// La correlazione dell'invocazione (RT-012), se canonica.
+    #[serde(
+        rename = "plenora.trace.correlation_id",
+        default,
+        deserialize_with = "presente",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub id_correlazione: Option<String>,
 }
 
 /// Il payload di un risultato.
@@ -468,22 +495,17 @@ impl<'a> BindingRuntime<'a> {
     #[must_use]
     pub fn invoca(&self, invocazione: &Invocazione, cancellazione: CancellationToken) -> Risultato {
         let metadati = &invocazione.metadata;
+        let canonico =
+            |valore: &str, forma: fn(&str) -> bool| forma(valore).then(|| valore.to_owned());
         let identita = MetadatiRisultato {
-            id_messaggio: uuid_pubblico(&metadati.id_messaggio),
-            id_causa: metadati
-                .id_causa
-                .as_deref()
-                .filter(|valore| uuid_canonico(valore))
-                .map(str::to_owned),
-            operazione: OPERAZIONI
-                .iter()
-                .find(|voce| voce.operazione == metadati.operazione)
-                .map_or("io.unknown", |voce| voce.operazione)
-                .to_owned(),
-            versione_operazione: versione_canonica(&metadati.versione_operazione)
-                .map_or_else(|| "0".to_owned(), |versione| versione.to_string()),
+            id_messaggio: uuid::Uuid::new_v4().hyphenated().to_string(),
+            id_causa: canonico(&metadati.id_messaggio, uuid_canonico),
+            operazione: canonico(&metadati.operazione, operazione_ben_formata),
+            versione_operazione: canonico(&metadati.versione_operazione, |valore| {
+                versione_canonica(valore).is_some()
+            }),
             contratto_uscita: CONTRATTO_ERRORE.to_owned(),
-            id_correlazione: uuid_pubblico(&metadati.id_correlazione),
+            id_correlazione: canonico(&metadati.id_correlazione, uuid_canonico),
         };
         match self.invoca_ammessa(invocazione, cancellazione) {
             Ok((descrittore, payload)) => Risultato {
@@ -519,10 +541,34 @@ impl<'a> BindingRuntime<'a> {
             .map(|testo| istante_della_scadenza(testo, (self.orologio)()))
             .transpose()?;
         let campi = campi_del_payload(descrittore, &invocazione.payload)?;
+        if scadenza.is_some() && campi.deadline_ms.is_some() {
+            // Due canali per la stessa quota: nessuna precedenza implicita, e
+            // il rifiuto vale anche a valori uguali (proposta P della matrice,
+            // caso 7c).
+            return Err(local_err_doc(
+                "RUNTIME_DEADLINE_TWICE",
+                ErrorCategory::InvalidConfiguration,
+                ErrorPhase::Validate,
+                &PublicMessage::Curated(
+                    "la scadenza arriva sia da plenora.execution.deadline sia da deadline_ms: \
+                     su questa superficie se ne ammette una sola",
+                ),
+            )
+            .1["error"]
+                .clone());
+        }
         let mut richiesta = self.richiesta(descrittore, &campi)?;
         let rimasti = scadenza.map(millisecondi_rimasti).transpose()?;
         richiesta.limits = tetti(&campi, rimasti);
-        richiesta = richiesta.con_cancellazione(cancellazione);
+        // La scadenza assoluta va nel **token**: quando arriva durante
+        // l'esecuzione, la pipeline la osserva come `timeout`
+        // (PUBLIC-SURFACES-1.0 SURF-010), non come una quota di risorse
+        // esaurita. Il tetto di durata qui sopra resta oltre la scadenza, cosi'
+        // da non arrivare prima di lei.
+        richiesta = richiesta.con_cancellazione(match scadenza {
+            Some(istante) => cancellazione.child_token_with_deadline(Some(istante)),
+            None => cancellazione,
+        });
         let esito = match descrittore.operazione {
             "io.catalog" => return Ok((descrittore, Carico::Json(operazioni::catalog()))),
             "io.inspect" => operazioni::inspect(richiesta),
@@ -668,15 +714,17 @@ fn tetti(campi: &Campi, scadenza_ms: Option<u64>) -> PipelineLimits {
             tetti = tetti.with_max_wkb_depth(valore);
         }
     }
-    // Una scadenza sola, la piu' vicina. `deadline_ms` del payload (o il suo
-    // default, se assente) e i millisecondi che restano alla scadenza assoluta
-    // dei metadati sono due modi di dire la stessa quota, e vince la piu'
-    // stretta: e' cio' che rende la scadenza runtime la stessa semantica di
-    // `--deadline-ms` (RT-007). Quando scade durante l'esecuzione l'errore e'
-    // quello della pipeline, `LIMIT_EXCEEDED`; e lo stesso errore rende
-    // l'ammissione quando la scadenza e' gia' passata (`errore_di_scadenza`).
-    let relativa = campi.deadline_ms.unwrap_or_else(|| tetti.duration_ms());
-    tetti.with_duration_ms(scadenza_ms.map_or(relativa, |assoluta| assoluta.min(relativa)))
+    // Una scadenza sola: la scadenza assoluta dei metadati **oppure**
+    // `deadline_ms` del payload -- le due insieme sono rifiutate prima di
+    // arrivare qui -- oppure il default del modello.
+    //
+    // Con la scadenza assoluta la governa il token: la durata della pipeline
+    // sta un secondo oltre, perche' la pipeline nasce un poco dopo questo
+    // calcolo e il suo limite non deve arrivare prima.
+    let durata = scadenza_ms
+        .map(|assoluta| assoluta.saturating_add(MARGINE_DELLA_DURATA_MS))
+        .or(campi.deadline_ms);
+    durata.map_or(tetti, |millisecondi| tetti.with_duration_ms(millisecondi))
 }
 
 /// I campi che gli schemi `*-input-v1` dichiarano, tutti insieme.
@@ -1039,35 +1087,64 @@ pub struct Instradamento<'a> {
 ///
 /// # Errors
 ///
-/// Il documento `plenora-error-v1` del rifiuto: `protocol` per un nome di
-/// capacita', un contratto o un content type che non corrispondono,
-/// `unsupported` per un'operazione o una versione -- del binding o
-/// dell'operazione -- che questo artefatto non serve (ERR-002). Sempre
-/// `remote_effect: none`.
+/// Il documento `plenora-error-v1` del rifiuto, secondo la regola R1 della
+/// matrice comune (proposta P): `unsupported` per un valore ben formato che
+/// questo artefatto non annuncia -- capacita', versione del binding,
+/// operazione, versione dell'operazione, contratto d'ingresso, content type
+/// (ERR-002) -- e `protocol` per un valore malformato o non canonico. Sempre
+/// `validate`, `remote_effect: none`, `retry: never`.
 pub fn verifica_instradamento(
     instradamento: &Instradamento<'_>,
 ) -> Result<&'static DescrittoreRuntime, Value> {
+    // R1 della matrice comune (proposta P): un valore ben formato ma non
+    // annunciato e' `unsupported`, uno malformato o non canonico e' `protocol`.
+    // Mai normalizzato: `"01"` non diventa `"1"`.
+    use RifiutoDiInstradamento as R;
+    let rifiuto = |ben_formato: bool, non_annunciato: R| {
+        errore_di_instradamento(if ben_formato {
+            non_annunciato
+        } else {
+            R::Malformato
+        })
+    };
     if instradamento.nome_capacita != NOME_CAPACITA {
-        return Err(errore_di_instradamento(
-            RifiutoDiInstradamento::NomeCapacita,
+        return Err(rifiuto(
+            capacita_ben_formata(instradamento.nome_capacita),
+            R::NomeCapacita,
         ));
     }
     if versione_canonica(instradamento.versione_capacita) != Some(VERSIONE_BINDING) {
-        return Err(errore_di_instradamento(
-            RifiutoDiInstradamento::VersioneCapacita,
+        return Err(rifiuto(
+            versione_canonica(instradamento.versione_capacita).is_some(),
+            R::VersioneCapacita,
         ));
     }
-    let descrittore = OPERAZIONI
+    let Some(descrittore) = OPERAZIONI
         .iter()
         .find(|voce| voce.operazione == instradamento.operazione)
-        .ok_or_else(|| errore_di_instradamento(RifiutoDiInstradamento::Operazione))?;
+    else {
+        return Err(rifiuto(
+            operazione_ben_formata(instradamento.operazione),
+            R::Operazione,
+        ));
+    };
     if versione_canonica(instradamento.versione_operazione) != Some(descrittore.versione) {
-        return Err(errore_di_instradamento(RifiutoDiInstradamento::Versione));
+        return Err(rifiuto(
+            versione_canonica(instradamento.versione_operazione).is_some(),
+            R::Versione,
+        ));
     }
-    if instradamento.contratto_ingresso != descrittore.contratto_ingresso
-        || instradamento.content_type != CONTENT_TYPE_JSON
-    {
-        return Err(errore_di_instradamento(RifiutoDiInstradamento::Contratto));
+    if instradamento.contratto_ingresso != descrittore.contratto_ingresso {
+        return Err(rifiuto(
+            contratto_ben_formato(instradamento.contratto_ingresso),
+            R::Contratto,
+        ));
+    }
+    if instradamento.content_type != CONTENT_TYPE_JSON {
+        return Err(rifiuto(
+            content_type_ben_formato(instradamento.content_type),
+            R::ContentType,
+        ));
     }
     Ok(descrittore)
 }
@@ -1083,6 +1160,62 @@ fn versione_canonica(valore: &str) -> Option<u32> {
     canonica.then(|| valore.parse().ok()).flatten()
 }
 
+/// `^plenora\.[a-z][a-z0-9-]*-tools$` (`runtime-vector-v1.schema.json`).
+fn capacita_ben_formata(valore: &str) -> bool {
+    valore
+        .strip_prefix("plenora.")
+        .and_then(|resto| resto.strip_suffix("-tools"))
+        .is_some_and(|nome| {
+            nome.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+                && nome
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+}
+
+/// `^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$` (`runtime-vector-v1.schema.json`).
+fn operazione_ben_formata(valore: &str) -> bool {
+    let segmenti: Vec<&str> = valore.split('.').collect();
+    segmenti.len() >= 2
+        && segmenti.iter().all(|segmento| {
+            segmento
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_lowercase())
+                && segmento
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+        })
+}
+
+/// `^plenora-[a-z0-9-]+-v[1-9][0-9]*$` (`runtime-vector-v1.schema.json`).
+fn contratto_ben_formato(valore: &str) -> bool {
+    valore
+        .strip_prefix("plenora-")
+        .and_then(|resto| resto.rsplit_once("-v"))
+        .is_some_and(|(nome, versione)| {
+            !nome.is_empty()
+                && nome
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && versione_canonica(versione).is_some()
+        })
+}
+
+/// `tipo/sottotipo` con i soli caratteri dei token, come i `content_types`
+/// di `capabilities-v2.schema.json`.
+fn content_type_ben_formato(valore: &str) -> bool {
+    let token = |parte: &str| {
+        !parte.is_empty()
+            && parte
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&b))
+    };
+    valore
+        .split_once('/')
+        .is_some_and(|(tipo, sottotipo)| token(tipo) && token(sottotipo))
+}
+
 fn uuid_canonico(valore: &str) -> bool {
     valore.len() == 36
         && valore.bytes().enumerate().all(|(indice, byte)| {
@@ -1094,23 +1227,13 @@ fn uuid_canonico(valore: &str) -> bool {
         })
 }
 
-/// Un'identita' non canonica non si rimanda indietro: e' testo del chiamante.
-fn uuid_pubblico(valore: &str) -> String {
-    if uuid_canonico(valore) {
-        valore.to_owned()
-    } else {
-        "00000000-0000-0000-0000-000000000000".to_owned()
-    }
-}
-
 /// L'`Instant` della scadenza assoluta, letta con l'orologio del binding.
 ///
 /// # Errors
 ///
-/// Una scadenza che non e' RFC 3339 in UTC e' `invalid_configuration`. Una
-/// scadenza gia' passata -- compresa una anteriore al 1970 -- rende lo stesso
-/// errore che la pipeline rende quando la durata si esaurisce durante
-/// l'esecuzione: una scadenza sola, un errore solo (`errore_di_scadenza`). Un
+/// Una scadenza che non e' nella grafia RFC 3339 UTC ammessa e' `protocol`.
+/// Una scadenza gia' passata -- compresa una anteriore al 1970 -- e'
+/// `timeout` (`errore_di_scadenza`). Un
 /// orologio anteriore all'epoca Unix e' rifiutato: leggerlo come zero
 /// allenterebbe in silenzio ogni scadenza.
 fn istante_della_scadenza(testo: &str, adesso: SystemTime) -> Result<Instant, Value> {
@@ -1120,10 +1243,11 @@ fn istante_della_scadenza(testo: &str, adesso: SystemTime) -> Result<Instant, Va
         None => {
             return Err(local_err_doc(
                 "RUNTIME_DEADLINE_INVALID",
-                ErrorCategory::InvalidConfiguration,
+                ErrorCategory::Protocol,
                 ErrorPhase::Validate,
                 &PublicMessage::Curated(
-                    "plenora.execution.deadline e' un istante RFC 3339 in UTC, con Z o +00:00",
+                    "plenora.execution.deadline e' un istante RFC 3339 in UTC, nella forma \
+                     AAAA-MM-GGTHH:MM:SS[.frazione]Z",
                 ),
             )
             .1["error"]
@@ -1181,15 +1305,19 @@ fn millisecondi_rimasti(istante: Instant) -> Result<u64, Value> {
     Ok(restano)
 }
 
-/// Lo stesso errore della pipeline quando la sua durata si esaurisce.
+/// Una scadenza gia' passata all'ammissione.
 ///
-/// Non un errore suo: la scadenza dei metadati e `deadline_ms` sono la stessa
-/// quota, e due errori diversi per la stessa cosa costringerebbero chi
-/// orchestra a riconoscerli entrambi.
+/// `timeout`, come PUBLIC-SURFACES-1.0 SURF-010 vuole per ogni scadenza
+/// osservata; `validate` e `none` perche' nulla e' iniziato; `never` perche'
+/// lo stesso messaggio porta la stessa scadenza e fallirebbe di nuovo
+/// (proposta P della matrice, caso 7b).
 fn errore_di_scadenza() -> Value {
-    crate::map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-        "durata della pipeline esaurita",
-    )))
+    local_err_doc(
+        "DEADLINE_EXCEEDED",
+        ErrorCategory::Timeout,
+        ErrorPhase::Validate,
+        &PublicMessage::Curated("la scadenza dell'invocazione e' gia' passata"),
+    )
     .1["error"]
         .clone()
 }
@@ -1205,18 +1333,16 @@ pub enum IstanteRfc3339 {
 
 /// Un istante RFC 3339 in UTC, o `None` se il testo non lo e'.
 ///
-/// La forma ammessa e' `AAAA-MM-GGTHH:MM:SS[.frazione](Z|+00:00)`, con `T` e
-/// `Z` anche minuscole come RFC 3339 §5.6 consente. Uno scostamento diverso da
-/// zero, e `-00:00` che RFC 3339 riserva all'ora locale sconosciuta, sono
-/// rifiutati: il binding dice «UTC», e convertire in silenzio un orario
-/// locale sarebbe indovinare. Il secondo intercalare (`60`) e' rifiutato
-/// esplicitamente: non ha un istante Unix.
+/// Una grafia sola, `AAAA-MM-GGTHH:MM:SS[.frazione]Z`, con `T` e `Z`
+/// maiuscole e da 1 a 9 cifre di frazione: la grammatica proposta dalla
+/// matrice comune del binding runtime (caso 7a, proposta P). RFC 3339
+/// ammette anche `+00:00` e le minuscole; il binding dice soltanto «UTC», e
+/// una grafia sola toglie le ambiguita'. Uno scostamento diverso da zero e
+/// `-00:00` non sono UTC. Il secondo intercalare (`60`) e' rifiutato: non ha
+/// un istante Unix.
 #[must_use]
 pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
-    let corpo = testo
-        .strip_suffix('Z')
-        .or_else(|| testo.strip_suffix('z'))
-        .or_else(|| testo.strip_suffix("+00:00"))?;
+    let corpo = testo.strip_suffix('Z')?;
     if corpo.len() < 19 {
         return None;
     }
@@ -1231,7 +1357,7 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     let separatori = corpo.as_bytes();
     if separatori.get(4) != Some(&b'-')
         || separatori.get(7) != Some(&b'-')
-        || !matches!(separatori.get(10), Some(b'T' | b't'))
+        || separatori.get(10) != Some(&b'T')
         || separatori.get(13) != Some(&b':')
         || separatori.get(16) != Some(&b':')
     {
@@ -1462,11 +1588,13 @@ impl<'de> Deserialize<'de> for SenzaDoppioni {
 #[derive(Clone, Copy)]
 enum RifiutoDiInstradamento {
     Identita,
+    Malformato,
     NomeCapacita,
     VersioneCapacita,
     Operazione,
     Versione,
     Contratto,
+    ContentType,
     Idempotenza,
     Scadenza,
 }
@@ -1478,9 +1606,14 @@ fn errore_di_instradamento(rifiuto: RifiutoDiInstradamento) -> Value {
             ErrorCategory::Protocol,
             "le identita' runtime sono UUID canonici, minuscoli e con i trattini",
         ),
-        RifiutoDiInstradamento::NomeCapacita => (
+        RifiutoDiInstradamento::Malformato => (
             "RUNTIME_ROUTE_INVALID",
             ErrorCategory::Protocol,
+            "un selettore d'instradamento non e' nella forma canonica del binding",
+        ),
+        RifiutoDiInstradamento::NomeCapacita => (
+            "RUNTIME_CAPABILITY_UNSUPPORTED",
+            ErrorCategory::Unsupported,
             "la capacita' runtime non e' plenora.io-tools",
         ),
         // ERR-002: una versione non supportata e' `unsupported`.
@@ -1500,9 +1633,14 @@ fn errore_di_instradamento(rifiuto: RifiutoDiInstradamento) -> Value {
             "la versione dell'operazione runtime non e' fra quelle che questo artefatto serve",
         ),
         RifiutoDiInstradamento::Contratto => (
-            "RUNTIME_ROUTE_INVALID",
-            ErrorCategory::Protocol,
-            "il contratto d'ingresso o il content type non sono quelli dell'operazione",
+            "RUNTIME_INPUT_CONTRACT_UNSUPPORTED",
+            ErrorCategory::Unsupported,
+            "il contratto d'ingresso non e' quello che l'operazione annuncia",
+        ),
+        RifiutoDiInstradamento::ContentType => (
+            "RUNTIME_CONTENT_TYPE_UNSUPPORTED",
+            ErrorCategory::Unsupported,
+            "il content type non e' fra quelli che l'operazione annuncia",
         ),
         RifiutoDiInstradamento::Idempotenza => (
             "RUNTIME_CONTROL_UNSUPPORTED",

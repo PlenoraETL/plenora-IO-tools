@@ -55,6 +55,8 @@ serde.workspace = true
 # della CLI, in una directory privata che si crea e si cancella per ogni
 # invocazione. Gia' nel grafo del prodotto (`plenora-io-core` e i driver).
 tempfile.workspace = true
+# L'identita' nuova di ogni risultato runtime: vedi il `Cargo.toml` del workspace.
+uuid.workspace = true
 
 [features]
 # Abilita il tier GDB (FileGDB via GDAL) nel binario.

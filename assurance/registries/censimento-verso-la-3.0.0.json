@@ -26,6 +26,15 @@
         "forkato": true
       },
       {
+        "crate": "uuid",
+        "in_uso": "1.24.0",
+        "ultima_stabile": "1.27.0",
+        "passo": "indietro",
+        "barriera": false,
+        "perche": "dipendenza diretta dal 2026-10-06, per l'identita' nuova di ogni risultato runtime. Si fissa la versione che il lock gia' risolve per il fork di `dxf`, cosi' il grafo del prodotto non cambia; portarla a 1.27.0 e' un aggiornamento del grafo condiviso col fork, da fare con gli altri.",
+        "forkato": false
+      },
+      {
         "crate": "shapefile",
         "in_uso": "0.6.0",
         "ultima_stabile": "0.9.0",
@@ -1458,7 +1467,7 @@
   "dipendenze_ancora_da_migrare": {
     "misurato_il": "2026-09-08, ventotto dipendenze dirette del workspace contro `max_stable_version` di crates.io",
     "allineate": 28,
-    "indietro": 0,
+    "indietro": 1,
     "voci": [
       {
         "crate": "ctrlc",

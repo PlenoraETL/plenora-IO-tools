@@ -1080,10 +1080,18 @@ impl PipelineContext {
     /// Restituisce l'errore di cancellazione se il token e' cancellato, o
     /// [`PlenoraIoError::LimitExceeded`] se la deadline e' passata.
     pub fn ensure_active(&self) -> Result<()> {
-        if self.inner.cancellation.is_cancelled() {
+        if let Some(ragione) = self.inner.cancellation.reason() {
             // La fase reale non e' nota al context: la porta l'`ErrorContext`
             // strutturato di S9. `Validate` e' la fase neutra pre-operazione.
-            return Err(PlenoraIoError::cancelled(ErrorPhase::Validate, false));
+            //
+            // La ragione conta: un token scaduto per la propria scadenza e'
+            // un `timeout`, non una cancellazione del chiamante. Qui valeva
+            // sempre `cancelled`, e una scadenza osservata per prima da questo
+            // punto usciva con la categoria sbagliata.
+            return Err(PlenoraIoError::cancelled(
+                ErrorPhase::Validate,
+                ragione == crate::CancellationReason::Deadline,
+            ));
         }
         if self.remaining_duration().is_none() {
             return Err(limit_error(DURATION_EXHAUSTED));

@@ -1444,7 +1444,7 @@ fn data_mapping_changes_exit_only_and_preserves_frozen_error_codes() {
 fn deadline_is_timeout_not_caller_cancellation() {
     let (exit, document) = map_err(PlenoraIoError::cancelled(ErrorPhase::Read, true));
     assert_eq!(exit, uscita_della_categoria(ErrorCategory::Timeout));
-    assert_eq!(document["error"]["code"], "FORMAT_ERROR");
+    assert_eq!(document["error"]["code"], "DEADLINE_EXCEEDED");
     assert_eq!(document["error"]["category"], "timeout");
 }
 

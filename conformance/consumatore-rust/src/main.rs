@@ -132,8 +132,13 @@ fn main() {
     let risultato =
         BindingRuntime::new(&NessunArtefatto).invoca(&invocazione, CancellationToken::new());
     assert_eq!(
-        risultato.metadata.id_correlazione,
-        "018f3d84-7b2c-7f00-8000-0000000000c2"
+        risultato.metadata.id_correlazione.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000c2")
+    );
+    assert_eq!(
+        risultato.metadata.id_causa.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000c1"),
+        "la causa del risultato e' il messaggio della richiesta"
     );
     let Carico::Json(errore) = &risultato.payload else {
         panic!("un rifiuto del risolutore e' un errore JSON");

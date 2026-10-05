@@ -265,44 +265,126 @@ fn il_selettore_del_vettore_di_richiesta_e_ammesso() {
 
 /// RUNTIME-VECTORS-1.0 §5: ogni mutazione dell'instradamento fallisce chiusa,
 /// prima dell'invocazione e con `remote_effect: none`.
+///
+/// Le categorie seguono la regola R1 della matrice comune del binding
+/// runtime (proposta P): ben formato ma non annunciato -> `unsupported`,
+/// malformato o non canonico -> `protocol`. I metadati del risultato seguono
+/// R2: operazione e versione si riflettono byte per byte se canoniche, e si
+/// omettono altrimenti -- mai normalizzate, mai sostituite.
+/// Una mutazione: chiave, valore, categoria attesa, operazione e versione
+/// riflesse nel risultato.
+type Mutazione = (
+    &'static str,
+    Value,
+    &'static str,
+    Option<&'static str>,
+    Option<&'static str>,
+);
+
 #[test]
+// La tabella delle mutazioni e' lunga per costruzione: una riga per caso
+// della matrice, e spezzarla separerebbe i casi dal confronto che li prova.
+#[allow(clippy::too_many_lines)]
 fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
     let richiesta = vettore("io-read-request.json");
-    let mutazioni: [(&str, Value, &str); 9] = [
+    // (chiave, valore, categoria, operazione riflessa, versione riflessa)
+    let mutazioni: [Mutazione; 13] = [
         (
             "plenora.capability.name",
             json!("plenora.data-tools"),
-            "protocol",
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
         ),
-        ("plenora.capability.version", json!("2"), "unsupported"),
-        ("plenora.capability.version", json!("01"), "unsupported"),
+        (
+            "plenora.capability.name",
+            json!("Plenora.IO-tools"),
+            "protocol",
+            Some("io.read"),
+            Some("1"),
+        ),
+        (
+            "plenora.capability.version",
+            json!("2"),
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
+        ),
+        (
+            "plenora.capability.version",
+            json!("01"),
+            "protocol",
+            Some("io.read"),
+            Some("1"),
+        ),
         (
             "plenora.capability.operation",
             json!("io.scan"),
             "unsupported",
-        ),
-        ("plenora.operation.version", json!("2"), "unsupported"),
-        ("plenora.operation.version", json!("+1"), "unsupported"),
-        (
-            "plenora.input.contract",
-            json!("plenora-io-read-input-v2"),
-            "protocol",
-        ),
-        (
-            "plenora.input.contract",
-            json!("plenora-io-inspect-input-v1"),
-            "protocol",
+            Some("io.scan"),
+            Some("1"),
         ),
         (
             "plenora.capability.operation",
             json!("IO.READ"),
+            "protocol",
+            None,
+            Some("1"),
+        ),
+        (
+            "plenora.operation.version",
+            json!("2"),
             "unsupported",
+            Some("io.read"),
+            Some("2"),
+        ),
+        (
+            "plenora.operation.version",
+            json!("+1"),
+            "protocol",
+            Some("io.read"),
+            None,
+        ),
+        (
+            "plenora.operation.version",
+            json!("01"),
+            "protocol",
+            Some("io.read"),
+            None,
+        ),
+        (
+            "plenora.operation.version",
+            json!(" 1"),
+            "protocol",
+            Some("io.read"),
+            None,
+        ),
+        (
+            "plenora.input.contract",
+            json!("plenora-io-read-input-v2"),
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
+        ),
+        (
+            "plenora.input.contract",
+            json!("plenora-io-inspect-input-v1"),
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
+        ),
+        (
+            "plenora.input.contract",
+            json!("io-read-input"),
+            "protocol",
+            Some("io.read"),
+            Some("1"),
         ),
     ];
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
     let binding = binding(&deposito);
-    for (chiave, valore, categoria) in mutazioni {
+    for (chiave, valore, categoria, operazione, versione) in mutazioni {
         let mut mutata = richiesta.clone();
         mutata["metadata"][chiave] = valore.clone();
         let risultato = binding.invoca(
@@ -316,23 +398,84 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
         assert_eq!(documento["category"], categoria, "{chiave}={valore}");
         assert_eq!(documento["remote_effect"], "none", "{chiave}={valore}");
         assert_eq!(documento["phase"], "validate", "{chiave}={valore}");
+        assert_eq!(documento["retry"]["kind"], "never", "{chiave}={valore}");
+        assert_eq!(
+            risultato.metadata.operazione.as_deref(),
+            operazione,
+            "{chiave}={valore}"
+        );
+        assert_eq!(
+            risultato.metadata.versione_operazione.as_deref(),
+            versione,
+            "{chiave}={valore}"
+        );
     }
-    // Il content type e' instradamento anch'esso (RT-005).
-    let mut mutata = richiesta;
-    mutata["content_type"] = json!("application/vnd.apache.arrow.stream");
-    let risultato = binding.invoca(
-        &invocazione(
-            &mutata,
-            json!({"source": "artifact://input/io-read-vector"}),
-        ),
-        CancellationToken::new(),
-    );
-    assert_eq!(errore(&risultato)["category"], "protocol");
+    // Il content type e' instradamento anch'esso (RT-005): ben formato e non
+    // annunciato, poi malformato.
+    for (content_type, categoria) in [
+        ("application/vnd.apache.arrow.stream", "unsupported"),
+        ("json", "protocol"),
+    ] {
+        let mut mutata = richiesta.clone();
+        mutata["content_type"] = json!(content_type);
+        let risultato = binding.invoca(
+            &invocazione(
+                &mutata,
+                json!({"source": "artifact://input/io-read-vector"}),
+            ),
+            CancellationToken::new(),
+        );
+        assert_eq!(errore(&risultato)["category"], categoria, "{content_type}");
+    }
     assert_eq!(
         deposito.chiamate.get(),
         0,
         "nessuna mutazione raggiunge il risolutore"
     );
+}
+
+/// RT-012 e la matrice comune, caso 6: il risultato ha un `message.id`
+/// **nuovo**, la causazione e' il `message.id` della richiesta, la
+/// correlazione e' quella della richiesta. Vale per il successo e per
+/// l'errore.
+#[test]
+fn il_risultato_ha_un_identita_nuova_causata_dalla_richiesta() {
+    let richiesta = vettore("io-read-request.json");
+    let id_richiesta = richiesta["metadata"]["plenora.message.id"].clone();
+    let correlazione = richiesta["metadata"]["plenora.trace.correlation_id"].clone();
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let binding = binding(&deposito);
+    let mut con_causa = richiesta.clone();
+    con_causa["metadata"]["plenora.message.causation_id"] =
+        json!("018f3d84-7b2c-7f00-8000-0000000000ff");
+    let mut visti = BTreeSet::new();
+    for (richiesta, payload) in [
+        (
+            &richiesta,
+            json!({"source": "artifact://input/io-read-vector"}),
+        ),
+        (
+            &con_causa,
+            json!({"source": "artifact://input/io-read-vector"}),
+        ),
+        (&richiesta, json!({"source": "artifact://input/assente"})),
+    ] {
+        let risultato = binding.invoca(&invocazione(richiesta, payload), CancellationToken::new());
+        let metadati = &risultato.metadata;
+        assert_ne!(json!(metadati.id_messaggio), id_richiesta, "id nuovo");
+        assert!(
+            uuid_canonico(&metadati.id_messaggio),
+            "{}",
+            metadati.id_messaggio
+        );
+        assert!(
+            visti.insert(metadati.id_messaggio.clone()),
+            "un id per risultato"
+        );
+        assert_eq!(json!(metadati.id_causa), id_richiesta, "causa = richiesta");
+        assert_eq!(json!(metadati.id_correlazione), correlazione);
+    }
 }
 
 /// Un selettore mancante non e' un'invocazione: non si legge nemmeno.
@@ -397,7 +540,7 @@ fn il_payload_illustrativo_del_vettore_e_rifiutato_dal_nostro_schema() {
     assert_eq!(deposito.chiamate.get(), 0);
     // La correlazione resta quella dell'invocazione anche nell'errore.
     assert_eq!(
-        risultato.metadata.id_correlazione,
+        json!(risultato.metadata.id_correlazione),
         richiesta["metadata"]["plenora.trace.correlation_id"]
     );
 }
@@ -424,11 +567,11 @@ fn la_lettura_rende_il_flusso_arrow_del_vettore_di_successo() {
     assert_eq!(risultato.content_type, CONTENT_TYPE_FLUSSO_ARROW);
     let metadati = &atteso["metadata"];
     assert_eq!(
-        risultato.metadata.operazione,
+        json!(risultato.metadata.operazione),
         metadati["plenora.capability.operation"]
     );
     assert_eq!(
-        risultato.metadata.versione_operazione,
+        json!(risultato.metadata.versione_operazione),
         metadati["plenora.operation.version"]
     );
     assert_eq!(
@@ -438,7 +581,7 @@ fn la_lettura_rende_il_flusso_arrow_del_vettore_di_successo() {
     // RT-012: il risultato conserva la correlazione **della richiesta**; quella
     // della fixture di successo e' un'altra, ed e' illustrativa.
     assert_eq!(
-        risultato.metadata.id_correlazione,
+        json!(risultato.metadata.id_correlazione),
         richiesta["metadata"]["plenora.trace.correlation_id"]
     );
     let Carico::FlussoArrow { byte, rapporto } = &risultato.payload else {
@@ -491,7 +634,7 @@ fn la_cancellazione_rende_l_errore_del_vettore() {
         risultato.metadata.contratto_uscita,
         atteso["metadata"]["plenora.output.contract"]
     );
-    assert_eq!(risultato.metadata.operazione, "io.read");
+    assert_eq!(risultato.metadata.operazione.as_deref(), Some("io.read"));
     let documento = errore(&risultato);
     let fixture = &atteso["payload"];
     assert_eq!(documento["category"], fixture["category"]);
@@ -533,15 +676,18 @@ fn le_identita_non_canoniche_sono_rifiutate_e_non_rimandate() {
             CancellationToken::new(),
         );
         assert_eq!(errore(&risultato)["code"], "RUNTIME_IDENTITY_INVALID");
-        let rimandati = [
-            risultato.metadata.id_messaggio.as_str(),
-            risultato.metadata.id_correlazione.as_str(),
-        ];
-        assert!(
-            !rimandati.contains(&valore),
-            "{chiave}: testo del chiamante rimandato"
-        );
-        assert_ne!(risultato.metadata.id_causa.as_deref(), Some(valore));
+        assert_eq!(errore(&risultato)["category"], "protocol");
+        // R2: un'identita' non canonica non si riflette, non si normalizza e
+        // non si sostituisce: la chiave si omette.
+        let metadati = &risultato.metadata;
+        assert_ne!(metadati.id_messaggio, valore, "{chiave}");
+        if chiave == "plenora.trace.correlation_id" {
+            assert_eq!(metadati.id_correlazione, None, "{chiave}");
+        }
+        if chiave == "plenora.message.id" {
+            assert_eq!(metadati.id_causa, None, "{chiave}");
+        }
+        assert_ne!(metadati.id_causa.as_deref(), Some(valore), "{chiave}");
     }
     assert_eq!(deposito.chiamate.get(), 0);
 }
@@ -573,16 +719,25 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     );
     passata.metadata.scadenza = Some("2020-01-01T00:00:00Z".to_owned());
     let risultato = binding.invoca(&passata, CancellationToken::new());
-    // Lo stesso errore della durata esaurita durante l'esecuzione: una
-    // scadenza sola, un errore solo.
-    assert_eq!(errore(&risultato)["code"], "LIMIT_EXCEEDED");
-    assert_eq!(errore(&risultato)["category"], "resource_limit");
+    // SURF-010: una scadenza osservata e' un `timeout`; prima
+    // dell'invocazione `validate`, `none`, `never` (matrice, caso 7b).
+    let documento = errore(&risultato);
+    assert_eq!(documento["code"], "DEADLINE_EXCEEDED");
+    assert_eq!(documento["category"], "timeout");
+    assert_eq!(documento["phase"], "validate");
+    assert_eq!(documento["remote_effect"], "none");
+    assert_eq!(documento["retry"]["kind"], "never");
 
+    // Una grafia sola (matrice, caso 7a): ogni altra e' `protocol`.
     for storta in [
         "2030-01-01T00:00:00+01:00",
-        "2030-01-01 00:00:00Z",
-        "domani",
+        "2030-01-01T00:00:00+00:00",
         "2030-01-01T00:00:00-00:00",
+        "2030-01-01t00:00:00Z",
+        "2030-01-01T00:00:00z",
+        "2030-01-01 00:00:00Z",
+        "2030-01-01T00:00:60Z",
+        "domani",
     ] {
         let mut invocazione = per_operazione(
             "io.read",
@@ -595,7 +750,18 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
             "RUNTIME_DEADLINE_INVALID",
             "{storta}"
         );
+        assert_eq!(errore(&risultato)["category"], "protocol", "{storta}");
     }
+
+    // La scadenza da due canali: rifiutata anche a valori uguali (caso 7c).
+    let mut doppia = per_operazione(
+        "io.read",
+        json!({"source": "artifact://input/io-read-vector", "deadline_ms": 30000}),
+    );
+    doppia.metadata.scadenza = Some("2030-01-01T00:00:00Z".to_owned());
+    let risultato = binding.invoca(&doppia, CancellationToken::new());
+    assert_eq!(errore(&risultato)["code"], "RUNTIME_DEADLINE_TWICE");
+    assert_eq!(errore(&risultato)["category"], "invalid_configuration");
     assert_eq!(deposito.chiamate.get(), 0);
 
     // Una scadenza futura ammessa: la lettura si compie.
@@ -999,11 +1165,14 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
     // Le forme ammesse e quelle rifiutate.
     assert_eq!(secondi("2030-01-01T00:00:00Z"), Some(1_893_456_000));
     assert_eq!(
-        istante_rfc3339_utc("2030-01-01t00:00:00.25+00:00"),
+        istante_rfc3339_utc("2030-01-01T00:00:00.25Z"),
         Some(IstanteRfc3339::DallEpoca(Duration::from_millis(
             1_893_456_000_250
         )))
     );
+    // Una grafia sola: niente minuscole, niente `+00:00`.
+    assert_eq!(istante_rfc3339_utc("2030-01-01t00:00:00.25Z"), None);
+    assert_eq!(istante_rfc3339_utc("2030-01-01T00:00:00+00:00"), None);
     // Prima del 1970: un istante valido e passato, non un testo invalido;
     // una data impossibile resta invalida anche li'.
     assert_eq!(
@@ -1051,7 +1220,8 @@ fn la_scadenza_del_vettore_vale_davvero() {
             CancellationToken::new(),
         );
     let documento = errore(&risultato);
-    assert_eq!(documento["code"], "LIMIT_EXCEEDED");
+    assert_eq!(documento["code"], "DEADLINE_EXCEEDED");
+    assert_eq!(documento["category"], "timeout");
     assert_eq!(documento["remote_effect"], "none");
     assert_eq!(deposito.chiamate.get(), 0);
 }
@@ -1075,7 +1245,8 @@ fn il_risolutore_lento_consuma_la_scadenza() {
         .con_orologio(quasi_adesso)
         .invoca(&invocazione, CancellationToken::new());
     let documento = errore(&risultato);
-    assert_eq!(documento["code"], "LIMIT_EXCEEDED", "{documento}");
+    assert_eq!(documento["code"], "DEADLINE_EXCEEDED", "{documento}");
+    assert_eq!(documento["category"], "timeout", "{documento}");
     assert_eq!(
         deposito.chiamate.get(),
         1,
@@ -1219,4 +1390,15 @@ fn un_invocazione_malformata_e_un_errore_curato() {
     assert!(ripetuta.contains("input/a"), "la sostituzione e' avvenuta");
     let errore = Invocazione::da_json(ripetuta.as_bytes()).expect_err("chiave ripetuta");
     assert_eq!(errore["code"], "RUNTIME_INVOCATION_INVALID");
+}
+
+fn uuid_canonico(valore: &str) -> bool {
+    valore.len() == 36
+        && valore.bytes().enumerate().all(|(indice, byte)| {
+            if matches!(indice, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
 }

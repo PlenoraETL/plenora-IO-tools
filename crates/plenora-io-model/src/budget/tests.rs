@@ -400,6 +400,24 @@ fn deadline_expiry_is_not_conflated_with_cancellation() {
     assert_eq!(error.code, crate::IoErrorCode::Cancelled);
 }
 
+/// Un token scaduto per la **propria** scadenza e' un `timeout`, anche quando
+/// e' `ensure_active` a osservarlo per primo. Era sempre `cancelled`: la
+/// scadenza assoluta della superficie runtime arriva proprio nel token.
+#[test]
+fn token_deadline_is_a_timeout_not_a_cancellation() {
+    let token = CancellationToken::with_deadline(Instant::now());
+    let built = PipelineBudget::builder()
+        .cancellation(token)
+        .build()
+        .expect("il builder deve costruire");
+    let error = built
+        .context()
+        .ensure_active()
+        .expect_err("il token e' gia' scaduto");
+    assert_eq!(error.category, crate::ErrorCategory::Timeout);
+    assert_eq!(error.code, crate::IoErrorCode::Cancelled);
+}
+
 #[test]
 fn output_limit_no_expansion_when_not_observed() {
     let limits = PipelineLimits::default()

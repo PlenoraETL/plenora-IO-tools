@@ -602,11 +602,6 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
-  "crates/plenora-io-tools/src/runtime.rs": {
-    "errore_di_scadenza": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ]
-  },
   "crates/plenora-io-tools/src/segnali.rs": {
     "installa_gestore_dei_segnali": [
       "esplicito/esplicito/Generic/esplicito"

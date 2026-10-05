@@ -94,10 +94,13 @@ let risultato = match Invocazione::da_json(&messaggio) {
 - `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
   **nel risultato**, con il documento `plenora-io-read-result-v1` accanto, e su
   questa superficie non scrive file del chiamante;
-- `plenora.execution.deadline` entra nello stesso tetto di `deadline_ms`, si
-  misura dall'ammissione (il tempo del risolutore la consuma) e scade con lo
-  stesso errore, `LIMIT_EXCEEDED`; l'orologio si inietta con `con_orologio`. La
-  chiave d'idempotenza è rifiutata, perché nessuna operazione la ammette;
+- `plenora.execution.deadline` (una grafia sola, `AAAA-MM-GGTHH:MM:SS[.f]Z`)
+  si misura dall'ammissione -- il tempo del risolutore la consuma -- e scade
+  come `timeout`, già passata o durante l'esecuzione; insieme a `deadline_ms`
+  nel payload è rifiutata. L'orologio si inietta con `con_orologio`. La chiave
+  d'idempotenza è rifiutata, perché nessuna operazione la ammette;
+- il risultato ha sempre un `plenora.message.id` nuovo, con la richiesta come
+  causa; i selettori della richiesta vi si riflettono solo se canonici;
 - un errore è un risultato `application/vnd.plenora.error+json` con i quattro
   assi di `plenora-error-v1`, mai un panico.
 

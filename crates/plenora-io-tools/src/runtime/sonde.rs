@@ -15,32 +15,30 @@ fn campi(valore: serde_json::Value) -> Campi {
     serde_json::from_value(valore).expect("i campi si leggono")
 }
 
-/// La scadenza piu' stretta vince, nei due versi, e il default resta il tetto
-/// quando nessuno dei due e' dato.
+/// Una scadenza sola governa la durata: l'assoluta (con il margine che la
+/// lascia al token), oppure `deadline_ms`, oppure il default. Le due insieme
+/// non arrivano qui: le rifiuta l'ammissione.
 #[test]
-fn la_scadenza_e_la_piu_stretta_delle_due() {
+fn la_durata_segue_una_scadenza_sola() {
     let predefinita = PipelineLimits::default().duration_ms();
     assert_eq!(tetti(&campi(json!({})), None).duration_ms(), predefinita);
-    // Solo la scadenza assoluta: vince se e' piu' stretta del default...
-    assert_eq!(tetti(&campi(json!({})), Some(1_000)).duration_ms(), 1_000);
-    // ...e non allenta il default se e' piu' larga.
+    assert_eq!(
+        tetti(&campi(json!({})), Some(1_000)).duration_ms(),
+        1_000 + super::MARGINE_DELLA_DURATA_MS
+    );
     assert_eq!(
         tetti(&campi(json!({})), Some(predefinita + 5_000)).duration_ms(),
-        predefinita
+        predefinita + 5_000 + super::MARGINE_DELLA_DURATA_MS,
+        "la scadenza assoluta non e' tagliata dal default"
     );
-    // `deadline_ms` del payload sostituisce il default, anche piu' largo...
     assert_eq!(
         tetti(&campi(json!({"deadline_ms": 90_000})), None).duration_ms(),
         90_000
     );
-    // ...e con entrambe vince la piu' stretta, in tutti e due i versi.
     assert_eq!(
-        tetti(&campi(json!({"deadline_ms": 90_000})), Some(2_000)).duration_ms(),
-        2_000
-    );
-    assert_eq!(
-        tetti(&campi(json!({"deadline_ms": 700})), Some(2_000)).duration_ms(),
-        700
+        tetti(&campi(json!({})), Some(u64::MAX)).duration_ms(),
+        u64::MAX,
+        "nessun trabocco"
     );
 }
 
@@ -105,8 +103,10 @@ fn una_scadenza_passata_e_quella_della_pipeline() {
         "1969-12-31T23:59:59Z",
     ] {
         let errore = istante_della_scadenza(passata, adesso).expect_err(passata);
-        assert_eq!(errore["code"], "LIMIT_EXCEEDED", "{passata}");
-        assert_eq!(errore["category"], "resource_limit", "{passata}");
+        assert_eq!(errore["code"], "DEADLINE_EXCEEDED", "{passata}");
+        assert_eq!(errore["category"], "timeout", "{passata}");
+        assert_eq!(errore["phase"], "validate", "{passata}");
+        assert_eq!(errore["retry"]["kind"], "never", "{passata}");
     }
     assert!(istante_della_scadenza("2026-10-05T00:00:01Z", adesso).is_ok());
     let invalida = istante_della_scadenza("1969-02-30T00:00:00Z", adesso).expect_err("data");
