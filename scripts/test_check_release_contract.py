@@ -4908,6 +4908,112 @@ class SondeDelTagSuiDueAlberi(unittest.TestCase):
         self.assertIn("_candidate_legata_alle_fonti", workflow)
 
 
+class SondeDelTagSuGitVero(unittest.TestCase):
+    """Le stesse domande, contro un repository git vero invece che finto.
+
+    Le sonde sopra fingono `_git` e `revisione_risolta`, e una finzione dice
+    soltanto cio' che chi l'ha scritta ha immaginato. Qui git risolve davvero:
+    tag annotato e leggero, tag spostato, piu' tag sullo stesso commit.
+    """
+
+    VERSIONE = "9.9.9"
+    TAG = f"v{VERSIONE}"
+
+    def setUp(self) -> None:
+        self._cartella = tempfile.TemporaryDirectory(prefix="plenora-tag-")
+        self.radice = pathlib.Path(self._cartella.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "sonda@example.invalid")
+        self.git("config", "user.name", "sonda")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "tag.gpgsign", "false")
+        self.congelata = self.commit("congelata")
+        self.del_tag = self.commit("commit del tag")
+        gate._revisione_risolta.cache_clear()
+        self.addCleanup(gate._revisione_risolta.cache_clear)
+        self.addCleanup(self._cartella.cleanup)
+
+    def git(self, *argomenti: str) -> str:
+        return subprocess.run(
+            ["git", *argomenti],
+            cwd=self.radice,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def commit(self, messaggio: str) -> str:
+        self.git("commit", "-q", "--allow-empty", "-m", messaggio)
+        return self.git("rev-parse", "HEAD")
+
+    def errori(self, **modifiche) -> list[str]:
+        candidate = {
+            "stato": "attiva",
+            "versione_manifesto": self.VERSIONE,
+            "versione_workspace": self.VERSIONE,
+            "revisione_candidate": self.congelata,
+            "tag_previsto": self.TAG,
+            "tag_creato": False,
+            "release_authorized": False,
+            "release_action_allowed": False,
+            "assurance_entro_l_allowlist": True,
+        }
+        candidate.update(modifiche)
+        gate._revisione_risolta.cache_clear()
+        with mock.patch.object(gate, "ROOT", self.radice), mock.patch.object(
+            gate, "versione_workspace", return_value=self.VERSIONE
+        ):
+            tutti = gate._candidate_legata_alle_fonti(
+                {"aperto": {"candidate_release": candidate}}
+            )
+        return [e for e in tutti if "tag_creato" in e or "tag_revisione" in e]
+
+    def test_tag_annotato_sul_commit_del_tag(self) -> None:
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.assertEqual(self.errori(), [])
+        self.assertTrue(self.errori(tag_creato=True))
+
+    def test_tag_leggero_sul_commit_del_tag(self) -> None:
+        self.git("tag", self.TAG)
+        self.assertEqual(self.errori(), [])
+        self.assertTrue(self.errori(tag_revisione=self.del_tag))
+
+    def test_un_tag_spostato_altrove_toglie_l_esenzione(self) -> None:
+        """HEAD era il commit del tag; il tag ora punta alla congelata."""
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.git("tag", "-f", "-a", self.TAG, self.congelata, "-m", "spostato")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        # E la verita' che lo registra passa.
+        self.assertEqual(
+            self.errori(tag_creato=True, tag_revisione=self.congelata),
+            [],
+        )
+
+    def test_un_altro_tag_su_head_non_esenta(self) -> None:
+        """L'esenzione segue il tag **previsto**, non un tag qualunque."""
+        self.git("tag", "-a", self.TAG, self.congelata, "-m", "rilascio")
+        self.git("tag", "v9.9.9-rc1")
+        self.git("tag", "-a", "v9.9.8", "-m", "altro")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+
+    def test_piu_tag_sullo_stesso_commit_del_tag(self) -> None:
+        self.git("tag", "v9.9.9-rc1")
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.git("tag", "ultimo")
+        self.assertEqual(self.errori(), [])
+
+    def test_dopo_il_commit_del_tag_il_confronto_e_pieno(self) -> None:
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.commit("sviluppo dopo il rilascio")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        self.assertEqual(
+            self.errori(tag_creato=True, tag_revisione=self.del_tag), []
+        )
+
+
 class SondeDellEvidenzaAncoraValida(unittest.TestCase):
     """Quando una misura girata altrove vale ancora per l'albero corrente.
 
