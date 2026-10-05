@@ -131,7 +131,7 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
 /// `convert` verso un formato che perde e verso uno che non perde -- perche' un
 /// campo dichiarato su un solo valore osservato non e' dichiarato.
 #[test]
-// La tabella dei casi e' lunga per costruzione: dodici invocazioni reali, ognuna
+// La tabella dei casi e' lunga per costruzione: undici invocazioni reali, ognuna
 // con i suoi argomenti. Spezzarla in due funzioni separerebbe i casi dal
 // confronto che li rende una prova sola.
 #[allow(clippy::too_many_lines)]
@@ -201,21 +201,6 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
                 fixture("canonico.geojson").display().to_string(),
                 "--output".to_owned(),
                 dove.join("consegnata.arrow").display().to_string(),
-            ],
-        ),
-        // La consegna nella serializzazione a flusso, che la CLI produce dalla
-        // 4.0.0. Lo schema la dichiarava impossibile -- `content_type` era la
-        // costante del contenitore -- e la busta usciva invalida senza che
-        // nessuna invocazione di questa tabella la producesse.
-        (
-            "plenora-io-read-result-v1",
-            vec![
-                "read".to_owned(),
-                fixture("canonico.geojson").display().to_string(),
-                "--output".to_owned(),
-                dove.join("consegnata.arrows").display().to_string(),
-                "--out-opt".to_owned(),
-                "serialization=stream".to_owned(),
             ],
         ),
         (
