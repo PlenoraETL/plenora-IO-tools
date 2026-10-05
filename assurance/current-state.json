@@ -1,30 +1,30 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "6beb410",
+      "sha": "1d1b8d2",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "6beb410",
-    "evidenza": "assurance/evidence/checkpoint-6beb410.json",
+    "sha": "1d1b8d2",
+    "evidenza": "assurance/evidence/checkpoint-1d1b8d2.json",
     "checkpoint": {
-      "passi_eseguiti": 104,
-      "passi_verdi": 104,
+      "passi_eseguiti": 111,
+      "passi_verdi": 111,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "104 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
+      "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 89707,
+      "replay_input": 141,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.48,
-      "lcov_righe_coperte": 24720,
-      "lcov_righe_strumentate": 28584,
-      "cargo_lines_percentuale": 84.03,
+      "lcov_percentuale": 86.51,
+      "lcov_righe_coperte": 24789,
+      "lcov_righe_strumentate": 28656,
+      "cargo_lines_percentuale": 84.06,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-bench` e `plenora-fuzz`, e **non** esclude piu' il crate della CLI: l'esclusione era rimasta dopo che quel codice era tornato a contare, e toglierla fa entrare le sue righe nel denominatore. Il confronto con la 3.0.0, che escludeva `plenora-io-cli`, e' percio' fra due perimetri diversi.",
-      "nota": "i due numeri vengono da fonti diverse -- il report lcov e il sommario di riga di `cargo llvm-cov` -- e contano insiemi di righe leggermente diversi. Stanno entrambi qui perche' sceglierne uno e chiamarlo «la copertura» nasconderebbe che la domanda ha due risposte."
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
+      "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "28bf62c",
-      "esito": "94.04%",
-      "righe_cambiate_eseguibili": 4363,
-      "coperte": 4103,
-      "scoperte": 260,
-      "cambiate_non_eseguibili": 39484,
-      "ragione": "misurata: 4363 righe cambiate ed eseguibili fra `28bf62c` e `3ca3931` nel perimetro di libreria, 4093 coperte e 270 no. Le 39361 non eseguibili sono commenti, righe di test spostate e dichiarazioni, e restano fuori misura. Il numero e' alto perche' fra le due revisioni sta la separazione dei test dal prodotto, che muove decine di migliaia di righe senza cambiare comportamento.",
-      "che_cosa_sono_le_scoperte": "duecentosettanta righe fra le 4363 cambiate ed eseguibili, elencate una per una nell'evidenza. La concentrazione conta piu' del totale: la prima famiglia e' `driver-common/src/prevalida_arrow.rs`, cioe' i rami di rifiuto del flusso IPC -- il codice che decide quando un flusso e' malformato, esercitato meno di quello che decide quando e' buono."
+      "baseline": "6beb410",
+      "esito": "83.47%",
+      "righe_cambiate_eseguibili": 1240,
+      "coperte": 1035,
+      "scoperte": 205,
+      "cambiate_non_eseguibili": 2337,
+      "ragione": "misurata fra `6beb410`, l'ultimo checkpoint superato e registrato, e `1d1b8d2`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una; la concentrazione maggiore e' in `plenora-io-core/src/driver/validazione_geometrie.rs` e `scrittura_limitata.rs`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "23df4d5a9e7accc4924cd8c958e821598360a623",
+    "sha": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo, nessuno fermato a un finding noto -- qualifica `972bffd` e non la revisione congelata che la segue: il livello 2 rifara' lo smoke sulla candidate, e sara' quello a qualificarla. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
+    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo, nessuno fermato a un finding noto -- e' lo smoke del livello 2 su `1d1b8d2`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "6beb410"
+      "qualificato_su": "1d1b8d2"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -300,15 +300,54 @@
       "versione_manifesto": "4.1.0",
       "versione_workspace": "4.1.0",
       "tag_previsto": "v4.1.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "tag_sulla_candidate": true,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "ritirata",
-      "nota": "Candidate **ritirata**. La revisione `23df4d5` era qualificata -- livello 2 superato 111/111, due soak da un'ora senza finding, sei archivi costruiti e verificati sui byte scaricati, quattro attestazioni del profilo pubblico a 32 requisiti su 32 -- e nulla di tutto cio' era sbagliato. A mancare era l'ultimo anello: registrare quell'evidenza.\n\n**Gli esiti di `23df4d5` sono conservati** in `campagne-log/verbali-4.1.0-23df4d5/`, con il loro SHA: evidenza del livello 2, verbale della campagna, i due referti dei soak, le quattro attestazioni e il manifesto di adozione. Restano veri di quella revisione. Non restano nell'albero dell'assurance perche' non qualificano quella che segue: gli artefatti valgono per la revisione da cui escono, e la nuova e' un'altra.\n\nLo stato torna percio' a dichiarare l'ultima qualifica registrata, che e' `6beb410`. Non e' un passo indietro del prodotto: e' il rifiuto di chiamare corrente una qualifica che non e' stata registrata.\n\n**Restano validi e riutilizzabili** le quattro profondita' e il confine ASan -- le correzioni toccano `scripts/`, che non sta in nessun perimetro -- e Q2b resta chiusa. Tutto il resto della qualifica si rifa' sulla revisione nuova: livello 2, soak, costruzione, attestazioni. Su un ramo candidate nuovo, lasciando fermi i precedenti.\n\nNessuna deroga ai criteri di qualifica.",
-      "revisione_candidate": "23df4d5a9e7accc4924cd8c958e821598360a623",
-      "assurance_entro_l_allowlist": false,
-      "motivo_del_ritiro": "La registrazione dell'evidenza ha rifiutato la corsa, e il rifiuto era giusto. Il verbale della campagna vive nella directory di corsa -- e' la correzione che ha sbloccato il livello 2 -- e da li' entra nel **manifesto dei log**, che lega l'evidenza a quella corsa file per file. Il validatore pretende che ogni voce del manifesto appartenga a un passo, e il verbale non e' il log di un passo: e' il documento che `fuzz_campagna_completa` legge.\n\nEra una giuntura, non un difetto di uno dei due pezzi: ciascuno verde da solo. Ed e' il terzo guasto di questo ciclo trovato **dopo** ore di corse, sempre nello stesso punto -- la catena di registrazione.\n\nLa correzione lega il verbale al passo che lo legge, per percorso esatto e non per estensione, e porta con se' una regressione che attraversa registrazione e validazione in una prova sola: costa millisecondi e copre la giuntura che e' costata ore. Sta in `scripts/`, fuori dall'allowlist."
+      "stato": "attiva",
+      "revisione_candidate": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "assurance_entro_l_allowlist": true,
+      "commit_di_assurance": null,
+      "nota": "Congelata su `1d1b8d2`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati sui byte riscaricati dalla release pubblicata** il 2026-10-05, e coincidono con sidecar e provenance della corsa di distribuzione 35350743054.\n\nIl congelamento precedente, su `23df4d5`, era stato ritirato perche' la registrazione dell'evidenza aveva rifiutato la corsa; `1d1b8d2` corregge quella giuntura in `scripts/`, e i suoi esiti restano conservati in `campagne-log/verbali-4.1.0-23df4d5/`.\n\nLivello 2 superato 111/111 su `1d1b8d2`, impronta invariata; replay 141 input su 15 bersagli senza crash; smoke 15 su 15 senza finding; soak da un'ora su `shp_reader` completo e senza finding; soak su `dxf_reader` **fermato da un finding** dopo 2006 s (out-of-memory su 235 byte, abort senza busta del binario distribuito): la 4.1.0 **non soddisfa il criterio d'uscita** della sezione 6 e resta pubblicata con un difetto noto, corretto per la 4.1.1 da #23; quattro attestazioni del profilo pubblico, 32 requisiti su 32 ciascuna, sui byte distribuiti.\n\n`tag_creato` e' vero perche' il tag **esiste**: lo stato registra un fatto, non lo produce. La decisione di rilascio non e' registrata in questo commit, e `release_authorized` e' `false`.\n\n**BOZZA DA APPROVARE -- cinque dichiarazioni.** (a) La release e' stata **pubblicata il 2026-09-18** dal tag `v4.1.0` su `1d1b8d2`, mentre lo stato versionato su quella revisione diceva candidate **ritirata** su `23df4d5`, senza artefatti fissati ne' evidenza registrata; il job sul tag era rosso un minuto prima della pubblicazione. La qualifica e' rifatta il 2026-10-05 **sui byte distribuiti**, riscaricati dalla release. (b) Il replay ha rieseguito **141** semi versionati, non i **99.158** input che le note della release dichiarano: il corpus fuori da git e' perso. E' una garanzia **piu' debole**; si rientra ricostruendo e versionando (o archiviando con digest) un corpus e rieseguendo il replay. (c) Il livello 2 e' stato eseguito in un clone **senza il tag `v4.1.0`**: con il tag, `sonde_release` e `check_release` sono rossi per costruzione perche' lo stato su `1d1b8d2` dice `tag_creato: false`. (d) `/tmp` del container era un **tmpfs**, per togliere l'I/O del disco dalla pulizia delle `TempDir` dopo i due timeout del primo tentativo; l'ipotesi sull'I/O resta non dimostrata. (e) Il soak su `dxf_reader` ha trovato un difetto nel codice distribuito: **il criterio d'uscita non e' soddisfatto**, e questa registrazione allinea lo stato alla storia senza farlo diventare vero. Regola, ambito, hazard e condizione di rientro di ciascuna stanno in `deviazioni_dichiarate` dell'evidenza.",
+      "artefatti": [
+        {
+          "nome": "plenora-io-4.1.0-linux-x86_64-base.tar.gz",
+          "sha256": "2e5e06613fb64f1322713ff6bf9542f6784ff39a48f7152d72838f2da21f6258",
+          "dimensione": 8615925,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        },
+        {
+          "nome": "plenora-io-4.1.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "48c8049cec0e8879a8bf036eb456af2c7b2d6475de8b3d8b919e6df8b7f23d8c",
+          "dimensione": 64458532,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        },
+        {
+          "nome": "plenora_io-4.0.0-py3-none-any.whl",
+          "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
+          "dimensione": 37414,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        },
+        {
+          "nome": "plenora_io-4.0.0.tar.gz",
+          "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
+          "dimensione": 54614,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        },
+        {
+          "nome": "plenora-io-4.1.0-windows-x86_64-base.zip",
+          "sha256": "f7202352a594260632ca964f4c4edbcc636fc8bf96172d89742518856d0b4f2d",
+          "dimensione": 8754136,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        },
+        {
+          "nome": "plenora-io-4.1.0-windows-x86_64-filegdb.zip",
+          "sha256": "318d443f8e0b40dc3a009c7d811e2d9e5011fccc748416a33da39952570bf11d",
+          "dimensione": 47820986,
+          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+        }
+      ]
     }
   },
   "docset": {
