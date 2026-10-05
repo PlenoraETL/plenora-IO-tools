@@ -47,7 +47,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | capacità differite | 2 |
 | S9, qualificato su | `1d1b8d2` |
 | candidate, versione del manifesto | `4.1.0` |
-| candidate, stato | attiva |
+| candidate, stato | pubblicata |
 | candidate, revisione congelata | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
 | candidate, versione del workspace | `4.1.0` |
 | candidate, artefatti congelati | 6 |
@@ -58,7 +58,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 3 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
