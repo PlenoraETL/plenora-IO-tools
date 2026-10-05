@@ -18,6 +18,10 @@ publish = false
 
 [dependencies]
 plenora-io-tools = { path = "../../crates/plenora-io-tools" }
+# Per leggere un'`Invocazione` runtime da JSON, come fa un'applicazione che la
+# riceve serializzata. Lo stesso pin del workspace: il tipo `Value` che il
+# binding espone e' quello di questa versione.
+serde_json = "=1.0.151"
 
 # Le tre patch dei fork governati, e non e' un dettaglio di compilazione: e'
 # **cio' che un consumatore esterno deve sapere**. Il workspace di IO-tools

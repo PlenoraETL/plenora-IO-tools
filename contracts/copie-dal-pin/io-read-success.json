@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schemas/runtime-vector-v1.schema.json",
+  "schema_version": 1,
+  "contract": "plenora-runtime-vector-v1",
+  "kind": "success",
+  "content_type": "application/vnd.apache.arrow.stream",
+  "metadata": {
+    "plenora.message.id": "018f3d84-7b2c-7f00-8000-000000000108",
+    "plenora.capability.operation": "io.read",
+    "plenora.operation.version": "1",
+    "plenora.output.contract": "plenora-io-read-result-v1",
+    "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-000000000008"
+  },
+  "payload": {
+    "fixture": "arrow-stream-bytes-are-supplied-by-the-adopting-test"
+  }
+}

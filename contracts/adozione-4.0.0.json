@@ -105,20 +105,25 @@
     },
     {
       "id": "plenora-runtime-binding-v1",
-      "status": "not_applicable"
+      "status": "conforming",
+      "verification": [
+        "cargo test -p plenora-io-tools --test runtime_vettori",
+        "python3 scripts/check_copie_dal_pin.py --contracts <checkout>",
+        "python3 scripts/check_superficie_rust.py"
+      ]
     },
     {
       "id": "plenora-python-sdk-v1",
       "status": "not_applicable"
     }
   ],
-  "perche_not_applicable_non_e_una_deviazione": "una deviazione dice «il requisito si applica e non lo soddisfo». `not_applicable` dice «il requisito non si applica», e le due cose non vanno mescolate perche' un lettore ne trae conclusioni opposte. `plenora-runtime-binding-v1`: il profilo lo dichiara applicabile «when exposed», e nessuna operazione di questo componente e' selezionata per l'orchestrazione -- il documento capability non annuncia la superficie `runtime`, come PUBLIC-CATALOGS-1.0 §5 impone («publish only the surfaces actually present»). `plenora-python-sdk-v1`: il profilo dice «Python SDK: not required by this profile». Lo SDK esiste e viene spedito, ma avvolge il processo CLI e non pretende la conformita' a quel contratto; e' una comodita' di questo repository, non una superficie dichiarata.",
+  "perche_not_applicable_non_e_una_deviazione": "una deviazione dice «il requisito si applica e non lo soddisfo». `not_applicable` dice «il requisito non si applica», e le due cose non vanno mescolate perche' un lettore ne trae conclusioni opposte. `plenora-python-sdk-v1`: il profilo dice «Python SDK: not required by this profile». Lo SDK esiste e viene spedito, ma non pretende la conformita' a quel contratto; e' una comodita' di questo repository, non una superficie dichiarata. `plenora-runtime-binding-v1` era `not_applicable` fino alla 4.1.0, con la ragione che nessuna operazione fosse selezionata per l'orchestrazione: il registro comune `bindings/runtime-v1.json` dichiara invece `required` tutte e sei le operazioni io.*, e la superficie runtime ora esiste.",
   "deviations": [
     {
       "rule": "catalogo io-tools (io.read.side_effect)",
       "surface": "cli",
-      "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; questo artefatto dichiara `local`. Con `--output` l'operazione scrive un file, e il descrittore dichiara il rischio massimo. Per il consumatore: chi orchestra legge un valore diverso da quello promesso dal catalogo, e deve trattare l'operazione di conseguenza. Che sia piu' cauto non la rende conforme: il contratto fissa quel campo e noi ne dichiariamo un altro. La direzione cambia il rischio, non lo stato del requisito, che resta non soddisfatto.",
-      "tracking": "docs/PIANO-4.0.0.md riga B10; si chiude separando la forma che consegna da quella che conta, oppure ottenendo che il catalogo comune ammetta l'effetto locale per la forma con destinazione",
+      "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; il documento capability della CLI, che vale anche per la superficie Rust, dichiara `local`: con una destinazione l'operazione scrive un file. La superficie runtime non devia: consegna il flusso nel risultato e dichiara `none`. Per il consumatore CLI o Rust: chi orchestra legge un valore diverso da quello del catalogo, piu' cauto ma non conforme.",
+      "tracking": "docs/PIANO-4.0.0.md riga B10; PR #6 di plenora-contracts (HB3: l'effetto della consegna appartiene al binding della superficie), aperta.",
       "detectable_before_invocation": true
     },
     {
@@ -126,6 +131,20 @@
       "surface": "cli",
       "observed_behavior": "un dataset Arrow con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink: nessuno dichiara i sedici tipi geometrici canonici, il massimo e' sette. La regola «un sink che restringe i tipi pretende che la sorgente li dichiari» non compare nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees. Per il consumatore: il rifiuto e' tipizzato e mai silenzioso, ma non e' predicibile leggendo il catalogo.",
       "tracking": "docs/PIANO-4.0.0.md riga B12c; la meta' locale e' chiusa (`scansione_completa` distingue l'assenza accertata dall'ignoranza), quella sul filo dipende dal vocabolario successore -- decisione 0006 del repository dei contratti",
+      "detectable_before_invocation": false
+    },
+    {
+      "rule": "RUNTIME-VECTORS-1.0 §5 (payload di io-read-request)",
+      "surface": "runtime",
+      "observed_behavior": "il payload della fixture (`artifact_source`, `format`, `layer` stringa) non e' un `plenora-io-read-input-v1`, che richiede `source`, chiude i campi e vuole `layer` intero: il binding lo rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Gli stessi metadati con un payload del nostro schema sullo stesso riferimento rendono il risultato di `io-read-success.json`. Per il consumatore: un payload modellato sulla fixture riceve un rifiuto tipizzato.",
+      "tracking": "tests/runtime_vettori.rs fissa la differenza; si chiude in plenora-contracts allineando la fixture a plenora-io-read-input-v1, o con una v2 dello schema d'ingresso di IO-tools.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "RUNTIME-VECTORS-1.0 §3 (assi di io-read-cancelled-error)",
+      "surface": "runtime",
+      "observed_behavior": "la cancellazione rende `category: cancelled` e `remote_effect: none` come la fixture, ma `phase: probe` invece di `read`, `retry: never` invece di `safe` e `code: CANCELLED` invece di `READ_CANCELLED`: sono gli assi che CLI e superficie Rust gia' rendono, e il binding non puo' cambiarli (SURFACE-BINDINGS-1.0 §1). Per il consumatore: una lettura cancellata non viene ritentata in automatico.",
+      "tracking": "tests/runtime_vettori.rs fissa la differenza; si chiude allineando la fixture in plenora-contracts, o cambiando gli assi della cancellazione su tutte le superfici in una release che lo dichiari.",
       "detectable_before_invocation": false
     }
   ],

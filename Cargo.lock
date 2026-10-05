@@ -1600,6 +1600,7 @@ dependencies = [
  "jsonschema",
  "plenora-io-core",
  "plenora-io-model",
+ "serde",
  "serde_json",
  "tempfile",
  "zip",

@@ -17,10 +17,10 @@
     "plenora-row-diagnostics-v1",
     "plenora-cli-v2",
     "plenora-surface-bindings-v1",
-    "plenora-composition-v1"
+    "plenora-composition-v1",
+    "plenora-runtime-binding-v1"
   ],
   "not_applicable": {
-    "plenora-runtime-binding-v1": "nessuna operazione di IO-tools e' selezionata per l'orchestrazione in questa fase, e il contratto si applica soltanto a un'operazione il cui descrittore elenca la superficie `runtime`. Non esiste alcun binding runtime nell'artefatto, e dichiararlo applicabile significherebbe promettere una superficie che non c'e'.",
     "plenora-python-sdk-v1": "il profilo io-tools dichiara `python_sdk: not_applicable`, e il contratto comune fissa le distribuzioni per database-tools e rest-tools. Lo SDK Python di IO-tools resta e viene spedito, ma non reclama questo contratto: e' verificato come artefatto nostro, dalla wheel installata, perche' avvolge il CLI e deve restare coerente con la sua busta."
   },
   "superfici": {
@@ -39,7 +39,9 @@
       "nota": "aggiornata insieme al CLI e verificata dalla wheel **installata**, fuori dall'albero sorgente. Non reclama `plenora-python-sdk-v1`."
     },
     "runtime": {
-      "stato": "non applicabile in questa fase"
+      "stato": "adottata",
+      "canale": "il modulo `plenora_io_tools::runtime` dell'archivio sorgente, lo stesso artefatto della superficie Rust",
+      "nota": "Runtime Binding 1.0 per le sei operazioni del registro comune (`bindings/runtime-v1.json`), con discovery `plenora.io-tools#capabilities@1` e consegna in-process del flusso Arrow per `io.read`. Il binding non dipende da runtime-tools (RT-015): l'applicazione lo ospita e fornisce il risolutore degli artefatti. I vettori `io-read-*` del pin girano in `tests/runtime_vettori.rs`; dove le fixture e il prodotto differiscono, la deviazione e' nel manifesto."
     }
   }
 }

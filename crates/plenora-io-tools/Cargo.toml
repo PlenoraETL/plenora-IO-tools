@@ -46,6 +46,15 @@ driver-filegdb = { path = "../driver-filegdb" }
 driver-ipc = { path = "../driver-ipc" }
 serde_json.workspace = true
 ctrlc.workspace = true
+# La superficie runtime (`src/runtime.rs`) legge i metadati e i payload con
+# struct a campi chiusi: `deny_unknown_fields` e il rifiuto di `null` stanno
+# nel tipo invece che in un controllo a mano chiave per chiave. Gia' nel grafo
+# del prodotto (`plenora-io-core`, `plenora-io-model`): nessuna dipendenza nuova.
+serde.workspace = true
+# La consegna runtime di `io.read` passa dalla stessa pubblicazione atomica
+# della CLI, in una directory privata che si crea e si cancella per ogni
+# invocazione. Gia' nel grafo del prodotto (`plenora-io-core` e i driver).
+tempfile.workspace = true
 
 [features]
 # Abilita il tier GDB (FileGDB via GDAL) nel binario.
@@ -64,4 +73,3 @@ arrow-schema.workspace = true
 # nostro validatore concorda con se stesso. E' gia' nel workspace -- la usa
 # `driver-geoparquet` -- quindi il grafo compilato del prodotto non cambia.
 jsonschema.workspace = true
-tempfile.workspace = true

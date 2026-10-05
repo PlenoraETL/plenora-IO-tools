@@ -68,6 +68,37 @@ L'API Rust è **interna e instabile**: non porta garanzia semver e i crate non
 sono pubblicati. La superficie con garanzia di compatibilità è il JSON della
 CLI.
 
+## Uso come binding runtime
+
+`plenora_io_tools::runtime` è la superficie Runtime Binding 1.0 delle sei
+operazioni (`plenora.io-tools#io.*@1`, discovery
+`plenora.io-tools#capabilities@1`). L'applicazione che ospita il binding —
+runtime-tools o un'altra — consegna un'`Invocazione` serializzata e riceve un
+`Risultato` con la correlazione dell'invocazione:
+
+```rust
+use plenora_io_tools::runtime::{BindingRuntime, CancellationToken, Invocazione};
+
+let invocazione: Invocazione = serde_json::from_slice(&messaggio)?;
+let risultato = BindingRuntime::new(&risolutore).invoca(&invocazione, CancellationToken::new());
+```
+
+- i payload sono quelli degli schemi `*-input-v1`, letti a campi chiusi;
+  `source` e `destination` sono **riferimenti opachi** (`artifact://…`), che
+  l'applicazione risolve in percorsi locali con un `RisolutoreArtefatti`: un
+  percorso locale nel payload è rifiutato prima di raggiungerla;
+- `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
+  **nel risultato**, con il documento `plenora-io-read-result-v1` accanto, e su
+  questa superficie non scrive file del chiamante;
+- `plenora.execution.deadline` entra nello stesso tetto di `deadline_ms`; la
+  chiave d'idempotenza è rifiutata, perché nessuna operazione la ammette;
+- un errore è un risultato `application/vnd.plenora.error+json` con i quattro
+  assi di `plenora-error-v1`, mai un panico.
+
+I vettori `io-read-*` del repository dei contratti girano in
+`crates/plenora-io-tools/tests/runtime_vettori.rs`; dove differiscono dal
+prodotto, la differenza è dichiarata nel manifesto di adozione.
+
 ## Uso come CLI
 
 ```

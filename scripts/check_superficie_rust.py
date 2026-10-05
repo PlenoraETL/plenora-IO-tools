@@ -253,7 +253,7 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
             "il consumatore esterno non compila o non gira contro l'archivio:\n"
             + (corsa.stderr or corsa.stdout)[-1800:]
         )
-    elif "sette export documentati" not in corsa.stdout:
+    elif "export documentati, tutti raggiungibili" not in corsa.stdout:
         problemi.append(f"il consumatore non ha confermato: {corsa.stdout.strip()[:200]}")
     return problemi
 

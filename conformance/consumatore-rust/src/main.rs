@@ -25,7 +25,27 @@
 //! elenco con la mappatura nei due versi, così che un export documentato e mai
 //! importato si veda come uno importato e mai documentato.
 
+use std::path::PathBuf;
+
 use plenora_io_tools::operazioni::{self, Esito, Richiesta};
+use plenora_io_tools::runtime::{
+    capacita, BindingRuntime, CancellationToken, Carico, Invocazione, RifiutoArtefatto,
+    RisolutoreArtefatti,
+};
+
+/// Un'applicazione che non risolve nulla: basta a provare che il confine
+/// runtime si implementa da fuori, con i soli export documentati.
+struct NessunArtefatto;
+
+impl RisolutoreArtefatti for NessunArtefatto {
+    fn sorgente(&self, _riferimento: &str) -> Result<PathBuf, RifiutoArtefatto> {
+        Err(RifiutoArtefatto::NonTrovato)
+    }
+
+    fn destinazione(&self, _riferimento: &str) -> Result<PathBuf, RifiutoArtefatto> {
+        Err(RifiutoArtefatto::NonAutorizzato)
+    }
+}
 
 /// Ogni operazione della mappatura, invocata almeno una volta.
 ///
@@ -87,7 +107,42 @@ fn main() {
         verifica_gli_assi(nome, &esito);
     }
 
-    println!("consumatore esterno: sette export documentati, tutti raggiungibili");
+    // La superficie runtime: il documento capability e un'invocazione che
+    // l'applicazione rifiuta di risolvere. L'errore arriva come risultato,
+    // con la correlazione dell'invocazione, e non come panico.
+    let runtime = capacita();
+    assert_eq!(
+        runtime["interfaces"][0]["kind"], "runtime",
+        "il documento capability runtime dichiara la propria interfaccia"
+    );
+    let invocazione: Invocazione = serde_json::from_value(serde_json::json!({
+        "content_type": "application/json",
+        "metadata": {
+            "plenora.message.id": "018f3d84-7b2c-7f00-8000-0000000000c1",
+            "plenora.capability.name": "plenora.io-tools",
+            "plenora.capability.version": "1",
+            "plenora.capability.operation": "io.inspect",
+            "plenora.operation.version": "1",
+            "plenora.input.contract": "plenora-io-inspect-input-v1",
+            "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000c2"
+        },
+        "payload": {"source": "artifact://input/consumatore"}
+    }))
+    .expect("l'invocazione si legge");
+    let risultato =
+        BindingRuntime::new(&NessunArtefatto).invoca(&invocazione, CancellationToken::new());
+    assert_eq!(
+        risultato.metadata.id_correlazione,
+        "018f3d84-7b2c-7f00-8000-0000000000c2"
+    );
+    let Carico::Json(errore) = &risultato.payload else {
+        panic!("un rifiuto del risolutore e' un errore JSON");
+    };
+    for asse in ["category", "phase", "remote_effect", "retry"] {
+        assert!(errore.get(asse).is_some(), "runtime: manca l'asse `{asse}`");
+    }
+
+    println!("consumatore esterno: export documentati, tutti raggiungibili");
 }
 
 /// L'errore arriva come documento del contratto comune, con i quattro assi.
