@@ -1019,6 +1019,9 @@ fn i_campi_ammessi_sono_quelli_degli_schemi() {
 /// ammissione delle operazioni: grammatica dei metadati, supporto, controlli,
 /// payload, identita' del risultato.
 #[test]
+// La tabella dei rifiuti e' lunga per costruzione: una riga per caso della
+// matrice. Spezzarla separerebbe i casi dalla riuscita con cui si confrontano.
+#[allow(clippy::too_many_lines)]
 fn la_discovery_passa_dalla_stessa_ammissione() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let deposito = Deposito::nuovo(temporanea.path());
