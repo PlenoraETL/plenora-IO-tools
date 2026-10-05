@@ -27,6 +27,7 @@ from plenora_io import (
 )
 from plenora_io.discovery import NOME, VARIABILE
 
+from _nativo import client_di_prova, variante_nativa
 from _repository import CANONICHE, RADICE, serve_le_fixture
 
 
@@ -111,13 +112,27 @@ class LaBustaDiConvert(unittest.TestCase):
         self.assertEqual(set(ConvertResult.RINOMINATI), {"from"})
         self.assertFalse(hasattr(esito, "from"))
 
-    def test_pubblicata_non_e_sinonimo_di_riuscita(self) -> None:
-        """Una conversione puo' riuscire e non pubblicare: e' `publish_outcome`
-        a dirlo, e leggere il successo dal solo ritorno perderebbe la
-        differenza."""
-        esito = ConvertResult.from_json(conversione_sana(publish_outcome="skipped"))
-        self.assertFalse(esito.published)
-        self.assertEqual(esito.publish_outcome, "skipped")
+    def test_la_durabilita_non_confermata_e_comunque_pubblicata(self) -> None:
+        """I due esiti del protocollo dicono entrambi che la destinazione c'e'.
+
+        `published` valeva solo per il primo: con `durable=True` su Windows,
+        che non conferma il fsync della directory, una conversione risultava
+        «non pubblicata» con il file al suo posto.
+        """
+        esito = ConvertResult.from_json(
+            conversione_sana(publish_outcome="published_durability_unconfirmed")
+        )
+        self.assertTrue(esito.published)
+        self.assertTrue(esito.durability_unconfirmed)
+        certa = ConvertResult.from_json(conversione_sana())
+        self.assertTrue(certa.published)
+        self.assertFalse(certa.durability_unconfirmed)
+
+    def test_un_esito_fuori_dal_protocollo_e_un_errore(self) -> None:
+        """Non «non pubblicata»: un esito inventato direbbe assente una
+        destinazione che forse c'e'."""
+        with self.assertRaises(ProtocolError):
+            ConvertResult.from_json(conversione_sana(publish_outcome="skipped"))
 
     def test_senza_perdita_vuol_dire_da_entrambi_i_lati(self) -> None:
         pulita = conversione_sana(
@@ -201,7 +216,7 @@ class ControIlBinarioVero(unittest.TestCase):
             self.skipTest("nessun binario plenora-io da esercitare")
         self._temporanea = tempfile.TemporaryDirectory(prefix="plenora-sdk-conv-")
         self.tmp = Path(self._temporanea.name)
-        self.cliente = Client(binary=self.binario)
+        self.cliente = client_di_prova(self.binario)
 
     def tearDown(self) -> None:
         self._temporanea.cleanup()
@@ -377,7 +392,7 @@ class LaConsegnaDiRead(unittest.TestCase):
             self.skipTest("nessun binario plenora-io da esercitare")
         self.temporanea = tempfile.TemporaryDirectory(prefix="plenora-sdk-read-")
         self.tmp = Path(self.temporanea.name)
-        self.cliente = Client(binary=self.binario)
+        self.cliente = client_di_prova(self.binario)
 
     def tearDown(self) -> None:
         self.temporanea.cleanup()
@@ -465,7 +480,7 @@ class LaScritturaDiWrite(unittest.TestCase):
             self.skipTest("nessun binario plenora-io")
         self.lavoro = tempfile.TemporaryDirectory()
         self.addCleanup(self.lavoro.cleanup)
-        self.cliente = Client(binary=self.binario)
+        self.cliente = client_di_prova(self.binario)
         self.arrow = Path(self.lavoro.name) / "ponte.arrow"
         self.cliente.read(CANONICHE / "canonico.geojson", self.arrow)
 
@@ -520,3 +535,8 @@ class LaScritturaDiWrite(unittest.TestCase):
             ("published", "published_durability_unconfirmed"),
         )
 
+
+# Le stesse tre sonde d'integrazione, dal modulo nativo della wheel abi3.
+ControIlModuloNativo = serve_le_fixture(variante_nativa(ControIlBinarioVero))
+LaConsegnaDiReadNativa = serve_le_fixture(variante_nativa(LaConsegnaDiRead))
+LaScritturaDiWriteNativa = serve_le_fixture(variante_nativa(LaScritturaDiWrite))

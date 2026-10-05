@@ -1,32 +1,41 @@
 # plenora-io — SDK Python
 
-Un wrapper Python puro sopra la CLI `plenora-io`. Non un binding: nessun codice
-nativo, nessuna estensione compilata, nessuna `cffi`. L'SDK trova un binario che
-esiste gia' sulla macchina, lo esegue e decodifica le buste JSON che il
-protocollo v2 dichiara.
+Un client Python del **protocollo v2** della CLI `plenora-io`: costruisce gli
+argomenti di un comando, ne decodifica le buste JSON, e solleva gli errori per
+categoria. Il protocollo e' il confine pubblico -- `release/cli-protocol-v2.json`
+lo ratifica campo per campo -- e lo SDK non ne usa altri.
 
-## Perche' un wrapper e non un binding
+## Due wheel, un pacchetto
 
-Il confine pubblico di questo prodotto e' **la busta JSON**, non l'API Rust:
-`release/cli-protocol-v2.json` la ratifica campo per campo, e
-`rust_api.status` dice `internal_unstable`. Un binding legherebbe l'SDK a una
-superficie che nessuno si e' impegnato a mantenere, e costringerebbe a
-distribuire ruote compilate per ogni combinazione di piattaforma e versione di
-Python. Un wrapper si appoggia alla sola cosa che il progetto promette.
+* **La wheel nativa** (`cp310-abi3`, Linux manylinux 2_34 e Windows x86_64) porta
+  il modulo `plenora_io._native`, costruito con PyO3 da `crates/plenora-io-py`.
+  Il comando gira **nel processo**: il modulo esegue lo stesso dispatch del
+  binario -- le stesse funzioni Rust, non una copia -- e rende lo stesso codice
+  d'uscita e la stessa busta. Non serve un binario installato. Una sola wheel per
+  piattaforma copre Python 3.10-3.14, e la CI la prova su tutte e cinque le
+  versioni e sui due sistemi.
+* **La wheel pura** (`py3-none-any`) e' lo stesso pacchetto senza il modulo, ed
+  esegue un binario `plenora-io` che trova sulla macchina. Resta la strada per le
+  piattaforme senza wheel nativa e per chi vuole un binario preciso.
 
-Il prezzo e' un processo per chiamata, ed e' accettabile per il lavoro che
-questi comandi fanno: leggono e scrivono file, e il costo sta li'.
+`Client()` sceglie da se': un `binary=` esplicito o `PLENORA_IO_BIN` vincono, poi
+il modulo nativo se c'e', poi il binario accanto al pacchetto o nel `PATH`.
+`Client.backend` dice quale strada ha preso (`"native"` o `"process"`), e
+`Client.binary` e' `None` quando il comando gira nel processo.
+
+La versione dello SDK e' quella del workspace, cioe' del CLI:
+`scripts/check_sdk_python.py` verifica che coincidano.
 
 ## Che cosa c'e' oggi
 
-* la scoperta del binario, **fail-closed**;
+* la scoperta del binario, **fail-closed**, e il modulo nativo quando c'e';
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
-* i cinque comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`,
-  `convert` -- con i modelli tipizzati e i tetti in `Limits`.
+* i comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`, `read`,
+  `write`, `convert` -- con i modelli tipizzati e i tetti in `Limits`.
 
-Manca il packaging: il pacchetto non e' pubblicato da nessuna parte, e si
-installa dal repository.
+Il pacchetto non e' pubblicato su nessun indice: si consegna per il canale
+riservato della distribuzione.
 
 ## `convert()` e le tre famiglie di opzioni
 
@@ -45,6 +54,11 @@ scorciatoia, non l'unica informazione.
 Il segnale viene **inoltrato** al prodotto, che al primo arma un token
 cooperativo: la pipeline lo osserva ai propri punti di verifica e torna un
 `CancelledError` con la destinazione ripulita. Al secondo, il processo esce.
+
+Col modulo nativo il Ctrl-C non si inoltra: lo raccoglie il modulo stesso dal
+thread principale e arma lo stesso token, anche su Windows. Il secondo Ctrl-C
+non ha equivalente -- un thread non si uccide -- e il comando si attende fino al
+proprio punto di verifica.
 
 Il gestore vive per la durata della singola esecuzione e viene rimesso com'era:
 una libreria non e' padrona del gestore dei segnali di chi la ospita. Fuori dal

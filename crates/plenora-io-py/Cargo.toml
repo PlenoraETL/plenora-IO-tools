@@ -1,0 +1,34 @@
+[package]
+name = "plenora-io-py"
+description = "Il modulo nativo dello SDK Python di plenora-io-tools (PyO3, abi3)"
+# La versione e' quella del workspace, cioe' quella del CLI: lo SDK esce con
+# il prodotto che esegue, e una versione sua divergerebbe alla prima release
+# fatta di fretta -- e' successo, la 4.1.0 ha spedito lo SDK 4.0.0.
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+# Il nome della libreria e' il nome del modulo nativo che Python importa come
+# `plenora_io._native` (vedi `pyproject.toml`, `module-name`).
+name = "plenora_io_native"
+crate-type = ["cdylib"]
+# Nessuna prova dentro il crate: una `cdylib` con `extension-module` non si
+# collega a un eseguibile di prova, perche' i simboli di Python li fornisce
+# l'interprete che la carica. Le prove del modulo sono quelle dello SDK,
+# eseguite contro la wheel installata (`python-sdk` in CI).
+test = false
+doctest = false
+
+[dependencies]
+plenora-io-tools = { path = "../plenora-io-tools" }
+plenora-io-model = { path = "../plenora-io-model" }
+# Il binding PyO3 con ABI stabile da Python 3.10: una sola wheel per
+# piattaforma copre 3.10-3.14, come in plenora-database-tools (stessa versione
+# esatta). `extension-module` perche' i simboli di Python li fornisce
+# l'interprete che carica il modulo, non il collegamento.
+pyo3 = { version = "=0.29.2", features = ["extension-module", "abi3-py310"] }

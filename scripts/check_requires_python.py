@@ -33,6 +33,9 @@ import sys
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 PYPROJECT = RADICE / "sdk" / "python" / "pyproject.toml"
+#: Il progetto della wheel nativa abi3: deve promettere le stesse versioni,
+#: perche' e' lo stesso pacchetto su un'altra strada.
+PYPROJECT_NATIVO = RADICE / "crates" / "plenora-io-py" / "pyproject.toml"
 CI = RADICE / ".github" / "workflows" / "ci.yml"
 
 
@@ -99,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
     minimo, massimo = vincolo()
     provate = matrice_della_ci()
     problemi: list[str] = []
+
+    riga = re.compile(r'^requires-python = "([^"]+)"$', re.M)
+    pura = riga.search(PYPROJECT.read_text(encoding="utf-8"))
+    nativa = riga.search(PYPROJECT_NATIVO.read_text(encoding="utf-8"))
+    if pura is None or nativa is None or pura.group(1) != nativa.group(1):
+        problemi.append(
+            "la wheel pura e quella nativa dichiarano `requires-python` "
+            "diversi: sono lo stesso pacchetto, e pip sceglierebbe fra due "
+            "promesse diverse secondo la piattaforma."
+        )
 
     if opzioni.versione is not None:
         pezzi = opzioni.versione.split(".")

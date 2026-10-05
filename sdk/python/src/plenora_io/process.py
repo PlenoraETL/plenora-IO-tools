@@ -342,3 +342,52 @@ class Runner:
                 "oggetto JSON."
             )
         return documento
+
+
+class NativeRunner(Runner):
+    """Esegue il comando **nel processo**, col modulo nativo della wheel abi3.
+
+    Il modulo `plenora_io._native` esegue lo stesso dispatch del binario
+    `plenora-io` -- le stesse funzioni Rust, non una copia -- e rende il codice
+    d'uscita e lo stdout che il binario avrebbe prodotto. Da li' in poi la
+    strada e' quella di `Runner`: stessa scelta del flusso, stesse buste,
+    stessi errori. Lo stderr e' vuoto per costruzione: nel processo non c'e'
+    un secondo flusso su cui il comando possa scrivere.
+
+    Un Ctrl-C durante il comando lo annulla con grazia, come il primo `SIGINT`
+    al binario: il modulo lo raccoglie dal thread principale e arma il token
+    di cancellazione, e il comando torna con la busta `CANCELLED`. Vale anche
+    su Windows, dove all'eseguibile figlio il segnale non si inoltra.
+
+    Il `timeout` non uccide niente -- un thread non si uccide -- ma annulla il
+    comando allo stesso modo, e attende che si fermi al proprio punto di
+    verifica. Se allo scadere il comando era gia' riuscito, il risultato e'
+    vero e si restituisce; altrimenti si solleva lo stesso `ProtocolError` del
+    binario.
+    """
+
+    def __init__(self, nativo: Any, *, timeout: float | None = None) -> None:
+        self._nativo = nativo
+        self._timeout = timeout
+
+    @property
+    def binary(self) -> None:  # type: ignore[override]
+        """Nessun binario: il comando gira nel processo."""
+        return None
+
+    @property
+    def sigint_forwarding_available(self) -> bool:
+        # I segnali Python arrivano al solo thread principale: e' li' che il
+        # modulo li raccoglie.
+        return threading.current_thread() is threading.main_thread()
+
+    def _execute(self, argv: list[str]) -> Completed:
+        codice, stdout, scaduto = self._nativo.esegui(list(argv), self._timeout)
+        if scaduto and codice != 0:
+            raise ProtocolError(
+                f"`plenora-io {' '.join(argv)}` non ha risposto entro "
+                f"{self._timeout}s ed e' stato annullato. Il timeout lo sceglie "
+                "chi chiama, e questo errore non dice che il comando sia "
+                "fallito per conto suo: dice che e' stato fermato."
+            )
+        return Completed(argv=list(argv), exit_code=codice, stdout=stdout, stderr="")

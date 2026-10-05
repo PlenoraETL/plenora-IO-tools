@@ -466,12 +466,43 @@ def rinominati(nome: str) -> dict[str, str]:
     return {}
 
 
+def versione_allineata() -> list[str]:
+    """`plenora_io.__version__` e' la versione del workspace, cioe' del CLI.
+
+    La wheel nativa prende la versione dal `Cargo.toml` del workspace, la wheel
+    pura da `__version__`: due sorgenti per lo stesso pacchetto, e la 4.1.0 ha
+    spedito lo SDK 4.0.0 accanto al CLI 4.1.0. Questo controllo le tiene
+    uguali.
+    """
+    cargo = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
+    dichiarata = re.search(
+        r'^\[workspace\.package\][^\[]*?^version = "([^"]+)"$', cargo, re.M | re.S
+    )
+    sdk = re.search(
+        r'^__version__ = "([^"]+)"$',
+        (ROOT / "sdk" / "python" / "src" / "plenora_io" / "__init__.py").read_text(
+            encoding="utf-8"
+        ),
+        re.M,
+    )
+    if dichiarata is None or sdk is None:
+        return ["la versione del workspace o quella dello SDK non si trovano"]
+    if dichiarata.group(1) != sdk.group(1):
+        return [
+            f"lo SDK dichiara {sdk.group(1)} e il workspace {dichiarata.group(1)}: "
+            "la wheel pura e quella nativa uscirebbero con versioni diverse"
+        ]
+    return []
+
+
 def main() -> int:
     manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
     obbligatori = tuple_dichiarate(MODELLI, "OBBLIGATORI")
     opzionali = tuple_dichiarate(MODELLI, "OPZIONALI")
     propri = tuple_dichiarate(MODELLI, "PROPRI")
     problemi: list[str] = []
+
+    problemi.extend(versione_allineata())
 
     for nome, (busta, prefisso) in POSTI.items():
         if nome not in obbligatori and nome not in propri:

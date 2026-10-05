@@ -2,13 +2,19 @@
 
 # Fail-closed vuol dire che non si inventa niente
 
-Quattro posti, in ordine, e nessun quinto:
+Cinque posti, in ordine, e nessun sesto:
 
 1. il percorso che il chiamante passa a `Client(binary=...)`;
 2. la variabile d'ambiente `PLENORA_IO_BIN`;
-3. `bin/plenora-io` dentro l'albero distribuito, se il pacchetto Python e'
+3. il modulo nativo `plenora_io._native`, se il pacchetto e' la wheel abi3:
+   allora non serve un binario, e il comando gira nel processo;
+4. `bin/plenora-io` dentro l'albero distribuito, se il pacchetto Python e'
    stato installato accanto a uno;
-4. il `PATH`.
+5. il `PATH`.
+
+Il modulo nativo viene dopo i primi due perche' sono una scelta esplicita di
+chi chiama -- provare un binario diverso -- e prima degli altri perche' e'
+parte del pacchetto installato: non puo' essere di un'altra installazione.
 
 Se non c'e', si solleva `BinaryNotFound` **dicendo dove si e' cercato**. L'SDK
 non scarica: un pacchetto Python che tirasse giu' un eseguibile sarebbe una via
@@ -33,6 +39,7 @@ nasconderebbe il guasto.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import shutil
@@ -52,6 +59,24 @@ VARIABILE = "PLENORA_IO_BIN"
 
 #: Il manifesto, nella radice dell'albero distribuito.
 MANIFESTO = "MANIFEST.json"
+
+
+def modulo_nativo() -> Any | None:
+    """Il modulo `plenora_io._native`, o `None` se il pacchetto e' quello puro.
+
+    `None` non e' un guasto: la wheel `py3-none-any` non lo porta, ed esegue il
+    binario. Un modulo **presente** che non si carica invece lo e', e non si
+    nasconde: l'`ImportError` di un modulo che c'e' risale com'e'.
+    """
+    nome = f"{__package__}._native"
+    try:
+        return importlib.import_module(nome)
+    except ModuleNotFoundError as errore:
+        # Solo l'assenza del modulo stesso: un modulo nativo che c'e' e non
+        # trova una propria dipendenza e' un'installazione rotta, e risale.
+        if errore.name != nome:
+            raise
+        return None
 
 
 def _albero_accanto_al_pacchetto() -> Path | None:

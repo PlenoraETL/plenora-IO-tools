@@ -1,0 +1,41 @@
+# Il progetto della wheel **nativa** dello SDK Python (abi3, da Python 3.10).
+#
+# Non si costruisce da qui: maturin vuole il sorgente Python dentro la
+# directory del progetto, e il sorgente sta in `sdk/python/src`.
+# `scripts/prepara-wheel-nativa.py` copia questo file e quel sorgente in
+# `target/wheel-nativa/`, e maturin costruisce di li'. I percorsi qui sotto
+# sono relativi a quella directory.
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "plenora-io"
+description = "SDK Python di plenora-io-tools: il protocollo v2, eseguito nel processo"
+readme = "README.md"
+# Le versioni provate: la matrice `abi3-runtime` della CI le esegue tutte, su
+# Linux e su Windows. Una wheel abi3-py310 si carica anche su un Python piu'
+# recente, ma prometterlo senza provarlo sarebbe una promessa, non un fatto.
+requires-python = ">=3.10,<3.15"
+# La versione e' quella del crate, cioe' quella del workspace e del CLI.
+dynamic = ["version"]
+dependencies = []
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/PlenoraETL/plenora-IO-tools"
+
+[tool.maturin]
+manifest-path = "../../crates/plenora-io-py/Cargo.toml"
+python-source = "python"
+module-name = "plenora_io._native"
+include = ["python/plenora_io/py.typed"]

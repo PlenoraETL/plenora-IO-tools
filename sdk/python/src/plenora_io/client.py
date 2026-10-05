@@ -27,7 +27,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
+from .discovery import (
+    VARIABILE,
+    Manifest,
+    leggi_manifesto,
+    modulo_nativo,
+    trova_binario,
+    verifica_profilo,
+)
 from .limits import Limits
 from .models import (
     Catalog,
@@ -38,7 +45,7 @@ from .models import (
     Version,
     WriteResult,
 )
-from .process import Runner
+from .process import NativeRunner, Runner
 
 
 class Client:
@@ -55,13 +62,29 @@ class Client:
         *,
         timeout: float | None = None,
     ) -> None:
-        percorso = trova_binario(binary)
-        self._runner = Runner(percorso, timeout=timeout)
-        self._manifest = leggi_manifesto(percorso)
+        # L'ordine della scoperta e' in `discovery.py`: l'esplicito e
+        # l'ambiente vincono sul modulo nativo, che vince sul resto.
+        nativo = None
+        if binary is None and not os.environ.get(VARIABILE):
+            nativo = modulo_nativo()
+        self._runner: Runner
+        if nativo is not None:
+            self._runner = NativeRunner(nativo, timeout=timeout)
+            self._manifest: Manifest | None = None
+        else:
+            percorso = trova_binario(binary)
+            self._runner = Runner(percorso, timeout=timeout)
+            self._manifest = leggi_manifesto(percorso)
 
     @property
-    def binary(self) -> Path:
+    def binary(self) -> Path | None:
+        """Il binario eseguito, o `None` se il comando gira nel processo."""
         return self._runner.binary
+
+    @property
+    def backend(self) -> str:
+        """`"native"` col modulo della wheel abi3, `"process"` col binario."""
+        return "native" if isinstance(self._runner, NativeRunner) else "process"
 
     @property
     def manifest(self) -> Manifest | None:
@@ -402,9 +425,11 @@ class Client:
     def cancellable(self) -> bool:
         """Un Ctrl-C durante un comando arriva al prodotto.
 
-        Falso da un thread che non sia il principale e su Windows. Il comando
-        funziona lo stesso: cambia solo che non lo si puo' fermare con grazia,
-        e chi ha bisogno di saperlo lo chiede qui invece di scoprirlo.
+        Falso da un thread che non sia il principale; col binario, falso anche
+        su Windows, dove il segnale non si inoltra al figlio. Col modulo nativo
+        (`backend == "native"`) e' vero anche su Windows. Il comando funziona
+        lo stesso: cambia solo che non lo si puo' fermare con grazia, e chi ha
+        bisogno di saperlo lo chiede qui invece di scoprirlo.
         """
         return self._runner.sigint_forwarding_available
 

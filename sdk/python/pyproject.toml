@@ -21,11 +21,12 @@ readme = "README.md"
 # Le versioni **provate**, e nient'altro.
 #
 # Il limite superiore non e' pessimismo: `Requires-Python` e' cio' che pip legge
-# per decidere se questo pacchetto puo' girare, e dichiarare `>=3.11` senza
-# limite prometterebbe ogni Python futuro. La matrice della CI prova 3.11, 3.12
-# e 3.13; il giorno in cui ne provera' un'altra, questa riga si allarga insieme
-# a lei.
-requires-python = ">=3.11,<3.14"
+# per decidere se questo pacchetto puo' girare, e dichiarare `>=3.10` senza
+# limite prometterebbe ogni Python futuro. La matrice della CI prova dalla 3.10
+# alla 3.14, la stessa promessa della wheel nativa abi3
+# (`crates/plenora-io-py/pyproject.toml`); `scripts/check_requires_python.py`
+# lega le due righe e la matrice.
+requires-python = ">=3.10,<3.15"
 
 # Nessuna dipendenza, ed e' una scelta.
 #
@@ -46,9 +47,11 @@ classifiers = [
     # affermazione che i crate Rust di questo repository fanno con
     # `publish = false`.
     "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 

@@ -76,7 +76,7 @@ from .models import (
     WriteInput,
     WriteResult,
 )
-from .process import Runner
+from .process import NativeRunner, Runner
 
 #: La versione dell'SDK, e la **sola** sorgente autorevole.
 #:
@@ -84,12 +84,12 @@ from .process import Runner
 #: scritta in due posti sarebbe divergita alla prima release fatta di fretta, e
 #: il pacchetto avrebbe dichiarato una versione e importato un'altra.
 #:
-#: Non e' la versione del **binario**, e le due vanno tenute distinte: un SDK
-#: puo' uscire per un difetto proprio senza che il prodotto cambi, e un binario
-#: nuovo puo' funzionare con un SDK vecchio finche' il protocollo regge. Che
-#: qui dica `2.0.0` come il prodotto e' la scelta di partire allineati, non un
-#: vincolo: chi vuole la versione del prodotto la chiede a `Client.version()`.
-__version__ = "4.0.0"
+#: E' la versione del workspace, cioe' del CLI: lo SDK esce col prodotto, e
+#: la wheel nativa la prende dallo stesso `Cargo.toml`. Erano due numeri
+#: indipendenti, e la 4.1.0 ha spedito lo SDK 4.0.0 accanto al CLI 4.1.0:
+#: `scripts/check_sdk_python.py` ora verifica che coincidano. Chi vuole la
+#: versione del binario che esegue la chiede a `Client.version()`.
+__version__ = "4.1.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
@@ -133,6 +133,7 @@ __all__ = [
     "LossReport",
     "Manifest",
     "ManifestError",
+    "NativeRunner",
     "NotFoundError",
     "Omissions",
     "PROFILES",

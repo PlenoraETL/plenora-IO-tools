@@ -559,7 +559,7 @@ jobs:
 
   # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
   #
-  # E' il job che rende onesta quella riga. `>=3.11,<3.14` non e' una stima: e'
+  # E' il job che rende onesta quella riga. `>=3.10,<3.15` non e' una stima: e'
   # l'insieme che questa matrice prova, e allargarla senza allargare la matrice
   # prometterebbe un Python su cui nessuno ha guardato. Il gate
   # `check_requires_python.py` confronta le due cose e diventa rosso se
@@ -569,6 +569,95 @@ jobs:
   # che si costruisca, si installi e si importi. L'integrazione contro un
   # artefatto vero sta nel workflow di distribuzione, dove un artefatto vero
   # esiste.
+  # La wheel **nativa** dello SDK: abi3 da Python 3.10, Linux (manylinux 2_34)
+  # e Windows, sul modello di plenora-database-tools. Porta lo stesso pacchetto
+  # Python della wheel pura e in piu' `plenora_io._native`, che esegue i
+  # comandi nel processo senza un binario accanto.
+  #
+  # La costruzione verifica la wheel prima di caricarla: un artefatto senza il
+  # pacchetto Python, o senza il modulo nativo, non diventa scaricabile.
+  python-wheel-abi3:
+    name: wheel abi3 ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: "3.12"
+      - name: Prepara il progetto della wheel nativa
+        shell: bash
+        run: python scripts/prepara-wheel-nativa.py
+      # L'action e maturin sono due dipendenze, e vanno fissate entrambe.
+      - name: Costruisci la wheel (manylinux 2_34)
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          maturin-version: "1.15.0"
+          command: build
+          working-directory: target/wheel-nativa
+          args: --release --locked --out ../../dist-nativa
+          manylinux: "2_34"
+          rust-toolchain: "1.98.1"
+      - name: Costruisci la wheel (Windows)
+        if: runner.os == 'Windows'
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          maturin-version: "1.15.0"
+          command: build
+          working-directory: target/wheel-nativa
+          args: --release --locked --out ../../dist-nativa
+          rust-toolchain: "1.98.1"
+      - name: La wheel porta il pacchetto e il modulo nativo
+        shell: bash
+        run: python scripts/prepara-wheel-nativa.py --verifica dist-nativa/*.whl
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: wheel-abi3-${{ runner.os }}
+          path: dist-nativa/*.whl
+          if-no-files-found: error
+
+  # La stessa wheel, installata e provata su **ogni** Python che dichiara, sui
+  # due sistemi. Le sonde sono quelle dello SDK, comprese le varianti native
+  # delle sonde d'integrazione (`tests/_nativo.py`), e
+  # `PLENORA_IO_RICHIEDI_NATIVO=1` fa fallire invece di saltare se il modulo
+  # nativo non si carica.
+  python-abi3-runtime:
+    name: abi3 ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: python-wheel-abi3
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            artefatto: wheel-abi3-Linux
+          - os: windows-latest
+            artefatto: wheel-abi3-Windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
+        with:
+          name: ${{ matrix.artefatto }}
+          path: dist-nativa
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Installa la wheel e prova lo SDK contro di lei
+        shell: bash
+        env:
+          PLENORA_IO_RICHIEDI_NATIVO: "1"
+        run: |
+          python -m pip install --no-deps dist-nativa/*.whl
+          cd sdk/python/tests
+          python -c "import plenora_io._native, plenora_io; assert plenora_io.__file__.find('site-packages') >= 0, plenora_io.__file__"
+          python -m unittest discover -s . -p "test_*.py"
+
   profilo-pubblico:
     runs-on: ubuntu-latest
     steps:
@@ -657,7 +746,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
