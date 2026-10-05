@@ -151,10 +151,10 @@
       "perche": "uno stato di risoluzione CRS fuori dai tre di ARROW-007. Un quarto stato collasserebbe la distinzione che quel requisito esiste per tenere."
     },
     {
-      "file": "invalidi/io-read-result-consegna-stream.json",
+      "file": "validi/io-read-result-consegna-stream.json",
       "schema": "plenora-io-read-result-v1",
-      "atteso": "invalido",
-      "perche": "il content type dello stream Arrow, che il catalogo ammette per l'operazione e che questa superficie non puo' produrre: CLI-2.0 §4 riserva stdout a un solo documento JSON. Dichiararlo sarebbe annunciare una consegna che non arriva."
+      "atteso": "valido",
+      "perche": "la consegna nella serializzazione a flusso, `--out-opt serialization=stream`. Questo esempio era fra gli invalidi, con la ragione che la CLI non potesse produrre il flusso; la CLI lo produce dalla 4.0.0, e la busta usciva invalida contro lo schema. L'errata della 4.1.1 lo sposta qui, e `ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione` invoca davvero quella consegna."
     },
     {
       "file": "validi/io-write-input-minimo.json",

@@ -241,8 +241,11 @@
       "additionalProperties": false,
       "properties": {
         "content_type": {
-          "const": "application/vnd.apache.arrow.file",
-          "$comment": "Il catalogo comune ammette anche `application/vnd.apache.arrow.stream` per io.read. La CLI non lo puo' produrre: CLI-2.0 §4 riserva stdout a un solo documento JSON, quindi i byte vanno in un file e il file e' il formato `file`. Dichiarare `stream` da questa superficie sarebbe annunciare una consegna che non arriva."
+          "enum": [
+            "application/vnd.apache.arrow.file",
+            "application/vnd.apache.arrow.stream"
+          ],
+          "$comment": "ERRATA (4.1.1). La prima stesura era la costante `application/vnd.apache.arrow.file`, con la motivazione che la CLI non potesse produrre il flusso. Era falsa gia' nella 4.0.0: CLI-2.0 §4 riserva stdout alla busta, ma i byte vanno in un file e il file puo' contenere l'una o l'altra serializzazione di Arrow IPC, scelta dall'opzione `serialization` del driver `ipc` (`--out-opt serialization=stream`). La 4.0.0 e la 4.1.0 producevano percio' buste che questo schema rifiutava. L'errata allinea lo schema a cio' che il prodotto emette, al documento capability e al catalogo comune, che dichiarano entrambe le serializzazioni; il valore dice quale delle due sta nei byte consegnati."
         },
         "interchange_contract": {
           "const": "plenora-arrow-interchange-v1",
