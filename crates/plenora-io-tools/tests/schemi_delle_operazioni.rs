@@ -131,7 +131,7 @@ fn gli_esempi_valgono_quanto_il_manifesto_dichiara() {
 /// `convert` verso un formato che perde e verso uno che non perde -- perche' un
 /// campo dichiarato su un solo valore osservato non e' dichiarato.
 #[test]
-// La tabella dei casi e' lunga per costruzione: dodici invocazioni reali, ognuna
+// La tabella dei casi e' lunga per costruzione: undici invocazioni reali, ognuna
 // con i suoi argomenti. Spezzarla in due funzioni separerebbe i casi dal
 // confronto che li rende una prova sola.
 #[allow(clippy::too_many_lines)]
@@ -201,21 +201,6 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
                 fixture("canonico.geojson").display().to_string(),
                 "--output".to_owned(),
                 dove.join("consegnata.arrow").display().to_string(),
-            ],
-        ),
-        // La consegna nella serializzazione a flusso, che la CLI produce dalla
-        // 4.0.0. Lo schema la dichiarava impossibile -- `content_type` era la
-        // costante del contenitore -- e la busta usciva invalida senza che
-        // nessuna invocazione di questa tabella la producesse.
-        (
-            "plenora-io-read-result-v1",
-            vec![
-                "read".to_owned(),
-                fixture("canonico.geojson").display().to_string(),
-                "--output".to_owned(),
-                dove.join("consegnata.arrows").display().to_string(),
-                "--out-opt".to_owned(),
-                "serialization=stream".to_owned(),
             ],
         ),
         (
@@ -303,6 +288,98 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
         6,
         "le sei uscite del catalogo sono coperte tutte: {coperti:?}"
     );
+}
+
+/// Le due buste che `v1` non sa esprimere: la deviazione dichiarata.
+///
+/// `plenora-io-read-result-v1` fissa `delivered.content_type` al contenitore e
+/// `plenora-io-write-result-v1` fissa `input.content_type` allo stesso; il
+/// prodotto consegna anche il flusso (`--out-opt serialization=stream`) e
+/// legge anche un payload a flusso, e lo dice -- dire `file` sarebbe falso. Le
+/// due buste escono quindi invalide contro lo schema che nominano, dalla 4.0.0.
+///
+/// Lo schema pubblicato non si allarga sul posto (COMPATIBILITY.md di
+/// plenora-contracts: cambierebbe quali istanze validano), e togliere il flusso
+/// riaprirebbe le tre deviazioni che la 4.0.0 ha chiuso con lui. Lo stato e'
+/// percio' una deviazione dichiarata nel manifesto di adozione, e questa prova
+/// la fissa nei due versi: le buste sono invalide **solo** su quel campo, e il
+/// manifesto lo dichiara. Quando la chiusura arriva -- un contratto d'uscita
+/// `v2` sotto una versione nuova dell'operazione -- la prova diventa rossa e la
+/// deviazione va tolta.
+#[test]
+fn le_buste_a_flusso_sono_la_deviazione_dichiarata() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let flusso = temporanea.path().join("consegnata.arrows");
+    let csv = temporanea.path().join("pubblicata.csv");
+    let esegui = |argomenti: &[&str]| -> Value {
+        let uscita = Command::new(BINARIO)
+            .args(argomenti)
+            .output()
+            .expect("il binario parte");
+        serde_json::from_slice(&uscita.stdout).expect("stdout e' JSON")
+    };
+    let sorgente = fixture("canonico.geojson");
+    let lettura = esegui(&[
+        "read",
+        sorgente.to_str().unwrap(),
+        "--output",
+        flusso.to_str().unwrap(),
+        "--out-opt",
+        "serialization=stream",
+    ]);
+    let scrittura = esegui(&[
+        "write",
+        flusso.to_str().unwrap(),
+        csv.to_str().unwrap(),
+        "--to",
+        "csv",
+    ]);
+    for (busta, schema, campo) in [
+        (
+            &lettura,
+            "plenora-io-read-result-v1",
+            "/delivered/content_type",
+        ),
+        (
+            &scrittura,
+            "plenora-io-write-result-v1",
+            "/input/content_type",
+        ),
+    ] {
+        assert_eq!(busta["status"], "ok", "{busta}");
+        assert_eq!(busta["contract"], schema, "{busta}");
+        let errori: Vec<String> = compila(schema)
+            .iter_errors(&busta["result"])
+            .map(|e| e.instance_path().to_string())
+            .collect();
+        assert_eq!(
+            errori,
+            vec![campo.to_owned()],
+            "{schema}: la busta a flusso deve deviare soltanto su {campo}"
+        );
+        assert_eq!(
+            busta["result"].pointer(campo),
+            Some(&Value::from("application/vnd.apache.arrow.stream")),
+            "{schema}: il valore dice la serializzazione vera"
+        );
+    }
+
+    let adozione = documento(&contratti().join("adozione-4.0.0.json"));
+    let regole: Vec<&str> = adozione["deviations"]
+        .as_array()
+        .expect("deviations")
+        .iter()
+        .filter_map(|d| d["rule"].as_str())
+        .collect();
+    for regola in [
+        "plenora-io-read-result-v1 (delivered.content_type)",
+        "plenora-io-write-result-v1 (input.content_type)",
+    ] {
+        assert!(
+            regole.contains(&regola),
+            "il manifesto deve dichiarare la deviazione «{regola}»: {regole:?}"
+        );
+    }
 }
 
 /// Cio' che lo schema d'ingresso rifiuta, il binario lo rifiuta.

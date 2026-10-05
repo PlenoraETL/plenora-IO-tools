@@ -146,6 +146,20 @@
       "observed_behavior": "la cancellazione rende `category: cancelled` e `remote_effect: none` come la fixture, ma `phase: probe` invece di `read`, `retry: never` invece di `safe` e `code: CANCELLED` invece di `READ_CANCELLED`: sono gli assi che CLI e superficie Rust gia' rendono, e il binding non puo' cambiarli (SURFACE-BINDINGS-1.0 §1). Per il consumatore: una lettura cancellata non viene ritentata in automatico.",
       "tracking": "tests/runtime_vettori.rs fissa la differenza; si chiude allineando la fixture in plenora-contracts, o cambiando gli assi della cancellazione su tutte le superfici in una release che lo dichiari.",
       "detectable_before_invocation": false
+    },
+    {
+      "rule": "plenora-io-read-result-v1 (delivered.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con `--out-opt serialization=stream` `read` consegna il flusso Arrow e la busta dice `delivered.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera; chi valida contro v1 la rifiuta. Senza quell'opzione la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-read-result-v2` sotto `io.read@2` nel catalogo comune: v1 non si allarga sul posto (COMPATIBILITY.md). Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
