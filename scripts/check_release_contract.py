@@ -3765,18 +3765,31 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
     # un tag creato dopo di se'. La registrazione del tag si verifica dov'e'
     # scritta, cioe' sul commit di assurance, dove questo stesso confronto gira
     # nella sua forma piena.
+    #
+    # L'albero si riconosce da **dove punta il tag**, non da
+    # `revisione_candidate`. La prima stesura chiedeva `HEAD ==
+    # revisione_candidate`, e quella condizione non e' mai vera sul commit del
+    # tag: `revisione_candidate` si scrive nel commit di congelamento, che viene
+    # **dopo** la revisione che nomina -- e' la stessa ragione per cui un commit
+    # non puo' nominare se stesso. Sul checkout del tag lo stato porta quindi la
+    # candidate precedente, la condizione era falsa, e il confronto pieno
+    # rendeva la qualifica rossa a ogni push di un tag: `v3.0.0`, `v4.0.0`,
+    # `v4.1.0`. Un gate sempre rosso non distingue niente.
+    #
+    # La domanda giusta e' quella che il commento sopra gia' formula: HEAD e' il
+    # commit a cui il tag punta? Li', e solo li', lo stato non puo' conoscere il
+    # tag. Su ogni altro commit -- discendenti compresi, cioe' il ramo di
+    # sviluppo dopo il rilascio -- il confronto resta pieno.
     puntato = _git("rev-parse", "--verify", atteso + "^{commit}")
-    sull_albero_congelato = (
-        congelata is not None and head is not None and head == congelata
-    )
-    if sull_albero_congelato:
+    sul_commit_del_tag = puntato is not None and head is not None and puntato == head
+    if sul_commit_del_tag:
         if candidate.get("tag_creato") is not False:
             errori.append(
                 "`candidate_release.tag_creato` vale "
-                f"«{candidate.get('tag_creato')}» sulla revisione congelata, "
-                "che e' HEAD. Quel commit non puo' conoscere un tag creato "
-                "dopo di se': il campo lo scrive il commit di assurance, ed e' "
-                "li' che il confronto con git si fa."
+                f"«{candidate.get('tag_creato')}» sul commit a cui il tag "
+                f"«{atteso}» punta, che e' HEAD. Quel commit non puo' conoscere "
+                "un tag creato dopo di se': il campo lo scrive il commit di "
+                "assurance, ed e' li' che il confronto con git si fa."
             )
     elif candidate.get("tag_creato") is not (puntato is not None):
         errori.append(
@@ -3798,11 +3811,19 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
         # `tag_creato` contro cio' che git trova davvero.
         return errori
     dichiarato = candidate.get("tag_revisione")
-    if puntato is None:
+    if puntato is None or sul_commit_del_tag:
+        # Sul commit del tag vale la stessa ragione di `tag_creato`: la
+        # revisione del tag e' HEAD, e un commit non puo' scrivere il proprio
+        # SHA. L'unico valore che quel commit puo' portare e' l'assenza.
         if dichiarato is not None:
+            perche = (
+                f"HEAD e' il commit a cui il tag «{atteso}» punta, e non puo' "
+                "conoscerne la revisione"
+                if sul_commit_del_tag
+                else f"il tag «{atteso}» non esiste"
+            )
             errori.append(
-                f"`candidate_release.tag_revisione` vale «{dichiarato}» ma il "
-                f"tag «{atteso}» non esiste"
+                f"`candidate_release.tag_revisione` vale «{dichiarato}» ma {perche}"
             )
     elif revisione_risolta(dichiarato) != puntato:
         errori.append(

@@ -2002,12 +2002,21 @@ class SondeFontiLegate(unittest.TestCase):
         tag della candidate **esisteva**: quello della 2.0.0 non esiste ancora,
         quindi negare il campo produceva l'unica combinazione vera. Si nega ora
         cio' che git dice, qualunque cosa dica.
+
+        Con un'eccezione che la sonda deve conoscere per non diventare il
+        letterale che coincide con la verita': sul commit a cui il tag punta il
+        valore giusto e' `false` anche se il tag esiste, perche' quel commit non
+        puo' conoscerlo. E' il caso del checkout del tag nella qualifica.
         """
         stato = self.stato()
         candidate = stato["aperto"]["candidate_release"]
         atteso = f"v{candidate['versione_manifesto']}"
-        esiste = gate.revisione_risolta(atteso) is not None
-        candidate["tag_creato"] = not esiste
+        puntato = gate.revisione_risolta(atteso)
+        sul_commit_del_tag = (
+            puntato is not None and puntato == gate.revisione_risolta("HEAD")
+        )
+        vero = puntato is not None and not sul_commit_del_tag
+        candidate["tag_creato"] = not vero
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("tag_creato" in e for e in errori), errori)
 
@@ -4719,13 +4728,21 @@ class SondeDelTagSuiDueAlberi(unittest.TestCase):
         candidate.update(modifiche)
         return {"aperto": {"candidate_release": candidate}}
 
-    def _errori(self, head: str, tag_esiste: bool, **modifiche) -> list[str]:
+    #: Il commit a cui il tag punta quando **non** e' la revisione congelata:
+    #: e' il caso reale, perche' `revisione_candidate` si scrive dopo la
+    #: revisione che nomina e il commit del tag ne porta una precedente.
+    TAG = "c" * 40
+
+    def _errori(
+        self, head: str, tag_esiste: bool, tag_su: str | None = None, **modifiche
+    ) -> list[str]:
         """Gli errori con HEAD e il tag scelti, e git per il resto finto."""
+        bersaglio = tag_su or self.CONGELATA
 
         def finto_git(*argomenti):
             # Il solo uso di `_git` qui e' la ricerca del tag.
             if argomenti[:2] == ("rev-parse", "--verify"):
-                return self.CONGELATA if tag_esiste else None
+                return bersaglio if tag_esiste else None
             return None
 
         def finta_risoluzione(revisione):
@@ -4734,7 +4751,8 @@ class SondeDelTagSuiDueAlberi(unittest.TestCase):
             # risponderebbe con lo SHA vero del repository.
             if revisione == "HEAD":
                 return head
-            return self.CONGELATA if revisione == self.CONGELATA else None
+            noti = {self.CONGELATA, self.ASSURANCE, self.TAG}
+            return revisione if revisione in noti else None
 
         with mock.patch.object(gate, "_git", side_effect=finto_git), mock.patch.object(
             gate, "revisione_risolta", side_effect=finta_risoluzione
@@ -4798,6 +4816,84 @@ class SondeDelTagSuiDueAlberi(unittest.TestCase):
             if "tag_creato" in e
         ]
         self.assertEqual(errori, [])
+
+    # --- il commit del tag non e' la revisione congelata -------------------
+    #
+    # Le sonde sopra mettono HEAD sulla revisione congelata **e** il tag li'.
+    # Nella storia vera le due cose non coincidono mai sul commit del tag: lo
+    # stato di quel commit nomina la candidate precedente, perche' il
+    # congelamento si scrive dopo. `v3.0.0`, `v4.0.0` e `v4.1.0` hanno reso
+    # rossa la qualifica per questo, con la condizione `HEAD ==
+    # revisione_candidate` che le sonde sopra soddisfacevano per costruzione.
+
+    def _sul_commit_del_tag(self, **modifiche) -> list[str]:
+        return [
+            e
+            for e in self._errori(self.TAG, True, tag_su=self.TAG, **modifiche)
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+
+    def test_sul_commit_del_tag_lo_stato_che_non_lo_conosce_e_verde(self) -> None:
+        """Il difetto della push di `v4.1.0`, riprodotto e chiuso.
+
+        HEAD e' il commit del tag, la revisione congelata e' un'altra, lo stato
+        dice `tag_creato: false` e nessuna `tag_revisione`. Prima: «vale
+        «False» ma git trova il tag» e «`tag_revisione` vale «None», il tag
+        punta a ...».
+        """
+        self.assertEqual(self._sul_commit_del_tag(), [])
+
+    def test_sul_commit_del_tag_un_tag_creato_vero_e_rosso(self) -> None:
+        errori = self._sul_commit_del_tag(tag_creato=True)
+        self.assertTrue(
+            any("non puo' conoscere un tag creato" in e for e in errori), errori
+        )
+
+    def test_sul_commit_del_tag_una_tag_revisione_e_rossa(self) -> None:
+        # Il commit non puo' scrivere il proprio SHA: un valore qui e' copiato
+        # da fuori, non saputo.
+        errori = self._sul_commit_del_tag(tag_revisione=self.TAG)
+        self.assertTrue(
+            any("non puo' conoscerne la revisione" in e for e in errori), errori
+        )
+
+    def test_dopo_il_commit_del_tag_il_confronto_resta_intero(self) -> None:
+        """Il ramo di sviluppo dopo il rilascio non eredita l'esenzione.
+
+        HEAD discende dal commit del tag, lo stato non lo registra: e' la copia
+        a mano che nessuno confronta con git, ed e' rossa come prima.
+        """
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, True, tag_su=self.TAG)
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        self.assertTrue(any("tag_revisione" in e for e in errori), errori)
+
+    def test_dopo_il_commit_del_tag_la_verita_passa(self) -> None:
+        errori = [
+            e
+            for e in self._errori(
+                self.ASSURANCE,
+                True,
+                tag_su=self.TAG,
+                tag_creato=True,
+                tag_revisione=self.TAG,
+            )
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+        self.assertEqual(errori, [])
+
+    def test_sulla_congelata_senza_tag_il_confronto_resta_intero(self) -> None:
+        # HEAD sulla congelata non basta piu' a esentare: senza un tag che la
+        # punti, `tag_creato: true` e' una dichiarazione falsa come altrove.
+        errori = [
+            e
+            for e in self._errori(self.CONGELATA, False, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(any("non trova il tag" in e for e in errori), errori)
 
     def test_il_workflow_rimanda_al_gate_e_non_ripete_la_regola(self) -> None:
         """Due luoghi che dicono la stessa regola possono divergere.
