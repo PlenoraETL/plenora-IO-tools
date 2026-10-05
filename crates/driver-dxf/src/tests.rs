@@ -1105,6 +1105,99 @@ fn una_spline_cubica_valida_si_legge() {
     letto("cubica 3D", &spline, 1);
 }
 
+/// Un DXF binario post-R13: codici da due byte, stringhe terminate da NUL,
+/// reali in otto byte little-endian.
+fn dxf_binario(coppie: &[(u16, &str)]) -> Vec<u8> {
+    let mut byte = b"AutoCAD Binary DXF\r\n\x1a\x00".to_vec();
+    for (codice, valore) in coppie {
+        byte.extend_from_slice(&codice.to_le_bytes());
+        if (10..=59).contains(codice) {
+            let reale: f64 = valore.parse().unwrap();
+            byte.extend_from_slice(&reale.to_le_bytes());
+        } else {
+            byte.extend_from_slice(valore.as_bytes());
+            byte.push(0);
+        }
+    }
+    byte
+}
+
+/// Nel binario il controllo della coda reclamata stava nel solo ramo del
+/// testo: un gruppo numerico fra il `3` e il `1` passava, e `3="abc^"`,
+/// `40=1.0`, `1="Jdef"` dava `"abc\ndef"`, dove l'ASCII rifiutava.
+#[test]
+fn una_coda_reclamata_e_interrotta_si_rifiuta_anche_nel_binario() {
+    let mtext = |in_mezzo: &[(u16, &'static str)]| {
+        let mut coppie: Vec<(u16, &str)> = vec![
+            (0, "SECTION"),
+            (2, "ENTITIES"),
+            (0, "MTEXT"),
+            (8, "0"),
+            (10, "0"),
+            (20, "0"),
+            (40, "1"),
+            (3, "abc^"),
+        ];
+        coppie.extend_from_slice(in_mezzo);
+        coppie.extend_from_slice(&[(1, "Jdef"), (0, "ENDSEC"), (0, "EOF")]);
+        dxf_binario(&coppie)
+    };
+    testo_uguale("binario, controllo", &mtext(&[]), "abc\ndef");
+    testo_rifiutato("binario, reale in mezzo", &mtext(&[(41, "2")]));
+    testo_rifiutato(
+        "ASCII, reale in mezzo",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\nabc^\n41\n2\n1\nJdef\n"),
+    );
+}
+
+/// Gruppi `3` senza il gruppo `1` finale davano un testo plausibile e
+/// troncato; un `3` dopo il `1` finiva fuori ordine; un secondo `1`
+/// sostituiva il primo.
+#[test]
+fn un_mtext_senza_gruppo_1_finale_si_rifiuta() {
+    testo_uguale("controllo, solo 1", &mtext(&[], "abc"), "abc");
+    testo_rifiutato(
+        "3 senza 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\nabc\n"),
+    );
+    testo_rifiutato(
+        "3 dopo 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nabc\n3\ndef\n"),
+    );
+    testo_rifiutato(
+        "due 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nabc\n1\ndef\n"),
+    );
+}
+
+/// A fine ingresso una coda reclamata e' un errore, letterale o no, e anche
+/// dopo spazio bianco finale; e l'API progressiva non consegna prima un MTEXT
+/// mutilato.
+#[test]
+fn una_coda_reclamata_alla_fine_dell_ingresso_si_rifiuta_subito() {
+    let senza_fine = |coda: &str| {
+        format!("0\nSECTION\n2\nENTITIES\n0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\n{coda}\n")
+            .into_bytes()
+    };
+    for (nome, mut dxf) in [
+        ("letterale", senza_fine("abc^")),
+        ("non letterale", senza_fine("abc\\U+00")),
+        ("non letterale e spazi", {
+            let mut d = senza_fine("abc\\U+00");
+            d.extend_from_slice(b"\n  \n");
+            d
+        }),
+    ] {
+        testo_rifiutato(nome, &dxf);
+        let mut lettore =
+            dxf::DrawingEntityReader::load(std::io::Cursor::new(std::mem::take(&mut dxf))).unwrap();
+        assert!(
+            lettore.next_entity().is_err(),
+            "{nome}: l'API progressiva consegna l'MTEXT prima dell'errore"
+        );
+    }
+}
+
 #[test]
 fn row_level_dxf_failure_reports_the_top_level_entity_index() {
     let directory = tempfile::tempdir().unwrap();

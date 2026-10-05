@@ -1169,8 +1169,30 @@ impl Entity {
     ) -> DxfResult<bool> {
         let mut reading_column_data = false;
         let mut read_column_count = false;
+        // Il testo di un MTEXT e' fatto di gruppi `3` seguiti da un gruppo `1`
+        // finale. Gruppi `3` senza il `1` -- o un `3` dopo il `1`, o due `1` --
+        // davano un testo plausibile e troncato, o fuori ordine: si rifiuta.
+        let mut attende_gruppo_1 = false;
+        let mut letto_gruppo_1 = false;
+        let fine = |attende: bool, offset: usize| -> DxfResult<bool> {
+            if attende {
+                Err(DxfError::ParseError(offset))
+            } else {
+                Ok(true)
+            }
+        };
+        let mut ultimo_offset = 0;
         loop {
-            let pair = next_pair!(iter);
+            let pair = match iter.next() {
+                Some(Ok(pair @ CodePair { code: 0, .. })) => {
+                    iter.put_back(Ok(pair));
+                    return fine(attende_gruppo_1, ultimo_offset);
+                }
+                Some(Ok(pair)) => pair,
+                Some(Err(e)) => return Err(e),
+                None => return fine(attende_gruppo_1, ultimo_offset),
+            };
+            ultimo_offset = pair.offset;
             match pair.code {
                 10 => {
                     mtext.insertion_point.x = pair.assert_f64()?;
@@ -1200,6 +1222,10 @@ impl Entity {
                     );
                 }
                 3 => {
+                    if letto_gruppo_1 {
+                        return Err(DxfError::ParseError(pair.offset));
+                    }
+                    attende_gruppo_1 = true;
                     // Un frammento da 250 caratteri: il taglio puo' cadere dentro
                     // una sequenza di escape, e la coda aperta si decodifica con
                     // l'inizio del frammento seguente.
@@ -1210,6 +1236,11 @@ impl Entity {
                     mtext.extended_text.push(frammento);
                 }
                 1 => {
+                    if letto_gruppo_1 {
+                        return Err(DxfError::ParseError(pair.offset));
+                    }
+                    letto_gruppo_1 = true;
+                    attende_gruppo_1 = false;
                     mtext.text = pair.assert_string()?;
                 }
                 7 => {

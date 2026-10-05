@@ -96,13 +96,25 @@ impl CodaSospesa {
         }
         Ok(testo)
     }
-    /// Alla fine dell'ingresso una coda non letterale e' un errore.
+    /// Alla fine dell'ingresso una coda reclamata -- letterale o no: il
+    /// gruppo che doveva continuarla non c'e' -- e una coda non letterale sono
+    /// errori. Va chiamata su **ogni** via verso la fine, spazio bianco finale
+    /// compreso: altrimenti il lettore di MTEXT consegnava un testo mutilato.
     fn verifica_alla_fine(&mut self, offset: usize) -> Option<DxfResult<CodePair>> {
-        if self.grezza.is_some() && !self.nel_valore {
+        if self.grezza.is_some() && (self.reclamata || !self.nel_valore) {
             *self = CodaSospesa::default();
             return Some(Err(DxfError::ParseError(offset)));
         }
         None
+    }
+    /// Una coda reclamata si continua solo con un gruppo di testo `1` o `3`:
+    /// qualunque altro gruppo, di qualunque tipo, e' un errore. Va chiamata
+    /// appena letto il codice, in entrambi i formati.
+    fn verifica_codice(&self, codice: i32, offset: usize) -> DxfResult<()> {
+        if self.reclamata && codice != 1 && codice != 3 {
+            return Err(DxfError::ParseError(offset));
+        }
+        Ok(())
     }
 }
 
@@ -212,7 +224,7 @@ impl<T: Read> TextCodePairIter<T> {
             // fatto di soli a capo resta un file vuoto --, altrimenti e' un
             // errore.
             return match resto_solo_spazio(&mut self.reader) {
-                Ok(true) => None,
+                Ok(true) => self.coda.verifica_alla_fine(self.offset),
                 Ok(false) => Some(Err(DxfError::ParseError(self.offset))),
                 Err(e) => Some(Err(e)),
             };
@@ -220,8 +232,8 @@ impl<T: Read> TextCodePairIter<T> {
 
         let code_offset = self.offset;
         let code = try_into_option!(parse_i32(String::from(code_line), code_offset));
-        if self.coda.reclamata && code != 1 && code != 3 {
-            return Some(Err(DxfError::ParseError(code_offset)));
+        if let Err(e) = self.coda.verifica_codice(code, code_offset) {
+            return Some(Err(e));
         }
 
         // Read value.  If no line is available die horribly.
@@ -376,6 +388,12 @@ impl<T: Read> BinaryCodePairIter<T> {
             // pre R13 codes are either 1 or 3 bytes
             code = i32::from(try_from_dxf_result!(read_i16(&mut self.reader)));
             self.offset += 2;
+        }
+        // Come nel DXF ASCII: una coda reclamata si continua solo con un
+        // gruppo `1` o `3`. Prima il controllo stava nel solo ramo del testo, e
+        // un gruppo numerico in mezzo passava.
+        if let Err(e) = self.coda.verifica_codice(code, self.offset) {
+            return Some(Err(e));
         }
 
         // Read value.  If no data is available die horribly.

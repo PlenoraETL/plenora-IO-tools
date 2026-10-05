@@ -13,8 +13,8 @@
   "delta_funzionale": [
     {
       "file": "src/code_pair_iter.rs",
-      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input Riga vuota e fine dell'ingresso non si confondono piu': `read_buffered_line` restituisce `None` solo a zero byte letti. Una riga di codice vuota seguita da altro che spazio bianco e' un errore (upstream: la fine del documento, e un DXF con una riga vuota in testa si leggeva vuoto); un codice senza la riga del valore e' `UnexpectedEndOfInput` (upstream: valore vuoto). Una sequenza `\\U+` non valida rende la riga un errore. Dal secondo giro di #32 la decodifica dei valori di testo passa per `CodaSospesa`: una sequenza di escape aperta alla fine di un gruppo `3` -- MTEXT spezza il testo ogni 250 caratteri, e il taglio puo' cadere dentro `\\U+XXXX` o `^x` -- resta da parte. Se il lettore di MTEXT la reclama (`CodePairIter::continua_frammento`), il valore seguente si decodifica con la coda davanti, cioe' il testo si decodifica ricomposto; se nessuno la reclama, una coda non letterale (`\\U+` incompleta) e' un errore, e una letterale (`\\`, `\\U`, `^`) resta nel valore. Una coda reclamata seguita da un gruppo che non e' `1` o `3` e' un errore. Vale anche per il DXF binario.",
-      "provato_da": " `driver_dxf::tests::una_riga_vuota_non_e_la_fine_del_documento` e `un_documento_con_parti_perse_esce_con_la_busta`, rosse su 9e85c61. `driver_dxf::tests::una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta` (rossa su c23a23a) e `lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono`."
+      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input Riga vuota e fine dell'ingresso non si confondono piu': `read_buffered_line` restituisce `None` solo a zero byte letti. Una riga di codice vuota seguita da altro che spazio bianco e' un errore (upstream: la fine del documento, e un DXF con una riga vuota in testa si leggeva vuoto); un codice senza la riga del valore e' `UnexpectedEndOfInput` (upstream: valore vuoto). Una sequenza `\\U+` non valida rende la riga un errore. Dal secondo giro di #32 la decodifica dei valori di testo passa per `CodaSospesa`: una sequenza di escape aperta alla fine di un gruppo `3` -- MTEXT spezza il testo ogni 250 caratteri, e il taglio puo' cadere dentro `\\U+XXXX` o `^x` -- resta da parte. Se il lettore di MTEXT la reclama (`CodePairIter::continua_frammento`), il valore seguente si decodifica con la coda davanti, cioe' il testo si decodifica ricomposto; se nessuno la reclama, una coda non letterale (`\\U+` incompleta) e' un errore, e una letterale (`\\`, `\\U`, `^`) resta nel valore. Una coda reclamata seguita da un gruppo che non e' `1` o `3` e' un errore. Vale anche per il DXF binario. Dal terzo giro: il controllo della coda reclamata vale per ogni gruppo successivo in entrambi i formati (nel binario un gruppo numerico fra il `3` e il `1` passava), e a fine ingresso una coda reclamata e' un errore anche se letterale e anche dopo spazio bianco finale (prima il ramo dello spazio bianco saltava il controllo, e l'API progressiva consegnava un MTEXT mutilato prima dell'errore).",
+      "provato_da": " `driver_dxf::tests::una_riga_vuota_non_e_la_fine_del_documento` e `un_documento_con_parti_perse_esce_con_la_busta`, rosse su 9e85c61. `driver_dxf::tests::una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta` (rossa su c23a23a) e `lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono`. `driver_dxf::tests::una_coda_reclamata_e_interrotta_si_rifiuta_anche_nel_binario` e `una_coda_reclamata_alla_fine_dell_ingresso_si_rifiuta_subito` (anche su `DrawingEntityReader::next_entity`), rosse su dc553b8."
     },
     {
       "file": "src/drawing.rs",
@@ -79,9 +79,9 @@
     },
     {
       "file": "src/entity.rs",
-      "cambiamento": "Un'entita' di tipo sconosciuto e una DIMENSION senza sottotipo riconosciuto, che upstream scartava in silenzio, ora si contano (`CodePairPutBack::segnala_entita_ignorata`): il documento le riporta e il driver rifiuta. Le chiamate di `combine_points_*` in `post_parse` propagano l'errore. Il lettore di MTEXT reclama la coda sospesa di ogni gruppo `3` e toglie dal frammento i caratteri che il gruppo seguente ridecodifica.",
+      "cambiamento": "Un'entita' di tipo sconosciuto e una DIMENSION senza sottotipo riconosciuto, che upstream scartava in silenzio, ora si contano (`CodePairPutBack::segnala_entita_ignorata`): il documento le riporta e il driver rifiuta. Le chiamate di `combine_points_*` in `post_parse` propagano l'errore. Il lettore di MTEXT reclama la coda sospesa di ogni gruppo `3` e toglie dal frammento i caratteri che il gruppo seguente ridecodifica. Il lettore di MTEXT pretende il gruppo `1` finale dopo i gruppi `3`, e rifiuta un `3` dopo il `1` e un secondo `1`: prima davano un testo plausibile ma troncato, fuori ordine o sostituito.",
       "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
-      "provato_da": "`driver_dxf::tests::un_entita_di_tipo_sconosciuto_rifiuta_il_documento`, `un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito`, `le_coordinate_disallineate_di_una_spline_rifiutano_il_documento`; sul binario `un_documento_con_parti_perse_esce_con_la_busta`. Rosse su 9e85c61."
+      "provato_da": "`driver_dxf::tests::un_entita_di_tipo_sconosciuto_rifiuta_il_documento`, `un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito`, `le_coordinate_disallineate_di_una_spline_rifiutano_il_documento`; sul binario `un_documento_con_parti_perse_esce_con_la_busta`. Rosse su 9e85c61. `driver_dxf::tests::un_mtext_senza_gruppo_1_finale_si_rifiuta`, rossa su dc553b8."
     },
     {
       "file": "src/code_pair_value.rs",
@@ -251,6 +251,20 @@
       "ambito": "solo il lettore completo: il lettore progressivo, cioe' la CLI, rifiuta il DXB.",
       "hazard": "una regressione su quel ramo non sarebbe vista dalle prove di questo repository.",
       "condizione_di_rientro": "una fixture DXB minima versionata, quando il DXB entra in un percorso del prodotto."
+    },
+    {
+      "id": "dxf.binario-senza-unicode",
+      "regola": "nel DXF binario le sequenze \\U+XXXX non si decodificano: restano testo letterale, come upstream. Nel DXF ASCII codificato Windows-1252 si decodificano.",
+      "ambito": "valori di testo del DXF binario, entrambi i lettori.",
+      "hazard": "lo stesso documento, salvato in ASCII e in binario, puo' dare testi diversi se contiene sequenze \\U+: in binario esce la sequenza, in ASCII il carattere. Le `^x` si decodificano in entrambi.",
+      "condizione_di_rientro": "una fonte che stabilisca se AutoCAD scrive \\U+ nel binario; se si', decodificarle anche li' (il decodificatore e' lo stesso, con `unicode` vero)."
+    },
+    {
+      "id": "dxf.messaggio-unexpected-code-pair",
+      "regola": "`DxfError::UnexpectedCodePair` (dxf_error.rs) stampa nel proprio `Display` la coppia intera, valore compreso.",
+      "ambito": "il fork come libreria. Il driver non lo espone: ogni errore del fork e' sostituito da un messaggio curato senza dati (`map_err(|_| ...)` con `PublicMessage`), e `check_errori_redatti` impedisce costruttori d'errore a testo libero nei crate migrati.",
+      "hazard": "un consumatore diretto del fork che mostri l'errore mostrerebbe un valore del documento. Contrasta con la regola degli errori senza dati, che per questo repository vale al confine del driver.",
+      "condizione_di_rientro": "se il fork venisse usato fuori dal driver, o il driver smettesse di redigere: rendere il `Display` senza valore (variante esistente, nessun tipo nuovo)."
     }
   ],
   "censimento_perdite_silenziose": {
