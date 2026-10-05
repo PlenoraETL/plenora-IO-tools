@@ -288,7 +288,7 @@ type Mutazione = (
 fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
     let richiesta = vettore("io-read-request.json");
     // (chiave, valore, categoria, operazione riflessa, versione riflessa)
-    let mutazioni: [Mutazione; 13] = [
+    let mutazioni: [Mutazione; 17] = [
         (
             "plenora.capability.name",
             json!("plenora.data-tools"),
@@ -317,6 +317,15 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             Some("io.read"),
             Some("1"),
         ),
+        // Ben formata e oltre `u32`: una versione che nessuno annuncia, non
+        // un errore di grammatica (R1, RT-018).
+        (
+            "plenora.capability.version",
+            json!("4294967296"),
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
+        ),
         (
             "plenora.capability.operation",
             json!("io.scan"),
@@ -337,6 +346,20 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             "unsupported",
             Some("io.read"),
             Some("2"),
+        ),
+        (
+            "plenora.operation.version",
+            json!("4294967296"),
+            "unsupported",
+            Some("io.read"),
+            Some("4294967296"),
+        ),
+        (
+            "plenora.operation.version",
+            json!("99999999999999999999999999"),
+            "unsupported",
+            Some("io.read"),
+            Some("99999999999999999999999999"),
         ),
         (
             "plenora.operation.version",
@@ -369,6 +392,13 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
         (
             "plenora.input.contract",
             json!("plenora-io-inspect-input-v1"),
+            "unsupported",
+            Some("io.read"),
+            Some("1"),
+        ),
+        (
+            "plenora.input.contract",
+            json!("plenora-io-read-input-v4294967296"),
             "unsupported",
             Some("io.read"),
             Some("1"),
@@ -768,11 +798,14 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     }
 
     // Le altre grafie RFC 3339 di UTC si accettano: `z`, `t`, `+00:00`, la
-    // frazione.
+    // frazione di qualunque lunghezza, il secondo intercalare.
     for buona in [
         "2999-12-31t23:59:59z",
         "2999-12-31T23:59:59+00:00",
         "2999-12-31T23:59:59.123456789Z",
+        "2999-12-31T23:59:59.1234567891Z",
+        "2999-12-31T23:59:60Z",
+        "2999-12-31T23:59:60.5Z",
     ] {
         let mut invocazione = per_operazione("io.catalog", json!({}));
         invocazione.metadata.scadenza = Some(buona.to_owned());
@@ -983,6 +1016,128 @@ fn i_campi_ammessi_sono_quelli_degli_schemi() {
 }
 
 /// Il documento capability runtime: forma, registro dei binding, catalogo.
+/// La discovery `plenora.io-tools#capabilities@1` passa dalla stessa
+/// ammissione delle operazioni: grammatica dei metadati, supporto, controlli,
+/// payload, identita' del risultato.
+#[test]
+fn la_discovery_passa_dalla_stessa_ammissione() {
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let binding = binding(&deposito);
+    let base = json!({
+        "content_type": "application/json",
+        "metadata": {
+            "plenora.message.id": "018f3d84-7b2c-7f00-8000-0000000000b1",
+            "plenora.capability.name": "plenora.io-tools",
+            "plenora.capability.version": "1",
+            "plenora.capability.operation": "capabilities",
+            "plenora.operation.version": "1",
+            "plenora.input.contract": "plenora-io-catalog-query-v1",
+            "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000b2",
+            "plenora.extension.ignota": "si ignora",
+        },
+        "payload": {},
+    });
+    let esegui = |documento: &Value| {
+        binding.invoca_json(
+            &serde_json::to_vec(documento).expect("serializza"),
+            CancellationToken::new(),
+        )
+    };
+
+    let riuscita = esegui(&base);
+    assert_eq!(riuscita.content_type, "application/json");
+    assert_eq!(
+        riuscita.metadata.contratto_uscita,
+        "plenora-capabilities-v2"
+    );
+    assert_eq!(successo_json(&riuscita), &capacita());
+    assert!(uuid_canonico(&riuscita.metadata.id_messaggio));
+    assert_ne!(
+        riuscita.metadata.id_messaggio,
+        "018f3d84-7b2c-7f00-8000-0000000000b1"
+    );
+    assert_eq!(
+        riuscita.metadata.id_causa.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000b1")
+    );
+    assert_eq!(
+        riuscita.metadata.id_correlazione.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000b2")
+    );
+    assert_eq!(
+        riuscita.metadata.operazione.as_deref(),
+        Some("capabilities")
+    );
+    assert_eq!(riuscita.metadata.versione_operazione.as_deref(), Some("1"));
+
+    // (chiave nei metadati o "payload", valore, categoria)
+    let rifiuti: [(&str, Value, &str); 11] = [
+        ("plenora.message.id", json!("non-un-uuid"), "protocol"),
+        ("plenora.operation.version", json!("01"), "protocol"),
+        ("plenora.operation.version", json!(1), "protocol"),
+        ("plenora.operation.version", json!("2"), "unsupported"),
+        (
+            "plenora.operation.version",
+            json!("4294967296"),
+            "unsupported",
+        ),
+        (
+            "plenora.capability.version",
+            json!("4294967296"),
+            "unsupported",
+        ),
+        (
+            "plenora.input.contract",
+            json!("plenora-io-read-input-v1"),
+            "unsupported",
+        ),
+        (
+            "plenora.execution.deadline",
+            json!("2999-01-01T00:00:00Z"),
+            "unsupported",
+        ),
+        (
+            "plenora.execution.deadline",
+            json!("2999-01-01T00:00:00+01:00"),
+            "protocol",
+        ),
+        (
+            "plenora.execution.idempotency_key",
+            json!("k"),
+            "unsupported",
+        ),
+        (
+            "payload",
+            json!({"source": "artifact://x"}),
+            "invalid_configuration",
+        ),
+    ];
+    for (chiave, valore, categoria) in rifiuti {
+        let mut mutata = base.clone();
+        if chiave == "payload" {
+            mutata["payload"] = valore.clone();
+        } else {
+            mutata["metadata"][chiave] = valore.clone();
+        }
+        let risultato = esegui(&mutata);
+        let documento = errore(&risultato);
+        assert_eq!(documento["category"], categoria, "{chiave}={valore}");
+        assert_eq!(documento["phase"], "validate", "{chiave}={valore}");
+        assert_eq!(documento["remote_effect"], "none", "{chiave}={valore}");
+        assert_eq!(documento["retry"]["kind"], "never", "{chiave}={valore}");
+        assert!(uuid_canonico(&risultato.metadata.id_messaggio));
+    }
+    // Il selettore della discovery non apre la grammatica: varianti del nome
+    // restano `protocol`.
+    for storto in ["Capabilities", "capabilities.", " capabilities"] {
+        let mut mutata = base.clone();
+        mutata["metadata"]["plenora.capability.operation"] = json!(storto);
+        assert_eq!(errore(&esegui(&mutata))["category"], "protocol", "{storto}");
+    }
+    assert_eq!(deposito.chiamate.get(), 0);
+}
+
 #[test]
 fn il_documento_capability_runtime_dice_cio_che_il_registro_e_il_catalogo_chiedono() {
     let documento = capacita();
@@ -1216,12 +1371,43 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
     );
     assert_eq!(istante_rfc3339_utc("1900-02-29T00:00:00Z"), None);
     assert!(istante_rfc3339_utc("2000-02-29T00:00:00Z").is_some());
+    // Oltre il nanosecondo e nel secondo intercalare l'istante si riconduce
+    // per eccesso: il primo nanosecondo Unix che non lo precede.
+    let nanosecondi = |testo: &str| match istante_rfc3339_utc(testo) {
+        Some(IstanteRfc3339::DallEpoca(durata)) => Some(durata.as_nanos()),
+        _ => None,
+    };
+    let inizio_2030 = 1_893_456_000_u128 * 1_000_000_000;
+    let inizio_2031 = 1_924_992_000_u128 * 1_000_000_000;
+    for (grafia, atteso) in [
+        ("2030-01-01T00:00:00.123456789Z", inizio_2030 + 123_456_789),
+        (
+            "2030-01-01T00:00:00.1234567890000Z",
+            inizio_2030 + 123_456_789,
+        ),
+        ("2030-01-01T00:00:00.1234567891Z", inizio_2030 + 123_456_790),
+        ("2030-01-01T00:00:00.0000000001Z", inizio_2030 + 1),
+        (
+            "2030-01-01T00:00:00.9999999999Z",
+            inizio_2030 + 1_000_000_000,
+        ),
+        ("2030-12-31T23:59:59.9999999999Z", inizio_2031),
+        ("2030-12-31T23:59:60Z", inizio_2031),
+        ("2030-12-31T23:59:60.999999999999Z", inizio_2031),
+        ("2030-12-31t23:59:60+00:00", inizio_2031),
+    ] {
+        assert_eq!(nanosecondi(grafia), Some(atteso), "{grafia}");
+    }
     for storta in [
         "2030-01-01T00:00:60Z",
+        "2030-12-31T23:58:60Z",
+        "2030-12-31T22:59:60Z",
+        "2030-12-31T23:59:61Z",
+        "2030-12-31T23:59:60.Z",
         "2030-13-01T00:00:00Z",
         "2030-01-01T24:00:00Z",
         "2030-01-01T00:00:00.Z",
-        "2030-01-01T00:00:00.1234567891Z",
+        "2030-01-01T00:00:00.12345678x1Z",
         "2030-01-01T00:00:00",
         "+2030-01-01T00:00:00Z",
         "2030-1-01T00:00:00Z",

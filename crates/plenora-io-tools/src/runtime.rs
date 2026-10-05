@@ -208,6 +208,35 @@ pub const OPERAZIONI: [DescrittoreRuntime; 6] = [
     ),
 ];
 
+/// La discovery della superficie, `plenora.io-tools#capabilities@1`
+/// (registro comune `bindings/runtime-v1.json`, campo `discovery`).
+///
+/// Passa dalla stessa ammissione delle sei operazioni -- grammatica dei
+/// metadati, identita' del risultato, scadenza, rifiuti prima
+/// dell'invocazione -- e rende [`capacita`]. Non e' un'operazione del
+/// catalogo, e il documento non la elenca fra le operazioni.
+///
+/// Il selettore e' `capabilities`, un solo segmento: e' il nome che il
+/// registro comune da' all'entrypoint, mentre la grammatica delle operazioni
+/// ne vuole almeno due. Il contratto d'ingresso e'
+/// `plenora-io-catalog-query-v1`, l'oggetto vuoto di `io.catalog`: la
+/// discovery descrive l'artefatto che risponde, e non c'e' niente da
+/// chiedere. Le due scelte sono del binding finche' plenora-contracts non
+/// fissa la richiesta di discovery.
+static SCOPERTA: DescrittoreRuntime = DescrittoreRuntime {
+    operazione: OPERAZIONE_SCOPERTA,
+    versione: 1,
+    contratto_ingresso: "plenora-io-catalog-query-v1",
+    contratto_uscita: "plenora-capabilities-v2",
+    content_type_uscita: CONTENT_TYPE_JSON,
+    effetto: "none",
+    artefatti: Artefatti::Nessuno,
+    controlli: false,
+};
+
+/// Il selettore `plenora.capability.operation` della discovery.
+pub const OPERAZIONE_SCOPERTA: &str = "capabilities";
+
 /// Un'invocazione serializzata, come la consegna l'applicazione.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -585,6 +614,7 @@ impl<'a> BindingRuntime<'a> {
         });
         let esito = match descrittore.operazione {
             "io.catalog" => return Ok((descrittore, Carico::Json(operazioni::catalog()))),
+            OPERAZIONE_SCOPERTA => return Ok((descrittore, Carico::Json(capacita()))),
             "io.inspect" => operazioni::inspect(richiesta),
             "io.layers" => operazioni::layers(richiesta),
             "io.read" => {
@@ -1181,10 +1211,8 @@ fn identita_del_risultato(metadati: &Map<String, Value>) -> MetadatiRisultato {
     MetadatiRisultato {
         id_messaggio: uuid::Uuid::new_v4().hyphenated().to_string(),
         id_causa: riflessa("plenora.message.id", uuid_canonico),
-        operazione: riflessa("plenora.capability.operation", operazione_ben_formata),
-        versione_operazione: riflessa("plenora.operation.version", |valore| {
-            versione_canonica(valore).is_some()
-        }),
+        operazione: riflessa("plenora.capability.operation", selettore_ben_formato),
+        versione_operazione: riflessa("plenora.operation.version", versione_ben_formata),
         contratto_uscita: CONTRATTO_ERRORE.to_owned(),
         id_correlazione: riflessa("plenora.trace.correlation_id", uuid_canonico),
     }
@@ -1263,9 +1291,9 @@ pub fn verifica_instradamento(
 /// RT-017 per i cinque selettori d'instradamento.
 fn instradamento_ben_formato(instradamento: &Instradamento<'_>) -> Result<(), Value> {
     let ben_formato = capacita_ben_formata(instradamento.nome_capacita)
-        && versione_canonica(instradamento.versione_capacita).is_some()
-        && operazione_ben_formata(instradamento.operazione)
-        && versione_canonica(instradamento.versione_operazione).is_some()
+        && versione_ben_formata(instradamento.versione_capacita)
+        && selettore_ben_formato(instradamento.operazione)
+        && versione_ben_formata(instradamento.versione_operazione)
         && contratto_ben_formato(instradamento.contratto_ingresso);
     if ben_formato {
         Ok(())
@@ -1282,14 +1310,15 @@ fn instradamento_supportato(
     if instradamento.nome_capacita != NOME_CAPACITA {
         return Err(errore_di_instradamento(R::NomeCapacita));
     }
-    if versione_canonica(instradamento.versione_capacita) != Some(VERSIONE_BINDING) {
+    if !versione_annunciata(instradamento.versione_capacita, VERSIONE_BINDING) {
         return Err(errore_di_instradamento(R::VersioneCapacita));
     }
     let descrittore = OPERAZIONI
         .iter()
+        .chain(std::iter::once(&SCOPERTA))
         .find(|voce| voce.operazione == instradamento.operazione)
         .ok_or_else(|| errore_di_instradamento(R::Operazione))?;
-    if versione_canonica(instradamento.versione_operazione) != Some(descrittore.versione) {
+    if !versione_annunciata(instradamento.versione_operazione, descrittore.versione) {
         return Err(errore_di_instradamento(R::Versione));
     }
     if instradamento.contratto_ingresso != descrittore.contratto_ingresso {
@@ -1301,15 +1330,25 @@ fn instradamento_supportato(
     Ok(descrittore)
 }
 
-/// Solo la forma decimale canonica, `^[1-9][0-9]*$`.
+/// Solo la forma decimale canonica, `^[1-9][0-9]*$`, di qualunque grandezza.
 ///
-/// `u32::from_str` da sola accetta anche `+1` e `01`, cioe' selettori che
-/// differiscono dal descrittore come testo e coincidono come numero.
-fn versione_canonica(valore: &str) -> Option<u32> {
-    let canonica = !valore.is_empty()
+/// E' la grammatica (RT-017), non il supporto: `"4294967296"` e' ben formata
+/// anche se non sta in un `u32`, e una versione ben formata che nessuno
+/// annuncia e' `unsupported`, non `protocol` (RT-018). `u32::from_str`
+/// accetterebbe anche `+1` e `01`, che differiscono dal descrittore come
+/// testo e coincidono come numero.
+fn versione_ben_formata(valore: &str) -> bool {
+    !valore.is_empty()
         && !valore.starts_with('0')
-        && valore.bytes().all(|byte| byte.is_ascii_digit());
-    canonica.then(|| valore.parse().ok()).flatten()
+        && valore.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Una versione ben formata che e' esattamente quella annunciata.
+///
+/// Il confronto e' sul testo: una versione oltre `u32` non e' un errore di
+/// conversione, e' una versione diversa.
+fn versione_annunciata(valore: &str, annunciata: u32) -> bool {
+    versione_ben_formata(valore) && valore == annunciata.to_string()
 }
 
 /// `^plenora\.[a-z][a-z0-9-]*-tools$` (`runtime-vector-v1.schema.json`).
@@ -1323,6 +1362,11 @@ fn capacita_ben_formata(valore: &str) -> bool {
                     .bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         })
+}
+
+/// Un'operazione ben formata, o il selettore della discovery.
+fn selettore_ben_formato(valore: &str) -> bool {
+    valore == OPERAZIONE_SCOPERTA || operazione_ben_formata(valore)
 }
 
 /// `^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$` (`runtime-vector-v1.schema.json`).
@@ -1350,7 +1394,7 @@ fn contratto_ben_formato(valore: &str) -> bool {
                 && nome
                     .bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-                && versione_canonica(versione).is_some()
+                && versione_ben_formata(versione)
         })
 }
 
@@ -1460,11 +1504,26 @@ pub enum IstanteRfc3339 {
 /// Un istante RFC 3339 in UTC, o `None` se il testo non lo e'.
 ///
 /// Le grafie RFC 3339 di un istante UTC: `AAAA-MM-GGTHH:MM:SS[.frazione]`
-/// seguito da `Z`, `z` o `+00:00`, con `T` o `t`, e da 1 a 9 cifre di
-/// frazione. Uno scostamento diverso da zero e `-00:00` -- che RFC 3339
+/// seguito da `Z`, `z` o `+00:00`, con `T` o `t`, e una frazione di quante
+/// cifre si vuole. Uno scostamento diverso da zero e `-00:00` -- che RFC 3339
 /// riserva all'ora locale sconosciuta -- non sono UTC, e rendono `None`
-/// (RT-021). Il secondo intercalare (`60`) e' rifiutato: non ha un istante
-/// Unix, e il binding non sa a quale istante ricondurlo.
+/// (RT-021).
+///
+/// Due grafie valide non hanno un nanosecondo Unix esatto, e si riconducono
+/// **per eccesso**, al primo nanosecondo che non precede l'istante scritto:
+///
+/// * una frazione oltre le nove cifre, al nanosecondo successivo se le cifre
+///   oltre la nona non sono tutte zero;
+/// * il secondo intercalare `23:59:60[.f]`, all'inizio del giorno dopo, che e'
+///   l'istante a cui il tempo Unix lo fa coincidere.
+///
+/// Per eccesso, e non per difetto, perche' l'istante serve a confrontarlo con
+/// un orologio che conta nanosecondi interi: `scadenza <= adesso` vale per
+/// l'istante scritto se e solo se vale per quello ricondotto, e una scadenza
+/// non scade mai prima di quando il chiamante l'ha scritta. Il `60` si
+/// ammette solo alle `23:59` (in UTC un secondo intercalare non cade altrove);
+/// quali giorni ne abbiano uno davvero lo dice una tabella che cambia, e non
+/// si verifica.
 #[must_use]
 pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     let corpo = testo
@@ -1493,23 +1552,22 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     }
     let (anno, mese, giorno) = (cifre(0, 4)?, cifre(5, 7)?, cifre(8, 10)?);
     let (ora, minuto, secondo) = (cifre(11, 13)?, cifre(14, 16)?, cifre(17, 19)?);
-    let nanosecondi = match corpo.get(19..) {
-        Some("") => 0,
+    let (nanosecondi, per_eccesso) = match corpo.get(19..) {
+        Some("") => (0, false),
         Some(frazione) => {
             let cifre_frazione = frazione.strip_prefix('.')?;
-            if cifre_frazione.is_empty()
-                || cifre_frazione.len() > 9
-                || !cifre_frazione.bytes().all(|b| b.is_ascii_digit())
-            {
+            if cifre_frazione.is_empty() || !cifre_frazione.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
-            let valore: u32 = cifre_frazione.parse().ok()?;
-            let scala = 10u32.checked_pow(u32::try_from(9 - cifre_frazione.len()).ok()?)?;
-            valore.checked_mul(scala)?
+            let (nove, oltre) = cifre_frazione.split_at(cifre_frazione.len().min(9));
+            let valore: u32 = nove.parse().ok()?;
+            let scala = 10u32.checked_pow(u32::try_from(9 - nove.len()).ok()?)?;
+            (valore.checked_mul(scala)?, oltre.bytes().any(|b| b != b'0'))
         }
         None => return None,
     };
-    if !(1..=12).contains(&mese) || ora > 23 || minuto > 59 || secondo > 59 {
+    let intercalare = secondo == 60 && ora == 23 && minuto == 59;
+    if !(1..=12).contains(&mese) || ora > 23 || minuto > 59 || (secondo > 59 && !intercalare) {
         return None;
     }
     let bisestile = (anno % 4 == 0 && anno % 100 != 0) || anno % 400 == 0;
@@ -1530,10 +1588,18 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     let dall_epoca = giorni_dall_epoca(anno, mese, giorno)?
         .checked_mul(86_400)?
         .checked_add(ora * 3_600 + minuto * 60 + secondo)?;
-    Some(IstanteRfc3339::DallEpoca(Duration::new(
-        dall_epoca,
-        nanosecondi,
-    )))
+    if intercalare {
+        // `23:59:60` e' `dall_epoca` = inizio del giorno dopo; qualunque sua
+        // frazione cade ancora dentro il secondo intercalare, che il tempo
+        // Unix non ha: per eccesso resta l'inizio del giorno dopo.
+        return Some(IstanteRfc3339::DallEpoca(Duration::from_secs(dall_epoca)));
+    }
+    let istante = Duration::new(dall_epoca, nanosecondi);
+    Some(IstanteRfc3339::DallEpoca(if per_eccesso {
+        istante.checked_add(Duration::from_nanos(1))?
+    } else {
+        istante
+    }))
 }
 
 /// I giorni dal 1970-01-01 al giorno civile dato (calendario gregoriano).
