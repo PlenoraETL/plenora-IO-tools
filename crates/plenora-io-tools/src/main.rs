@@ -15,12 +15,9 @@
 //! Che le due superfici siano equivalenti non e' una promessa da verificare:
 //! chiamano la stessa funzione.
 
-use plenora_io_model::ErrorCategory;
 use plenora_io_tools::{
-    busta_di_successo, con_identita, envelope_panico, installa_hook_silenzioso, radici, run,
-    uscita_della_categoria, AIUTO, COMANDO_IGNOTO,
+    installa_hook_silenzioso, radici, run, uscita_del_panico, uscita_del_processo,
 };
-use serde_json::Value;
 
 fn main() {
     // Per prima cosa, e prima che nasca un secondo thread: `set_var` muta
@@ -28,33 +25,20 @@ fn main() {
     // Qualunque cosa qui sotto puo' gia' aprire un dataset.
     radici::radici_dell_artefatto();
     installa_hook_silenzioso();
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
-        // `--help` e' l'unico esito che non e' una busta: e' testo per persone,
-        // e CLI 2.0 non vincola il formato umano. Esce 0 su stdout come ogni
-        // successo.
-        Ok(("help", Ok(Value::Null))) => print!("{AIUTO}"),
-        Ok((comando, Ok(corpo))) => println!("{}", busta_di_successo(comando, corpo)),
-        // La busta d'errore esce su **stdout**, e stderr resta vuoto.
-        //
-        // Usciva su stderr, e stdout restava vuoto: un consumatore che legge
-        // stdout -- cioe' quello che il contratto descrive -- non vedeva il
-        // fallimento affatto. E' una selezione di stream, ed e' incompatibile
-        // cambiarla: per questo appartiene alla major.
-        Ok((comando, Err((exit, doc)))) => {
-            println!("{}", con_identita(doc, comando));
-            std::process::exit(exit);
-        }
-        // Un panico e' un errore `internal`, e la sua proiezione e' `70`.
-        //
-        // Usciva `2` su stderr, cioe' il codice della configurazione non valida:
-        // diceva a chi automatizza «correggi la richiesta» davanti a un difetto
-        // nostro. Il messaggio resta redatto e porta la sola impronta.
-        Err(payload) => {
-            println!(
-                "{}",
-                con_identita(envelope_panico(payload.as_ref()), COMANDO_IGNOTO)
-            );
-            std::process::exit(uscita_della_categoria(ErrorCategory::Internal));
-        }
+    // La proiezione -- che cosa va su stdout, con quale codice -- sta in
+    // `uscita_del_processo`, condivisa con il modulo nativo dello SDK Python.
+    // Qui resta cio' che e' del processo: stampare e uscire.
+    //
+    // Su stdout esce **sempre** la busta, anche d'errore, e stderr resta
+    // vuoto: un consumatore che legge stdout -- cioe' quello che il contratto
+    // descrive -- vede entrambi gli esiti. Un panico e' un errore `internal`,
+    // e la sua proiezione e' `70`, non quella della configurazione non valida.
+    let (uscita, testo) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(esito) => uscita_del_processo(esito),
+        Err(payload) => uscita_del_panico(payload.as_ref()),
+    };
+    print!("{testo}");
+    if uscita != 0 {
+        std::process::exit(uscita);
     }
 }

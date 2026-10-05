@@ -1445,7 +1445,7 @@ pub(crate) const FORMATO_JSON: &str = "json";
 /// Il nome viaggia con l'esito perche' la busta lo richiede e chi costruisce il
 /// corpo non lo sa: `cmd_inspect` produce il proprio `result`, non la propria
 /// identita'.
-type EsitoDelComando = (&'static str, CliResult);
+pub type EsitoDelComando = (&'static str, CliResult);
 
 /// Il testo di `--help`.
 ///
@@ -1490,11 +1490,21 @@ pub fn run() -> EsitoDelComando {
         Ok(token) => token,
         Err(errore) => return (COMANDO_IGNOTO, Err(errore_di_avvio(&errore))),
     };
+    esegui(&args, &cancellazione)
+}
 
+/// Il dispatch della CLI su argomenti dati, con un token di cancellazione dato.
+///
+/// E' cio' che `run` fa dopo aver letto `argv` e installato il gestore dei
+/// segnali: separato perche' lo SDK Python lo esegue **nel processo** -- il
+/// modulo nativo della wheel -- dove `argv` non e' quello del processo e i
+/// segnali li governa l'interprete. Le due vie chiamano questa funzione, e
+/// rendono quindi lo stesso esito per gli stessi argomenti.
+pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelComando {
     if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert")) =
         args.first().map(String::as_str)
     {
-        let cli = match parse_legato(&args[1..], &cancellazione) {
+        let cli = match parse_legato(&args[1..], cancellazione) {
             Ok(cli) => cli,
             Err(errore) => return (nome_canonico(nome), Err(errore)),
         };
@@ -1557,6 +1567,42 @@ pub fn run() -> EsitoDelComando {
             ))),
         ),
     }
+}
+
+/// Il codice d'uscita e il testo di stdout di un esito, come li emette il binario.
+///
+/// La proiezione del processo, in un posto solo: `main.rs` la stampa e ne
+/// esce, il modulo nativo dello SDK Python la rende a Python. Prima viveva
+/// dentro `main`, e una seconda copia nello SDK avrebbe potuto divergere --
+/// nel testo d'aiuto, nell'a capo finale, nell'identita' della busta d'errore.
+#[must_use]
+pub fn uscita_del_processo(esito: EsitoDelComando) -> (i32, String) {
+    match esito {
+        // `--help` e' l'unico esito che non e' una busta: e' testo per
+        // persone, e CLI 2.0 non vincola il formato umano. Esce 0 su stdout
+        // come ogni successo.
+        ("help", Ok(Value::Null)) => (0, AIUTO.to_owned()),
+        (comando, Ok(corpo)) => (0, format!("{}\n", busta_di_successo(comando, corpo))),
+        // La busta d'errore esce su **stdout**, e stderr resta vuoto.
+        (comando, Err((uscita, documento))) => {
+            (uscita, format!("{}\n", con_identita(documento, comando)))
+        }
+    }
+}
+
+/// Il codice d'uscita e la busta di un panico intercettato al confine.
+///
+/// Un panico e' un errore `internal`, e la sua proiezione e' `70`; il
+/// messaggio resta redatto e porta la sola impronta.
+#[must_use]
+pub fn uscita_del_panico(payload: &(dyn std::any::Any + Send)) -> (i32, String) {
+    (
+        uscita_della_categoria(ErrorCategory::Internal),
+        format!(
+            "{}\n",
+            con_identita(envelope_panico(payload), COMANDO_IGNOTO)
+        ),
+    )
 }
 
 /// Il nome canonico di un comando, come lo dichiara il binding.
