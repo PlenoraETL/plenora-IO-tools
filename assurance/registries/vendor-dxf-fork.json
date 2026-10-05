@@ -13,8 +13,8 @@
   "delta_funzionale": [
     {
       "file": "src/code_pair_iter.rs",
-      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input Riga vuota e fine dell'ingresso non si confondono piu': `read_buffered_line` restituisce `None` solo a zero byte letti. Una riga di codice vuota seguita da altro che spazio bianco e' un errore (upstream: la fine del documento, e un DXF con una riga vuota in testa si leggeva vuoto); un codice senza la riga del valore e' `UnexpectedEndOfInput` (upstream: valore vuoto). Una sequenza `\\U+` non valida rende la riga un errore.",
-      "provato_da": " `driver_dxf::tests::una_riga_vuota_non_e_la_fine_del_documento` e `un_documento_con_parti_perse_esce_con_la_busta`, rosse su 9e85c61."
+      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input Riga vuota e fine dell'ingresso non si confondono piu': `read_buffered_line` restituisce `None` solo a zero byte letti. Una riga di codice vuota seguita da altro che spazio bianco e' un errore (upstream: la fine del documento, e un DXF con una riga vuota in testa si leggeva vuoto); un codice senza la riga del valore e' `UnexpectedEndOfInput` (upstream: valore vuoto). Una sequenza `\\U+` non valida rende la riga un errore. Dal secondo giro di #32 la decodifica dei valori di testo passa per `CodaSospesa`: una sequenza di escape aperta alla fine di un gruppo `3` -- MTEXT spezza il testo ogni 250 caratteri, e il taglio puo' cadere dentro `\\U+XXXX` o `^x` -- resta da parte. Se il lettore di MTEXT la reclama (`CodePairIter::continua_frammento`), il valore seguente si decodifica con la coda davanti, cioe' il testo si decodifica ricomposto; se nessuno la reclama, una coda non letterale (`\\U+` incompleta) e' un errore, e una letterale (`\\`, `\\U`, `^`) resta nel valore. Una coda reclamata seguita da un gruppo che non e' `1` o `3` e' un errore. Vale anche per il DXF binario.",
+      "provato_da": " `driver_dxf::tests::una_riga_vuota_non_e_la_fine_del_documento` e `un_documento_con_parti_perse_esce_con_la_busta`, rosse su 9e85c61. `driver_dxf::tests::una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta` (rossa su c23a23a) e `lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono`."
     },
     {
       "file": "src/drawing.rs",
@@ -34,7 +34,7 @@
     },
     {
       "file": "src/code_pair_put_back.rs",
-      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento. Dal secondo giro di revisione l'arresto ha anche un ingresso diretto, `ferma(offset)`, che usano gli errori a rischio di essere inghiottiti: la profondita' dei gruppi e ogni errore che `EntityIter` e `ObjectIter` ricevono. Conta le entita' scartate (`entita_ignorate`).",
+      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento. Dal secondo giro di revisione l'arresto ha anche un ingresso diretto, `ferma(offset)`, che usano gli errori a rischio di essere inghiottiti: la profondita' dei gruppi e ogni errore che `EntityIter` e `ObjectIter` ricevono. Conta le entita' scartate (`entita_ignorate`). Inoltra `continua_frammento` all'iteratore, solo se non ci sono coppie rimesse indietro (altrimenti non reclama, e una coda non letterale resta un errore).",
       "trovato_da": "il soak di `dxf_reader` del 2026-10-05 sulla VM di qualifica, con un input di 235 byte (sha256 b4e08808afa9d8ded0573dc0407f3b15046fc6f14029ceb7c7b161e3c59e0b42). La 4.0.0 e la 4.1.0 allocavano 5,9 GB e abortivano con exit 134, senza busta.",
       "provato_da": "i cinque test del modulo, eseguiti con la suite del crate (`cargo test --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>`: 297 verdi), fra cui `il_fondo_ferma_un_ciclo_che_rilegge_senza_fine` e `le_riletture_legittime_non_si_accumulano`. Misurato anche dall'esterno: con il solo fondo, senza le guardie esplicite, il caso del soak esce con la busta e le prove di `driver-dxf` e della CLI passano. le prove di `src/entity.rs`.",
       "perche_un_fondo": "le guardie esplicite stanno nei cicli che il censimento ha trovato; il fondo ferma quelli che nessuno ha ancora trovato. Un ciclo che gira senza consumare e continua a leggere rilegge per forza dalla pila: e' l'unico modo di non avanzare, ed e' li' che si conta. 1024 sta due ordini di grandezza sopra la catena di riletture legittime piu' profonda del fork, e molto sotto cio' che serve per diventare un problema di memoria."
@@ -43,7 +43,7 @@
       "file": "src/object.rs",
       "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo. GEODATA: punti sorgente e destinazione in numero diverso si rifiutano invece di essere troncati da `zip`; lo stesso per gli elementi di MLINESTYLE.",
       "trovato_da": "il primo ciclo dal soak di `dxf_reader` del 2026-10-05; il secondo dal censimento della classe fatto con la correzione.",
-      "provato_da": "`fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf` (il caso originale, versionato), `driver_dxf::tests::il_caso_del_soak_sectionsettings_ritorna_con_un_errore`, `driver_dxf::tests::un_section_type_settings_che_non_consuma_si_rifiuta` (lettore completo e progressivo), `driver_dxf::tests::la_guardia_di_tablestyle_lascia_passare_un_documento_valido` e, sul binario con un tempo massimo, `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione le prove ostili superano i 2 GB di memoria privata in meno di quattro secondi e vengono uccise; con le sole guardie esplicite, fondo disattivato, passano. il caso GEODATA e MLINESTYLE non ha una prova dedicata: la regola e' quella di `combine_points_*`, provata sulla SPLINE.",
+      "provato_da": "`driver_dxf::tests::geodata_e_image_disallineati_si_rifiutano` (GEODATA sui due lettori, IMAGE sul lettore del fork). MLINESTYLE: il controllo sta in `post_parse`, che per gli oggetti con lettore personalizzato -- MLINESTYLE lo e' -- upstream non chiama: il ramo e' irraggiungibile, e la perdita vera e' un'altra (vedi `limiti_dichiarati`, `dxf.mlinestyle-elementi`).",
       "perche_non_un_caso_speciale": "la guardia non nomina il codice `72` del caso: pretende che il giro abbia consumato. Nominare il codice lascerebbe aperti tutti gli altri che `SectionTypeSettings::read` non conosce."
     },
     {
@@ -79,15 +79,15 @@
     },
     {
       "file": "src/entity.rs",
-      "cambiamento": "Un'entita' di tipo sconosciuto e una DIMENSION senza sottotipo riconosciuto, che upstream scartava in silenzio, ora si contano (`CodePairPutBack::segnala_entita_ignorata`): il documento le riporta e il driver rifiuta. Le chiamate di `combine_points_*` in `post_parse` propagano l'errore.",
+      "cambiamento": "Un'entita' di tipo sconosciuto e una DIMENSION senza sottotipo riconosciuto, che upstream scartava in silenzio, ora si contano (`CodePairPutBack::segnala_entita_ignorata`): il documento le riporta e il driver rifiuta. Le chiamate di `combine_points_*` in `post_parse` propagano l'errore. Il lettore di MTEXT reclama la coda sospesa di ogni gruppo `3` e toglie dal frammento i caratteri che il gruppo seguente ridecodifica.",
       "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
       "provato_da": "`driver_dxf::tests::un_entita_di_tipo_sconosciuto_rifiuta_il_documento`, `un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito`, `le_coordinate_disallineate_di_una_spline_rifiutano_il_documento`; sul binario `un_documento_con_parti_perse_esce_con_la_busta`. Rosse su 9e85c61."
     },
     {
       "file": "src/code_pair_value.rs",
-      "cambiamento": "`un_escape_ascii_to_unicode` riscritta: decodifica solo `\\U+` seguita da quattro cifre esadecimali di un carattere valido, rifiuta (`None`) ogni altra `\\U+`, e lascia intatta ogni altra barra rovescia. Upstream raccoglieva sette caratteri dopo ogni barra: `\\U+ZZZZ` e i surrogati diventavano `?`, e una barra negli ultimi sei caratteri della riga -- il `\\P` di fine paragrafo -- spariva con cio' che seguiva; una barra prima di una `\\U+` ne spostava la finestra e la sequenza non veniva decodificata.",
+      "cambiamento": "Un solo decodificatore, `decodifica_testo`, al posto dei due passaggi upstream (`\\U+`, poi `^`). Da sinistra a destra: `\\\\` e' la barra letterale di MTEXT e passa intatta, e la barra che segue non apre una sequenza; `\\U+` seguita da quattro cifre esadecimali di un carattere valido si decodifica, seguita da altro o da un surrogato rende il valore illeggibile; ogni altra barra resta; `^x` si decodifica secondo la tabella del DXF, e un `^` fuori tabella o finale resta letterale. Upstream: `\\U+` non valida = `?`; una barra negli ultimi sei caratteri spariva con cio' che seguiva; un `^` finale spariva; un `^` seguito da un carattere fuori tabella diventava quel carattere troncato a un byte; un `^` prodotto da `\\U+005E` veniva riletto come sequenza. La prima stesura di #32 cercava `\\U+` ignorando le barre escapate: `\\\\U+ZZZZ` rifiutato e `\\\\U+0041` letto come barra + `A`; corretto nello stesso giro.",
       "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
-      "provato_da": "`driver_dxf::tests::le_sequenze_unicode_non_valide_rifiutano_e_le_barre_restano`, rossa su 9e85c61; i due test upstream del modulo restano verdi."
+      "provato_da": "`driver_dxf::tests::le_sequenze_unicode_non_valide_rifiutano_e_le_barre_restano`, `driver_dxf::tests::una_doppia_barra_in_mtext_non_apre_una_sequenza` (rossa su c23a23a), sui due lettori; i test upstream del modulo restano verdi."
     },
     {
       "file": "src/helper_functions.rs",
@@ -230,6 +230,27 @@
       "ambito": "campi che il driver non espone, con un'eccezione: il layer. Un layer vuoto e' gia' trattato dal driver come \"0\" (eredita il contesto), quindi il default del fork non cambia l'uscita.",
       "hazard": "nessuno sull'uscita attuale; un uso futuro di quei campi erediterebbe i default senza saperlo.",
       "condizione_di_rientro": "un campo che entra nell'uscita va prima tolto dalla normalizzazione o reso fallibile."
+    },
+    {
+      "id": "dxf.testo-senza-spazi-ai-bordi",
+      "regola": "il driver toglie lo spazio bianco iniziale e finale dal testo di TEXT e MTEXT, e un testo di solo spazio bianco esce nullo (`emit_text`, `trim`).",
+      "ambito": "colonna `text`, entrambi i lettori; e' una scelta del driver precedente a questo giro, trovata nella stessa ricerca e non cambiata: cambiarla cambia l'uscita di ogni file con testo.",
+      "hazard": "lo spazio ai bordi di un testo si perde, e due testi che differiscono solo per quello escono uguali.",
+      "condizione_di_rientro": "una decisione sul contratto della colonna `text`: o il testo esce com'e', o la normalizzazione si dichiara nel resoconto di perdita."
+    },
+    {
+      "id": "dxf.mlinestyle-elementi",
+      "regola": "gli elementi di un MLINESTYLE non vengono mai ricomposti in lettura: il lettore personalizzato upstream li raccoglie in liste interne, e `post_parse`, che li ricomporrebbe, per gli oggetti con lettore personalizzato non e' chiamato.",
+      "ambito": "oggetto MLINESTYLE, che il driver non legge.",
+      "hazard": "nessuno sull'uscita attuale; chi usasse il fork per gli stili di MLINE troverebbe gli elementi vuoti.",
+      "condizione_di_rientro": "quando il driver legge MLINE o MLINESTYLE: ricomporre gli elementi alla fine del lettore personalizzato, con il controllo sulle lunghezze."
+    },
+    {
+      "id": "dxf.dxb-reali",
+      "regola": "nel DXB un reale illeggibile o non finito ora e' un errore; il percorso non ha una prova dedicata.",
+      "ambito": "solo il lettore completo: il lettore progressivo, cioe' la CLI, rifiuta il DXB.",
+      "hazard": "una regressione su quel ramo non sarebbe vista dalle prove di questo repository.",
+      "condizione_di_rientro": "una fixture DXB minima versionata, quando il DXB entra in un percorso del prodotto."
     }
   ],
   "censimento_perdite_silenziose": {
@@ -286,6 +307,16 @@
         "dove": "crates/driver-dxf/src/lib.rs `write_and_clear`",
         "che_cosa": "`zip` delle quattro colonne del walker",
         "esito": "lunghezze verificate, errore se diverse (oggi uguali per costruzione)"
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs MTEXT; vendor/dxf/src/entity.rs",
+        "che_cosa": "il driver passava a `emit_text` il solo gruppo `1` (`text`), scartando i gruppi `3` (`extended_text`): un MTEXT lungo usciva con la sola coda",
+        "esito": "testo = gruppi `3` concatenati + gruppo `1`; `driver_dxf::tests::il_testo_di_un_mtext_lungo_esce_intero`, rossa su c23a23a"
+      },
+      {
+        "dove": "vendor/dxf/src/code_pair_value.rs, code_pair_iter.rs",
+        "che_cosa": "escape decodificati per singolo frammento e senza tener conto delle barre escapate",
+        "esito": "decodificatore unico in sequenza; testo MTEXT decodificato ricomposto"
       }
     ],
     "benigni": [

@@ -850,12 +850,25 @@ impl Drawing {
     /// sapeva leggere si presentava come un documento senza di esse. Il
     /// conteggio lascia a chi legge la scelta: rifiutare, o dichiarare la
     /// perdita.
+    ///
+    /// Conta la sezione ENTITIES, entita' dello spazio carta (`67/1`) comprese;
+    /// le entita' dei BLOCK stanno in `block_has_unsupported_entities`. Nel
+    /// lettore progressivo (`DrawingEntityReader`) il conteggio cresce mentre
+    /// le entita' si leggono, ed e' completo dopo `finish`.
     pub fn unsupported_model_space_entities(&self) -> u64 {
         self.__unsupported_model_space_entities
     }
     /// Se il blocco con questo nome conteneva entita' di un tipo non
     /// supportato, scartate in lettura (vedi
     /// `unsupported_model_space_entities`).
+    ///
+    /// Il nome si confronta **esattamente** com'e' scritto nel file, maiuscole
+    /// comprese -- lo stesso confronto con cui un INSERT trova il proprio
+    /// blocco in questo lettore. I blocchi storici dello spazio modello e
+    /// carta (`*Model_Space`, `*Paper_Space`, e `$MODEL_SPACE`, `$PAPER_SPACE`
+    /// dei file R12) sono blocchi come gli altri: compaiono qui se contenevano
+    /// entita' scartate, e il loro contenuto non e' contato nello spazio
+    /// modello, che e' la sezione ENTITIES.
     pub fn block_has_unsupported_entities(&self, name: &str) -> bool {
         self.__blocks_with_unsupported_entities
             .iter()

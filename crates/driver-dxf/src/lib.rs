@@ -1677,7 +1677,12 @@ impl Walker {
                     txt.insertion_point.y,
                     txt.insertion_point.z,
                 ]);
-                self.emit_text(&layer, mapped, &txt.text, "MTEXT")?;
+                // Il testo di un MTEXT lungo e' spezzato: i gruppi `3`
+                // (`extended_text`) in ordine, poi il gruppo `1` (`text`). Prima
+                // usciva solo `text`, cioe' la coda.
+                let mut testo = txt.extended_text.concat();
+                testo.push_str(&txt.text);
+                self.emit_text(&layer, mapped, &testo, "MTEXT")?;
                 self.loss.record("MTEXT rappresentato come punto", 1);
             }
             EntityType::Solid(s) => {

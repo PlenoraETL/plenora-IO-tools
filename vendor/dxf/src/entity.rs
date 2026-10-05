@@ -1200,7 +1200,14 @@ impl Entity {
                     );
                 }
                 3 => {
-                    mtext.extended_text.push(pair.assert_string()?);
+                    // Un frammento da 250 caratteri: il taglio puo' cadere dentro
+                    // una sequenza di escape, e la coda aperta si decodifica con
+                    // l'inizio del frammento seguente.
+                    let mut frammento = pair.assert_string()?;
+                    for _ in 0..iter.continua_frammento() {
+                        frammento.pop();
+                    }
+                    mtext.extended_text.push(frammento);
                 }
                 1 => {
                     mtext.text = pair.assert_string()?;

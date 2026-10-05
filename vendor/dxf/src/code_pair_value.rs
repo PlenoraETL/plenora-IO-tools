@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -13,76 +12,6 @@ pub enum CodePairValue {
     Double(f64),
     Str(String),
     Binary(Vec<u8>),
-}
-
-// internal visibility only
-impl CodePairValue {
-    pub(crate) fn un_escape_string(val: &'_ str) -> Cow<'_, str> {
-        fn needs_un_escaping(c: char) -> bool {
-            c == '^'
-        }
-
-        if let Some(first) = val.find(needs_un_escaping) {
-            let mut result = String::from(&val[0..first]);
-            result.reserve(val.len() - first);
-            let rest = val[first..].chars();
-            let mut do_escape = false;
-            for c in rest {
-                match c {
-                    '^' if !do_escape => do_escape = true,
-                    _ => {
-                        if do_escape {
-                            do_escape = false;
-                            let c = match c {
-                                '@' => 0x00,
-                                'A' => 0x01,
-                                'B' => 0x02,
-                                'C' => 0x03,
-                                'D' => 0x04,
-                                'E' => 0x05,
-                                'F' => 0x06,
-                                'G' => 0x07,
-                                'H' => 0x08,
-                                'I' => 0x09,
-                                'J' => 0x0A,
-                                'K' => 0x0B,
-                                'L' => 0x0C,
-                                'M' => 0x0D,
-                                'N' => 0x0E,
-                                'O' => 0x0F,
-                                'P' => 0x10,
-                                'Q' => 0x11,
-                                'R' => 0x12,
-                                'S' => 0x13,
-                                'T' => 0x14,
-                                'U' => 0x15,
-                                'V' => 0x16,
-                                'W' => 0x17,
-                                'X' => 0x18,
-                                'Y' => 0x19,
-                                'Z' => 0x1A,
-                                '[' => 0x1B,
-                                '\\' => 0x1C,
-                                ']' => 0x1D,
-                                '^' => 0x1E,
-                                '_' => 0x1F,
-                                ' ' => b'^',
-                                _ => c as u8, // invalid escape sequence, just keep the character
-                            };
-
-                            result.push(c as char);
-                        } else {
-                            result.push(c);
-                        }
-                    }
-                }
-            }
-
-            result.into()
-        } else {
-            val.into()
-        }
-    }
 }
 
 impl Clone for CodePairValue {
@@ -194,29 +123,135 @@ pub(crate) fn escape_unicode_to_ascii(val: &str) -> String {
     result
 }
 
-/// Decodifica le sequenze `\U+XXXX` del DXF ASCII.
+/// Il carattere che una sequenza `^x` rappresenta, se `x` e' una di quelle
+/// che il DXF definisce.
+fn carattere_caret(c: char) -> Option<char> {
+    let codice = match c {
+        '@' => 0x00,
+        'A'..='Z' => u32::from(c) - u32::from('A') + 0x01,
+        '[' => 0x1B,
+        '\\' => 0x1C,
+        ']' => 0x1D,
+        '^' => 0x1E,
+        '_' => 0x1F,
+        ' ' => u32::from('^'),
+        _ => return None,
+    };
+    char::from_u32(codice)
+}
+
+/// Decodifica un valore di testo del DXF, in un solo passaggio da sinistra a
+/// destra: le sequenze `^x` e, se `unicode`, le `\U+XXXX` del DXF ASCII.
 ///
-/// Upstream raccoglieva sette caratteri dopo ogni barra rovescia: una
-/// sequenza `\U+` non valida o un surrogato diventavano `?`, e una barra
-/// negli ultimi sei caratteri della riga -- come il `\P` di fine paragrafo di
-/// un MTEXT -- spariva con cio' che la seguiva. Qui una barra non seguita da
-/// `U+` resta com'e', e una `\U+` che non e' seguita da quattro cifre
-/// esadecimali di un carattere valido rende la riga illeggibile: `None`.
-pub(crate) fn un_escape_ascii_to_unicode(val: &str) -> Option<String> {
-    let mut result = String::with_capacity(val.len());
-    let mut resto = val;
-    while let Some(posizione) = resto.find("\\U+") {
-        result.push_str(&resto[..posizione]);
-        let cifre = resto.get(posizione + 3..posizione + 7)?;
-        if !cifre.chars().all(|c| c.is_ascii_hexdigit()) {
-            return None;
+/// Upstream le decodificava in due passaggi -- prima `\U+`, poi `^` -- e
+/// ciascuno perdeva qualcosa: una `\U+` non valida diventava `?`, una barra
+/// negli ultimi sei caratteri spariva con cio' che seguiva, un `^` finale
+/// spariva, un `^` seguito da un carattere fuori tabella diventava quel
+/// carattere troncato a un byte, e un `^` prodotto da `\U+005E` veniva poi
+/// letto come inizio di una sequenza. Qui:
+///
+/// * `\\` e' una barra letterale di MTEXT, e passa intatta: la barra che
+///   segue non apre una sequenza;
+/// * `\U+` seguita da quattro cifre esadecimali di un carattere valido si
+///   decodifica; seguita da altro, o da un surrogato, rende il valore
+///   illeggibile (`None`);
+/// * ogni altra barra, e ogni `^x` fuori tabella, resta com'e';
+/// * con `consenti_coda`, una sequenza aperta alla fine del valore -- `^`, `\`,
+///   `\U`, `\U+` con meno di quattro cifre -- e' restituita a parte come
+///   coda grezza: e' il frammento di un MTEXT che continua nel gruppo
+///   seguente. Senza, `^`, `\` e `\U` finali sono letterali, e una `\U+`
+///   incompleta e' un errore.
+pub(crate) fn decodifica_testo(
+    val: &str,
+    unicode: bool,
+    consenti_coda: bool,
+) -> Option<(String, String)> {
+    let c: Vec<char> = val.chars().collect();
+    let n = c.len();
+    let coda = |da: usize| c[da..].iter().collect::<String>();
+    let mut uscita = String::with_capacity(val.len());
+    let mut i = 0;
+    while i < n {
+        match c[i] {
+            '^' => {
+                if i + 1 == n {
+                    if consenti_coda {
+                        return Some((uscita, coda(i)));
+                    }
+                    uscita.push('^');
+                    i += 1;
+                    continue;
+                }
+                match carattere_caret(c[i + 1]) {
+                    Some(decodificato) => uscita.push(decodificato),
+                    None => {
+                        uscita.push('^');
+                        uscita.push(c[i + 1]);
+                    }
+                }
+                i += 2;
+            }
+            '\\' if unicode => {
+                if i + 1 == n {
+                    if consenti_coda {
+                        return Some((uscita, coda(i)));
+                    }
+                    uscita.push('\\');
+                    i += 1;
+                    continue;
+                }
+                if c[i + 1] == '\\' {
+                    uscita.push('\\');
+                    uscita.push('\\');
+                    i += 2;
+                    continue;
+                }
+                if c[i + 1] == 'U' {
+                    if i + 2 == n {
+                        if consenti_coda {
+                            return Some((uscita, coda(i)));
+                        }
+                        uscita.push('\\');
+                        uscita.push('U');
+                        i += 2;
+                        continue;
+                    }
+                    if c[i + 2] == '+' {
+                        let disponibili = (n - (i + 3)).min(4);
+                        let cifre = &c[i + 3..i + 3 + disponibili];
+                        if !cifre.iter().all(char::is_ascii_hexdigit) {
+                            return None;
+                        }
+                        if disponibili < 4 {
+                            return if consenti_coda {
+                                Some((uscita, coda(i)))
+                            } else {
+                                None
+                            };
+                        }
+                        let esadecimale: String = cifre.iter().collect();
+                        let codice = u32::from_str_radix(&esadecimale, 16).ok()?;
+                        uscita.push(char::from_u32(codice)?);
+                        i += 7;
+                        continue;
+                    }
+                }
+                uscita.push('\\');
+                i += 1;
+            }
+            altro => {
+                uscita.push(altro);
+                i += 1;
+            }
         }
-        let codice = u32::from_str_radix(cifre, 16).ok()?;
-        result.push(std::char::from_u32(codice)?);
-        resto = &resto[posizione + 7..];
     }
-    result.push_str(resto);
-    Some(result)
+    Some((uscita, String::new()))
+}
+
+/// Il solo `\U+` di un valore intero, senza coda: usato dalle prove.
+#[cfg(test)]
+pub(crate) fn un_escape_ascii_to_unicode(val: &str) -> Option<String> {
+    decodifica_testo(val, true, false).map(|(testo, _)| testo)
 }
 
 /// Formats an `f64` value with up to 12 digits of precision, ensuring at least one trailing digit after the decimal.

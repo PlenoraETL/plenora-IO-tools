@@ -70,6 +70,22 @@ impl CodePairPutBack {
         self.estratte.saturating_sub(in_attesa)
     }
 
+    /// Il valore appena letto -- un gruppo `3` di MTEXT -- continua nel
+    /// prossimo: vedi `CodaSospesa` in `code_pair_iter.rs`. Restituisce quanti
+    /// caratteri finali del valore appena letto appartengono alla coda e vanno
+    /// tolti, perche' il valore seguente li ridecodifica insieme al proprio
+    /// inizio.
+    ///
+    /// Con coppie rimesse indietro l'iteratore e' gia' oltre il valore in
+    /// questione: niente si reclama, e una coda non letterale resta un errore.
+    pub fn continua_frammento(&mut self) -> usize {
+        if self.top.is_empty() {
+            self.iter.continua_frammento()
+        } else {
+            0
+        }
+    }
+
     /// Conta un'entita' che `Entity::read` scarta.
     pub fn segnala_entita_ignorata(&mut self) {
         self.entita_ignorate = self.entita_ignorate.saturating_add(1);

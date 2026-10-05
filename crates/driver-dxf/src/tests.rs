@@ -894,6 +894,217 @@ fn un_insert_con_scala_nulla_o_senza_blocco_rifiuta_il_documento() {
     });
 }
 
+// --- MTEXT: escape in sequenza, frammenti ricomposti, testo intero ----------
+
+/// La colonna `text` di una `RecordBatch` del driver.
+fn colonna_testo(batch: &RecordBatch) -> Vec<Option<String>> {
+    let indice = batch.schema().index_of("text").unwrap();
+    let colonna = batch
+        .column(indice)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    (0..colonna.len())
+        .map(|i| (!colonna.is_null(i)).then(|| colonna.value(i).to_owned()))
+        .collect()
+}
+
+/// I testi in uscita dai due lettori: completo (`Drawing::load` e
+/// `build_batch`) e progressivo (`DxfDriver::open`, il percorso della CLI).
+/// `Err(())` se il lettore rifiuta.
+/// I testi letti, o `Err(())` se il lettore rifiuta.
+type Testi = std::result::Result<Vec<Option<String>>, ()>;
+
+fn testi_dei_due_lettori(dxf: &[u8]) -> (Testi, Testi) {
+    let completo = Drawing::load(&mut std::io::Cursor::new(dxf.to_vec()))
+        .map_err(|_| ())
+        .and_then(|drawing| {
+            let crs = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
+            build_batch(&drawing, crs, DxfQuote::predefinite())
+                .map(|(batch, _, _)| colonna_testo(&batch))
+                .map_err(|_| ())
+        });
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mtext.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    let progressivo = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .map_err(|_| ())
+        .and_then(|dataset| {
+            let mut reader = dataset
+                .open_layer_reader(&plenora_io_core::request::ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::Complete,
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })
+                .map_err(|_| ())?;
+            let mut testi = Vec::new();
+            while let Some(batch) = reader.next_batch().map_err(|_| ())? {
+                testi.extend(colonna_testo(&batch));
+            }
+            Ok(testi)
+        });
+    (completo, progressivo)
+}
+
+/// Un MTEXT con i gruppi `3` dati e il gruppo `1` finale.
+fn mtext(frammenti: &[&str], finale: &str) -> Vec<u8> {
+    let mut corpo = String::from("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n");
+    for frammento in frammenti {
+        corpo.push_str("3\n");
+        corpo.push_str(frammento);
+        corpo.push('\n');
+    }
+    corpo.push_str("1\n");
+    corpo.push_str(finale);
+    corpo.push('\n');
+    entita(&corpo)
+}
+
+fn testo_uguale(nome: &str, dxf: &[u8], atteso: &str) {
+    let (completo, progressivo) = testi_dei_due_lettori(dxf);
+    let atteso = Ok(vec![Some(atteso.to_owned())]);
+    assert_eq!(completo, atteso, "{nome}: lettore completo");
+    assert_eq!(progressivo, atteso, "{nome}: lettore progressivo");
+}
+
+fn testo_rifiutato(nome: &str, dxf: &[u8]) {
+    let (completo, progressivo) = testi_dei_due_lettori(dxf);
+    assert!(
+        completo.is_err(),
+        "{nome}: il lettore completo accetta {completo:?}"
+    );
+    assert!(
+        progressivo.is_err(),
+        "{nome}: il lettore progressivo accetta {progressivo:?}"
+    );
+}
+
+/// `\\` e' la barra letterale di MTEXT: la barra che segue non apre una
+/// sequenza. La prima stesura di #32 cercava `\U+` ignorando le barre
+/// escapate: `\\U+ZZZZ` veniva rifiutato, e `\\U+0041` diventava barra + `A`.
+#[test]
+fn una_doppia_barra_in_mtext_non_apre_una_sequenza() {
+    testo_uguale("barra + testo", &mtext(&[], "C:\\\\U+ZZZZ"), "C:\\\\U+ZZZZ");
+    testo_uguale("barra + cifre", &mtext(&[], "x\\\\U+0041"), "x\\\\U+0041");
+    testo_uguale("tre barre", &mtext(&[], "x\\\\\\U+0041"), "x\\\\A");
+    testo_uguale("barra finale", &mtext(&[], "fine\\"), "fine\\");
+}
+
+/// Un MTEXT lungo: il driver passava a `emit_text` il solo gruppo `1`, cioe'
+/// l'ultimo frammento, e il testo in uscita era la coda.
+#[test]
+fn il_testo_di_un_mtext_lungo_esce_intero() {
+    let primo = "a".repeat(250);
+    let secondo = "b".repeat(250);
+    testo_uguale(
+        "tre frammenti",
+        &mtext(&[&primo, &secondo], "fine"),
+        &format!("{primo}{secondo}fine"),
+    );
+}
+
+/// Il taglio a 250 caratteri puo' cadere dentro una `\U+XXXX` o una `^x`: la
+/// sequenza si decodifica sul testo ricomposto. Una sequenza aperta che il
+/// frammento seguente non completa resta un errore, e cosi' una sequenza
+/// incompleta in un gruppo che non e' di MTEXT.
+#[test]
+fn una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta() {
+    testo_uguale(
+        "\\U+ dopo 3 cifre",
+        &mtext(&["Rep\\U+00"], "E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "\\U+ dopo il +",
+        &mtext(&["Rep\\U+"], "00E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "dopo la barra",
+        &mtext(&["Rep\\"], "U+00E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "fra due gruppi 3",
+        &mtext(&["a\\U", "+00E8", "b"], "c"),
+        "a\u{e8}bc",
+    );
+    testo_uguale("caret", &mtext(&["riga^"], "Jdopo"), "riga\ndopo");
+    testo_uguale(
+        "barra doppia spezzata",
+        &mtext(&["x\\"], "\\U+0041"),
+        "x\\\\U+0041",
+    );
+    testo_rifiutato("non completata", &mtext(&["Rep\\U+00"], "ZZre"));
+    testo_rifiutato("seguita da altro", &{
+        let mut dxf = String::from_utf8(mtext(&["Rep\\U+00"], "E8")).unwrap();
+        dxf = dxf.replace("1\nE8\n", "7\nSTANDARD\n1\nE8\n");
+        dxf.into_bytes()
+    });
+    testo_rifiutato(
+        "fuori da MTEXT",
+        &entita("0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nRep\\U+00\n"),
+    );
+}
+
+/// Spazio bianco in coda a un documento senza `EOF`, e un ingresso fatto di
+/// solo spazio bianco: restano un documento e un documento vuoto, e non
+/// diventano errori con la distinzione fra riga vuota e fine dell'ingresso.
+#[test]
+fn lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono() {
+    let mut con_coda = b"0\nSECTION\n2\nENTITIES\n".to_vec();
+    con_coda.extend_from_slice(LINEA.as_bytes());
+    con_coda.extend_from_slice(b"0\nENDSEC\n\n  \n\t\n");
+    letto("spazi in coda, senza EOF", &con_coda, 1);
+    letto("solo spazi", b"  \n\n \t \n", 0);
+}
+
+/// GEODATA con punti sorgente e destinazione in numero diverso, e IMAGE con
+/// coordinate di ritaglio disallineate (`combine_points_2`): rifiutati invece
+/// di essere troncati. GEODATA arriva al driver -- ne risolve il CRS --, IMAGE
+/// no, e si prova sul lettore del fork.
+#[test]
+fn geodata_e_image_disallineati_si_rifiutano() {
+    let geodata = |destinazioni: &str| {
+        format!(
+            "0\nSECTION\n2\nOBJECTS\n0\nGEODATA\n13\n0\n23\n0\n13\n1\n23\n1\n{destinazioni}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{LINEA}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    let completo = |dxf: Vec<u8>| Drawing::load(&mut std::io::Cursor::new(dxf)).is_ok();
+    assert!(
+        completo(geodata("14\n0\n24\n0\n14\n1\n24\n1\n")),
+        "controllo"
+    );
+    rifiutato("GEODATA disallineato", &geodata("14\n0\n24\n0\n"));
+    let image = |y: &str| {
+        entita(&format!(
+            "0\nIMAGE\n8\n0\n10\n0\n20\n0\n14\n0\n24\n0\n14\n1\n{y}"
+        ))
+    };
+    assert!(completo(image("24\n1\n")), "controllo IMAGE");
+    assert!(!completo(image("")), "IMAGE con due X e una Y");
+}
+
+/// Una SPLINE cubica valida sul percorso 3D: le guardie di
+/// `tessellate_spline3` non rifiutano cio' che va letto.
+#[test]
+fn una_spline_cubica_valida_si_legge() {
+    let spline = entita(
+        "0\nSPLINE\n8\n0\n70\n8\n71\n3\n72\n8\n73\n4\n40\n0\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n30\n0\n10\n1\n20\n2\n30\n1\n10\n2\n20\n2\n30\n2\n10\n3\n20\n0\n30\n3\n",
+    );
+    letto("cubica 3D", &spline, 1);
+}
+
 #[test]
 fn row_level_dxf_failure_reports_the_top_level_entity_index() {
     let directory = tempfile::tempdir().unwrap();
