@@ -232,9 +232,9 @@ impl Invocazione {
     /// E' la via da preferire alla deserializzazione diretta: l'errore di
     /// `serde_json` porta nomi di campo e valori dell'ingresso, e qui diventa
     /// un errore curato senza dati, `protocol` e `remote_effect: none`
-    /// (RT-011). Le chiavi di metadati sconosciute sono rifiutate e non
-    /// ignorate: un refuso su una chiave facoltativa -- la scadenza -- farebbe
-    /// partire l'operazione senza il controllo che il chiamante ha chiesto.
+    /// (RT-011). Per eseguire un'invocazione arrivata come byte la via e'
+    /// [`BindingRuntime::invoca_json`], che rende anche questo rifiuto come
+    /// risultato, con i metadati della richiesta che si possono riflettere.
     ///
     /// # Errors
     ///
@@ -260,9 +260,12 @@ impl Invocazione {
 ///
 /// Le chiavi facoltative assenti restano assenti; presenti con `null` sono
 /// **rifiutate**, perche' leggere `null` come assenza farebbe partire senza
-/// scadenza una richiesta che ne dichiarava una.
+/// scadenza una richiesta che ne dichiarava una. Le chiavi che il binding 1.0
+/// non riserva -- comprese le `plenora.*` sconosciute -- sono **ignorate**:
+/// e' la regola dei membri facoltativi sconosciuti (RUNTIME-BINDING-1.0 §9),
+/// e un controllo che il binding conosce e l'operazione non supporta si
+/// rifiuta per RT-006, non qui.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct MetadatiRichiesta {
     /// L'identita' del messaggio.
     #[serde(rename = "plenora.message.id")]
@@ -494,64 +497,75 @@ impl<'a> BindingRuntime<'a> {
     /// di toccare il risolutore, con `remote_effect: none` (RT-011).
     #[must_use]
     pub fn invoca(&self, invocazione: &Invocazione, cancellazione: CancellationToken) -> Risultato {
-        let metadati = &invocazione.metadata;
-        let canonico =
-            |valore: &str, forma: fn(&str) -> bool| forma(valore).then(|| valore.to_owned());
-        let identita = MetadatiRisultato {
-            id_messaggio: uuid::Uuid::new_v4().hyphenated().to_string(),
-            id_causa: canonico(&metadati.id_messaggio, uuid_canonico),
-            operazione: canonico(&metadati.operazione, operazione_ben_formata),
-            versione_operazione: canonico(&metadati.versione_operazione, |valore| {
-                versione_canonica(valore).is_some()
-            }),
-            contratto_uscita: CONTRATTO_ERRORE.to_owned(),
-            id_correlazione: canonico(&metadati.id_correlazione, uuid_canonico),
-        };
-        match self.invoca_ammessa(invocazione, cancellazione) {
+        // La forma tipizzata passa dalla stessa ammissione dei byte: le regole
+        // stanno in un posto solo.
+        serde_json::to_value(invocazione).map_or_else(
+            |_| risultato_di_errore(&Map::new(), errore_senza_forma()),
+            |documento| self.invoca_valore(&documento, cancellazione),
+        )
+    }
+
+    /// Ammette ed esegue un'invocazione arrivata come byte JSON.
+    ///
+    /// E' la via completa: un documento che non si legge, un metadato che non
+    /// e' una stringa o che manca diventano un risultato `protocol` come gli
+    /// altri rifiuti (RT-017), con i metadati della richiesta che si possono
+    /// riflettere (RT-019). Le chiavi ripetute si rifiutano a ogni livello.
+    #[must_use]
+    pub fn invoca_json(&self, byte: &[u8], cancellazione: CancellationToken) -> Risultato {
+        match serde_json::from_slice::<SenzaDoppioni>(byte) {
+            Ok(SenzaDoppioni(documento)) => self.invoca_valore(&documento, cancellazione),
+            Err(_) => risultato_di_errore(&Map::new(), errore_dell_invocazione()),
+        }
+    }
+
+    fn invoca_valore(&self, documento: &Value, cancellazione: CancellationToken) -> Risultato {
+        let vuoti = Map::new();
+        let metadati = documento
+            .get("metadata")
+            .and_then(Value::as_object)
+            .unwrap_or(&vuoti);
+        match self.invoca_ammessa(documento, metadati, cancellazione) {
             Ok((descrittore, payload)) => Risultato {
                 content_type: descrittore.content_type_uscita.to_owned(),
                 metadata: MetadatiRisultato {
                     contratto_uscita: descrittore.contratto_uscita.to_owned(),
-                    ..identita
+                    ..identita_del_risultato(metadati)
                 },
                 payload,
             },
-            Err(errore) => Risultato {
-                content_type: CONTENT_TYPE_ERRORE.to_owned(),
-                metadata: identita,
-                payload: Carico::Json(errore),
-            },
+            Err(errore) => risultato_di_errore(metadati, errore),
         }
     }
 
     fn invoca_ammessa(
         &self,
-        invocazione: &Invocazione,
+        documento: &Value,
+        metadati: &Map<String, Value>,
         cancellazione: CancellationToken,
     ) -> Result<(&'static DescrittoreRuntime, Carico), Value> {
-        let descrittore = ammetti(invocazione)?;
+        let ammessa = ammetti(documento, metadati)?;
+        let descrittore = ammessa.descrittore;
         // La scadenza diventa un `Instant` **adesso**, all'ammissione, e i
         // millisecondi rimasti si ricalcolano dopo il risolutore: il tempo che
         // l'applicazione impiega a materializzare gli artefatti consuma la
-        // stessa scadenza, invece di aggiungersi a lei.
-        let scadenza = invocazione
-            .metadata
+        // stessa scadenza, invece di aggiungersi a lei. Gia' passata e'
+        // `timeout` (RT-018, terzo passo; RT-021).
+        let scadenza = ammessa
             .scadenza
-            .as_deref()
-            .map(|testo| istante_della_scadenza(testo, (self.orologio)()))
+            .map(|istante| istante_della_scadenza(istante, (self.orologio)()))
             .transpose()?;
-        let campi = campi_del_payload(descrittore, &invocazione.payload)?;
+        let campi = campi_del_payload(descrittore, ammessa.payload)?;
         if scadenza.is_some() && campi.deadline_ms.is_some() {
-            // Due canali per la stessa quota: nessuna precedenza implicita, e
-            // il rifiuto vale anche a valori uguali (proposta P della matrice,
-            // caso 7c).
+            // RT-023: la scadenza sul runtime viaggia solo nei metadati, e un
+            // payload che la porta anche lui si rifiuta, anche a valori uguali.
             return Err(local_err_doc(
                 "RUNTIME_DEADLINE_TWICE",
                 ErrorCategory::InvalidConfiguration,
                 ErrorPhase::Validate,
                 &PublicMessage::Curated(
                     "la scadenza arriva sia da plenora.execution.deadline sia da deadline_ms: \
-                     su questa superficie se ne ammette una sola",
+                     su questa superficie viaggia soltanto nei metadati",
                 ),
             )
             .1["error"]
@@ -1037,33 +1051,179 @@ pub fn riferimento_opaco(riferimento: &str) -> bool {
         && !segmento_punto
 }
 
-/// L'ammissione: identita', instradamento, content type e controlli.
-fn ammetti(invocazione: &Invocazione) -> Result<&'static DescrittoreRuntime, Value> {
-    let metadati = &invocazione.metadata;
-    if !uuid_canonico(&metadati.id_messaggio)
-        || !uuid_canonico(&metadati.id_correlazione)
-        || metadati
-            .id_causa
-            .as_deref()
-            .is_some_and(|valore| !uuid_canonico(valore))
+/// Cio' che l'ammissione lascia passare all'esecuzione.
+struct Ammessa<'a> {
+    descrittore: &'static DescrittoreRuntime,
+    scadenza: Option<&'a str>,
+    payload: &'a Value,
+}
+
+/// Le chiavi riservate obbligatorie della richiesta (RUNTIME-BINDING-1.0 §3).
+const OBBLIGATORIE: [&str; 7] = [
+    "plenora.message.id",
+    "plenora.trace.correlation_id",
+    "plenora.capability.name",
+    "plenora.capability.version",
+    "plenora.capability.operation",
+    "plenora.operation.version",
+    "plenora.input.contract",
+];
+
+/// L'ammissione, nell'ordine di RT-018: prima ogni chiave riservata nella
+/// sua grammatica (`protocol`, RT-017), poi il supporto (`unsupported`,
+/// RT-004/005/006/011), infine la scadenza gia' passata (`timeout`, che
+/// calcola il chiamante con l'orologio del binding). Tutto prima
+/// dell'invocazione: `validate`, `none`, `never` (RT-016).
+fn ammetti<'a>(
+    documento: &'a Value,
+    metadati: &'a Map<String, Value>,
+) -> Result<Ammessa<'a>, Value> {
+    let Value::Object(radice) = documento else {
+        return Err(errore_dell_invocazione());
+    };
+    let content_type = radice.get("content_type").and_then(Value::as_str);
+    let forma_dell_invocazione = radice
+        .keys()
+        .all(|chiave| matches!(chiave.as_str(), "content_type" | "metadata" | "payload"));
+    let (Some(content_type), Some(payload), true, true) = (
+        content_type,
+        radice.get("payload"),
+        radice.get("metadata").is_some_and(Value::is_object),
+        forma_dell_invocazione,
+    ) else {
+        return Err(errore_dell_invocazione());
+    };
+
+    // RT-017: obbligatorie presenti e stringhe, ciascuna nella sua grammatica.
+    let mut valori = [""; OBBLIGATORIE.len()];
+    for (valore, chiave) in valori.iter_mut().zip(OBBLIGATORIE) {
+        *valore = metadati
+            .get(chiave)
+            .and_then(Value::as_str)
+            .ok_or_else(|| errore_di_instradamento(RifiutoDiInstradamento::Malformato))?;
+    }
+    let [id_messaggio, id_correlazione, nome, versione_capacita, operazione, versione_operazione, contratto] =
+        valori;
+    let causa = facoltativa(metadati, "plenora.message.causation_id")?;
+    if !uuid_canonico(id_messaggio)
+        || !uuid_canonico(id_correlazione)
+        || causa.is_some_and(|valore| !uuid_canonico(valore))
     {
         return Err(errore_di_instradamento(RifiutoDiInstradamento::Identita));
     }
-    let descrittore = verifica_instradamento(&Instradamento {
-        nome_capacita: &metadati.nome_capacita,
-        versione_capacita: &metadati.versione_capacita,
-        operazione: &metadati.operazione,
-        versione_operazione: &metadati.versione_operazione,
-        contratto_ingresso: &metadati.contratto_ingresso,
-        content_type: &invocazione.content_type,
-    })?;
-    if metadati.chiave_idempotenza.is_some() {
+    let instradamento = Instradamento {
+        nome_capacita: nome,
+        versione_capacita,
+        operazione,
+        versione_operazione,
+        contratto_ingresso: contratto,
+        content_type,
+    };
+    instradamento_ben_formato(&instradamento)?;
+    let scadenza = facoltativa(metadati, "plenora.execution.deadline")?;
+    if scadenza.is_some_and(|testo| istante_rfc3339_utc(testo).is_none()) {
+        return Err(errore_della_scadenza_malformata());
+    }
+    // RT-022: presente, una chiave d'idempotenza e' una stringa non vuota
+    // entro il limite; `null`, vuota o troppo lunga e' `protocol`.
+    let chiave = facoltativa(metadati, "plenora.execution.idempotency_key")?;
+    if chiave.is_some_and(|valore| valore.is_empty() || valore.len() > MAX_BYTE_CHIAVE_IDEMPOTENZA)
+    {
+        return Err(errore_di_instradamento(RifiutoDiInstradamento::Malformato));
+    }
+
+    // RT-018, secondo passo: tutto ben formato, ora il supporto.
+    let descrittore = instradamento_supportato(&instradamento)?;
+    if chiave.is_some() {
         return Err(errore_di_instradamento(RifiutoDiInstradamento::Idempotenza));
     }
-    if metadati.scadenza.is_some() && !descrittore.controlli {
+    if scadenza.is_some() && !descrittore.controlli {
         return Err(errore_di_instradamento(RifiutoDiInstradamento::Scadenza));
     }
-    Ok(descrittore)
+    Ok(Ammessa {
+        descrittore,
+        scadenza,
+        payload,
+    })
+}
+
+/// Una chiave riservata facoltativa: assente, o una stringa. Presente con un
+/// altro tipo -- `null` compreso -- e' `protocol` (RT-017).
+fn facoltativa<'a>(
+    metadati: &'a Map<String, Value>,
+    chiave: &str,
+) -> Result<Option<&'a str>, Value> {
+    metadati.get(chiave).map_or(Ok(None), |valore| {
+        valore
+            .as_str()
+            .map(Some)
+            .ok_or_else(|| errore_di_instradamento(RifiutoDiInstradamento::Malformato))
+    })
+}
+
+/// Il limite di una chiave d'idempotenza, in byte: nessuna operazione di
+/// IO-tools la ammette, e il limite serve soltanto a classificare un valore
+/// fuori misura come malformato invece che come non supportato (RT-022).
+const MAX_BYTE_CHIAVE_IDEMPOTENZA: usize = 256;
+
+/// I metadati del risultato che si riflettono dalla richiesta (RT-019,
+/// RT-020): un `message.id` nuovo, la causa e' il `message.id` della
+/// richiesta, e operazione, versione e correlazione solo se ben formate,
+/// byte per byte.
+fn identita_del_risultato(metadati: &Map<String, Value>) -> MetadatiRisultato {
+    let riflessa = |chiave: &str, forma: fn(&str) -> bool| {
+        metadati
+            .get(chiave)
+            .and_then(Value::as_str)
+            .filter(|valore| forma(valore))
+            .map(str::to_owned)
+    };
+    MetadatiRisultato {
+        id_messaggio: uuid::Uuid::new_v4().hyphenated().to_string(),
+        id_causa: riflessa("plenora.message.id", uuid_canonico),
+        operazione: riflessa("plenora.capability.operation", operazione_ben_formata),
+        versione_operazione: riflessa("plenora.operation.version", |valore| {
+            versione_canonica(valore).is_some()
+        }),
+        contratto_uscita: CONTRATTO_ERRORE.to_owned(),
+        id_correlazione: riflessa("plenora.trace.correlation_id", uuid_canonico),
+    }
+}
+
+fn risultato_di_errore(metadati: &Map<String, Value>, errore: Value) -> Risultato {
+    Risultato {
+        content_type: CONTENT_TYPE_ERRORE.to_owned(),
+        metadata: identita_del_risultato(metadati),
+        payload: Carico::Json(errore),
+    }
+}
+
+fn errore_dell_invocazione() -> Value {
+    local_err_doc(
+        "RUNTIME_INVOCATION_INVALID",
+        ErrorCategory::Protocol,
+        ErrorPhase::Validate,
+        &PublicMessage::Curated(
+            "l'invocazione runtime non e' un documento con content_type, metadata e payload \
+             nella forma del binding",
+        ),
+    )
+    .1["error"]
+        .clone()
+}
+
+fn errore_della_scadenza_malformata() -> Value {
+    local_err_doc(
+        "RUNTIME_DEADLINE_INVALID",
+        ErrorCategory::Protocol,
+        ErrorPhase::Validate,
+        &PublicMessage::Curated(
+            "plenora.execution.deadline e' un istante RFC 3339 in UTC: con Z o +00:00, mai \
+             con uno scostamento diverso da zero o -00:00",
+        ),
+    )
+    .1["error"]
+        .clone()
 }
 
 /// I selettori d'instradamento di un'invocazione, presi in prestito.
@@ -1087,64 +1247,56 @@ pub struct Instradamento<'a> {
 ///
 /// # Errors
 ///
-/// Il documento `plenora-error-v1` del rifiuto, secondo la regola R1 della
-/// matrice comune (proposta P): `unsupported` per un valore ben formato che
-/// questo artefatto non annuncia -- capacita', versione del binding,
-/// operazione, versione dell'operazione, contratto d'ingresso, content type
-/// (ERR-002) -- e `protocol` per un valore malformato o non canonico. Sempre
-/// `validate`, `remote_effect: none`, `retry: never`.
+/// Il documento `plenora-error-v1` del rifiuto, nell'ordine di RT-018:
+/// `protocol` se un selettore non e' nella sua grammatica (RT-017), poi
+/// `unsupported` se, tutti ben formati, non corrispondono a un'operazione
+/// annunciata o il content type non e' annunciato. Sempre `validate`,
+/// `remote_effect: none`, `retry: never` (RT-016). Un valore non si
+/// normalizza mai: `"01"` non diventa `"1"`.
 pub fn verifica_instradamento(
     instradamento: &Instradamento<'_>,
 ) -> Result<&'static DescrittoreRuntime, Value> {
-    // R1 della matrice comune (proposta P): un valore ben formato ma non
-    // annunciato e' `unsupported`, uno malformato o non canonico e' `protocol`.
-    // Mai normalizzato: `"01"` non diventa `"1"`.
+    instradamento_ben_formato(instradamento)?;
+    instradamento_supportato(instradamento)
+}
+
+/// RT-017 per i cinque selettori d'instradamento.
+fn instradamento_ben_formato(instradamento: &Instradamento<'_>) -> Result<(), Value> {
+    let ben_formato = capacita_ben_formata(instradamento.nome_capacita)
+        && versione_canonica(instradamento.versione_capacita).is_some()
+        && operazione_ben_formata(instradamento.operazione)
+        && versione_canonica(instradamento.versione_operazione).is_some()
+        && contratto_ben_formato(instradamento.contratto_ingresso);
+    if ben_formato {
+        Ok(())
+    } else {
+        Err(errore_di_instradamento(RifiutoDiInstradamento::Malformato))
+    }
+}
+
+/// RT-018, secondo passo: selettori ben formati, ma annunciati?
+fn instradamento_supportato(
+    instradamento: &Instradamento<'_>,
+) -> Result<&'static DescrittoreRuntime, Value> {
     use RifiutoDiInstradamento as R;
-    let rifiuto = |ben_formato: bool, non_annunciato: R| {
-        errore_di_instradamento(if ben_formato {
-            non_annunciato
-        } else {
-            R::Malformato
-        })
-    };
     if instradamento.nome_capacita != NOME_CAPACITA {
-        return Err(rifiuto(
-            capacita_ben_formata(instradamento.nome_capacita),
-            R::NomeCapacita,
-        ));
+        return Err(errore_di_instradamento(R::NomeCapacita));
     }
     if versione_canonica(instradamento.versione_capacita) != Some(VERSIONE_BINDING) {
-        return Err(rifiuto(
-            versione_canonica(instradamento.versione_capacita).is_some(),
-            R::VersioneCapacita,
-        ));
+        return Err(errore_di_instradamento(R::VersioneCapacita));
     }
-    let Some(descrittore) = OPERAZIONI
+    let descrittore = OPERAZIONI
         .iter()
         .find(|voce| voce.operazione == instradamento.operazione)
-    else {
-        return Err(rifiuto(
-            operazione_ben_formata(instradamento.operazione),
-            R::Operazione,
-        ));
-    };
+        .ok_or_else(|| errore_di_instradamento(R::Operazione))?;
     if versione_canonica(instradamento.versione_operazione) != Some(descrittore.versione) {
-        return Err(rifiuto(
-            versione_canonica(instradamento.versione_operazione).is_some(),
-            R::Versione,
-        ));
+        return Err(errore_di_instradamento(R::Versione));
     }
     if instradamento.contratto_ingresso != descrittore.contratto_ingresso {
-        return Err(rifiuto(
-            contratto_ben_formato(instradamento.contratto_ingresso),
-            R::Contratto,
-        ));
+        return Err(errore_di_instradamento(R::Contratto));
     }
     if instradamento.content_type != CONTENT_TYPE_JSON {
-        return Err(rifiuto(
-            content_type_ben_formato(instradamento.content_type),
-            R::ContentType,
-        ));
+        return Err(errore_di_instradamento(R::ContentType));
     }
     Ok(descrittore)
 }
@@ -1202,20 +1354,6 @@ fn contratto_ben_formato(valore: &str) -> bool {
         })
 }
 
-/// `tipo/sottotipo` con i soli caratteri dei token, come i `content_types`
-/// di `capabilities-v2.schema.json`.
-fn content_type_ben_formato(valore: &str) -> bool {
-    let token = |parte: &str| {
-        !parte.is_empty()
-            && parte
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&b))
-    };
-    valore
-        .split_once('/')
-        .is_some_and(|(tipo, sottotipo)| token(tipo) && token(sottotipo))
-}
-
 fn uuid_canonico(valore: &str) -> bool {
     valore.len() == 36
         && valore.bytes().enumerate().all(|(indice, byte)| {
@@ -1240,19 +1378,7 @@ fn istante_della_scadenza(testo: &str, adesso: SystemTime) -> Result<Instant, Va
     let scadenza = match istante_rfc3339_utc(testo) {
         Some(IstanteRfc3339::DallEpoca(durata)) => durata,
         Some(IstanteRfc3339::PrimaDellEpoca) => return Err(errore_di_scadenza()),
-        None => {
-            return Err(local_err_doc(
-                "RUNTIME_DEADLINE_INVALID",
-                ErrorCategory::Protocol,
-                ErrorPhase::Validate,
-                &PublicMessage::Curated(
-                    "plenora.execution.deadline e' un istante RFC 3339 in UTC, nella forma \
-                     AAAA-MM-GGTHH:MM:SS[.frazione]Z",
-                ),
-            )
-            .1["error"]
-                .clone())
-        }
+        None => return Err(errore_della_scadenza_malformata()),
     };
     let adesso = adesso.duration_since(UNIX_EPOCH).map_err(|_| {
         local_err_doc(
@@ -1333,16 +1459,18 @@ pub enum IstanteRfc3339 {
 
 /// Un istante RFC 3339 in UTC, o `None` se il testo non lo e'.
 ///
-/// Una grafia sola, `AAAA-MM-GGTHH:MM:SS[.frazione]Z`, con `T` e `Z`
-/// maiuscole e da 1 a 9 cifre di frazione: la grammatica proposta dalla
-/// matrice comune del binding runtime (caso 7a, proposta P). RFC 3339
-/// ammette anche `+00:00` e le minuscole; il binding dice soltanto «UTC», e
-/// una grafia sola toglie le ambiguita'. Uno scostamento diverso da zero e
-/// `-00:00` non sono UTC. Il secondo intercalare (`60`) e' rifiutato: non ha
-/// un istante Unix.
+/// Le grafie RFC 3339 di un istante UTC: `AAAA-MM-GGTHH:MM:SS[.frazione]`
+/// seguito da `Z`, `z` o `+00:00`, con `T` o `t`, e da 1 a 9 cifre di
+/// frazione. Uno scostamento diverso da zero e `-00:00` -- che RFC 3339
+/// riserva all'ora locale sconosciuta -- non sono UTC, e rendono `None`
+/// (RT-021). Il secondo intercalare (`60`) e' rifiutato: non ha un istante
+/// Unix, e il binding non sa a quale istante ricondurlo.
 #[must_use]
 pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
-    let corpo = testo.strip_suffix('Z')?;
+    let corpo = testo
+        .strip_suffix('Z')
+        .or_else(|| testo.strip_suffix('z'))
+        .or_else(|| testo.strip_suffix("+00:00"))?;
     if corpo.len() < 19 {
         return None;
     }
@@ -1357,7 +1485,7 @@ pub fn istante_rfc3339_utc(testo: &str) -> Option<IstanteRfc3339> {
     let separatori = corpo.as_bytes();
     if separatori.get(4) != Some(&b'-')
         || separatori.get(7) != Some(&b'-')
-        || separatori.get(10) != Some(&b'T')
+        || !matches!(separatori.get(10), Some(b'T' | b't'))
         || separatori.get(13) != Some(&b':')
         || separatori.get(16) != Some(&b':')
     {

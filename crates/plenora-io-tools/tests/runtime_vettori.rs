@@ -410,11 +410,12 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             "{chiave}={valore}"
         );
     }
-    // Il content type e' instradamento anch'esso (RT-005): ben formato e non
-    // annunciato, poi malformato.
+    // Il content type e' instradamento anch'esso (RT-005): non annunciato e'
+    // `unsupported` in ogni forma, perche' RT-017 non ne fissa una grammatica
+    // (RT-018).
     for (content_type, categoria) in [
         ("application/vnd.apache.arrow.stream", "unsupported"),
-        ("json", "protocol"),
+        ("json", "unsupported"),
     ] {
         let mut mutata = richiesta.clone();
         mutata["content_type"] = json!(content_type);
@@ -513,9 +514,24 @@ fn un_selettore_mancante_o_null_non_si_legge() {
             "{chiave} null e' rifiutato, non letto come assente"
         );
     }
+    // Una chiave che il binding 1.0 non riserva -- anche `plenora.*`, anche
+    // una grafia alternativa di una riservata -- si ignora (§9).
     let mut ignota = richiesta;
     ignota["metadata"]["plenora.trace.correlationId"] = json!("x");
-    assert!(serde_json::from_value::<Invocazione>(ignota).is_err());
+    ignota["metadata"]["plenora.futuro.controllo"] = json!(null);
+    let invocazione = serde_json::from_value::<Invocazione>(json!({
+        "content_type": ignota["content_type"],
+        "metadata": ignota["metadata"],
+        "payload": {"source": "artifact://input/io-read-vector"},
+    }))
+    .expect("le chiavi sconosciute non impediscono la lettura");
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let risultato = binding(&deposito).invoca(&invocazione, CancellationToken::new());
+    assert_eq!(
+        risultato.content_type, CONTENT_TYPE_FLUSSO_ARROW,
+        "{risultato:?}"
+    );
 }
 
 /// Il payload illustrativo del vettore, cosi' com'e', e' rifiutato tipizzato.
@@ -728,13 +744,11 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     assert_eq!(documento["remote_effect"], "none");
     assert_eq!(documento["retry"]["kind"], "never");
 
-    // Una grafia sola (matrice, caso 7a): ogni altra e' `protocol`.
+    // RT-021: non UTC -- scostamento diverso da zero, `-00:00` -- e testo che
+    // non e' RFC 3339 sono `protocol`.
     for storta in [
-        "2030-01-01T00:00:00+01:00",
-        "2030-01-01T00:00:00+00:00",
+        "2030-01-01T02:00:00+02:00",
         "2030-01-01T00:00:00-00:00",
-        "2030-01-01t00:00:00Z",
-        "2030-01-01T00:00:00z",
         "2030-01-01 00:00:00Z",
         "2030-01-01T00:00:60Z",
         "domani",
@@ -753,7 +767,22 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
         assert_eq!(errore(&risultato)["category"], "protocol", "{storta}");
     }
 
-    // La scadenza da due canali: rifiutata anche a valori uguali (caso 7c).
+    // Le altre grafie RFC 3339 di UTC si accettano: `z`, `t`, `+00:00`, la
+    // frazione.
+    for buona in [
+        "2999-12-31t23:59:59z",
+        "2999-12-31T23:59:59+00:00",
+        "2999-12-31T23:59:59.123456789Z",
+    ] {
+        let mut invocazione = per_operazione("io.catalog", json!({}));
+        invocazione.metadata.scadenza = Some(buona.to_owned());
+        // `io.catalog` non osserva scadenze: il rifiuto `unsupported` (RT-006)
+        // arriva solo dopo che la grafia e' stata accettata (RT-018).
+        let risultato = binding.invoca(&invocazione, CancellationToken::new());
+        assert_eq!(errore(&risultato)["category"], "unsupported", "{buona}");
+    }
+
+    // La scadenza da due canali: rifiutata anche a valori uguali (RT-023).
     let mut doppia = per_operazione(
         "io.read",
         json!({"source": "artifact://input/io-read-vector", "deadline_ms": 30000}),
@@ -1164,15 +1193,21 @@ fn l_istante_rfc3339_coincide_con_il_conteggio_ingenuo() {
     }
     // Le forme ammesse e quelle rifiutate.
     assert_eq!(secondi("2030-01-01T00:00:00Z"), Some(1_893_456_000));
-    assert_eq!(
-        istante_rfc3339_utc("2030-01-01T00:00:00.25Z"),
-        Some(IstanteRfc3339::DallEpoca(Duration::from_millis(
-            1_893_456_000_250
-        )))
-    );
-    // Una grafia sola: niente minuscole, niente `+00:00`.
-    assert_eq!(istante_rfc3339_utc("2030-01-01t00:00:00.25Z"), None);
-    assert_eq!(istante_rfc3339_utc("2030-01-01T00:00:00+00:00"), None);
+    for grafia in [
+        "2030-01-01T00:00:00.25Z",
+        "2030-01-01t00:00:00.25z",
+        "2030-01-01T00:00:00.25+00:00",
+    ] {
+        assert_eq!(
+            istante_rfc3339_utc(grafia),
+            Some(IstanteRfc3339::DallEpoca(Duration::from_millis(
+                1_893_456_000_250
+            ))),
+            "{grafia}"
+        );
+    }
+    assert_eq!(istante_rfc3339_utc("2030-01-01T00:00:00-00:00"), None);
+    assert_eq!(istante_rfc3339_utc("2030-01-01T02:00:00+02:00"), None);
     // Prima del 1970: un istante valido e passato, non un testo invalido;
     // una data impossibile resta invalida anche li'.
     assert_eq!(
@@ -1401,4 +1436,241 @@ fn uuid_canonico(valore: &str) -> bool {
                 byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
             }
         })
+}
+
+/// Le sonde di rifiuto proposte nella PR bozza #21 di plenora-contracts
+/// (`vectors/runtime-probes-v1`, RT-016..RT-023), quelle la cui richiesta di
+/// base e' `io-read-request.json`. **Proposte, non ancora normative**: sono
+/// copie fissate per SHA-256 al commit della PR, e questa prova le esegue
+/// cosi' che l'adozione sia immediata quando la #21 entra in `main`.
+///
+/// Ogni sonda muta un metadato -- con un valore di qualunque tipo JSON, o
+/// togliendolo -- e dichiara il risultato: i quattro assi e ogni chiave
+/// d'instradamento e di correlazione con il valore esatto, una chiave non
+/// elencata essendo assente. `plenora.message.id` e' nuovo e la causa segue
+/// RT-020.
+#[test]
+fn le_sonde_di_rifiuto_proposte_si_eseguono() {
+    let cartella = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("sonde-runtime-proposte");
+    let provenienza = documento(&cartella.join("provenienza.json"));
+    let file = provenienza["file"].as_object().expect("elenco dei file");
+    for (nome, voce) in file {
+        let byte = std::fs::read(cartella.join(nome)).expect("la copia c'e'");
+        assert_eq!(
+            sha256_esadecimale(&byte),
+            voce["sha256"].as_str().expect("digest"),
+            "{nome}: la copia non e' quella del commit fissato"
+        );
+    }
+    let schema =
+        jsonschema::validator_for(&documento(&cartella.join("runtime-probe-v1.schema.json")))
+            .expect("lo schema delle sonde compila");
+    let base = vettore("io-read-request.json");
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    let binding = binding(&deposito);
+    let mut eseguite = 0;
+    for nome in file.keys().filter(|nome| nome.starts_with("io-read-")) {
+        let sonda = documento(&cartella.join(nome));
+        assert!(
+            schema.is_valid(&sonda),
+            "{nome} valida contro runtime-probe-v1"
+        );
+        assert_eq!(sonda["base"], "io-read-request.json", "{nome}");
+        let mut richiesta = base.clone();
+        let metadati = richiesta["metadata"].as_object_mut().expect("metadati");
+        if let Some(insieme) = sonda["mutation"]["set"].as_object() {
+            for (chiave, valore) in insieme {
+                metadati.insert(chiave.clone(), valore.clone());
+            }
+        }
+        if let Some(chiave) = sonda["mutation"]["remove"].as_str() {
+            metadati.remove(chiave);
+        }
+        let id_richiesta = metadati.get("plenora.message.id").cloned();
+        let byte = serde_json::to_vec(&json!({
+            "content_type": richiesta["content_type"],
+            "metadata": richiesta["metadata"],
+            "payload": richiesta["payload"],
+        }))
+        .expect("json");
+        let risultato = binding.invoca_json(&byte, CancellationToken::new());
+        let atteso = &sonda["expected"];
+        assert_eq!(risultato.content_type, atteso["content_type"], "{nome}");
+        let documento = errore(&risultato);
+        for asse in ["category", "phase", "remote_effect", "retry"] {
+            assert_eq!(documento[asse], atteso["error"][asse], "{nome}: {asse}");
+        }
+        let mut metadati_resi = serde_json::to_value(&risultato.metadata).expect("metadati");
+        let resi = metadati_resi.as_object_mut().expect("oggetto");
+        let id_reso = resi.remove("plenora.message.id").expect("message.id");
+        assert_ne!(Some(&id_reso), id_richiesta.as_ref(), "{nome}: id nuovo");
+        let causa = resi.remove("plenora.message.causation_id");
+        let causa_attesa = id_richiesta
+            .as_ref()
+            .and_then(Value::as_str)
+            .filter(|valore| uuid_canonico(valore))
+            .map(|valore| json!(valore));
+        assert_eq!(causa, causa_attesa, "{nome}: RT-020");
+        assert_eq!(json!(resi), atteso["metadata"], "{nome}: metadati");
+        eseguite += 1;
+    }
+    assert_eq!(eseguite, 12, "le dodici sonde con base io-read");
+}
+
+/// SHA-256 (FIPS 180-4), per verificare le copie senza una dipendenza nuova.
+// I nomi a una lettera e la forma sono quelli dello standard, che si
+// confronta riga per riga; i valori noti sono in
+// `lo_sha256_di_prova_rende_i_valori_noti`.
+#[allow(
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    clippy::chunks_exact_to_as_chunks,
+    clippy::format_collect,
+    clippy::needless_range_loop
+)]
+fn sha256_esadecimale(dati: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a_2f98,
+        0x7137_4491,
+        0xb5c0_fbcf,
+        0xe9b5_dba5,
+        0x3956_c25b,
+        0x59f1_11f1,
+        0x923f_82a4,
+        0xab1c_5ed5,
+        0xd807_aa98,
+        0x1283_5b01,
+        0x2431_85be,
+        0x550c_7dc3,
+        0x72be_5d74,
+        0x80de_b1fe,
+        0x9bdc_06a7,
+        0xc19b_f174,
+        0xe49b_69c1,
+        0xefbe_4786,
+        0x0fc1_9dc6,
+        0x240c_a1cc,
+        0x2de9_2c6f,
+        0x4a74_84aa,
+        0x5cb0_a9dc,
+        0x76f9_88da,
+        0x983e_5152,
+        0xa831_c66d,
+        0xb003_27c8,
+        0xbf59_7fc7,
+        0xc6e0_0bf3,
+        0xd5a7_9147,
+        0x06ca_6351,
+        0x1429_2967,
+        0x27b7_0a85,
+        0x2e1b_2138,
+        0x4d2c_6dfc,
+        0x5338_0d13,
+        0x650a_7354,
+        0x766a_0abb,
+        0x81c2_c92e,
+        0x9272_2c85,
+        0xa2bf_e8a1,
+        0xa81a_664b,
+        0xc24b_8b70,
+        0xc76c_51a3,
+        0xd192_e819,
+        0xd699_0624,
+        0xf40e_3585,
+        0x106a_a070,
+        0x19a4_c116,
+        0x1e37_6c08,
+        0x2748_774c,
+        0x34b0_bcb5,
+        0x391c_0cb3,
+        0x4ed8_aa4a,
+        0x5b9c_ca4f,
+        0x682e_6ff3,
+        0x748f_82ee,
+        0x78a5_636f,
+        0x84c8_7814,
+        0x8cc7_0208,
+        0x90be_fffa,
+        0xa450_6ceb,
+        0xbef9_a3f7,
+        0xc671_78f2,
+    ];
+    let mut stato: [u32; 8] = [
+        0x6a09_e667,
+        0xbb67_ae85,
+        0x3c6e_f372,
+        0xa54f_f53a,
+        0x510e_527f,
+        0x9b05_688c,
+        0x1f83_d9ab,
+        0x5be0_cd19,
+    ];
+    let mut messaggio = dati.to_vec();
+    let bit = (dati.len() as u64).wrapping_mul(8);
+    messaggio.push(0x80);
+    while messaggio.len() % 64 != 56 {
+        messaggio.push(0);
+    }
+    messaggio.extend_from_slice(&bit.to_be_bytes());
+    for blocco in messaggio.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for (i, parola) in blocco.chunks_exact(4).enumerate() {
+            w[i] = u32::from_be_bytes([parola[0], parola[1], parola[2], parola[3]]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = stato;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ (!e & g);
+            let t1 = h
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(maj);
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        for (s, v) in stato.iter_mut().zip([a, b, c, d, e, f, g, h]) {
+            *s = s.wrapping_add(v);
+        }
+    }
+    stato.iter().map(|parola| format!("{parola:08x}")).collect()
+}
+
+/// I valori noti di FIPS 180-4: senza, una copia sbagliata e un digest
+/// sbagliato potrebbero darsi ragione a vicenda.
+#[test]
+fn lo_sha256_di_prova_rende_i_valori_noti() {
+    assert_eq!(
+        sha256_esadecimale(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+    assert_eq!(
+        sha256_esadecimale(b"abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    assert_eq!(
+        sha256_esadecimale(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+    );
 }

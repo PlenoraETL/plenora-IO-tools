@@ -94,7 +94,7 @@ let risultato = match Invocazione::da_json(&messaggio) {
 - `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
   **nel risultato**, con il documento `plenora-io-read-result-v1` accanto, e su
   questa superficie non scrive file del chiamante;
-- `plenora.execution.deadline` (una grafia sola, `AAAA-MM-GGTHH:MM:SS[.f]Z`)
+- `plenora.execution.deadline` (RFC 3339 in UTC; uno scostamento diverso da zero o `-00:00` è rifiutato)
   si misura dall'ammissione -- il tempo del risolutore la consuma -- e scade
   come `timeout`, già passata o durante l'esecuzione; insieme a `deadline_ms`
   nel payload è rifiutata. L'orologio si inietta con `con_orologio`. La chiave

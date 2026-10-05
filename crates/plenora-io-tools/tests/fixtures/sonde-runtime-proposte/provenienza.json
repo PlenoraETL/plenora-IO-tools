@@ -1,0 +1,60 @@
+{
+  "stato": "proposte, non ancora normative",
+  "che_cosa_e": "le sonde di rifiuto `plenora-runtime-probe-v1` della PR bozza #21 di plenora-contracts (branch `draft/runtime-binding-chiarimenti`, regole RT-016..RT-023) la cui richiesta di base e' `io-read-request.json`, e lo schema che le descrive. Copie byte per byte del commit qui sotto, con lo SHA-256 che `tests/runtime_vettori.rs` ricalcola prima di usarle. Quando la #21 entra in `main` e il pin la contiene, si spostano in `contracts/copie-dal-pin/`.",
+  "repository": "https://github.com/PlenoraETL/plenora-contracts",
+  "commit": "4890d27c120b3819bbadf6560ba9e730dfcb57aa",
+  "file": {
+    "io-read-binding-version-leading-zero.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-binding-version-leading-zero.json",
+      "sha256": "8eb5f77415c630ea070243b60f81d8b01c04a3a0d32975f66e0cc7f46373627c"
+    },
+    "io-read-binding-version-number.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-binding-version-number.json",
+      "sha256": "1f6f692f550a3293750cdc088bbd30172109347f2e584bb47e3b1b56019ed8c2"
+    },
+    "io-read-binding-version-unsupported.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-binding-version-unsupported.json",
+      "sha256": "f89c987df5e706616a9de33a45941fdb5e3c967b062b5f92a5d4c6d8232e6d42"
+    },
+    "io-read-deadline-expired.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-deadline-expired.json",
+      "sha256": "e7fca723678ec7c0ac08888f37c64508f6231de4599201575151a1df0099fd32"
+    },
+    "io-read-deadline-negative-zero.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-deadline-negative-zero.json",
+      "sha256": "57e579e151c99c19a2a3de662233561388e36929be058a162d3a269d0631d8ec"
+    },
+    "io-read-deadline-offset.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-deadline-offset.json",
+      "sha256": "e72e2842d23e5f0337f70a3d280291c4f45c769a2dd22975ea3a7ef0ef29feb1"
+    },
+    "io-read-message-id-braces.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-message-id-braces.json",
+      "sha256": "06f53ccf50de9826207594102cbdf1a25a73f8a959e3d4248fe6c8e4b586c394"
+    },
+    "io-read-message-id-missing.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-message-id-missing.json",
+      "sha256": "d7105072c272c3a96b3a5dee584fb2ef95a36f8d674155f98e50eeb0a9ed4b8d"
+    },
+    "io-read-operation-version-leading-zero.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-operation-version-leading-zero.json",
+      "sha256": "647d373b5bb60f840d2fe5e9016e4ba17c7047a1392cfee395b52e618b41efd5"
+    },
+    "io-read-operation-version-missing.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-operation-version-missing.json",
+      "sha256": "a0438ca43545719ba800c816e6028c20833e41f75a0752987b6a6a2fb1f17e7f"
+    },
+    "io-read-operation-version-number.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-operation-version-number.json",
+      "sha256": "bf090d9e77b4470543552d4a2ee816e860e8015c614a45c180bf6543b01afb19"
+    },
+    "io-read-operation-version-unknown.json": {
+      "origine": "vectors/runtime-probes-v1/io-read-operation-version-unknown.json",
+      "sha256": "35b98de94a3f4ee0125dd55d71d773b65c1f011a2a3ff011bf8113592771b2cc"
+    },
+    "runtime-probe-v1.schema.json": {
+      "origine": "schemas/runtime-probe-v1.schema.json",
+      "sha256": "5188813894c59c67c5c9b1aab551c6c783e13b021e5a4896c033d1636e705c47"
+    }
+  }
+}
