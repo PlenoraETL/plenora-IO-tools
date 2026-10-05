@@ -647,11 +647,10 @@ fn la_lettura_rende_il_flusso_arrow_del_vettore_di_successo() {
         .collect();
     assert!(errori.is_empty(), "{errori:?}");
     assert_eq!(rapporto["rows_read"], righe);
-    assert_eq!(
-        rapporto["delivered"]["content_type"],
-        CONTENT_TYPE_FLUSSO_ARROW
-    );
-    assert_eq!(rapporto["delivered"]["bytes_written"], byte.len());
+    // Nessuna destinazione chiesta, nessun `delivered`: la serializzazione la
+    // dice il content type del risultato, e v1 non saprebbe dirla.
+    assert_eq!(rapporto["delivered"], Value::Null);
+    assert_eq!(risultato.content_type, CONTENT_TYPE_FLUSSO_ARROW);
 }
 
 /// Il vettore d'errore: cancellazione prima che esca un risultato.

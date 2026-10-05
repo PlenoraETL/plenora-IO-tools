@@ -404,8 +404,9 @@ pub enum Carico {
     /// errore `plenora-error-v1`.
     Json(Value),
     /// Il flusso Arrow consegnato da `io.read`, con il documento
-    /// `plenora-io-read-result-v1` che lo descrive: fedelta', perdite, righe,
-    /// e il descrittore `delivered` dei byte.
+    /// `plenora-io-read-result-v1` che lo descrive: fedelta', perdite, righe.
+    /// `delivered` vale `null`: l'ingresso non ha chiesto una destinazione, e
+    /// la serializzazione dei byte la dice il content type del risultato.
     FlussoArrow {
         /// I byte del flusso, serializzazione `stream` di Arrow IPC.
         byte: Vec<u8>,
@@ -709,7 +710,16 @@ fn consegna_in_flusso(richiesta: Richiesta, genitore: Option<&Path>) -> Result<C
         .con_opzione_di_scrittura("serialization", "stream");
     let esito = operazioni::read(richiesta)
         .map_err(errore_della_busta)
-        .and_then(|rapporto| {
+        .and_then(|mut rapporto| {
+            // `delivered` descrive una consegna **in una destinazione chiesta
+            // dall'ingresso**, e qui l'ingresso non ne ha chiesta nessuna: il
+            // file privato e' un dettaglio di questo processo, e il suo esito di
+            // pubblicazione non dice niente al chiamante. `null`, come per una
+            // lettura senza `destination` (`plenora-io-read-input-v1`). Serve
+            // anche alla validita': v1 fissa `delivered.content_type` al
+            // contenitore, e qui i byte sono il flusso -- lo dice il content
+            // type del risultato.
+            rapporto["delivered"] = Value::Null;
             std::fs::read(&file)
                 .map(|byte| Carico::FlussoArrow { byte, rapporto })
                 .map_err(|_| errore_della_consegna(Consegna::Lettura))

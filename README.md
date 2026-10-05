@@ -92,8 +92,10 @@ let risultato = match Invocazione::da_json(&messaggio) {
   materializzato deve portare il nome dell'ultimo segmento del riferimento
   (diversi formati ne derivano il nome del layer, che esce nei risultati);
 - `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
-  **nel risultato**, con il documento `plenora-io-read-result-v1` accanto, e su
-  questa superficie non scrive file del chiamante;
+  **nel risultato**, con il documento `plenora-io-read-result-v1` accanto
+  (`delivered` a `null`: nessuna destinazione è stata chiesta, e la
+  serializzazione la dice il content type del risultato), e su questa
+  superficie non scrive file del chiamante;
 - la discovery passa dalla stessa ammissione delle operazioni: selettore
   `capabilities`, versione `1`, contratto d'ingresso
   `plenora-io-catalog-query-v1`, payload `{}`; rende il documento
