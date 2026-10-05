@@ -127,6 +127,20 @@
       "observed_behavior": "un dataset Arrow con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink: nessuno dichiara i sedici tipi geometrici canonici, il massimo e' sette. La regola «un sink che restringe i tipi pretende che la sorgente li dichiari» non compare nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees. Per il consumatore: il rifiuto e' tipizzato e mai silenzioso, ma non e' predicibile leggendo il catalogo.",
       "tracking": "docs/PIANO-4.0.0.md riga B12c; la meta' locale e' chiusa (`scansione_completa` distingue l'assenza accertata dall'ignoranza), quella sul filo dipende dal vocabolario successore -- decisione 0006 del repository dei contratti",
       "detectable_before_invocation": false
+    },
+    {
+      "rule": "plenora-io-read-result-v1 (delivered.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con `--out-opt serialization=stream` `read` consegna il flusso Arrow e la busta dice `delivered.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera; chi valida contro v1 la rifiuta. Senza quell'opzione la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-read-result-v2` sotto `io.read@2` nel catalogo comune: v1 non si allarga sul posto (COMPATIBILITY.md). Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
