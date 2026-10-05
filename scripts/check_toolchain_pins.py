@@ -54,6 +54,7 @@ SORVEGLIATI = (
     "fuzz/Dockerfile",
     ".github/workflows/ci.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/supply-chain.yml",
     "scripts/fuzz-smoke.sh",
     "scripts/fuzz-campaign.sh",
 )
@@ -117,6 +118,13 @@ FAMIGLIE = (
         ("Dockerfile.dev", ".github/workflows/ci.yml"),
         "la percentuale confrontata con la soglia dipende da come lo strumento "
         "aggrega le regioni, quindi la versione fa parte della misura",
+    ),
+    Famiglia(
+        "PLENORA_CARGO_DENY_VERSION",
+        r"cargo-deny@(\d+\.\d+\.\d+)",
+        (".github/workflows/supply-chain.yml",),
+        "le regole di advisory, licenze, ban e sorgenti cambiano fra versioni "
+        "dello strumento, e lo stesso commit passerebbe o fallirebbe secondo il giorno",
     ),
 )
 
