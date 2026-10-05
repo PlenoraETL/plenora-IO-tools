@@ -65,5 +65,9 @@ def variante_nativa(classe: type) -> type:
             cls.binario = binario_nativo()
 
     Nativa.__name__ = Nativa.__qualname__ = f"{classe.__name__}Nativa"
+    # Il modulo della classe d'origine, non questo: l'identita' di una sonda
+    # e' `modulo.Classe.test`, e il registro delle sonde saltate nella sdist
+    # la nomina accanto alla sua sorella col binario.
+    Nativa.__module__ = classe.__module__
     Nativa.__doc__ = f"{classe.__name__}, dal modulo nativo invece che dal binario."
     return Nativa
