@@ -86,7 +86,8 @@ impl<T: Read> TextCodePairIter<T> {
         let code_line = if self.read_first_line {
             self.offset += 1;
             match read_buffered_line(&mut self.reader, true, encoding_rs::WINDOWS_1252) {
-                Ok(v) => v,
+                Ok(Some(v)) => v,
+                Ok(None) => return None, // la fine vera dell'ingresso
                 Err(e) => return Some(Err(e)),
             }
         } else {
@@ -98,8 +99,17 @@ impl<T: Read> TextCodePairIter<T> {
         };
         let code_line = code_line.trim();
         if code_line.is_empty() {
-            // might be an empty file only containing a newline
-            return None;
+            // Upstream trattava una riga di codice vuota come la fine
+            // dell'ingresso, e tutto cio' che seguiva spariva: un DXF con una
+            // riga vuota in testa si leggeva come un documento vuoto. Ora e' la
+            // fine solo se dopo non resta altro che spazio bianco -- un file
+            // fatto di soli a capo resta un file vuoto --, altrimenti e' un
+            // errore.
+            return match resto_solo_spazio(&mut self.reader) {
+                Ok(true) => None,
+                Ok(false) => Some(Err(DxfError::ParseError(self.offset))),
+                Err(e) => Some(Err(e)),
+            };
         }
 
         let code_offset = self.offset;
@@ -108,7 +118,10 @@ impl<T: Read> TextCodePairIter<T> {
         // Read value.  If no line is available die horribly.
         self.offset += 1;
         let value_line = match read_buffered_line(&mut self.reader, false, self.string_encoding) {
-            Ok(v) => v,
+            Ok(Some(v)) => v,
+            // Un codice senza la riga del valore: upstream lo leggeva come
+            // valore vuoto.
+            Ok(None) => return Some(Err(DxfError::UnexpectedEndOfInput)),
             Err(e) => return Some(Err(e)),
         };
 
@@ -135,7 +148,10 @@ impl<T: Read> TextCodePairIter<T> {
             }
             ExpectedType::Str => {
                 let value_line = if self.string_encoding == encoding_rs::WINDOWS_1252 {
-                    un_escape_ascii_to_unicode(&value_line)
+                    match un_escape_ascii_to_unicode(&value_line) {
+                        Some(v) => v,
+                        None => return Some(Err(DxfError::ParseError(self.offset))),
+                    }
                 } else {
                     value_line
                 };
@@ -155,13 +171,17 @@ impl<T: Read> TextCodePairIter<T> {
     }
 }
 
+/// Una riga, oppure `None` alla fine dell'ingresso: le due cose upstream si
+/// confondevano, perche' entrambe arrivavano come stringa vuota.
 fn read_buffered_line<T: BufRead + ?Sized>(
     reader: &mut T,
     allow_bom: bool,
     encoding: &'static Encoding,
-) -> DxfResult<String> {
+) -> DxfResult<Option<String>> {
     let mut bytes = Vec::new();
-    reader.read_until(b'\n', &mut bytes)?;
+    if reader.read_until(b'\n', &mut bytes)? == 0 {
+        return Ok(None);
+    }
     if bytes.last() == Some(&b'\n') {
         bytes.pop();
     }
@@ -172,8 +192,23 @@ fn read_buffered_line<T: BufRead + ?Sized>(
         bytes.drain(..3);
     }
     match encoding.decode(&bytes) {
-        (value, _, false) => Ok(value.into_owned()),
+        (value, _, false) => Ok(Some(value.into_owned())),
         (_, _, true) => Err(DxfError::MalformedString),
+    }
+}
+
+/// `true` se da qui alla fine dell'ingresso c'e' solo spazio bianco ASCII.
+fn resto_solo_spazio<T: BufRead + ?Sized>(reader: &mut T) -> DxfResult<bool> {
+    loop {
+        let blocco = reader.fill_buf()?;
+        if blocco.is_empty() {
+            return Ok(true);
+        }
+        if !blocco.iter().all(u8::is_ascii_whitespace) {
+            return Ok(false);
+        }
+        let quanti = blocco.len();
+        reader.consume(quanti);
     }
 }
 

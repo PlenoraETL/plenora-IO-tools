@@ -33,6 +33,10 @@ pub(crate) struct CodePairPutBack {
     /// proseguire come se la sezione fosse finita li'. Porta l'offset della
     /// coppia su cui la lettura si e' fermata.
     fermo: Option<usize>,
+    /// Entita' scartate da `Entity::read` perche' di un tipo che il fork non
+    /// conosce, o DIMENSION senza un sottotipo riconosciuto. Upstream le
+    /// scartava in silenzio; qui si contano, e chi legge decide.
+    entita_ignorate: u64,
 }
 
 impl CodePairPutBack {
@@ -43,6 +47,7 @@ impl CodePairPutBack {
             estratte: 0,
             riletture: 0,
             fermo: None,
+            entita_ignorate: 0,
         }
     }
     pub fn put_back(&mut self, item: DxfResult<CodePair>) {
@@ -63,6 +68,16 @@ impl CodePairPutBack {
     pub fn posizione(&self) -> u64 {
         let in_attesa = u64::try_from(self.top.len()).unwrap_or(u64::MAX);
         self.estratte.saturating_sub(in_attesa)
+    }
+
+    /// Conta un'entita' che `Entity::read` scarta.
+    pub fn segnala_entita_ignorata(&mut self) {
+        self.entita_ignorate = self.entita_ignorate.saturating_add(1);
+    }
+
+    /// Le entita' scartate finora.
+    pub fn entita_ignorate(&self) -> u64 {
+        self.entita_ignorate
     }
 
     /// Rifiuta un giro che non ha consumato niente.

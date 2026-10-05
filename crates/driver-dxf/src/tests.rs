@@ -636,6 +636,264 @@ fn un_oggetto_illeggibile_rifiuta_il_documento() {
         .is_err());
 }
 
+// --- documenti accettati con dati mancanti o alterati -------------------------
+//
+// La classe trovata nella seconda revisione di #23: un documento che il lettore
+// accettava senza errore, con una parte persa o sostituita da un default. Ogni
+// prova ha il suo controllo -- lo stesso documento senza il difetto, che si
+// legge -- perche' un rifiuto per un'altra ragione la renderebbe vuota.
+
+/// L'esito dei due lettori: quello completo (`Drawing::load`, l'entry point di
+/// fuzz) e quello progressivo della CLI (`DxfDriver::open`). `Ok(righe)` o
+/// `Err(())`.
+fn esito_dei_due_lettori(
+    dxf: &[u8],
+) -> (
+    std::result::Result<usize, ()>,
+    std::result::Result<usize, ()>,
+) {
+    let completo = __fuzz_read_dxf(dxf).map_err(|_| ());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("prova.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    let progressivo = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .map_err(|_| ())
+        .and_then(|dataset| {
+            let mut reader = dataset
+                .open_layer_reader(&plenora_io_core::request::ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::Complete,
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })
+                .map_err(|_| ())?;
+            let mut righe = 0;
+            while let Some(batch) = reader.next_batch().map_err(|_| ())? {
+                righe += batch.num_rows();
+            }
+            Ok(righe)
+        });
+    (completo, progressivo)
+}
+
+fn rifiutato(nome: &str, dxf: &[u8]) {
+    let (completo, progressivo) = esito_dei_due_lettori(dxf);
+    assert!(
+        completo.is_err(),
+        "{nome}: il lettore completo accetta {completo:?}"
+    );
+    assert!(
+        progressivo.is_err(),
+        "{nome}: il lettore progressivo accetta {progressivo:?}"
+    );
+}
+
+fn letto(nome: &str, dxf: &[u8], righe: usize) {
+    let (completo, progressivo) = esito_dei_due_lettori(dxf);
+    assert_eq!(completo, Ok(righe), "{nome}: controllo, lettore completo");
+    assert_eq!(
+        progressivo,
+        Ok(righe),
+        "{nome}: controllo, lettore progressivo"
+    );
+}
+
+fn entita(corpo: &str) -> Vec<u8> {
+    format!("0\nSECTION\n2\nENTITIES\n{corpo}0\nENDSEC\n0\nEOF\n").into_bytes()
+}
+
+const LINEA: &str = "0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n";
+
+/// Un tipo di entita' che il lettore non conosce era consumato e scartato, e
+/// il rifiuto delle entita' non gestite del driver non veniva raggiunto: il
+/// documento si leggeva senza di lei. Lo stesso per una DIMENSION senza un
+/// sottotipo riconosciuto, saltata con `continue`.
+#[test]
+fn un_entita_di_tipo_sconosciuto_rifiuta_il_documento() {
+    letto("controllo", &entita(LINEA), 1);
+    rifiutato(
+        "tipo sconosciuto",
+        &entita(&format!("{LINEA}0\nLINEE\n8\n0\n10\n0\n20\n0\n")),
+    );
+    rifiutato(
+        "DIMENSION senza sottotipo",
+        &entita(&format!(
+            "{LINEA}0\nDIMENSION\n8\n0\n100\nAcDbDimension\n70\n0\n"
+        )),
+    );
+}
+
+/// Dentro un BLOCK l'entita' sconosciuta conta se il blocco viene esploso: un
+/// INSERT che lo usa si rifiuta, un blocco che nessuno inserisce non produce
+/// righe e non cambia l'esito.
+#[test]
+fn un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito() {
+    let blocco = |corpo_del_blocco: &str, modello: &str| {
+        format!(
+            "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n{corpo_del_blocco}0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{modello}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    let insert = "0\nINSERT\n2\nB\n10\n0\n20\n0\n";
+    letto("controllo", &blocco(LINEA, insert), 1);
+    rifiutato(
+        "blocco inserito",
+        &blocco(&format!("{LINEA}0\nLINEE\n10\n0\n"), insert),
+    );
+    letto(
+        "blocco non inserito",
+        &blocco(&format!("{LINEA}0\nLINEE\n10\n0\n"), LINEA),
+        1,
+    );
+}
+
+/// Una riga di codice vuota era la fine dell'ingresso: un DXF con una riga
+/// vuota in testa si leggeva come un documento vuoto. Un codice senza la riga
+/// del valore era un valore vuoto.
+#[test]
+fn una_riga_vuota_non_e_la_fine_del_documento() {
+    let documento = entita(LINEA);
+    letto("controllo", &documento, 1);
+    let mut con_riga_vuota = b"\n".to_vec();
+    con_riga_vuota.extend_from_slice(&documento);
+    rifiutato("riga vuota in testa", &con_riga_vuota);
+    let mut in_mezzo = b"0\nSECTION\n2\nENTITIES\n".to_vec();
+    in_mezzo.extend_from_slice(b"\n");
+    in_mezzo.extend_from_slice(LINEA.as_bytes());
+    in_mezzo.extend_from_slice(b"0\nENDSEC\n0\nEOF\n");
+    rifiutato("riga vuota in mezzo", &in_mezzo);
+    rifiutato(
+        "codice senza valore",
+        b"0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21",
+    );
+}
+
+/// `\U+ZZZZ` e un surrogato diventavano `?`; una barra negli ultimi sei
+/// caratteri della riga spariva con cio' che la seguiva. Un nome di layer e un
+/// testo arrivano entrambi all'uscita.
+#[test]
+fn le_sequenze_unicode_non_valide_rifiutano_e_le_barre_restano() {
+    let linea_su_layer = |layer: &str| {
+        entita(&format!(
+            "0\nLINE\n8\n{layer}\n10\n0\n20\n0\n11\n1\n21\n1\n"
+        ))
+    };
+    letto("controllo", &linea_su_layer("Rep\\U+00E8re"), 1);
+    rifiutato("cifre non esadecimali", &linea_su_layer("A\\U+ZZZZ"));
+    rifiutato("surrogato", &linea_su_layer("A\\U+D800"));
+    rifiutato("sequenza troncata", &linea_su_layer("A\\U+00"));
+
+    let testo = |valore: &str| {
+        let dxf = entita(&format!(
+            "0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n{valore}\n"
+        ));
+        let drawing = Drawing::load(&mut std::io::Cursor::new(dxf)).unwrap();
+        let letti: Vec<String> = drawing
+            .entities()
+            .filter_map(|e| match e.specific {
+                EntityType::Text(ref t) => Some(t.value.clone()),
+                _ => None,
+            })
+            .collect();
+        letti
+    };
+    assert_eq!(testo("riga\\P"), ["riga\\P"], "la barra finale resta");
+    assert_eq!(
+        testo("\\Pab\\U+00E8"),
+        ["\\Pab\u{e8}"],
+        "e non sposta la sequenza dopo"
+    );
+}
+
+/// Tre X, tre Y e due Z davano due punti: il terzo spariva.
+#[test]
+fn le_coordinate_disallineate_di_una_spline_rifiutano_il_documento() {
+    let spline = |z: &str| {
+        entita(&format!(
+            "0\nSPLINE\n8\n0\n70\n8\n71\n2\n72\n6\n73\n3\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n{z}10\n1\n20\n1\n10\n2\n20\n0\n"
+        ))
+    };
+    // I 30 vanno dopo ogni 10/20: qui si scrivono tutti in coda alla prima
+    // coppia, il lettore li accoda nell'ordine in cui arrivano.
+    letto("controllo", &spline("30\n0\n30\n0\n30\n0\n"), 1);
+    rifiutato("due Z per tre punti", &spline("30\n0\n30\n0\n"));
+}
+
+/// `NaN` e `inf` passavano il parse dei reali; una normale non finita, o
+/// nulla, diventava l'asse Z.
+#[test]
+fn i_reali_non_finiti_e_le_normali_nulle_rifiutano_il_documento() {
+    let cerchio =
+        |normale: &str| entita(&format!("0\nCIRCLE\n8\n0\n10\n0\n20\n0\n40\n1\n{normale}"));
+    letto("controllo", &cerchio("210\n0\n220\n0\n230\n1\n"), 1);
+    rifiutato("normale NaN", &cerchio("210\nNaN\n220\n0\n230\n1\n"));
+    rifiutato("normale inf", &cerchio("210\ninf\n220\n0\n230\n1\n"));
+    rifiutato("normale nulla", &cerchio("210\n0\n220\n0\n230\n0\n"));
+    rifiutato(
+        "coordinata infinita",
+        &entita("0\nLINE\n10\n0\n20\n0\n11\ninfinity\n21\n1\n"),
+    );
+}
+
+/// Pesi non finiti, nulli o negativi diventavano 1.0, e un vettore dei nodi
+/// sbagliato faceva disegnare la poligonale di controllo al posto della curva.
+#[test]
+fn i_pesi_e_i_nodi_non_validi_di_una_spline_rifiutano_il_documento() {
+    let spline = |nodi: &str, pesi: &str| {
+        entita(&format!(
+            "0\nSPLINE\n8\n0\n70\n8\n71\n2\n72\n6\n73\n3\n{nodi}{pesi}10\n0\n20\n0\n30\n0\n10\n1\n20\n1\n30\n0\n10\n2\n20\n0\n30\n0\n"
+        ))
+    };
+    let nodi = "40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n";
+    letto("controllo", &spline(nodi, ""), 1);
+    letto(
+        "controllo con pesi",
+        &spline(nodi, "41\n1\n41\n2\n41\n1\n"),
+        1,
+    );
+    rifiutato("peso nullo", &spline(nodi, "41\n1\n41\n0\n41\n1\n"));
+    rifiutato("peso negativo", &spline(nodi, "41\n1\n41\n-2\n41\n1\n"));
+    rifiutato("pesi mancanti", &spline(nodi, "41\n1\n41\n1\n"));
+    rifiutato(
+        "nodi mancanti",
+        &spline("40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n", ""),
+    );
+}
+
+/// Un fattore di scala nullo diventava 1, e un INSERT con attributi e senza
+/// blocco passava con il solo punto timbro.
+#[test]
+fn un_insert_con_scala_nulla_o_senza_blocco_rifiuta_il_documento() {
+    let documento = |scala: &str, nome: &str| {
+        format!(
+            "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n{LINEA}0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\n{nome}\n10\n0\n20\n0\n{scala}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    letto("controllo", &documento("41\n2\n", "B"), 1);
+    rifiutato("scala X nulla", &documento("41\n0\n", "B"));
+    let attributo = "66\n1\n0\nATTRIB\n8\n0\n10\n0\n20\n0\n40\n1\n1\nv\n2\nTAG\n0\nSEQEND\n";
+    rifiutato("blocco assente con attributi", &{
+        let mut d = documento("", "ASSENTE");
+        let testo = String::from_utf8(d.clone()).unwrap();
+        d = testo
+            .replace(
+                "10\n0\n20\n0\n0\nENDSEC\n0\nEOF",
+                &format!("10\n0\n20\n0\n{attributo}0\nENDSEC\n0\nEOF"),
+            )
+            .into_bytes();
+        d
+    });
+}
+
 #[test]
 fn row_level_dxf_failure_reports_the_top_level_entity_index() {
     let directory = tempfile::tempdir().unwrap();

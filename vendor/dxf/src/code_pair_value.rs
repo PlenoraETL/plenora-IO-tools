@@ -194,42 +194,29 @@ pub(crate) fn escape_unicode_to_ascii(val: &str) -> String {
     result
 }
 
-pub(crate) fn un_escape_ascii_to_unicode(val: &str) -> String {
-    let mut result = String::from("");
-    let mut seq = String::from("");
-    let mut in_escape_sequence = false;
-    let mut sequence_start = 0;
-
-    for (i, c) in val.chars().enumerate() {
-        if !in_escape_sequence {
-            if c == '\\' {
-                in_escape_sequence = true;
-                sequence_start = i;
-                seq.clear();
-                seq.push(c);
-            } else {
-                result.push(c);
-            }
-        } else {
-            seq.push(c);
-            if i == sequence_start + 6 {
-                in_escape_sequence = false;
-                if let Some(code_str) = seq.strip_prefix("\\U+") {
-                    let decoded = match u32::from_str_radix(code_str, 16) {
-                        Ok(code) => std::char::from_u32(code).unwrap_or('?'),
-                        Err(_) => '?',
-                    };
-                    result.push(decoded);
-                } else {
-                    result.push_str(&seq);
-                }
-
-                seq.clear();
-            }
+/// Decodifica le sequenze `\U+XXXX` del DXF ASCII.
+///
+/// Upstream raccoglieva sette caratteri dopo ogni barra rovescia: una
+/// sequenza `\U+` non valida o un surrogato diventavano `?`, e una barra
+/// negli ultimi sei caratteri della riga -- come il `\P` di fine paragrafo di
+/// un MTEXT -- spariva con cio' che la seguiva. Qui una barra non seguita da
+/// `U+` resta com'e', e una `\U+` che non e' seguita da quattro cifre
+/// esadecimali di un carattere valido rende la riga illeggibile: `None`.
+pub(crate) fn un_escape_ascii_to_unicode(val: &str) -> Option<String> {
+    let mut result = String::with_capacity(val.len());
+    let mut resto = val;
+    while let Some(posizione) = resto.find("\\U+") {
+        result.push_str(&resto[..posizione]);
+        let cifre = resto.get(posizione + 3..posizione + 7)?;
+        if !cifre.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
         }
+        let codice = u32::from_str_radix(cifre, 16).ok()?;
+        result.push(std::char::from_u32(codice)?);
+        resto = &resto[posizione + 7..];
     }
-
-    result
+    result.push_str(resto);
+    Some(result)
 }
 
 /// Formats an `f64` value with up to 12 digits of precision, ensuring at least one trailing digit after the decimal.
@@ -284,11 +271,14 @@ mod tests {
         // values in the middle of the string
         assert_eq!(
             "Repère pièce",
-            un_escape_ascii_to_unicode("Rep\\U+00E8re pi\\U+00E8ce")
+            un_escape_ascii_to_unicode("Rep\\U+00E8re pi\\U+00E8ce").unwrap()
         );
 
         // value is entire string
-        assert_eq!("你好", un_escape_ascii_to_unicode("\\U+4F60\\U+597D"));
+        assert_eq!(
+            "你好",
+            un_escape_ascii_to_unicode("\\U+4F60\\U+597D").unwrap()
+        );
     }
 
     #[test]

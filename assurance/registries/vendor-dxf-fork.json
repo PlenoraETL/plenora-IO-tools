@@ -13,11 +13,13 @@
   "delta_funzionale": [
     {
       "file": "src/code_pair_iter.rs",
-      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input"
+      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input Riga vuota e fine dell'ingresso non si confondono piu': `read_buffered_line` restituisce `None` solo a zero byte letti. Una riga di codice vuota seguita da altro che spazio bianco e' un errore (upstream: la fine del documento, e un DXF con una riga vuota in testa si leggeva vuoto); un codice senza la riga del valore e' `UnexpectedEndOfInput` (upstream: valore vuoto). Una sequenza `\\U+` non valida rende la riga un errore.",
+      "provato_da": " `driver_dxf::tests::una_riga_vuota_non_e_la_fine_del_documento` e `un_documento_con_parti_perse_esce_con_la_busta`, rosse su 9e85c61."
     },
     {
       "file": "src/drawing.rs",
-      "cambiamento": "DrawingEntityReader, reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta; raggruppa POLYLINE/VERTEX, attributi di INSERT e MTEXT come il loader upstream"
+      "cambiamento": "DrawingEntityReader, reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta; raggruppa POLYLINE/VERTEX, attributi di INSERT e MTEXT come il loader upstream Dal 2026-10-05 `Drawing` conta le entita' dello spazio modello scartate perche' di tipo non supportato e ricorda i blocchi che ne contenevano: due campi **privati** e due metodi pubblici nuovi, `unsupported_model_space_entities` e `block_has_unsupported_entities`. Nessun tipo pubblico esistente cambia forma: si aggiungono metodi, non campi pubblici ne' varianti.",
+      "provato_da": " le prove di `src/entity.rs`."
     },
     {
       "file": "src/lib.rs",
@@ -25,23 +27,23 @@
     },
     {
       "file": "src/block.rs",
-      "cambiamento": "`read_block` pretende che ogni giro del proprio ciclo abbia progredito. `Entity::read` restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC` -- cioe' quando la sezione BLOCKS finisce e il BLOCK corrente non ha mai visto il proprio ENDBLK -- e il ciclo riprendeva la stessa coppia all'infinito, allocando a ogni giro. Undici righe di DXF tenevano il lettore occupato senza fine. Dal 2026-10-05 il progresso si misura con `CodePairPutBack::posizione` -- le coppie consumate -- invece che confrontando il valore della coppia ritrovata con quella di partenza: la stessa misura governa ora tutti i cicli della classe, ed e' indipendente dagli offset, che negli helper di test upstream valgono tutti zero.",
+      "cambiamento": "`read_block` pretende che ogni giro del proprio ciclo abbia progredito. `Entity::read` restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC` -- cioe' quando la sezione BLOCKS finisce e il BLOCK corrente non ha mai visto il proprio ENDBLK -- e il ciclo riprendeva la stessa coppia all'infinito, allocando a ogni giro. Undici righe di DXF tenevano il lettore occupato senza fine. Dal 2026-10-05 il progresso si misura con `CodePairPutBack::posizione` -- le coppie consumate -- invece che confrontando il valore della coppia ritrovata con quella di partenza: la stessa misura governa ora tutti i cicli della classe, ed e' indipendente dagli offset, che negli helper di test upstream valgono tutti zero. Registra nel `Drawing` il nome del BLOCK che conteneva entita' scartate.",
       "trovato_da": "la fuzz smoke su `dxf_reader`, il 2026-09-02, con un input di 213 byte. Riprodotto in locale per novanta secondi senza mai arrivare in fondo, e ridotto a un seme di undici righe che sul codice non corretto scade e su quello corretto esce in 0,089 s.",
-      "provato_da": "`fuzz/seeds/dxf_reader/block-senza-endblk.dxf`, versionato, e `driver_dxf::tests::un_blocco_senza_endblk_non_gira_a_vuoto`. Il seme conta perche' un test non puo' asserire su una funzione che non ritorna: il tetto di libFuzzer trasforma l'attesa in un rosso, il test invece resterebbe appeso.",
+      "provato_da": "`fuzz/seeds/dxf_reader/block-senza-endblk.dxf`, versionato, e `driver_dxf::tests::un_blocco_senza_endblk_non_gira_a_vuoto`. Il seme conta perche' un test non puo' asserire su una funzione che non ritorna: il tetto di libFuzzer trasforma l'attesa in un rosso, il test invece resterebbe appeso. `un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito`.",
       "perche_non_un_caso_speciale": "la guardia non nomina `ENDSEC`. Nominare la sola coppia che oggi si comporta cosi' lascerebbe la porta aperta alla prossima, e questo ciclo non ha modo di accorgersene da solo."
     },
     {
       "file": "src/code_pair_put_back.rs",
-      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento. Dal secondo giro di revisione l'arresto ha anche un ingresso diretto, `ferma(offset)`, che usano gli errori a rischio di essere inghiottiti: la profondita' dei gruppi e ogni errore che `EntityIter` e `ObjectIter` ricevono.",
+      "cambiamento": "l'iteratore con rimessa indietro conta le coppie consumate (`posizione`), offre ai cicli la guardia `esigi_progresso` e porta un **fondo**: oltre 1024 letture di fila servite dalla pila senza estrarre una coppia nuova si ferma con `DxfError::ParseError(offset)`. Una volta fermo resta fermo -- ogni lettura successiva e' lo stesso errore -- perche' `EntityIter` e `ObjectIter` trasformano gli errori in fine sequenza, e un chiamante che inghiotte il primo errore non deve poter proseguire come se la sezione fosse finita. Nessun tipo pubblico cambia: `CodePairPutBack` e' `pub(crate)` e l'errore usa una variante esistente, che porta l'offset e nessun valore del documento. Dal secondo giro di revisione l'arresto ha anche un ingresso diretto, `ferma(offset)`, che usano gli errori a rischio di essere inghiottiti: la profondita' dei gruppi e ogni errore che `EntityIter` e `ObjectIter` ricevono. Conta le entita' scartate (`entita_ignorate`).",
       "trovato_da": "il soak di `dxf_reader` del 2026-10-05 sulla VM di qualifica, con un input di 235 byte (sha256 b4e08808afa9d8ded0573dc0407f3b15046fc6f14029ceb7c7b161e3c59e0b42). La 4.0.0 e la 4.1.0 allocavano 5,9 GB e abortivano con exit 134, senza busta.",
-      "provato_da": "i cinque test del modulo, eseguiti con la suite del crate (`cargo test --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>`: 297 verdi), fra cui `il_fondo_ferma_un_ciclo_che_rilegge_senza_fine` e `le_riletture_legittime_non_si_accumulano`. Misurato anche dall'esterno: con il solo fondo, senza le guardie esplicite, il caso del soak esce con la busta e le prove di `driver-dxf` e della CLI passano.",
+      "provato_da": "i cinque test del modulo, eseguiti con la suite del crate (`cargo test --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>`: 297 verdi), fra cui `il_fondo_ferma_un_ciclo_che_rilegge_senza_fine` e `le_riletture_legittime_non_si_accumulano`. Misurato anche dall'esterno: con il solo fondo, senza le guardie esplicite, il caso del soak esce con la busta e le prove di `driver-dxf` e della CLI passano. le prove di `src/entity.rs`.",
       "perche_un_fondo": "le guardie esplicite stanno nei cicli che il censimento ha trovato; il fondo ferma quelli che nessuno ha ancora trovato. Un ciclo che gira senza consumare e continua a leggere rilegge per forza dalla pila: e' l'unico modo di non avanzare, ed e' li' che si conta. 1024 sta due ordini di grandezza sopra la catena di riletture legittime piu' profonda del fork, e molto sotto cio' che serve per diventare un problema di memoria."
     },
     {
       "file": "src/object.rs",
-      "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo.",
+      "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo. GEODATA: punti sorgente e destinazione in numero diverso si rifiutano invece di essere troncati da `zip`; lo stesso per gli elementi di MLINESTYLE.",
       "trovato_da": "il primo ciclo dal soak di `dxf_reader` del 2026-10-05; il secondo dal censimento della classe fatto con la correzione.",
-      "provato_da": "`fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf` (il caso originale, versionato), `driver_dxf::tests::il_caso_del_soak_sectionsettings_ritorna_con_un_errore`, `driver_dxf::tests::un_section_type_settings_che_non_consuma_si_rifiuta` (lettore completo e progressivo), `driver_dxf::tests::la_guardia_di_tablestyle_lascia_passare_un_documento_valido` e, sul binario con un tempo massimo, `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione le prove ostili superano i 2 GB di memoria privata in meno di quattro secondi e vengono uccise; con le sole guardie esplicite, fondo disattivato, passano.",
+      "provato_da": "`fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf` (il caso originale, versionato), `driver_dxf::tests::il_caso_del_soak_sectionsettings_ritorna_con_un_errore`, `driver_dxf::tests::un_section_type_settings_che_non_consuma_si_rifiuta` (lettore completo e progressivo), `driver_dxf::tests::la_guardia_di_tablestyle_lascia_passare_un_documento_valido` e, sul binario con un tempo massimo, `crates/plenora-io-tools/tests/dxf_che_non_avanza.rs`. Senza la correzione le prove ostili superano i 2 GB di memoria privata in meno di quattro secondi e vengono uccise; con le sole guardie esplicite, fondo disattivato, passano. il caso GEODATA e MLINESTYLE non ha una prova dedicata: la regola e' quella di `combine_points_*`, provata sulla SPLINE.",
       "perche_non_un_caso_speciale": "la guardia non nomina il codice `72` del caso: pretende che il giro abbia consumato. Nominare il codice lascerebbe aperti tutti gli altri che `SectionTypeSettings::read` non conosce."
     },
     {
@@ -74,6 +76,30 @@
       "cambiamento": "come `EntityIter`: un errore di `Object::read` ferma l'iteratore invece di chiudere in silenzio la sezione OBJECTS. Prima un oggetto illeggibile seguito da `0/ENDSEC` faceva accettare il documento senza gli oggetti successivi -- un `GEODATA` fra loro avrebbe cambiato il CRS risolto.",
       "trovato_da": "la ricerca degli altri errori inghiottiti, nella stessa revisione.",
       "provato_da": "`driver_dxf::tests::un_oggetto_illeggibile_rifiuta_il_documento`, rossa sulla revisione precedente."
+    },
+    {
+      "file": "src/entity.rs",
+      "cambiamento": "Un'entita' di tipo sconosciuto e una DIMENSION senza sottotipo riconosciuto, che upstream scartava in silenzio, ora si contano (`CodePairPutBack::segnala_entita_ignorata`): il documento le riporta e il driver rifiuta. Le chiamate di `combine_points_*` in `post_parse` propagano l'errore.",
+      "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
+      "provato_da": "`driver_dxf::tests::un_entita_di_tipo_sconosciuto_rifiuta_il_documento`, `un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito`, `le_coordinate_disallineate_di_una_spline_rifiutano_il_documento`; sul binario `un_documento_con_parti_perse_esce_con_la_busta`. Rosse su 9e85c61."
+    },
+    {
+      "file": "src/code_pair_value.rs",
+      "cambiamento": "`un_escape_ascii_to_unicode` riscritta: decodifica solo `\\U+` seguita da quattro cifre esadecimali di un carattere valido, rifiuta (`None`) ogni altra `\\U+`, e lascia intatta ogni altra barra rovescia. Upstream raccoglieva sette caratteri dopo ogni barra: `\\U+ZZZZ` e i surrogati diventavano `?`, e una barra negli ultimi sei caratteri della riga -- il `\\P` di fine paragrafo -- spariva con cio' che seguiva; una barra prima di una `\\U+` ne spostava la finestra e la sequenza non veniva decodificata.",
+      "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
+      "provato_da": "`driver_dxf::tests::le_sequenze_unicode_non_valide_rifiutano_e_le_barre_restano`, rossa su 9e85c61; i due test upstream del modulo restano verdi."
+    },
+    {
+      "file": "src/helper_functions.rs",
+      "cambiamento": "`combine_points_2` e `combine_points_3` rifiutano liste di lunghezza diversa (upstream: `zip`, tre X tre Y due Z davano due punti). `parse_f64` e `read_f64` rifiutano i reali non finiti (`NaN`, `inf`, `infinity` passavano il parse).",
+      "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
+      "provato_da": "`le_coordinate_disallineate_di_una_spline_rifiutano_il_documento`, `i_reali_non_finiti_e_le_normali_nulle_rifiutano_il_documento`, rosse su 9e85c61."
+    },
+    {
+      "file": "src/dxb_reader.rs",
+      "cambiamento": "`read_f` propagava un reale illeggibile come `0.0` (`unwrap_or`): ora propaga l'errore. Il DXB e' raggiungibile dal lettore completo, non dalla CLI, che lo rifiuta.",
+      "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
+      "provato_da": "nessuna prova dedicata: il percorso e' fuori dalla CLI."
     }
   ],
   "invarianti_del_fork": [
@@ -183,6 +209,118 @@
       "hazard": "un file valido per la specifica con piu' di 256 livelli viene rifiutato. E' un rifiuto esplicito, mai una lettura parziale. Il rischio opposto -- un tetto troppo alto -- e' l'abort senza busta per stack esaurito, ed e' quello che il tetto esiste per escludere.",
       "misura": "lettura completa (BLOCK, INSERT esploso, entita') senza tetto, thread principale Windows da 1 MiB: binario di rilascio ~1660 livelli XDATA e ~2340 di gruppi `102`; build di debug ~439 e ~415. 256 lascia un margine di 6,5x sul rilascio e di 1,6x sul caso peggiore di debug. Su Linux il thread principale ha 8 MiB; i thread Rust ne hanno 2. La prova di confine gira in un thread da 1 MiB.",
       "condizione_di_rientro": "il tetto si alza o si toglie quando l'albero dei gruppi non e' piu' attraversato per ricorsione -- lettura, `Clone`, `Drop`, `PartialEq`, `Debug`, scrittura -- oppure quando la lettura gira su un thread con uno stack dimensionato e misurato per un tetto piu' alto. Un file reale che lo superi e' la ragione per farlo."
+    },
+    {
+      "id": "dxf.blocco-non-inserito-con-entita-sconosciute",
+      "regola": "un BLOCK che contiene entita' di tipo sconosciuto si rifiuta solo se un INSERT lo esplode; se nessuno lo inserisce il documento si legge.",
+      "ambito": "BLOCKS, entrambi i lettori.",
+      "hazard": "nessuno sull'uscita: un blocco non inserito non produce righe. Il documento contiene cio' che il lettore non conosce, e la lettura non lo dice.",
+      "condizione_di_rientro": "se un giorno i blocchi entrassero nell'uscita da soli -- come layer o come definizioni --, il rifiuto va esteso a ogni blocco."
+    },
+    {
+      "id": "dxf.oggetti-di-tipo-sconosciuto",
+      "regola": "un oggetto di tipo sconosciuto nella sezione OBJECTS e' scartato, come upstream.",
+      "ambito": "OBJECTS; il driver legge solo GEODATA, che il lettore conosce.",
+      "hazard": "nessuno sull'uscita attuale. Un oggetto sconosciuto che portasse informazione sul CRS non sarebbe visto, e la risoluzione del CRS seguirebbe le altre fonti (o `--assume-crs`).",
+      "condizione_di_rientro": "quando il driver legge un altro tipo di oggetto, lo scarto silenzioso va trattato come per le entita'."
+    },
+    {
+      "id": "dxf.default-di-normalizzazione",
+      "regola": "`Drawing::normalize` (lettore completo) e i default del fork restano come upstream: GUID illeggibile -> nullo, valore di enumerazione fuori intervallo -> default, altezze e spaziature non positive di HEADER e tabelle -> default, layer vuoto -> \"0\".",
+      "ambito": "campi che il driver non espone, con un'eccezione: il layer. Un layer vuoto e' gia' trattato dal driver come \"0\" (eredita il contesto), quindi il default del fork non cambia l'uscita.",
+      "hazard": "nessuno sull'uscita attuale; un uso futuro di quei campi erediterebbe i default senza saperlo.",
+      "condizione_di_rientro": "un campo che entra nell'uscita va prima tolto dalla normalizzazione o reso fallibile."
     }
-  ]
+  ],
+  "censimento_perdite_silenziose": {
+    "data": "2026-10-05",
+    "classe": "un documento accettato senza errore con una parte persa, troncata o sostituita da un default. La regola del repository (AGENTS, regola 1) vuole il rifiuto esplicito; dove il driver ha gia' una politica -- le entita' che non sa rappresentare si rifiutano -- quella vale anche qui.",
+    "metodo": "ricerca di `unwrap_or`, `unwrap_or_default`, `filter_map`, `zip`, `continue`, `.ok()`, `Err(_)`, `ensure_positive_or_default`, `default_if_empty` nei sorgenti del fork, nel codice generato in `OUT_DIR` (nessuna occorrenza) e in `crates/driver-dxf/src`; ogni occorrenza letta nel suo contesto.",
+    "corretti": [
+      {
+        "dove": "vendor/dxf/src/entity.rs",
+        "che_cosa": "entita' di tipo sconosciuto e DIMENSION senza sottotipo scartate",
+        "esito": "rifiuto nel driver ('entita' DXF non gestita'), come per i tipi noti e non rappresentabili; in un BLOCK solo se il blocco viene esploso"
+      },
+      {
+        "dove": "vendor/dxf/src/code_pair_iter.rs",
+        "che_cosa": "riga di codice vuota = fine dell'ingresso; codice senza valore = valore vuoto",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "vendor/dxf/src/code_pair_value.rs",
+        "che_cosa": "`\\U+` non valida o surrogato = `?`; barra finale persa; sequenza spostata",
+        "esito": "rifiuto per la `\\U+` non valida; la barra resta"
+      },
+      {
+        "dove": "vendor/dxf/src/helper_functions.rs `combine_points_*`, object.rs GEODATA e MLINESTYLE",
+        "che_cosa": "`zip` tronca alla lista piu' corta",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "vendor/dxf/src/helper_functions.rs `parse_f64`, `read_f64`; dxb_reader.rs `read_f`",
+        "che_cosa": "reali non finiti accettati; reale illeggibile = 0.0 nel DXB",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "crates/driver-dxf/src/geometry.rs `Transform3::ocs`, `tessellate_ellipse3`",
+        "che_cosa": "normale nulla o non normalizzabile = asse Z",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "crates/driver-dxf/src/geometry.rs `tessellate_spline3`",
+        "che_cosa": "pesi non validi = 1.0; nodi sbagliati, intervallo vuoto o nessun campione = poligonale di controllo; grado fuori intervallo abbassato; campioni con peso nullo saltati",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs SPLINE",
+        "che_cosa": "grado nullo o negativo = 1",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs INSERT",
+        "che_cosa": "fattore di scala nullo = 1; blocco assente accettato se l'INSERT ha attributi",
+        "esito": "rifiuto"
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs `write_and_clear`",
+        "che_cosa": "`zip` delle quattro colonne del walker",
+        "esito": "lunghezze verificate, errore se diverse (oggi uguali per costruzione)"
+      }
+    ],
+    "benigni": [
+      {
+        "dove": "crates/driver-dxf/src/lib.rs `crs_kind`",
+        "perche": "`unwrap_or_default` su id e definizione assenti serve solo a classificare; l'assenza resta assenza nel contratto CRS."
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs nome del layer dal file",
+        "perche": "`unwrap_or(\"layer\")` sul nome del file non UTF-8: un nome del dataset, non un dato del documento."
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs scrittura (`continue` sulle geometrie nulle, `z.unwrap_or(0.0)`)",
+        "perche": "percorso di scrittura: la geometria nulla e' un rifiuto per riga dichiarato (`dxf.null_geometry_unsupported`); un punto 2D scritto con quota 0 e' la semantica DXF."
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs `batch_from_walker`, `continue` su geometria assente",
+        "perche": "una riga senza geometria resta nulla nella colonna: nessun valore inventato."
+      },
+      {
+        "dove": "crates/driver-dxf/src/lib.rs `dxf_spool_row_length`",
+        "perche": "dimensioni sature per un conteggio di budget, non dati."
+      },
+      {
+        "dove": "vendor/dxf/src/object.rs XRECORD, `continue`",
+        "perche": "flusso di parsing: ogni coppia e' consumata o conservata in `data_pairs`."
+      },
+      {
+        "dove": "vendor/dxf/src/code_pair_put_back.rs, `unwrap_or(u64::MAX)`, `Err(_) => 0`",
+        "perche": "conteggi e offset diagnostici: l'esito e' comunque un rifiuto."
+      },
+      {
+        "dove": "crates/driver-dxf/src/geometry.rs `Transform::ocs` e `tessellate_spline` (2D)",
+        "perche": "non chiamate dal driver: le usano solo le prove del modulo. Conservano i ripieghi upstream, e la prova `spline_curve_stays_in_control_hull_and_falls_back_when_malformed` li fissa."
+      }
+    ]
+  }
 }
