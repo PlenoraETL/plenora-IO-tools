@@ -186,6 +186,76 @@ class LeRegoleDiSostanza(unittest.TestCase):
         self.assertTrue(any("due adozioni" in e for e in errori), errori)
 
 
+class IRiferimentiIncrociati(unittest.TestCase):
+    """ADOPTION.md al pin 1e902df: un manifesto valido puo' ancora contraddirsi.
+
+    Le controprove sono gli esempi invalidi del checkout fissato, letti dal
+    checkout e non ricopiati: se il repository dei contratti cambiasse un
+    esempio, la sonda lo seguirebbe.
+    """
+
+    ESEMPI = {
+        "adoption-v4-conflicting-surface.json": "superficie",
+        "adoption-v4-duplicate-artifact.json": "due artefatti diversi",
+        "adoption-v4-duplicate-contract.json": "due stati",
+        "adoption-v4-undeclared-artifact.json": "non dichiara",
+    }
+
+    def test_gli_esempi_invalidi_dei_contratti_si_rifiutano(self) -> None:
+        for nome, frammento in self.ESEMPI.items():
+            with self.subTest(esempio=nome):
+                documento = json.loads(
+                    (CONTRATTI / "examples" / "invalid" / nome).read_text("utf-8")
+                )
+                # Validi nella forma: e' il motivo per cui servono questi
+                # controlli e non bastava lo schema.
+                self.assertEqual(gate.valida_forma(documento, SCHEMA), [])
+                errori = gate.riferimenti_incrociati(documento)
+                self.assertTrue(any(frammento in e for e in errori), errori)
+
+    def test_l_esempio_valido_non_ha_contraddizioni(self) -> None:
+        documento = json.loads(
+            (CONTRATTI / "examples" / "valid" / "adoption-manifest-v4.json").read_text("utf-8")
+        )
+        self.assertEqual(gate.riferimenti_incrociati(documento), [])
+
+    def test_le_ripetizioni_coerenti_restano_ammesse(self) -> None:
+        """Stesso artefatto, verifiche diverse: e' ammesso, e il gate non lo boccia."""
+        d = manifesto_minimo()
+        doppione = dict(d["artifacts"][0])
+        doppione["verification"] = ["cargo test -p plenora-io-tools"]
+        d["artifacts"].append(doppione)
+        d["contracts"].append(dict(d["contracts"][0]))
+        self.assertEqual(gate.riferimenti_incrociati(d), [])
+
+    def test_una_deviazione_di_sola_superficie_resta_ammessa(self) -> None:
+        d = manifesto_minimo()
+        d["deviations"] = [
+            {
+                "rule": "X-001",
+                "surface": "runtime",
+                "observed_behavior": "qualcosa",
+                "tracking": "da qualche parte",
+                "detectable_before_invocation": True,
+            }
+        ]
+        self.assertEqual(gate.riferimenti_incrociati(d), [])
+
+    def test_la_verifica_li_include(self) -> None:
+        d = manifesto_minimo()
+        d["deviations"] = [
+            {
+                "rule": "X-001",
+                "artifact": "plenora-io-che-non-c-e",
+                "observed_behavior": "qualcosa",
+                "tracking": "da qualche parte",
+                "detectable_before_invocation": True,
+            }
+        ]
+        errori = gate.verifica(d, CONTRATTI, {})
+        self.assertTrue(any("non dichiara" in e for e in errori), errori)
+
+
 class IlProfiloComeFonte(unittest.TestCase):
     def test_i_contratti_si_leggono_dal_profilo(self) -> None:
         """L'elenco non e' ricopiato: si segue il rimando fino al documento."""
