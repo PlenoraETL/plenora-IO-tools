@@ -335,10 +335,13 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
         IoErrorCode::CrsUnresolved => "CRS_UNRESOLVED",
         _ => "FORMAT_ERROR",
     };
-    let code = if e.category == ErrorCategory::Cancelled {
-        "CANCELLED"
-    } else {
-        code
+    // Una scadenza e' un `timeout` con codice proprio: cadeva nel ramo
+    // generico e usciva `FORMAT_ERROR`, che a chi legge diceva un file
+    // malformato.
+    let code = match (e.category, e.code) {
+        (ErrorCategory::Cancelled, _) => "CANCELLED",
+        (ErrorCategory::Timeout, IoErrorCode::Cancelled) => "DEADLINE_EXCEEDED",
+        _ => code,
     };
     let document = err_doc(code, &e);
     // La diagnostica interna non conforme e' sostituita da un errore
