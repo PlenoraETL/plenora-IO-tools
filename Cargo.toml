@@ -10,6 +10,10 @@ version = "4.1.0"
 edition = "2021"
 rust-version = "1.98.1"
 publish = false
+# I crate sono proprietari e non pubblicati: `license-file` e' il campo Cargo
+# previsto quando non c'e' un identificatore SPDX applicabile, come in
+# plenora-database-tools. I manifesti dei crate lo ereditano.
+license-file = "LICENSE"
 
 # Pin comune con plenora-data-tools (ADR/D0): i RecordBatch passano fra le due
 # librerie senza conversione solo se la versione Arrow coincide.

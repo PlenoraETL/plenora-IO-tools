@@ -3,11 +3,10 @@
 
 # Che cosa protegge
 
-La distribuzione avviene per canale riservato a clienti autorizzati, e nessuna
-licenza first-party e' dichiarata: chi riceve un artefatto non trova dentro
-l'archivio termini che gli concedano qualcosa, e senza concessione esplicita
-non c'e' permesso. Una pubblicazione pubblica sarebbe quindi una consegna senza
-i termini che la governano.
+La distribuzione avviene per canale riservato a clienti autorizzati, sotto la
+licenza proprietaria del repository (`LICENSE`): nessun diritto e' concesso se
+non per accordo scritto con Plenora ETL. Una pubblicazione su un indice
+pubblico sarebbe quindi una consegna fuori dai termini che la governano.
 
 Oggi quella promessa e' mantenuta **per assenza**: nessun workflow carica su un
 indice, e il `pyproject.toml` porta il classificatore che i servizi rifiutano.
@@ -19,9 +18,12 @@ da nessuna parte, e il primo a scoprirlo sarebbe chi trova il pacchetto dove
 non doveva essere. Da li' non si torna indietro: un artefatto pubblicato e' un
 artefatto che qualcuno ha gia' scaricato.
 
-# Le tre domande
+# Le domande
 
-1. Il `pyproject.toml` dichiara `Private :: Do Not Upload`.
+1. Il `pyproject.toml` dichiara `Private :: Do Not Upload`, e come licenza
+   esattamente quella del repository: `Proprietary`, con `LICENSE` alla radice
+   che porta il testo deciso dal titolare. Un valore diverso -- la prima
+   stesura diceva `Apache-2.0` -- sarebbe una concessione inventata.
 2. Nessun workflow invoca uno strumento di pubblicazione, e nessuno nomina un
    segreto d'indice.
 3. La matrice dichiara il canale riservato, e non lo dichiara pubblico.
@@ -48,6 +50,15 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 MATRICE = ROOT / "assurance" / "registries" / "distribuzione-matrice.json"
 
 CLASSIFICATORE = "Private :: Do Not Upload"
+
+#: La licenza decisa dal titolare, la stessa di plenora-database-tools: nei
+#: metadati del pacchetto, e in testa al file `LICENSE`.
+LICENZA_DEI_METADATI = '{ text = "Proprietary" }'
+TESTA_DELLA_LICENZA = (
+    "Proprietary License",
+    "",
+    "Copyright (c) Plenora ETL. All rights reserved.",
+)
 
 #: Gli strumenti che caricano un pacchetto Python su un indice.
 #:
@@ -78,15 +89,24 @@ def problemi() -> list[str]:
             "caricamento, ed e' la prima delle tre cose che tengono il canale "
             "chiuso."
         )
-    # Una licenza dichiarata nei metadati sarebbe un'invenzione finche' il
-    # titolare non fornisce testo e denominazione.
-    if re.search(r"^license\s*=", testo, re.MULTILINE):
+    # La licenza dei metadati e' quella che il titolare ha deciso, e nessun
+    # altra: proprietaria, col testo in `LICENSE`. Un valore diverso sarebbe
+    # una concessione inventata -- e' l'errore da cui si viene: la prima
+    # stesura diceva `Apache-2.0`.
+    dichiarate = re.findall(r"^license\s*=\s*(.+)$", testo, re.MULTILINE)
+    if dichiarate != [LICENZA_DEI_METADATI]:
         trovati.append(
-            "il `pyproject.toml` dichiara un campo `license`. Nessuna licenza "
-            "first-party e' stata decisa, e finche' il titolare non fornisce i "
-            "termini e la denominazione legale esatta qualunque valore li' e' "
-            "inventato -- e' l'errore da cui si viene: la prima stesura diceva "
-            "`Apache-2.0`."
+            f"il `pyproject.toml` dichiara come licenza {dichiarate or 'niente'}: "
+            f"l'unico valore deciso dal titolare e' `{LICENZA_DEI_METADATI}`, "
+            "la licenza proprietaria del repository."
+        )
+    licenza = ROOT / "LICENSE"
+    righe = licenza.read_text(encoding="utf-8").splitlines() if licenza.is_file() else []
+    if righe[:3] != list(TESTA_DELLA_LICENZA):
+        trovati.append(
+            "`LICENSE` alla radice manca o non e' la licenza proprietaria decisa "
+            "dal titolare («Proprietary License», «Copyright (c) Plenora ETL. "
+            "All rights reserved.»)."
         )
 
     for workflow in sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml")):
