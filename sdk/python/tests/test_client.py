@@ -115,17 +115,19 @@ class ConUnFinto(unittest.TestCase):
 
     @saltabile
     def test_niente_json_dove_il_protocollo_mette_la_busta(self) -> None:
-        """Il messaggio nomina il **flusso** atteso, e mostra l'altro.
+        """Il messaggio nomina il **flusso** atteso, e quanto vi ha trovato.
 
         Non «non ho trovato JSON»: chi legge deve poter capire se il binario ha
         scritto sul flusso sbagliato o non ha scritto affatto, e sono due
-        guasti diversi.
+        guasti diversi. La lunghezza basta a distinguerli; il contenuto non si
+        riporta, perche' un errore non porta dati.
         """
         client = self.client('print("non sono JSON")\nsys.exit(3)\n')
         with self.assertRaises(ProtocolError) as preso:
             client.version()
         self.assertIn("su stdout", str(preso.exception))
-        self.assertIn("non sono JSON", str(preso.exception))
+        self.assertIn("14 caratteri", str(preso.exception))
+        self.assertNotIn("non sono JSON", str(preso.exception))
 
     @saltabile
     def test_uscita_a_zero_con_una_busta_che_non_si_dichiara_riuscita(self) -> None:

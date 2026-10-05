@@ -28,9 +28,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any
 
 
@@ -111,39 +109,56 @@ class ErrorEnvelope:
     `plenora-row-diagnostics-v1` -- e modellarlo qui vorrebbe dire ratificare
     in questo ciclo una superficie che non e' stata censita per l'SDK.
 
-    # Di sola lettura, e copiati
+    # Copiati, e decisi una volta sola
 
-    `retry` e `row_diagnostics` sono **copie** congelate di cio' che si e'
-    passato -- `MappingProxyType` per gli oggetti, tuple per gli elenchi -- e
-    non il dizionario del chiamante. Prima la busta conservava quel
-    dizionario: validata con `remote_effect: unknown` e `retry: {kind: never}`,
-    bastava cambiare dopo il dizionario in `{kind: safe}` perche' `retryable`
-    diventasse vero senza nessuna nuova validazione. Ora cio' che si valida e'
-    cio' che resta.
+    Ogni campo e' una **copia** di cio' che si e' passato, fatta di tipi JSON
+    esatti: `retry` e `row_diagnostics` sono dizionari ed elenchi ordinari,
+    ricostruiti valore per valore. La busta non tiene mai un oggetto del
+    chiamante, e cio' che si valida e' cio' che si conserva.
+
+    Le **decisioni** -- `retryable`, `retry_after_ms`,
+    `must_assume_remote_committed` di `CommandFailed` -- non rileggono `retry`:
+    usano il tipo di ritentativo, il ritardo e l'effetto remoto fissati in
+    `__post_init__` dopo la validazione, in attributi privati che non sono
+    campi della dataclass. Prima la busta conservava il dizionario del
+    chiamante, e cambiarlo dopo da `{kind: never}` a `{kind: safe}` rendeva
+    `retryable` vero senza rivalidazione. Ora chi cambia `envelope.retry`
+    cambia la propria copia, non la decisione.
+
+    Perche' dizionari ordinari e non `MappingProxyType`: con il proxy
+    `copy.deepcopy`, `pickle` e `dataclasses.asdict` fallivano, e
+    `dataclasses.replace` rifiutava il proxy prodotto dall'SDK stesso. Con le
+    copie ordinarie le quattro operazioni funzionano come prima, e la
+    garanzia sta dove serve: nelle decisioni, che nessuno puo' riscrivere
+    attraverso un campo pubblico. `replace` ricostruisce la busta e quindi la
+    rivalida.
     """
 
     code: str
     category: str
     phase: str
     remote_effect: str
-    retry: Mapping[str, Any]
+    retry: dict[str, Any]
     message: str
-    row_diagnostics: Mapping[str, Any] | None = None
+    row_diagnostics: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         # La validazione sta **qui** e non solo in `from_json`: una busta
-        # costruita a mano -- in un test, in un adattatore -- arriva alle stesse
-        # proprieta' di `CommandFailed`, e un valore fuori vocabolario deve
-        # fermarsi prima di diventare una risposta su «ritentare e' sicuro».
+        # costruita a mano -- in un test, in un adattatore, da
+        # `dataclasses.replace` -- arriva alle stesse proprieta' di
+        # `CommandFailed`, e un valore fuori vocabolario deve fermarsi prima di
+        # diventare una risposta su «ritentare e' sicuro».
         #
-        # Prima si copia, poi si valida la copia, poi si conserva la copia: la
-        # cosa validata e la cosa conservata sono lo stesso oggetto, e nessuno
-        # fuori ne ha un riferimento.
+        # Prima si copia, poi si valida la copia, poi si conserva la copia.
+        for campo in ("code", "category", "phase", "remote_effect", "message"):
+            object.__setattr__(
+                self, campo, copia_json(getattr(self, campo), f"error.{campo}")
+            )
         if _tipo(self.retry) != "object":
             raise ProtocolError(
                 f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
             )
-        object.__setattr__(self, "retry", copia_json(self.retry, "error.retry", congela=True))
+        object.__setattr__(self, "retry", copia_json(self.retry, "error.retry"))
         if self.row_diagnostics is not None:
             if _tipo(self.row_diagnostics) != "object":
                 raise ProtocolError(
@@ -152,9 +167,16 @@ class ErrorEnvelope:
             object.__setattr__(
                 self,
                 "row_diagnostics",
-                copia_json(self.row_diagnostics, "row_diagnostics", congela=True),
+                copia_json(self.row_diagnostics, "error.details.row_diagnostics"),
             )
         _valida_busta(self)
+        # Le decisioni, fissate sulla copia validata. Sono stringhe e interi
+        # di tipo esatto, cioe' immutabili; non sono campi, quindi `asdict`,
+        # l'uguaglianza e `replace` non le vedono, mentre `copy` e `pickle` le
+        # portano con lo stato dell'istanza.
+        object.__setattr__(self, "_tipo_di_ritentativo", self.retry["kind"])
+        object.__setattr__(self, "_ritardo_ms", self.retry.get("delay_ms"))
+        object.__setattr__(self, "_effetto_remoto", self.remote_effect)
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
@@ -162,11 +184,14 @@ class ErrorEnvelope:
             raise ProtocolError(
                 f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
             )
+        # Tutto il documento, non solo i campi che si leggono: una chiave che
+        # non e' una `str` esatta o un valore che non e' JSON in un ramo
+        # ignorato restano un documento che il wire non produce.
+        documento = copia_json(documento, "busta d'errore")
         errore = documento.get("error")
         if _tipo(errore) != "object":
             raise ProtocolError(
-                "busta d'errore senza l'oggetto `error`: "
-                f"{sorted(documento)}"
+                f"la busta d'errore non porta l'oggetto `error` (e' {_tipo(errore)})."
             )
         mancanti = [
             campo
@@ -261,66 +286,88 @@ RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
 RITARDO_MASSIMO_MS = 86_400_000
 
 
-#: I tipi Python che `json.loads` produce, e il tipo JSON di ciascuno.
-#:
-#: Il confronto e' sul tipo **esatto**, non con `isinstance`. Una sottoclasse
-#: di `str` con `__eq__` e `__hash__` riscritti superava `in EFFETTI_REMOTI`
-#: fingendosi `none`; una di `dict` con `get` riscritto rispondeva a `kind` con
-#: un valore che non aveva. Il wire non le produce mai: chi le passa non sta
-#: passando JSON, e la risposta giusta e' rifiutarle, non interpretarle.
-_TIPI_JSON: dict[type, str] = {
-    type(None): "null",
-    bool: "boolean",
-    int: "integer",
-    float: "number",
-    str: "string",
-    list: "array",
-    dict: "object",
-}
-
-
 def _tipo(valore: Any) -> str:
     """Il tipo JSON **esatto** di un valore, per controlli e messaggi.
 
-    Mai il valore stesso. Per cio' che non e' un tipo prodotto da `json.loads`
-    -- sottoclassi comprese -- rende un nome che nessun controllo accetta.
+    Mai il valore stesso. Il confronto e' per **identita'** del tipo, con
+    `is`: ne' `isinstance`, che accetta le sottoclassi, ne' una ricerca in un
+    dizionario di tipi, che passa per `__hash__` e `__eq__` del tipo e che una
+    metaclasse puo' riscrivere. Una sottoclasse di `str` con `__eq__` e
+    `__hash__` riscritti superava `in EFFETTI_REMOTI` fingendosi `none`; una di
+    `dict` con `get` riscritto rispondeva a `kind` con un valore che non aveva.
+    Il wire non le produce mai: chi le passa non sta passando JSON, e la
+    risposta giusta e' rifiutarle, non interpretarle.
     """
-    return _TIPI_JSON.get(type(valore), f"non JSON ({type(valore).__name__})")
+    tipo = type(valore)
+    if valore is None:
+        return "null"
+    if tipo is bool:
+        return "boolean"
+    if tipo is int:
+        return "integer"
+    if tipo is float:
+        return "number"
+    if tipo is str:
+        return "string"
+    if tipo is list:
+        return "array"
+    if tipo is dict:
+        return "object"
+    return "non JSON"
 
 
-def copia_json(valore: Any, dove: str, *, congela: bool = False) -> Any:
-    """Una copia profonda di un valore JSON, con i soli tipi di `json.loads`.
+def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
+    """Una copia profonda di un valore JSON, ricostruita con i soli tipi esatti.
 
-    Rifiuta con `ProtocolError` ogni tipo non JSON a qualunque profondita',
-    chiavi comprese (solo `str` esatte), e i numeri non finiti. Con `congela`
-    gli oggetti diventano `MappingProxyType` e gli elenchi tuple: nessuno, ne'
-    il chiamante ne' chi riceve la copia, puo' cambiarla dopo.
+    Ogni oggetto ed elenco e' nuovo; le foglie sono di tipo **identico** a
+    `str`, `int`, `float`, `bool` o `None`, cioe' immutabili, e solo allora si
+    conservano. Ogni altro tipo, a qualunque profondita' e nelle chiavi, e i
+    numeri non finiti sono `ProtocolError`.
+
+    `dove` e' il nome di un contenitore del protocollo, scelto da chi chiama.
+    Il messaggio non vi aggiunge le chiavi del documento -- sono dati di chi
+    l'ha scritto, una colonna di `row_diagnostics` per esempio -- ma soltanto
+    la profondita' a cui il difetto sta.
     """
     tipo = _tipo(valore)
     if tipo == "object":
         copia = {}
         for chiave, interno in valore.items():
-            if type(chiave) is not str:
+            if _tipo(chiave) != "string":
                 raise ProtocolError(
-                    f"`{dove}` ha una chiave {_tipo(chiave)} e non una stringa."
+                    f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
+                    f"{_tipo(chiave)} e non una stringa."
                 )
-            copia[chiave] = copia_json(interno, f"{dove}.{chiave}", congela=congela)
-        return MappingProxyType(copia) if congela else copia
+            copia[chiave] = copia_json(interno, dove, _profondita + 1)
+        return copia
     if tipo == "array":
-        copia = [
-            copia_json(interno, f"{dove}[{posizione}]", congela=congela)
-            for posizione, interno in enumerate(valore)
-        ]
-        return tuple(copia) if congela else copia
+        return [copia_json(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
-        raise ProtocolError(f"`{dove}` e' un numero non finito, che JSON non ha.")
-    if tipo.startswith("non JSON"):
-        raise ProtocolError(f"`{dove}` e' {tipo}.")
+        raise ProtocolError(
+            f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
+            "che JSON non ha."
+        )
+    if tipo == "non JSON":
+        raise ProtocolError(
+            f"`{dove}` ha, a profondita' {_profondita}, un valore che non e' "
+            "un tipo JSON esatto."
+        )
     return valore
 
 
 def _rifiuta_costante(nome: str) -> Any:
     raise ProtocolError(f"il documento contiene `{nome}`, che JSON non ha.")
+
+
+def _float_finito(testo: str) -> float:
+    numero = float(testo)
+    if not math.isfinite(numero):
+        # `1e400` non e' una costante: e' un numero che in doppia precisione
+        # trabocca in infinito, e `parse_constant` non lo vede.
+        raise ProtocolError(
+            "il documento contiene un numero che in doppia precisione non e' finito."
+        )
+    return numero
 
 
 def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -336,18 +383,20 @@ def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def carica_json(testo: str) -> Any:
-    """`json.loads` senza le sue due tolleranze.
+    """`json.loads` senza le sue tolleranze.
 
     `NaN`, `Infinity` e `-Infinity` non sono JSON, e `json.loads` li accetta;
-    una chiave ripetuta nello stesso oggetto la risolve tenendo l'ultima. Sono
-    due modi in cui un documento diverso da quello scritto arriverebbe ai
-    modelli senza che nessuno lo veda: qui sono `ProtocolError`. Gli errori di
-    sintassi restano `json.JSONDecodeError`, come prima.
+    un numero come `1e400` diventa infinito per trabocco; una chiave ripetuta
+    nello stesso oggetto si risolve tenendo l'ultima. Sono modi in cui un
+    documento diverso da quello scritto arriverebbe ai modelli senza che
+    nessuno lo veda: qui sono `ProtocolError`. Gli errori di sintassi restano
+    `json.JSONDecodeError`, come prima.
     """
     return json.loads(
         testo,
         object_pairs_hook=_rifiuta_chiavi_doppie,
         parse_constant=_rifiuta_costante,
+        parse_float=_float_finito,
     )
 
 
@@ -373,7 +422,7 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
             "un ritentativo e' sicura."
         )
 
-    # `retry` e' gia' la copia congelata fatta in `__post_init__`.
+    # `retry` e' gia' la copia fatta in `__post_init__`.
     retry = busta.retry
     tipo = retry.get("kind")
     if _tipo(tipo) != "string" or tipo not in TIPI_DI_RITENTATIVO:
@@ -383,9 +432,10 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
         )
     attese = {"kind", "delay_ms"} if tipo == "after" else {"kind"}
     if set(retry) != attese:
+        # Le chiavi in piu' non si nominano: vengono dal documento.
         raise ProtocolError(
-            f"`error.retry` di tipo «{tipo}» ha le chiavi {sorted(retry)}, lo "
-            f"schema ne pretende esattamente {sorted(attese)}."
+            f"`error.retry` di tipo «{tipo}» ha {len(retry)} chiavi e non "
+            f"esattamente {sorted(attese)}, come lo schema pretende."
         )
     if tipo == "after":
         ritardo = retry["delay_ms"]
@@ -443,7 +493,7 @@ class CommandFailed(PlenoraError):
         `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`, e le
         condizioni le dice il tipo stesso.
         """
-        return self.envelope.retry["kind"] in RITENTABILI
+        return self.envelope._tipo_di_ritentativo in RITENTABILI
 
     @property
     def retry_after_ms(self) -> int | None:
@@ -452,8 +502,8 @@ class CommandFailed(PlenoraError):
         `None` non vuol dire «riprova subito»: vuol dire che il prodotto non ha
         detto quanto aspettare, e chi riprova sceglie da se'.
         """
-        retry = self.envelope.retry
-        return retry["delay_ms"] if retry["kind"] == "after" else None
+        busta = self.envelope
+        return busta._ritardo_ms if busta._tipo_di_ritentativo == "after" else None
 
     @property
     def must_assume_remote_committed(self) -> bool:
@@ -479,7 +529,7 @@ class CommandFailed(PlenoraError):
         la differenza fra «commesso» e «ignoto» conta -- per esempio per
         decidere se **verificare** lo stato remoto invece di riprovare.
         """
-        return self.envelope.remote_effect not in EFFETTI_SENZA_RESIDUO
+        return self.envelope._effetto_remoto not in EFFETTI_SENZA_RESIDUO
 
 
 # --- una classe per categoria, e la ragione per cui sono tante --------------

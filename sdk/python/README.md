@@ -103,12 +103,19 @@ permesso. `retryable` e' vero per `safe`, `after`, `requires_idempotency_key` e
 resta aperta: una sconosciuta ripiega su `CommandFailed`, perche' sceglie solo
 la classe dell'eccezione e non decide niente al posto di chi la riceve.
 
-`envelope.retry` e `envelope.row_diagnostics` sono **copie di sola lettura**
-(`MappingProxyType`, elenchi come tuple): cambiare dopo il dizionario da cui la
-busta e' nata non cambia la busta, e la busta non si cambia. L'SDK accetta solo
-i tipi che `json.loads` produce, **esatti**: una sottoclasse di `str` o di
-`dict` e' `ProtocolError`, come una chiave ripetuta o un `NaN` nel documento. I
-modelli tengono una copia propria del documento da cui nascono.
+`envelope.retry` e `envelope.row_diagnostics` sono **copie** ordinarie di cio'
+che si e' passato: cambiare dopo il dizionario da cui la busta e' nata non cambia
+la busta. Le decisioni -- `retryable`, `retry_after_ms`,
+`must_assume_remote_committed` -- si fissano alla costruzione, dopo la
+validazione, e non rileggono quei campi: chi modifica `envelope.retry` cambia la
+propria copia, non la decisione. `copy.deepcopy`, `pickle`,
+`dataclasses.asdict` e `dataclasses.replace` funzionano, e `replace` rivalida.
+L'SDK accetta solo i tipi che `json.loads` produce, confrontati per
+**identita'**: una sottoclasse di `str` o di `dict` e' `ProtocolError`, come una
+chiave ripetuta, un `NaN` o un numero che trabocca in infinito. I modelli
+tengono una copia propria del documento da cui nascono. I messaggi d'errore non
+riportano chiavi o contenuti del documento ne' dei flussi del binario: nominano
+campi del protocollo, tipi, profondita' e lunghezze.
 
 ## L'SDK parla v2, e basta
 

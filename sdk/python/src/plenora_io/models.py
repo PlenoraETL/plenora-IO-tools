@@ -197,10 +197,11 @@ class Version:
     def from_json(cls, documento: dict[str, Any]) -> "Version":
         attesi = ("component_version", "cli_protocol_version")
         documento = _pretendi(documento, attesi, "risultato di --version", cls)
-        in_piu = sorted(set(documento) - set(attesi))
+        in_piu = len(set(documento) - set(attesi))
         if in_piu:
+            # Quante, non quali: i nomi vengono dal documento.
             raise ProtocolError(
-                f"risultato di --version con i campi in piu' {in_piu}. Il suo "
+                f"risultato di --version con {in_piu} campi in piu'. Il suo "
                 "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
             )
         return cls(
@@ -922,7 +923,7 @@ class LossReport:
         for campo in ("counts", "esempi"):
             if _tipo(documento[campo]) != "array":
                 raise ProtocolError(
-                    f"loss.{campo} e' {type(documento[campo]).__name__} e non "
+                    f"loss.{campo} e' {_tipo(documento[campo])} e non "
                     "un elenco."
                 )
         return cls(

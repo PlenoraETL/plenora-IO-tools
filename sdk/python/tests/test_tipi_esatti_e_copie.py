@@ -17,7 +17,10 @@ Le sonde non eseguono un binario e girano ovunque.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
+import pickle
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -87,19 +90,167 @@ class LaBustaNonCondivideNiente(unittest.TestCase):
         self.assertEqual(costruita.retry["kind"], "never")
         self.assertIsNot(costruita.retry, retry)
 
-    def test_retry_e_diagnostica_sono_di_sola_lettura(self) -> None:
+    def test_cambiare_la_copia_pubblica_non_cambia_le_decisioni(self) -> None:
+        """`retry` e' una copia ordinaria; le decisioni stanno altrove."""
+        fallito = failure_from_envelope(
+            {"status": "error", "error": errore(retry={"kind": "never"})}, 5, ["x"]
+        )
+        fallito.envelope.retry["kind"] = "safe"
+        fallito.envelope.retry["delay_ms"] = 1
+        self.assertFalse(fallito.retryable)
+        self.assertIsNone(fallito.retry_after_ms)
+        self.assertTrue(fallito.must_assume_remote_committed)
+
+    def test_la_diagnostica_resta_un_documento_uguale_all_originale(self) -> None:
+        # Niente tuple al posto degli elenchi: il confronto con il documento
+        # d'origine resta vero, e la copia non e' l'originale.
         documento = {"contract": "c", "examples": [{"column": "a"}]}
         letta = busta(details={"row_diagnostics": documento})
-        with self.assertRaises(TypeError):
-            letta.retry["kind"] = "safe"  # type: ignore[index]
-        with self.assertRaises(TypeError):
-            letta.row_diagnostics["contract"] = "altro"  # type: ignore[index]
-        with self.assertRaises(TypeError):
-            letta.row_diagnostics["examples"][0]["column"] = "b"  # type: ignore[index]
+        self.assertEqual(letta.row_diagnostics, documento)
+        self.assertIsNot(letta.row_diagnostics["examples"], documento["examples"])
         documento["examples"][0]["column"] = "cambiata"
         self.assertEqual(letta.row_diagnostics["examples"][0]["column"], "a")
-        # Il confronto con un dizionario resta quello di prima.
-        self.assertEqual(letta.retry, {"kind": "never"})
+
+
+class LaBustaSiCopiaESiSerializza(unittest.TestCase):
+    """`deepcopy`, `pickle`, `asdict` e `replace` funzionano come prima."""
+
+    def busta_piena(self) -> ErrorEnvelope:
+        return busta(
+            remote_effect="partial",
+            retry={"kind": "after", "delay_ms": 10},
+            details={"row_diagnostics": {"examples": [{"column": "a"}]}},
+        )
+
+    def decisioni(self, letta: ErrorEnvelope) -> tuple:
+        fallito = failure_from_envelope(
+            {"status": "error", "error": errore(
+                remote_effect=letta.remote_effect, retry=dict(letta.retry)
+            )},
+            5,
+            ["x"],
+        )
+        return (letta._tipo_di_ritentativo, letta._ritardo_ms, letta._effetto_remoto,
+                fallito.retryable, fallito.retry_after_ms,
+                fallito.must_assume_remote_committed)
+
+    def test_deepcopy(self) -> None:
+        originale = self.busta_piena()
+        copia = copy.deepcopy(originale)
+        self.assertEqual(copia, originale)
+        self.assertIsNot(copia.retry, originale.retry)
+        self.assertEqual(self.decisioni(copia), self.decisioni(originale))
+
+    def test_pickle_andata_e_ritorno(self) -> None:
+        originale = self.busta_piena()
+        tornata = pickle.loads(pickle.dumps(originale))
+        self.assertEqual(tornata, originale)
+        self.assertEqual(tornata._tipo_di_ritentativo, "after")
+        self.assertEqual(tornata._ritardo_ms, 10)
+        self.assertEqual(tornata._effetto_remoto, "partial")
+
+    def test_asdict_rende_i_soli_campi_pubblici(self) -> None:
+        self.assertEqual(
+            dataclasses.asdict(self.busta_piena()),
+            {
+                "code": "X",
+                "category": "internal",
+                "phase": "read",
+                "remote_effect": "partial",
+                "retry": {"kind": "after", "delay_ms": 10},
+                "message": "m",
+                "row_diagnostics": {"examples": [{"column": "a"}]},
+            },
+        )
+
+    def test_replace_ricostruisce_e_rivalida(self) -> None:
+        originale = self.busta_piena()
+        self.assertEqual(dataclasses.replace(originale), originale)
+        cambiata = dataclasses.replace(originale, retry={"kind": "never"})
+        self.assertEqual(cambiata._tipo_di_ritentativo, "never")
+        self.assertIsNone(cambiata._ritardo_ms)
+        with self.assertRaises(ProtocolError):
+            dataclasses.replace(
+                originale, remote_effect="unknown", retry={"kind": "safe"}
+            )
+
+
+class MetaBugiarda(type):
+    """Una metaclasse che fa dire al tipo di essere `str`."""
+
+    def __eq__(cls, altro: object) -> bool:
+        return altro is str or type.__eq__(cls, altro)
+
+    def __hash__(cls) -> int:
+        return hash(str)
+
+
+class Camaleonte(str, metaclass=MetaBugiarda):
+    """Una stringa il cui valore di confronto cambia dopo la costruzione."""
+
+    def __new__(cls, valore: str):
+        istanza = super().__new__(cls, valore)
+        istanza.valore = valore
+        return istanza
+
+    def __eq__(self, altro: object) -> bool:
+        return self.valore == altro
+
+    def __hash__(self) -> int:
+        return hash(self.valore)
+
+
+class IlTipoSiConfrontaPerIdentita(unittest.TestCase):
+    def test_una_metaclasse_che_finge_str_non_passa(self) -> None:
+        """Il caso riprodotto: `retryable` passava da False a True.
+
+        Il tipo del valore si diceva uguale a `str` a un dizionario di tipi; la
+        copia teneva la foglia del chiamante, e cambiarne il valore dopo
+        cambiava la decisione.
+        """
+        self.assertEqual({str: "string"}.get(Camaleonte), "string", "la premessa")
+        for campi in (
+            {"retry": {"kind": Camaleonte("never")}},
+            {"remote_effect": Camaleonte("unknown")},
+            {"code": Camaleonte("X")},
+        ):
+            with self.subTest(campi=campi):
+                with self.assertRaises(ProtocolError):
+                    busta(**campi)
+
+    def test_anche_modelli_e_manifesto(self) -> None:
+        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False}
+        with self.assertRaises(ProtocolError):
+            Field.from_json({**sano, "name": Camaleonte("a")})
+        with self.assertRaises(ManifestError):
+            Manifest.from_json({**MANIFESTO, "profilo": Camaleonte("base")})
+
+
+class TuttoIlDocumentoETipizzato(unittest.TestCase):
+    def test_i_rami_ignorati_sono_controllati_lo_stesso(self) -> None:
+        for documento in (
+            {"status": "error", "error": errore(details={"altro": object()})},
+            {"status": "error", "error": errore(), "extra": [object()]},
+            {"status": "error", "error": errore(), StrBugiarda("chiave"): 1},
+            {"status": "error", "error": errore(details={StrBugiarda("k"): 1})},
+        ):
+            with self.subTest(documento=documento):
+                with self.assertRaises(ProtocolError):
+                    ErrorEnvelope.from_json(documento)
+
+    def test_i_messaggi_non_portano_le_chiavi_del_documento(self) -> None:
+        for campi in (
+            {"details": {"row_diagnostics": {"PRIVATE_COLUMN": object()}}},
+            {"details": {"row_diagnostics": {"PRIVATE_COLUMN": [float("inf")]}}},
+            {"retry": {"kind": "never", "PRIVATE_COLUMN": 1}},
+        ):
+            with self.subTest(campi=campi):
+                with self.assertRaises(ProtocolError) as preso:
+                    busta(**campi)
+                self.assertNotIn("PRIVATE_COLUMN", str(preso.exception))
+        with self.assertRaises(ProtocolError) as preso:
+            ErrorEnvelope.from_json({"PRIVATE_COLUMN": 1})
+        self.assertNotIn("PRIVATE_COLUMN", str(preso.exception))
 
 
 class SoloTipiJsonEsatti(unittest.TestCase):
@@ -188,6 +339,8 @@ class IlJsonDelFilo(unittest.TestCase):
             '{"a": NaN}',
             '{"a": Infinity}',
             '[-Infinity]',
+            '{"a": 1e400}',
+            '[-1e400]',
         ):
             with self.subTest(testo=testo):
                 with self.assertRaises(ProtocolError):
