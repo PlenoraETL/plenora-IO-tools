@@ -44,6 +44,7 @@ import ast
 import json
 import re
 import sys
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -252,10 +253,15 @@ def confronta(
 
 def categorie_del_contratto() -> list[str]:
     """Le varianti di `ErrorCategory`, in snake_case come arrivano sul wire."""
+    return varianti_rust("ErrorCategory")
+
+
+def varianti_rust(enum: str) -> list[str]:
+    """Le varianti di un enum di `error.rs`, in snake_case come sul wire."""
     sorgente = CATEGORIE_RUST.read_text(encoding="utf-8")
-    corpo = re.search(r"pub enum ErrorCategory\s*\{(.*?)\n\}", sorgente, re.S)
+    corpo = re.search(rf"pub enum {enum}\s*\{{(.*?)\n\}}", sorgente, re.S)
     if corpo is None:
-        raise SystemExit("`ErrorCategory` non si trova: il gate non sa che cosa confrontare.")
+        raise SystemExit(f"`{enum}` non si trova: il gate non sa che cosa confrontare.")
     fuori = []
     for riga in corpo.group(1).splitlines():
         riga = riga.strip()
@@ -333,6 +339,105 @@ def tetti_dell_sdk() -> set[str]:
             for campo in campi
         }
     raise SystemExit("`Limits` non si trova in limits.py.")
+
+
+def _sdk_importato():
+    """I moduli dell'SDK, importati dal sorgente di questo checkout.
+
+    Il confronto dei **tipi** non si fa sull'AST come quello dei nomi: la
+    traduzione dall'annotazione al tipo JSON e' `models.tipi_json`, la stessa
+    funzione che valida a runtime, e rileggerla qui con un'altra regola
+    vorrebbe dire approvare una regola diversa da quella che gira.
+    """
+    sys.path.insert(0, str(SDK.parent))
+    try:
+        from plenora_io import errors, models  # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+    return errors, models
+
+
+def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
+    """Ogni campo modellato ammette **esattamente** i tipi che il protocollo dichiara.
+
+    La validazione dei modelli rifiuta un tipo che l'annotazione non ammette.
+    Un'annotazione piu' stretta del protocollo rifiuterebbe buste corrette; una
+    piu' larga lascerebbe passare cio' che il protocollo esclude. Il confronto
+    e' per uguaglianza, campo per campo, e per gli elenchi anche sugli elementi.
+    I campi `OPZIONALI` si confrontano senza `null`: la loro assenza si scrive
+    omettendoli, e `None` in Python e' l'assenza, non un valore del wire.
+    """
+    _, modelli = _sdk_importato()
+    problemi: list[str] = []
+    for nome, (busta, prefisso) in POSTI.items():
+        classe = getattr(modelli, nome)
+        suggerimenti = typing.get_type_hints(classe)
+        struttura = manifesto["envelopes"][busta]["struttura"]
+        base = EREDITA.get(nome)
+        obbligatori = (
+            tuple(getattr(modelli, base).OBBLIGATORI) + tuple(classe.PROPRI)
+            if base
+            else tuple(classe.OBBLIGATORI)
+        )
+        opzionali = tuple(getattr(classe, "OPZIONALI", ()))
+        rinominati_qui = getattr(classe, "RINOMINATI", {})
+        for campo in obbligatori + opzionali:
+            annotazione = suggerimenti[rinominati_qui.get(campo, campo)]
+            percorso = f"{prefisso}.{campo}"
+            if percorso not in struttura:
+                continue  # l'assenza la segnala gia' il confronto dei nomi
+            dichiarati = set(struttura[percorso]["tipi"])
+            ammessi = modelli.tipi_json(annotazione)
+            if ammessi is None:
+                problemi.append(
+                    f"{nome}.{campo}: annotato `Any`, il protocollo lo dichiara "
+                    f"{sorted(dichiarati)}: la validazione non lo guarderebbe."
+                )
+                continue
+            if campo in opzionali:
+                ammessi = ammessi - {"null"}
+            if set(ammessi) != dichiarati:
+                problemi.append(
+                    f"{nome}.{campo}: l'SDK ammette {sorted(ammessi)}, il "
+                    f"protocollo dichiara {sorted(dichiarati)} in «{percorso}»."
+                )
+            elementi = modelli._tipi_degli_elementi(annotazione)
+            dichiarati_el = struttura.get(percorso + "[]", {}).get("tipi")
+            if (
+                elementi is not None
+                and dichiarati_el is not None
+                and set(elementi) != set(dichiarati_el)
+            ):
+                problemi.append(
+                    f"{nome}.{campo}[]: l'SDK ammette {sorted(elementi)}, il "
+                    f"protocollo dichiara {sorted(dichiarati_el)}."
+                )
+    return problemi
+
+
+def vocabolari_della_busta() -> list[str]:
+    """Gli assi chiusi della busta d'errore contro cio' che il prodotto emette.
+
+    L'SDK rifiuta con `ProtocolError` un `remote_effect` o un `retry.kind` fuori
+    dal vocabolario di `plenora-error-v1`. Se il prodotto ne emettesse uno che
+    l'SDK non conosce, ogni busta con quel valore diventerebbe un guasto: il
+    vocabolario dell'SDK deve contenere tutte le varianti di `RemoteEffect` e
+    `RetryDisposition`.
+    """
+    errori, _ = _sdk_importato()
+    problemi: list[str] = []
+    for enum, sdk, nome_sdk in (
+        ("RemoteEffect", errori.EFFETTI_REMOTI, "EFFETTI_REMOTI"),
+        ("RetryDisposition", errori.TIPI_DI_RITENTATIVO, "TIPI_DI_RITENTATIVO"),
+    ):
+        for variante in varianti_rust(enum):
+            if variante not in sdk:
+                problemi.append(
+                    f"`{enum}::{variante}` non e' in `{nome_sdk}`: l'SDK "
+                    "rifiuterebbe come violazione di protocollo una busta che "
+                    "il prodotto emette."
+                )
+    return problemi
 
 
 def rinominati(nome: str) -> dict[str, str]:
@@ -446,6 +551,10 @@ def main() -> int:
             "solo scrivendo la riga a mano. Se non e' un tetto, va dichiarato "
             "in `NON_SONO_TETTI`."
         )
+
+    # --- i tipi dei campi, e i vocabolari che decidono un ritentativo -------
+    problemi.extend(tipi_contro_il_protocollo(manifesto))
+    problemi.extend(vocabolari_della_busta())
 
     # --- le categorie d'errore --------------------------------------------
     attese = set(categorie_del_contratto())

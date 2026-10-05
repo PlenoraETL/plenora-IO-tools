@@ -280,16 +280,19 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         # detto, e chi riprova sceglie da se'.
         self.assertIsNone(sicuro.retry_after_ms)
 
-    def test_un_ritentativo_cieco_non_e_sicuro_in_due_stati(self) -> None:
+    def test_un_ritentativo_cieco_non_e_sicuro_in_tre_stati(self) -> None:
         """La proprieta' dice che cosa **fare**, non che cosa e' successo.
 
-        `committed` e `unknown` portano alla stessa decisione -- non ripetere
-        alla cieca -- e sono due fatti diversi. Il nome dice la decisione.
+        `committed`, `unknown` e `partial` portano alla stessa decisione -- non
+        ripetere alla cieca -- e sono tre fatti diversi. Il nome dice la
+        decisione. `partial` era falso, cioe' «ritentare e' sicuro», mentre
+        `docs/RELEASE.md` chiede proprio per `partial` di non rilanciare alla
+        cieca: una parte del lavoro e' visibile dall'altra parte.
         """
         for effetto, atteso in (
             ("none", False),
             ("rolled_back", False),
-            ("partial", False),
+            ("partial", True),
             ("committed", True),
             ("unknown", True),
         ):

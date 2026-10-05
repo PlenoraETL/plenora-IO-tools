@@ -90,10 +90,18 @@ a dipendere da una stringa che cambia senza preavviso.
 
 L'errore porta i quattro assi interi. `retryable` e `retry_after_ms` dicono se e
 quanto aspettare; `must_assume_remote_committed` dice che un ritentativo cieco
-non e' sicuro -- vera per `committed` e per `unknown`, che portano alla stessa
-decisione pur essendo due fatti diversi. Quale dei due sia lo dice
-`envelope.remote_effect`, che resta intatto: serve a chi deve scegliere se
-**verificare** lo stato remoto invece di riprovare.
+non e' sicuro -- vera per `committed`, `unknown` e `partial`, che portano alla
+stessa decisione pur essendo fatti diversi, falsa solo per `none` e
+`rolled_back`. Quale sia lo dice `envelope.remote_effect`, che resta intatto:
+serve a chi deve scegliere se **verificare** lo stato remoto invece di riprovare.
+
+`remote_effect` e `retry.kind` sono vocabolari **chiusi** di `plenora-error-v1`,
+e sono gli assi da cui si decide se ripetere: un valore assente, `null`,
+sconosciuto o di tipo sbagliato e' `ProtocolError`, non un ritentativo
+permesso. `retryable` e' vero per `safe`, `after`, `requires_idempotency_key` e
+`requires_recovery`; falso per `never` e `quarantine`. La **categoria** invece
+resta aperta: una sconosciuta ripiega su `CommandFailed`, perche' sceglie solo
+la classe dell'eccezione e non decide niente al posto di chi la riceve.
 
 ## L'SDK parla v2, e basta
 

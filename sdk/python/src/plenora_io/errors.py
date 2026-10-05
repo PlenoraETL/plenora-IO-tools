@@ -116,8 +116,19 @@ class ErrorEnvelope:
     message: str
     row_diagnostics: dict[str, Any] | None = None
 
+    def __post_init__(self) -> None:
+        # La validazione sta **qui** e non solo in `from_json`: una busta
+        # costruita a mano -- in un test, in un adattatore -- arriva alle stesse
+        # proprieta' di `CommandFailed`, e un valore fuori vocabolario deve
+        # fermarsi prima di diventare una risposta su «ritentare e' sicuro».
+        _valida_busta(self)
+
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
+        if not isinstance(documento, dict):
+            raise ProtocolError(
+                f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
+            )
         errore = documento.get("error")
         if not isinstance(errore, dict):
             raise ProtocolError(
@@ -134,6 +145,23 @@ class ErrorEnvelope:
                 f"busta d'errore senza i campi obbligatori {mancanti}. "
                 "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
             )
+        # `details` e' facoltativo, ma quando c'e' e' un oggetto: lo schema
+        # `error-v1` non ammette `null`. Prima un `null` diventava `{}` in
+        # silenzio mentre una stringa sollevava `AttributeError` -- due esiti
+        # diversi per lo stesso difetto, nessuno dei due nominato.
+        if "details" in errore and not isinstance(errore["details"], dict):
+            raise ProtocolError(
+                f"`error.details` e' {_tipo(errore['details'])} e non un oggetto: "
+                "lo schema `plenora-error-v1` lo dichiara oggetto quando c'e'."
+            )
+        dettagli = errore.get("details", {})
+        if "row_diagnostics" in dettagli and not isinstance(
+            dettagli["row_diagnostics"], dict
+        ):
+            raise ProtocolError(
+                "`error.details.row_diagnostics` e' "
+                f"{_tipo(dettagli['row_diagnostics'])} e non un oggetto."
+            )
         return cls(
             code=errore["code"],
             category=errore["category"],
@@ -141,7 +169,147 @@ class ErrorEnvelope:
             remote_effect=errore["remote_effect"],
             retry=errore["retry"],
             message=errore["message"],
-            row_diagnostics=(errore.get("details") or {}).get("row_diagnostics"),
+            row_diagnostics=dettagli.get("row_diagnostics"),
+        )
+
+
+# --- i due assi su cui si decide se ripetere ---------------------------------
+#
+# `remote_effect` e `retry.kind` sono **vocabolari chiusi** di
+# `plenora-error-v1` (`plenora-contracts/schemas/error-v1.schema.json`), e
+# sono gli unici due assi della busta da cui chi usa l'SDK ricava un'azione:
+# ripetere o no, verificare lo stato remoto o no. Un valore assente, `null` o
+# sconosciuto non ha una risposta sicura, e prima ne riceveva una **insicura**:
+# `retry.get("kind") != "never"` diceva «ritentabile» per un `kind` mancante, e
+# `remote_effect in ("committed", "unknown")` diceva «nessun effetto remoto da
+# temere» per un valore che non conosceva. Ora sono `ProtocolError`.
+#
+# La categoria resta invece **aperta**: `failure_from_envelope` ripiega su
+# `CommandFailed` per una categoria nuova, perche' la categoria sceglie solo la
+# classe dell'eccezione e il ripiego non fa decidere niente di sbagliato a
+# nessuno. Su questi due assi un ripiego deciderebbe, e un'estensione del
+# vocabolario va accompagnata da un SDK che la conosce.
+
+#: I valori di `remote_effect` in `plenora-error-v1`.
+EFFETTI_REMOTI: frozenset[str] = frozenset(
+    {"none", "rolled_back", "partial", "committed", "unknown"}
+)
+
+#: Gli effetti remoti dopo i quali dall'altra parte non resta niente: gli
+#: unici per cui un ritentativo cieco non rifa' un lavoro gia' fatto.
+EFFETTI_SENZA_RESIDUO: frozenset[str] = frozenset({"none", "rolled_back"})
+
+#: I valori di `retry.kind` in `plenora-error-v1`. `quarantine` non lo emette
+#: questo componente (`RetryDisposition` non lo ha), ma il contratto e'
+#: condiviso: e' un valore valido, e trattarlo da ignoto rifiuterebbe una busta
+#: corretta.
+TIPI_DI_RITENTATIVO: frozenset[str] = frozenset(
+    {
+        "never",
+        "quarantine",
+        "safe",
+        "requires_idempotency_key",
+        "requires_recovery",
+        "after",
+    }
+)
+
+#: I tipi per cui `CommandFailed.retryable` e' vero. Sono quelli di prima --
+#: tutto tranne `never` -- meno `quarantine`, che chiede di **isolare** il
+#: lavoro e non di ripeterlo.
+RITENTABILI: frozenset[str] = TIPI_DI_RITENTATIVO - {"never", "quarantine"}
+
+#: Con `remote_effect: unknown` lo schema ammette soltanto questi tipi: non
+#: sapendo che cosa e' successo di la', un ritentativo «sicuro» o «dopo un
+#: ritardo» sarebbe una contraddizione nella stessa busta.
+RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
+    {"never", "quarantine", "requires_recovery"}
+)
+
+#: Il tetto di `retry.delay_ms` nello schema: un giorno.
+RITARDO_MASSIMO_MS = 86_400_000
+
+
+def _tipo(valore: Any) -> str:
+    """Il tipo JSON di un valore, per i messaggi: mai il valore stesso."""
+    if valore is None:
+        return "null"
+    if isinstance(valore, bool):
+        return "boolean"
+    if isinstance(valore, int):
+        return "integer"
+    if isinstance(valore, float):
+        return "number"
+    if isinstance(valore, str):
+        return "string"
+    if isinstance(valore, list):
+        return "array"
+    if isinstance(valore, dict):
+        return "object"
+    return type(valore).__name__
+
+
+def _valida_busta(busta: "ErrorEnvelope") -> None:
+    """Tipi e vocabolari chiusi della busta, o `ProtocolError`.
+
+    I messaggi nominano il campo e il tipo trovato, non il valore: il valore
+    viene da un processo esterno e non c'e' ragione di ricopiarlo.
+    """
+    for campo in ("code", "category", "phase", "message"):
+        valore = getattr(busta, campo)
+        if not isinstance(valore, str) or not valore:
+            raise ProtocolError(
+                f"`error.{campo}` e' {_tipo(valore)} e non una stringa non vuota."
+            )
+
+    effetto = busta.remote_effect
+    if not isinstance(effetto, str) or effetto not in EFFETTI_REMOTI:
+        raise ProtocolError(
+            f"`error.remote_effect` ({_tipo(effetto)}) non e' nel vocabolario "
+            f"chiuso di `plenora-error-v1`: {sorted(EFFETTI_REMOTI)}. Senza "
+            "sapere che cosa e' successo dall'altra parte nessuna risposta su "
+            "un ritentativo e' sicura."
+        )
+
+    retry = busta.retry
+    if not isinstance(retry, dict):
+        raise ProtocolError(
+            f"`error.retry` e' {_tipo(retry)} e non un oggetto `{{kind}}`."
+        )
+    tipo = retry.get("kind")
+    if not isinstance(tipo, str) or tipo not in TIPI_DI_RITENTATIVO:
+        raise ProtocolError(
+            f"`error.retry.kind` ({_tipo(tipo)}) non e' nel vocabolario chiuso "
+            f"di `plenora-error-v1`: {sorted(TIPI_DI_RITENTATIVO)}."
+        )
+    attese = {"kind", "delay_ms"} if tipo == "after" else {"kind"}
+    if set(retry) != attese:
+        raise ProtocolError(
+            f"`error.retry` di tipo «{tipo}» ha le chiavi {sorted(retry)}, lo "
+            f"schema ne pretende esattamente {sorted(attese)}."
+        )
+    if tipo == "after":
+        ritardo = retry["delay_ms"]
+        if (
+            not isinstance(ritardo, int)
+            or isinstance(ritardo, bool)
+            or not 0 <= ritardo <= RITARDO_MASSIMO_MS
+        ):
+            raise ProtocolError(
+                f"`error.retry.delay_ms` ({_tipo(ritardo)}) non e' un intero fra "
+                f"0 e {RITARDO_MASSIMO_MS}."
+            )
+    if effetto == "unknown" and tipo not in RITENTATIVI_CON_EFFETTO_IGNOTO:
+        raise ProtocolError(
+            f"`error.remote_effect` e' «unknown» e `error.retry.kind` e' "
+            f"«{tipo}»: lo schema ammette soltanto "
+            f"{sorted(RITENTATIVI_CON_EFFETTO_IGNOTO)}, perche' un ritentativo "
+            "non si dichiara sicuro senza sapere che cosa e' successo."
+        )
+
+    if busta.row_diagnostics is not None and not isinstance(busta.row_diagnostics, dict):
+        raise ProtocolError(
+            f"`row_diagnostics` e' {_tipo(busta.row_diagnostics)} e non un oggetto."
         )
 
 
@@ -173,12 +341,18 @@ class CommandFailed(PlenoraError):
 
     @property
     def retryable(self) -> bool:
-        """`retry.kind` diverso da `never`.
+        """`retry.kind` fra i tipi che ammettono un nuovo tentativo.
+
+        Sono `safe`, `after`, `requires_idempotency_key` e `requires_recovery`:
+        non `never`, e non `quarantine`, che chiede di isolare il lavoro. Il
+        tipo e' gia' stato validato contro il vocabolario chiuso, quindi un
+        valore assente o ignoto non arriva qui: e' `ProtocolError` prima.
 
         Una comodita', non una politica: **quanto** aspettare lo dice
-        `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`.
+        `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`, e le
+        condizioni le dice il tipo stesso.
         """
-        return self.envelope.retry.get("kind") != "never"
+        return self.envelope.retry["kind"] in RITENTABILI
 
     @property
     def retry_after_ms(self) -> int | None:
@@ -188,14 +362,18 @@ class CommandFailed(PlenoraError):
         detto quanto aspettare, e chi riprova sceglie da se'.
         """
         retry = self.envelope.retry
-        return retry.get("delay_ms") if retry.get("kind") == "after" else None
+        return retry["delay_ms"] if retry["kind"] == "after" else None
 
     @property
     def must_assume_remote_committed(self) -> bool:
         """Un ritentativo cieco **non** e' sicuro: vada come deve andare.
 
-        Vera per `committed`, dove il lavoro remoto e' andato a buon fine, e per
-        `unknown`, dove non si sa. Le due cose non sono la stessa, e il nome non
+        Vera per `committed`, dove il lavoro remoto e' andato a buon fine, per
+        `unknown`, dove non si sa, e per `partial`, dove una parte e' andata a
+        buon fine e ripetere da capo la rifarebbe. Falsa soltanto per `none` e
+        `rolled_back`, gli unici due stati in cui dall'altra parte non resta
+        niente. Un valore fuori vocabolario non arriva qui: e' `ProtocolError`
+        quando la busta si costruisce. Le due cose non sono la stessa, e il nome non
         dice che lo siano: dice che chi deve decidere se ripetere l'operazione
         deve comportarsi allo stesso modo in entrambi i casi, perche'
         l'alternativa e' rifare un lavoro gia' fatto.
@@ -210,7 +388,7 @@ class CommandFailed(PlenoraError):
         la differenza fra «commesso» e «ignoto» conta -- per esempio per
         decidere se **verificare** lo stato remoto invece di riprovare.
         """
-        return self.envelope.remote_effect in ("committed", "unknown")
+        return self.envelope.remote_effect not in EFFETTI_SENZA_RESIDUO
 
 
 # --- una classe per categoria, e la ragione per cui sono tante --------------

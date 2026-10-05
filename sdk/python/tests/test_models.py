@@ -48,6 +48,7 @@ def driver_sano(**modifiche):
             "driver_version": 6,
             "semantic_version": 1,
             "format_options": [],
+            "recognised_suffixes": [".x"],
             "write_capabilities": {"attributes": "all"},
         }
     )
@@ -218,6 +219,7 @@ def descrittore_sano(**modifiche):
             "driver_version": 6,
             "semantic_version": 1,
             "format_options": [],
+            "recognised_suffixes": [".x"],
             "write_capabilities": {"attributes": "all"},
         }
     )
