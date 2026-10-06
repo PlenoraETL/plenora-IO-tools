@@ -7,7 +7,7 @@
       "crate": "atomic-polyfill",
       "accettata_dal": "2026-07-27",
       "motivo": "presente nel lockfile attraverso versioni opzionali di rstar, ma assente dal grafo attivo di cargo tree --workspace --all-features --target all",
-      "esposizione": "nessun codice del componente distribuibile lo collega",
+      "esposizione": "nessun codice del componente distribuibile lo collega. Vale anche per `fuzz/Cargo.lock`, che la CI audita con la stessa eccezione: anche li' `cargo tree --locked -i atomic-polyfill --all-features --target all` non stampa niente (verificato il 2026-10-05)",
       "chiusura": "rimuovere l'eccezione appena l'ecosistema geo-types/rstar non lo include piu' nella risoluzione del lockfile",
       "trigger_di_riesame": "modifica a feature o dipendenze geospaziali"
     }

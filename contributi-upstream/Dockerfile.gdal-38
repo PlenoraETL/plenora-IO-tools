@@ -3,7 +3,13 @@
 # Il container di sviluppo ha GDAL 3.6.2, e il `build.rs` del crate `gdal` si
 # ferma sotto la 3.8: «The GDAL crate requires a GDAL version >= 3.8.0».
 # Ubuntu 24.04 ne porta una che va bene.
-FROM ubuntu:24.04
+# L'immagine di base e' fissata per **digest**, non solo per tag: un tag di
+# Docker Hub si sposta a ogni ripubblicazione, e la stessa riga costruirebbe da
+# byte diversi senza che nessuna riga del repository cambi. Il digest e' quello
+# dell'indice multi-architettura letto dal registro il 2026-10-05; il tag resta
+# accanto perche' dice che cosa il digest e'. Aggiornarlo e' una decisione da
+# PR, come ogni altro pin.
+FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 ARG PLENORA_RUST_STABLE=1.98.1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install --yes --no-install-recommends \
