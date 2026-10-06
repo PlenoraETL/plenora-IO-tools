@@ -805,10 +805,14 @@ costo, e vanno fatte quando servono, non prima della qualifica.
 * **E5 — un `AGENTS.md`.** I vincoli vivono sparsi fra `README.md`, i gate e i
   messaggi di commit. Raccoglierli ha valore il giorno in cui qualcun altro
   lavora qui;
-* **G2 — `cargo deny`.** Le licenze sono presidiate a livello di artefatto e i
-  pin sono esatti; quello che manca è una politica a livello di **dipendenza**,
-  un divieto su crate nominati e una allowlist delle sorgenti. Utile, non
-  dovuto;
+* **G2 — `cargo deny`.** **Chiusa dopo la 4.1.0**: lo standard di riferimento
+  delle librerie Plenora (plenora-database-tools) lo ha, e la classificazione
+  «utile, non dovuto» non regge al confronto. `deny.toml` porta la politica a
+  livello di **dipendenza** (advisory con le sole eccezioni del registro,
+  `yanked = "deny"`, allowlist di licenze, wildcard vietati, sorgenti solo da
+  crates.io e dai fork per percorso), e il workflow `supply-chain` la applica
+  al workspace e a `fuzz/` su push, pull request e a calendario, con
+  cargo-deny fissato in `scripts/toolchain-pins.env`;
 * **H2 — la deriva dai fork upstream.** Oggi l'allineamento è frutto di una
   revisione manuale, e la prossima potrebbe non esserci. Serve un monitoraggio
   periodico, che è lavoro di infrastruttura e non di conformità;

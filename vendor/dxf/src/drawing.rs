@@ -78,6 +78,14 @@ pub struct Drawing {
     /// The thumbnail image preview of the drawing.
     #[cfg_attr(feature = "serialize", serde(skip))]
     pub thumbnail: Option<DynamicImage>,
+
+    /// Entita' dello spazio modello scartate in lettura perche' di un tipo non
+    /// supportato (vedi `unsupported_model_space_entities`).
+    #[cfg_attr(feature = "serialize", serde(skip))]
+    __unsupported_model_space_entities: u64,
+    /// I blocchi che contenevano entita' di un tipo non supportato.
+    #[cfg_attr(feature = "serialize", serde(skip))]
+    __blocks_with_unsupported_entities: Vec<String>,
 }
 
 /// Pull-based DXF reader that keeps drawing metadata and blocks in memory but
@@ -264,7 +272,11 @@ impl DrawingEntityReader {
         if let Some(entity) = self.pending_entity.take() {
             Ok(Some(entity))
         } else {
-            Entity::read(&mut self.iter)
+            let prima = self.iter.entita_ignorate();
+            let letta = Entity::read(&mut self.iter);
+            let ignorate = self.iter.entita_ignorate().saturating_sub(prima);
+            self.drawing.note_unsupported_model_space_entities(ignorate);
+            letta
         }
     }
 
@@ -466,6 +478,8 @@ impl Drawing {
             __entities: vec![],
             __objects: vec![],
             thumbnail: None,
+            __unsupported_model_space_entities: 0,
+            __blocks_with_unsupported_entities: vec![],
         };
         drawing.normalize();
         drawing
@@ -828,6 +842,47 @@ impl Drawing {
         Drawing::remove_item(&mut self.__objects, index)
     }
     /// Clears all items from the `Drawing`.
+    /// Le entita' dello spazio modello che la lettura ha scartato perche' di
+    /// un tipo che il lettore non conosce, o DIMENSION senza un sottotipo
+    /// riconosciuto.
+    ///
+    /// Upstream le scartava in silenzio, e un documento con entita' che non
+    /// sapeva leggere si presentava come un documento senza di esse. Il
+    /// conteggio lascia a chi legge la scelta: rifiutare, o dichiarare la
+    /// perdita.
+    ///
+    /// Conta la sezione ENTITIES, entita' dello spazio carta (`67/1`) comprese;
+    /// le entita' dei BLOCK stanno in `block_has_unsupported_entities`. Nel
+    /// lettore progressivo (`DrawingEntityReader`) il conteggio cresce mentre
+    /// le entita' si leggono, ed e' completo dopo `finish`.
+    pub fn unsupported_model_space_entities(&self) -> u64 {
+        self.__unsupported_model_space_entities
+    }
+    /// Se il blocco con questo nome conteneva entita' di un tipo non
+    /// supportato, scartate in lettura (vedi
+    /// `unsupported_model_space_entities`).
+    ///
+    /// Il nome si confronta **esattamente** com'e' scritto nel file, maiuscole
+    /// comprese -- lo stesso confronto con cui un INSERT trova il proprio
+    /// blocco in questo lettore. I blocchi storici dello spazio modello e
+    /// carta (`*Model_Space`, `*Paper_Space`, e `$MODEL_SPACE`, `$PAPER_SPACE`
+    /// dei file R12) sono blocchi come gli altri: compaiono qui se contenevano
+    /// entita' scartate, e il loro contenuto non e' contato nello spazio
+    /// modello, che e' la sezione ENTITIES.
+    pub fn block_has_unsupported_entities(&self, name: &str) -> bool {
+        self.__blocks_with_unsupported_entities
+            .iter()
+            .any(|block| block == name)
+    }
+    pub(crate) fn note_unsupported_model_space_entities(&mut self, count: u64) {
+        self.__unsupported_model_space_entities =
+            self.__unsupported_model_space_entities.saturating_add(count);
+    }
+    pub(crate) fn note_block_with_unsupported_entities(&mut self, name: &str) {
+        if !self.block_has_unsupported_entities(name) {
+            self.__blocks_with_unsupported_entities.push(name.to_owned());
+        }
+    }
     pub fn clear(&mut self) {
         self.classes.clear();
         self.__app_ids.clear();
@@ -843,6 +898,8 @@ impl Drawing {
         self.__entities.clear();
         self.__objects.clear();
         self.thumbnail = None;
+        self.__unsupported_model_space_entities = 0;
+        self.__blocks_with_unsupported_entities.clear();
 
         self.header.next_available_handle = Handle(1);
     }
@@ -1432,9 +1489,14 @@ impl Drawing {
         Ok(())
     }
     fn read_entities(&mut self, iter: &mut CodePairPutBack) -> DxfResult<()> {
-        let mut iter = EntityIter { iter };
+        let prima = iter.entita_ignorate();
         let mut entities = vec![];
-        iter.read_entities_into_vec(&mut entities)?;
+        {
+            let mut iter = EntityIter { iter: &mut *iter };
+            iter.read_entities_into_vec(&mut entities)?;
+        }
+        let ignorate = iter.entita_ignorate().saturating_sub(prima);
+        self.note_unsupported_model_space_entities(ignorate);
         for e in entities {
             if e.common.handle.is_empty() {
                 self.add_entity(e);

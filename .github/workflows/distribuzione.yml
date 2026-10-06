@@ -627,3 +627,62 @@ jobs:
         with:
           name: referti-di-tutta-la-distribuzione
           path: referti/
+
+  # Le attestazioni di provenienza **firmate** (Sigstore, attraverso le
+  # GitHub attestations), sul modello di plenora-database-tools.
+  #
+  # Le `*.provenance.json` accanto agli archivi le scrivono i nostri script, e
+  # nessuno le firma: dicono da quale revisione e con quali strumenti
+  # l'artefatto e' uscito, ma chi le legge deve credere a chi le ha scritte.
+  # Un'attestazione e' firmata con l'identita' OIDC di **questo** workflow su
+  # **questa** revisione, e si verifica senza fidarsi di nessuno dei nostri
+  # file:
+  #
+  #     gh attestation verify <artefatto> --repo PlenoraETL/plenora-IO-tools
+  #
+  # Gira solo dopo il gate, sui byte che il gate ha verificato dopo l'upload, e
+  # solo per il canale `candidate`: una corsa di prova costruisce per misurare,
+  # e un'attestazione su un artefatto che nessuno installera' sarebbe rumore
+  # nel registro delle attestazioni del repository. I permessi di scrittura
+  # stanno su questo job soltanto; il resto del workflow resta `contents: read`.
+  attestazioni:
+    needs: gate
+    if: inputs.canale == 'candidate'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
+        with:
+          pattern: deliverable-*
+          path: deliverable
+          merge-multiple: true
+      - name: Attesta la provenienza di archivi e pacchetti
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            deliverable/*.tar.gz
+            deliverable/*.zip
+            deliverable/*.whl
+      # L'attestazione si rilegge dal registro di GitHub, artefatto per
+      # artefatto, prima di dire che c'e': un passo verde dell'action dice che
+      # e' stata scritta, non che si verifichi per chi la cerchera'.
+      - name: Ogni artefatto ha un'attestazione che si verifica
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artefatti=(deliverable/*.tar.gz deliverable/*.zip deliverable/*.whl)
+          if [ "${#artefatti[@]}" -eq 0 ]; then
+            echo "nessun artefatto da verificare: il gate avrebbe dovuto fermarsi" >&2
+            exit 1
+          fi
+          for artefatto in "${artefatti[@]}"; do
+            gh attestation verify "$artefatto" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/distribuzione.yml"
+          done
+          echo "${#artefatti[@]} artefatti attestati e verificati"
