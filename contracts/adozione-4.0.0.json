@@ -129,6 +129,20 @@
       "detectable_before_invocation": false
     },
     {
+      "rule": "plenora-io-read-result-v1 (delivered.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con `--out-opt serialization=stream` `read` consegna il flusso Arrow e la busta dice `delivered.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera; chi valida contro v1 la rifiuta. Senza quell'opzione la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-read-result-v2` sotto `io.read@2` nel catalogo comune: v1 non si allarga sul posto (COMPATIBILITY.md). Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
       "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
       "surface": "cli",
       "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare.",

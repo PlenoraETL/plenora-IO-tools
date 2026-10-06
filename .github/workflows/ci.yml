@@ -606,6 +606,16 @@ jobs:
           python3 -m unittest scripts.test_check_manifesto_adozione
           python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
 
+      # Le prove Rust validano i documenti del prodotto con schemi del
+      # repository comune, letti da copie in `contracts/copie-dal-pin/`: il
+      # checkout fissato esiste solo qui. Questo passo e' cio' che impedisce a
+      # una copia di divergere dal pin -- per un cambio di pin dimenticato o per
+      # una modifica a mano che fa tornare un verde.
+      - name: Le copie dei contratti sono i byte del pin
+        run: |
+          python3 -m unittest scripts.test_check_copie_dal_pin
+          python3 scripts/check_copie_dal_pin.py --contracts .plenora-contracts
+
       # Qui la domanda e' «il codice di questo commit rispetta i contratti?», e
       # si interroga il binario appena costruito. L'altra domanda -- «l'artefatto
       # che spediamo li rispetta?» -- vuole il binario estratto dall'archivio che
