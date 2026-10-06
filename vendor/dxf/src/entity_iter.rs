@@ -1,4 +1,4 @@
-use crate::code_pair_put_back::CodePairPutBack;
+use crate::code_pair_put_back::{offset_dell_errore, CodePairPutBack};
 use crate::drawing::AUTO_REPLACE_HANDLE;
 use crate::entities::*;
 use crate::DxfResult;
@@ -13,9 +13,19 @@ impl Iterator for EntityIter<'_> {
     type Item = Entity;
 
     fn next(&mut self) -> Option<Entity> {
+        // Upstream trasforma l'errore in fine sequenza, e il chiamante
+        // proseguiva come se la sezione fosse finita li': un'entita' illeggibile
+        // dentro un BLOCK spariva, e il documento veniva accettato senza. Qui
+        // l'errore ferma l'iteratore, e la lettura successiva del chiamante lo
+        // porta fino al lettore esterno.
         match Entity::read(self.iter) {
-            Ok(Some(e)) => Some(e),
-            Ok(None) | Err(_) => None,
+            Ok(Some(valore)) => Some(valore),
+            Ok(None) => None,
+            Err(errore) => {
+                let offset = offset_dell_errore(&errore);
+                let _ = self.iter.ferma(offset);
+                None
+            }
         }
     }
 }

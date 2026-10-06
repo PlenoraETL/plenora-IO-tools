@@ -11,6 +11,10 @@ fuzz/seeds/**/*.gpkgb binary
 fuzz/seeds/**/*.parquet binary
 fuzz/seeds/**/*.arrow binary
 fuzz/seeds/**/*.xlsx binary
+# Il caso del soak dxf_reader del 2026-10-05: byte NUL e 0xFF fra righe DXF.
+# L'euristica lo riconoscerebbe gia' come binario; dichiararlo toglie la
+# dipendenza da un'euristica, e il seme vale solo byte per byte.
+fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf binary
 
 # Copie storiche usate dalle regressioni del misuratore: digest sui byte originali.
 scripts/fixtures/soak/misuratore-originale.py.txt binary
