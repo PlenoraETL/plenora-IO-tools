@@ -127,6 +127,9 @@ def metadata(versione_pacchetto: str) -> str:
         "Summary: Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2",
         "Project-URL: Repository, https://github.com/PlenoraETL/plenora-IO-tools",
         f"Requires-Python: {requires_python()}",
+        # Lo stesso valore di `license` nel `pyproject.toml`: il repository e'
+        # proprietario (`LICENSE`), e la wheel lo dice a `pip show`.
+        "License: Proprietary",
         "Description-Content-Type: text/markdown",
     ]
     righe += [f"Classifier: {c}" for c in classificatori()]

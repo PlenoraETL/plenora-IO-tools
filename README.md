@@ -191,6 +191,12 @@ ne riporta i numeri e un gate verifica che coincidano.
 
 ## Licenza
 
+Il codice di questo repository -- il binario, i crate del workspace e lo SDK
+Python -- è proprietario: [`LICENSE`](LICENSE), «Copyright (c) Plenora ETL. All
+rights reserved.», la stessa licenza di plenora-database-tools. Nessun diritto
+d'uso, copia, modifica o distribuzione è concesso se non per accordo scritto con
+Plenora ETL. I crate dichiarano `license-file`, lo SDK `License: Proprietary`.
+
 I tre crate vendorizzati sotto `vendor/` — `gdal`, `dxf` e `shapefile` —
 conservano la propria licenza upstream (MIT) e il proprio file di licenza. La
 provenienza di ciascuno è registrata in `assurance/registries/vendor-<nome>-fork.json`,

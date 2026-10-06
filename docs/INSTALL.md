@@ -76,18 +76,18 @@ pubblici, e il pacchetto Python porta nei metadati il classificatore
 `Private :: Do Not Upload`, che i servizi d'indice leggono per rifiutare il
 caricamento.
 
-Nessuna licenza first-party è dichiarata: dentro l'archivio non ci sono termini
-che concedano qualcosa, e la loro assenza non è un permesso. Ciò che è concesso
-lo stabilisce il contratto con cui l'artefatto è stato consegnato. In
-particolare, chi riceve un artefatto non è autorizzato a ridistribuirlo né a
-pubblicarlo.
+Il codice è sotto la licenza **proprietaria** del repository,
+[`LICENSE`](../LICENSE): «Copyright (c) Plenora ETL. All rights reserved.»,
+nessun diritto d'uso, copia, modifica, distribuzione o pubblicazione se non per
+accordo scritto con Plenora ETL. I crate la dichiarano con `license-file`, il
+pacchetto Python con `License: Proprietary`. Chi riceve un artefatto non è
+autorizzato a ridistribuirlo né a pubblicarlo.
 
-Il contratto di release lo registra nell'invariante
-`distribuzione.licenza-first-party` come **capacità differita** — perimetro
-dichiarato, non blocco chiuso — e
-[docs/RELEASE.md](RELEASE.md) ne riporta la riga con ciò che la 2.0.0 non
-promette. Una distribuzione pubblica richiederebbe una decisione separata del
-titolare.
+Fino alla 4.1.0 nessuna licenza first-party era dichiarata, e il contratto di
+release lo registra nell'invariante `distribuzione.licenza-first-party` come
+**capacità differita**, con la riga in [docs/RELEASE.md](RELEASE.md). Il testo
+ora esiste; portarlo **dentro** gli archivi e chiudere quella riga è lavoro
+della prossima release.
 
 Le licenze dei **componenti di terzi** sono un'altra cosa, e restano dovute:
 ogni artefatto nativo porta in `LICENSES/` il testo di ognuna, e un gate conta
