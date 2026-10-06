@@ -161,6 +161,22 @@ proprio perché non c'è un comando da invocare al suo posto. Nel repository lo
 stesso controllo lo fa `scripts/check-digest-manifesto.py --albero <estratto>`,
 e la CI lo esegue su ogni artefatto costruito.
 
+Il manifesto dice che i file sono quelli dell'archivio; non dice da dove venga
+l'archivio. Per gli artefatti del canale `candidate` lo dice un'attestazione di
+provenienza **firmata** (GitHub attestations, Sigstore), scritta dal workflow
+`Distribuzione` sulla revisione da cui l'archivio è uscito. Si verifica
+sull'archivio scaricato, prima di estrarlo, e senza fidarsi di nessun file che
+lo accompagna:
+
+```
+gh attestation verify plenora-io-<versione>-linux-x86_64-base.tar.gz \
+  --repo PlenoraETL/plenora-IO-tools \
+  --signer-workflow PlenoraETL/plenora-IO-tools/.github/workflows/distribuzione.yml
+```
+
+Le `*.provenance.json` accanto agli archivi restano, e dicono di più -- il lock
+del runtime, gli strumenti -- ma le scrivono i nostri script e nessuno le firma.
+
 ### La prima prova
 
 ```
