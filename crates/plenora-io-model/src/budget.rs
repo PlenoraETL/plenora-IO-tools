@@ -149,7 +149,6 @@ const LIMIT_MUST_BE_POSITIVE: &str = "i limiti di pipeline devono essere maggior
 const CELL_BYTES_ABOVE_MEMORY: &str = "max_wkb_cell_bytes supera il budget di memoria";
 const CELL_BYTES_NOT_REPRESENTABLE: &str = "max_wkb_cell_bytes non rappresentabile in u64";
 const DEADLINE_BEYOND_INSTANT: &str = "deadline della pipeline oltre Instant";
-const DURATION_EXHAUSTED: &str = "durata della pipeline esaurita";
 const LEASE_MUST_BE_POSITIVE: &str = "una lease deve essere maggiore di zero";
 const MEMORY_EXHAUSTED: &str = "budget di memoria esaurito";
 const SPILL_EXHAUSTED: &str = "budget di spill esaurito";
@@ -1071,22 +1070,40 @@ impl PipelineContext {
     /// Verifica che la pipeline sia ancora eseguibile.
     ///
     /// Le due condizioni non sono conflate: la cancellazione del chiamante
-    /// produce un errore `Cancelled`, la deadline scaduta un errore di
-    /// limite. Un consumer distingue "l'utente ha chiesto stop" da "il
+    /// produce un errore `cancelled`, la deadline scaduta un errore
+    /// `timeout`. Un consumer distingue "l'utente ha chiesto stop" da "il
     /// budget temporale e' finito".
+    ///
+    /// La deadline e' un `timeout` e non una quota (`resource_limit`):
+    /// PUBLIC-SURFACES-1.0 SURF-010 vuole la scadenza di una deadline
+    /// dichiarata osservabile come `timeout`, ed ERRORS-1.0 ERR-001 la
+    /// categoria piu' precisa. Fino alla 4.1.0 usciva `resource_limit` con
+    /// `LIMIT_EXCEEDED`.
     ///
     /// # Errors
     ///
-    /// Restituisce l'errore di cancellazione se il token e' cancellato, o
-    /// [`PlenoraIoError::LimitExceeded`] se la deadline e' passata.
+    /// Restituisce l'errore di cancellazione (categoria `cancelled`) se il
+    /// token e' cancellato dal chiamante, o l'errore di deadline (categoria
+    /// `timeout`) se il token e' scaduto per la propria scadenza o se la
+    /// durata della pipeline e' passata.
     pub fn ensure_active(&self) -> Result<()> {
-        if self.inner.cancellation.is_cancelled() {
+        if let Some(ragione) = self.inner.cancellation.reason() {
             // La fase reale non e' nota al context: la porta l'`ErrorContext`
             // strutturato di S9. `Validate` e' la fase neutra pre-operazione.
-            return Err(PlenoraIoError::cancelled(ErrorPhase::Validate, false));
+            //
+            // La ragione conta: un token scaduto per la propria scadenza e'
+            // un `timeout`, non una cancellazione del chiamante. Qui valeva
+            // sempre `cancelled`, e una scadenza osservata per prima da questo
+            // punto usciva con la categoria sbagliata.
+            return Err(PlenoraIoError::cancelled(
+                ErrorPhase::Validate,
+                ragione == crate::CancellationReason::Deadline,
+            ));
         }
         if self.remaining_duration().is_none() {
-            return Err(limit_error(DURATION_EXHAUSTED));
+            // Stessa fase, stesso effetto e stesso ritentativo della quota
+            // che sostituisce: cambia la sola categoria, e con lei il codice.
+            return Err(PlenoraIoError::cancelled(ErrorPhase::Validate, true));
         }
         Ok(())
     }

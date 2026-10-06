@@ -385,7 +385,12 @@ fn deadline_expiry_is_not_conflated_with_cancellation() {
         .context()
         .ensure_active()
         .expect_err("la deadline deve essere scaduta");
-    assert_eq!(error.code, crate::IoErrorCode::LimitExceeded);
+    // SURF-010: la scadenza e' un `timeout`. Era `resource_limit` con
+    // `LimitExceeded`, una quota, e la CLI usciva con exit 4.
+    assert_eq!(error.category, crate::ErrorCategory::Timeout);
+    assert_eq!(error.code, crate::IoErrorCode::Cancelled);
+    assert_eq!(error.phase, crate::ErrorPhase::Validate);
+    assert_eq!(error.remote_effect, crate::RemoteEffect::None);
 
     let token = CancellationToken::new();
     let cancelled = PipelineBudget::builder()
@@ -397,6 +402,24 @@ fn deadline_expiry_is_not_conflated_with_cancellation() {
         .context()
         .ensure_active()
         .expect_err("il token deve essere cancellato");
+    assert_eq!(error.code, crate::IoErrorCode::Cancelled);
+    assert_eq!(error.category, crate::ErrorCategory::Cancelled);
+}
+
+/// Un token scaduto per la **propria** scadenza e' un `timeout`, anche quando
+/// e' `ensure_active` a osservarlo per primo. Era sempre `cancelled`.
+#[test]
+fn token_deadline_is_a_timeout_not_a_cancellation() {
+    let token = CancellationToken::with_deadline(Instant::now());
+    let built = PipelineBudget::builder()
+        .cancellation(token)
+        .build()
+        .expect("il builder deve costruire");
+    let error = built
+        .context()
+        .ensure_active()
+        .expect_err("il token e' gia' scaduto");
+    assert_eq!(error.category, crate::ErrorCategory::Timeout);
     assert_eq!(error.code, crate::IoErrorCode::Cancelled);
 }
 

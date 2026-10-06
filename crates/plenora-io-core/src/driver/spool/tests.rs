@@ -670,7 +670,8 @@ fn replay_stops_when_the_deadline_expires() {
     let errore = spool
         .next_batch()
         .expect_err("la deadline deve interrompere il replay");
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    // SURF-010: una scadenza e' un `timeout`, non una quota.
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
 }
 
 #[test]
