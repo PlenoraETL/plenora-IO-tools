@@ -34,6 +34,10 @@ USES = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 TOOL_INPUT = re.compile(r"^\s+tool:\s*(\S+)\s*(?:#.*)?$")
+#: Uno strumento di `install-action` con la versione **esatta**. Il nome nudo
+#: installa l'ultima pubblicata: l'action e' fissata a un commit, e cio' che
+#: installa no. `cargo-audit` e' girato cosi' fino al 2026-10-05.
+TOOL_ESATTO = re.compile(r"^[A-Za-z0-9_.-]+@\d+\.\d+\.\d+$")
 
 
 def validate_reference(reference: str) -> str | None:
@@ -70,8 +74,59 @@ def required_tool_input(
             break
         match = TOOL_INPUT.match(line)
         if match is not None:
-            return None if match.group(1) else "input tool vuoto"
+            strumenti = [s for s in match.group(1).split(",") if s]
+            if not strumenti:
+                return "input tool vuoto"
+            senza_versione = [s for s in strumenti if not TOOL_ESATTO.fullmatch(s)]
+            if senza_versione:
+                return (
+                    "taiki-e/install-action installa strumenti senza versione "
+                    f"esatta ({', '.join(senza_versione)}): serve nome@X.Y.Z"
+                )
+            return None
     return "taiki-e/install-action fissata a SHA richiede with.tool esplicito"
+
+
+#: Una riga `FROM` di Dockerfile, con l'immagine e un eventuale `AS nome`.
+FROM = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)", re.IGNORECASE)
+
+#: Dove non si cercano Dockerfile: build, dipendenze vendorizzate, git.
+FUORI_DAI_DOCKERFILE = {"target", "vendor", ".git", "node_modules"}
+
+
+def dockerfile_del_repository() -> list[Path]:
+    trovati = []
+    for percorso in ROOT.rglob("Dockerfile*"):
+        relativo = percorso.relative_to(ROOT)
+        if FUORI_DAI_DOCKERFILE & set(relativo.parts) or not percorso.is_file():
+            continue
+        trovati.append(percorso)
+    return sorted(trovati)
+
+
+def from_senza_digest(righe: list[str]) -> list[tuple[int, str]]:
+    """Le righe `FROM` che non fissano l'immagine per digest sha256.
+
+    Un tag di registro si sposta a ogni ripubblicazione: la stessa riga
+    costruirebbe da byte diversi senza che il repository cambi. `scratch` non
+    e' un'immagine, e un `FROM` che nomina uno stadio precedente dello stesso
+    file eredita il digest di quello.
+    """
+    stadi: set[str] = set()
+    fuori: list[tuple[int, str]] = []
+    for numero, riga in enumerate(righe, start=1):
+        trovato = FROM.match(riga)
+        if trovato is None:
+            continue
+        immagine = trovato.group(1)
+        alias = re.search(r"\s+AS\s+(\S+)\s*$", riga, re.IGNORECASE)
+        if immagine != "scratch" and immagine not in stadi:
+            _, separatore, digest = immagine.rpartition("@")
+            if not separatore or not DIGEST.fullmatch(digest):
+                fuori.append((numero, immagine))
+        if alias is not None:
+            stadi.add(alias.group(1))
+    return fuori
 
 
 def diagnosi_http(codice: int, repository: str) -> str | None:
@@ -168,6 +223,17 @@ def main() -> int:
                     f"{location}:{line_number}: {reference}: {input_error}"
                 )
 
+    # Le immagini di base dei Dockerfile, con la stessa regola dei `docker://`
+    # nei workflow: un digest, non un tag.
+    dockerfile = dockerfile_del_repository()
+    for percorso in dockerfile:
+        righe = percorso.read_text(encoding="utf-8").splitlines()
+        for numero, immagine in from_senza_digest(righe):
+            errors.append(
+                f"{percorso.relative_to(ROOT)}:{numero}: FROM {immagine}: "
+                "immagine Docker senza digest sha256"
+            )
+
     if not workflows:
         errors.append(".github/workflows: nessun workflow trovato")
     if references == 0:
@@ -181,7 +247,8 @@ def main() -> int:
 
     print(
         f"GitHub Action pin gate passed "
-        f"({len(workflows)} workflow, {references} references)."
+        f"({len(workflows)} workflow, {references} references, "
+        f"{len(dockerfile)} Dockerfile)."
     )
     return 0
 

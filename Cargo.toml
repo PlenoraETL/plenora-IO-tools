@@ -47,12 +47,19 @@ serde_json = "=1.0.151"
 jsonschema = { version = "=0.56.0", default-features = false }
 base64 = "=0.23.1"
 tempfile = "=3.27.0"
-# L'unico modo di collegare Ctrl+C al `CancellationToken` senza `unsafe`, che
-# il workspace **vieta** (`unsafe_code = "forbid"`, non `deny`: nemmeno un
-# `#[allow]` mirato lo riaprirebbe). Installare un gestore di segnale richiede
-# `libc::signal` o l'equivalente Windows, cioe' codice unsafe che qui non puo'
-# esistere; `ctrlc` lo incapsula e copre entrambe le piattaforme -- `SIGINT` su
-# Unix, `SetConsoleCtrlHandler` su Windows -- dietro una sola API sicura.
+# L'unico modo di collegare Ctrl+C al `CancellationToken` senza `unsafe` nel
+# nostro codice. `[workspace.lints.rust]` qui sotto mette `unsafe_code =
+# "forbid"`, non `deny`, e vale per ogni crate che dichiara `[lints]
+# workspace = true`: li' nemmeno un `#[allow]` mirato lo riaprirebbe. Non vale
+# da solo per tutto cio' che sta sotto `crates/`: una tabella `[lints]` va
+# ereditata, e `plenora-bench` -- strumento di misura, non spedito -- ne
+# dichiara una propria con `unsafe_code = "allow"`, motivata nel suo
+# `Cargo.toml`. Non vale nemmeno per le dipendenze, `ctrlc` compresa: il lint
+# governa il codice che scriviamo, non quello che compiliamo. Installare un
+# gestore di segnale richiede `libc::signal` o l'equivalente Windows, cioe'
+# codice unsafe che nei crate di prodotto non puo' esistere; `ctrlc` lo
+# incapsula e copre entrambe le piattaforme -- `SIGINT` su Unix,
+# `SetConsoleCtrlHandler` su Windows -- dietro una sola API sicura.
 #
 # Conta anche **come** lo fa: il gestore del sistema si limita a svegliare un
 # thread dedicato, che poi chiama la nostra chiusura. E' cio' che rende lecito
@@ -68,9 +75,10 @@ unsafe_code = "forbid"
 
 # Politica lint allineata a plenora-data-tools e plenora-database-tools: la
 # tabella dichiara nel manifest cio' che la CI applica gia' via riga di
-# comando, cosi' la policy resta verificabile anche fuori dalla CI. Ogni
-# deviazione voluta resta possibile solo come `#[allow]` mirato e motivato nel
-# codice. Il gate anti-panic sulle librerie resta un passo CI dedicato con lint
+# comando, cosi' la policy resta verificabile anche fuori dalla CI. Nei crate
+# che la ereditano, ogni deviazione voluta resta possibile solo come `#[allow]`
+# mirato e motivato nel codice; `plenora-bench` non la eredita e ripete la
+# parte clippy nella propria tabella. Il gate anti-panic sulle librerie resta un passo CI dedicato con lint
 # espliciti (piu' stretto di questa tabella).
 [workspace.lints.clippy]
 all = "deny"
