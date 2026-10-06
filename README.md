@@ -139,6 +139,12 @@ Due vincoli di coerenza si notano solo quando si stringe:
   migrato e la quota deve reggere buffer e batch insieme. Sotto quel valore
   l'errore è `LIMIT_EXCEEDED`, «batch materializzato oltre la quota prenotata».
 
+`--deadline-ms` non è una quota come le altre: quando scade l'operazione si
+ferma senza pubblicare e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code
+`5`), come vuole PUBLIC-SURFACES-1.0 SURF-010. Fino alla 4.1.0 usciva
+`resource_limit` (`LIMIT_EXCEEDED`, exit code `4`). Un valore a zero resta il
+rifiuto di una quota, `resource_limit`.
+
 ### Ctrl+C
 
 Il primo `SIGINT` **annulla in modo cooperativo**: la pipeline lo osserva ai

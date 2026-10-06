@@ -195,11 +195,16 @@ fn cancel_tree(root: Arc<Inner>, root_reason: CancellationReason) {
             registered.retain(|child| child.strong_count() > 0);
             live
         };
-        pending.extend(
-            children
-                .into_iter()
-                .map(|child| (child, CancellationReason::Parent)),
-        );
+        // Una scadenza resta una scadenza anche nei figli, come fa
+        // `child_token_with_deadline` per un genitore gia' scaduto: propagata
+        // come `Parent`, il figlio la riportava come cancellazione del
+        // chiamante (`cancelled`, exit 130) invece che come `timeout`.
+        let propagated = if reason == CancellationReason::Deadline {
+            CancellationReason::Deadline
+        } else {
+            CancellationReason::Parent
+        };
+        pending.extend(children.into_iter().map(|child| (child, propagated)));
     }
 }
 
