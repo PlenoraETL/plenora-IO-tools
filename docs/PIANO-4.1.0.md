@@ -1111,7 +1111,7 @@ rinvio non si trasforma in dimenticanza.
 |---|---|---|---|
 | 1 | ~~**Q2b** — segnalazione upstream ad `arrow-rs`~~ | **chiusa**: inviata il 2026-09-17, [`apache/arrow-rs#11121`](https://github.com/apache/arrow-rs/issues/11121), con `Cargo.toml` e `src/main.rs` del caso minimo nel corpo. Chiudeva con il riferimento alla issue, e il riferimento c'è. **Inviare non è correggere**: il difetto a monte resta aperto, e la prima via per `campagna-fuzz-completa` dipende ora dai tempi di `arrow-rs` | — |
 | 2 | ~~**Q2c** — finding noti del fuzz~~ | **chiusa**: `classifica_finding_fuzz.py` riconosce un crash **compatibile** con una firma nota, conserva ogni input col suo referto, e il verbale della corsa impedisce che un'interruzione nota passi per campagna completa | — |
-| 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**: il gate distingue l'albero congelato dal commit di registrazione; sei prove, e la prima riproduce il guasto | — |
+| 3 | ~~**Q1** — contraddizione del workflow «Release checkout qualification»~~ | **chiusa**, riaperta dalla push di `v4.1.0` e richiusa: il gate riconosce il commit del tag da dove il tag punta, non da `revisione_candidate`; sei prove in più che separano il commit del tag dalla congelata | — |
 | 4 | ~~**R1** — regressione su `MAX_BLOCCHI`~~ | **chiusa**: tre casi in `prevalida_arrow::tetto_dei_messaggi`; costo misurato — 128 MiB generati in 60 ms e scanditi in 3,5 s — e fixture generata, non versionata | — |
 | 5 | ~~**R2** — campagne senza `sleep` a scadenza~~ | **chiusa**: le tre proprietà c'erano, mancava la quarta — `collect` rimuoveva il container portandosi via il log. Sette prove con un Docker finto. Limite residuo: due corse nello stesso secondo condividerebbero il nome del file, ed è detto nella prova invece che nascosto | — |
 | 6 | ~~**R3–R4**~~ | **chiuse**: il legame misura-evidenza era già imposto e ora è verificato per intero; la regola del riuso è scritta per i sei tipi, col gate che pretende l'esistenza dei sorveglianti | — |
@@ -1454,6 +1454,26 @@ workflow la **nomina**, e una prova pretende che continui a farlo.
 Sei regressioni, e la prima riproduce il guasto: HEAD sulla revisione
 congelata, il tag che esiste e punta lì, lo stato che dice `false`. Verificato
 che fallisca senza la correzione.
+
+**La chiusura non teneva, e la push di `v4.1.0` l'ha mostrato.** La corsa
+35401819320 su `1d1b8d2` è rossa con lo stesso messaggio, più
+«`tag_revisione` vale «None», il tag punta a «1d1b8d2»». La condizione
+dell'esenzione era `HEAD == revisione_candidate`, e sul commit del tag non è mai
+vera: `revisione_candidate` si scrive nel commit di congelamento, **dopo** la
+revisione che nomina, quindi lo stato del commit del tag nomina la candidate
+precedente. Le sei regressioni mettevano HEAD, tag e congelata sullo stesso SHA,
+cioè nell'unica combinazione che la storia non produce.
+
+L'esenzione ora si riconosce da **dove punta il tag**: se punta a HEAD,
+`tag_creato` dev'essere falso e `tag_revisione` assente; su ogni altro commit,
+discendenti compresi, il confronto resta pieno. Sei regressioni nuove separano
+il commit del tag dalla congelata; con la condizione vecchia quattro sono rosse.
+
+Resta vero, e va detto: dopo il rilascio il ramo di sviluppo **deve** registrare
+il tag. Su `main` la 4.1.0 non è ancora registrata — lo stato di `1d1b8d2`
+dichiara la candidate `ritirata` su `23df4d5` — e finché il commit di
+registrazione non c'è, il confronto pieno è rosso su ogni commit dopo
+`1d1b8d2`. È il gate che fa il suo lavoro, non questo difetto.
 
 ### Q2 — panico upstream in parquet raggiunto da GeoParquet malformato
 

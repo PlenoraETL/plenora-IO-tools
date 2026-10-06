@@ -6,7 +6,7 @@
   "profile": "plenora-io-tools-profile-v1",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+    "revision": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3"
   },
   "contracts": [
     {

@@ -21,41 +21,41 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `6beb410` |
-| revisione misurata | `6beb410` |
-| passi del checkpoint | 104 |
-| passi verdi | 104 |
+| ultima qualificata | `1d1b8d2` |
+| revisione misurata | `1d1b8d2` |
+| passi del checkpoint | 111 |
+| passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 89 707 |
+| input di replay | 141 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,48% |
-| righe coperte LCOV | 24 720 |
-| righe strumentate LCOV | 28 584 |
-| copertura cargo | 84,03% |
+| copertura LCOV | 86,51% |
+| righe coperte LCOV | 24 789 |
+| righe strumentate LCOV | 28 656 |
+| copertura cargo | 84,06% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `28bf62c` |
-| esito differenziale | 94.04% |
+| baseline differenziale | `6beb410` |
+| esito differenziale | 83.47% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `6beb410` |
+| S9, qualificato su | `1d1b8d2` |
 | candidate, versione del manifesto | `4.1.0` |
-| candidate, stato | ritirata |
-| candidate, revisione congelata | `23df4d5a9e7accc4924cd8c958e821598360a623` |
+| candidate, stato | pubblicata |
+| candidate, revisione congelata | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
 | candidate, versione del workspace | `4.1.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.1.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| candidate, tag sulla candidate | sì |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 3 |
 | release_authorized | `true` |
