@@ -6,7 +6,7 @@
   "profile": "plenora-io-tools-profile-v1",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+    "revision": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3"
   },
   "contracts": [
     {
@@ -126,6 +126,27 @@
       "surface": "cli",
       "observed_behavior": "un dataset Arrow con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink: nessuno dichiara i sedici tipi geometrici canonici, il massimo e' sette. La regola «un sink che restringe i tipi pretende che la sorgente li dichiari» non compare nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees. Per il consumatore: il rifiuto e' tipizzato e mai silenzioso, ma non e' predicibile leggendo il catalogo.",
       "tracking": "docs/PIANO-4.0.0.md riga B12c; la meta' locale e' chiusa (`scansione_completa` distingue l'assenza accertata dall'ignoranza), quella sul filo dipende dal vocabolario successore -- decisione 0006 del repository dei contratti",
+      "detectable_before_invocation": false
+    },
+    {
+      "rule": "plenora-io-read-result-v1 (delivered.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con `--out-opt serialization=stream` `read` consegna il flusso Arrow e la busta dice `delivered.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera; chi valida contro v1 la rifiuta. Senza quell'opzione la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-read-result-v2` sotto `io.read@2` nel catalogo comune: v1 non si allarga sul posto (COMPATIBILITY.md). Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "surface": "cli",
+      "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
+      "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
+      "surface": "cli",
+      "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare.",
+      "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato",
       "detectable_before_invocation": false
     }
   ],

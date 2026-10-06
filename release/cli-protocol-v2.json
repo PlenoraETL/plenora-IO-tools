@@ -308,18 +308,6 @@
           ],
           "sempre": true
         },
-        ".result.operations[].input.interchange_contracts": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].input.interchange_contracts[]": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
         ".result.operations[].output": {
           "tipi": [
             "object"
@@ -339,18 +327,6 @@
           "sempre": true
         },
         ".result.operations[].output.contract": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output.interchange_contracts": {
-          "tipi": [
-            "array"
-          ],
-          "sempre": true
-        },
-        ".result.operations[].output.interchange_contracts[]": {
           "tipi": [
             "string"
           ],
