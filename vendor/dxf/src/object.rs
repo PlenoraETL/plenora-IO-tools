@@ -189,13 +189,18 @@ impl Object {
                     &mut geo.__source_mesh_y_points,
                     &mut source_points,
                     Point::new,
-                );
+                )?;
                 combine_points_2(
                     &mut geo.__destination_mesh_x_points,
                     &mut geo.__destination_mesh_y_points,
                     &mut destination_points,
                     Point::new,
-                );
+                )?;
+                // Sorgenti e destinazioni vanno in coppia: con `zip` una lista
+                // piu' corta toglieva in silenzio i punti dell'altra.
+                if source_points.len() != destination_points.len() {
+                    return Err(DxfError::ParseError(0));
+                }
                 for (s, d) in source_points.drain(..).zip(destination_points.drain(..)) {
                     geo.geo_mesh_points.push(GeoMeshPoint::new(s, d));
                 }
@@ -206,7 +211,7 @@ impl Object {
                     &mut geo.__face_point_index_z,
                     &mut geo.face_indices,
                     Point::new,
-                );
+                )?;
             }
             ObjectType::Material(ref mut material) => {
                 material.diffuse_map_transformation_matrix = TransformationMatrix::from_vec(
@@ -243,6 +248,13 @@ impl Object {
                 material.__normal_map_transformation_matrix_values.clear();
             }
             ObjectType::MLineStyle(ref mut mline) => {
+                // Come `combine_points_*`: liste di lunghezza diversa non
+                // descrivono gli elementi, e `zip` ne toglieva in silenzio.
+                if mline.__element_offsets.len() != mline.__element_colors.len()
+                    || mline.__element_offsets.len() != mline.__element_line_types.len()
+                {
+                    return Err(DxfError::ParseError(0));
+                }
                 for (o, (c, l)) in mline.__element_offsets.drain(..).zip(
                     mline
                         .__element_colors

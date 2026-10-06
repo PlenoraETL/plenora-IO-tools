@@ -210,3 +210,28 @@ fn un_blocco_con_una_linea_illeggibile_esce_con_la_busta_e_non_con_zero_righe() 
         verifica_busta("read", &esito);
     }
 }
+
+/// Fuori dal titolo di questo file, ma sullo stesso confine: un documento che
+/// il lettore accettava con una parte persa. Sulla 4.1.0 `read` rispondeva
+/// `status: ok` a un'entita' di tipo sconosciuto (scartata) e a una riga vuota
+/// in testa (il resto del file letto come assente, zero righe).
+#[test]
+fn un_documento_con_parti_perse_esce_con_la_busta() {
+    let linea = "0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n";
+    let casi = [
+        format!("0\nSECTION\n2\nENTITIES\n{linea}0\nLINEE\n10\n0\n0\nENDSEC\n0\nEOF\n"),
+        format!("\n0\nSECTION\n2\nENTITIES\n{linea}0\nENDSEC\n0\nEOF\n"),
+    ];
+    let radice = tempfile::tempdir().expect("directory temporanea");
+    for (indice, testo) in casi.iter().enumerate() {
+        let percorso = radice.path().join(format!("perdita-{indice}.dxf"));
+        std::fs::write(&percorso, testo).expect("la sorgente si scrive");
+        let esito = esegui(&[
+            "read",
+            percorso.to_str().expect("percorso UTF-8"),
+            "--assume-crs",
+            "EPSG:4326",
+        ]);
+        verifica_busta("read", &esito);
+    }
+}
