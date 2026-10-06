@@ -93,13 +93,15 @@ fn verifica_busta(comando: &str, esito: &Esito) {
         "{comando}: stderr deve restare vuoto, trovati {} byte",
         esito.stderr.len()
     );
-    let busta: Value = serde_json::from_slice(&esito.stdout).unwrap_or_else(|_| {
+    // Senza busta JSON la prova si ferma dicendo che cosa c'era al suo posto:
+    // non e' un caso da coprire con un valore.
+    let Ok(busta) = serde_json::from_slice::<Value>(&esito.stdout) else {
         panic!(
             "{comando}: stdout non e' una busta JSON ({} byte, exit {:?})",
             esito.stdout.len(),
             esito.codice
         )
-    });
+    };
     assert_eq!(busta["status"], "error", "{comando}: {busta}");
     assert_eq!(busta["contract"], "plenora-error-v1", "{comando}: {busta}");
     assert_eq!(busta["command"], comando, "{comando}: {busta}");
