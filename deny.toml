@@ -1,0 +1,99 @@
+# Politica della catena delle dipendenze (cargo-deny), sul modello di
+# plenora-database-tools: advisory rifiutate salvo le eccezioni del registro,
+# crate ritirati (yanked) rifiutati, licenze permissive in allowlist, sorgenti
+# solo da crates.io o dai fork governati in `vendor/` (patch per percorso).
+#
+# Il workflow `supply-chain` la applica al grafo del workspace e a quello
+# separato di `fuzz/`, su push, pull request e a calendario. La versione dello
+# strumento e' fissata in `scripts/toolchain-pins.env`.
+
+# ============================================================================
+#  graph
+# ============================================================================
+
+[graph]
+# Tutte le feature, compresa `gdal-backend`: il tier FileGDB e' parte del
+# prodotto distribuito, e una dipendenza che entra solo con una feature entra
+# comunque nell'artefatto che la abilita.
+all-features = true
+
+# ============================================================================
+#  advisories
+# ============================================================================
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+# Le eccezioni sono quelle di `assurance/registries/dependency-exceptions.json`,
+# con motivo, esposizione, condizione di chiusura e trigger di riesame.
+# `scripts/check_cargo_deny.py` verifica che questo elenco e il registro
+# coincidano: due elenchi divergono, e qui la ragione non c'e'.
+ignore = [
+    { id = "RUSTSEC-2023-0089", reason = "atomic-polyfill: vedi assurance/registries/dependency-exceptions.json" },
+]
+
+# ============================================================================
+#  licenses
+# ============================================================================
+
+[licenses]
+version = 2
+# Le licenze permissive presenti nel grafo, ciascuna compatibile con la
+# distribuzione binaria proprietaria. Una licenza nuova nel grafo fa rosso il
+# gate: entra in questo elenco solo con una decisione scritta accanto.
+allow = [
+    "0BSD",
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+exceptions = [
+    # `libfuzzer-sys` incorpora libFuzzer di LLVM sotto NCSA, permissiva con
+    # obbligo di attribuzione. Vive solo nel grafo staccato di `fuzz/`, che non
+    # e' distribuito: l'eccezione e' limitata al crate invece di allargare
+    # l'allowlist generale, come in plenora-database-tools.
+    { allow = ["MIT", "Apache-2.0", "NCSA"], crate = "libfuzzer-sys" },
+]
+
+# I crate del workspace sono nostri e `publish = false`: non sono dipendenze di
+# terze parti. L'esclusione non tocca l'allowlist, che vale per ogni crate
+# esterno, compresi i tre fork in `vendor/`.
+[licenses.private]
+ignore = true
+
+# ============================================================================
+#  bans
+# ============================================================================
+
+[bans]
+multiple-versions = "warn"
+# Le dipendenze del workspace sono fissate con `=x.y.z` (regola 2 di
+# AGENTS.md, e `scripts/check_dependency_pins.py`): un wildcard verso un crate
+# esterno e' rifiutato. Le dipendenze per percorso fra crate del workspace e
+# verso i fork vendorizzati restano ammesse.
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = []
+skip = []
+skip-tree = []
+
+# ============================================================================
+#  sources
+# ============================================================================
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
