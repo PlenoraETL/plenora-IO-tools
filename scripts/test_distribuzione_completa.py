@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 GATE = RADICE / "scripts" / "check-distribuzione-completa.py"
@@ -250,13 +252,13 @@ class SondeDellaFirma(ConGliArtefattiAttesi, unittest.TestCase):
         for canale in ("prova", "candidate"):
             for piattaforma in ("linux-x86_64", "windows-x86_64"):
                 with self.subTest(canale=canale, piattaforma=piattaforma):
-                    stato = self.d.stato_della_firma(piattaforma, canale)
+                    stato = self.d.stato_della_firma(piattaforma, canale, ambiente={})
                     self.assertEqual(stato["stato"], "non_richiesta")
                     self.assertIsNone(stato["meccanismo"])
                     self.assertTrue(stato["perche"])
 
     def test_windows_dichiara_le_conseguenze_della_scelta_unsigned(self) -> None:
-        stato = self.d.stato_della_firma("windows-x86_64", "candidate")
+        stato = self.d.stato_della_firma("windows-x86_64", "candidate", ambiente={})
         descrizione = stato["perche"].lower()
         self.assertIn("senza authenticode", descrizione)
         self.assertIn("editore sconosciuto", descrizione)
@@ -264,26 +266,21 @@ class SondeDellaFirma(ConGliArtefattiAttesi, unittest.TestCase):
         self.assertIn("sha-256", descrizione)
         self.assertIn("provenance", descrizione)
 
-    def test_una_candidate_unsigned_passa_il_gate_della_distribuzione(self) -> None:
-        """Togliere il certificato significa togliere il blocco, non il campo.
-
-        La candidate continua a portare `firma.stato=non_richiesta`; runtime,
-        licenze, smoke, relocation, digest e provenance restano tutti pretesi.
-        """
+    def scrivi_referti_windows(self, firma: dict) -> None:
+        """I referti di una candidate Windows completa, con il blocco `firma` dato."""
         artefatti, dichiarate = self.attesi(("windows-x86_64",))
         # La coordinata viene dall'artefatto: quelli della classe `python-puro`
         # hanno `any`, e scriverla a mano li avrebbe fatti sembrare mancanti.
         for coordinata, profilo, classe in artefatti:
             for verifica in self.gate.attese_per(profilo, classe, dichiarate):
-                misure = (
-                    {"firma": self.d.stato_della_firma("windows-x86_64", "candidate")}
-                    if verifica == "smoke-profilo"
-                    else {}
-                )
+                misure = {"firma": firma} if verifica == "smoke-profilo" else {}
                 if verifica == "smoke-profilo":
                     misure["filegdb_assente" if profilo == "base" else "schema_riletto"] = True
                 for obbligatoria in self.gate.VERIFICHE_ATTESE[verifica]["misure_obbligatorie"]:
-                    misure[obbligatoria] = 1
+                    # Senza sovrascrivere: il blocco `firma` e' una misura
+                    # obbligatoria anche lui, e un `1` al suo posto renderebbe
+                    # la sonda cieca proprio su cio' che prova.
+                    misure.setdefault(obbligatoria, 1)
                 (self.tmp / f"{coordinata}-{profilo}-{verifica}.json").write_text(
                     json.dumps(
                         {
@@ -299,11 +296,53 @@ class SondeDellaFirma(ConGliArtefattiAttesi, unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-        self.assertEqual(
-            self.gate.verifica(
-                self.tmp, "candidate", ("windows-x86_64",), *self.attesi(("windows-x86_64",))
-            ), []
+
+    def gate_windows(self) -> list[str]:
+        return self.gate.verifica(
+            self.tmp, "candidate", ("windows-x86_64",), *self.attesi(("windows-x86_64",))
         )
+
+    def test_una_candidate_unsigned_passa_il_gate_della_distribuzione(self) -> None:
+        """Togliere il certificato significa togliere il blocco, non il campo.
+
+        La candidate continua a portare `firma.stato=non_richiesta`; runtime,
+        licenze, smoke, relocation, digest e provenance restano tutti pretesi.
+        """
+        with mock.patch.dict(os.environ, {"PLENORA_FIRMA_WINDOWS": "nessuna"}):
+            self.scrivi_referti_windows(
+                self.d.stato_della_firma("windows-x86_64", "candidate", ambiente={})
+            )
+            self.assertEqual(self.gate_windows(), [])
+
+    def test_con_la_firma_configurata_una_candidate_unsigned_e_rossa(self) -> None:
+        """Con `PLENORA_FIRMA_WINDOWS=authenticode` il gate pretende `apposta`."""
+        with mock.patch.dict(os.environ, {"PLENORA_FIRMA_WINDOWS": "authenticode"}):
+            self.scrivi_referti_windows(
+                self.d.stato_della_firma("windows-x86_64", "candidate", ambiente={})
+            )
+            errori = self.gate_windows()
+        self.assertEqual(len(errori), 2, errori)
+        self.assertTrue(all("authenticode" in e for e in errori), errori)
+
+    def test_con_la_firma_configurata_una_candidate_firmata_passa(self) -> None:
+        con = {"PLENORA_FIRMA_WINDOWS": "authenticode"}
+        misura = {
+            "firmato": True,
+            "firmatario": "CN=Plenora",
+            "impronta_firmatario": "AB" * 20,
+            "timestamp": "CN=Microsoft Public RSA Time Stamping Authority",
+        }
+        with mock.patch.dict(os.environ, con):
+            self.scrivi_referti_windows(
+                self.d.stato_della_firma("windows-x86_64", "candidate", misura=misura, ambiente=con)
+            )
+            self.assertEqual(self.gate_windows(), [])
+
+    def test_un_blocco_firma_che_non_e_un_oggetto_e_un_errore_non_un_crash(self) -> None:
+        with mock.patch.dict(os.environ, {"PLENORA_FIRMA_WINDOWS": "authenticode"}):
+            self.scrivi_referti_windows(1)  # type: ignore[arg-type]
+            errori = self.gate_windows()
+        self.assertEqual(len(errori), 2, errori)
 
     def test_il_manifesto_non_puo_omettere_la_decisione(self) -> None:
         """Il gate continua a pretendere `firma` nel referto dello smoke."""

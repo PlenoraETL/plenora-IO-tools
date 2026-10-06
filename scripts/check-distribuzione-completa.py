@@ -367,6 +367,15 @@ def verifica(
             if referto is None:
                 continue  # gia' segnalato sopra
             firma = (referto.get("misure") or {}).get("firma", {})
+            if not isinstance(firma, dict):
+                # Un blocco che non e' un oggetto non si interroga: si dice.
+                # Interrogarlo faceva cadere il gate con un'eccezione invece
+                # di un errore che nomina l'artefatto.
+                errori.append(
+                    f"{piattaforma}/{profilo}: il blocco `firma` del referto non e' un "
+                    f"oggetto, e la firma {politica['meccanismo']} e' pretesa"
+                )
+                continue
             stato = firma.get("stato")
             if stato == "non_misurata":
                 errori.append(

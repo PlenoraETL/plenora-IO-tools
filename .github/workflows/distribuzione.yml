@@ -21,9 +21,14 @@
 # # Il canale
 #
 # Di norma `prova`: artefatti costruiti per essere misurati, non installati.
-# Il canale `candidate` si chiede a mano. La 2.0.0 non richiede una firma di
-# piattaforma ne' su Linux ne' su Windows: i manifesti lo dichiarano, mentre
-# checksum, provenance e tutte le verifiche dell'artefatto restano obbligatori.
+# Il canale `candidate` si chiede a mano. Su Linux nessuna firma di piattaforma.
+# Su Windows la candidate si firma con Authenticode tramite Azure Trusted
+# Signing **quando il repository porta le variabili della firma**
+# (`docs/RELEASE.md, «La firma»`): `PLENORA_FIRMA_WINDOWS` qui sotto lo deriva per
+# tutti i job, e il gate pretende allora la firma misurata. Senza variabili resta
+# la decisione della 2.0.0 -- `non_richiesta` nei manifesti -- e nessun passo di
+# firma gira. Checksum, provenance e tutte le verifiche dell'artefatto restano
+# obbligatori in entrambi i casi.
 #
 # # Come si avvia, e l'impalcatura che non c'e' piu'
 #
@@ -73,6 +78,12 @@ env:
   # avrebbe potuto dire da quale. La qualifica misura **una** revisione, e gli
   # artefatti devono uscire da quella.
   REVISIONE: ${{ inputs.revisione }}
+  # `authenticode` quando l'account di Trusted Signing e' configurato, altrimenti
+  # `nessuna`. Una variabile sola per tutti i job: chi costruisce e il gate
+  # devono leggere la stessa politica (`distribuzione.politica_di_firma`). Le
+  # altre variabili della firma le verifica il passo che la prepara: una
+  # configurazione a meta' ferma la candidate invece di firmare a meta'.
+  PLENORA_FIRMA_WINDOWS: ${{ vars.PLENORA_TRUSTED_SIGNING_ACCOUNT != '' && 'authenticode' || 'nessuna' }}
 
 jobs:
   linux:
@@ -210,6 +221,12 @@ jobs:
     # digest del rilievo da cui viene. Solo allora la seconda corsa confronta il
     # reale con l'atteso, e puo' diventare verde.
     runs-on: windows-2022
+    # `id-token: write` serve soltanto ad `azure/login` per l'identita' federata
+    # OIDC della firma; senza la configurazione della firma nessun passo chiede
+    # il token.
+    permissions:
+      contents: read
+      id-token: write
     # Un passo che si blocca deve fallire presto. Il default di GitHub e' sei
     # ore: due corse di scoperta si sono appese su un comando in attesa di
     # input, e senza un tetto avrebbero consumato runner per un pomeriggio
@@ -262,6 +279,95 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/discovery"
           cp "${TMP:-$TEMP}/install-windows-gdal.log"              "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log" 2>/dev/null ||              echo "nessun diario prodotto" > "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log"
+
+      # --- la firma, solo su una candidate con la configurazione ------------
+      #
+      # Nessun segreto: l'identita' e' federata (OIDC di GitHub verso un'app di
+      # Entra ID), e le variabili nominano risorse, non credenziali. Il
+      # costruttore riceve tre percorsi e il soggetto atteso, e firma prima del
+      # manifesto (`scripts/firma_windows.py`).
+      - name: La configurazione della firma e' completa
+        if: env.CANALE == 'candidate' && env.PLENORA_FIRMA_WINDOWS == 'authenticode'
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.PLENORA_AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.PLENORA_AZURE_TENANT_ID }}
+          ENDPOINT: ${{ vars.PLENORA_TRUSTED_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.PLENORA_TRUSTED_SIGNING_ACCOUNT }}
+          PROFILO: ${{ vars.PLENORA_TRUSTED_SIGNING_PROFILE }}
+          FIRMATARIO: ${{ vars.PLENORA_WINDOWS_FIRMATARIO_ATTESO }}
+        run: |
+          mancanti=()
+          for nome in AZURE_CLIENT_ID AZURE_TENANT_ID ENDPOINT ACCOUNT PROFILO FIRMATARIO; do
+            [[ -n "${!nome}" ]] || mancanti+=("$nome")
+          done
+          if (( ${#mancanti[@]} )); then
+            echo "configurazione della firma incompleta, mancano: ${mancanti[*]} (docs/RELEASE.md, «La firma»)" >&2
+            exit 1
+          fi
+
+      - name: Accedi ad Azure con l'identita' federata
+        if: env.CANALE == 'candidate' && env.PLENORA_FIRMA_WINDOWS == 'authenticode'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.PLENORA_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.PLENORA_AZURE_TENANT_ID }}
+          # Il ruolo di firma sta sul profilo dei certificati, non su una
+          # sottoscrizione: l'identita' puo' non vederne nessuna.
+          allow-no-subscriptions: true
+
+      - name: Prepara il firmatario Trusted Signing
+        if: env.CANALE == 'candidate' && env.PLENORA_FIRMA_WINDOWS == 'authenticode'
+        shell: pwsh
+        env:
+          ENDPOINT: ${{ vars.PLENORA_TRUSTED_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.PLENORA_TRUSTED_SIGNING_ACCOUNT }}
+          PROFILO: ${{ vars.PLENORA_TRUSTED_SIGNING_PROFILE }}
+          FIRMATARIO: ${{ vars.PLENORA_WINDOWS_FIRMATARIO_ATTESO }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $lock = Get-Content scripts/trusted-signing-lock.json -Raw | ConvertFrom-Json
+          $cartella = Join-Path $env:RUNNER_TEMP "trusted-signing"
+          New-Item -ItemType Directory -Force -Path $cartella | Out-Null
+          $pacchetto = Join-Path $cartella "client.zip"
+          Invoke-WebRequest -Uri $lock.url -OutFile $pacchetto -UseBasicParsing
+          $misurato = (Get-FileHash -Algorithm SHA256 -LiteralPath $pacchetto).Hash.ToLowerInvariant()
+          if ($misurato -ne $lock.sha256) {
+            throw "il client di Trusted Signing scaricato non e' quello fissato nel lock"
+          }
+          $estratto = Join-Path $cartella "client"
+          Expand-Archive -LiteralPath $pacchetto -DestinationPath $estratto
+          $dlib = Join-Path $estratto $lock.dlib
+          if (-not (Test-Path -LiteralPath $dlib -PathType Leaf)) {
+            throw "la dlib dichiarata nel lock non c'e' nel pacchetto"
+          }
+          # SignTool x64 dal Windows SDK del runner: la dlib vuole la 10.0.22621
+          # o successiva, e si prende la piu' recente presente.
+          $signTool = Get-ChildItem `
+            -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" `
+            -File | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $signTool) {
+            throw "signtool.exe x64 non trovato nel Windows SDK del runner"
+          }
+          # Il client prova le credenziali in ordine: si escludono tutte tranne
+          # la sessione della CLI aperta da azure/login, cosi' non ne trova una
+          # diversa per caso.
+          $metadati = [ordered]@{
+            Endpoint = $env:ENDPOINT
+            CodeSigningAccountName = $env:ACCOUNT
+            CertificateProfileName = $env:PROFILO
+            ExcludeCredentials = @(
+              "ManagedIdentityCredential", "EnvironmentCredential", "WorkloadIdentityCredential",
+              "SharedTokenCacheCredential", "VisualStudioCredential", "VisualStudioCodeCredential",
+              "AzurePowerShellCredential", "AzureDeveloperCliCredential", "InteractiveBrowserCredential"
+            )
+          }
+          $percorsoMetadati = Join-Path $cartella "metadata.json"
+          $metadati | ConvertTo-Json | Out-File -FilePath $percorsoMetadati -Encoding utf8
+          "PLENORA_WINDOWS_SIGNTOOL=$($signTool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PLENORA_TRUSTED_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PLENORA_TRUSTED_SIGNING_METADATA=$percorsoMetadati" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PLENORA_WINDOWS_FIRMATARIO_ATTESO=$env:FIRMATARIO" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Costruisci l'artefatto
         shell: bash
@@ -406,6 +512,13 @@ jobs:
         with:
           name: referti-windows-${{ matrix.profilo }}
           path: ${{ runner.temp }}/referti/
+
+      # La sessione di Azure non sopravvive al job: il runner e' effimero, e
+      # chiuderla lo stesso costa una riga.
+      - name: Chiudi la sessione di Azure
+        if: always() && env.CANALE == 'candidate' && env.PLENORA_FIRMA_WINDOWS == 'authenticode'
+        shell: bash
+        run: az logout || true
 
       # Il job e' verde quando le **verifiche** sono verdi.
       #

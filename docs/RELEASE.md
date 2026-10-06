@@ -842,20 +842,75 @@ libera.
 | canale | Linux | Windows |
 | --- | --- | --- |
 | `prova` | non richiesta | non richiesta |
-| `candidate` | non richiesta | non richiesta |
+| `candidate` | non richiesta | Authenticode con Azure Trusted Signing **se configurata**, altrimenti non richiesta |
 
-La release 2.0.0 non richiede una firma di piattaforma. Su Linux non esiste un
-meccanismo equivalente che il sistema verifichi normalmente all'esecuzione; su
-Windows la scelta è deliberata: il PE viene distribuito senza Authenticode.
-Windows può quindi mostrare «editore sconosciuto» e una policy aziendale può
-impedirne l'esecuzione. SHA-256, digest del manifesto e provenance restano
-obbligatori e verificano byte e origine della costruzione, ma non attribuiscono
-al binario un editore riconosciuto da Windows.
+Su Linux non esiste un meccanismo equivalente che il sistema verifichi
+normalmente all'esecuzione. Su Windows la candidate si firma con Authenticode
+tramite Azure Trusted Signing quando il repository porta le variabili della
+firma (sotto); finché non le porta resta la decisione della 2.0.0: il PE viene
+distribuito senza Authenticode, Windows può mostrare «editore sconosciuto» e
+una policy aziendale può impedirne l'esecuzione. SHA-256, digest del manifesto
+e provenance restano obbligatori in entrambi i casi.
 
-Il manifesto conserva il blocco `firma` con stato `non_richiesta` su entrambe le
-piattaforme e in entrambi i canali. Il campo esplicito distingue questa decisione
-da una firma dimenticata. Il workflow non legge PFX, certificati o secret di
-firma.
+Il manifesto conserva sempre il blocco `firma`: `non_richiesta` senza
+configurazione, `apposta` con la firma misurata sui byte finali. Il campo
+esplicito distingue una decisione da una firma dimenticata.
+
+##### Authenticode con Azure Trusted Signing: che cosa serve
+
+La macchina è nel repository e resta spenta finché le variabili non ci sono:
+`PLENORA_FIRMA_WINDOWS` vale `nessuna`, nessun passo di firma gira, e il gate
+non pretende niente. Non c'è nessun segreto: l'identità è federata (OIDC di
+GitHub Actions verso un'app di Entra ID), il client di firma è fissato per
+versione e SHA-256 in `scripts/trusted-signing-lock.json`, e le variabili
+nominano risorse, non credenziali.
+
+Da fare una volta, da chi possiede l'account Azure:
+
+1. **Account di Trusted Signing** (oggi «Artifact Signing») in una
+   sottoscrizione Azure, nella regione scelta; il suo endpoint è quello della
+   regione, per esempio `https://weu.codesigning.azure.net`.
+2. **Validazione dell'identità** (organizzazione o persona) nel portale
+   dell'account. È il passo che decide il nome dell'editore che Windows
+   mostrerà, e può richiedere giorni.
+3. **Profilo dei certificati** di tipo *Public Trust* legato a quell'identità.
+   I certificati che emette durano tre giorni e si rinnovano: per questo il
+   gate confronta il **soggetto**, non l'impronta.
+4. **App di Entra ID** con una *federated credential* per GitHub Actions:
+   organizzazione `PlenoraETL`, repository `plenora-IO-tools`, entità
+   *Branch* `main` (il workflow di distribuzione si avvia da lì con
+   `workflow_dispatch`). Nessun client secret.
+5. **Ruolo** *Trusted Signing Certificate Profile Signer* (o il suo nuovo nome,
+   *Artifact Signing Certificate Profile Signer*) all'app, sul profilo dei
+   certificati.
+6. **Variabili del repository** (Settings → Secrets and variables → Actions →
+   *Variables*, non *Secrets*):
+
+   | variabile | valore |
+   | --- | --- |
+   | `PLENORA_AZURE_TENANT_ID` | tenant di Entra ID |
+   | `PLENORA_AZURE_CLIENT_ID` | client ID dell'app del punto 4 |
+   | `PLENORA_TRUSTED_SIGNING_ENDPOINT` | endpoint della regione dell'account |
+   | `PLENORA_TRUSTED_SIGNING_ACCOUNT` | nome dell'account |
+   | `PLENORA_TRUSTED_SIGNING_PROFILE` | nome del profilo dei certificati |
+   | `PLENORA_WINDOWS_FIRMATARIO_ATTESO` | il soggetto esatto dei certificati del profilo, come lo riporta `Get-AuthenticodeSignature` (`SignerCertificate.Subject`) |
+
+   `PLENORA_TRUSTED_SIGNING_ACCOUNT` è quella che accende la firma; se c'è e
+   un'altra manca, la candidate si ferma prima di costruire invece di firmare
+   a metà.
+
+Che cosa fa la corsa candidate con la configurazione: accede ad Azure con
+`azure/login`, scarica il client e ne verifica lo SHA-256, firma il solo
+`bin/plenora-io.exe` (le DLL di terzi conservano la propria identità) con
+timestamp RFC 3161 di Microsoft, verifica con `signtool verify /pa`, misura con
+`Get-AuthenticodeSignature` stato, soggetto, impronta e timestamp, pretende il
+soggetto configurato, e solo dopo scrive il manifesto. Lo smoke gira sul
+binario firmato. Il gate finale pretende `firma.stato: apposta` con le misure
+che la sostengono.
+
+La prima corsa candidate con la configurazione è anche la prima prova contro il
+servizio vero: le sonde del repository (`scripts/test_firma_windows.py`)
+provano le decisioni con uno strumento finto, non che Azure firmi.
 
 Developer ID, notarizzazione e la questione dello stapling sono usciti insieme a
 macOS. Erano il pezzo più costoso della catena — un certificato Apple, un
@@ -869,9 +924,10 @@ prodotti dal precedente, e invertirne due produce un artefatto le cui verifiche
 parlano di un file diverso da quello che si consegna.
 
 1. **payload** — assemblare l'albero: binario, librerie, dati, licenze.
-2. **firma** — dichiarare esplicitamente che la release non richiede una firma
-   di piattaforma; il passo non modifica i byte.
-3. **manifesto** — generarlo dai byte finali del payload.
+2. **firma** — firmare l'entrypoint dove la politica lo pretende, o dichiarare
+   che la firma non è richiesta; prima di qualunque cosa ne descriva i byte.
+3. **manifesto** — generarlo dai byte finali del payload, firmati se la firma
+   c'è.
 4. **archivio** — creare il contenitore (`tar.gz` su Linux, `zip` altrove).
 5. **notarizzazione** — nessuna piattaforma del perimetro la richiede; il passo
    resta perché l'ordine è uno solo e la posizione è ciò che va fissata.
@@ -879,8 +935,9 @@ parlano di un file diverso da quello che si consegna.
 7. **smoke** — sull'oggetto finale, non su una sua versione precedente.
 8. **provenance** — legata a *quel* checksum.
 
-Il campo `firma` resta nei manifesti con stato `non_richiesta`. Nessun
-certificato o secret è richiesto per costruire una candidate.
+Il campo `firma` resta in tutti i manifesti. Nessun certificato o secret è
+richiesto per costruire una candidate: la firma Windows, quando configurata,
+usa un'identità federata e variabili non segrete.
 
 #### Windows x86_64 — fissata e verificata in canale prova
 
@@ -975,10 +1032,12 @@ non sostituirli con una prova nell'albero sorgente. Solo dopo queste verifiche
 rinominare la directory temporanea col nome definitivo. Non estrarre mai sopra
 una versione già presente.
 
-Su Windows controllare che `MANIFEST.json` dichiari
-`firma.stato: non_richiesta`. L'assenza di Authenticode è intenzionale; chi
-opera sotto una policy che ammette soltanto editori firmati deve distribuire il
-binario attraverso un canale aziendale approvato oppure non installarlo.
+Su Windows controllare in `MANIFEST.json` il blocco `firma`. Con
+`firma.stato: apposta` verificare anche la firma del binario (`docs/INSTALL.md`,
+«Verificare ciò che è arrivato»). Con `firma.stato: non_richiesta` l'assenza di
+Authenticode è dichiarata; chi opera sotto una policy che ammette soltanto
+editori firmati deve distribuire il binario attraverso un canale aziendale
+approvato oppure non installarlo.
 
 **Attivazione e aggiornamento.** Il programma non installa un servizio e non
 gestisce un collegamento `current`: il supervisore del deployment deve puntare

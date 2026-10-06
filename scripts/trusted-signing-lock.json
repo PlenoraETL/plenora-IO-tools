@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "che_cosa": "il client di Azure Trusted Signing che SignTool carica con /dlib per firmare la candidate Windows. Si scarica nel job, si verifica contro questo SHA-256 e solo allora si estrae: un pacchetto diverso da quello fissato non firma niente.",
+  "pacchetto": "Microsoft.ArtifactSigning.Client",
+  "versione": "1.0.128",
+  "url": "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg",
+  "sha256": "74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b",
+  "dlib": "bin/x64/Azure.CodeSigning.Dlib.dll",
+  "perche_questo_nome": "Trusted Signing e' stato rinominato Artifact Signing; il pacchetto `Microsoft.Trusted.Signing.Client` si ferma alla 1.0.95 e prosegue con questo nome. La dlib e il protocollo sono gli stessi.",
+  "timestamp": "http://timestamp.acs.microsoft.com",
+  "aggiornare": "cambiare versione, url e sha256 insieme, misurando lo SHA-256 del .nupkg scaricato da nuget.org"
+}

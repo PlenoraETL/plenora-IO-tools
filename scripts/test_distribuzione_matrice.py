@@ -569,8 +569,13 @@ class SondeMatrice(unittest.TestCase):
                 self.assertFalse(regola.get("notarizzazione"))
                 self.assertFalse(regola.get("stapling"))
 
-    def test_la_release_non_pretende_firma_su_nessuna_piattaforma(self) -> None:
-        """Unsigned e' una decisione del perimetro, non l'assenza dei secret."""
+    def test_senza_configurazione_nessuna_piattaforma_pretende_firma(self) -> None:
+        """Unsigned e' una decisione del perimetro, non l'assenza dei secret.
+
+        La firma Windows si accende solo con la configurazione esplicita
+        (`PLENORA_FIRMA_WINDOWS=authenticode`): senza, la politica statica resta
+        quella della 2.0.0, e la matrice dice entrambe le cose.
+        """
         import importlib.util
 
         percorso = RADICE / "scripts" / "distribuzione.py"
@@ -585,14 +590,15 @@ class SondeMatrice(unittest.TestCase):
                 regola = modulo.POLITICA_DI_FIRMA[piattaforma]["candidate"]
                 self.assertIsNone(regola.get("meccanismo"))
                 self.assertEqual(
-                    modulo.stato_della_firma(piattaforma, "candidate")["stato"],
+                    modulo.stato_della_firma(piattaforma, "candidate", ambiente={})["stato"],
                     "non_richiesta",
                 )
 
         decisione = self.matrice["firma"]
-        self.assertIn("non richiede", decisione["decisione"])
+        self.assertIn("nessuna firma di piattaforma pretesa", decisione["decisione"])
+        self.assertIn("PLENORA_FIRMA_WINDOWS=authenticode", decisione["decisione"])
         self.assertIn("editore sconosciuto", decisione["conseguenze_windows"])
-        self.assertEqual(decisione["materiale_esterno"].split(":", 1)[0], "nessuno")
+        self.assertTrue(decisione["materiale_esterno"].startswith("nessun segreto"))
 
     def test_l_ordine_delle_operazioni_e_lo_stesso_nei_due_posti(self) -> None:
         """La matrice lo **dichiara**, `distribuzione.py` lo fa **applicare**.

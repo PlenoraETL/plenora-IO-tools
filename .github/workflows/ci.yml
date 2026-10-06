@@ -57,6 +57,14 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_action_pins
           python3 scripts/check_action_pins.py
+      # La firma Windows non gira qui -- vuole l'account Azure e una corsa
+      # candidate -- ma le sue decisioni si: quando non fa niente, quando si
+      # ferma, che cosa pretende il gate. Le sonde usano uno strumento finto, e
+      # girano anche senza configurazione e con quella accesa.
+      - name: Probe Windows signing decisions
+        run: |
+          python3 -m unittest scripts.test_firma_windows scripts.test_distribuzione_completa
+          PLENORA_FIRMA_WINDOWS=authenticode python3 -m unittest scripts.test_firma_windows scripts.test_distribuzione_completa
       - name: Verify unique public identities
         run: |
           python3 -m unittest scripts.test_check_public_identity

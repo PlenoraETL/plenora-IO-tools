@@ -155,6 +155,20 @@ print(len(manifesto["file"]), "file verificati")
 FINE
 ```
 
+Su Windows, quando `MANIFEST.json` dichiara `firma.stato: apposta`, il binario
+porta Authenticode e la si verifica con Windows stesso:
+
+```
+Get-AuthenticodeSignature .\bin\plenora-io.exe |
+  Format-List Status, SignerCertificate, TimeStamperCertificate
+```
+
+`Status` deve essere `Valid`, il soggetto di `SignerCertificate` quello che il
+manifesto riporta in `firma.misura.firmatario`, e `TimeStamperCertificate` non
+vuoto: è il timestamp a tenere valida la firma dopo la scadenza del certificato,
+che con Trusted Signing dura tre giorni. Con `firma.stato: non_richiesta` il
+binario non è firmato, ed è dichiarato.
+
 Oggi nessuno strumento di verifica viene **spedito dentro** l'archivio: la
 verifica sopra è a carico di chi riceve, e questo documento la scrive per esteso
 proprio perché non c'è un comando da invocare al suo posto. Nel repository lo

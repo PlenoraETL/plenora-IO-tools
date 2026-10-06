@@ -15,10 +15,13 @@ per leggere un artefatto.
 
 # La firma
 
-La release 2.0.0 non pretende Authenticode. Il manifesto lo dichiara come
-`non_richiesta`: non e' un campo dimenticato. Checksum, digest del manifesto e
-provenance restano obbligatori, mentre Windows puo' mostrare «editore
-sconosciuto» o applicare una policy aziendale che blocchi il binario.
+Senza la configurazione della firma (`PLENORA_FIRMA_WINDOWS` assente o
+`nessuna`) Authenticode non e' preteso, e il manifesto lo dichiara come
+`non_richiesta`: non e' un campo dimenticato. Con `authenticode`, una candidate
+firma l'entrypoint con Azure Trusted Signing **prima** del manifesto, che
+descrive i byte firmati, e misura firma, soggetto e timestamp sui byte finali
+(`firma_windows.py`, `docs/RELEASE.md, «La firma»`). Checksum, digest del manifesto e
+provenance restano obbligatori in entrambi i casi.
 
 # La prima corsa non qualifica
 
@@ -43,6 +46,7 @@ import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+import firma_windows  # noqa: E402 -- dopo sys.path, che e' il punto
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "windows-gdal-lock.json"
@@ -418,9 +422,13 @@ def main() -> int:
     )
 
     # =====================================================================
-    # 2. LA FIRMA -- decisione esplicita: non richiesta nella 2.0.0
+    # 2. LA FIRMA -- prima del manifesto, che descrive i byte firmati
     # =====================================================================
-    firma = distribuzione.stato_della_firma("windows-x86_64", arg.canale)
+    firma = firma_windows.applica(
+        albero / "bin" / "plenora-io.exe",
+        arg.canale,
+        verificatore.misura_della_firma,
+    )
     print(f"2. firma: {firma['stato']}", flush=True)
 
     # =====================================================================

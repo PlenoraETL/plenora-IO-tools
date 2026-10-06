@@ -24,6 +24,17 @@ questo puo' produrre l'avviso «editore sconosciuto» o un blocco imposto da una
 policy aziendale; e' un limite della distribuzione dichiarata, non qualcosa che
 il gate deve nascondere.
 
+# Authenticode con Azure Trusted Signing, quando la configurazione c'e'
+
+La candidate Windows si firma con Azure Trusted Signing quando il repository
+porta le variabili della firma (`docs/RELEASE.md, «La firma»`). Il workflow lo dice
+con una variabile sola, `PLENORA_FIRMA_WINDOWS` (`authenticode` oppure
+`nessuna`), che vale per **tutti** i job: chi costruisce firma e misura, e il
+gate pretende la firma `apposta`. Senza configurazione resta la decisione della
+2.0.0, `non_richiesta`. Un valore fuori da quei due e' un errore, non
+`nessuna`: una firma attesa e saltata per un refuso e' la failure silenziosa
+che il gate esiste per impedire.
+
 # Il perimetro della v1
 
 Due piattaforme: Linux x86-64 e Windows x86-64. macOS e' fuori scope -- una
@@ -36,6 +47,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -61,11 +73,12 @@ ORDINE = (
     ("payload", "assemblare l'albero: binario, librerie, dati, licenze"),
     (
         "firma",
-        "dichiarare esplicitamente che la release non richiede una firma di piattaforma",
+        "firmare l'entrypoint dove la politica lo pretende, o dichiarare che la firma "
+        "non e' richiesta, prima di qualunque cosa ne descriva i byte",
     ),
     (
         "manifesto",
-        "generare MANIFEST.json dai byte finali del payload",
+        "generare MANIFEST.json dai byte finali del payload, firmati se la firma c'e'",
     ),
     ("archivio", "creare il contenitore"),
     (
@@ -366,13 +379,58 @@ def contenitore(piattaforma: str) -> str:
     return CONTENITORE[piattaforma]
 
 
-def politica_di_firma(piattaforma: str, canale: str) -> dict:
+# La politica quando la firma Windows e' configurata.
+#
+# `impronta_firmatario` si misura e si scrive nel manifesto, ma non si pretende
+# uguale a un valore fissato: i certificati di Trusted Signing durano tre giorni
+# e cambiano a ogni rinnovo. L'identita' che resta e' il soggetto, e quello lo
+# confronta `firma_windows.applica` con il valore configurato.
+VARIABILE_FIRMA_WINDOWS = "PLENORA_FIRMA_WINDOWS"
+MODALITA_FIRMA_WINDOWS = ("nessuna", "authenticode")
+FIRMA_WINDOWS_AUTHENTICODE = {
+    "meccanismo": "authenticode",
+    "servizio": "Azure Trusted Signing",
+    "misure_pretese": ("firmato", "firmatario", "timestamp"),
+    "smoke_dopo": "la firma",
+    "perche": (
+        "il PE e' firmato con Authenticode tramite Azure Trusted Signing, con timestamp "
+        "RFC 3161: Windows ne mostra l'editore e una policy aziendale lo puo' ammettere "
+        "per identita'. Si firma il solo entrypoint; le DLL di terzi conservano la "
+        "propria identita'. SHA-256, manifesto e provenance restano pubblicati accanto."
+    ),
+}
+
+
+def modalita_firma_windows(ambiente: dict | None = None) -> str:
+    """`nessuna` o `authenticode`, da `PLENORA_FIRMA_WINDOWS`.
+
+    Assente o vuota vale `nessuna`: e' il caso di chi non ha configurato niente.
+    Qualunque altro valore ferma: non si indovina che cosa volesse dire.
+    """
+    env = os.environ if ambiente is None else ambiente
+    valore = env.get(VARIABILE_FIRMA_WINDOWS, "") or "nessuna"
+    if valore not in MODALITA_FIRMA_WINDOWS:
+        raise SystemExit(
+            f"{VARIABILE_FIRMA_WINDOWS} vale un valore fuori da {MODALITA_FIRMA_WINDOWS}: "
+            "una firma attesa non si salta per un refuso"
+        )
+    return valore
+
+
+def politica_di_firma(piattaforma: str, canale: str, ambiente: dict | None = None) -> dict:
     """Che cosa il canale pretende su quella piattaforma.
 
     Un canale che non compare non pretende niente, e lo dice: restituire un
     dizionario vuoto lascerebbe a chi chiama il compito di distinguere «non
-    richiesta» da «non l'ho trovata».
+    richiesta» da «non l'ho trovata». Su Windows in candidate la risposta
+    dipende dalla configurazione della firma (`modalita_firma_windows`).
     """
+    if (
+        piattaforma == "windows-x86_64"
+        and canale == "candidate"
+        and modalita_firma_windows(ambiente) == "authenticode"
+    ):
+        return {"richiesta": True, **FIRMA_WINDOWS_AUTHENTICODE}
     per_piattaforma = POLITICA_DI_FIRMA.get(piattaforma)
     if per_piattaforma is None:
         raise SystemExit(
@@ -387,7 +445,12 @@ def politica_di_firma(piattaforma: str, canale: str) -> dict:
     return {"richiesta": True, **regola}
 
 
-def stato_della_firma(piattaforma: str, canale: str, misura: dict | None = None) -> dict:
+def stato_della_firma(
+    piattaforma: str,
+    canale: str,
+    misura: dict | None = None,
+    ambiente: dict | None = None,
+) -> dict:
     """Il blocco che finisce nel manifesto, **da una misura**.
 
     `misura` e' cio' che il verificatore nativo ha letto sui byte finali:
@@ -406,7 +469,7 @@ def stato_della_firma(piattaforma: str, canale: str, misura: dict | None = None)
     perche' aggiungerlo dopo cambierebbe il manifesto e quindi il checksum
     dell'archivio che lo contiene.
     """
-    politica = politica_di_firma(piattaforma, canale)
+    politica = politica_di_firma(piattaforma, canale, ambiente)
     pretese = tuple(politica.get("misure_pretese", ()))
 
     if not politica["richiesta"]:

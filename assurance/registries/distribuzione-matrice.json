@@ -260,12 +260,12 @@
     "verifica_post_upload": "il gate riscarica dal servizio artifact i quattro deliverable -- ciascuno come archivio, sidecar sha256 e provenance -- e ricalcola sui byte ricevuti checksum, dimensione, revisione, lock, piattaforma, profilo e canale. Verificare soltanto prima dell'upload dimostrerebbe i byte sul runner produttore, non quelli consegnati."
   },
   "firma": {
-    "decisione": "la release 2.0.0 non richiede una firma di piattaforma ne' su Linux ne' su Windows, in canale `prova` o `candidate`. Il manifesto porta comunque `firma.stato: non_richiesta`: e' una decisione visibile, non un campo dimenticato.",
-    "conseguenze_windows": "il PE e' intenzionalmente privo di Authenticode. Windows puo' mostrare «editore sconosciuto» e una policy aziendale puo' impedirne l'esecuzione. SHA-256, digest del manifesto e provenance restano obbligatori e verificano byte e origine della costruzione, ma non attribuiscono al binario un editore riconosciuto da Windows.",
+    "decisione": "nessuna firma di piattaforma pretesa su Linux, ne' su Windows in canale `prova`. Su Windows in canale `candidate` la firma Authenticode con Azure Trusted Signing e' pretesa quando il repository porta la configurazione della firma (`PLENORA_FIRMA_WINDOWS=authenticode`, derivata dalle variabili in `docs/RELEASE.md, «La firma»`); senza, resta la decisione della 2.0.0. In ogni caso il manifesto porta il blocco `firma`: `non_richiesta` o `apposta`, mai un campo dimenticato.",
+    "conseguenze_windows": "senza configurazione il PE e' privo di Authenticode: Windows puo' mostrare «editore sconosciuto» e una policy aziendale puo' impedirne l'esecuzione. Con la configurazione l'entrypoint e' firmato e marcato con timestamp RFC 3161, e il gate pretende la firma misurata sui byte finali. SHA-256, digest del manifesto e provenance restano obbligatori in entrambi i casi.",
     "ordine_delle_operazioni": [
       "1. payload: assemblare l'albero: binario, librerie, dati, licenze",
-      "2. firma: dichiarare esplicitamente che la release non richiede una firma di piattaforma",
-      "3. manifesto: generare MANIFEST.json dai byte finali del payload",
+      "2. firma: firmare l'entrypoint dove la politica lo pretende, o dichiarare che la firma non e' richiesta, prima di qualunque cosa ne descriva i byte",
+      "3. manifesto: generare MANIFEST.json dai byte finali del payload, firmati se la firma c'e'",
       "4. archivio: creare il contenitore",
       "5. notarizzazione: nessuna piattaforma del perimetro la richiede; il passo resta perche' l'ordine e' uno solo, e la posizione e' cio' che va fissata",
       "6. checksum: calcolare i checksum sui byte **finali**",
@@ -273,9 +273,9 @@
       "8. provenance: produrre la provenance legata a quel checksum"
     ],
     "perche_quest_ordine": "il manifesto segue la decisione di firma e descrive i byte finali del payload. I checksum vengono dopo l'archivio, perche' sono dei byte che si consegnano. Lo smoke viene dopo i checksum, perche' deve provare l'oggetto finale. La provenance viene per ultima e lega quel checksum.",
-    "perche_ora": "il campo `firma` resta nei manifesti con stato `non_richiesta`, sia in prova sia in candidate. Toglierlo renderebbe indistinguibili una scelta esplicita e una dimenticanza.",
+    "perche_ora": "il campo `firma` resta nei manifesti in tutti i canali. Toglierlo renderebbe indistinguibili una scelta esplicita e una dimenticanza.",
     "dove_vive": "scripts/distribuzione.py per la politica e il blocco `firma` nel manifesto di ogni artefatto",
-    "materiale_esterno": "nessuno: il workflow non legge certificati, PFX o secret di firma. La candidate Windows e' intenzionalmente unsigned.",
+    "materiale_esterno": "nessun segreto nel repository: la firma usa l'identita' federata OIDC di GitHub Actions verso Azure (azure/login) e il client di Trusted Signing fissato per versione e SHA-256 in `scripts/trusted-signing-lock.json`. Account, profilo dei certificati e identita' sono dell'utente, e le variabili che li nominano non sono segrete.",
     "developer_id_e_notarizzazione": "usciti dal perimetro insieme a macOS. Erano il pezzo piu' costoso della catena di firma -- un certificato Apple, un servizio esterno da interrogare, e una ricevuta che sul nostro deliverable non si poteva nemmeno attaccare al file -- e con macOS fuori scope non c'e' piu' nulla da decidere li'."
   },
   "verificatori_nativi": {
