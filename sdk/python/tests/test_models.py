@@ -48,6 +48,7 @@ def driver_sano(**modifiche):
             "driver_version": 6,
             "semantic_version": 1,
             "format_options": [],
+            "recognised_suffixes": [".x"],
             "write_capabilities": {"attributes": "all"},
         }
     )
@@ -99,7 +100,10 @@ class LaBustaDiBootstrap(unittest.TestCase):
                     "campo_nuovo": True,
                 }
             )
-        self.assertIn("campo_nuovo", str(preso.exception))
+        # Quanti, non quali: il nome viene dal documento, e un errore non
+        # porta dati di chi l'ha scritto.
+        self.assertIn("1 campi in piu'", str(preso.exception))
+        self.assertNotIn("campo_nuovo", str(preso.exception))
         self.assertIn("chiuso", str(preso.exception))
 
 
@@ -218,6 +222,7 @@ def descrittore_sano(**modifiche):
             "driver_version": 6,
             "semantic_version": 1,
             "format_options": [],
+            "recognised_suffixes": [".x"],
             "write_capabilities": {"attributes": "all"},
         }
     )

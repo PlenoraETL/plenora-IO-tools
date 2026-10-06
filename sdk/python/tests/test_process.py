@@ -186,12 +186,38 @@ class LEsecutore(unittest.TestCase):
                     self.runner(corpo).run(["catalog"])
                 self.assertIn(f"su {atteso}", str(preso.exception))
 
-    def test_un_json_malformato_dice_che_cosa_ha_letto(self) -> None:
-        runner = self.runner('print("{non json")\n')
+    def test_un_json_malformato_dice_dove_e_non_che_cosa(self) -> None:
+        """Riga, colonna e lunghezza, mai il contenuto.
+
+        Il messaggio riportava i primi duecento caratteri del flusso: su un
+        flusso che non e' la busta possono essere valori del file letto, e un
+        errore non porta dati.
+        """
+        runner = self.runner('print("{non json segreto")\n')
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
         self.assertIn("non e' JSON", str(preso.exception))
-        self.assertIn("{non json", str(preso.exception))
+        self.assertIn("riga 1", str(preso.exception))
+        self.assertIn("caratteri, contenuto non riportato", str(preso.exception))
+        self.assertNotIn("segreto", str(preso.exception))
+
+    def test_lo_stderr_non_entra_nel_messaggio(self) -> None:
+        runner = self.runner(
+            'print("valore-della-riga", file=sys.stderr)\n'
+            'print(json.dumps({"status": "ok", "result": {}}))\n'
+        )
+        with self.assertRaises(ProtocolError) as preso:
+            runner.run(["catalog"])
+        self.assertNotIn("valore-della-riga", str(preso.exception))
+
+    def test_uno_status_fuori_vocabolario_non_e_ricopiato(self) -> None:
+        runner = self.runner(
+            'print(json.dumps({"status": "stato-inventato", "result": {}}))\n'
+        )
+        with self.assertRaises(ProtocolError) as preso:
+            runner.run(["catalog"])
+        self.assertIn("fuori vocabolario", str(preso.exception))
+        self.assertNotIn("stato-inventato", str(preso.exception))
 
     def test_una_busta_che_non_e_un_oggetto(self) -> None:
         runner = self.runner("print(json.dumps([1, 2]))\n")
@@ -280,16 +306,19 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         # detto, e chi riprova sceglie da se'.
         self.assertIsNone(sicuro.retry_after_ms)
 
-    def test_un_ritentativo_cieco_non_e_sicuro_in_due_stati(self) -> None:
+    def test_un_ritentativo_cieco_non_e_sicuro_in_tre_stati(self) -> None:
         """La proprieta' dice che cosa **fare**, non che cosa e' successo.
 
-        `committed` e `unknown` portano alla stessa decisione -- non ripetere
-        alla cieca -- e sono due fatti diversi. Il nome dice la decisione.
+        `committed`, `unknown` e `partial` portano alla stessa decisione -- non
+        ripetere alla cieca -- e sono tre fatti diversi. Il nome dice la
+        decisione. `partial` era falso, cioe' «ritentare e' sicuro», mentre
+        `docs/RELEASE.md` chiede proprio per `partial` di non rilanciare alla
+        cieca: una parte del lavoro e' visibile dall'altra parte.
         """
         for effetto, atteso in (
             ("none", False),
             ("rolled_back", False),
-            ("partial", False),
+            ("partial", True),
             ("committed", True),
             ("unknown", True),
         ):
