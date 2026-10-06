@@ -601,13 +601,45 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         self.assertIn('--revisione "$GITHUB_SHA"', self.testo)
 
     def test_il_workflow_non_chiede_materiale_di_firma(self) -> None:
+        """Nessun segreto: ne' PFX, ne' password, ne' `secrets.` in assoluto.
+
+        La firma Windows con Trusted Signing usa un'identita' federata e
+        variabili non segrete; il PFX della prima stesura non deve tornare.
+        """
         for token in (
             "PLENORA_WINDOWS_SIGNING_PFX_BASE64",
             "PLENORA_WINDOWS_SIGNING_PFX_PASSWORD",
             "Import-PfxCertificate",
-            "PLENORA_WINDOWS_SIGNTOOL",
+            "secrets.",
         ):
             self.assertNotIn(token, self.testo)
+
+    def test_ogni_passo_di_firma_e_condizionato_alla_configurazione(self) -> None:
+        """Senza la configurazione nessun passo di firma gira.
+
+        Ogni passo che nomina Azure o SignTool porta la condizione completa:
+        canale candidate **e** `PLENORA_FIRMA_WINDOWS == 'authenticode'`.
+        """
+        condizione = "env.CANALE == 'candidate' && env.PLENORA_FIRMA_WINDOWS == 'authenticode'"
+        # Senza i commenti: nominano Azure e SignTool per spiegarli, e non
+        # sono passi.
+        codice = "\n".join(
+            riga for riga in self.testo.splitlines() if not riga.lstrip().startswith("#")
+        )
+        passi = codice.split("\n      - ")
+        firma = [
+            passo
+            for passo in passi
+            if any(t in passo for t in ("azure/login", "signtool", "az logout", "PLENORA_TRUSTED_SIGNING_ACCOUNT }}"))
+            and "PLENORA_FIRMA_WINDOWS: ${{" not in passo
+        ]
+        self.assertGreaterEqual(len(firma), 4, firma)
+        for passo in firma:
+            self.assertIn(condizione, passo, passo.splitlines()[0])
+        self.assertIn(
+            "PLENORA_FIRMA_WINDOWS: ${{ vars.PLENORA_TRUSTED_SIGNING_ACCOUNT != '' && 'authenticode' || 'nessuna' }}",
+            self.testo,
+        )
 
 
 class SondeDellIngressoDelGate(ConGliArtefattiAttesi, unittest.TestCase):
