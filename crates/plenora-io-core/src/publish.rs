@@ -23,6 +23,17 @@ use tempfile::{NamedTempFile, TempDir};
 /// di pubblicazione lo pretende come argomento, perche' valga per ogni driver
 /// e nessuno possa dimenticarlo. Fallito il controllo, lo staging non e' stato
 /// rinominato: cade con il chiamante, e la destinazione resta assente.
+///
+/// # Che cosa non garantisce
+///
+/// Fra questo controllo e il rename resta una finestra, breve ma non nulla, che
+/// nessun controllo puo' chiudere: il rename e' l'operazione atomica, e una
+/// scadenza che cade dentro quella finestra trova l'output gia' pubblicato. La
+/// garanzia e' quindi «nessuna pubblicazione dopo una scadenza **osservata**
+/// prima del rename», non «nessuna pubblicazione oltre la scadenza». Per i
+/// companion Shapefile sciolti la finestra e' l'intera sequenza dei rename:
+/// superato il controllo, la sequenza si completa, perche' fermarla a meta'
+/// lascerebbe un set pubblicato in parte.
 fn ancora_attiva(contesto: &PipelineContext) -> Result<()> {
     contesto
         .ensure_active()
@@ -219,7 +230,8 @@ pub fn publish_file_atomic(
         temp.as_file().sync_all()?;
     }
     let bytes = temp.as_file().metadata()?.len();
-    // 2. l'ultimo controllo di scadenza e cancellazione, dopo l'`fsync`.
+    // 2. l'ultimo controllo di scadenza e cancellazione, dopo l'`fsync`. Da
+    // qui al rename resta la finestra dichiarata su `ancora_attiva`.
     ancora_attiva(contesto)?;
     // 3. rename atomico no-clobber.
     temp.persist_noclobber(dest)
@@ -245,13 +257,17 @@ pub fn publish_file_atomic_limited(
 ) -> Result<(u64, PublishOutcome)> {
     let bytes = temp.as_file().metadata()?.len();
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
-            &PublicMessage::CuratedBetween(
+        // La dimensione si misura dopo la finalizzazione del backend: se la
+        // scadenza e' passata li', viene prima della quota.
+        return Err(crate::driver::limite_o_scadenza(
+            contesto,
+            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
                 "output da",
                 NumeroStrutturale::Conteggio(bytes),
                 "byte oltre il limite di",
                 NumeroStrutturale::Limite(max_output_bytes),
-            ),
+            )),
+            ErrorPhase::Finalize,
         ));
     }
     publish_file_atomic(temp, dest, durable, contesto)
@@ -278,7 +294,9 @@ pub fn publish_dir_atomic(
     // indipendente da `durable`; in quel profilo sincronizza anche ciò che la
     // piattaforma permette e conserva se le directory non sono confermabili.
     let staging_durability_confirmed = prepare_tree(staging, durable)?;
-    // 2. l'ultimo controllo di scadenza e cancellazione, dopo gli `fsync`.
+    // 2. l'ultimo controllo di scadenza e cancellazione, dopo gli `fsync`. Da
+    // qui al rename della directory resta la finestra dichiarata su
+    // `ancora_attiva`.
     ancora_attiva(contesto)?;
     // 3. rename atomico e autorevolmente no-clobber.
     rename_noclobber(staging, dest)?;
@@ -338,19 +356,25 @@ pub fn publish_files_ordered_limited(
         }
         ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
-            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dell'output",
-            ))
+            crate::driver::limite_o_scadenza(
+                contesto,
+                PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio dell'output",
+                )),
+                ErrorPhase::Finalize,
+            )
         })?;
     }
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
-            &PublicMessage::CuratedBetween(
+        return Err(crate::driver::limite_o_scadenza(
+            contesto,
+            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
                 "output da",
                 NumeroStrutturale::Conteggio(bytes),
                 "byte oltre il limite di",
                 NumeroStrutturale::Limite(max_output_bytes),
-            ),
+            )),
+            ErrorPhase::Finalize,
         ));
     }
     ensure_same_filesystem(first_source, destination_parent(first_destination))?;
@@ -364,8 +388,10 @@ pub fn publish_files_ordered_limited(
         true
     };
 
-    // L'ultimo controllo prima del primo rename: dopo, i companion diventano
-    // visibili uno alla volta, e una scadenza non ferma piu' niente.
+    // L'ultimo controllo prima del primo rename. Superato questo, la sequenza
+    // si completa anche se nel frattempo la scadenza passa: fermarla a meta'
+    // lascerebbe visibili alcuni companion e non altri, cioe' una
+    // pubblicazione parziale, che e' peggio di una pubblicazione tardiva.
     ancora_attiva(contesto)?;
     commit_ordered_renames(files, rollback_rename)?;
     Ok((

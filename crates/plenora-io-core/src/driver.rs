@@ -496,7 +496,12 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
 ///
 /// Solo una quota cede il posto: un errore di formato o di contratto resta
 /// quello che e', anche se nel frattempo il tempo e' finito.
-pub(crate) fn limite_o_scadenza(
+///
+/// Vale anche per la finalizzazione: il controllo dimensionale dell'output
+/// arriva dopo flush e chiusura del backend, e una scadenza passata li' viene
+/// prima di una quota superata.
+#[must_use]
+pub fn limite_o_scadenza(
     contesto: &plenora_io_model::budget::PipelineContext,
     errore: PlenoraIoError,
     fase: ErrorPhase,

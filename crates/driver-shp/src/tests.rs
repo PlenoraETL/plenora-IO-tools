@@ -5544,3 +5544,75 @@ fn n1_fuzz_wkb_roundtrip_propaga_i_rifiuti_della_catena() {
         "una GeometryCollection non ha una shape ESRI corrispondente"
     );
 }
+
+/// Il set di companion oltre la quota, misurato in `finish` a scadenza
+/// passata: e' `timeout` in finalizzazione, nessun file diventa visibile e lo
+/// staging sparisce con il writer (SURF-010). La scadenza si arma sul token.
+#[test]
+fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
+    let dir = tempfile::tempdir().unwrap();
+    let punto = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let lotto = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+
+    let destinazione = dir.path().join("scaduto.shp");
+    let staging = create_staged_dir(&destinazione).expect("lo staging si crea");
+    let percorso_staging = staging.path().to_path_buf();
+    let writer = Writer::from_path(staging.path().join("data.shp"), TableWriterBuilder::new())
+        .expect("il writer dello staging si apre");
+    let token = plenora_io_model::CancellationToken::new();
+    let opzioni = match plenora_io_model::budget::PipelineBudget::builder()
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
+    };
+    let mut stato = Box::new(ShpWriter {
+        staging: Some(staging),
+        writer: Some(writer),
+        dest: destinazione.clone(),
+        durable: false,
+        publish_mode: ShapefilePublishMode::LooseSet,
+        attrs: Vec::new(),
+        geom_idx: 0,
+        prj: None,
+        shape_type: None,
+        rows: 0,
+        input_total: None,
+        wkb_limits: WkbLimits::default(),
+        max_output_bytes: 1,
+        contesto: opzioni.budget().context().clone(),
+    });
+    stato.write(&lotto).expect("il lotto si scrive");
+
+    token.cancel_due_to_deadline();
+    let Err(errore) = stato.finish() else {
+        panic!("oltre quota e oltre la scadenza non si pubblica");
+    };
+
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Finalize,
+        "{errore}"
+    );
+    for estensione in ["shp", "shx", "dbf", "prj"] {
+        assert!(
+            !destinazione.with_extension(estensione).exists(),
+            "nessun companion pubblicato ({estensione})"
+        );
+    }
+    assert!(
+        !percorso_staging.exists(),
+        "lo staging sparisce con il writer"
+    );
+}

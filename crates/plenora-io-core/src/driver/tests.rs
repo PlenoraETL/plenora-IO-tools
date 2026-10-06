@@ -1828,3 +1828,82 @@ fn without_a_deadline_the_driver_quota_error_stays_a_limit() {
         "{errore:?}"
     );
 }
+
+/// Il backend che, finalizzando, vede scadere la deadline e misura un output
+/// oltre la quota: e' il caso in cui il controllo dimensionale arriva prima
+/// dell'ultimo controllo della pubblicazione.
+struct FinalizzazioneCheScadeEdEccede {
+    token: CancellationToken,
+}
+
+impl FormatWriter for FinalizzazioneCheScadeEdEccede {
+    fn write(&mut self, _batch: &RecordBatch) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Published> {
+        self.token.cancel_due_to_deadline();
+        Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
+            &PublicMessage::Curated("output oltre il limite"),
+        ))
+    }
+}
+
+/// La quota superata dentro la finalizzazione, a scadenza passata, e' una
+/// scadenza in fase `finalize` (SURF-010).
+#[test]
+fn a_deadline_inside_the_backend_finish_beats_the_output_quota() {
+    let token = CancellationToken::new();
+    let opts = scrittura_con_token(&token);
+    let writer = with_write_limits(Box::new(FinalizzazioneCheScadeEdEccede { token }), &opts);
+    let Err(errore) = writer.finish() else {
+        panic!("la finalizzazione oltre quota e oltre la scadenza non riesce");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Finalize, "{errore:?}");
+}
+
+/// Senza scadenza, la stessa finalizzazione resta una quota.
+#[test]
+fn without_a_deadline_the_backend_finish_quota_stays_a_limit() {
+    let opts = scrittura_con_token(&CancellationToken::new());
+    let writer = with_write_limits(
+        Box::new(FinalizzazioneCheScadeEdEccede {
+            token: CancellationToken::new(),
+        }),
+        &opts,
+    );
+    let Err(errore) = writer.finish() else {
+        panic!("la finalizzazione oltre quota non riesce");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+}
+
+/// La precedenza della scadenza vale anche per `write_to_layer`.
+#[test]
+fn a_deadline_inside_write_to_layer_beats_its_quota_error() {
+    let token = CancellationToken::new();
+    let opts = scrittura_con_token(&token);
+    let mut writer = with_write_limits(Box::new(ScrittoreCheScadeEdEsaurisce { token }), &opts);
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+    let errore = writer.write_to_layer(LayerId(0), &batch).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Write, "{errore:?}");
+}

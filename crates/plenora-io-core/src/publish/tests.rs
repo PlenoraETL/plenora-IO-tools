@@ -609,3 +609,46 @@ fn ordered_files_past_their_deadline_publish_none_of_them() {
         );
     }
 }
+
+/// Lo staging oltre quota a scadenza passata: la quota si misura dopo la
+/// finalizzazione, e la scadenza viene prima (SURF-010).
+#[test]
+fn an_oversized_staged_file_past_its_deadline_is_a_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("output.bin");
+    let mut staging = StagedFile::new(&destination, false, 4, &scaduto()).unwrap();
+    staging
+        .as_file_mut()
+        .unwrap()
+        .write_all(b"oltre la quota")
+        .unwrap();
+    let errore = staging.publish().expect_err("non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    assert!(!destination.exists());
+}
+
+/// Lo stesso per il set di companion: oltre quota a scadenza passata e'
+/// `timeout`, nessuno diventa visibile, e lo staging -- del chiamante --
+/// sparisce con lui.
+#[test]
+fn oversized_ordered_files_past_their_deadline_vanish_with_their_staging() {
+    let root = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir_in(root.path()).unwrap();
+    let mut files = Vec::new();
+    for (nome, contenuto) in [
+        ("data.dbf", b"dbf".as_slice()),
+        ("data.shp", b"shp".as_slice()),
+    ] {
+        let sorgente = staging.path().join(nome);
+        std::fs::write(&sorgente, contenuto).unwrap();
+        files.push((sorgente, root.path().join(nome)));
+    }
+    let errore = publish_files_ordered_limited(&files, false, 2, &scaduto())
+        .expect_err("oltre quota e oltre la scadenza non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    drop(staging);
+    for (sorgente, destinazione) in &files {
+        assert!(!destinazione.exists(), "nessun companion pubblicato");
+        assert!(!sorgente.exists(), "i companion spariscono con lo staging");
+    }
+}

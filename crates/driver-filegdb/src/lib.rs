@@ -1280,13 +1280,17 @@ mod backend {
             drop(ds); // chiude e flush della .gdb
             let bytes = dir_size(self.staging.path());
             if bytes > self.max_output_bytes {
-                return Err(PlenoraIoError::limite_redatto(
-                    &PublicMessage::CuratedBetween(
+                // Misurata dopo la chiusura della .gdb: una scadenza passata
+                // li' viene prima della quota.
+                return Err(plenora_io_core::driver::limite_o_scadenza(
+                    &self.contesto,
+                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
                         "output FileGDB da",
                         NumeroStrutturale::Conteggio(bytes),
                         "byte oltre il limite di",
                         NumeroStrutturale::Limite(self.max_output_bytes),
-                    ),
+                    )),
+                    plenora_io_model::ErrorPhase::Finalize,
                 ));
             }
             #[cfg(test)]

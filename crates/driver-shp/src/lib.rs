@@ -1051,13 +1051,17 @@ impl FormatWriter for ShpWriter {
             .collect::<std::io::Result<Vec<_>>>()?;
         let staged_bytes = byte_dello_staging(dimensioni)?;
         if staged_bytes > self.max_output_bytes {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
+            // Misurata dopo la chiusura dei file: una scadenza passata li'
+            // viene prima della quota.
+            return Err(plenora_io_core::driver::limite_o_scadenza(
+                &self.contesto,
+                PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
                     "output Shapefile da",
                     NumeroStrutturale::Conteggio(staged_bytes),
                     "byte oltre il limite di",
                     NumeroStrutturale::Limite(self.max_output_bytes),
-                ),
+                )),
+                plenora_io_model::ErrorPhase::Finalize,
             ));
         }
 
