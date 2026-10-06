@@ -111,7 +111,7 @@
     }
   },
   "deviazioni_dichiarate": {
-    "stato": "BOZZA DA APPROVARE: le cinque dichiarazioni che seguono sono scritte da chi registra, e valgono solo dopo l'approvazione del titolare.",
+    "stato": "approvate dal titolare il 2026-10-06: le cinque dichiarazioni che seguono sono scritte da chi registra, e l'approvazione le rende la posizione dichiarata della release. Non rendono vero cio' che dichiarano mancante: in particolare la 4.1.0 non soddisfa il criterio d'uscita (deviazione e).",
     "a_pubblicata_prima_della_qualifica_registrata": {
       "regola": "docs/RELEASE.md sezione 5-bis, sequenza di pubblicazione: evidenza del livello 2 registrata (passo 7) e gate finale `check_release_contract.py --release` verde (passo 11) **prima** di pubblicare (passo 12).",
       "che_cosa_e_successo": "la release `v4.1.0` e' stata pubblicata il 2026-09-18 alle 22:32:33Z dal tag che punta a `1d1b8d2`, mentre lo stato versionato su quella revisione dichiarava la candidate **ritirata** su `23df4d5`, senza artefatti fissati e senza evidenza registrata. Il job `Release checkout qualification` sul tag (corsa 35401819320) era fallito un minuto prima, alle 22:31:44Z, proprio su `stato.fonti-legate` (`tag_creato` falso con il tag presente).",
