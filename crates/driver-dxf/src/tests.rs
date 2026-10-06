@@ -358,6 +358,284 @@ fn un_blocco_senza_endblk_non_gira_a_vuoto() {
     );
 }
 
+/// Il caso del soak di `dxf_reader` del 2026-10-05, byte per byte.
+///
+/// 235 byte che sulla 4.0.0 e sulla 4.1.0 finivano in un'allocazione da sei
+/// gigabyte e in un abort senza busta. `SectionTypeSettings::read`, su un
+/// codice che non e' suo, rimetteva la coppia nell'iteratore e restituiva
+/// `Some` di un valore vuoto senza consumare niente; il ciclo di
+/// `apply_custom_reader_sectionsettings` la richiamava sulla stessa coppia
+/// all'infinito, spingendo un elemento a ogni giro.
+///
+/// Come per `un_blocco_senza_endblk_non_gira_a_vuoto`, la prova e' che la
+/// chiamata **ritorni**; il seme versionato in `fuzz/seeds/dxf_reader/` le sta
+/// accanto perche' li' il tetto di libFuzzer trasforma un ritorno mancato in un
+/// rosso, e la prova della CLI in `crates/plenora-io-tools/tests/` la ripete
+/// sul binario con un tempo massimo.
+#[test]
+fn il_caso_del_soak_sectionsettings_ritorna_con_un_errore() {
+    let caso = include_bytes!("../../../fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf");
+    assert_eq!(
+        caso.len(),
+        235,
+        "il seme e' il caso originale, non una riduzione"
+    );
+    assert!(__fuzz_read_dxf(caso).is_err());
+}
+
+/// La forma minima della stessa classe: un `SectionTypeSettings` aperto da
+/// `1` e seguito da un codice che nessuno dei suoi campi conosce.
+///
+/// Prova la guardia sul ciclo di `apply_custom_reader_sectionsettings` senza
+/// dipendere dai byte del fuzzer, e su **entrambi** i lettori: quello completo
+/// (`Drawing::load`) e quello progressivo che usa la CLI, dove la sezione
+/// `OBJECTS` viene letta prima di `ENTITIES`.
+#[test]
+fn un_section_type_settings_che_non_consuma_si_rifiuta() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nSECTIONSETTINGS\n1\nSectionTypeSettings\n72\n0\n0\nENDSEC\n0\nEOF\n";
+    assert!(
+        __fuzz_read_dxf(dxf).is_err(),
+        "lettore completo: un giro senza progresso e' un errore"
+    );
+    let progressivo = dxf::DrawingEntityReader::load(std::io::Cursor::new(dxf.to_vec()));
+    assert!(
+        progressivo.is_err(),
+        "lettore progressivo: un giro senza progresso e' un errore"
+    );
+}
+
+/// Le guardie dei due cicli di `SectionSettings` non scattano su un documento
+/// legittimo: un `SectionTypeSettings` con due `SectionGeometrySettings`,
+/// scritto dal fork stesso e riletto.
+///
+/// `SectionGeometrySettings::read` non restituisce mai `Some` senza consumare
+/// -- lo apre la coppia `90`, che legge -- e una prova ostile per lei non si
+/// puo' costruire. Si prova invece che la guardia preventiva sul suo ciclo non
+/// rifiuti cio' che va letto, che e' il modo in cui una guardia sbaglia.
+///
+/// Un solo `SectionTypeSettings` e non due: il lettore upstream legge la `1`
+/// che apre il secondo come nome del file del primo, e li fonde. E' un difetto
+/// di semantica del lettore, indipendente dalle guardie -- misurato sul fork
+/// senza la correzione, con lo stesso esito -- e questa prova non lo fissa.
+#[test]
+fn le_guardie_di_sectionsettings_lasciano_passare_un_documento_valido() {
+    use dxf::objects::SectionSettings;
+    use dxf::{SectionGeometrySettings, SectionTypeSettings};
+
+    let geometria = |tipo: i32| SectionGeometrySettings {
+        section_type: tipo,
+        geometry_count: 1,
+        ..Default::default()
+    };
+    let mut drawing = Drawing::new();
+    drawing.header.version = AcadVersion::R2018;
+    drawing.add_object(Object::new(ObjectType::SectionSettings(SectionSettings {
+        section_type: 1,
+        geometry_settings: vec![SectionTypeSettings {
+            section_type: 1,
+            geometry_settings: vec![geometria(1), geometria(2)],
+            ..Default::default()
+        }],
+        ..Default::default()
+    })));
+    let mut byte = Vec::new();
+    drawing.save(&mut byte).unwrap();
+
+    let riletto = Drawing::load(&mut std::io::Cursor::new(byte)).unwrap();
+    let lette: Vec<_> = riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            ObjectType::SectionSettings(ref ss) => Some(ss.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lette.len(), 1);
+    assert_eq!(lette[0].geometry_settings.len(), 1);
+    let tipi: Vec<i32> = lette[0].geometry_settings[0]
+        .geometry_settings
+        .iter()
+        .map(|g| g.section_type)
+        .collect();
+    assert_eq!(tipi, [1, 2]);
+}
+
+/// `TableCellStyle::read` consuma sempre la coppia `7` da cui parte, ma il
+/// ciclo di `apply_custom_reader_tablestyle` che la rimette indietro e la
+/// richiama non ha modo di saperlo: la guardia lo pretende. Anche qui la prova
+/// ostile non esiste, e si prova che la guardia non rifiuti tre stili validi.
+///
+/// Scritto a mano e non dal fork: `TableCellStyle::read` consuma la coppia `0`
+/// che chiude l'oggetto invece di rimetterla indietro, e un `TABLESTYLE` il cui
+/// ultimo stile arriva fino alla `0` non si rilegge -- anche senza la
+/// correzione. Qui una coppia `40` chiude l'ultimo stile prima della `0`.
+#[test]
+fn la_guardia_di_tablestyle_lascia_passare_un_documento_valido() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nTABLESTYLE\n7\nA\n140\n2.5\n7\nB\n140\n2.5\n7\nC\n140\n2.5\n40\n1.0\n0\nENDSEC\n0\nEOF\n";
+    let riletto = Drawing::load(&mut std::io::Cursor::new(dxf.to_vec())).unwrap();
+    let nomi: Vec<String> = riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            dxf::objects::ObjectType::TableStyle(ref ts) => Some(ts.cell_styles.clone()),
+            _ => None,
+        })
+        .flatten()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(nomi, ["A", "B", "C"]);
+}
+
+/// Una `LINE` con `livelli` gruppi annidati: `102/{...}` oppure, in XDATA,
+/// `1002/{`.
+fn linea_con_gruppi_annidati(livelli: usize, xdata: bool) -> Vec<u8> {
+    let mut testo = String::from("0\nSECTION\n2\nENTITIES\n0\nLINE\n");
+    if xdata {
+        testo.push_str("10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n");
+        testo.push_str(&"1002\n{\n".repeat(livelli));
+        testo.push_str(&"1002\n}\n".repeat(livelli));
+    } else {
+        testo.push_str(&"102\n{a\n".repeat(livelli));
+        testo.push_str(&"102\n}\n".repeat(livelli));
+        testo.push_str("10\n0\n20\n0\n11\n1\n21\n1\n");
+    }
+    testo.push_str("0\nENDSEC\n0\nEOF\n");
+    testo.into_bytes()
+}
+
+/// Lo stack del thread principale di Windows: il piu' piccolo su cui la CLI
+/// legge un DXF. Le prove sui gruppi annidati girano in un thread di questa
+/// misura, cosi' che un'eventuale crescita del consumo per livello si veda qui
+/// e non in produzione.
+const STACK_DEL_THREAD_PRINCIPALE_WINDOWS: usize = 1024 * 1024;
+
+fn in_uno_stack_da_un_mebibyte<T: Send + 'static>(prova: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(STACK_DEL_THREAD_PRINCIPALE_WINDOWS)
+        .spawn(prova)
+        .expect("il thread di prova parte")
+        .join()
+        .expect("la prova non trabocca lo stack")
+}
+
+/// I gruppi annidati si leggono per ricorsione, e senza tetto un ingresso di
+/// pochi megabyte esauriva lo stack: un abort senza busta, della stessa
+/// famiglia del caso del soak -- un ingresso ostile che esaurisce una risorsa
+/// invece di essere rifiutato. Sessantamila livelli stanno sotto il tetto di
+/// byte dell'entry point di fuzz, e senza la correzione bastano a far
+/// traboccare lo stack.
+#[test]
+fn i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack() {
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            let dxf = linea_con_gruppi_annidati(60_000, xdata);
+            assert!(
+                dxf.len() < 1_048_576,
+                "sotto il tetto dell'entry point di fuzz"
+            );
+            assert!(__fuzz_read_dxf(&dxf).is_err(), "xdata={xdata}");
+        }
+    });
+}
+
+/// Il tetto e' un confine, non un divieto: 256 livelli si leggono, 257 no. E si
+/// leggono in un MiB di stack, quello del thread principale di Windows, anche
+/// in una build non ottimizzata.
+#[test]
+fn il_tetto_dei_gruppi_annidati_e_esattamente_duecentocinquantasei() {
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            assert_eq!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(256, xdata)).unwrap(),
+                1,
+                "xdata={xdata}: 256 livelli sono leggibili"
+            );
+            assert!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(257, xdata)).is_err(),
+                "xdata={xdata}: 257 livelli si rifiutano"
+            );
+        }
+    });
+}
+
+/// Un BLOCK la cui LINE porta un difetto, e un INSERT che lo usa.
+fn blocco_con_linea_difettosa(difetto: &str) -> Vec<u8> {
+    let mut testo = String::from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n0\nLINE\n");
+    testo.push_str(difetto);
+    testo.push_str(
+        "0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nB\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n",
+    );
+    testo.into_bytes()
+}
+
+/// Rilevato in revisione: dentro BLOCKS, `EntityIter` trasformava l'errore
+/// della LINE in fine sequenza, la guardia di progresso di `read_block`
+/// passava -- qualcosa era stato consumato --, e il BLOCK veniva accettato
+/// **senza la LINE**: l'INSERT esplodeva in zero righe e la lettura riusciva.
+/// Perdita silenziosa, e non solo per la profondita': un `10/abc` faceva lo
+/// stesso, gia' sulla 4.1.0.
+///
+/// Ora ogni errore che `EntityIter` o `ObjectIter` inghiottono ferma
+/// l'iteratore, e il documento si rifiuta. La prova e' su entrambi i lettori:
+/// quello completo e quello progressivo della CLI.
+#[test]
+fn una_linea_illeggibile_dentro_un_blocco_rifiuta_il_documento() {
+    let difetti = [
+        (
+            "profondita",
+            format!(
+                "10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n{}{}",
+                "1002\n{\n".repeat(257),
+                "1002\n}\n".repeat(257)
+            ),
+        ),
+        ("coordinata", String::from("10\nabc\n20\n0\n11\n1\n21\n1\n")),
+    ];
+    for (nome, difetto) in difetti {
+        let dxf = blocco_con_linea_difettosa(&difetto);
+        let completo = in_uno_stack_da_un_mebibyte({
+            let dxf = dxf.clone();
+            move || __fuzz_read_dxf(&dxf).is_err()
+        });
+        assert!(
+            completo,
+            "{nome}: lettore completo, il BLOCK non si accetta senza la LINE"
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocco.dxf");
+        std::fs::write(&path, &dxf).unwrap();
+        let aperto = in_uno_stack_da_un_mebibyte(move || {
+            DxfDriver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("EPSG:4326"),
+                )
+                .is_err()
+        });
+        assert!(
+            aperto,
+            "{nome}: lettore progressivo, il BLOCK non si accetta senza la LINE"
+        );
+    }
+}
+
+/// Lo stesso nella sezione OBJECTS: un oggetto illeggibile interrompeva
+/// `ObjectIter`, e se dopo veniva `0/ENDSEC` il documento passava senza gli
+/// oggetti che seguivano -- un `GEODATA` fra loro avrebbe cambiato il CRS.
+#[test]
+fn un_oggetto_illeggibile_rifiuta_il_documento() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\nnon-esadecimale\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n";
+    assert!(__fuzz_read_dxf(dxf).is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oggetto.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    assert!(DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .is_err());
+}
+
 #[test]
 fn row_level_dxf_failure_reports_the_top_level_entity_index() {
     let directory = tempfile::tempdir().unwrap();
