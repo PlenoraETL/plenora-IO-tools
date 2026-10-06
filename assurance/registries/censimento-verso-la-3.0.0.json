@@ -191,6 +191,14 @@
           "misura": "riletto nel fork il 2026-10-05: entrambi trasformano `Err` in `None`. Non riletto su `master` upstream in questo giro.",
           "perche_serve": "un BLOCK con una LINE illeggibile veniva accettato senza la LINE: `read` riusciva con zero righe",
           "contributo": "da preparare"
+        },
+        {
+          "nome": "nessun documento accettato con parti perse o alterate",
+          "file": "src/entity.rs, src/drawing.rs, src/block.rs, src/code_pair_iter.rs, src/code_pair_value.rs, src/helper_functions.rs, src/object.rs, src/dxb_reader.rs",
+          "stato": "ancora necessaria",
+          "misura": "riletto nel fork il 2026-10-05; non riletto su `master` upstream in questo giro.",
+          "perche_serve": "entita' sconosciute scartate, riga vuota come fine del file, `\\U+` non valide come `?`, `zip` che tronca, reali non finiti accettati: documenti letti senza errore con parti mancanti",
+          "contributo": "da preparare"
         }
       ]
     },

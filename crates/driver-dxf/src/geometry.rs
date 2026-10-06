@@ -83,23 +83,29 @@ impl Transform3 {
 
     /// Arbitrary-axis algorithm DXF completo: le colonne della matrice sono
     /// gli assi X/Y dell'OCS e la normale Z, tutti espressi in WCS.
-    pub fn ocs(normal: Point3) -> Self {
-        let n = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
+    ///
+    /// `None` se la normale non si normalizza -- nulla, o tanto grande da non
+    /// avere una lunghezza finita. Prima diventava l'asse Z, e l'entita' finiva
+    /// in un piano che il file non dichiarava. Gli altri due assi, per una
+    /// normale unitaria, si normalizzano sempre: se non accadesse, `None` anche
+    /// li', invece di un asse di ripiego.
+    pub fn ocs(normal: Point3) -> Option<Self> {
+        let n = normalize3(normal)?;
         let arbitrary = if n[0].abs() < 1.0 / 64.0 && n[1].abs() < 1.0 / 64.0 {
             cross3([0.0, 1.0, 0.0], n)
         } else {
             cross3([0.0, 0.0, 1.0], n)
         };
-        let ax = normalize3(arbitrary).unwrap_or([1.0, 0.0, 0.0]);
-        let ay = normalize3(cross3(n, ax)).unwrap_or([0.0, 1.0, 0.0]);
-        Self {
+        let ax = normalize3(arbitrary)?;
+        let ay = normalize3(cross3(n, ax))?;
+        Some(Self {
             matrix: [
                 [ax[0], ay[0], n[0], 0.0],
                 [ax[1], ay[1], n[1], 0.0],
                 [ax[2], ay[2], n[2], 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ],
-        }
+        })
     }
 }
 
@@ -406,7 +412,11 @@ pub fn tessellate_ellipse3(
         major[1] / semi_major,
         major[2] / semi_major,
     ];
-    let normal = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
+    // Una normale nulla diventava l'asse Z; ora l'ellisse e' degenere, e il
+    // chiamante la rifiuta.
+    let Some(normal) = normalize3(normal) else {
+        return Vec::new();
+    };
     let Some(minor_direction) = normalize3(cross3(normal, major_direction)) else {
         return Vec::new();
     };
@@ -506,27 +516,42 @@ pub fn tessellate_spline3(
     control_points: &[Point3],
     weights: &[f64],
     samples: usize,
-) -> Vec<Point3> {
+) -> Option<Vec<Point3>> {
+    // Ogni condizione che prima ripiegava -- restituendo i control point come
+    // se fossero la curva, abbassando il grado, mettendo 1.0 al posto di un
+    // peso, saltando un campione -- ora restituisce `None`, e il chiamante
+    // rifiuta l'entita'. Una spline che non si sa valutare non e' la sua
+    // poligonale di controllo.
     let n = control_points.len();
-    if n < 2 {
-        return control_points.to_vec();
+    if n < 2 || degree == 0 || degree > n - 1 {
+        return None;
     }
-    let p = degree.clamp(1, n - 1);
-    if knots.len() != n + p + 1 {
-        return control_points.to_vec();
+    let p = degree;
+    if knots.len() != n + p + 1
+        || knots.iter().any(|k| !k.is_finite())
+        || knots.windows(2).any(|w| w[1] < w[0])
+    {
+        return None;
+    }
+    // Pesi assenti: spline non razionale, peso 1 per definizione. Presenti:
+    // uno per control point, finiti e positivi.
+    if !weights.is_empty()
+        && (weights.len() != n || weights.iter().any(|w| !w.is_finite() || *w <= 0.0))
+    {
+        return None;
     }
     let u_min = knots[p];
     let u_max = knots[n];
-    if u_max <= u_min || !u_max.is_finite() || !u_min.is_finite() {
-        return control_points.to_vec();
+    if u_max <= u_min {
+        return None;
     }
     let homogeneous: Vec<[f64; 4]> = (0..n)
         .map(|index| {
-            let weight = weights
-                .get(index)
-                .copied()
-                .filter(|value| value.is_finite() && *value > 0.0)
-                .unwrap_or(1.0);
+            let weight = if weights.is_empty() {
+                1.0
+            } else {
+                weights[index]
+            };
             [
                 control_points[index][0] * weight,
                 control_points[index][1] * weight,
@@ -541,19 +566,22 @@ pub fn tessellate_spline3(
     for step in 0..count {
         let parameter = u_min + (u_max - u_min) * (step as f64) / ((count - 1) as f64);
         let point = de_boor4(p, knots, &homogeneous, parameter);
-        if point[3].abs() > 1e-12 {
-            output.push([
-                point[0] / point[3],
-                point[1] / point[3],
-                point[2] / point[3],
-            ]);
+        // Con pesi positivi la coordinata omogenea e' positiva: se non lo e',
+        // la valutazione non e' affidabile.
+        if point[3].is_nan() || point[3] <= 1e-12 {
+            return None;
         }
+        let punto = [
+            point[0] / point[3],
+            point[1] / point[3],
+            point[2] / point[3],
+        ];
+        if punto.iter().any(|c| !c.is_finite()) {
+            return None;
+        }
+        output.push(punto);
     }
-    if output.is_empty() {
-        control_points.to_vec()
-    } else {
-        output
-    }
+    Some(output)
 }
 
 // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il

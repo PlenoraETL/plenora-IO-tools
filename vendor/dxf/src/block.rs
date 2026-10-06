@@ -124,6 +124,7 @@ impl Block {
         //   0/* -> read entity and add to collection
         //   */* -> apply to block
         let mut current = Block::default();
+        let ignorate_prima = iter.entita_ignorate();
         loop {
             match iter.next() {
                 Some(Ok(pair)) => {
@@ -147,6 +148,9 @@ impl Block {
                                 }
                             }
 
+                            if iter.entita_ignorate() > ignorate_prima {
+                                drawing.note_block_with_unsupported_entities(&current.name);
+                            }
                             if current.handle.is_empty() {
                                 drawing.add_block(current);
                             } else {

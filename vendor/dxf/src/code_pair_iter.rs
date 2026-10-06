@@ -1,12 +1,121 @@
 use crate::{CodePair, CodePairValue, DxfError, DxfResult, ExpectedType};
 
-use crate::code_pair_value::un_escape_ascii_to_unicode;
+use crate::code_pair_value::decodifica_testo;
 use crate::helper_functions::*;
 use encoding_rs::Encoding;
 use std::io::{BufRead, BufReader, Cursor, Read};
 
 pub(crate) trait CodePairIter: Iterator<Item = DxfResult<CodePair>> {
     fn read_as_utf8(&mut self);
+    /// Dichiara che il valore appena letto -- un gruppo `3` di MTEXT -- continua
+    /// nel prossimo, e restituisce quanti caratteri della coda sospesa sono gia'
+    /// nel valore consegnato (vedi `CodaSospesa`), che il chiamante deve
+    /// togliere. Zero se non c'e' coda.
+    fn continua_frammento(&mut self) -> usize {
+        0
+    }
+}
+
+/// La sequenza di escape rimasta aperta alla fine di un gruppo `3`.
+///
+/// MTEXT spezza il testo in frammenti da 250 caratteri, e il taglio puo'
+/// cadere dentro una `\U+XXXX` o una `^x`. Decodificare i frammenti uno per
+/// uno rifiutava la prima meta' e leggeva la seconda come testo. Qui la coda
+/// grezza resta da parte: se il lettore di MTEXT la reclama, il valore
+/// seguente si decodifica con la coda davanti; se nessuno la reclama, una coda
+/// che non e' un carattere letterale (`\U+` con meno di quattro cifre) rende
+/// il documento illeggibile.
+#[derive(Default)]
+pub(crate) struct CodaSospesa {
+    /// La coda grezza, se c'e'.
+    grezza: Option<String>,
+    /// Se la coda e' anche, letteralmente, alla fine del valore consegnato:
+    /// `^`, `\`, `\U` lo sono; una `\U+` incompleta no.
+    nel_valore: bool,
+    /// Il lettore di MTEXT l'ha reclamata: il prossimo valore la continua.
+    reclamata: bool,
+}
+
+impl CodaSospesa {
+    /// Da chiamare prima di leggere una coppia nuova. Errore se c'e' una coda
+    /// non letterale che nessuno ha reclamato.
+    fn verifica_prima_di_leggere(&mut self, offset: usize) -> DxfResult<()> {
+        if self.grezza.is_some() && !self.reclamata {
+            let letterale = self.nel_valore;
+            *self = CodaSospesa::default();
+            if !letterale {
+                return Err(DxfError::ParseError(offset));
+            }
+        }
+        Ok(())
+    }
+    fn reclama(&mut self) -> usize {
+        match self.grezza {
+            Some(ref coda) => {
+                self.reclamata = true;
+                if self.nel_valore {
+                    coda.chars().count()
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        }
+    }
+    /// Decodifica un valore di testo: prima la coda reclamata, se c'e'.
+    fn decodifica(
+        &mut self,
+        codice: i32,
+        valore: &str,
+        unicode: bool,
+        offset: usize,
+    ) -> DxfResult<String> {
+        let grezzo = if self.reclamata {
+            if codice != 1 && codice != 3 {
+                return Err(DxfError::ParseError(offset));
+            }
+            let mut unito = self.grezza.take().unwrap_or_default();
+            unito.push_str(valore);
+            unito
+        } else {
+            String::from(valore)
+        };
+        *self = CodaSospesa::default();
+        let consenti_coda = codice == 3;
+        let (mut testo, coda) = decodifica_testo(&grezzo, unicode, consenti_coda)
+            .ok_or(DxfError::ParseError(offset))?;
+        if !coda.is_empty() {
+            // La coda e' letterale se, decodificata senza coda, resta se stessa.
+            let letterale = decodifica_testo(&coda, unicode, false)
+                .is_some_and(|(come_testo, _)| come_testo == coda);
+            if letterale {
+                testo.push_str(&coda);
+            }
+            self.grezza = Some(coda);
+            self.nel_valore = letterale;
+        }
+        Ok(testo)
+    }
+    /// Alla fine dell'ingresso una coda reclamata -- letterale o no: il
+    /// gruppo che doveva continuarla non c'e' -- e una coda non letterale sono
+    /// errori. Va chiamata su **ogni** via verso la fine, spazio bianco finale
+    /// compreso: altrimenti il lettore di MTEXT consegnava un testo mutilato.
+    fn verifica_alla_fine(&mut self, offset: usize) -> Option<DxfResult<CodePair>> {
+        if self.grezza.is_some() && (self.reclamata || !self.nel_valore) {
+            *self = CodaSospesa::default();
+            return Some(Err(DxfError::ParseError(offset)));
+        }
+        None
+    }
+    /// Una coda reclamata si continua solo con un gruppo di testo `1` o `3`:
+    /// qualunque altro gruppo, di qualunque tipo, e' un errore. Va chiamata
+    /// appena letto il codice, in entrambi i formati.
+    fn verifica_codice(&self, codice: i32, offset: usize) -> DxfResult<()> {
+        if self.reclamata && codice != 1 && codice != 3 {
+            return Err(DxfError::ParseError(offset));
+        }
+        Ok(())
+    }
 }
 
 /// Directly returns code pairs; primarily used in tests.
@@ -51,11 +160,15 @@ pub(crate) struct TextCodePairIter<T: Read> {
     first_line: String,
     read_first_line: bool,
     offset: usize,
+    coda: CodaSospesa,
 }
 
 impl<T: Read> CodePairIter for TextCodePairIter<T> {
     fn read_as_utf8(&mut self) {
         self.string_encoding = encoding_rs::UTF_8;
+    }
+    fn continua_frammento(&mut self) -> usize {
+        self.coda.reclama()
     }
 }
 
@@ -79,14 +192,20 @@ impl<T: Read> TextCodePairIter<T> {
             first_line,
             read_first_line: false,
             offset,
+            coda: CodaSospesa::default(),
         }
     }
     fn read_code_pair(&mut self) -> Option<DxfResult<CodePair>> {
+        if let Err(e) = self.coda.verifica_prima_di_leggere(self.offset) {
+            return Some(Err(e));
+        }
         // Read code.  If no line is available, fail gracefully.
         let code_line = if self.read_first_line {
             self.offset += 1;
             match read_buffered_line(&mut self.reader, true, encoding_rs::WINDOWS_1252) {
-                Ok(v) => v,
+                Ok(Some(v)) => v,
+                // la fine vera dell'ingresso
+                Ok(None) => return self.coda.verifica_alla_fine(self.offset),
                 Err(e) => return Some(Err(e)),
             }
         } else {
@@ -98,17 +217,32 @@ impl<T: Read> TextCodePairIter<T> {
         };
         let code_line = code_line.trim();
         if code_line.is_empty() {
-            // might be an empty file only containing a newline
-            return None;
+            // Upstream trattava una riga di codice vuota come la fine
+            // dell'ingresso, e tutto cio' che seguiva spariva: un DXF con una
+            // riga vuota in testa si leggeva come un documento vuoto. Ora e' la
+            // fine solo se dopo non resta altro che spazio bianco -- un file
+            // fatto di soli a capo resta un file vuoto --, altrimenti e' un
+            // errore.
+            return match resto_solo_spazio(&mut self.reader) {
+                Ok(true) => self.coda.verifica_alla_fine(self.offset),
+                Ok(false) => Some(Err(DxfError::ParseError(self.offset))),
+                Err(e) => Some(Err(e)),
+            };
         }
 
         let code_offset = self.offset;
         let code = try_into_option!(parse_i32(String::from(code_line), code_offset));
+        if let Err(e) = self.coda.verifica_codice(code, code_offset) {
+            return Some(Err(e));
+        }
 
         // Read value.  If no line is available die horribly.
         self.offset += 1;
         let value_line = match read_buffered_line(&mut self.reader, false, self.string_encoding) {
-            Ok(v) => v,
+            Ok(Some(v)) => v,
+            // Un codice senza la riga del valore: upstream lo leggeva come
+            // valore vuoto.
+            Ok(None) => return Some(Err(DxfError::UnexpectedEndOfInput)),
             Err(e) => return Some(Err(e)),
         };
 
@@ -134,13 +268,14 @@ impl<T: Read> TextCodePairIter<T> {
                 CodePairValue::Double(try_into_option!(parse_f64(value_line, self.offset)))
             }
             ExpectedType::Str => {
-                let value_line = if self.string_encoding == encoding_rs::WINDOWS_1252 {
-                    un_escape_ascii_to_unicode(&value_line)
-                } else {
-                    value_line
-                };
-                let value_line = CodePairValue::un_escape_string(&value_line);
-                CodePairValue::Str(value_line.into_owned())
+                // `\U+` solo nel DXF ASCII codificato Windows-1252, come upstream.
+                let unicode = self.string_encoding == encoding_rs::WINDOWS_1252;
+                CodePairValue::Str(try_into_option!(self.coda.decodifica(
+                    code,
+                    &value_line,
+                    unicode,
+                    self.offset
+                )))
             }
             ExpectedType::Binary => {
                 let mut data = vec![];
@@ -155,13 +290,17 @@ impl<T: Read> TextCodePairIter<T> {
     }
 }
 
+/// Una riga, oppure `None` alla fine dell'ingresso: le due cose upstream si
+/// confondevano, perche' entrambe arrivavano come stringa vuota.
 fn read_buffered_line<T: BufRead + ?Sized>(
     reader: &mut T,
     allow_bom: bool,
     encoding: &'static Encoding,
-) -> DxfResult<String> {
+) -> DxfResult<Option<String>> {
     let mut bytes = Vec::new();
-    reader.read_until(b'\n', &mut bytes)?;
+    if reader.read_until(b'\n', &mut bytes)? == 0 {
+        return Ok(None);
+    }
     if bytes.last() == Some(&b'\n') {
         bytes.pop();
     }
@@ -172,8 +311,23 @@ fn read_buffered_line<T: BufRead + ?Sized>(
         bytes.drain(..3);
     }
     match encoding.decode(&bytes) {
-        (value, _, false) => Ok(value.into_owned()),
+        (value, _, false) => Ok(Some(value.into_owned())),
         (_, _, true) => Err(DxfError::MalformedString),
+    }
+}
+
+/// `true` se da qui alla fine dell'ingresso c'e' solo spazio bianco ASCII.
+fn resto_solo_spazio<T: BufRead + ?Sized>(reader: &mut T) -> DxfResult<bool> {
+    loop {
+        let blocco = reader.fill_buf()?;
+        if blocco.is_empty() {
+            return Ok(true);
+        }
+        if !blocco.iter().all(u8::is_ascii_whitespace) {
+            return Ok(false);
+        }
+        let quanti = blocco.len();
+        reader.consume(quanti);
     }
 }
 
@@ -183,11 +337,15 @@ pub(crate) struct BinaryCodePairIter<T: Read> {
     code_size_detection_complete: bool,
     codes_are_two_bytes: bool,
     offset: usize,
+    coda: CodaSospesa,
 }
 
 impl<T: Read> CodePairIter for BinaryCodePairIter<T> {
     fn read_as_utf8(&mut self) {
         // noop
+    }
+    fn continua_frammento(&mut self) -> usize {
+        self.coda.reclama()
     }
 }
 
@@ -205,14 +363,18 @@ impl<T: Read> BinaryCodePairIter<T> {
             code_size_detection_complete: false,
             codes_are_two_bytes: false,
             offset,
+            coda: CodaSospesa::default(),
         }
     }
     fn read_code_pair(&mut self) -> Option<DxfResult<CodePair>> {
+        if let Err(e) = self.coda.verifica_prima_di_leggere(self.offset) {
+            return Some(Err(e));
+        }
         // Read code.  If no data is available, fail gracefully.
         let mut code = match read_u8(&mut self.reader) {
             Some(Ok(c)) => i32::from(c),
             Some(Err(e)) => return Some(Err(DxfError::IoError(e))),
-            None => return None,
+            None => return self.coda.verifica_alla_fine(self.offset),
         };
         self.offset += 1;
 
@@ -226,6 +388,12 @@ impl<T: Read> BinaryCodePairIter<T> {
             // pre R13 codes are either 1 or 3 bytes
             code = i32::from(try_from_dxf_result!(read_i16(&mut self.reader)));
             self.offset += 2;
+        }
+        // Come nel DXF ASCII: una coda reclamata si continua solo con un
+        // gruppo `1` o `3`. Prima il controllo stava nel solo ramo del testo, e
+        // un gruppo numerico in mezzo passava.
+        if let Err(e) = self.coda.verifica_codice(code, self.offset) {
+            return Some(Err(e));
         }
 
         // Read value.  If no data is available die horribly.
@@ -274,9 +442,15 @@ impl<T: Read> BinaryCodePairIter<T> {
                     self.offset += 1; // account for the NULL byte that was interpreted as an empty string
                     value = try_from_dxf_result!(self.read_string_binary()); // now read the actual value
                 }
+                let lunghezza = value.len() + 1; // +1 to account for the NULL terminator
                 (
-                    CodePairValue::Str(CodePairValue::un_escape_string(&value).into_owned()),
-                    value.len() + 1, // +1 to account for the NULL terminator
+                    CodePairValue::Str(try_from_dxf_result!(self.coda.decodifica(
+                        code,
+                        &value,
+                        false,
+                        self.offset
+                    ))),
+                    lunghezza,
                 )
             }
             ExpectedType::Binary => {
@@ -389,7 +563,7 @@ mod tests {
     use crate::CodePair;
     use std::io::BufReader;
 
-    use super::DirectCodePairIter;
+    use super::{CodaSospesa, DirectCodePairIter};
 
     fn read_in_binary(codes_are_two_bytes: bool, data: Vec<u8>) -> CodePair {
         let mut reader = BinaryCodePairIter {
@@ -397,6 +571,7 @@ mod tests {
             code_size_detection_complete: true,
             codes_are_two_bytes,
             offset: 0,
+            coda: CodaSospesa::default(),
         };
         reader.read_code_pair().unwrap().unwrap()
     }
@@ -427,6 +602,7 @@ mod tests {
             first_line: String::from("not-important"),
             read_first_line: true,
             offset: 0,
+            coda: CodaSospesa::default(),
         };
         reader.read_code_pair().unwrap().unwrap()
     }
