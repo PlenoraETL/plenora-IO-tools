@@ -3971,6 +3971,7 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
         input_total: None,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     };
 
     let prima = std::fs::metadata(&percorso_shp)

@@ -137,6 +137,8 @@ def artefatto_finto(radice: pathlib.Path, componenti: dict[str, list[str]]) -> p
         ),
         encoding="utf-8",
     )
+    # La licenza del prodotto, alla radice, identica a quella del repository.
+    (albero / "LICENSE").write_bytes((RADICE / "LICENSE").read_bytes())
     return albero
 
 
@@ -179,6 +181,20 @@ class SondeDelGate(unittest.TestCase):
         manifesto["licenze"]["senza_testo"] = 1
         (albero / "MANIFEST.json").write_text(json.dumps(manifesto), encoding="utf-8")
         self.assertTrue(self.gate.verifica(albero))
+
+    def test_senza_la_licenza_del_prodotto_e_rosso(self) -> None:
+        """La licenza e' dichiarata proprietaria: il testo deve viaggiare."""
+        albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
+        (albero / "LICENSE").unlink()
+        errori = self.gate.verifica(albero)
+        self.assertTrue(errori)
+        self.assertIn("LICENSE assente", " ".join(errori))
+
+    def test_una_licenza_del_prodotto_diversa_e_rossa(self) -> None:
+        albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
+        (albero / "LICENSE").write_text("MIT License\n", encoding="utf-8")
+        errori = self.gate.verifica(albero)
+        self.assertIn("diverso da quello del repository", " ".join(errori))
 
     def test_sbom_e_provenienza_devono_coincidere(self) -> None:
         """Sono due viste della stessa cosa: divergono solo se una mente."""

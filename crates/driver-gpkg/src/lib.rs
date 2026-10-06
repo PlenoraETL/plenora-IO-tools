@@ -392,8 +392,13 @@ impl FormatDriver for GpkgDriver {
                 )));
             }
         }
-        let staging =
-            StagedFile::with_suffix(&path, ".gpkg", opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::with_suffix(
+            &path,
+            ".gpkg",
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let conn = Connection::open(staging.path()?).map_err(sql_err)?;
         // Bulk-load veloce: la durabilità è garantita dal publish atomico, non
         // dal file temporaneo (un crash a metà non pubblica nulla).

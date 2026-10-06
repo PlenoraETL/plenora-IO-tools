@@ -298,6 +298,11 @@ impl FormatWriter for LimitedWriter {
             })?;
             Ok(())
         });
+        // Il driver scrive, e il tempo passa: una quota esaurita dentro la
+        // scrittura dopo la scadenza e' una scadenza.
+        let result = result.map_err(|errore| {
+            super::limite_o_scadenza(self.budget.context(), errore, ErrorPhase::Write)
+        });
         if result.is_err() {
             self.failed = true;
         }
@@ -326,6 +331,11 @@ impl FormatWriter for LimitedWriter {
                 ))
             })?;
             Ok(())
+        });
+        // Il driver scrive, e il tempo passa: una quota esaurita dentro la
+        // scrittura dopo la scadenza e' una scadenza.
+        let result = result.map_err(|errore| {
+            super::limite_o_scadenza(self.budget.context(), errore, ErrorPhase::Write)
         });
         if result.is_err() {
             self.failed = true;

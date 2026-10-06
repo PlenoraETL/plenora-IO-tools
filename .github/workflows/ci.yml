@@ -60,6 +60,11 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_action_pins
           python3 scripts/check_action_pins.py
+      # La licenza del prodotto, detta allo stesso modo nel dato, nei metadati,
+      # nei crate e dentro i pacchetti: costa millisecondi, e prima della 4.1.1
+      # due di questi posti si contraddicevano.
+      - name: Probe the product license
+        run: python3 -m unittest scripts.test_licenza_del_prodotto
       - name: Verify unique public identities
         run: |
           python3 -m unittest scripts.test_check_public_identity

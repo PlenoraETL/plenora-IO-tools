@@ -22,7 +22,7 @@ use plenora_io_model::{IoErrorCode, NumeroStrutturale, PublicMessage};
 use crate::loss::{declare_crs_inconsistency, LossReport};
 use crate::request::{effective_batch_rows, incremental_batch_memory_size, BatchTarget, ReadScope};
 
-use super::{saturating_usize, LayerReader, OpenDatasetHandle};
+use super::{limite_o_scadenza, saturating_usize, LayerReader, OpenDatasetHandle};
 use crate::driver::spool::StagedSpool;
 
 /// Collega a un dataset il budget dell'operazione.
@@ -187,7 +187,11 @@ impl BudgetedReader {
         );
         loop {
             self.budget.context().ensure_active().map_err(|error| {
-                terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                terminal_scan_error(
+                    limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                )
             })?;
             // **Due target distinti, non uno.** La memoria deve coprire anche
             // l'ingombro strutturale del batch in coda allo spool, perche' e'
@@ -219,9 +223,13 @@ impl BudgetedReader {
                 // scoprire la fine della sorgente: una sonda qui leggerebbe
                 // fuori quota, che e' esattamente cio' che il budget vieta.
                 return Err(terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "budget di memoria esaurito prima della materializzazione del batch",
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "budget di memoria esaurito prima della materializzazione del batch",
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 ));
@@ -244,14 +252,22 @@ impl BudgetedReader {
                         )
                     })?;
                 let next = self.inner.next_batch().map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
                 drop(probe);
                 if next.is_some() {
                     return Err(terminal_scan_error(
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "budget esaurito prima della materializzazione del batch",
-                        )),
+                        limite_o_scadenza(
+                            self.budget.context(),
+                            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                                "budget esaurito prima della materializzazione del batch",
+                            )),
+                            ErrorPhase::Read,
+                        ),
                         &violations,
                         self.physical_row_indices_attestable,
                     ));
@@ -270,23 +286,39 @@ impl BudgetedReader {
                 .context()
                 .lease_memory_internal(available_memory)
                 .map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             let rows_lease = self
                 .budget
                 .try_lease(OperationCounter::Rows, available_rows)
                 .map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             let output_lease = self
                 .budget
                 .try_lease(OperationCounter::OutputBytes, available_output)
                 .map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             let next = self.inner.next_batch();
             let Some(batch) = next.map_err(|error| {
-                terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                terminal_scan_error(
+                    limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                )
             })?
             else {
                 drop(memory_lease);
@@ -295,18 +327,26 @@ impl BudgetedReader {
             };
             let rows = u64::try_from(batch.num_rows()).map_err(|_| {
                 terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "batch oltre il conteggio supportato",
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "batch oltre il conteggio supportato",
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
             })?;
             let bytes = u64::try_from(incremental_batch_memory_size(&batch)).map_err(|_| {
                 terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "batch oltre il conteggio byte supportato",
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "batch oltre il conteggio byte supportato",
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
@@ -316,9 +356,13 @@ impl BudgetedReader {
                 || bytes > output_lease.amount()
             {
                 return Err(terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "batch materializzato oltre la quota prenotata",
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "batch materializzato oltre la quota prenotata",
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 ));
@@ -330,14 +374,26 @@ impl BudgetedReader {
                 &self.budget.context().limits().wkb_limits(),
             )
             .map_err(|error| {
-                terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                terminal_scan_error(
+                    limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                )
             })?;
             let batch =
                 with_effective_read_schema(self.inner.contract(), batch).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             violations.record_all(batch_violations).map_err(|error| {
-                terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                terminal_scan_error(
+                    limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                )
             })?;
             let geometry_components = if violations.is_empty() {
                 geometry_components(self.inner.contract(), &batch, &self.budget).map_err(
@@ -359,11 +415,19 @@ impl BudgetedReader {
                 })
                 .transpose()
                 .map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             if rows > 0 {
                 rows_lease.commit(rows).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             } else {
                 drop(rows_lease);
@@ -379,21 +443,33 @@ impl BudgetedReader {
             // occupazione trattenuta.
             if bytes > 0 {
                 output_lease.commit(bytes).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             } else {
                 drop(output_lease);
             }
             if let Some(lease) = geometry_lease {
                 lease.commit(geometry_components).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             }
             self.rows_scanned = self.rows_scanned.checked_add(rows).ok_or_else(|| {
                 terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "overflow nel conteggio righe lette",
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "overflow nel conteggio righe lette",
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
@@ -423,19 +499,27 @@ impl BudgetedReader {
             // davvero. Meglio fallire qui, dove la causa e' visibile.
             if accounted > memory_lease.bytes() {
                 return Err(terminal_scan_error(
-                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                        "ingombro contabilizzato del batch",
-                        NumeroStrutturale::Conteggio(accounted),
-                        "byte oltre la prenotazione di materializzazione di",
-                        NumeroStrutturale::Limite(memory_lease.bytes()),
-                    )),
+                    limite_o_scadenza(
+                        self.budget.context(),
+                        PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
+                            "ingombro contabilizzato del batch",
+                            NumeroStrutturale::Conteggio(accounted),
+                            "byte oltre la prenotazione di materializzazione di",
+                            NumeroStrutturale::Limite(memory_lease.bytes()),
+                        )),
+                        ErrorPhase::Read,
+                    ),
                     &violations,
                     self.physical_row_indices_attestable,
                 ));
             }
             if accounted < memory_lease.bytes() {
                 memory_lease.shrink_to(accounted).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             }
             if violations.is_empty() {
@@ -448,7 +532,11 @@ impl BudgetedReader {
                     )),
                 };
                 spool.push(batch, memory_lease).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                    terminal_scan_error(
+                        limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    )
                 })?;
             } else {
                 // Non è più possibile esporre alcun prefisso accepted. Si

@@ -714,6 +714,8 @@ mod backend {
         dest: PathBuf,
         durable: bool,
         max_output_bytes: u64,
+        /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+        contesto: plenora_io_model::budget::PipelineContext,
         layers: Vec<PlanLayer>,
     }
 
@@ -1181,6 +1183,7 @@ mod backend {
             dest: path.to_owned(),
             durable: opts.durable,
             max_output_bytes: opts.max_output_bytes(),
+            contesto: opts.budget().context().clone(),
             layers: infos,
         }))
     }
@@ -1288,7 +1291,12 @@ mod backend {
             }
             #[cfg(test)]
             crash_failpoint("before_publish");
-            let outcome = publish_dir_atomic(self.staging.path(), &self.dest, self.durable)?;
+            let outcome = publish_dir_atomic(
+                self.staging.path(),
+                &self.dest,
+                self.durable,
+                &self.contesto,
+            )?;
             #[cfg(test)]
             crash_failpoint("after_publish");
             self.staging.disarm();

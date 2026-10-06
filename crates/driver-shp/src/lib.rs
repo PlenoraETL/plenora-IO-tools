@@ -798,6 +798,7 @@ impl FormatDriver for ShpDriver {
                 input_total: None,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -914,6 +915,8 @@ struct ShpWriter {
     input_total: Option<u64>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 impl FormatWriter for ShpWriter {
@@ -1060,7 +1063,8 @@ impl FormatWriter for ShpWriter {
 
         let (bytes, outcome) = match self.publish_mode {
             ShapefilePublishMode::DirectoryDataset => {
-                let outcome = publish_dir_atomic(staging.path(), &self.dest, self.durable)?;
+                let outcome =
+                    publish_dir_atomic(staging.path(), &self.dest, self.durable, &self.contesto)?;
                 (staged_bytes, outcome)
             }
             ShapefilePublishMode::LooseSet => {
@@ -1075,7 +1079,12 @@ impl FormatWriter for ShpWriter {
                     })
                     .filter(|(source, _)| source.exists())
                     .collect::<Vec<_>>();
-                publish_files_ordered_limited(&files, self.durable, self.max_output_bytes)?
+                publish_files_ordered_limited(
+                    &files,
+                    self.durable,
+                    self.max_output_bytes,
+                    &self.contesto,
+                )?
             }
         };
         Ok(Published {

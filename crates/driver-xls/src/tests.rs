@@ -1949,6 +1949,7 @@ fn scrittore(percorso: &std::path::Path, xy: bool, lotti: Vec<RecordBatch>) -> B
         batches: lotti,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     })
 }
 
@@ -3580,6 +3581,7 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
         batches: Vec::new(),
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     });
 
     // `write` accumula soltanto: qui non puo' fallire, ed e' il motivo per cui

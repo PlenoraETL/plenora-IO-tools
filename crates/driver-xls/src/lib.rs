@@ -429,6 +429,7 @@ impl FormatDriver for XlsDriver {
                 batches: Vec::new(),
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -775,6 +776,8 @@ struct XlsWriterState {
     batches: Vec<RecordBatch>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 // Usata come funzione in `map_err`: la firma per valore è imposta dal punto di
@@ -935,8 +938,13 @@ impl FormatWriter for XlsWriterState {
         let mut temp = create_staged_file(&self.path)?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = publish_file_atomic_limited(
+            temp,
+            &self.path,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

@@ -396,6 +396,7 @@ impl FormatDriver for DxfDriver {
                 first: true,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -417,6 +418,8 @@ struct DxfWriterState {
     first: bool,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 struct BoundedOutput<W> {
@@ -586,8 +589,13 @@ impl FormatWriter for DxfWriterState {
         let mut buffered = output.into_inner();
         buffered.flush()?;
         drop(buffered);
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = publish_file_atomic_limited(
+            temp,
+            &self.path,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )?;
         Ok(Published {
             bytes,
             loss: self.loss,

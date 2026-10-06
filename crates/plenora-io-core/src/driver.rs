@@ -487,6 +487,29 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
     }
 }
 
+/// Una quota che si esaurisce **dopo** la scadenza e' una scadenza.
+///
+/// Dentro `next_batch()` o `write()` del driver il tempo passa: se la deadline
+/// scade li' e il batch supera la prenotazione, entrambe le condizioni sono
+/// vere, e la scadenza viene prima. Riportarla come `resource_limit` diceva al
+/// chiamante di alzare una quota quando era il tempo a mancare (SURF-010).
+///
+/// Solo una quota cede il posto: un errore di formato o di contratto resta
+/// quello che e', anche se nel frattempo il tempo e' finito.
+pub(crate) fn limite_o_scadenza(
+    contesto: &plenora_io_model::budget::PipelineContext,
+    errore: PlenoraIoError,
+    fase: ErrorPhase,
+) -> PlenoraIoError {
+    if errore.category != ErrorCategory::ResourceLimit {
+        return errore;
+    }
+    match contesto.ensure_active() {
+        Err(scadenza) => scadenza.during(fase),
+        Ok(()) => errore,
+    }
+}
+
 /// Frequenza comune dei controlli cooperativi nei loop che materializzano.
 /// È una potenza di due per mantenere trascurabile il costo del fast path.
 pub const CANCELLATION_CHECK_INTERVAL: usize = 1024;

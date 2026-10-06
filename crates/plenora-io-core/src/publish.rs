@@ -8,9 +8,26 @@
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use plenora_io_model::{NumeroStrutturale, PublicMessage};
+use plenora_io_model::budget::PipelineContext;
+use plenora_io_model::{ErrorPhase, NumeroStrutturale, PublicMessage};
 use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
+
+/// L'ultimo controllo prima di rendere visibile l'output.
+///
+/// La scadenza e la cancellazione si controllano anche **dopo** flush e
+/// `fsync`, subito prima del rename: un writer che le guardava soltanto
+/// all'inizio di `finish` pubblicava un output la cui deadline era passata
+/// durante la finalizzazione, e il chiamante riceveva un successo oltre la
+/// propria scadenza (PUBLIC-SURFACES-1.0 SURF-010). Sta qui, e ogni funzione
+/// di pubblicazione lo pretende come argomento, perche' valga per ogni driver
+/// e nessuno possa dimenticarlo. Fallito il controllo, lo staging non e' stato
+/// rinominato: cade con il chiamante, e la destinazione resta assente.
+fn ancora_attiva(contesto: &PipelineContext) -> Result<()> {
+    contesto
+        .ensure_active()
+        .map_err(|errore| errore.during(ErrorPhase::Finalize))
+}
 
 /// Esito del publish (`ENGINEERING.md § Pipeline di scrittura`): un errore di `fsync` **dopo** il rename lascia
 /// l'output già visibile ma senza conferma di durabilità.
@@ -30,6 +47,7 @@ pub struct StagedFile {
     destination: PathBuf,
     durable: bool,
     max_output_bytes: u64,
+    contesto: PipelineContext,
 }
 
 impl StagedFile {
@@ -39,12 +57,18 @@ impl StagedFile {
     ///
     /// Restituisce un errore di I/O se lo staging non è creabile nella
     /// directory di destinazione.
-    pub fn new(destination: &Path, durable: bool, max_output_bytes: u64) -> Result<Self> {
+    pub fn new(
+        destination: &Path,
+        durable: bool,
+        max_output_bytes: u64,
+        contesto: &PipelineContext,
+    ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file(destination)?),
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
+            contesto: contesto.clone(),
         })
     }
 
@@ -60,12 +84,14 @@ impl StagedFile {
         suffix: &str,
         durable: bool,
         max_output_bytes: u64,
+        contesto: &PipelineContext,
     ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file_with_suffix(destination, suffix)?),
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
+            contesto: contesto.clone(),
         })
     }
 
@@ -120,7 +146,13 @@ impl StagedFile {
     /// esiste già, o l'errore di I/O di `fsync`/rename.
     pub fn publish(&mut self) -> Result<(u64, PublishOutcome)> {
         let temp = self.temp.take().ok_or_else(Self::terminal_state_error)?;
-        publish_file_atomic_limited(temp, &self.destination, self.durable, self.max_output_bytes)
+        publish_file_atomic_limited(
+            temp,
+            &self.destination,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )
     }
 
     fn terminal_state_error() -> PlenoraIoError {
@@ -178,6 +210,7 @@ pub fn publish_file_atomic(
     temp: NamedTempFile,
     dest: &Path,
     durable: bool,
+    contesto: &PipelineContext,
 ) -> Result<(u64, PublishOutcome)> {
     ensure_destination_absent(dest)?;
     ensure_same_filesystem(temp.path(), destination_parent(dest))?;
@@ -186,6 +219,8 @@ pub fn publish_file_atomic(
         temp.as_file().sync_all()?;
     }
     let bytes = temp.as_file().metadata()?.len();
+    // 2. l'ultimo controllo di scadenza e cancellazione, dopo l'`fsync`.
+    ancora_attiva(contesto)?;
     // 3. rename atomico no-clobber.
     temp.persist_noclobber(dest)
         .map_err(|error| publish_rename_error(error.error, dest))?;
@@ -206,6 +241,7 @@ pub fn publish_file_atomic_limited(
     dest: &Path,
     durable: bool,
     max_output_bytes: u64,
+    contesto: &PipelineContext,
 ) -> Result<(u64, PublishOutcome)> {
     let bytes = temp.as_file().metadata()?.len();
     if bytes > max_output_bytes {
@@ -218,7 +254,7 @@ pub fn publish_file_atomic_limited(
             ),
         ));
     }
-    publish_file_atomic(temp, dest, durable)
+    publish_file_atomic(temp, dest, durable, contesto)
 }
 
 /// Pubblica una directory-dataset (multi-file / multi-layer) con un unico rename
@@ -230,13 +266,20 @@ pub fn publish_file_atomic_limited(
 /// [`PlenoraIoError::Unsupported`] se staging e destinazione non sono sullo
 /// stesso filesystem o se il tree di staging contiene voci non regolari
 /// (symlink), o l'errore di I/O di `fsync`/rename.
-pub fn publish_dir_atomic(staging: &Path, dest: &Path, durable: bool) -> Result<PublishOutcome> {
+pub fn publish_dir_atomic(
+    staging: &Path,
+    dest: &Path,
+    durable: bool,
+    contesto: &PipelineContext,
+) -> Result<PublishOutcome> {
     ensure_destination_absent(dest)?;
     ensure_same_filesystem(staging, destination_parent(dest))?;
     // La validazione dell'intero tree (incluso il rifiuto dei symlink) è
     // indipendente da `durable`; in quel profilo sincronizza anche ciò che la
     // piattaforma permette e conserva se le directory non sono confermabili.
     let staging_durability_confirmed = prepare_tree(staging, durable)?;
+    // 2. l'ultimo controllo di scadenza e cancellazione, dopo gli `fsync`.
+    ancora_attiva(contesto)?;
     // 3. rename atomico e autorevolmente no-clobber.
     rename_noclobber(staging, dest)?;
     // 4. fsync della directory padre, dopo il rename.
@@ -266,6 +309,7 @@ pub fn publish_files_ordered_limited(
     files: &[(PathBuf, PathBuf)],
     durable: bool,
     max_output_bytes: u64,
+    contesto: &PipelineContext,
 ) -> Result<(u64, PublishOutcome)> {
     let Some((first_source, first_destination)) = files.first() else {
         return Err(PlenoraIoError::non_supportato_redatto(
@@ -320,6 +364,9 @@ pub fn publish_files_ordered_limited(
         true
     };
 
+    // L'ultimo controllo prima del primo rename: dopo, i companion diventano
+    // visibili uno alla volta, e una scadenza non ferma piu' niente.
+    ancora_attiva(contesto)?;
     commit_ordered_renames(files, rollback_rename)?;
     Ok((
         bytes,
