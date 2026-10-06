@@ -9,12 +9,23 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
   "file_count": 59,
-  "tree_sha256": "4119e0eb5d5520936f636b42940c6148760841e4b5fa514f033e99498892f053",
+  "tree_sha256": "921cfb2986a31b07c3d61e8cfdf97cd0e2a1236eacd82aeb286800bd43fe9d7c",
   "functional_delta_files": [
     "src/block.rs",
     "src/code_pair_iter.rs",
+    "src/code_pair_put_back.rs",
+    "src/code_pair_value.rs",
     "src/drawing.rs",
-    "src/lib.rs"
+    "src/dxb_reader.rs",
+    "src/entity.rs",
+    "src/entity_iter.rs",
+    "src/extension_data.rs",
+    "src/helper_functions.rs",
+    "src/lib.rs",
+    "src/object.rs",
+    "src/object_iter.rs",
+    "src/section_type_settings.rs",
+    "src/x_data.rs"
   ],
   "packaging_delta_files": [
     "Cargo.toml"
