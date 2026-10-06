@@ -1130,8 +1130,23 @@ impl Object {
             match pair.code {
                 1 => {
                     // value should be "SectionTypeSettings", but it doesn't really matter
-                    while let Some(ts) = SectionTypeSettings::read(iter)? {
-                        ss.geometry_settings.push(ts);
+                    //
+                    // `SectionTypeSettings::read` restituisce `Some` anche quando la
+                    // prima coppia non e' sua: la rimette indietro e consegna un
+                    // valore vuoto senza aver consumato niente. Questo ciclo la
+                    // richiamava allora sulla stessa coppia all'infinito, e 235 byte
+                    // di DXF finivano in un'allocazione da sei gigabyte. Ogni giro
+                    // deve consumare: la guardia non nomina il codice che oggi si
+                    // comporta cosi', pretende il progresso.
+                    loop {
+                        let prima = iter.posizione();
+                        match SectionTypeSettings::read(iter)? {
+                            Some(ts) => {
+                                iter.esigi_progresso(prima)?;
+                                ss.geometry_settings.push(ts);
+                            }
+                            None => break,
+                        }
                     }
                 }
                 90 => {
@@ -1397,7 +1412,14 @@ impl Object {
                 }
                 7 => {
                     iter.put_back(Ok(pair)); // let the TableCellStyle reader parse this
-                    if let Some(style) = TableCellStyle::read(iter)? {
+                    // Il ciclo esterno rilegge la coppia `7` se `TableCellStyle::read`
+                    // non la consuma. Oggi la consuma sempre -- e' il nome dello
+                    // stile -- ma il ciclo non ha modo di saperlo: la guardia lo
+                    // pretende invece di supporlo.
+                    let prima = iter.posizione();
+                    let letto = TableCellStyle::read(iter)?;
+                    iter.esigi_progresso(prima)?;
+                    if let Some(style) = letto {
                         ts.cell_styles.push(style);
                     }
                 }

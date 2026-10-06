@@ -167,6 +167,30 @@
           "perche_serve": "undici righe di DXF tenevano il lettore occupato senza fine; trovato dal fuzz il 2026-09-02",
           "dimostrato": "misurato: un progetto minimo che dipende da `dxf = \"=0.6.1\"` di crates.io, senza nostre modifiche, non ritorna entro venti secondi su 57 byte. Con la patch ritorna con un errore, e i 293 test del crate passano.",
           "contributo": "contributi-upstream/dxf-block-senza-endblk/"
+        },
+        {
+          "nome": "i cicli dei lettori pretendono un avanzamento, e l'iteratore ha un fondo",
+          "file": "src/code_pair_put_back.rs, src/object.rs, src/section_type_settings.rs, src/block.rs",
+          "stato": "ancora necessaria",
+          "misura": "riletto nel fork il 2026-10-05: `SectionTypeSettings::read` restituisce `Some` senza consumare su un codice non suo, e `apply_custom_reader_sectionsettings` lo richiama in un `while let`. Non riletto su `master` upstream in questo giro.",
+          "perche_serve": "235 byte di DXF finivano in un'allocazione da 5,9 GB e in un abort senza busta; trovato dal soak di `dxf_reader` il 2026-10-05",
+          "contributo": "da preparare: il censimento della classe sta in `assurance/registries/vendor-dxf-fork.json`"
+        },
+        {
+          "nome": "tetto di profondita' sui gruppi annidati",
+          "file": "src/extension_data.rs, src/x_data.rs",
+          "stato": "ancora necessaria",
+          "misura": "riletto nel fork il 2026-10-05: `ExtensionGroup::read_group` e `XDataItem::read_item` sono ricorsivi senza tetto. Non riletto su `master` upstream in questo giro.",
+          "perche_serve": "duecentomila gruppi `102/{` o `1002/{` esaurivano lo stack: abort senza busta. Tetto misurato di 256 livelli, limite dichiarato nel registro del fork",
+          "contributo": "da preparare"
+        },
+        {
+          "nome": "un errore inghiottito da EntityIter o ObjectIter ferma la lettura",
+          "file": "src/entity_iter.rs, src/object_iter.rs",
+          "stato": "ancora necessaria",
+          "misura": "riletto nel fork il 2026-10-05: entrambi trasformano `Err` in `None`. Non riletto su `master` upstream in questo giro.",
+          "perche_serve": "un BLOCK con una LINE illeggibile veniva accettato senza la LINE: `read` riusciva con zero righe",
+          "contributo": "da preparare"
         }
       ]
     },

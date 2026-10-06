@@ -141,6 +141,13 @@
       "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
       "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
       "detectable_before_invocation": true
+    },
+    {
+      "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
+      "surface": "cli",
+      "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare.",
+      "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato",
+      "detectable_before_invocation": false
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
