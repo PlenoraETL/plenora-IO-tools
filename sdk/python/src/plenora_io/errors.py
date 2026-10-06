@@ -26,6 +26,8 @@ riscrivere.
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -103,9 +105,33 @@ class ErrorEnvelope:
     contro quello schema; l'attributo qui resta piatto perche' e' la comodita'
     che serve a chi lo legge, e la posizione sul filo la sa questa classe.
 
-    Resta un dizionario grezzo: ha un contratto proprio --
+    Resta un documento grezzo: ha un contratto proprio --
     `plenora-row-diagnostics-v1` -- e modellarlo qui vorrebbe dire ratificare
     in questo ciclo una superficie che non e' stata censita per l'SDK.
+
+    # Copiati, e decisi una volta sola
+
+    Ogni campo e' una **copia** di cio' che si e' passato, fatta di tipi JSON
+    esatti: `retry` e `row_diagnostics` sono dizionari ed elenchi ordinari,
+    ricostruiti valore per valore. La busta non tiene mai un oggetto del
+    chiamante, e cio' che si valida e' cio' che si conserva.
+
+    Le **decisioni** -- `retryable`, `retry_after_ms`,
+    `must_assume_remote_committed` di `CommandFailed` -- non rileggono `retry`:
+    usano il tipo di ritentativo, il ritardo e l'effetto remoto fissati in
+    `__post_init__` dopo la validazione, in attributi privati che non sono
+    campi della dataclass. Prima la busta conservava il dizionario del
+    chiamante, e cambiarlo dopo da `{kind: never}` a `{kind: safe}` rendeva
+    `retryable` vero senza rivalidazione. Ora chi cambia `envelope.retry`
+    cambia la propria copia, non la decisione.
+
+    Perche' dizionari ordinari e non `MappingProxyType`: con il proxy
+    `copy.deepcopy`, `pickle` e `dataclasses.asdict` fallivano, e
+    `dataclasses.replace` rifiutava il proxy prodotto dall'SDK stesso. Con le
+    copie ordinarie le quattro operazioni funzionano come prima, e la
+    garanzia sta dove serve: nelle decisioni, che nessuno puo' riscrivere
+    attraverso un campo pubblico. `replace` ricostruisce la busta e quindi la
+    rivalida.
     """
 
     code: str
@@ -116,13 +142,56 @@ class ErrorEnvelope:
     message: str
     row_diagnostics: dict[str, Any] | None = None
 
+    def __post_init__(self) -> None:
+        # La validazione sta **qui** e non solo in `from_json`: una busta
+        # costruita a mano -- in un test, in un adattatore, da
+        # `dataclasses.replace` -- arriva alle stesse proprieta' di
+        # `CommandFailed`, e un valore fuori vocabolario deve fermarsi prima di
+        # diventare una risposta su «ritentare e' sicuro».
+        #
+        # Prima si copia, poi si valida la copia, poi si conserva la copia.
+        for campo in ("code", "category", "phase", "remote_effect", "message"):
+            object.__setattr__(
+                self, campo, copia_json(getattr(self, campo), f"error.{campo}")
+            )
+        if _tipo(self.retry) != "object":
+            raise ProtocolError(
+                f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
+            )
+        object.__setattr__(self, "retry", copia_json(self.retry, "error.retry"))
+        if self.row_diagnostics is not None:
+            if _tipo(self.row_diagnostics) != "object":
+                raise ProtocolError(
+                    f"`row_diagnostics` e' {_tipo(self.row_diagnostics)} e non un oggetto."
+                )
+            object.__setattr__(
+                self,
+                "row_diagnostics",
+                copia_json(self.row_diagnostics, "error.details.row_diagnostics"),
+            )
+        _valida_busta(self)
+        # Le decisioni, fissate sulla copia validata. Sono stringhe e interi
+        # di tipo esatto, cioe' immutabili; non sono campi, quindi `asdict`,
+        # l'uguaglianza e `replace` non le vedono, mentre `copy` e `pickle` le
+        # portano con lo stato dell'istanza.
+        object.__setattr__(self, "_tipo_di_ritentativo", self.retry["kind"])
+        object.__setattr__(self, "_ritardo_ms", self.retry.get("delay_ms"))
+        object.__setattr__(self, "_effetto_remoto", self.remote_effect)
+
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
-        errore = documento.get("error")
-        if not isinstance(errore, dict):
+        if _tipo(documento) != "object":
             raise ProtocolError(
-                "busta d'errore senza l'oggetto `error`: "
-                f"{sorted(documento)}"
+                f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
+            )
+        # Tutto il documento, non solo i campi che si leggono: una chiave che
+        # non e' una `str` esatta o un valore che non e' JSON in un ramo
+        # ignorato restano un documento che il wire non produce.
+        documento = copia_json(documento, "busta d'errore")
+        errore = documento.get("error")
+        if _tipo(errore) != "object":
+            raise ProtocolError(
+                f"la busta d'errore non porta l'oggetto `error` (e' {_tipo(errore)})."
             )
         mancanti = [
             campo
@@ -134,6 +203,21 @@ class ErrorEnvelope:
                 f"busta d'errore senza i campi obbligatori {mancanti}. "
                 "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
             )
+        # `details` e' facoltativo, ma quando c'e' e' un oggetto: lo schema
+        # `error-v1` non ammette `null`. Prima un `null` diventava `{}` in
+        # silenzio mentre una stringa sollevava `AttributeError` -- due esiti
+        # diversi per lo stesso difetto, nessuno dei due nominato.
+        if "details" in errore and _tipo(errore["details"]) != "object":
+            raise ProtocolError(
+                f"`error.details` e' {_tipo(errore['details'])} e non un oggetto: "
+                "lo schema `plenora-error-v1` lo dichiara oggetto quando c'e'."
+            )
+        dettagli = errore.get("details", {})
+        if "row_diagnostics" in dettagli and _tipo(dettagli["row_diagnostics"]) != "object":
+            raise ProtocolError(
+                "`error.details.row_diagnostics` e' "
+                f"{_tipo(dettagli['row_diagnostics'])} e non un oggetto."
+            )
         return cls(
             code=errore["code"],
             category=errore["category"],
@@ -141,8 +225,233 @@ class ErrorEnvelope:
             remote_effect=errore["remote_effect"],
             retry=errore["retry"],
             message=errore["message"],
-            row_diagnostics=(errore.get("details") or {}).get("row_diagnostics"),
+            row_diagnostics=dettagli.get("row_diagnostics"),
         )
+
+
+# --- i due assi su cui si decide se ripetere ---------------------------------
+#
+# `remote_effect` e `retry.kind` sono **vocabolari chiusi** di
+# `plenora-error-v1` (`plenora-contracts/schemas/error-v1.schema.json`), e
+# sono gli unici due assi della busta da cui chi usa l'SDK ricava un'azione:
+# ripetere o no, verificare lo stato remoto o no. Un valore assente, `null` o
+# sconosciuto non ha una risposta sicura, e prima ne riceveva una **insicura**:
+# `retry.get("kind") != "never"` diceva «ritentabile» per un `kind` mancante, e
+# `remote_effect in ("committed", "unknown")` diceva «nessun effetto remoto da
+# temere» per un valore che non conosceva. Ora sono `ProtocolError`.
+#
+# La categoria resta invece **aperta**: `failure_from_envelope` ripiega su
+# `CommandFailed` per una categoria nuova, perche' la categoria sceglie solo la
+# classe dell'eccezione e il ripiego non fa decidere niente di sbagliato a
+# nessuno. Su questi due assi un ripiego deciderebbe, e un'estensione del
+# vocabolario va accompagnata da un SDK che la conosce.
+
+#: I valori di `remote_effect` in `plenora-error-v1`.
+EFFETTI_REMOTI: frozenset[str] = frozenset(
+    {"none", "rolled_back", "partial", "committed", "unknown"}
+)
+
+#: Gli effetti remoti dopo i quali dall'altra parte non resta niente: gli
+#: unici per cui un ritentativo cieco non rifa' un lavoro gia' fatto.
+EFFETTI_SENZA_RESIDUO: frozenset[str] = frozenset({"none", "rolled_back"})
+
+#: I valori di `retry.kind` in `plenora-error-v1`. `quarantine` non lo emette
+#: questo componente (`RetryDisposition` non lo ha), ma il contratto e'
+#: condiviso: e' un valore valido, e trattarlo da ignoto rifiuterebbe una busta
+#: corretta.
+TIPI_DI_RITENTATIVO: frozenset[str] = frozenset(
+    {
+        "never",
+        "quarantine",
+        "safe",
+        "requires_idempotency_key",
+        "requires_recovery",
+        "after",
+    }
+)
+
+#: I tipi per cui `CommandFailed.retryable` e' vero. Sono quelli di prima --
+#: tutto tranne `never` -- meno `quarantine`, che chiede di **isolare** il
+#: lavoro e non di ripeterlo.
+RITENTABILI: frozenset[str] = TIPI_DI_RITENTATIVO - {"never", "quarantine"}
+
+#: Con `remote_effect: unknown` lo schema ammette soltanto questi tipi: non
+#: sapendo che cosa e' successo di la', un ritentativo «sicuro» o «dopo un
+#: ritardo» sarebbe una contraddizione nella stessa busta.
+RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
+    {"never", "quarantine", "requires_recovery"}
+)
+
+#: Il tetto di `retry.delay_ms` nello schema: un giorno.
+RITARDO_MASSIMO_MS = 86_400_000
+
+
+def _tipo(valore: Any) -> str:
+    """Il tipo JSON **esatto** di un valore, per controlli e messaggi.
+
+    Mai il valore stesso. Il confronto e' per **identita'** del tipo, con
+    `is`: ne' `isinstance`, che accetta le sottoclassi, ne' una ricerca in un
+    dizionario di tipi, che passa per `__hash__` e `__eq__` del tipo e che una
+    metaclasse puo' riscrivere. Una sottoclasse di `str` con `__eq__` e
+    `__hash__` riscritti superava `in EFFETTI_REMOTI` fingendosi `none`; una di
+    `dict` con `get` riscritto rispondeva a `kind` con un valore che non aveva.
+    Il wire non le produce mai: chi le passa non sta passando JSON, e la
+    risposta giusta e' rifiutarle, non interpretarle.
+    """
+    tipo = type(valore)
+    if valore is None:
+        return "null"
+    if tipo is bool:
+        return "boolean"
+    if tipo is int:
+        return "integer"
+    if tipo is float:
+        return "number"
+    if tipo is str:
+        return "string"
+    if tipo is list:
+        return "array"
+    if tipo is dict:
+        return "object"
+    return "non JSON"
+
+
+def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
+    """Una copia profonda di un valore JSON, ricostruita con i soli tipi esatti.
+
+    Ogni oggetto ed elenco e' nuovo; le foglie sono di tipo **identico** a
+    `str`, `int`, `float`, `bool` o `None`, cioe' immutabili, e solo allora si
+    conservano. Ogni altro tipo, a qualunque profondita' e nelle chiavi, e i
+    numeri non finiti sono `ProtocolError`.
+
+    `dove` e' il nome di un contenitore del protocollo, scelto da chi chiama.
+    Il messaggio non vi aggiunge le chiavi del documento -- sono dati di chi
+    l'ha scritto, una colonna di `row_diagnostics` per esempio -- ma soltanto
+    la profondita' a cui il difetto sta.
+    """
+    tipo = _tipo(valore)
+    if tipo == "object":
+        copia = {}
+        for chiave, interno in valore.items():
+            if _tipo(chiave) != "string":
+                raise ProtocolError(
+                    f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
+                    f"{_tipo(chiave)} e non una stringa."
+                )
+            copia[chiave] = copia_json(interno, dove, _profondita + 1)
+        return copia
+    if tipo == "array":
+        return [copia_json(interno, dove, _profondita + 1) for interno in valore]
+    if tipo == "number" and not math.isfinite(valore):
+        raise ProtocolError(
+            f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
+            "che JSON non ha."
+        )
+    if tipo == "non JSON":
+        raise ProtocolError(
+            f"`{dove}` ha, a profondita' {_profondita}, un valore che non e' "
+            "un tipo JSON esatto."
+        )
+    return valore
+
+
+def _rifiuta_costante(nome: str) -> Any:
+    raise ProtocolError(f"il documento contiene `{nome}`, che JSON non ha.")
+
+
+def _float_finito(testo: str) -> float:
+    numero = float(testo)
+    if not math.isfinite(numero):
+        # `1e400` non e' una costante: e' un numero che in doppia precisione
+        # trabocca in infinito, e `parse_constant` non lo vede.
+        raise ProtocolError(
+            "il documento contiene un numero che in doppia precisione non e' finito."
+        )
+    return numero
+
+
+def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
+    oggetto: dict[str, Any] = {}
+    for chiave, valore in coppie:
+        if chiave in oggetto:
+            raise ProtocolError(
+                "il documento ripete una chiave nello stesso oggetto: "
+                "`json.loads` terrebbe in silenzio l'ultima."
+            )
+        oggetto[chiave] = valore
+    return oggetto
+
+
+def carica_json(testo: str) -> Any:
+    """`json.loads` senza le sue tolleranze.
+
+    `NaN`, `Infinity` e `-Infinity` non sono JSON, e `json.loads` li accetta;
+    un numero come `1e400` diventa infinito per trabocco; una chiave ripetuta
+    nello stesso oggetto si risolve tenendo l'ultima. Sono modi in cui un
+    documento diverso da quello scritto arriverebbe ai modelli senza che
+    nessuno lo veda: qui sono `ProtocolError`. Gli errori di sintassi restano
+    `json.JSONDecodeError`, come prima.
+    """
+    return json.loads(
+        testo,
+        object_pairs_hook=_rifiuta_chiavi_doppie,
+        parse_constant=_rifiuta_costante,
+        parse_float=_float_finito,
+    )
+
+
+def _valida_busta(busta: "ErrorEnvelope") -> None:
+    """Tipi e vocabolari chiusi della busta, o `ProtocolError`.
+
+    I messaggi nominano il campo e il tipo trovato, non il valore: il valore
+    viene da un processo esterno e non c'e' ragione di ricopiarlo.
+    """
+    for campo in ("code", "category", "phase", "message"):
+        valore = getattr(busta, campo)
+        if _tipo(valore) != "string" or not valore:
+            raise ProtocolError(
+                f"`error.{campo}` e' {_tipo(valore)} e non una stringa non vuota."
+            )
+
+    effetto = busta.remote_effect
+    if _tipo(effetto) != "string" or effetto not in EFFETTI_REMOTI:
+        raise ProtocolError(
+            f"`error.remote_effect` ({_tipo(effetto)}) non e' nel vocabolario "
+            f"chiuso di `plenora-error-v1`: {sorted(EFFETTI_REMOTI)}. Senza "
+            "sapere che cosa e' successo dall'altra parte nessuna risposta su "
+            "un ritentativo e' sicura."
+        )
+
+    # `retry` e' gia' la copia fatta in `__post_init__`.
+    retry = busta.retry
+    tipo = retry.get("kind")
+    if _tipo(tipo) != "string" or tipo not in TIPI_DI_RITENTATIVO:
+        raise ProtocolError(
+            f"`error.retry.kind` ({_tipo(tipo)}) non e' nel vocabolario chiuso "
+            f"di `plenora-error-v1`: {sorted(TIPI_DI_RITENTATIVO)}."
+        )
+    attese = {"kind", "delay_ms"} if tipo == "after" else {"kind"}
+    if set(retry) != attese:
+        # Le chiavi in piu' non si nominano: vengono dal documento.
+        raise ProtocolError(
+            f"`error.retry` di tipo «{tipo}» ha {len(retry)} chiavi e non "
+            f"esattamente {sorted(attese)}, come lo schema pretende."
+        )
+    if tipo == "after":
+        ritardo = retry["delay_ms"]
+        if _tipo(ritardo) != "integer" or not 0 <= ritardo <= RITARDO_MASSIMO_MS:
+            raise ProtocolError(
+                f"`error.retry.delay_ms` ({_tipo(ritardo)}) non e' un intero fra "
+                f"0 e {RITARDO_MASSIMO_MS}."
+            )
+    if effetto == "unknown" and tipo not in RITENTATIVI_CON_EFFETTO_IGNOTO:
+        raise ProtocolError(
+            f"`error.remote_effect` e' «unknown» e `error.retry.kind` e' "
+            f"«{tipo}»: lo schema ammette soltanto "
+            f"{sorted(RITENTATIVI_CON_EFFETTO_IGNOTO)}, perche' un ritentativo "
+            "non si dichiara sicuro senza sapere che cosa e' successo."
+        )
+
 
 
 class CommandFailed(PlenoraError):
@@ -173,12 +482,18 @@ class CommandFailed(PlenoraError):
 
     @property
     def retryable(self) -> bool:
-        """`retry.kind` diverso da `never`.
+        """`retry.kind` fra i tipi che ammettono un nuovo tentativo.
+
+        Sono `safe`, `after`, `requires_idempotency_key` e `requires_recovery`:
+        non `never`, e non `quarantine`, che chiede di isolare il lavoro. Il
+        tipo e' gia' stato validato contro il vocabolario chiuso, quindi un
+        valore assente o ignoto non arriva qui: e' `ProtocolError` prima.
 
         Una comodita', non una politica: **quanto** aspettare lo dice
-        `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`.
+        `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`, e le
+        condizioni le dice il tipo stesso.
         """
-        return self.envelope.retry.get("kind") != "never"
+        return self.envelope._tipo_di_ritentativo in RITENTABILI
 
     @property
     def retry_after_ms(self) -> int | None:
@@ -187,15 +502,19 @@ class CommandFailed(PlenoraError):
         `None` non vuol dire «riprova subito»: vuol dire che il prodotto non ha
         detto quanto aspettare, e chi riprova sceglie da se'.
         """
-        retry = self.envelope.retry
-        return retry.get("delay_ms") if retry.get("kind") == "after" else None
+        busta = self.envelope
+        return busta._ritardo_ms if busta._tipo_di_ritentativo == "after" else None
 
     @property
     def must_assume_remote_committed(self) -> bool:
         """Un ritentativo cieco **non** e' sicuro: vada come deve andare.
 
-        Vera per `committed`, dove il lavoro remoto e' andato a buon fine, e per
-        `unknown`, dove non si sa. Le due cose non sono la stessa, e il nome non
+        Vera per `committed`, dove il lavoro remoto e' andato a buon fine, per
+        `unknown`, dove non si sa, e per `partial`, dove una parte e' andata a
+        buon fine e ripetere da capo la rifarebbe. Falsa soltanto per `none` e
+        `rolled_back`, gli unici due stati in cui dall'altra parte non resta
+        niente. Un valore fuori vocabolario non arriva qui: e' `ProtocolError`
+        quando la busta si costruisce. Le due cose non sono la stessa, e il nome non
         dice che lo siano: dice che chi deve decidere se ripetere l'operazione
         deve comportarsi allo stesso modo in entrambi i casi, perche'
         l'alternativa e' rifare un lavoro gia' fatto.
@@ -210,7 +529,7 @@ class CommandFailed(PlenoraError):
         la differenza fra «commesso» e «ignoto» conta -- per esempio per
         decidere se **verificare** lo stato remoto invece di riprovare.
         """
-        return self.envelope.remote_effect in ("committed", "unknown")
+        return self.envelope._effetto_remoto not in EFFETTI_SENZA_RESIDUO
 
 
 # --- una classe per categoria, e la ragione per cui sono tante --------------
