@@ -5,7 +5,13 @@
 # distribuzione. L'immagine di sviluppo e' Debian 12 (glibc 2.36): costruire li'
 # darebbe un artefatto che non gira su Ubuntu 22.04, per un accidente
 # dell'ambiente di lavoro invece che per una proprieta' del prodotto.
-FROM ubuntu:22.04
+# L'immagine di base e' fissata per **digest**, non solo per tag: un tag di
+# Docker Hub si sposta a ogni ripubblicazione, e la stessa riga costruirebbe da
+# byte diversi senza che nessuna riga del repository cambi. Il digest e' quello
+# dell'indice multi-architettura letto dal registro il 2026-10-05; il tag resta
+# accanto perche' dice che cosa il digest e'. Aggiornarlo e' una decisione da
+# PR, come ogni altro pin.
+FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
 
 ARG RUST_VERSION=1.98.1
 

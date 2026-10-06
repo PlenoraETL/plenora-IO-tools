@@ -597,6 +597,30 @@ installato, lo **rilegge**, e verifica schema, numero di righe e geometria.
 `catalog` dichiara ciò che il driver crede di poter fare; fra la dichiarazione
 e il fatto c'è la GDAL spedita.
 
+#### La GDAL della distribuzione nelle prove
+
+Il pin sopra vale per ciò che si **spedisce**. Le prove usano un'altra GDAL, e
+quella non è fissata: i job `rust`, `fuzz`, `gdal-linux-matrix`, `coverage` e
+`superficie-rust` della CI, la «Release checkout qualification» e
+l'immagine `Dockerfile.dev` installano `libgdal-dev` (e `gdal-bin`) con
+`apt-get` senza versione, cioè quella che la distribuzione del runner o Debian 12
+porta il giorno della corsa. Le immagini di base sono fissate per digest; i
+pacchetti apt installati sopra no.
+
+È una deviazione da «versioni pinnate esatte», ed è dichiarata così:
+
+- **regola**: ogni dipendenza ha una versione esatta;
+- **ambito**: la GDAL contro cui compilano e girano test, fuzz, copertura e la
+  sonda ASan della qualifica — non gli artefatti, che usano
+  `scripts/linux-gdal-lock.json` (Linux) e `scripts/windows-gdal-lock.json`;
+- **hazard**: un aggiornamento della distribuzione cambia la GDAL sotto prova
+  senza che il repository cambi, e un verde su una versione non prova l'altra.
+  `gdal-linux-matrix` lo rende visibile in un verso — misura FileGDB su 22.04 e
+  24.04, che portano GDAL diverse — ma non lo impedisce;
+- **condizione di rientro**: le prove materializzano la GDAL dal lock con
+  `scripts/install-linux-gdal.py`, come fa già la distribuzione, oppure apt
+  installa una versione fissata da uno snapshot dell'archivio.
+
 ### Che cosa si promette sulla risoluzione delle dipendenze
 
 > L'artefatto **integro, così come consegnato**, risolve GDAL e ogni
