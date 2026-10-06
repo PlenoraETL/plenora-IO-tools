@@ -12,8 +12,8 @@
       "ragione": "delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton"
     },
     "driver-dxf": {
-      "conteggio": 15,
-      "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill"
+      "conteggio": 10,
+      "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill Dal 2026-10-06 cinque in meno (15 -> 10, #32): i tre `unwrap_or` degli assi in `Transform3::ocs`, la normale dell'ellisse in `tessellate_ellipse3` e il peso `unwrap_or(1.0)` di `tessellate_spline3` sostituivano un valore del documento -- una normale nulla diventava l'asse Z, un peso non valido 1.0 -- e ora sono rifiuti espliciti. Le scale INSERT nulle (`if == 0.0 { 1.0 }`, non contate come forma) sono rifiutate nello stesso giro. Restano i ripieghi di `Transform::ocs` e `tessellate_spline` 2D, che il driver non chiama."
     },
     "driver-filegdb": {
       "conteggio": 6,
