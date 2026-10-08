@@ -8,6 +8,18 @@ const IMAGE_DATA_OFFSET_OFFSET: usize = 10;
 
 const BITMAP_HEADER_PALETTE_COUNT_OFFSET: usize = 32;
 
+/// La memoria massima che la decodifica dell'anteprima puo' prenotare.
+///
+/// L'intestazione BMP dichiara larghezza e altezza, e il decodificatore prenota
+/// l'immagine intera prima di leggerne i pixel: una manciata di byte di
+/// `THUMBNAILIMAGE` chiedeva cosi' fino al tetto predefinito di `image`, 512
+/// MiB, senza che l'input li portasse. Stessa forma della prenotazione del
+/// DATATABLE. Un'anteprima DXF e' una miniatura: 16 MiB sono una bitmap di
+/// 2048 per 2048 a 32 bit. Oltre, la lettura si rifiuta con l'errore di limite
+/// di `image`, mai con un'anteprima assente. E' un limite dichiarato nel
+/// registro del fork.
+pub(crate) const MASSIMA_MEMORIA_ANTEPRIMA: u64 = 16 << 20;
+
 pub(crate) fn read_thumbnail(iter: &mut CodePairPutBack) -> DxfResult<Option<image::DynamicImage>> {
     match read_thumbnail_bytes_from_code_pairs(iter)? {
         Some(mut data) => {
@@ -75,22 +87,33 @@ fn read_thumbnail_bytes_from_code_pairs(iter: &mut CodePairPutBack) -> DxfResult
 
 fn update_thumbnail_data_offset_in_situ(data: &mut [u8]) -> DxfResult<bool> {
     // calculate the image data offset
-    let dib_header_size = read_i32(data, FILE_HEADER_LENGTH)? as usize;
+    // Le dimensioni lette dall'intestazione sono dell'input: un valore negativo
+    // o una somma che non sta in un `i32` e' un errore, non un offset troncato.
+    let dib_header_size =
+        usize::try_from(read_i32(data, FILE_HEADER_LENGTH)?).map_err(|_| DxfError::ParseError(0))?;
 
     // calculate the palette size
     let palette_size = if dib_header_size >= BITMAP_HEADER_PALETTE_COUNT_OFFSET + 4 {
-        let palette_color_count = read_u32(
+        let palette_color_count = usize::try_from(read_u32(
             data,
             FILE_HEADER_LENGTH + BITMAP_HEADER_PALETTE_COUNT_OFFSET,
-        )? as usize;
-        palette_color_count * 4 // always 4 bytes: BGRA
+        )?)
+        .map_err(|_| DxfError::ParseError(0))?;
+        // always 4 bytes: BGRA
+        palette_color_count
+            .checked_mul(4)
+            .ok_or(DxfError::ParseError(0))?
     } else {
         return Ok(false);
     };
 
     // set the image data offset
-    let image_data_offset = FILE_HEADER_LENGTH + dib_header_size + palette_size;
-    set_i32(data, IMAGE_DATA_OFFSET_OFFSET, image_data_offset as i32)?;
+    let image_data_offset = FILE_HEADER_LENGTH
+        .checked_add(dib_header_size)
+        .and_then(|somma| somma.checked_add(palette_size))
+        .and_then(|somma| i32::try_from(somma).ok())
+        .ok_or(DxfError::ParseError(0))?;
+    set_i32(data, IMAGE_DATA_OFFSET_OFFSET, image_data_offset)?;
 
     Ok(true)
 }
@@ -196,7 +219,12 @@ fn set_thumbnail_offset_for_bitmapv4header_palette_256() {
 }
 
 fn read_thumbnail_from_bytes(data: &[u8]) -> DxfResult<Option<image::DynamicImage>> {
-    let image = image::load_from_memory(data)?;
+    let mut lettore =
+        image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format()?;
+    let mut limiti = image::Limits::default();
+    limiti.max_alloc = Some(MASSIMA_MEMORIA_ANTEPRIMA);
+    lettore.limits(limiti);
+    let image = lettore.decode()?;
     Ok(Some(image))
 }
 

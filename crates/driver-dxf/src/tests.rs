@@ -1768,3 +1768,205 @@ fn lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella() {
         "{errore}"
     );
 }
+
+/// Il caso del soak di `dxf_reader` del 2026-10-08, byte per byte.
+///
+/// 218 byte che sulla revisione candidata della 4.1.1 finivano in
+/// un'allocazione da due gigabyte: un `DATATABLE` con `90` a `-53`, che il
+/// lettore upstream convertiva con `as usize` prima di prenotare la tabella
+/// intera. Senza la correzione questa prova non fallisce con un'asserzione:
+/// esaurisce la memoria. Il seme versionato le sta accanto perche' li' il tetto
+/// di libFuzzer (`-rss_limit_mb`) trasforma l'esaurimento in un rosso, e la
+/// prova della CLI lo ripete sul binario sotto `ulimit -v`.
+#[test]
+fn il_caso_del_soak_datatable_ritorna_con_un_errore() {
+    let caso = include_bytes!("../../../fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf");
+    assert_eq!(
+        caso.len(),
+        218,
+        "il seme e' il caso originale, non una riduzione"
+    );
+    assert!(__fuzz_read_dxf(caso).is_err(), "lettore completo");
+    assert!(
+        DrawingEntityReader::load(std::io::Cursor::new(caso.to_vec())).is_err(),
+        "lettore progressivo"
+    );
+}
+
+/// Un `DATATABLE` con le coppie date, in un documento ASCII intero.
+fn documento_datatable(corpo: &str) -> Vec<u8> {
+    format!("0\nSECTION\n2\nOBJECTS\n0\nDATATABLE\n{corpo}0\nENDSEC\n0\nEOF\n").into_bytes()
+}
+
+/// I conteggi del `DATATABLE` sono dell'input, e la prenotazione li segue:
+/// uno negativo, o un prodotto oltre `MASSIME_CELLE_DATATABLE` (2^20 celle),
+/// si rifiuta su entrambi i lettori.
+#[test]
+fn i_conteggi_del_datatable_non_plausibili_si_rifiutano() {
+    let casi = [
+        ("colonne negative", "90\n-53\n91\n1\n"),
+        ("righe negative", "90\n1\n91\n-1\n"),
+        ("oltre il tetto", "90\n2048\n91\n2048\n"),
+        ("prodotto enorme", "90\n2147483647\n91\n2147483647\n"),
+    ];
+    for (nome, corpo) in casi {
+        let dxf = documento_datatable(corpo);
+        assert!(__fuzz_read_dxf(&dxf).is_err(), "{nome}: lettore completo");
+        assert!(
+            DrawingEntityReader::load(std::io::Cursor::new(dxf)).is_err(),
+            "{nome}: lettore progressivo"
+        );
+    }
+}
+
+/// Il tetto non rifiuta una tabella che ci sta: 2^20 celle si leggono.
+#[test]
+fn un_datatable_al_tetto_di_celle_si_legge() {
+    let dxf = documento_datatable("90\n1\n91\n1048576\n");
+    let letto = Drawing::load(&mut std::io::Cursor::new(dxf)).unwrap();
+    let righe: Vec<usize> = letto
+        .objects()
+        .filter_map(|o| match o.specific {
+            ObjectType::DataTable(ref data) => Some(data.values.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(righe, [1 << 20]);
+}
+
+/// Un valore che non ha una cella -- oltre le righe dichiarate, oltre le
+/// colonne, prima di ogni colonna, prima dei conteggi -- e un secondo
+/// conteggio sono errori. Upstream scartava il valore in silenzio; il secondo
+/// conteggio cambiava le dimensioni dichiarate senza quelle della tabella, e la
+/// cella seguente si indicizzava fuori dai suoi `Vec`.
+#[test]
+fn un_valore_senza_cella_e_un_secondo_conteggio_si_rifiutano() {
+    let testa = "90\n1\n91\n1\n92\n93\n2\ncolonna\n";
+    let casi = [
+        ("riga oltre", format!("{testa}93\n1\n93\n2\n")),
+        ("colonna oltre", format!("{testa}93\n1\n92\n93\n93\n2\n")),
+        ("secondo 90", format!("{testa}90\n5\n")),
+        ("secondo 91", format!("{testa}91\n5\n93\n1\n93\n2\n")),
+        (
+            "prima di ogni colonna",
+            String::from("90\n1\n91\n1\n93\n1\n"),
+        ),
+        (
+            "prima dei conteggi",
+            String::from("92\n93\n93\n1\n90\n1\n91\n1\n"),
+        ),
+    ];
+    for (nome, corpo) in casi {
+        let dxf = documento_datatable(&corpo);
+        assert!(
+            Drawing::load(&mut std::io::Cursor::new(dxf)).is_err(),
+            "{nome}"
+        );
+    }
+}
+
+/// Scritto dal fork e riletto, un `DATATABLE` torna uguale: ogni `92` apre la
+/// colonna seguente, ogni valore la riga seguente, nell'ordine in cui
+/// `add_custom_code_pairs` li scrive. Upstream partiva dalla colonna 1 e non
+/// avanzava mai di riga: ogni valore sovrascriveva la riga 0, e l'ultima
+/// colonna cadeva fuori dalla tabella senza errore.
+#[test]
+fn un_datatable_scritto_e_riletto_torna_uguale() {
+    use dxf::objects::DataTable;
+    use dxf::{DataTableValue, Handle};
+
+    let attesa = DataTable {
+        column_count: 4,
+        row_count: 2,
+        name: String::from("tabella"),
+        column_names: vec![
+            String::from("interi"),
+            String::from("testi"),
+            String::from("punti"),
+            String::from("riferimenti"),
+        ],
+        values: vec![
+            vec![
+                Some(DataTableValue::Integer(7)),
+                Some(DataTableValue::Str(String::from("uno"))),
+                Some(DataTableValue::Point3D(DxfPoint::new(1.0, 2.0, 3.0))),
+                Some(DataTableValue::Handle(Handle(0x1A))),
+            ],
+            vec![
+                Some(DataTableValue::Integer(-8)),
+                Some(DataTableValue::Str(String::from("due"))),
+                Some(DataTableValue::Point3D(DxfPoint::new(4.0, 5.0, 6.0))),
+                Some(DataTableValue::Handle(Handle(0x2B))),
+            ],
+        ],
+        ..Default::default()
+    };
+    let mut drawing = Drawing::new();
+    drawing.header.version = AcadVersion::R2007;
+    drawing.add_object(Object::new(ObjectType::DataTable(attesa.clone())));
+    let mut byte = Vec::new();
+    drawing.save(&mut byte).unwrap();
+
+    let riletto = Drawing::load(&mut std::io::Cursor::new(byte)).unwrap();
+    let tabelle: Vec<DataTable> = riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            ObjectType::DataTable(ref data) => Some(data.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tabelle, [attesa]);
+}
+
+/// Una sezione `THUMBNAILIMAGE` con una bitmap BMP di `lato` per `lato` pixel
+/// a 32 bit dichiarati nell'intestazione, e `pixel` byte di dati dopo.
+fn documento_con_anteprima(lato: u32, pixel: usize) -> Vec<u8> {
+    let mut bmp = Vec::new();
+    bmp.extend_from_slice(&40_u32.to_le_bytes()); // BITMAPINFOHEADER
+    bmp.extend_from_slice(&lato.to_le_bytes()); // larghezza
+    bmp.extend_from_slice(&lato.to_le_bytes()); // altezza
+    bmp.extend_from_slice(&1_u16.to_le_bytes()); // piani
+    bmp.extend_from_slice(&32_u16.to_le_bytes()); // bit per pixel
+    bmp.extend_from_slice(&[0; 24]); // compressione, dimensione, risoluzioni, tavolozza
+    bmp.extend(std::iter::repeat_n(0x7F_u8, pixel));
+    let esadecimale = bmp.iter().fold(String::new(), |mut testo, b| {
+        use std::fmt::Write as _;
+        let _ = write!(testo, "{b:02X}");
+        testo
+    });
+    format!(
+        "0\nSECTION\n2\nTHUMBNAILIMAGE\n90\n{}\n310\n{esadecimale}\n0\nENDSEC\n0\nEOF\n",
+        bmp.len()
+    )
+    .into_bytes()
+}
+
+/// L'intestazione BMP dell'anteprima dichiara le dimensioni, e il
+/// decodificatore prenota l'immagine intera prima di leggerne i pixel: la
+/// stessa forma del `DATATABLE`. 4096 per 4096 a 32 bit sono 64 MiB chiesti da
+/// un centinaio di byte. Il fork porta il tetto a `MASSIMA_MEMORIA_ANTEPRIMA`
+/// (16 MiB), e il rifiuto e' quello di limite di `image`, prima di ogni
+/// prenotazione: senza la correzione la prenotazione avviene (il tetto
+/// predefinito di `image` e' 512 MiB) e l'errore arriva dopo, dai pixel che
+/// mancano.
+#[test]
+fn un_anteprima_oltre_il_tetto_si_rifiuta_prima_di_prenotare() {
+    let dxf = documento_con_anteprima(4096, 16);
+    let Err(errore) = Drawing::load(&mut std::io::Cursor::new(dxf)) else {
+        panic!("un'anteprima da 64 MiB dichiarati non si legge");
+    };
+    let diagnosi = format!("{errore:?}");
+    assert!(
+        diagnosi.contains("InsufficientMemory"),
+        "il rifiuto e' il limite di memoria, non la fine dei dati: {diagnosi}"
+    );
+}
+
+/// Il tetto non rifiuta un'anteprima vera: 2 per 2 pixel si decodificano.
+#[test]
+fn un_anteprima_piccola_si_decodifica() {
+    let dxf = documento_con_anteprima(2, 16);
+    let letto = Drawing::load(&mut std::io::Cursor::new(dxf)).unwrap();
+    let anteprima = letto.thumbnail.expect("l'anteprima c'e'");
+    assert_eq!((anteprima.width(), anteprima.height()), (2, 2));
+}

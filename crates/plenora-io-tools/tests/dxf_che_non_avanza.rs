@@ -42,8 +42,15 @@ struct Esito {
 /// figlio che riempisse una pipe senza mai finire viene comunque ucciso dalla
 /// scadenza, che e' l'unica cosa che questa prova deve garantire.
 fn esegui(argomenti: &[&str]) -> Esito {
-    let mut figlio = Command::new(env!("CARGO_BIN_EXE_plenora-io"))
-        .args(argomenti)
+    let mut comando = Command::new(env!("CARGO_BIN_EXE_plenora-io"));
+    comando.args(argomenti);
+    esegui_comando(comando, argomenti)
+}
+
+/// Come [`esegui`], per un comando gia' preparato: la prova sotto `ulimit -v`
+/// passa da una shell.
+fn esegui_comando(mut comando: Command, argomenti: &[&str]) -> Esito {
+    let mut figlio = comando
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -233,5 +240,61 @@ fn un_documento_con_parti_perse_esce_con_la_busta() {
             "EPSG:4326",
         ]);
         verifica_busta("read", &esito);
+    }
+}
+
+/// Il caso del soak di `dxf_reader` del 2026-10-08: 218 byte con un
+/// `DATATABLE` a `-53` colonne, che la revisione candidata della 4.1.1
+/// convertiva in una prenotazione da due gigabyte.
+fn caso_datatable() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf")
+}
+
+#[test]
+fn il_caso_datatable_esce_con_la_busta_in_read_inspect_e_layers() {
+    let caso = caso_datatable();
+    let percorso = caso.to_str().expect("percorso UTF-8");
+    for comando in ["read", "inspect", "layers"] {
+        let esito = esegui(&[comando, percorso]);
+        verifica_busta(comando, &esito);
+    }
+}
+
+/// Il tetto di memoria del processo nella prova sotto `ulimit -v`, in KiB:
+/// 2 GiB di spazio d'indirizzamento, lo stesso ordine del `-rss_limit_mb=2048`
+/// con cui il seme gira sotto libFuzzer. Il binario corretto ne usa una
+/// frazione; quello difettoso chiede da solo due gigabyte e il processo muore
+/// d'allocazione invece di rispondere.
+#[cfg(unix)]
+const TETTO_VIRTUALE_KIB: u64 = 2 * 1024 * 1024;
+
+/// I due casi di esaurimento della memoria del lettore DXF, sotto un tetto di
+/// spazio d'indirizzamento: una prenotazione da conteggi letti non diventa un
+/// abort, ma la busta d'errore. Senza tetto, la prova che fallisce lo farebbe
+/// esaurendo la memoria del runner; con il tetto fallisce subito, con exit 134
+/// o un segnale al posto della busta.
+///
+/// `MALLOC_ARENA_MAX` tiene fuori dal conto le arene per thread di glibc, che
+/// riservano spazio d'indirizzamento senza usarlo.
+#[cfg(unix)]
+#[test]
+fn i_casi_di_esaurimento_della_memoria_escono_con_la_busta_sotto_ulimit_v() {
+    let casi = [caso(), caso_datatable()];
+    for caso in &casi {
+        let percorso = caso.to_str().expect("percorso UTF-8");
+        for sottocomando in ["read", "inspect"] {
+            let mut comando = Command::new("sh");
+            comando
+                .arg("-c")
+                .arg(format!(
+                    "ulimit -v {TETTO_VIRTUALE_KIB} && exec \"$0\" \"$@\""
+                ))
+                .arg(env!("CARGO_BIN_EXE_plenora-io"))
+                .args([sottocomando, percorso])
+                .env("MALLOC_ARENA_MAX", "2");
+            let esito = esegui_comando(comando, &[sottocomando, percorso]);
+            verifica_busta(sottocomando, &esito);
+        }
     }
 }

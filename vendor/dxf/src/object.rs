@@ -59,12 +59,46 @@ impl MLineStyleElement {
 //------------------------------------------------------------------------------
 //                                                                     DataTable
 //------------------------------------------------------------------------------
+/// Il numero massimo di celle (righe per colonne) che un DATATABLE puo'
+/// dichiarare.
+///
+/// La tabella si prenota intera appena letti i due conteggi `90` e `91`, prima
+/// di qualunque valore: un conteggio letto non costa niente all'input, la
+/// prenotazione si'. Upstream convertiva l'`i32` con `as usize`, e un `-53`
+/// diventava quasi 2^64 colonne: 218 byte di DXF finivano in un'allocazione da
+/// due gigabyte, misurata dal soak del 2026-10-08. Un conteggio negativo, o un
+/// prodotto oltre questo tetto, si rifiuta con `ParseError`: mai un troncamento.
+///
+/// 2^20 celle sono qualche decina di MiB nel caso peggiore (una colonna per
+/// riga, ogni riga un `Vec` suo). Un DATATABLE reale -- un oggetto raro, che
+/// nessun driver del prodotto legge -- sta molti ordini di grandezza sotto. E'
+/// un limite dichiarato nel registro del fork, con la condizione per toglierlo.
+pub(crate) const MASSIME_CELLE_DATATABLE: usize = 1 << 20;
+
 impl DataTable {
-    pub(crate) fn set_value(&mut self, row: usize, col: usize, val: DataTableValue) {
-        if row < self.row_count && col < self.column_count {
-            self.values[row][col] = Some(val);
+    /// Scrive una cella della tabella gia' prenotata. Una cella fuori dalla
+    /// tabella, o una tabella non ancora prenotata, e' un errore: upstream la
+    /// scartava in silenzio.
+    pub(crate) fn set_value(
+        &mut self,
+        row: usize,
+        col: usize,
+        val: DataTableValue,
+        offset: usize,
+    ) -> DxfResult<()> {
+        match self.values.get_mut(row).and_then(|riga| riga.get_mut(col)) {
+            Some(cella) => {
+                *cella = Some(val);
+                Ok(())
+            }
+            None => Err(DxfError::ParseError(offset)),
         }
     }
+}
+
+/// Un conteggio del DATATABLE: negativo e' un errore, non un numero enorme.
+fn conteggio_datatable(pair: &CodePair) -> DxfResult<usize> {
+    usize::try_from(pair.assert_i32()?).map_err(|_| DxfError::ParseError(pair.offset))
 }
 
 //------------------------------------------------------------------------------
@@ -332,124 +366,127 @@ impl Object {
     ) -> DxfResult<bool> {
         let mut read_column_count = false;
         let mut read_row_count = false;
-        let mut _current_column_code = 0;
-        let mut current_column = 0;
-        let mut current_row = 0;
         let mut created_table = false;
+        // La colonna corrente: `None` finche' non arriva il primo `92`. Ogni
+        // `92` apre la colonna seguente; ogni valore riempie la riga seguente
+        // della colonna aperta, nell'ordine in cui la scrive
+        // `add_custom_code_pairs`. Upstream partiva dalla colonna 1 e non
+        // avanzava mai di riga: ogni valore sovrascriveva la riga 0, e l'ultima
+        // colonna cadeva fuori dalla tabella senza errore.
+        let mut current_column: Option<usize> = None;
+        let mut current_row = 0;
         let mut current_2d_point = Point::origin();
         let mut current_3d_point = Point::origin();
 
         loop {
             let pair = next_pair!(iter);
-            match pair.code {
+            let valore = match pair.code {
                 1 => {
                     data.name = pair.assert_string()?;
+                    None
                 }
                 70 => {
                     data.field = pair.assert_i16()?;
+                    None
                 }
+                // Un secondo conteggio cambierebbe le dimensioni dichiarate
+                // senza quelle della tabella gia' prenotata.
                 90 => {
-                    data.column_count = pair.assert_i32()? as usize;
+                    if read_column_count {
+                        return Err(iter.ferma(pair.offset));
+                    }
+                    data.column_count = conteggio_datatable(&pair)?;
                     read_column_count = true;
+                    None
                 }
                 91 => {
-                    data.row_count = pair.assert_i32()? as usize;
+                    if read_row_count {
+                        return Err(iter.ferma(pair.offset));
+                    }
+                    data.row_count = conteggio_datatable(&pair)?;
                     read_row_count = true;
+                    None
                 }
 
                 // column headers
                 2 => {
                     data.column_names.push(pair.assert_string()?);
+                    None
                 }
                 92 => {
-                    _current_column_code = pair.assert_i32()?;
-                    current_column += 1;
+                    let _column_code = pair.assert_i32()?;
+                    current_column = Some(match current_column {
+                        None => 0,
+                        Some(colonna) => colonna
+                            .checked_add(1)
+                            .ok_or(DxfError::ParseError(pair.offset))?,
+                    });
                     current_row = 0;
+                    None
                 }
 
                 // column values
-                3 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Str(pair.assert_string()?),
-                    );
-                }
-                40 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Double(pair.assert_f64()?),
-                    );
-                }
-                71 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Boolean(as_bool(pair.assert_i16()?)),
-                    );
-                }
-                93 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Integer(pair.assert_i32()?),
-                    );
-                }
+                3 => Some(DataTableValue::Str(pair.assert_string()?)),
+                40 => Some(DataTableValue::Double(pair.assert_f64()?)),
+                71 => Some(DataTableValue::Boolean(as_bool(pair.assert_i16()?))),
+                93 => Some(DataTableValue::Integer(pair.assert_i32()?)),
                 10 => {
                     current_2d_point.x = pair.assert_f64()?;
+                    None
                 }
                 20 => {
                     current_2d_point.y = pair.assert_f64()?;
+                    None
                 }
                 30 => {
                     current_2d_point.z = pair.assert_f64()?;
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Point2D(current_2d_point.clone()),
-                    );
-                    current_2d_point = Point::origin();
+                    Some(DataTableValue::Point2D(std::mem::replace(
+                        &mut current_2d_point,
+                        Point::origin(),
+                    )))
                 }
                 11 => {
                     current_3d_point.x = pair.assert_f64()?;
+                    None
                 }
                 21 => {
                     current_3d_point.y = pair.assert_f64()?;
+                    None
                 }
                 31 => {
                     current_3d_point.z = pair.assert_f64()?;
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Point3D(current_3d_point.clone()),
-                    );
-                    current_3d_point = Point::origin();
+                    Some(DataTableValue::Point3D(std::mem::replace(
+                        &mut current_3d_point,
+                        Point::origin(),
+                    )))
                 }
-                330 | 331 | 340 | 350 | 360 => {
-                    if read_row_count || read_column_count {
-                        data.set_value(
-                            current_row,
-                            current_column,
-                            DataTableValue::Handle(pair.as_handle()?),
-                        );
-                    } else {
-                        common.apply_individual_pair(&pair, iter)?;
-                    }
+                330 | 331 | 340 | 350 | 360 if created_table => {
+                    Some(DataTableValue::Handle(pair.as_handle()?))
                 }
 
                 _ => {
                     common.apply_individual_pair(&pair, iter)?;
+                    None
                 }
+            };
+
+            if let Some(valore) = valore {
+                let Some(colonna) = current_column else {
+                    return Err(iter.ferma(pair.offset));
+                };
+                if let Err(errore) = data.set_value(current_row, colonna, valore, pair.offset) {
+                    let _ = iter.ferma(pair.offset);
+                    return Err(errore);
+                }
+                current_row += 1;
             }
 
             if read_row_count && read_column_count && !created_table {
-                for row in 0..data.row_count {
-                    data.values.push(vec![]);
-                    for _ in 0..data.column_count {
-                        data.values[row].push(None);
-                    }
+                let celle = data.row_count.checked_mul(data.column_count);
+                if !celle.is_some_and(|celle| celle <= MASSIME_CELLE_DATATABLE) {
+                    return Err(iter.ferma(pair.offset));
                 }
+                data.values = vec![vec![None; data.column_count]; data.row_count];
                 created_table = true;
             }
         }
