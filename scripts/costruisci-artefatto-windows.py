@@ -125,6 +125,9 @@ def main() -> int:
     # dall'ambiente che un artefatto rilocabile non deve avere.
     for sotto in ("bin", "share", "LICENSES"):
         (albero / sotto).mkdir(parents=True, exist_ok=True)
+    # La licenza del prodotto, alla radice dell'albero: e' quella che regola
+    # l'uso di tutto il resto, e il manifesto la elenca con il proprio digest.
+    (albero / distribuzione.NOME_DEL_TESTO).write_bytes(distribuzione.testo_della_licenza())
 
     # =====================================================================
     # 1. IL PAYLOAD

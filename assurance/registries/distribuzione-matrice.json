@@ -448,7 +448,7 @@
       "che_cos_e": "wheel e sdist si consegnano a clienti autorizzati, per un canale riservato. Non vanno su PyPI ne' su un indice pubblico di alcun tipo.",
       "come_si_tiene": "per assenza non basta. `scripts/check_canale_privato.py` verifica che il classificatore `Private :: Do Not Upload` ci sia, che nessun workflow invochi uno strumento di pubblicazione, e che nessuno nomini una credenziale d'indice -- perche' uno strumento nuovo avrebbe comunque bisogno di una credenziale, e la credenziale ha una forma piu' stabile del comando.",
       "perche_un_gate_e_non_una_regola": "un workflow aggiunto per comodita' -- �pubblichiamo su un indice interno, tanto e' privato� -- non farebbe rosso da nessuna parte, e il primo a scoprirlo sarebbe chi trova il pacchetto dove non doveva essere. Da li' non si torna indietro: un artefatto pubblicato e' un artefatto che qualcuno ha gia' scaricato.",
-      "perche_non_pubblico": "nessuna licenza first-party e' dichiarata -- l'invariante `distribuzione.licenza-first-party` lo registra come perimetro, non come blocco -- e senza termini un artefatto pubblico sarebbe consegnato a chi non ha modo di sapere che cosa gli e' concesso. Nel canale riservato quei termini li stabilisce il contratto con il cliente."
+      "perche_non_pubblico": "il prodotto e' proprietario (`LICENSE`, `License: Proprietary`): nessun diritto di ridistribuzione o pubblicazione se non per accordo scritto con il titolare. Un indice pubblico consegnerebbe il pacchetto a chi non ha quell'accordo. Nel canale riservato i termini li stabilisce il contratto con il cliente."
     }
   }
 }

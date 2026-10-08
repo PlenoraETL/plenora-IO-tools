@@ -47,6 +47,20 @@ def verifica(albero: pathlib.Path) -> list[str]:
         if not percorso.is_file():
             return [f"{percorso.relative_to(albero)} assente: l'artefatto non e' completo"]
 
+    # La licenza del prodotto: alla radice, e la stessa del repository. Un
+    # artefatto che si dichiara proprietario senza il testo, o con un testo
+    # diverso, dice due cose.
+    licenza = albero / distribuzione.NOME_DEL_TESTO
+    if not licenza.is_file():
+        errori.append(
+            f"{distribuzione.NOME_DEL_TESTO} assente alla radice: la licenza del prodotto "
+            "e' dichiarata e il suo testo non viaggia con l'artefatto"
+        )
+    elif licenza.read_bytes() != distribuzione.testo_della_licenza():
+        errori.append(
+            f"{distribuzione.NOME_DEL_TESTO} alla radice diverso da quello del repository"
+        )
+
     manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
     sbom = json.loads(sbom_percorso.read_text(encoding="utf-8"))
     provenienza = json.loads(provenienza_percorso.read_text(encoding="utf-8"))
@@ -197,13 +211,11 @@ def main() -> int:
             esito="verde" if not errori else "rosso",
             misure={
                 "componenti_con_testo": componenti,
-                # La licenza **first-party**, che non c'e'. Il conteggio qui
-                # sopra riguarda le licenze altrui, che sono un'altra domanda:
-                # un albero puo' portare quarantatre testi di terzi e non dire
-                # niente del proprio stato, ed e' cio' che faceva. Dichiararlo
-                # non e' un blocco -- la distribuzione privata non ne ha bisogno
-                # -- ma un artefatto che tace su questo lascia dedurre, e la
-                # deduzione piu' comoda e' che una licenza ci sia.
+                # La licenza **del prodotto**, proprietaria, con il testo alla
+                # radice (verificato sopra). Il conteggio qui sopra riguarda le
+                # licenze altrui, che sono un'altra domanda: un albero puo'
+                # portare quarantatre testi di terzi e non dire niente della
+                # propria, ed e' cio' che faceva.
                 "licenza_first_party": distribuzione.licenza_first_party(),
                 "crate_rust": len(
                     [

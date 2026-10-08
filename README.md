@@ -140,8 +140,14 @@ Due vincoli di coerenza si notano solo quando si stringe:
   l'errore è `LIMIT_EXCEEDED`, «batch materializzato oltre la quota prenotata».
 
 `--deadline-ms` non è una quota come le altre: quando scade l'operazione si
-ferma senza pubblicare e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code
-`5`), come vuole PUBLIC-SURFACES-1.0 SURF-010. Fino alla 4.1.0 usciva
+ferma e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code `5`), come vuole
+PUBLIC-SURFACES-1.0 SURF-010, anche quando nello stesso momento una quota
+risulta superata. La scadenza si controlla un'ultima volta subito prima della
+pubblicazione: fra quel controllo e il rename atomico resta una finestra breve
+che nessun controllo chiude, e una scadenza che cade lì trova l'output già
+pubblicato. Per uno Shapefile pubblicato come file sciolti la finestra è
+l'intera sequenza dei rename: superato il controllo, la sequenza si completa,
+per non lasciare un set pubblicato in parte. Fino alla 4.1.0 usciva
 `resource_limit` (`LIMIT_EXCEEDED`, exit code `4`). Un valore a zero resta il
 rifiuto di una quota, `resource_limit`.
 

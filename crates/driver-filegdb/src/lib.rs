@@ -714,6 +714,8 @@ mod backend {
         dest: PathBuf,
         durable: bool,
         max_output_bytes: u64,
+        /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+        contesto: plenora_io_model::budget::PipelineContext,
         layers: Vec<PlanLayer>,
     }
 
@@ -1181,6 +1183,7 @@ mod backend {
             dest: path.to_owned(),
             durable: opts.durable,
             max_output_bytes: opts.max_output_bytes(),
+            contesto: opts.budget().context().clone(),
             layers: infos,
         }))
     }
@@ -1277,18 +1280,27 @@ mod backend {
             drop(ds); // chiude e flush della .gdb
             let bytes = dir_size(self.staging.path());
             if bytes > self.max_output_bytes {
-                return Err(PlenoraIoError::limite_redatto(
-                    &PublicMessage::CuratedBetween(
+                // Misurata dopo la chiusura della .gdb: una scadenza passata
+                // li' viene prima della quota.
+                return Err(plenora_io_core::driver::limite_o_scadenza(
+                    &self.contesto,
+                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
                         "output FileGDB da",
                         NumeroStrutturale::Conteggio(bytes),
                         "byte oltre il limite di",
                         NumeroStrutturale::Limite(self.max_output_bytes),
-                    ),
+                    )),
+                    plenora_io_model::ErrorPhase::Finalize,
                 ));
             }
             #[cfg(test)]
             crash_failpoint("before_publish");
-            let outcome = publish_dir_atomic(self.staging.path(), &self.dest, self.durable)?;
+            let outcome = publish_dir_atomic(
+                self.staging.path(),
+                &self.dest,
+                self.durable,
+                &self.contesto,
+            )?;
             #[cfg(test)]
             crash_failpoint("after_publish");
             self.staging.disarm();

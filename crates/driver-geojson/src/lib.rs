@@ -228,7 +228,12 @@ impl FormatDriver for GeoJsonDriver {
                 &PublicMessage::Curated("GeoJSON: un solo layer per file nella v1"),
             ));
         }
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let mut writer = BufWriter::new(staging.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(

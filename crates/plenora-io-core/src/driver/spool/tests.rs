@@ -640,6 +640,89 @@ fn migration_stops_on_cancellation() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
 }
 
+/// Uno schema il cui messaggio IPC supera il buffer del writer: la sua
+/// scrittura passa dalla guardia gia' dentro `StreamWriter::try_new`.
+fn schema_ingombrante() -> SchemaRef {
+    let metadati =
+        std::collections::HashMap::from([("descrizione".to_owned(), "x".repeat(64 * 1024))]);
+    Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false).with_metadata(metadati),
+        Field::new("nome", DataType::Utf8, true),
+    ]))
+}
+
+fn spool_in_memoria(
+    schema: &SchemaRef,
+    budget: &OperationBudget,
+    token: CancellationToken,
+) -> StagedSpool {
+    StagedSpool {
+        schema: Arc::clone(schema),
+        budget: budget.clone(),
+        cancellation: token,
+        memory_threshold: 2 * PER_BATCH_OVERHEAD_BYTES,
+        stage: Stage::Memory {
+            batches: VecDeque::new(),
+            bytes: 0,
+        },
+        sealed: false,
+        spilled_once: false,
+    }
+}
+
+/// La quota di spill che non basta al solo schema e' una quota, non un
+/// errore di I/O: era `SPOOL_CREATE_FAILED`, perche' la creazione del writer
+/// scartava l'errore della guardia.
+#[test]
+fn a_schema_beyond_the_spill_quota_is_a_limit_not_an_io_error() {
+    let schema = schema_ingombrante();
+    let budget = budget_di(1 << 20, 4096);
+    let mut spool = spool_in_memoria(&schema, &budget, CancellationToken::new());
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
+    let errore = spingi(&mut spool, &budget, batch(&schema, 4, 4), 100)
+        .expect_err("lo schema oltre la quota di spill deve fallire");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+}
+
+/// Una scadenza che arriva mentre lo spool scrive lo schema e' un `timeout`
+/// (SURF-010). La scadenza e' quella del token, armata senza attese: il test
+/// non dipende dall'orologio.
+#[test]
+fn a_deadline_while_the_schema_is_written_is_a_timeout() {
+    let schema = schema_ingombrante();
+    let token = CancellationToken::new();
+    let budget = match PipelineBudget::builder()
+        .limits(
+            PipelineLimits::default()
+                .with_memory_bytes(1 << 20)
+                .with_spill_bytes(1 << 24)
+                .with_max_wkb_cell_bytes(1 << 20),
+        )
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    // Lo spool non guarda il proprio token prima di creare il writer: la
+    // scadenza la vede soltanto la guardia, che e' il punto da provare.
+    let mut spool = spool_in_memoria(&schema, &budget, CancellationToken::new());
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
+    let lease = budget
+        .context()
+        .lease_memory_internal(100 + PER_BATCH_OVERHEAD_BYTES)
+        .expect("lease prima della scadenza");
+    token.cancel_due_to_deadline();
+    let errore = spool
+        .push(batch(&schema, 4, 4), lease)
+        .expect_err("la scadenza deve fermare la migrazione");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
+}
+
 #[test]
 fn replay_stops_on_cancellation() {
     let schema = schema();

@@ -372,7 +372,12 @@ impl FormatDriver for IpcDriver {
         // l'ultima operazione. Il flusso descrive **come** i byte sono
         // disposti, non quando diventano visibili -- la consegna resta atomica
         // sull'operazione in entrambe le forme.
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let scrittore = if flusso {
             ScrittoreIpc::Flusso(
                 StreamWriter::try_new(BufWriter::new(staging.reopen()?), &schema)

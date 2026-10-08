@@ -1662,6 +1662,7 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         first: true,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     };
 
     let errore = sotto_prova

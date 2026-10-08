@@ -83,10 +83,13 @@ accordo scritto con Plenora ETL. I crate la dichiarano con `license-file`, il
 pacchetto Python con `License: Proprietary`. Chi riceve un artefatto non è
 autorizzato a ridistribuirlo né a pubblicarlo.
 
-Fino alla 4.1.0 nessuna licenza first-party era dichiarata, e il contratto di
-release lo registra nell'invariante `distribuzione.licenza-first-party` come
-**capacità differita**, con la riga in [docs/RELEASE.md](RELEASE.md). Il testo
-ora esiste; portarlo **dentro** gli archivi e chiudere quella riga è lavoro
+Lo stesso testo viaggia con ogni artefatto: `LICENSE` alla radice degli alberi
+nativi, `.dist-info/licenses/LICENSE` nella wheel, `LICENSE` alla radice della
+sdist; il referto `licenze-artefatto` lo dichiara (`licenza_first_party`) e la
+verifica lo pretende identico a quello del repository. Fino alla 4.1.0 nessuna
+licenza first-party era dichiarata, e il contratto di release lo registra
+nell'invariante `distribuzione.licenza-first-party` come **capacità differita**,
+con la riga in [docs/RELEASE.md](RELEASE.md): chiuderla è della registrazione
 della prossima release.
 
 Le licenze dei **componenti di terzi** sono un'altra cosa, e restano dovute:
