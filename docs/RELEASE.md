@@ -46,19 +46,19 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `1d1b8d2` |
-| candidate, versione del manifesto | `4.1.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
-| candidate, versione del workspace | `4.1.0` |
-| candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v4.1.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `4.1.1` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `4.1.1` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v4.1.1` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 3 |
-| release_authorized | `true` |
+| release pubblicate | 4 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)

@@ -520,13 +520,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "4.1.0",
+      "versione": "4.1.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "4.1.0",
+      "versione": "4.1.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -820,13 +820,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "4.1.0",
+      "versione": "4.1.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "4.1.0",
+      "versione": "4.1.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1346,5 +1346,29 @@
       "plenora-io-model 4.1.0: interna-al-workspace"
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 4.0.0 a 4.1.0 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: e' la variazione piu' innocua che questo censimento registri, ed e' registrata lo stesso perche' il gate confronta le versioni e non i nomi."
+  },
+  "variazione_versione_4_1_1": {
+    "quando": "2026-10-08, portando il workspace da 4.1.0 a 4.1.1",
+    "da": 128,
+    "a": 128,
+    "entrate": [
+      "driver-common 4.1.1",
+      "driver-geoparquet 4.1.1",
+      "plenora-io-core 4.1.1",
+      "plenora-io-model 4.1.1"
+    ],
+    "uscite": [
+      "driver-common 4.1.0",
+      "driver-geoparquet 4.1.0",
+      "plenora-io-core 4.1.0",
+      "plenora-io-model 4.1.0"
+    ],
+    "licenze_riverificate": [
+      "driver-common 4.1.1: interna-al-workspace",
+      "driver-geoparquet 4.1.1: interna-al-workspace",
+      "plenora-io-core 4.1.1: interna-al-workspace",
+      "plenora-io-model 4.1.1: interna-al-workspace"
+    ],
+    "perche": "Le quattro crate del workspace nella closure passano da 4.1.0 a 4.1.1 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 4.1.0, ed e' registrata perche' il gate confronta le versioni e non i nomi."
   }
 }
