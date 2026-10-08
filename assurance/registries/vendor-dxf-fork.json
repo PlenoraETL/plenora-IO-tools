@@ -41,10 +41,16 @@
     },
     {
       "file": "src/object.rs",
-      "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo. GEODATA: punti sorgente e destinazione in numero diverso si rifiutano invece di essere troncati da `zip`; lo stesso per gli elementi di MLINESTYLE.",
-      "trovato_da": "il primo ciclo dal soak di `dxf_reader` del 2026-10-05; il secondo dal censimento della classe fatto con la correzione.",
-      "provato_da": "`driver_dxf::tests::geodata_e_image_disallineati_si_rifiutano` (GEODATA sui due lettori, IMAGE sul lettore del fork). MLINESTYLE: il controllo sta in `post_parse`, che per gli oggetti con lettore personalizzato -- MLINESTYLE lo e' -- upstream non chiama: il ramo e' irraggiungibile, e la perdita vera e' un'altra (vedi `limiti_dichiarati`, `dxf.mlinestyle-elementi`).",
+      "cambiamento": "i due cicli che rimettono indietro una coppia e richiamano un lettore pretendono il progresso: `apply_custom_reader_sectionsettings` attorno a `SectionTypeSettings::read`, che su un codice non suo restituiva `Some` di un valore vuoto senza consumare niente -- il ciclo lo richiamava all'infinito spingendo un elemento a ogni giro --, e `apply_custom_reader_tablestyle` attorno a `TableCellStyle::read`, che oggi consuma sempre ma il ciclo non ha modo di saperlo. GEODATA: punti sorgente e destinazione in numero diverso si rifiutano invece di essere troncati da `zip`; lo stesso per gli elementi di MLINESTYLE. DATATABLE (2026-10-08): i conteggi `90` e `91` si leggono con `usize::try_from`, non con `as usize`, e un valore negativo e' `ParseError`; righe, colonne e celle oltre `MASSIME_CELLE_DATATABLE` (2^20) -- ciascuna dimensione, non solo il prodotto, che con una dimensione a zero vale zero -- si rifiutano prima della prenotazione, e la tabella si costruisce una riga alla volta (con zero righe nessuna riga si costruisce); un secondo `90` o `91` si rifiuta. `DataTable::set_value` restituisce un errore per una cella fuori dalla tabella o prima che la tabella esista (upstream la scartava in silenzio). L'indicizzazione segue la scrittura del fork: ogni `92` apre la colonna seguente (la prima e' la 0), ogni valore la riga seguente; upstream partiva dalla colonna 1 e non avanzava mai di riga. Scrittura del DATATABLE (`add_custom_code_pairs`, dal secondo giro di #37): il writer scrive solo cio' che la specifica Autodesk rappresenta -- per ogni colonna una `92` con il tipo, il nome e «one value is written for every row in each column» -- e prima di scrivere `Drawing::code_pairs` chiama `Object::verifica_scrivibile`, che rifiuta con `WrongItemType` tutto il resto: dimensioni che non coincidono con `values`, oltre il tetto o oltre `i32`; un numero di nomi diverso dalle colonne; colonne con zero righe (senza valori la colonna non ha un tipo); qualunque cella vuota, comprese quelle in coda e le colonne tutte vuote; valori di tipi diversi nella stessa colonna. Il fork non inventa una rappresentazione che rileggerebbe solo lui. Upstream la tabella con colonne e zero righe andava in panico (`values[0]`), una colonna con la prima cella vuota non si scriveva e le seguenti si rileggevano spostate, e un nome mancante indicizzava fuori da `column_names`. La scrittura non indicizza piu'.",
+      "trovato_da": "il primo ciclo dal soak di `dxf_reader` del 2026-10-05; il secondo dal censimento della classe fatto con la correzione. DATATABLE: il soak di `dxf_reader` della requalifica di 7131843 (2026-10-08), OOM dopo 568 s con `malloc(2147483648)` su 218 byte (`90` a `-53`).",
+      "provato_da": "`driver_dxf::tests::geodata_e_image_disallineati_si_rifiutano` (GEODATA sui due lettori, IMAGE sul lettore del fork). MLINESTYLE: il controllo sta in `post_parse`, che per gli oggetti con lettore personalizzato -- MLINESTYLE lo e' -- upstream non chiama: il ramo e' irraggiungibile, e la perdita vera e' un'altra (vedi `limiti_dichiarati`, `dxf.mlinestyle-elementi`). DATATABLE: `driver_dxf::tests::il_caso_del_soak_datatable_ritorna_con_un_errore` (il seme `fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf`) e `i_conteggi_del_datatable_non_plausibili_si_rifiutano`, che senza la correzione esauriscono la memoria; `un_valore_senza_cella_e_un_secondo_conteggio_si_rifiutano` e `un_datatable_scritto_e_riletto_torna_uguale`, rosse senza la correzione; `un_datatable_al_tetto_di_celle_si_legge` sul confine. Sul binario `plenora-io-tools/tests/dxf_che_non_avanza.rs`, anche sotto `ulimit -v` (solo Unix). Secondo giro: `ciascuna_dimensione_del_datatable_ha_il_suo_tetto` ((0, 2^31-1) e (2^31-1, 0) esauriscono la memoria senza la correzione; (2^20+1, 1) e (1, 2^20+1) sul confine); `un_datatable_completo_torna_uguale` e `un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura`, un caso per ciascun rifiuto (in panico sul primo giro, rossa sul secondo). Terzo giro: ogni caso di rifiuto fa scattare una sola guardia di `verifica_scrivibile` con il resto della tabella coerente (righe oltre il tetto con zero colonne, prodotto oltre il tetto con righe e colonne ammesse, riga piu' lunga delle colonne, righe di `values` diverse da `row_count`), e verifica che il buffer resti vuoto; togliendo una guardia alla volta, la prova diventa rossa per ciascuna. Il tetto sulle sole colonne e quello su `i32` non sono distinguibili in scrittura (li coprono il prodotto e la regola delle colonne senza righe; il tetto sta sotto `i32::MAX`): in lettura il primo lo prova `ciascuna_dimensione_del_datatable_ha_il_suo_tetto`.",
       "perche_non_un_caso_speciale": "la guardia non nomina il codice `72` del caso: pretende che il giro abbia consumato. Nominare il codice lascerebbe aperti tutti gli altri che `SectionTypeSettings::read` non conosce."
+    },
+    {
+      "file": "src/thumbnail.rs",
+      "cambiamento": "la decodifica dell'anteprima (`THUMBNAILIMAGE`) ha un tetto di memoria, `MASSIMA_MEMORIA_ANTEPRIMA` (16 MiB): l'intestazione BMP dichiara le dimensioni e il decodificatore prenota l'immagine intera prima di leggerne i pixel, la stessa forma della prenotazione del DATATABLE. Il tetto si applica **prima** di chiamare `image` (`verifica_dimensioni_anteprima`): larghezza per altezza per 4 byte -- `image` decodifica un BMP in RGB o RGBA a 8 bit, qualunque sia la profondita' -- oltre il tetto e' `ParseError`. Non dipende quindi da come il decodificatore rispetti i suoi `Limits`, che restano passati come seconda difesa: in `image` 0.25.10 (`codecs/bmp/decoder.rs`) il buffer dell'immagine lo prenota `ImageReader::decode` dopo `Limits::reserve(total_bytes)`, e le altre prenotazioni del decodificatore -- tavolozza, una riga -- sono limitate da `MAX_WIDTH_HEIGHT` (0xFFFF). Il buffer dei byte dell'anteprima cresce coi gruppi `310` letti, quindi e' limitato dall'input. Le dimensioni dell'intestazione usate per l'offset dei pixel si convertono con `try_from` e somme controllate: un valore negativo o un offset che non sta in un `i32` e' `ParseError`, non un offset troncato.",
+      "trovato_da": "il censimento delle prenotazioni da conteggi letti fatto con la correzione del DATATABLE (2026-10-08).",
+      "provato_da": "`driver_dxf::tests::un_anteprima_oltre_il_tetto_si_rifiuta_prima_di_chiamare_image` (4096 e 65535 per lato; pretende il `ParseError` del fork, rossa senza il controllo preventivo); `un_anteprima_piccola_si_decodifica` sul confine."
     },
     {
       "file": "src/section_type_settings.rs",
@@ -265,6 +271,42 @@
       "ambito": "il fork come libreria. Il driver non lo espone: ogni errore del fork e' sostituito da un messaggio curato senza dati (`map_err(|_| ...)` con `PublicMessage`), e `check_errori_redatti` impedisce costruttori d'errore a testo libero nei crate migrati.",
       "hazard": "un consumatore diretto del fork che mostri l'errore mostrerebbe un valore del documento. Contrasta con la regola degli errori senza dati, che per questo repository vale al confine del driver.",
       "condizione_di_rientro": "se il fork venisse usato fuori dal driver, o il driver smettesse di redigere: rendere il `Display` senza valore (variante esistente, nessun tipo nuovo)."
+    },
+    {
+      "id": "dxf.celle-datatable",
+      "regola": "un DATATABLE che dichiara piu' di 2^20 righe, 2^20 colonne o 2^20 celle (righe per colonne, `MASSIME_CELLE_DATATABLE`) rende il documento illeggibile: `FORMAT_ERROR`, exit 3. La specifica DXF non fissa un massimo. E' un limite esplicito del prodotto, **non** una garanzia di leggere ogni file AutoCAD.",
+      "ambito": "sezione OBJECTS, entrambi i lettori. Il driver non legge i DATATABLE, ma il fork li legge per arrivare agli oggetti che seguono.",
+      "hazard": "un file valido per la specifica con un DATATABLE piu' grande viene rifiutato. E' un rifiuto esplicito. Il rischio opposto -- nessun tetto -- e' una prenotazione proporzionale a due interi dell'input e non ai suoi byte.",
+      "misura": "con ciascuna dimensione e il prodotto sotto 2^20, il caso peggiore e' una colonna per 2^20 righe, ogni riga un `Vec` suo: qualche decina di MiB. Un DATATABLE reale sta ordini di grandezza sotto.",
+      "condizione_di_rientro": "il tetto si toglie quando la tabella si costruisce dai valori letti invece di prenotarla dai conteggi: allora la memoria segue l'input. Un file reale che lo superi e' la ragione per farlo."
+    },
+    {
+      "id": "dxf.ordine-delle-celle-datatable",
+      "regola": "le celle di un DATATABLE si leggono per colonne -- ogni `92` apre la colonna seguente, ogni valore la riga seguente -- che e' l'ordine della specifica Autodesk («one value is written for every row in each column») e quello in cui le scrive il fork. Upstream leggeva in un altro modo (colonna 1, riga mai avanzata), incoerente con la propria scrittura.",
+      "ambito": "lettura e scrittura del DATATABLE, entrambi i lettori; il driver non lo usa.",
+      "hazard": "l'ordine e' verificato solo in round-trip interno (scrittura del fork, rilettura del fork), **non** contro file prodotti da AutoCAD: nessuna fixture reale e' versionata, e la documentazione del formato non lo fissa in modo verificabile. Un file AutoCAD che scrivesse per righe si rileggerebbe trasposto o si rifiuterebbe.",
+      "condizione_di_rientro": "una fixture DATATABLE scritta da AutoCAD, versionata, con il suo contenuto atteso: allora l'ordine si verifica contro il formato e non contro il fork."
+    },
+    {
+      "id": "dxf.memoria-anteprima",
+      "regola": "un'anteprima (`THUMBNAILIMAGE`) la cui decodifica chiede piu' di 16 MiB (`MASSIMA_MEMORIA_ANTEPRIMA`) rende il documento illeggibile: `FORMAT_ERROR`, exit 3.",
+      "ambito": "il lettore completo (`Drawing::load`) e il lettore progressivo, che leggono entrambi la sezione; il driver non usa l'anteprima.",
+      "hazard": "un DXF con un'anteprima oltre 2048 per 2048 pixel a 32 bit viene rifiutato per una parte che il prodotto non usa. E' un rifiuto esplicito, mai un'anteprima assente. Resta come upstream l'anteprima con un'intestazione DIB sotto i 36 byte (per esempio BITMAPCOREHEADER, 12 byte): non si decodifica e si legge come assente. Il prodotto non usa l'anteprima, e la sua assenza non cambia nessuna riga.",
+      "condizione_di_rientro": "se il driver smette di leggere la sezione (`swallow_section`), il tetto non serve piu'; se un file reale lo supera, si alza con una misura."
+    },
+    {
+      "id": "dxf.datatable-in-scrittura",
+      "regola": "la scrittura di un DATATABLE accetta **solo tabelle complete**: un nome per colonna, almeno una riga se ci sono colonne, un valore per ogni riga di ogni colonna, un solo tipo per colonna. Tutto il resto -- celle vuote ovunque, colonne tutte vuote, colonne senza righe, nomi in piu' o in meno, tipi misti, dimensioni che non coincidono con `values` -- si rifiuta in `Drawing::save` con `WrongItemType`, prima di scrivere. Il round-trip di una tabella completa (scrittura e rilettura del fork) restituisce la stessa tabella **a meno della precisione dei reali** (`dxf.precisione-dei-reali`).",
+      "ambito": "il fork come libreria in scrittura (`Drawing::save`, API pubblica). Il driver scrive entita' dalle righe e l'oggetto GEODATA del CRS; non scrive DATATABLE.",
+      "hazard": "una tabella incompleta, legittima per il modello `DataTable`, non si scrive: e' un rifiuto esplicito, non una scrittura mutilata ne' una rappresentazione inventata. La specifica Autodesk non da' un modo di scrivere una cella vuota o il tipo di una colonna senza valori. `Drawing::save_file` crea o tronca il file **prima** della verifica, come upstream: un rifiuto lascia un file vuoto. Il driver non lo usa: scrive con `Drawing::save` in un file di staging (`create_staged_file`), pubblicato solo dopo una scrittura riuscita, e un rifiuto non lascia niente. `Drawing::save` verifica prima del primo byte: su un rifiuto il buffer resta vuoto.",
+      "condizione_di_rientro": "una fonte sul formato che dica come AutoCAD rappresenta una cella vuota o una colonna senza righe; allora la scrittura la rappresenta invece di rifiutarla."
+    },
+    {
+      "id": "dxf.precisione-dei-reali",
+      "regola": "il writer DXF ASCII del fork scrive ogni reale con dodici decimali (`format_f64`, `{:.12}`, zeri finali tolti), come upstream: coordinate, quote e valori `Double` del DATATABLE. Un reale si rilegge arrotondato al dodicesimo decimale, e uno piu' piccolo di 1e-12 in valore assoluto si rilegge `0.0`.",
+      "ambito": "scrittura DXF ASCII (`Drawing::save`), quella che il driver usa; il DXF binario scrive gli `f64` interi.",
+      "hazard": "per le coordinate e' sotto la precisione geografica di 1 cm: un dodicesimo decimale di grado e' circa 1e-7 m, di metro 1e-12 m. Per un valore che non e' una coordinata -- un `Double` di un DATATABLE, una scala, un parametro -- l'arrotondamento e' una perdita che il formato non segnala.",
+      "condizione_di_rientro": "se un valore non geometrico entra nell'uscita del driver con una precisione richiesta oltre il dodicesimo decimale: il formato si cambia per quel valore (la rappresentazione piu' corta che si rilegge identica) e la scelta si dichiara."
     }
   ],
   "censimento_perdite_silenziose": {
@@ -365,6 +407,37 @@
       {
         "dove": "crates/driver-dxf/src/geometry.rs `Transform::ocs` e `tessellate_spline` (2D)",
         "perche": "non chiamate dal driver: le usano solo le prove del modulo. Conservano i ripieghi upstream, e la prova `spline_curve_stays_in_control_hull_and_falls_back_when_malformed` li fissa."
+      }
+    ]
+  },
+  "censimento_prenotazioni_da_conteggi": {
+    "data": "2026-10-08",
+    "classe": "una prenotazione di memoria dimensionata da un numero letto dall'input -- un conteggio, una lunghezza, una dimensione d'intestazione -- invece che dai byte che l'input porta: pochi byte bastano a chiedere gigabyte.",
+    "metodo": "ricerca di `as usize`, `with_capacity`, `reserve`, `resize`, `vec![...; n]` e dei cicli `for _ in 0..n` nei sorgenti del fork, nei generatori in `build/` e nel codice generato in `OUT_DIR`; ogni conteggio letto (`_count` nelle specifiche XML) seguito fino al suo uso; il decodificatore BMP di `image` 0.25.10 letto nei sorgenti del registry.",
+    "rilievi": [
+      {
+        "dove": "object.rs, DATATABLE",
+        "stato": "**vulnerabile**: il caso del soak. Corretto: conteggi negativi, tetto su ciascuna dimensione e sul prodotto (il solo prodotto lasciava passare una dimensione enorme accanto a uno zero), tabella costruita una riga alla volta."
+      },
+      {
+        "dove": "thumbnail.rs, anteprima BMP",
+        "stato": "prenotazione dalle dimensioni dell'intestazione, entro il tetto predefinito di `image` (512 MiB). Corretto con un tetto di 16 MiB applicato alle dimensioni dell'intestazione prima di chiamare `image`. Il buffer dei byte cresce coi gruppi `310` letti: limitato dall'input."
+      },
+      {
+        "dove": "entita' e oggetti generati (SPLINE, LWPOLYLINE, MLINE, POLYLINE, IMAGE, ...)",
+        "stato": "non vulnerabili: i conteggi si memorizzano e basta, e ogni elemento si aggiunge leggendo la sua coppia, quindi la memoria segue l'input. Nessun `with_capacity` ne' ciclo su un conteggio nel codice generato."
+      },
+      {
+        "dove": "code_pair_iter.rs, lunghezza dei dati binari",
+        "stato": "non vulnerabile: la lunghezza e' un `u8`, al piu' 255 byte, letti uno per uno."
+      },
+      {
+        "dove": "class.rs `instance_count`, thumbnail.rs lunghezza `90`",
+        "stato": "non vulnerabili: letti e non usati per prenotare."
+      },
+      {
+        "dove": "HATCH e MESH",
+        "stato": "fuori dal censimento perche' non esistono nel fork: nelle specifiche XML sono segnaposto `TODO`, non entita' generate. Il lettore le tratta come entita' di tipo sconosciuto, che il driver rifiuta (`dxf.blocco-non-inserito-con-entita-sconosciute` per il caso nei BLOCK). Se un giorno venissero generate, i loro conteggi andrebbero censiti."
       }
     ]
   }

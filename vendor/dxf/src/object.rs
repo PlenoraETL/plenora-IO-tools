@@ -59,12 +59,118 @@ impl MLineStyleElement {
 //------------------------------------------------------------------------------
 //                                                                     DataTable
 //------------------------------------------------------------------------------
+/// Il tetto di un DATATABLE: sulle righe, sulle colonne e sulle celle (righe
+/// per colonne), ciascuno separatamente.
+///
+/// La tabella si prenota intera appena letti i due conteggi `90` e `91`, prima
+/// di qualunque valore: un conteggio letto non costa niente all'input, la
+/// prenotazione si'. Upstream convertiva l'`i32` con `as usize`, e un `-53`
+/// diventava quasi 2^64 colonne: 218 byte di DXF finivano in un'allocazione da
+/// due gigabyte, misurata dal soak del 2026-10-08. Un conteggio negativo, o
+/// una dimensione oltre questo tetto, si rifiuta con `ParseError`: mai un
+/// troncamento.
+///
+/// Il tetto sul solo prodotto non basta: con una dimensione a zero il prodotto
+/// e' zero, e l'altra -- fino a 2^31 - 1 -- prenoterebbe miliardi di
+/// descrittori `Vec`. Con entrambe le dimensioni sotto il tetto, il caso
+/// peggiore e' una colonna per 2^20 righe: qualche decina di MiB. Un DATATABLE
+/// reale -- un oggetto raro, che nessun driver del prodotto legge -- sta molti
+/// ordini di grandezza sotto. E' un limite esplicito del prodotto, dichiarato
+/// nel registro del fork, e non una garanzia di leggere ogni file AutoCAD.
+pub(crate) const MASSIME_CELLE_DATATABLE: usize = 1 << 20;
+
+/// Righe e colonne ammesse dal tetto: ciascuna, e il loro prodotto.
+fn dimensioni_ammesse(righe: usize, colonne: usize) -> bool {
+    righe <= MASSIME_CELLE_DATATABLE
+        && colonne <= MASSIME_CELLE_DATATABLE
+        && righe
+            .checked_mul(colonne)
+            .is_some_and(|celle| celle <= MASSIME_CELLE_DATATABLE)
+}
+
+/// Il codice di gruppo con cui la specifica scrive un valore di quel tipo, che
+/// e' anche il codice di tipo che la `92` di una colonna porta.
+const fn codice_del_valore(valore: &DataTableValue) -> i32 {
+    match valore {
+        DataTableValue::Boolean(_) => 71,
+        DataTableValue::Integer(_) => 93,
+        DataTableValue::Double(_) => 40,
+        DataTableValue::Str(_) => 3,
+        DataTableValue::Point2D(_) => 10,
+        DataTableValue::Point3D(_) => 11,
+        DataTableValue::Handle(_) => 331,
+    }
+}
+
 impl DataTable {
-    pub(crate) fn set_value(&mut self, row: usize, col: usize, val: DataTableValue) {
-        if row < self.row_count && col < self.column_count {
-            self.values[row][col] = Some(val);
+    /// Scrive una cella della tabella gia' prenotata. Una cella fuori dalla
+    /// tabella, o una tabella non ancora prenotata, e' un errore: upstream la
+    /// scartava in silenzio.
+    pub(crate) fn set_value(
+        &mut self,
+        row: usize,
+        col: usize,
+        val: DataTableValue,
+        offset: usize,
+    ) -> DxfResult<()> {
+        match self.values.get_mut(row).and_then(|riga| riga.get_mut(col)) {
+            Some(cella) => {
+                *cella = Some(val);
+                Ok(())
+            }
+            None => Err(DxfError::ParseError(offset)),
         }
     }
+
+    /// Una tabella che la specifica sa rappresentare, o `WrongItemType`.
+    ///
+    /// La specifica Autodesk del DATATABLE scrive ogni colonna come una `92`
+    /// con il codice del tipo della colonna, il nome (`2`) e poi «one value is
+    /// written for every row in each column». Non c'e' modo di scrivere una
+    /// cella vuota, ne' il tipo di una colonna che non ha valori: il fork non
+    /// inventa una rappresentazione che rileggerebbe solo lui. Si rifiutano
+    /// quindi, prima di scrivere:
+    ///
+    /// - dimensioni che non coincidono con `values`, oltre il tetto della
+    ///   lettura o oltre un `i32`;
+    /// - un nome per colonna, ne' di piu' ne' di meno;
+    /// - colonne con zero righe: senza valori la colonna non ha un tipo da
+    ///   scrivere nella `92`;
+    /// - qualunque cella vuota, in mezzo o in coda, e colonne tutte vuote;
+    /// - una colonna con valori di tipi diversi, che la sua `92` dichiarerebbe
+    ///   male.
+    ///
+    /// Upstream la tabella con colonne e zero righe andava in panico
+    /// (`values[0]`), e una colonna con la prima cella vuota non si scriveva.
+    pub(crate) fn verifica_scrivibile(&self) -> DxfResult<()> {
+        let dimensioni_coerenti = dimensioni_ammesse(self.row_count, self.column_count)
+            && i32::try_from(self.row_count).is_ok()
+            && i32::try_from(self.column_count).is_ok()
+            && self.values.len() == self.row_count
+            && self.values.iter().all(|riga| riga.len() == self.column_count)
+            && self.column_names.len() == self.column_count;
+        if !dimensioni_coerenti || (self.column_count > 0 && self.row_count == 0) {
+            return Err(DxfError::WrongItemType);
+        }
+        for colonna in 0..self.column_count {
+            let mut codice_della_colonna = None;
+            for riga in &self.values {
+                let Some(Some(valore)) = riga.get(colonna) else {
+                    return Err(DxfError::WrongItemType);
+                };
+                let codice = codice_del_valore(valore);
+                if *codice_della_colonna.get_or_insert(codice) != codice {
+                    return Err(DxfError::WrongItemType);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Un conteggio del DATATABLE: negativo e' un errore, non un numero enorme.
+fn conteggio_datatable(pair: &CodePair) -> DxfResult<usize> {
+    usize::try_from(pair.assert_i32()?).map_err(|_| DxfError::ParseError(pair.offset))
 }
 
 //------------------------------------------------------------------------------
@@ -332,124 +438,132 @@ impl Object {
     ) -> DxfResult<bool> {
         let mut read_column_count = false;
         let mut read_row_count = false;
-        let mut _current_column_code = 0;
-        let mut current_column = 0;
-        let mut current_row = 0;
         let mut created_table = false;
+        // La colonna corrente: `None` finche' non arriva il primo `92`. Ogni
+        // `92` apre la colonna seguente; ogni valore riempie la riga seguente
+        // della colonna aperta, nell'ordine in cui la scrive
+        // `add_custom_code_pairs`. Upstream partiva dalla colonna 1 e non
+        // avanzava mai di riga: ogni valore sovrascriveva la riga 0, e l'ultima
+        // colonna cadeva fuori dalla tabella senza errore.
+        let mut current_column: Option<usize> = None;
+        let mut current_row = 0;
         let mut current_2d_point = Point::origin();
         let mut current_3d_point = Point::origin();
 
         loop {
             let pair = next_pair!(iter);
-            match pair.code {
+            let valore = match pair.code {
                 1 => {
                     data.name = pair.assert_string()?;
+                    None
                 }
                 70 => {
                     data.field = pair.assert_i16()?;
+                    None
                 }
+                // Un secondo conteggio cambierebbe le dimensioni dichiarate
+                // senza quelle della tabella gia' prenotata.
                 90 => {
-                    data.column_count = pair.assert_i32()? as usize;
+                    if read_column_count {
+                        return Err(iter.ferma(pair.offset));
+                    }
+                    data.column_count = conteggio_datatable(&pair)?;
                     read_column_count = true;
+                    None
                 }
                 91 => {
-                    data.row_count = pair.assert_i32()? as usize;
+                    if read_row_count {
+                        return Err(iter.ferma(pair.offset));
+                    }
+                    data.row_count = conteggio_datatable(&pair)?;
                     read_row_count = true;
+                    None
                 }
 
                 // column headers
                 2 => {
                     data.column_names.push(pair.assert_string()?);
+                    None
                 }
                 92 => {
-                    _current_column_code = pair.assert_i32()?;
-                    current_column += 1;
+                    let _column_code = pair.assert_i32()?;
+                    current_column = Some(match current_column {
+                        None => 0,
+                        Some(colonna) => colonna
+                            .checked_add(1)
+                            .ok_or(DxfError::ParseError(pair.offset))?,
+                    });
                     current_row = 0;
+                    None
                 }
 
                 // column values
-                3 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Str(pair.assert_string()?),
-                    );
-                }
-                40 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Double(pair.assert_f64()?),
-                    );
-                }
-                71 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Boolean(as_bool(pair.assert_i16()?)),
-                    );
-                }
-                93 => {
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Integer(pair.assert_i32()?),
-                    );
-                }
+                3 => Some(DataTableValue::Str(pair.assert_string()?)),
+                40 => Some(DataTableValue::Double(pair.assert_f64()?)),
+                71 => Some(DataTableValue::Boolean(as_bool(pair.assert_i16()?))),
+                93 => Some(DataTableValue::Integer(pair.assert_i32()?)),
                 10 => {
                     current_2d_point.x = pair.assert_f64()?;
+                    None
                 }
                 20 => {
                     current_2d_point.y = pair.assert_f64()?;
+                    None
                 }
                 30 => {
                     current_2d_point.z = pair.assert_f64()?;
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Point2D(current_2d_point.clone()),
-                    );
-                    current_2d_point = Point::origin();
+                    Some(DataTableValue::Point2D(std::mem::replace(
+                        &mut current_2d_point,
+                        Point::origin(),
+                    )))
                 }
                 11 => {
                     current_3d_point.x = pair.assert_f64()?;
+                    None
                 }
                 21 => {
                     current_3d_point.y = pair.assert_f64()?;
+                    None
                 }
                 31 => {
                     current_3d_point.z = pair.assert_f64()?;
-                    data.set_value(
-                        current_row,
-                        current_column,
-                        DataTableValue::Point3D(current_3d_point.clone()),
-                    );
-                    current_3d_point = Point::origin();
+                    Some(DataTableValue::Point3D(std::mem::replace(
+                        &mut current_3d_point,
+                        Point::origin(),
+                    )))
                 }
-                330 | 331 | 340 | 350 | 360 => {
-                    if read_row_count || read_column_count {
-                        data.set_value(
-                            current_row,
-                            current_column,
-                            DataTableValue::Handle(pair.as_handle()?),
-                        );
-                    } else {
-                        common.apply_individual_pair(&pair, iter)?;
-                    }
+                330 | 331 | 340 | 350 | 360 if created_table => {
+                    Some(DataTableValue::Handle(pair.as_handle()?))
                 }
 
                 _ => {
                     common.apply_individual_pair(&pair, iter)?;
+                    None
                 }
+            };
+
+            if let Some(valore) = valore {
+                let Some(colonna) = current_column else {
+                    return Err(iter.ferma(pair.offset));
+                };
+                if let Err(errore) = data.set_value(current_row, colonna, valore, pair.offset) {
+                    let _ = iter.ferma(pair.offset);
+                    return Err(errore);
+                }
+                current_row += 1;
             }
 
             if read_row_count && read_column_count && !created_table {
-                for row in 0..data.row_count {
-                    data.values.push(vec![]);
-                    for _ in 0..data.column_count {
-                        data.values[row].push(None);
-                    }
+                if !dimensioni_ammesse(data.row_count, data.column_count) {
+                    return Err(iter.ferma(pair.offset));
                 }
+                // Una riga alla volta: con zero righe non si costruisce
+                // nessuna riga, nemmeno quella che `vec![riga; n]` valuterebbe
+                // prima di ripeterla.
+                let colonne = data.column_count;
+                data.values = std::iter::repeat_with(|| vec![None; colonne])
+                    .take(data.row_count)
+                    .collect();
                 created_table = true;
             }
         }
@@ -1506,6 +1620,16 @@ impl Object {
             }
         }
     }
+    /// Rifiuta prima di scrivere un oggetto che la scrittura non saprebbe
+    /// rappresentare senza perderne una parte. Oggi riguarda il DATATABLE.
+    pub(crate) fn verifica_scrivibile(&self, version: AcadVersion) -> DxfResult<()> {
+        match self.specific {
+            ObjectType::DataTable(ref data) if self.specific.is_supported_on_version(version) => {
+                data.verifica_scrivibile()
+            }
+            _ => Ok(()),
+        }
+    }
     pub(crate) fn add_code_pairs(&self, pairs: &mut Vec<CodePair>, version: AcadVersion) {
         if self.specific.is_supported_on_version(version) {
             pairs.push(CodePair::new_str(0, self.specific.to_type_string()));
@@ -1522,53 +1646,58 @@ impl Object {
     fn add_custom_code_pairs(&self, pairs: &mut Vec<CodePair>, version: AcadVersion) -> bool {
         match self.specific {
             ObjectType::DataTable(ref data) => {
+                // Dimensioni, nomi e celle li ha gia' verificati
+                // `verifica_scrivibile`, chiamata da `Drawing::code_pairs` prima
+                // di scrivere: qui ogni colonna ha un nome e un valore per ogni
+                // riga, tutti dello stesso tipo. Nessun accesso indicizza, e
+                // una tabella non verificata non puo' andare in panico.
                 pairs.push(CodePair::new_str(100, "AcDbDataTable"));
                 pairs.push(CodePair::new_i16(70, data.field));
-                pairs.push(CodePair::new_i32(90, data.column_count as i32));
-                pairs.push(CodePair::new_i32(91, data.row_count as i32));
+                pairs.push(CodePair::new_i32(
+                    90,
+                    i32::try_from(data.column_count).unwrap_or(i32::MAX),
+                ));
+                pairs.push(CodePair::new_i32(
+                    91,
+                    i32::try_from(data.row_count).unwrap_or(i32::MAX),
+                ));
                 pairs.push(CodePair::new_string(1, &data.name));
-                for col in 0..data.column_count {
-                    let column_code = match data.values[0][col] {
-                        Some(DataTableValue::Boolean(_)) => Some(71),
-                        Some(DataTableValue::Integer(_)) => Some(93),
-                        Some(DataTableValue::Double(_)) => Some(40),
-                        Some(DataTableValue::Str(_)) => Some(3),
-                        Some(DataTableValue::Point2D(_)) => Some(10),
-                        Some(DataTableValue::Point3D(_)) => Some(11),
-                        Some(DataTableValue::Handle(_)) => Some(331),
-                        None => None,
+                for (col, nome) in data.column_names.iter().enumerate() {
+                    let valori = data
+                        .values
+                        .iter()
+                        .filter_map(|riga| riga.get(col).and_then(Option::as_ref));
+                    let Some(codice) = valori.clone().next().map(codice_del_valore) else {
+                        continue;
                     };
-                    if let Some(column_code) = column_code {
-                        pairs.push(CodePair::new_i32(92, column_code));
-                        pairs.push(CodePair::new_string(2, &data.column_names[col]));
-                        for row in 0..data.row_count {
-                            match data.values[row][col] {
-                                Some(DataTableValue::Boolean(val)) => {
-                                    pairs.push(CodePair::new_i16(71, as_i16(val)));
-                                }
-                                Some(DataTableValue::Integer(val)) => {
-                                    pairs.push(CodePair::new_i32(93, val));
-                                }
-                                Some(DataTableValue::Double(val)) => {
-                                    pairs.push(CodePair::new_f64(40, val));
-                                }
-                                Some(DataTableValue::Str(ref val)) => {
-                                    pairs.push(CodePair::new_string(3, val));
-                                }
-                                Some(DataTableValue::Point2D(ref val)) => {
-                                    pairs.push(CodePair::new_f64(10, val.x));
-                                    pairs.push(CodePair::new_f64(20, val.y));
-                                    pairs.push(CodePair::new_f64(30, val.z));
-                                }
-                                Some(DataTableValue::Point3D(ref val)) => {
-                                    pairs.push(CodePair::new_f64(11, val.x));
-                                    pairs.push(CodePair::new_f64(21, val.y));
-                                    pairs.push(CodePair::new_f64(31, val.z));
-                                }
-                                Some(DataTableValue::Handle(val)) => {
-                                    pairs.push(CodePair::new_string(331, &val.as_string()));
-                                }
-                                None => (),
+                    pairs.push(CodePair::new_i32(92, codice));
+                    pairs.push(CodePair::new_string(2, nome));
+                    for valore in valori {
+                        match valore {
+                            DataTableValue::Boolean(val) => {
+                                pairs.push(CodePair::new_i16(71, as_i16(*val)));
+                            }
+                            DataTableValue::Integer(val) => {
+                                pairs.push(CodePair::new_i32(93, *val));
+                            }
+                            DataTableValue::Double(val) => {
+                                pairs.push(CodePair::new_f64(40, *val));
+                            }
+                            DataTableValue::Str(val) => {
+                                pairs.push(CodePair::new_string(3, val));
+                            }
+                            DataTableValue::Point2D(val) => {
+                                pairs.push(CodePair::new_f64(10, val.x));
+                                pairs.push(CodePair::new_f64(20, val.y));
+                                pairs.push(CodePair::new_f64(30, val.z));
+                            }
+                            DataTableValue::Point3D(val) => {
+                                pairs.push(CodePair::new_f64(11, val.x));
+                                pairs.push(CodePair::new_f64(21, val.y));
+                                pairs.push(CodePair::new_f64(31, val.z));
+                            }
+                            DataTableValue::Handle(val) => {
+                                pairs.push(CodePair::new_string(331, &val.as_string()));
                             }
                         }
                     }
