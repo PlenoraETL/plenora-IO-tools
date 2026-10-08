@@ -2045,6 +2045,11 @@ fn tabella_completa() -> dxf::objects::DataTable {
 /// Una tabella completa -- un nome per colonna, un valore per ogni riga di
 /// ogni colonna, un tipo per colonna -- si scrive come dice la specifica e si
 /// rilegge uguale.
+///
+/// Uguale a meno della precisione dei reali: il writer ASCII del fork scrive un
+/// `f64` con dodici decimali (`format_f64`), e un `Double` piu' piccolo di
+/// 1e-12 si rilegge `0.0`. Questa tabella non ha reali; la garanzia del
+/// round-trip e' dichiarata cosi' nel registro del fork.
 #[test]
 fn un_datatable_completo_torna_uguale() {
     let tabella = tabella_completa();
@@ -2052,12 +2057,27 @@ fn un_datatable_completo_torna_uguale() {
     assert_eq!(riletta, [tabella]);
 }
 
+/// Scrive la tabella in un buffer e restituisce l'esito e i byte scritti.
+fn scrivi(tabella: dxf::objects::DataTable) -> (dxf::DxfResult<()>, Vec<u8>) {
+    let mut drawing = Drawing::new();
+    drawing.header.version = AcadVersion::R2007;
+    drawing.add_object(Object::new(ObjectType::DataTable(tabella)));
+    let mut byte = Vec::new();
+    let esito = drawing.save(&mut byte);
+    (esito, byte)
+}
+
 /// La specifica Autodesk scrive «one value is written for every row in each
 /// column», dopo una `92` con il tipo della colonna: non rappresenta una cella
 /// vuota, ne' il tipo di una colonna senza valori. Il fork non inventa una
 /// rappresentazione che rileggerebbe solo lui: tutto cio' che la specifica
 /// non rappresenta si rifiuta in `Drawing::save`, con `WrongItemType`, prima
-/// di scrivere e senza panico.
+/// di scrivere -- il buffer resta vuoto -- e senza panico.
+///
+/// Ogni caso e' costruito perche' scatti **una** guardia di
+/// `DataTable::verifica_scrivibile`, con il resto della tabella coerente: e'
+/// cio' che rende la prova discriminante, verificato togliendo una guardia
+/// alla volta. Le eccezioni sono dette caso per caso.
 ///
 /// Upstream la tabella con colonne e zero righe andava in panico
 /// (`values[0]`), la colonna con la prima cella vuota non si scriveva e le
@@ -2065,15 +2085,26 @@ fn un_datatable_completo_torna_uguale() {
 /// `column_names`.
 #[test]
 fn un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura() {
+    use dxf::objects::DataTable;
     use dxf::DataTableValue;
 
+    const TETTO: usize = 1 << 20;
     let base = tabella_completa();
-    let con = |modifica: &dyn Fn(&mut dxf::objects::DataTable)| {
+    let con = |modifica: &dyn Fn(&mut DataTable)| {
         let mut tabella = base.clone();
         modifica(&mut tabella);
         tabella
     };
-    let casi = [
+    // Una tabella coerente in tutto tranne le dimensioni dichiarate.
+    let piena = |righe: usize, colonne: usize| DataTable {
+        column_count: colonne,
+        row_count: righe,
+        column_names: (0..colonne).map(|c| format!("c{c}")).collect(),
+        values: vec![vec![Some(DataTableValue::Integer(1)); colonne]; righe],
+        ..Default::default()
+    };
+    let casi: Vec<(&str, DataTable)> = vec![
+        // Colonne senza righe: la colonna non ha un tipo da scrivere.
         (
             "colonne con zero righe",
             con(&|t| {
@@ -2081,12 +2112,14 @@ fn un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura() {
                 t.values.clear();
             }),
         ),
+        // Le celle vuote, ovunque stiano.
         ("cella vuota in mezzo", con(&|t| t.values[1][0] = None)),
         ("cella vuota in coda", con(&|t| t.values[2][1] = None)),
         (
             "colonna tutta vuota",
             con(&|t| t.values.iter_mut().for_each(|riga| riga[1] = None)),
         ),
+        // I nomi, uno per colonna.
         (
             "meno nomi che colonne",
             con(&|t| t.column_names.truncate(1)),
@@ -2095,31 +2128,70 @@ fn un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura() {
             "piu' nomi che colonne",
             con(&|t| t.column_names.push(String::from("in piu'"))),
         ),
+        // Un tipo per colonna.
         (
             "tipi diversi nella stessa colonna",
             con(&|t| t.values[1][0] = Some(DataTableValue::Double(1.5))),
         ),
+        // Le righe di `values` contro `row_count`: il controllo delle celle
+        // scorre `values`, quindi non le vede.
         ("righe dichiarate senza valori", con(&|t| t.values.clear())),
+        (
+            "piu' righe di quelle dichiarate",
+            con(&|t| {
+                t.values.push(vec![
+                    Some(DataTableValue::Integer(9)),
+                    Some(DataTableValue::Str(String::from("x"))),
+                ]);
+            }),
+        ),
+        // La lunghezza di una riga contro `column_count`. Piu' lunga: il
+        // controllo delle celle guarda solo le colonne dichiarate, quindi solo
+        // questa guardia la vede. Piu' corta: la vedono anche le celle (manca
+        // una cella), e il caso resta qui per il messaggio, non per la
+        // discriminazione.
+        (
+            "riga piu' lunga delle colonne",
+            con(&|t| t.values[0].push(Some(DataTableValue::Integer(9)))),
+        ),
         (
             "riga piu' corta delle colonne",
             con(&|t| t.values[0].truncate(1)),
         ),
+        // Il tetto della lettura: chi non si rileggerebbe non si scrive.
+        // Righe oltre il tetto con zero colonne: il prodotto e' zero, e solo
+        // il tetto sulle righe la ferma.
         (
-            "colonne oltre il tetto",
-            con(&|t| {
-                t.column_count = (1 << 20) + 1;
-                t.row_count = 0;
-                t.values.clear();
-            }),
+            "righe oltre il tetto",
+            DataTable {
+                column_count: 0,
+                row_count: TETTO + 1,
+                values: vec![vec![]; TETTO + 1],
+                ..Default::default()
+            },
         ),
+        // Righe e colonne ciascuna ammessa, prodotto oltre: solo il tetto sul
+        // prodotto la ferma.
+        ("prodotto oltre il tetto", piena(1025, 1024)),
+        // Colonne oltre il tetto con una riga: la ferma anche il tetto sul
+        // prodotto, perche' con almeno una riga il prodotto supera il tetto
+        // quando lo superano le colonne, e con zero righe la ferma la regola
+        // delle colonne senza righe. Il tetto sulle sole colonne non e'
+        // distinguibile in scrittura; in lettura lo e', e lo prova
+        // `ciascuna_dimensione_del_datatable_ha_il_suo_tetto`. Lo stesso vale
+        // per il controllo su `i32`: il tetto, 2^20, sta sotto `i32::MAX`.
+        ("colonne oltre il tetto", piena(1, TETTO + 1)),
     ];
     for (nome, tabella) in casi {
+        let (esito, byte) = scrivi(tabella);
         assert!(
-            matches!(
-                scrivi_e_rileggi(&tabella),
-                Err(dxf::DxfError::WrongItemType)
-            ),
-            "{nome}"
+            matches!(esito, Err(dxf::DxfError::WrongItemType)),
+            "{nome}: {esito:?}"
+        );
+        assert!(
+            byte.is_empty(),
+            "{nome}: nessun byte prima del rifiuto, trovati {}",
+            byte.len()
         );
     }
 }
