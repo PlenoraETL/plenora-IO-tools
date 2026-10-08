@@ -23,7 +23,7 @@
       "tipo": "esaurimento-memoria",
       "bersaglio": "geoparquet_reader",
       "modulo": "parquet/src/parquet_thrift.rs",
-      "funzione": "parquet::parquet_thrift::read_thrift_vec",
+      "funzione": "read_thrift_vec",
       "forma_del_messaggio": "out-of-memory (malloc(N))",
       "riga_osservata": "724",
       "versioni_osservate": [

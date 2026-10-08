@@ -552,19 +552,28 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
 
 
 #: L'uscita di libFuzzer sull'input di 3966 byte del 2026-10-08, con lo stack
-#: simbolizzato come lo stampa AddressSanitizer quando trova `llvm-symbolizer`.
-#: Gli indirizzi e i percorsi della macchina sono quelli di una corsa; la firma
-#: non li usa.
-ESAURIMENTO = """==30580== ERROR: libFuzzer: out-of-memory (malloc(2315255472))
+#: simbolizzato nella forma che la CI produce: prima i frame di chi riporta
+#: l'errore (il sanitizer e libFuzzer, che stampa da dentro il proprio gancio su
+#: `malloc`), poi l'allocatore e la libreria standard, poi le funzioni inline
+#: col solo nome (`read_thrift_vec<...>`) e quelle non inline col percorso
+#: intero. La forma dei frame #31-#36 e' copiata dalla corsa 37732622461; gli
+#: indirizzi non entrano nella firma.
+ESAURIMENTO = """==2731== ERROR: libFuzzer: out-of-memory (malloc(2315255472))
    To change the out-of-memory limit use -rss_limit_mb=<N>
 
-    #0 0x5589994741d1 in malloc /rustc/llvm/src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
-    #1 0x55899b670a4d in alloc::alloc::alloc::h1111111111111111 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/alloc.rs:95:9
-    #2 0x55899b623067 in alloc::raw_vec::RawVecInner$LT$A$GT$::try_allocate_in::h2222222222222222 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/raw_vec/mod.rs:464:41
-    #3 0x55899b6230e5 in alloc::vec::Vec$LT$T$GT$::with_capacity::h3333333333333333 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/vec/mod.rs:494:9
-    #4 0x55899947a6e2 in parquet::parquet_thrift::read_thrift_vec::h4444444444444444 /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19
-    #5 0x5589993dfb1c in parquet::file::metadata::thrift::parquet_metadata_from_bytes::h5555555555555555 /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/thrift/mod.rs:831:27
-    #6 0x5589993df4e3 in driver_geoparquet::valida_schema_arrow_incorporato::h6666666666666666 /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:748:9
+    #0 0x55af778e81d1 in __sanitizer_print_stack_trace /rustc/llvm/src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x55af79be4a4d in fuzzer::PrintStackTrace() /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerUtil.cpp:210:5
+    #2 0x55af79b97067 in fuzzer::Fuzzer::HandleMalloc(unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:131:3
+    #3 0x55af79b970e5 in fuzzer::MallocHook(void const volatile*, unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:100:12
+    #4 0x55af778ee6e2 in __sanitizer::RunMallocHooks(void*, unsigned long) /rustc/llvm/src/llvm-project/compiler-rt/lib/sanitizer_common/sanitizer_common.cpp:328:13
+    #5 0x55af77853b1c in __asan::Allocator::Allocate(unsigned long, unsigned long, __sanitizer::BufferedStackTrace*, __asan::AllocType, bool) /rustc/llvm/src/llvm-project/compiler-rt/lib/asan/asan_allocator.cpp:651:5
+    #6 0x55af778e01d1 in malloc /rustc/llvm/src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #7 0x55af78a6fa4d in alloc::alloc::alloc /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/alloc.rs:95:9
+    #8 0x55af78a6fa4d in alloc::raw_vec::RawVecInner::try_allocate_in /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/raw_vec/mod.rs:464:41
+    #9 0x55af78a6fa4d in with_capacity_in<parquet::file::metadata::KeyValue, alloc::alloc::Global> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/vec/mod.rs:908:20
+    #10 0x55af78a6fa4d in read_thrift_vec<parquet::file::metadata::KeyValue, parquet::parquet_thrift::ThriftSliceInputProtocol> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19
+    #11 0x55af78a6fa4d in parquet::file::metadata::thrift::parquet_metadata_from_bytes /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/thrift/mod.rs:831:27
+    #36 0x55af77b88bca in driver_geoparquet::valida_schema_arrow_incorporato /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:744:19
 
 artifact_prefix='fuzz/artifacts/geoparquet_reader/'; Test unit written to fuzz/artifacts/geoparquet_reader/oom-0fe0b59475f1ce80fc5a2646bbea49f31939b073
 SUMMARY: libFuzzer: out-of-memory
@@ -582,25 +591,50 @@ class SondeDellEsaurimento(unittest.TestCase):
         self.assertEqual(esito["stato"], "noto")
         self.assertEqual(esito["id"], "parquet-footer-lista-thrift-oom")
         self.assertEqual(esito["osservato"]["tipo"], "esaurimento-memoria")
-        self.assertEqual(
-            esito["osservato"]["funzione"], "parquet::parquet_thrift::read_thrift_vec"
-        )
+        self.assertEqual(esito["osservato"]["funzione"], "read_thrift_vec")
         self.assertEqual(esito["osservato"]["modulo"], "parquet/src/parquet_thrift.rs")
 
     def test_un_altra_dimensione_e_la_demangling_v0_sono_la_stessa_famiglia(self) -> None:
-        altro = ESAURIMENTO.replace("malloc(2315255472)", "malloc(48000000000)").replace(
-            "read_thrift_vec::h4444444444444444",
-            "read_thrift_vec::<parquet::file::metadata::KeyValue, "
+        # Un'altra dimensione; e lo stesso frame non inline, col percorso
+        # intero, nelle due demangling.
+        for nome in (
+            "parquet::parquet_thrift::read_thrift_vec::h4444444444444444",
+            "parquet::parquet_thrift::read_thrift_vec::<parquet::file::metadata::KeyValue, "
             "parquet::parquet_thrift::ThriftSliceInputProtocol>",
-        )
-        self.assertEqual(self._stato(altro), "noto")
+        ):
+            altro = ESAURIMENTO.replace(
+                "malloc(2315255472)", "malloc(48000000000)"
+            ).replace(
+                "read_thrift_vec<parquet::file::metadata::KeyValue, "
+                "parquet::parquet_thrift::ThriftSliceInputProtocol>",
+                nome,
+            )
+            self.assertEqual(self._stato(altro), "noto", nome)
 
     def test_un_altra_funzione_nello_stesso_modulo_e_nuova(self) -> None:
         altro = ESAURIMENTO.replace(
-            "parquet::parquet_thrift::read_thrift_vec::h4444444444444444",
-            "parquet::parquet_thrift::ThriftSliceInputProtocol::read_bytes::h7",
+            "read_thrift_vec<parquet::file::metadata::KeyValue, "
+            "parquet::parquet_thrift::ThriftSliceInputProtocol>",
+            "read_bytes_owned",
         )
         self.assertEqual(self._stato(altro), "nuovo")
+
+    def test_la_stessa_funzione_in_un_altro_modulo_e_nuova(self) -> None:
+        altro = ESAURIMENTO.replace(
+            "parquet-59.3.0/src/parquet_thrift.rs:724:19",
+            "parquet-59.3.0/src/file/page_index/index_reader.rs:88:5",
+        )
+        self.assertEqual(self._stato(altro), "nuovo")
+
+    def test_un_frame_senza_file_ferma_la_firma(self) -> None:
+        """Un frame del chiamante senza file non si salta: firmare con il
+        chiamante dopo di lui vorrebbe dire firmare un altro punto."""
+        altro = ESAURIMENTO.replace(
+            "    #10 0x55af78a6fa4d in read_thrift_vec<",
+            "    #10 0x55af78a6fa4d in qualcosa_senza_file (/bin/x+0x1)\n"
+            "    #10 0x55af78a6fa4d in read_thrift_vec<",
+        )
+        self.assertEqual(self._stato(altro), "illeggibile")
 
     def test_la_variante_dei_row_group_resta_nuova(self) -> None:
         """La stessa prenotazione dei row group non passa da `read_thrift_vec`:
@@ -613,10 +647,7 @@ class SondeDellEsaurimento(unittest.TestCase):
         )
         esito = gate.classifica("geoparquet_reader", senza_vec, registro())
         self.assertEqual(esito["stato"], "nuovo")
-        self.assertEqual(
-            esito["osservato"]["funzione"],
-            "parquet::file::metadata::thrift::parquet_metadata_from_bytes",
-        )
+        self.assertEqual(esito["osservato"]["funzione"], "parquet_metadata_from_bytes")
 
     def test_lo_stesso_esaurimento_su_un_altro_bersaglio_e_nuovo(self) -> None:
         self.assertEqual(self._stato(ESAURIMENTO, "ipc_reader"), "nuovo")
@@ -643,7 +674,7 @@ class SondeDellEsaurimento(unittest.TestCase):
         nomi. Senza nomi non c'e' firma, e un crash senza firma non e' noto."""
         crudo = "\n".join(
             riga
-            if " in " not in riga
+            if " in " not in riga or "#" not in riga
             else riga.split(" in ", 1)[0]
             + "  (/home/runner/fuzz/target/release/geoparquet_reader+0x17ba1d1)"
             for riga in ESAURIMENTO.splitlines()

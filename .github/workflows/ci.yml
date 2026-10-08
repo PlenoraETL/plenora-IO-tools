@@ -421,7 +421,8 @@ jobs:
         run: |
           set +e
           ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"             cargo fuzz run geoparquet_reader             upstream/parquet-footer-thrift-list/caso.parquet --             -rss_limit_mb=2048 -runs=1             -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
-          tail -n 40 /tmp/riproduzione.txt
+          # L'errore e i primi frame, cioe' cio' da cui si legge la firma.
+          grep -E 'ERROR: libFuzzer|^ *#[0-9]+ ' /tmp/riproduzione.txt | head -n 30
           python3 scripts/classifica_finding_fuzz.py geoparquet_reader             --uscita /tmp/riproduzione.txt
           codice=$?
           if [ "${codice}" -ne 3 ]; then

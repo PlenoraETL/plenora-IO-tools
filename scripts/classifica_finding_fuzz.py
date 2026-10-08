@@ -69,10 +69,16 @@ La firma e' allora:
 
 * il **tipo** `esaurimento-memoria`, distinto da `panico`: un panico e un
   esaurimento nello stesso modulo sono due finding;
-* il **primo frame che non e' l'allocatore** -- `malloc`, i frame della
-  libreria standard (percorsi sotto `/rustc/`), il runtime del sanitizer --
-  ridotto a modulo, come per il panico, e a **funzione**, col suffisso
-  `::h<hash>` e i parametri generici tolti;
+* il **primo frame che non e' l'allocatore ne' chi riporta l'errore** --
+  `malloc`, i frame della libreria standard (percorsi sotto `/rustc/`), il
+  runtime del sanitizer (`compiler-rt`, `__sanitizer`, `__asan`) e libFuzzer
+  stesso (`libfuzzer-sys/libfuzzer/`, `fuzzer::`), che stampa lo stack da
+  dentro il proprio gancio su `malloc` -- ridotto a modulo, come per il
+  panico, e a **funzione**: il nome semplice, senza percorso, hash ne'
+  parametri generici. Il nome semplice e non quello qualificato perche' un
+  frame inline arriva dal simbolizzatore col solo nome (`read_thrift_vec<...>`)
+  e uno non inline col percorso intero; il modulo, che viene dal file, tiene
+  la firma stretta lo stesso;
 * la forma del messaggio, `out-of-memory (malloc(N))`.
 
 La corrispondenza resta congiunta: tipo, modulo, funzione e forma, per il
@@ -134,7 +140,7 @@ FRAME = re.compile(
     r"(?P<percorso>/\S+?):(?P<riga>\d+)(?::\d+)?\s*$"
 )
 
-#: Le funzioni che sono l'allocatore e non chi alloca.
+#: Le funzioni che sono l'allocatore, o chi riporta l'errore, e non chi alloca.
 ALLOCATORE = (
     "malloc",
     "calloc",
@@ -145,7 +151,15 @@ ALLOCATORE = (
     "__rust_",
     "__rdl_",
     "__rg_",
+    "__sanitizer",
+    "__asan",
+    "__lsan",
+    "fuzzer::",
 )
+
+#: Un frame qualsiasi, simbolizzato o no: serve a riconoscere il frame che
+#: non si legge e fermarsi li', invece di saltarlo e firmare con il chiamante.
+FRAME_QUALSIASI = re.compile(r"^\s*#\d+\s+0x[0-9a-fA-F]+(?:\s+in\s+(?P<funzione>\S.*))?")
 
 #: I segni di un crash che libFuzzer o il sanitizer hanno riportato. Se il
 #: testo ne porta uno e nessuna firma si legge, il crash e' **illeggibile**.
@@ -200,12 +214,14 @@ def forma_del_messaggio(messaggio: str) -> str:
 
 
 def funzione_normalizzata(nome: str) -> str:
-    """Il nome di una funzione Rust senza hash e senza parametri generici.
+    """Il nome semplice di una funzione Rust: senza percorso, hash e
+    parametri generici.
 
-    `parquet::parquet_thrift::read_thrift_vec::h0123456789abcdef` e
-    `parquet::parquet_thrift::read_thrift_vec::<KeyValue, Slice>` diventano
-    entrambi `parquet::parquet_thrift::read_thrift_vec`: il primo e' la
-    demangling legacy, il secondo la v0, e i parametri dipendono dal tipo
+    `parquet::parquet_thrift::read_thrift_vec::h0123456789abcdef`,
+    `parquet::parquet_thrift::read_thrift_vec::<KeyValue, Slice>` e il frame
+    inline `read_thrift_vec<KeyValue, Slice>` diventano tutti
+    `read_thrift_vec`: la demangling legacy, la v0 e il nome che il
+    simbolizzatore da' a una funzione inline. I parametri dipendono dal tipo
     letto, non dal punto in cui si alloca.
     """
     senza_hash = re.sub(r"::h[0-9a-f]{16}$", "", nome.strip())
@@ -218,13 +234,18 @@ def funzione_normalizzata(nome: str) -> str:
             profondita = max(0, profondita - 1)
         elif profondita == 0:
             risultato.append(carattere)
-    return re.sub(r"::+$", "", re.sub(r"::::+", "::", "".join(risultato)))
+    senza_generici = re.sub(r"::+$", "", re.sub(r"::::+", "::", "".join(risultato)))
+    return senza_generici.rsplit("::", 1)[-1].strip()
 
 
 def _e_allocatore(funzione: str, percorso: str) -> bool:
     """Un frame dell'allocatore, della libreria standard o del sanitizer."""
     normalizzato = percorso.replace("\\", "/")
-    if "/rustc/" in normalizzato or "compiler-rt" in normalizzato:
+    if (
+        "/rustc/" in normalizzato
+        or "compiler-rt" in normalizzato
+        or modulo_normalizzato(normalizzato).startswith("libfuzzer-sys/libfuzzer/")
+    ):
         return True
     return funzione.startswith(ALLOCATORE)
 
@@ -236,9 +257,19 @@ def _esaurimento_osservato(testo: str) -> dict[str, str] | None:
     if trovato is None:
         return None
     for riga in testo[trovato.end() :].splitlines():
+        qualsiasi = FRAME_QUALSIASI.match(riga)
+        if qualsiasi is None:
+            continue
         frame = FRAME.match(riga)
         if frame is None:
-            continue
+            # Un frame senza nome o senza file. Se e' dell'allocatore si
+            # salta; altrimenti la firma si ferma qui: saltarlo vorrebbe dire
+            # firmare con il chiamante, cioe' con un punto diverso da quello
+            # in cui si e' allocato.
+            nome = qualsiasi.group("funzione") or ""
+            if nome.startswith(ALLOCATORE):
+                continue
+            return None
         funzione = frame.group("funzione")
         percorso = frame.group("percorso")
         if _e_allocatore(funzione, percorso):
