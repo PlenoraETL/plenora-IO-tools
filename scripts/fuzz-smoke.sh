@@ -69,6 +69,27 @@ fi
 echo "toolchain fuzz: ${toolchain}"
 
 duration="${seconds_flag:-${PLENORA_FUZZ_SECONDS:-60}}"
+
+# Lo stack di un esaurimento di memoria si legge solo simbolizzato: senza
+# `llvm-symbolizer` AddressSanitizer stampa indirizzi, e il classificatore non
+# ha una firma da confrontare -- ogni esaurimento diventa illeggibile, cioe'
+# rosso, anche quello gia' registrato. Si cerca quindi un simbolizzatore prima
+# di correre, e si dice quale. Se non c'e' lo si dice, e il rosso resta: e' la
+# direzione sicura.
+if [ -z "${ASAN_SYMBOLIZER_PATH:-}" ]; then
+    simbolizzatore="$(command -v llvm-symbolizer || true)"
+    if [ -z "${simbolizzatore}" ]; then
+        simbolizzatore="$(ls /usr/bin/llvm-symbolizer-* 2>/dev/null | sort -V | tail -n 1 || true)"
+    fi
+    if [ -n "${simbolizzatore}" ]; then
+        export ASAN_SYMBOLIZER_PATH="${simbolizzatore}"
+    fi
+fi
+if [ -n "${ASAN_SYMBOLIZER_PATH:-}" ]; then
+    echo "simbolizzatore: ${ASAN_SYMBOLIZER_PATH}"
+else
+    echo "ATTENZIONE: nessun llvm-symbolizer: un esaurimento di memoria sara' illeggibile, cioe' rosso" >&2
+fi
 rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
 max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
 
@@ -191,6 +212,9 @@ done
 # corsa fallita senza panico riconoscibile e' un guasto, non un finding noto.
 failed=()
 noti=()
+# `bersaglio=id` per ogni bersaglio fermato a un finding noto: l'arresto si
+# legge con la voce che l'ha riconosciuto, nel riepilogo e nel verbale.
+voci=()
 skipped=0
 uscite=$(mktemp -d)
 trap 'rm -rf "${uscite}"' EXIT
@@ -217,11 +241,16 @@ for target in "${targets[@]}"; do
     if [ "${PIPESTATUS[0]}" -eq 0 ]; then
         continue
     fi
+    voce_nota="${uscite}/${target}.voce"
     python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
         --uscita "${uscita}" \
-        --conserva "assurance/evidence/finding-fuzz"
+        --conserva "assurance/evidence/finding-fuzz" \
+        --voce-nota "${voce_nota}"
     case "$?" in
-        3) noti+=("${target}") ;;
+        3)
+            noti+=("${target}")
+            voci+=("${target}=$(cat "${voce_nota}")")
+            ;;
         *) failed+=("${target}") ;;
     esac
 done
@@ -262,6 +291,7 @@ python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
     --scrivi-verbale "${duration}" \
     --finiti ${finiti[@]+"${finiti[@]}"} \
     --fermati ${noti[@]+"${noti[@]}"} \
+    --voci ${voci[@]+"${voci[@]}"} \
     --falliti ${failed[@]+"${failed[@]}"} \
     --dichiarati ${dichiarati[@]+"${dichiarati[@]}"}
 
@@ -275,8 +305,7 @@ if [ "${#noti[@]}" -ne 0 ]; then
     # La riga non puo' dire «completato»: i bersagli fermati a un finding noto
     # non hanno esplorato il tempo che restava, e una riga che li contasse fra
     # i completi direbbe di una campagna piu' di quanto sia successo.
-    finiti=$(( eseguiti - ${#noti[@]} ))
-    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
+    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (bersaglio=voce: ${voci[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
     exit 0
 fi
 

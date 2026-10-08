@@ -184,7 +184,7 @@ class SondaDelCollegamento(unittest.TestCase):
         """
         smoke = (gate.ROOT / "scripts" / "fuzz-smoke.sh").read_text(encoding="utf-8")
         self.assertIn("classifica_finding_fuzz.py", smoke)
-        self.assertIn("3) noti+=", smoke)
+        self.assertIn('3)\n            noti+=("${target}")', smoke)
 
 
 if __name__ == "__main__":
@@ -549,3 +549,200 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
         self.assertIn(f"export {gate.VARIABILE_VERBALE}=", script)
         self.assertIn("--verifica-campagna", script)
         self.assertIn("--revisione-della-corsa", script)
+
+
+#: L'uscita di libFuzzer sull'input di 3966 byte del 2026-10-08, con lo stack
+#: simbolizzato come lo stampa AddressSanitizer quando trova `llvm-symbolizer`.
+#: Gli indirizzi e i percorsi della macchina sono quelli di una corsa; la firma
+#: non li usa.
+ESAURIMENTO = """==30580== ERROR: libFuzzer: out-of-memory (malloc(2315255472))
+   To change the out-of-memory limit use -rss_limit_mb=<N>
+
+    #0 0x5589994741d1 in malloc /rustc/llvm/src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55899b670a4d in alloc::alloc::alloc::h1111111111111111 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/alloc.rs:95:9
+    #2 0x55899b623067 in alloc::raw_vec::RawVecInner$LT$A$GT$::try_allocate_in::h2222222222222222 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/raw_vec/mod.rs:464:41
+    #3 0x55899b6230e5 in alloc::vec::Vec$LT$T$GT$::with_capacity::h3333333333333333 /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/vec/mod.rs:494:9
+    #4 0x55899947a6e2 in parquet::parquet_thrift::read_thrift_vec::h4444444444444444 /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19
+    #5 0x5589993dfb1c in parquet::file::metadata::thrift::parquet_metadata_from_bytes::h5555555555555555 /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/thrift/mod.rs:831:27
+    #6 0x5589993df4e3 in driver_geoparquet::valida_schema_arrow_incorporato::h6666666666666666 /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:748:9
+
+artifact_prefix='fuzz/artifacts/geoparquet_reader/'; Test unit written to fuzz/artifacts/geoparquet_reader/oom-0fe0b59475f1ce80fc5a2646bbea49f31939b073
+SUMMARY: libFuzzer: out-of-memory
+"""
+
+
+class SondeDellEsaurimento(unittest.TestCase):
+    """La seconda firma: stretta come la prima, e rossa dove non si legge."""
+
+    def _stato(self, testo: str, bersaglio: str = "geoparquet_reader") -> str:
+        return gate.classifica(bersaglio, testo, registro())["stato"]
+
+    def test_l_esaurimento_registrato_e_riconosciuto(self) -> None:
+        esito = gate.classifica("geoparquet_reader", ESAURIMENTO, registro())
+        self.assertEqual(esito["stato"], "noto")
+        self.assertEqual(esito["id"], "parquet-footer-lista-thrift-oom")
+        self.assertEqual(esito["osservato"]["tipo"], "esaurimento-memoria")
+        self.assertEqual(
+            esito["osservato"]["funzione"], "parquet::parquet_thrift::read_thrift_vec"
+        )
+        self.assertEqual(esito["osservato"]["modulo"], "parquet/src/parquet_thrift.rs")
+
+    def test_un_altra_dimensione_e_la_demangling_v0_sono_la_stessa_famiglia(self) -> None:
+        altro = ESAURIMENTO.replace("malloc(2315255472)", "malloc(48000000000)").replace(
+            "read_thrift_vec::h4444444444444444",
+            "read_thrift_vec::<parquet::file::metadata::KeyValue, "
+            "parquet::parquet_thrift::ThriftSliceInputProtocol>",
+        )
+        self.assertEqual(self._stato(altro), "noto")
+
+    def test_un_altra_funzione_nello_stesso_modulo_e_nuova(self) -> None:
+        altro = ESAURIMENTO.replace(
+            "parquet::parquet_thrift::read_thrift_vec::h4444444444444444",
+            "parquet::parquet_thrift::ThriftSliceInputProtocol::read_bytes::h7",
+        )
+        self.assertEqual(self._stato(altro), "nuovo")
+
+    def test_la_variante_dei_row_group_resta_nuova(self) -> None:
+        """La stessa prenotazione dei row group non passa da `read_thrift_vec`:
+        il primo frame dopo l'allocatore e' `parquet_metadata_from_bytes`, che
+        nessuna voce registra. Non e' stata osservata, e resta rossa."""
+        senza_vec = "\n".join(
+            riga
+            for riga in ESAURIMENTO.splitlines()
+            if "read_thrift_vec" not in riga
+        )
+        esito = gate.classifica("geoparquet_reader", senza_vec, registro())
+        self.assertEqual(esito["stato"], "nuovo")
+        self.assertEqual(
+            esito["osservato"]["funzione"],
+            "parquet::file::metadata::thrift::parquet_metadata_from_bytes",
+        )
+
+    def test_lo_stesso_esaurimento_su_un_altro_bersaglio_e_nuovo(self) -> None:
+        self.assertEqual(self._stato(ESAURIMENTO, "ipc_reader"), "nuovo")
+
+    def test_un_panico_nello_stesso_punto_non_e_l_esaurimento(self) -> None:
+        panico = (
+            "thread '<unnamed>' panicked at /home/runner/.cargo/registry/src/"
+            "index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19:\n"
+            "out-of-memory (malloc(2315255472))\n"
+        )
+        self.assertEqual(self._stato(panico), "nuovo")
+
+    def test_l_esaurimento_sull_rss_e_illeggibile(self) -> None:
+        rss = (
+            "==1== ERROR: libFuzzer: out-of-memory (used: 2100Mb; exceeds: 2048Mb)\n"
+            "   To change the out-of-memory limit use -rss_limit_mb=<N>\n"
+            "Live Heap Allocations: 2147483648 bytes in 3 chunks\n"
+            "SUMMARY: libFuzzer: out-of-memory\n"
+        )
+        self.assertEqual(self._stato(rss), "illeggibile")
+
+    def test_uno_stack_non_simbolizzato_e_illeggibile(self) -> None:
+        """E' l'uscita vera della CI senza `llvm-symbolizer`: indirizzi senza
+        nomi. Senza nomi non c'e' firma, e un crash senza firma non e' noto."""
+        crudo = "\n".join(
+            riga
+            if " in " not in riga
+            else riga.split(" in ", 1)[0]
+            + "  (/home/runner/fuzz/target/release/geoparquet_reader+0x17ba1d1)"
+            for riga in ESAURIMENTO.splitlines()
+        )
+        self.assertEqual(self._stato(crudo), "illeggibile")
+
+    def test_illeggibile_esce_uno(self) -> None:
+        crudo = ESAURIMENTO.split("    #0", 1)[0]
+        with tempfile.TemporaryDirectory() as temporanea:
+            percorso = pathlib.Path(temporanea) / "uscita.txt"
+            percorso.write_text(crudo, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                self.assertEqual(
+                    gate.main(["geoparquet_reader", "--uscita", str(percorso)]), 1
+                )
+
+    def test_il_noto_scrive_l_id_della_voce(self) -> None:
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            uscita = radice / "uscita.txt"
+            uscita.write_text(ESAURIMENTO, encoding="utf-8")
+            voce = radice / "voce.txt"
+            with contextlib.redirect_stdout(io.StringIO()):
+                codice = gate.main(
+                    [
+                        "geoparquet_reader",
+                        "--uscita",
+                        str(uscita),
+                        "--voce-nota",
+                        str(voce),
+                    ]
+                )
+            self.assertEqual(codice, 3)
+            self.assertEqual(
+                voce.read_text(encoding="utf-8").strip(),
+                "parquet-footer-lista-thrift-oom",
+            )
+
+    def test_una_voce_di_esaurimento_senza_funzione_e_rossa(self) -> None:
+        documento = registro()
+        voce = next(
+            v for v in documento["finding"] if v["id"] == "parquet-footer-lista-thrift-oom"
+        )
+        del voce["funzione"]
+        self.assertTrue(gate.registro_ben_formato(documento))
+
+    def test_un_tipo_sconosciuto_e_rosso(self) -> None:
+        documento = registro()
+        documento["finding"][0]["tipo"] = "timeout"
+        self.assertTrue(gate.registro_ben_formato(documento))
+
+
+class SondeDelleVociNelVerbale(unittest.TestCase):
+    """Un arresto «noto» si legge come tale: bersaglio e voce, non un numero."""
+
+    def test_il_verbale_porta_la_voce_di_ogni_fermato(self) -> None:
+        with tempfile.TemporaryDirectory() as temporanea:
+            destinazione = pathlib.Path(temporanea) / "verbale.json"
+            with unittest.mock.patch.dict(
+                "os.environ", {gate.VARIABILE_VERBALE: str(destinazione)}
+            ), contextlib.redirect_stdout(io.StringIO()):
+                codice = gate.main(
+                    [
+                        "--scrivi-verbale",
+                        "60",
+                        "--finiti",
+                        "shp_reader",
+                        "--fermati",
+                        "geoparquet_reader",
+                        "--voci",
+                        "geoparquet_reader=parquet-footer-lista-thrift-oom",
+                        "--dichiarati",
+                        "shp_reader",
+                        "geoparquet_reader",
+                    ]
+                )
+            self.assertEqual(codice, 0)
+            verbale = json.loads(destinazione.read_text(encoding="utf-8"))
+        self.assertEqual(
+            verbale["voci_dei_fermati"],
+            {"geoparquet_reader": "parquet-footer-lista-thrift-oom"},
+        )
+
+    def test_un_fermato_senza_voce_non_si_scrive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporanea:
+            destinazione = pathlib.Path(temporanea) / "verbale.json"
+            with unittest.mock.patch.dict(
+                "os.environ", {gate.VARIABILE_VERBALE: str(destinazione)}
+            ), contextlib.redirect_stderr(io.StringIO()):
+                codice = gate.main(
+                    ["--scrivi-verbale", "60", "--fermati", "geoparquet_reader"]
+                )
+            self.assertEqual(codice, 2)
+            self.assertFalse(destinazione.exists())
+
+    def test_lo_smoke_passa_le_voci_e_le_stampa(self) -> None:
+        smoke = (gate.ROOT / "scripts" / "fuzz-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("--voce-nota", smoke)
+        self.assertIn("--voci", smoke)
+        self.assertIn('${voci[*]}', smoke)

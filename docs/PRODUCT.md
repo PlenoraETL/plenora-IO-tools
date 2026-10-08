@@ -377,6 +377,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 |---|---|
 | DXF | approssima per costruzione: archi ed ellissi tassellati, multipart esplose, testo come punto. La perdita è dichiarata, non silenziosa |
 | KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
+| GeoParquet | un file il cui footer dichiara elenchi Thrift enormi fa prenotare a `parquet` 59.3 fino a circa 2,3 GB prima di leggerli (`read_thrift_vec`, `Vec::with_capacity(list_ident.size)`): bastano 3966 byte, e il processo può terminare per esaurimento di memoria **senza busta**, come nella deviazione già dichiarata. È un difetto a monte, non corretto nella 4.1.1; la correzione è pianificata per la 4.2.0 (parquet/arrow 60 più un controllo nostro sui row group e sullo schema). Con ingressi non fidati vale la stessa indicazione: un limite di memoria del sistema operativo |
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |

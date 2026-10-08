@@ -398,12 +398,36 @@ jobs:
       # profondita' attraverso `fuzz/Cargo.lock`, che fissa `gdal-sys`.
       - name: Install distribution GDAL for the FileGDB target
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
+      # `llvm-symbolizer` serve al classificatore dei finding: lo stack di un
+      # esaurimento di memoria si legge solo simbolizzato, e senza nomi ogni
+      # esaurimento e' illeggibile, cioe' rosso. `fuzz-smoke.sh` lo cerca e dice
+      # quale usa.
+      - name: Install llvm-symbolizer for the crash classifier
+        run: sudo apt-get install --yes llvm
       # Costruisce TUTTI i target strumentati ed esegue quelli senza finding
       # aperti. I target elencati in fuzz/quarantine.txt restano compilati ma
       # non eseguiti: lo script li stampa a ogni run, così il debito resta
       # visibile invece di trasformare il gate in un rosso permanente.
       - name: Build and smoke every fuzz target under AddressSanitizer
         run: bash scripts/fuzz-smoke.sh
+      # La voce `parquet-footer-lista-thrift-oom` del registro dei finding noti
+      # vale finche' la sua riproduzione riproduce **e** la firma la riconosce
+      # sull'uscita vera di libFuzzer, non su un campione scritto a mano. Qui si
+      # esegue l'input una volta, fuori dallo smoke, e si pretende il codice 3
+      # (noto). Se il pin di `parquet` corregge il difetto l'input non crasha
+      # piu', il classificatore esce 0 e il passo diventa rosso: e' il segnale
+      # che la voce va tolta. Se la firma smette di corrispondere, esce 1.
+      - name: The registered fuzz OOM still reproduces and is still recognised
+        run: |
+          set +e
+          ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"             cargo fuzz run geoparquet_reader             upstream/parquet-footer-thrift-list/caso.parquet --             -rss_limit_mb=2048 -runs=1             -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
+          tail -n 40 /tmp/riproduzione.txt
+          python3 scripts/classifica_finding_fuzz.py geoparquet_reader             --uscita /tmp/riproduzione.txt
+          codice=$?
+          if [ "${codice}" -ne 3 ]; then
+            echo "atteso 3 (finding noto), ottenuto ${codice}" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: failure()
         with:

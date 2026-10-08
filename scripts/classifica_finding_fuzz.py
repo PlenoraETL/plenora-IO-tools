@@ -60,6 +60,33 @@ debole:
   tutti fuori. E un crash che non corrisponde a nessuna voce fa fallire lo
   smoke come prima.
 
+# La seconda firma: l'esaurimento di memoria
+
+Un'allocazione oltre `-malloc_limit_mb` (che libFuzzer pone uguale a
+`-rss_limit_mb`) non e' un panico: libFuzzer stampa
+`ERROR: libFuzzer: out-of-memory (malloc(N))` e lo stack dell'allocazione.
+La firma e' allora:
+
+* il **tipo** `esaurimento-memoria`, distinto da `panico`: un panico e un
+  esaurimento nello stesso modulo sono due finding;
+* il **primo frame che non e' l'allocatore** -- `malloc`, i frame della
+  libreria standard (percorsi sotto `/rustc/`), il runtime del sanitizer --
+  ridotto a modulo, come per il panico, e a **funzione**, col suffisso
+  `::h<hash>` e i parametri generici tolti;
+* la forma del messaggio, `out-of-memory (malloc(N))`.
+
+La corrispondenza resta congiunta: tipo, modulo, funzione e forma, per il
+bersaglio dichiarato. Restano **fuori**, e quindi rossi:
+
+* l'esaurimento misurato sull'RSS (`out-of-memory (used: ...)`), che arriva dal
+  thread che sorveglia la memoria e non porta lo stack di un'allocazione: non
+  c'e' una firma da leggere;
+* uno stack non simbolizzato, cioe' indirizzi senza nomi: senza nomi non c'e'
+  firma, e un crash senza firma e' **illeggibile**, mai «noto».
+
+Per questo lo smoke cerca un `llvm-symbolizer` prima di correre: senza, ogni
+esaurimento di memoria e' illeggibile, cioe' rosso.
+
 # Perche' non dichiara completa una campagna interrotta
 
 Perche' un finding noto **interrompe comunque** il bersaglio: libFuzzer si ferma
@@ -91,6 +118,41 @@ CAMPI = (
     "dove_e_tracciato",
     "non_promette",
     "quando_si_toglie",
+)
+
+#: I tipi di crash che una voce puo' descrivere. Una voce senza `tipo` e' un
+#: panico: e' la forma delle voci scritte prima che esistesse il secondo tipo.
+TIPI = ("panico", "esaurimento-memoria")
+
+#: `ERROR: libFuzzer: out-of-memory (malloc(2315255472))`
+ESAURIMENTO = re.compile(r"ERROR: libFuzzer: (out-of-memory \(malloc\(\d+\)\))")
+
+#: Un frame simbolizzato di AddressSanitizer:
+#: `#12 0x55d0c3b0f2a1 in <funzione> <percorso>:<riga>:<colonna>`.
+FRAME = re.compile(
+    r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(?P<funzione>.+?)\s+"
+    r"(?P<percorso>/\S+?):(?P<riga>\d+)(?::\d+)?\s*$"
+)
+
+#: Le funzioni che sono l'allocatore e non chi alloca.
+ALLOCATORE = (
+    "malloc",
+    "calloc",
+    "realloc",
+    "posix_memalign",
+    "aligned_alloc",
+    "__interceptor_",
+    "__rust_",
+    "__rdl_",
+    "__rg_",
+)
+
+#: I segni di un crash che libFuzzer o il sanitizer hanno riportato. Se il
+#: testo ne porta uno e nessuna firma si legge, il crash e' **illeggibile**.
+SEGNI_DI_CRASH = (
+    "ERROR: libFuzzer:",
+    "ERROR: AddressSanitizer:",
+    "panicked at",
 )
 
 #: `thread '<nome>' panicked at <percorso>:<riga>:<colonna>:`
@@ -137,11 +199,70 @@ def forma_del_messaggio(messaggio: str) -> str:
     return re.sub(r"\d+", "N", messaggio).strip()
 
 
-def crash_osservato(testo: str) -> dict[str, str] | None:
-    """Il primo panico nel testo, ridotto a firma; `None` se non ce n'e'."""
-    trovato = PANICO.search(testo)
+def funzione_normalizzata(nome: str) -> str:
+    """Il nome di una funzione Rust senza hash e senza parametri generici.
+
+    `parquet::parquet_thrift::read_thrift_vec::h0123456789abcdef` e
+    `parquet::parquet_thrift::read_thrift_vec::<KeyValue, Slice>` diventano
+    entrambi `parquet::parquet_thrift::read_thrift_vec`: il primo e' la
+    demangling legacy, il secondo la v0, e i parametri dipendono dal tipo
+    letto, non dal punto in cui si alloca.
+    """
+    senza_hash = re.sub(r"::h[0-9a-f]{16}$", "", nome.strip())
+    risultato: list[str] = []
+    profondita = 0
+    for carattere in senza_hash:
+        if carattere == "<":
+            profondita += 1
+        elif carattere == ">":
+            profondita = max(0, profondita - 1)
+        elif profondita == 0:
+            risultato.append(carattere)
+    return re.sub(r"::+$", "", re.sub(r"::::+", "::", "".join(risultato)))
+
+
+def _e_allocatore(funzione: str, percorso: str) -> bool:
+    """Un frame dell'allocatore, della libreria standard o del sanitizer."""
+    normalizzato = percorso.replace("\\", "/")
+    if "/rustc/" in normalizzato or "compiler-rt" in normalizzato:
+        return True
+    return funzione.startswith(ALLOCATORE)
+
+
+def _esaurimento_osservato(testo: str) -> dict[str, str] | None:
+    """L'esaurimento di memoria da `malloc`, ridotto a firma; `None` se non
+    c'e' o se lo stack non e' simbolizzato."""
+    trovato = ESAURIMENTO.search(testo)
     if trovato is None:
         return None
+    for riga in testo[trovato.end() :].splitlines():
+        frame = FRAME.match(riga)
+        if frame is None:
+            continue
+        funzione = frame.group("funzione")
+        percorso = frame.group("percorso")
+        if _e_allocatore(funzione, percorso):
+            continue
+        artefatto = ARTEFATTO.search(testo)
+        messaggio = trovato.group(1)
+        return {
+            "tipo": "esaurimento-memoria",
+            "modulo": modulo_normalizzato(percorso),
+            "funzione": funzione_normalizzata(funzione),
+            "riga": frame.group("riga"),
+            "messaggio": messaggio,
+            "forma_del_messaggio": forma_del_messaggio(messaggio),
+            "artefatto": artefatto.group(1) if artefatto else "",
+        }
+    return None
+
+
+def crash_osservato(testo: str) -> dict[str, str] | None:
+    """Il primo panico nel testo, o l'esaurimento di memoria, ridotto a
+    firma; `None` se non ce n'e' una leggibile."""
+    trovato = PANICO.search(testo)
+    if trovato is None:
+        return _esaurimento_osservato(testo)
     # Il messaggio sta sulla riga **dopo** quella del panico: la riga del
     # panico finisce con i due punti, e prenderne la coda dava una stringa
     # vuota. Si salta percio' al primo a capo e si legge la riga seguente.
@@ -150,7 +271,9 @@ def crash_osservato(testo: str) -> dict[str, str] | None:
     prima_riga = "" if a_capo == -1 else coda[a_capo + 1 :].split("\n", 1)[0]
     artefatto = ARTEFATTO.search(testo)
     return {
+        "tipo": "panico",
         "modulo": modulo_normalizzato(trovato.group(1)),
+        "funzione": "",
         "riga": trovato.group(2),
         "messaggio": prima_riga.strip(),
         "forma_del_messaggio": forma_del_messaggio(prima_riga),
@@ -174,6 +297,15 @@ def registro_ben_formato(documento: Any) -> list[str]:
         for campo in CAMPI:
             if not isinstance(voce.get(campo), str) or not voce[campo].strip():
                 motivi.append(f"{dove}: `{campo}` assente o vuoto")
+        tipo = voce.get("tipo", "panico")
+        if tipo not in TIPI:
+            motivi.append(f"{dove}: `tipo` «{tipo}» sconosciuto")
+        # Un esaurimento senza funzione si riconoscerebbe dal solo modulo: ogni
+        # allocazione di quel file finirebbe nella stessa cesta.
+        if tipo == "esaurimento-memoria" and (
+            not isinstance(voce.get("funzione"), str) or not voce["funzione"].strip()
+        ):
+            motivi.append(f"{dove}: `funzione` assente o vuota")
         identita = voce.get("id")
         if isinstance(identita, str):
             if identita in visti:
@@ -186,6 +318,11 @@ def classifica(bersaglio: str, testo: str, documento: Any) -> dict[str, Any]:
     """`stato` fra `senza-crash`, `noto` e `nuovo`, con cio' che lo sostiene."""
     osservato = crash_osservato(testo)
     if osservato is None:
+        # Un crash c'e' ma la firma non si legge: stack non simbolizzato,
+        # esaurimento misurato sull'RSS, un errore del sanitizer. Non e' «senza
+        # crash», e non e' «noto».
+        if any(segno in testo for segno in SEGNI_DI_CRASH):
+            return {"stato": "illeggibile"}
         return {"stato": "senza-crash"}
 
     for voce in documento["finding"]:
@@ -196,7 +333,9 @@ def classifica(bersaglio: str, testo: str, documento: Any) -> dict[str, Any]:
         # pure. Allentarla qui sarebbe il modo di nascondere un finding nuovo
         # dietro uno noto.
         if (
-            voce["modulo"] == osservato["modulo"]
+            voce.get("tipo", "panico") == osservato["tipo"]
+            and voce["modulo"] == osservato["modulo"]
+            and voce.get("funzione", "") == osservato["funzione"]
             and voce["forma_del_messaggio"] == osservato["forma_del_messaggio"]
         ):
             return {"stato": "noto", "id": voce["id"], "osservato": osservato}
@@ -266,6 +405,8 @@ def conserva(
             "possa riesaminare."
         ),
         "firma_osservata": {
+            "tipo": osservato["tipo"],
+            "funzione": osservato["funzione"],
             "modulo": osservato["modulo"],
             "riga": osservato["riga"],
             "messaggio": osservato["messaggio"],
@@ -431,12 +572,24 @@ def revisione_corrente() -> str | None:
     return esito.stdout.strip() if esito.returncode == 0 else None
 
 
+def voci_dei_fermati(voci: list[str]) -> dict[str, str]:
+    """`bersaglio=id` in un dizionario; una coppia malformata e' un errore."""
+    risultato: dict[str, str] = {}
+    for coppia in voci:
+        bersaglio, uguale, identita = coppia.partition("=")
+        if not uguale or not bersaglio or not identita:
+            raise ValueError(f"voce di un fermato malformata: «{coppia}»")
+        risultato[bersaglio] = identita
+    return risultato
+
+
 def scrivi_verbale(
     secondi: int,
     finiti: list[str],
     fermati: list[str],
     falliti: list[str],
     dichiarati: list[str],
+    voci: dict[str, str] | None = None,
 ) -> None:
     """Il verbale della corsa: su che cosa ha girato, e com'e' finita.
 
@@ -477,6 +630,10 @@ def scrivi_verbale(
                 "secondi_per_bersaglio": secondi,
                 "hanno_finito": sorted(finiti),
                 "fermati_a_finding_noto": sorted(fermati),
+                # Quale voce ha fermato ciascuno: un arresto «noto» si legge
+                # come tale, con il finding a cui somiglia, e non solo come un
+                # numero di bersagli fermati.
+                "voci_dei_fermati": dict(sorted((voci or {}).items())),
                 "falliti_su_finding_nuovo": sorted(falliti),
             },
             indent=2,
@@ -522,6 +679,17 @@ def main(argv: list[str] | None = None) -> int:
         "--falliti", nargs="*", default=[], help="chi e' fallito su un crash nuovo"
     )
     argomenti.add_argument(
+        "--voci",
+        nargs="*",
+        default=[],
+        help="per ogni fermato, `bersaglio=id` della voce che l'ha fermato",
+    )
+    argomenti.add_argument(
+        "--voce-nota",
+        type=Path,
+        help="se il crash e' noto, scrive qui l'id della voce",
+    )
+    argomenti.add_argument(
         "--dichiarati",
         nargs="*",
         default=[],
@@ -547,12 +715,25 @@ def main(argv: list[str] | None = None) -> int:
     opzioni = argomenti.parse_args(argv)
 
     if opzioni.scrivi_verbale is not None:
+        try:
+            voci = voci_dei_fermati(opzioni.voci)
+        except ValueError as guasto:
+            print(str(guasto), file=sys.stderr)
+            return 2
+        senza_voce = sorted(set(opzioni.fermati) - set(voci))
+        if senza_voce:
+            print(
+                f"fermati senza la voce che li ha fermati: {', '.join(senza_voce)}",
+                file=sys.stderr,
+            )
+            return 2
         scrivi_verbale(
             opzioni.scrivi_verbale,
             opzioni.finiti,
             opzioni.fermati,
             opzioni.falliti,
             opzioni.dichiarati,
+            voci,
         )
         return 0
 
@@ -597,6 +778,14 @@ def main(argv: list[str] | None = None) -> int:
     if esito["stato"] == "senza-crash":
         print(f"{opzioni.bersaglio}: nessun crash nell'uscita")
         return 0
+    if esito["stato"] == "illeggibile":
+        print(
+            f"{opzioni.bersaglio}: crash ILLEGGIBILE -- c'e' un crash ma "
+            "nessuna firma si legge (stack non simbolizzato, esaurimento "
+            "misurato sull'RSS, errore del sanitizer). Non e' un finding noto.",
+            file=sys.stderr,
+        )
+        return 1
     voce = (
         next(v for v in documento["finding"] if v["id"] == esito["id"])
         if esito["stato"] == "noto"
@@ -607,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{opzioni.bersaglio}: conservato {scritto}")
 
     if esito["stato"] == "noto":
+        if opzioni.voce_nota is not None:
+            opzioni.voce_nota.write_text(esito["id"] + "\n", encoding="utf-8")
         print(
             f"{opzioni.bersaglio}: crash COMPATIBILE con il finding noto "
             f"«{esito['id']}» ({voce['dove_e_tracciato']}). Compatibile non "
@@ -617,8 +808,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 3
     osservato = esito["osservato"]
+    dove = osservato["modulo"]
+    if osservato["funzione"]:
+        dove = f"{osservato['funzione']} ({dove})"
     print(
-        f"{opzioni.bersaglio}: finding NUOVO in {osservato['modulo']}"
+        f"{opzioni.bersaglio}: finding NUOVO ({osservato['tipo']}) in {dove}"
         f":{osservato['riga']} -- {osservato['messaggio']}",
         file=sys.stderr,
     )

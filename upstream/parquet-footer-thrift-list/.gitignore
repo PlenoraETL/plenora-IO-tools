@@ -1,0 +1,3 @@
+target/
+# Nessun lock: chi riceve il caso deve risolvere le dipendenze da se'.
+Cargo.lock

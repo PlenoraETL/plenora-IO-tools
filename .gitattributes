@@ -15,6 +15,9 @@ fuzz/seeds/**/*.xlsx binary
 # L'euristica lo riconoscerebbe gia' come binario; dichiararlo toglie la
 # dipendenza da un'euristica, e il seme vale solo byte per byte.
 fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf binary
+# L'esaurimento di memoria del footer Parquet del 2026-10-08: una riproduzione,
+# fuori dai semi perche' lo smoke non la esegua (e' un finding noto, dichiarato).
+upstream/parquet-footer-thrift-list/caso.parquet binary
 
 # Copie storiche usate dalle regressioni del misuratore: digest sui byte originali.
 scripts/fixtures/soak/misuratore-originale.py.txt binary
