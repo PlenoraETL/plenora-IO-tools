@@ -1819,6 +1819,33 @@ fn i_conteggi_del_datatable_non_plausibili_si_rifiutano() {
     }
 }
 
+/// Il tetto vale su **ciascuna** dimensione, non solo sul prodotto: con una
+/// dimensione a zero il prodotto e' zero, e l'altra prenotava miliardi di
+/// descrittori `Vec` -- o, con zero righe, `vec![riga; 0]` costruiva comunque
+/// la riga da 2^31 - 1 celle prima di ripeterla zero volte. Senza la
+/// correzione i due casi con lo zero esauriscono la memoria.
+#[test]
+fn ciascuna_dimensione_del_datatable_ha_il_suo_tetto() {
+    let tetto = 1_usize << 20;
+    let casi = [
+        (0, 2_147_483_647),
+        (2_147_483_647, 0),
+        (tetto + 1, 1),
+        (1, tetto + 1),
+    ];
+    for (colonne, righe) in casi {
+        let dxf = documento_datatable(&format!("90\n{colonne}\n91\n{righe}\n"));
+        assert!(
+            __fuzz_read_dxf(&dxf).is_err(),
+            "{colonne} colonne per {righe} righe: lettore completo"
+        );
+        assert!(
+            DrawingEntityReader::load(std::io::Cursor::new(dxf)).is_err(),
+            "{colonne} colonne per {righe} righe: lettore progressivo"
+        );
+    }
+}
+
 /// Il tetto non rifiuta una tabella che ci sta: 2^20 celle si leggono.
 #[test]
 fn un_datatable_al_tetto_di_celle_si_legge() {
@@ -1945,21 +1972,24 @@ fn documento_con_anteprima(lato: u32, pixel: usize) -> Vec<u8> {
 /// decodificatore prenota l'immagine intera prima di leggerne i pixel: la
 /// stessa forma del `DATATABLE`. 4096 per 4096 a 32 bit sono 64 MiB chiesti da
 /// un centinaio di byte. Il fork porta il tetto a `MASSIMA_MEMORIA_ANTEPRIMA`
-/// (16 MiB), e il rifiuto e' quello di limite di `image`, prima di ogni
-/// prenotazione: senza la correzione la prenotazione avviene (il tetto
+/// (16 MiB) e lo applica alle dimensioni dell'intestazione **prima** di
+/// chiamare `image`: il rifiuto e' il `ParseError` del fork, non un errore del
+/// decodificatore. Senza la correzione la prenotazione avviene (il tetto
 /// predefinito di `image` e' 512 MiB) e l'errore arriva dopo, dai pixel che
-/// mancano.
+/// mancano; con i soli `Limits` di `image` il rifiuto dipenderebbe da come il
+/// decodificatore li rispetta.
 #[test]
-fn un_anteprima_oltre_il_tetto_si_rifiuta_prima_di_prenotare() {
-    let dxf = documento_con_anteprima(4096, 16);
-    let Err(errore) = Drawing::load(&mut std::io::Cursor::new(dxf)) else {
-        panic!("un'anteprima da 64 MiB dichiarati non si legge");
-    };
-    let diagnosi = format!("{errore:?}");
-    assert!(
-        diagnosi.contains("InsufficientMemory"),
-        "il rifiuto e' il limite di memoria, non la fine dei dati: {diagnosi}"
-    );
+fn un_anteprima_oltre_il_tetto_si_rifiuta_prima_di_chiamare_image() {
+    for lato in [4096, 65_535] {
+        let dxf = documento_con_anteprima(lato, 16);
+        let Err(errore) = Drawing::load(&mut std::io::Cursor::new(dxf)) else {
+            panic!("un'anteprima di {lato} per {lato} non si legge");
+        };
+        assert!(
+            matches!(errore, dxf::DxfError::ParseError(_)),
+            "il rifiuto viene dal fork, prima del decodificatore: {errore:?}"
+        );
+    }
 }
 
 /// Il tetto non rifiuta un'anteprima vera: 2 per 2 pixel si decodificano.
@@ -1969,4 +1999,131 @@ fn un_anteprima_piccola_si_decodifica() {
     let letto = Drawing::load(&mut std::io::Cursor::new(dxf)).unwrap();
     let anteprima = letto.thumbnail.expect("l'anteprima c'e'");
     assert_eq!((anteprima.width(), anteprima.height()), (2, 2));
+}
+
+/// Una tabella scritta dal fork e riletta: la stessa, o la scrittura si
+/// rifiuta.
+fn scrivi_e_rileggi(
+    tabella: &dxf::objects::DataTable,
+) -> dxf::DxfResult<Vec<dxf::objects::DataTable>> {
+    let mut drawing = Drawing::new();
+    drawing.header.version = AcadVersion::R2007;
+    drawing.add_object(Object::new(ObjectType::DataTable(tabella.clone())));
+    let mut byte = Vec::new();
+    drawing.save(&mut byte)?;
+    let riletto = Drawing::load(&mut std::io::Cursor::new(byte))?;
+    Ok(riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            ObjectType::DataTable(ref data) => Some(data.clone()),
+            _ => None,
+        })
+        .collect())
+}
+
+/// Colonne senza righe, celle vuote in coda a una colonna, una colonna tutta
+/// vuota, meno nomi che colonne e un nome oltre le colonne: la scrittura le
+/// rappresenta tutte, e la rilettura da' la stessa tabella.
+///
+/// Upstream la tabella senza righe andava in panico in `Drawing::save`
+/// (`values[0]`), la colonna la cui prima cella e' vuota non si scriveva -- e
+/// le colonne seguenti si rileggevano spostate --, e un nome mancante
+/// indicizzava fuori da `column_names`.
+#[test]
+fn un_datatable_con_righe_e_celle_vuote_torna_uguale() {
+    use dxf::objects::DataTable;
+    use dxf::DataTableValue;
+
+    let senza_righe = DataTable {
+        column_count: 2,
+        row_count: 0,
+        name: String::from("vuota"),
+        column_names: vec![String::from("a"), String::from("b")],
+        values: vec![],
+        ..Default::default()
+    };
+    let con_celle_vuote = DataTable {
+        column_count: 3,
+        row_count: 3,
+        name: String::from("rada"),
+        column_names: vec![
+            String::from("piena"),
+            String::from("in coda"),
+            String::from("vuota"),
+            String::from("oltre le colonne"),
+        ],
+        values: vec![
+            vec![
+                Some(DataTableValue::Integer(1)),
+                Some(DataTableValue::Str(String::from("x"))),
+                None,
+            ],
+            vec![Some(DataTableValue::Integer(2)), None, None],
+            vec![Some(DataTableValue::Boolean(true)), None, None],
+        ],
+        ..Default::default()
+    };
+    let meno_nomi = DataTable {
+        column_count: 2,
+        row_count: 1,
+        name: String::from("senza un nome"),
+        column_names: vec![String::from("solo la prima")],
+        values: vec![vec![
+            Some(DataTableValue::Double(1.5)),
+            Some(DataTableValue::Double(2.5)),
+        ]],
+        ..Default::default()
+    };
+    for tabella in [senza_righe, con_celle_vuote, meno_nomi] {
+        let riletta = scrivi_e_rileggi(&tabella).unwrap();
+        assert_eq!(riletta, [tabella]);
+    }
+}
+
+/// Cio' che il formato non sa rappresentare si rifiuta in `Drawing::save`, con
+/// un errore e senza panico: una cella vuota seguita da un valore nella stessa
+/// colonna -- in rilettura il valore salirebbe di una riga -- e dimensioni che
+/// non coincidono con `values`.
+#[test]
+fn un_datatable_non_rappresentabile_si_rifiuta_in_scrittura() {
+    use dxf::objects::DataTable;
+    use dxf::DataTableValue;
+
+    let buco = DataTable {
+        column_count: 1,
+        row_count: 2,
+        values: vec![vec![None], vec![Some(DataTableValue::Integer(1))]],
+        ..Default::default()
+    };
+    let righe_mancanti = DataTable {
+        column_count: 1,
+        row_count: 1,
+        values: vec![],
+        ..Default::default()
+    };
+    let riga_corta = DataTable {
+        column_count: 2,
+        row_count: 1,
+        values: vec![vec![Some(DataTableValue::Integer(1))]],
+        ..Default::default()
+    };
+    let oltre_il_tetto = DataTable {
+        column_count: (1 << 20) + 1,
+        row_count: 0,
+        ..Default::default()
+    };
+    for (nome, tabella) in [
+        ("cella vuota prima di un valore", buco),
+        ("righe dichiarate senza valori", righe_mancanti),
+        ("riga piu' corta delle colonne", riga_corta),
+        ("colonne oltre il tetto", oltre_il_tetto),
+    ] {
+        assert!(
+            matches!(
+                scrivi_e_rileggi(&tabella),
+                Err(dxf::DxfError::WrongItemType)
+            ),
+            "{nome}"
+        );
+    }
 }

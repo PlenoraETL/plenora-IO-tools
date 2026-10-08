@@ -15,15 +15,29 @@ const BITMAP_HEADER_PALETTE_COUNT_OFFSET: usize = 32;
 /// `THUMBNAILIMAGE` chiedeva cosi' fino al tetto predefinito di `image`, 512
 /// MiB, senza che l'input li portasse. Stessa forma della prenotazione del
 /// DATATABLE. Un'anteprima DXF e' una miniatura: 16 MiB sono una bitmap di
-/// 2048 per 2048 a 32 bit. Oltre, la lettura si rifiuta con l'errore di limite
-/// di `image`, mai con un'anteprima assente. E' un limite dichiarato nel
-/// registro del fork.
+/// 2048 per 2048 a 32 bit. E' un limite dichiarato nel registro del fork.
+///
+/// Il tetto si applica **prima** di chiamare `image`, sulle dimensioni lette
+/// dall'intestazione (`verifica_dimensioni_anteprima`): non dipende da come
+/// il decodificatore di una versione di `image` rispetti i suoi `Limits`.
+/// Gli stessi `Limits` restano passati a `image` come seconda difesa.
 pub(crate) const MASSIMA_MEMORIA_ANTEPRIMA: u64 = 16 << 20;
+
+/// Byte per pixel dell'immagine decodificata nel caso peggiore: `image`
+/// decodifica un BMP in RGB o RGBA a 8 bit per canale, qualunque sia la
+/// profondita' dichiarata -- una bitmap a 1 bit con tavolozza diventa RGB.
+const BYTE_PER_PIXEL_DECODIFICATI: u64 = 4;
+
+/// Offset di larghezza e altezza nell'intestazione BITMAPINFOHEADER (e nelle
+/// sue estensioni V4 e V5), dall'inizio dell'intestazione DIB.
+const BITMAP_HEADER_WIDTH_OFFSET: usize = 4;
+const BITMAP_HEADER_HEIGHT_OFFSET: usize = 8;
 
 pub(crate) fn read_thumbnail(iter: &mut CodePairPutBack) -> DxfResult<Option<image::DynamicImage>> {
     match read_thumbnail_bytes_from_code_pairs(iter)? {
         Some(mut data) => {
             if update_thumbnail_data_offset_in_situ(&mut data)? {
+                verifica_dimensioni_anteprima(&data)?;
                 read_thumbnail_from_bytes(&data)
             } else {
                 Ok(None)
@@ -216,6 +230,24 @@ fn set_thumbnail_offset_for_bitmapv4header_palette_256() {
     ];
     assert!(update_thumbnail_data_offset_in_situ(&mut data).unwrap());
     assert_eq!(0x047A, read_i32(&data, IMAGE_DATA_OFFSET_OFFSET).unwrap());
+}
+
+/// Rifiuta un'anteprima la cui immagine decodificata supererebbe
+/// `MASSIMA_MEMORIA_ANTEPRIMA`, dalle dimensioni dell'intestazione e prima di
+/// ogni prenotazione. Si chiama solo dopo `update_thumbnail_data_offset_in_situ`
+/// vero, cioe' su un'intestazione DIB di almeno 36 byte, che porta larghezza e
+/// altezza come `i32` (un'altezza negativa e' un'immagine dall'alto in basso).
+fn verifica_dimensioni_anteprima(data: &[u8]) -> DxfResult<()> {
+    let larghezza = read_i32(data, FILE_HEADER_LENGTH + BITMAP_HEADER_WIDTH_OFFSET)?;
+    let altezza = read_i32(data, FILE_HEADER_LENGTH + BITMAP_HEADER_HEIGHT_OFFSET)?;
+    let byte = u64::from(larghezza.unsigned_abs())
+        .checked_mul(u64::from(altezza.unsigned_abs()))
+        .and_then(|pixel| pixel.checked_mul(BYTE_PER_PIXEL_DECODIFICATI));
+    if byte.is_some_and(|byte| byte <= MASSIMA_MEMORIA_ANTEPRIMA) {
+        Ok(())
+    } else {
+        Err(DxfError::ParseError(0))
+    }
 }
 
 fn read_thumbnail_from_bytes(data: &[u8]) -> DxfResult<Option<image::DynamicImage>> {

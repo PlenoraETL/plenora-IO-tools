@@ -9,7 +9,7 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
   "file_count": 59,
-  "tree_sha256": "f048402c4530090ccd97402c03a562f46e7bd95aeb924234be8641d61d7df9dd",
+  "tree_sha256": "6588dab8e334aae017ffd56473eb37093c938b7e1d738dabc1e0306cf95dd31c",
   "functional_delta_files": [
     "src/block.rs",
     "src/code_pair_iter.rs",
