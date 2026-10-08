@@ -358,6 +358,846 @@ fn un_blocco_senza_endblk_non_gira_a_vuoto() {
     );
 }
 
+/// Il caso del soak di `dxf_reader` del 2026-10-05, byte per byte.
+///
+/// 235 byte che sulla 4.0.0 e sulla 4.1.0 finivano in un'allocazione da sei
+/// gigabyte e in un abort senza busta. `SectionTypeSettings::read`, su un
+/// codice che non e' suo, rimetteva la coppia nell'iteratore e restituiva
+/// `Some` di un valore vuoto senza consumare niente; il ciclo di
+/// `apply_custom_reader_sectionsettings` la richiamava sulla stessa coppia
+/// all'infinito, spingendo un elemento a ogni giro.
+///
+/// Come per `un_blocco_senza_endblk_non_gira_a_vuoto`, la prova e' che la
+/// chiamata **ritorni**; il seme versionato in `fuzz/seeds/dxf_reader/` le sta
+/// accanto perche' li' il tetto di libFuzzer trasforma un ritorno mancato in un
+/// rosso, e la prova della CLI in `crates/plenora-io-tools/tests/` la ripete
+/// sul binario con un tempo massimo.
+#[test]
+fn il_caso_del_soak_sectionsettings_ritorna_con_un_errore() {
+    let caso = include_bytes!("../../../fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf");
+    assert_eq!(
+        caso.len(),
+        235,
+        "il seme e' il caso originale, non una riduzione"
+    );
+    assert!(__fuzz_read_dxf(caso).is_err());
+}
+
+/// La forma minima della stessa classe: un `SectionTypeSettings` aperto da
+/// `1` e seguito da un codice che nessuno dei suoi campi conosce.
+///
+/// Prova la guardia sul ciclo di `apply_custom_reader_sectionsettings` senza
+/// dipendere dai byte del fuzzer, e su **entrambi** i lettori: quello completo
+/// (`Drawing::load`) e quello progressivo che usa la CLI, dove la sezione
+/// `OBJECTS` viene letta prima di `ENTITIES`.
+#[test]
+fn un_section_type_settings_che_non_consuma_si_rifiuta() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nSECTIONSETTINGS\n1\nSectionTypeSettings\n72\n0\n0\nENDSEC\n0\nEOF\n";
+    assert!(
+        __fuzz_read_dxf(dxf).is_err(),
+        "lettore completo: un giro senza progresso e' un errore"
+    );
+    let progressivo = dxf::DrawingEntityReader::load(std::io::Cursor::new(dxf.to_vec()));
+    assert!(
+        progressivo.is_err(),
+        "lettore progressivo: un giro senza progresso e' un errore"
+    );
+}
+
+/// Le guardie dei due cicli di `SectionSettings` non scattano su un documento
+/// legittimo: un `SectionTypeSettings` con due `SectionGeometrySettings`,
+/// scritto dal fork stesso e riletto.
+///
+/// `SectionGeometrySettings::read` non restituisce mai `Some` senza consumare
+/// -- lo apre la coppia `90`, che legge -- e una prova ostile per lei non si
+/// puo' costruire. Si prova invece che la guardia preventiva sul suo ciclo non
+/// rifiuti cio' che va letto, che e' il modo in cui una guardia sbaglia.
+///
+/// Un solo `SectionTypeSettings` e non due: il lettore upstream legge la `1`
+/// che apre il secondo come nome del file del primo, e li fonde. E' un difetto
+/// di semantica del lettore, indipendente dalle guardie -- misurato sul fork
+/// senza la correzione, con lo stesso esito -- e questa prova non lo fissa.
+#[test]
+fn le_guardie_di_sectionsettings_lasciano_passare_un_documento_valido() {
+    use dxf::objects::SectionSettings;
+    use dxf::{SectionGeometrySettings, SectionTypeSettings};
+
+    let geometria = |tipo: i32| SectionGeometrySettings {
+        section_type: tipo,
+        geometry_count: 1,
+        ..Default::default()
+    };
+    let mut drawing = Drawing::new();
+    drawing.header.version = AcadVersion::R2018;
+    drawing.add_object(Object::new(ObjectType::SectionSettings(SectionSettings {
+        section_type: 1,
+        geometry_settings: vec![SectionTypeSettings {
+            section_type: 1,
+            geometry_settings: vec![geometria(1), geometria(2)],
+            ..Default::default()
+        }],
+        ..Default::default()
+    })));
+    let mut byte = Vec::new();
+    drawing.save(&mut byte).unwrap();
+
+    let riletto = Drawing::load(&mut std::io::Cursor::new(byte)).unwrap();
+    let lette: Vec<_> = riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            ObjectType::SectionSettings(ref ss) => Some(ss.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lette.len(), 1);
+    assert_eq!(lette[0].geometry_settings.len(), 1);
+    let tipi: Vec<i32> = lette[0].geometry_settings[0]
+        .geometry_settings
+        .iter()
+        .map(|g| g.section_type)
+        .collect();
+    assert_eq!(tipi, [1, 2]);
+}
+
+/// `TableCellStyle::read` consuma sempre la coppia `7` da cui parte, ma il
+/// ciclo di `apply_custom_reader_tablestyle` che la rimette indietro e la
+/// richiama non ha modo di saperlo: la guardia lo pretende. Anche qui la prova
+/// ostile non esiste, e si prova che la guardia non rifiuti tre stili validi.
+///
+/// Scritto a mano e non dal fork: `TableCellStyle::read` consuma la coppia `0`
+/// che chiude l'oggetto invece di rimetterla indietro, e un `TABLESTYLE` il cui
+/// ultimo stile arriva fino alla `0` non si rilegge -- anche senza la
+/// correzione. Qui una coppia `40` chiude l'ultimo stile prima della `0`.
+#[test]
+fn la_guardia_di_tablestyle_lascia_passare_un_documento_valido() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nTABLESTYLE\n7\nA\n140\n2.5\n7\nB\n140\n2.5\n7\nC\n140\n2.5\n40\n1.0\n0\nENDSEC\n0\nEOF\n";
+    let riletto = Drawing::load(&mut std::io::Cursor::new(dxf.to_vec())).unwrap();
+    let nomi: Vec<String> = riletto
+        .objects()
+        .filter_map(|o| match o.specific {
+            dxf::objects::ObjectType::TableStyle(ref ts) => Some(ts.cell_styles.clone()),
+            _ => None,
+        })
+        .flatten()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(nomi, ["A", "B", "C"]);
+}
+
+/// Una `LINE` con `livelli` gruppi annidati: `102/{...}` oppure, in XDATA,
+/// `1002/{`.
+fn linea_con_gruppi_annidati(livelli: usize, xdata: bool) -> Vec<u8> {
+    let mut testo = String::from("0\nSECTION\n2\nENTITIES\n0\nLINE\n");
+    if xdata {
+        testo.push_str("10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n");
+        testo.push_str(&"1002\n{\n".repeat(livelli));
+        testo.push_str(&"1002\n}\n".repeat(livelli));
+    } else {
+        testo.push_str(&"102\n{a\n".repeat(livelli));
+        testo.push_str(&"102\n}\n".repeat(livelli));
+        testo.push_str("10\n0\n20\n0\n11\n1\n21\n1\n");
+    }
+    testo.push_str("0\nENDSEC\n0\nEOF\n");
+    testo.into_bytes()
+}
+
+/// Lo stack del thread principale di Windows: il piu' piccolo su cui la CLI
+/// legge un DXF. Le prove sui gruppi annidati girano in un thread di questa
+/// misura, cosi' che un'eventuale crescita del consumo per livello si veda qui
+/// e non in produzione.
+const STACK_DEL_THREAD_PRINCIPALE_WINDOWS: usize = 1024 * 1024;
+
+fn in_uno_stack_da_un_mebibyte<T: Send + 'static>(prova: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(STACK_DEL_THREAD_PRINCIPALE_WINDOWS)
+        .spawn(prova)
+        .expect("il thread di prova parte")
+        .join()
+        .expect("la prova non trabocca lo stack")
+}
+
+/// I gruppi annidati si leggono per ricorsione, e senza tetto un ingresso di
+/// pochi megabyte esauriva lo stack: un abort senza busta, della stessa
+/// famiglia del caso del soak -- un ingresso ostile che esaurisce una risorsa
+/// invece di essere rifiutato. Sessantamila livelli stanno sotto il tetto di
+/// byte dell'entry point di fuzz, e senza la correzione bastano a far
+/// traboccare lo stack.
+#[test]
+fn i_gruppi_annidati_oltre_il_tetto_si_rifiutano_invece_di_esaurire_lo_stack() {
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            let dxf = linea_con_gruppi_annidati(60_000, xdata);
+            assert!(
+                dxf.len() < 1_048_576,
+                "sotto il tetto dell'entry point di fuzz"
+            );
+            assert!(__fuzz_read_dxf(&dxf).is_err(), "xdata={xdata}");
+        }
+    });
+}
+
+/// Il tetto e' un confine, non un divieto: 256 livelli si leggono, 257 no. E si
+/// leggono in un MiB di stack, quello del thread principale di Windows, anche
+/// in una build non ottimizzata.
+#[test]
+fn il_tetto_dei_gruppi_annidati_e_esattamente_duecentocinquantasei() {
+    in_uno_stack_da_un_mebibyte(|| {
+        for xdata in [false, true] {
+            assert_eq!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(256, xdata)).unwrap(),
+                1,
+                "xdata={xdata}: 256 livelli sono leggibili"
+            );
+            assert!(
+                __fuzz_read_dxf(&linea_con_gruppi_annidati(257, xdata)).is_err(),
+                "xdata={xdata}: 257 livelli si rifiutano"
+            );
+        }
+    });
+}
+
+/// Un BLOCK la cui LINE porta un difetto, e un INSERT che lo usa.
+fn blocco_con_linea_difettosa(difetto: &str) -> Vec<u8> {
+    let mut testo = String::from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n0\nLINE\n");
+    testo.push_str(difetto);
+    testo.push_str(
+        "0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nB\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n",
+    );
+    testo.into_bytes()
+}
+
+/// Rilevato in revisione: dentro BLOCKS, `EntityIter` trasformava l'errore
+/// della LINE in fine sequenza, la guardia di progresso di `read_block`
+/// passava -- qualcosa era stato consumato --, e il BLOCK veniva accettato
+/// **senza la LINE**: l'INSERT esplodeva in zero righe e la lettura riusciva.
+/// Perdita silenziosa, e non solo per la profondita': un `10/abc` faceva lo
+/// stesso, gia' sulla 4.1.0.
+///
+/// Ora ogni errore che `EntityIter` o `ObjectIter` inghiottono ferma
+/// l'iteratore, e il documento si rifiuta. La prova e' su entrambi i lettori:
+/// quello completo e quello progressivo della CLI.
+#[test]
+fn una_linea_illeggibile_dentro_un_blocco_rifiuta_il_documento() {
+    let difetti = [
+        (
+            "profondita",
+            format!(
+                "10\n0\n20\n0\n11\n1\n21\n1\n1001\nAPP\n{}{}",
+                "1002\n{\n".repeat(257),
+                "1002\n}\n".repeat(257)
+            ),
+        ),
+        ("coordinata", String::from("10\nabc\n20\n0\n11\n1\n21\n1\n")),
+    ];
+    for (nome, difetto) in difetti {
+        let dxf = blocco_con_linea_difettosa(&difetto);
+        let completo = in_uno_stack_da_un_mebibyte({
+            let dxf = dxf.clone();
+            move || __fuzz_read_dxf(&dxf).is_err()
+        });
+        assert!(
+            completo,
+            "{nome}: lettore completo, il BLOCK non si accetta senza la LINE"
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocco.dxf");
+        std::fs::write(&path, &dxf).unwrap();
+        let aperto = in_uno_stack_da_un_mebibyte(move || {
+            DxfDriver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("EPSG:4326"),
+                )
+                .is_err()
+        });
+        assert!(
+            aperto,
+            "{nome}: lettore progressivo, il BLOCK non si accetta senza la LINE"
+        );
+    }
+}
+
+/// Lo stesso nella sezione OBJECTS: un oggetto illeggibile interrompeva
+/// `ObjectIter`, e se dopo veniva `0/ENDSEC` il documento passava senza gli
+/// oggetti che seguivano -- un `GEODATA` fra loro avrebbe cambiato il CRS.
+#[test]
+fn un_oggetto_illeggibile_rifiuta_il_documento() {
+    let dxf = b"0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\nnon-esadecimale\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n";
+    assert!(__fuzz_read_dxf(dxf).is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oggetto.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    assert!(DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .is_err());
+}
+
+// --- documenti accettati con dati mancanti o alterati -------------------------
+//
+// La classe trovata nella seconda revisione di #23: un documento che il lettore
+// accettava senza errore, con una parte persa o sostituita da un default. Ogni
+// prova ha il suo controllo -- lo stesso documento senza il difetto, che si
+// legge -- perche' un rifiuto per un'altra ragione la renderebbe vuota.
+
+/// L'esito dei due lettori: quello completo (`Drawing::load`, l'entry point di
+/// fuzz) e quello progressivo della CLI (`DxfDriver::open`). `Ok(righe)` o
+/// `Err(())`.
+fn esito_dei_due_lettori(
+    dxf: &[u8],
+) -> (
+    std::result::Result<usize, ()>,
+    std::result::Result<usize, ()>,
+) {
+    let completo = __fuzz_read_dxf(dxf).map_err(|_| ());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("prova.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    let progressivo = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .map_err(|_| ())
+        .and_then(|dataset| {
+            let mut reader = dataset
+                .open_layer_reader(&plenora_io_core::request::ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::Complete,
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })
+                .map_err(|_| ())?;
+            let mut righe = 0;
+            while let Some(batch) = reader.next_batch().map_err(|_| ())? {
+                righe += batch.num_rows();
+            }
+            Ok(righe)
+        });
+    (completo, progressivo)
+}
+
+fn rifiutato(nome: &str, dxf: &[u8]) {
+    let (completo, progressivo) = esito_dei_due_lettori(dxf);
+    assert!(
+        completo.is_err(),
+        "{nome}: il lettore completo accetta {completo:?}"
+    );
+    assert!(
+        progressivo.is_err(),
+        "{nome}: il lettore progressivo accetta {progressivo:?}"
+    );
+}
+
+fn letto(nome: &str, dxf: &[u8], righe: usize) {
+    let (completo, progressivo) = esito_dei_due_lettori(dxf);
+    assert_eq!(completo, Ok(righe), "{nome}: controllo, lettore completo");
+    assert_eq!(
+        progressivo,
+        Ok(righe),
+        "{nome}: controllo, lettore progressivo"
+    );
+}
+
+fn entita(corpo: &str) -> Vec<u8> {
+    format!("0\nSECTION\n2\nENTITIES\n{corpo}0\nENDSEC\n0\nEOF\n").into_bytes()
+}
+
+const LINEA: &str = "0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n";
+
+/// Un tipo di entita' che il lettore non conosce era consumato e scartato, e
+/// il rifiuto delle entita' non gestite del driver non veniva raggiunto: il
+/// documento si leggeva senza di lei. Lo stesso per una DIMENSION senza un
+/// sottotipo riconosciuto, saltata con `continue`.
+#[test]
+fn un_entita_di_tipo_sconosciuto_rifiuta_il_documento() {
+    letto("controllo", &entita(LINEA), 1);
+    rifiutato(
+        "tipo sconosciuto",
+        &entita(&format!("{LINEA}0\nLINEE\n8\n0\n10\n0\n20\n0\n")),
+    );
+    rifiutato(
+        "DIMENSION senza sottotipo",
+        &entita(&format!(
+            "{LINEA}0\nDIMENSION\n8\n0\n100\nAcDbDimension\n70\n0\n"
+        )),
+    );
+}
+
+/// Dentro un BLOCK l'entita' sconosciuta conta se il blocco viene esploso: un
+/// INSERT che lo usa si rifiuta, un blocco che nessuno inserisce non produce
+/// righe e non cambia l'esito.
+#[test]
+fn un_blocco_con_un_entita_sconosciuta_si_rifiuta_quando_e_inserito() {
+    let blocco = |corpo_del_blocco: &str, modello: &str| {
+        format!(
+            "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n{corpo_del_blocco}0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{modello}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    let insert = "0\nINSERT\n2\nB\n10\n0\n20\n0\n";
+    letto("controllo", &blocco(LINEA, insert), 1);
+    rifiutato(
+        "blocco inserito",
+        &blocco(&format!("{LINEA}0\nLINEE\n10\n0\n"), insert),
+    );
+    letto(
+        "blocco non inserito",
+        &blocco(&format!("{LINEA}0\nLINEE\n10\n0\n"), LINEA),
+        1,
+    );
+}
+
+/// Una riga di codice vuota era la fine dell'ingresso: un DXF con una riga
+/// vuota in testa si leggeva come un documento vuoto. Un codice senza la riga
+/// del valore era un valore vuoto.
+#[test]
+fn una_riga_vuota_non_e_la_fine_del_documento() {
+    let documento = entita(LINEA);
+    letto("controllo", &documento, 1);
+    let mut con_riga_vuota = b"\n".to_vec();
+    con_riga_vuota.extend_from_slice(&documento);
+    rifiutato("riga vuota in testa", &con_riga_vuota);
+    let mut in_mezzo = b"0\nSECTION\n2\nENTITIES\n".to_vec();
+    in_mezzo.extend_from_slice(b"\n");
+    in_mezzo.extend_from_slice(LINEA.as_bytes());
+    in_mezzo.extend_from_slice(b"0\nENDSEC\n0\nEOF\n");
+    rifiutato("riga vuota in mezzo", &in_mezzo);
+    rifiutato(
+        "codice senza valore",
+        b"0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21",
+    );
+}
+
+/// `\U+ZZZZ` e un surrogato diventavano `?`; una barra negli ultimi sei
+/// caratteri della riga spariva con cio' che la seguiva. Un nome di layer e un
+/// testo arrivano entrambi all'uscita.
+#[test]
+fn le_sequenze_unicode_non_valide_rifiutano_e_le_barre_restano() {
+    let linea_su_layer = |layer: &str| {
+        entita(&format!(
+            "0\nLINE\n8\n{layer}\n10\n0\n20\n0\n11\n1\n21\n1\n"
+        ))
+    };
+    letto("controllo", &linea_su_layer("Rep\\U+00E8re"), 1);
+    rifiutato("cifre non esadecimali", &linea_su_layer("A\\U+ZZZZ"));
+    rifiutato("surrogato", &linea_su_layer("A\\U+D800"));
+    rifiutato("sequenza troncata", &linea_su_layer("A\\U+00"));
+
+    let testo = |valore: &str| {
+        let dxf = entita(&format!(
+            "0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n{valore}\n"
+        ));
+        let drawing = Drawing::load(&mut std::io::Cursor::new(dxf)).unwrap();
+        let letti: Vec<String> = drawing
+            .entities()
+            .filter_map(|e| match e.specific {
+                EntityType::Text(ref t) => Some(t.value.clone()),
+                _ => None,
+            })
+            .collect();
+        letti
+    };
+    assert_eq!(testo("riga\\P"), ["riga\\P"], "la barra finale resta");
+    assert_eq!(
+        testo("\\Pab\\U+00E8"),
+        ["\\Pab\u{e8}"],
+        "e non sposta la sequenza dopo"
+    );
+}
+
+/// Tre X, tre Y e due Z davano due punti: il terzo spariva.
+#[test]
+fn le_coordinate_disallineate_di_una_spline_rifiutano_il_documento() {
+    let spline = |z: &str| {
+        entita(&format!(
+            "0\nSPLINE\n8\n0\n70\n8\n71\n2\n72\n6\n73\n3\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n{z}10\n1\n20\n1\n10\n2\n20\n0\n"
+        ))
+    };
+    // I 30 vanno dopo ogni 10/20: qui si scrivono tutti in coda alla prima
+    // coppia, il lettore li accoda nell'ordine in cui arrivano.
+    letto("controllo", &spline("30\n0\n30\n0\n30\n0\n"), 1);
+    rifiutato("due Z per tre punti", &spline("30\n0\n30\n0\n"));
+}
+
+/// `NaN` e `inf` passavano il parse dei reali; una normale non finita, o
+/// nulla, diventava l'asse Z.
+#[test]
+fn i_reali_non_finiti_e_le_normali_nulle_rifiutano_il_documento() {
+    let cerchio =
+        |normale: &str| entita(&format!("0\nCIRCLE\n8\n0\n10\n0\n20\n0\n40\n1\n{normale}"));
+    letto("controllo", &cerchio("210\n0\n220\n0\n230\n1\n"), 1);
+    rifiutato("normale NaN", &cerchio("210\nNaN\n220\n0\n230\n1\n"));
+    rifiutato("normale inf", &cerchio("210\ninf\n220\n0\n230\n1\n"));
+    rifiutato("normale nulla", &cerchio("210\n0\n220\n0\n230\n0\n"));
+    rifiutato(
+        "coordinata infinita",
+        &entita("0\nLINE\n10\n0\n20\n0\n11\ninfinity\n21\n1\n"),
+    );
+}
+
+/// Pesi non finiti, nulli o negativi diventavano 1.0, e un vettore dei nodi
+/// sbagliato faceva disegnare la poligonale di controllo al posto della curva.
+#[test]
+fn i_pesi_e_i_nodi_non_validi_di_una_spline_rifiutano_il_documento() {
+    let spline = |nodi: &str, pesi: &str| {
+        entita(&format!(
+            "0\nSPLINE\n8\n0\n70\n8\n71\n2\n72\n6\n73\n3\n{nodi}{pesi}10\n0\n20\n0\n30\n0\n10\n1\n20\n1\n30\n0\n10\n2\n20\n0\n30\n0\n"
+        ))
+    };
+    let nodi = "40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n";
+    letto("controllo", &spline(nodi, ""), 1);
+    letto(
+        "controllo con pesi",
+        &spline(nodi, "41\n1\n41\n2\n41\n1\n"),
+        1,
+    );
+    rifiutato("peso nullo", &spline(nodi, "41\n1\n41\n0\n41\n1\n"));
+    rifiutato("peso negativo", &spline(nodi, "41\n1\n41\n-2\n41\n1\n"));
+    rifiutato("pesi mancanti", &spline(nodi, "41\n1\n41\n1\n"));
+    rifiutato(
+        "nodi mancanti",
+        &spline("40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n", ""),
+    );
+}
+
+/// Un fattore di scala nullo diventava 1, e un INSERT con attributi e senza
+/// blocco passava con il solo punto timbro.
+#[test]
+fn un_insert_con_scala_nulla_o_senza_blocco_rifiuta_il_documento() {
+    let documento = |scala: &str, nome: &str| {
+        format!(
+            "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n{LINEA}0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\n{nome}\n10\n0\n20\n0\n{scala}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    letto("controllo", &documento("41\n2\n", "B"), 1);
+    rifiutato("scala X nulla", &documento("41\n0\n", "B"));
+    let attributo = "66\n1\n0\nATTRIB\n8\n0\n10\n0\n20\n0\n40\n1\n1\nv\n2\nTAG\n0\nSEQEND\n";
+    rifiutato("blocco assente con attributi", &{
+        let mut d = documento("", "ASSENTE");
+        let testo = String::from_utf8(d.clone()).unwrap();
+        d = testo
+            .replace(
+                "10\n0\n20\n0\n0\nENDSEC\n0\nEOF",
+                &format!("10\n0\n20\n0\n{attributo}0\nENDSEC\n0\nEOF"),
+            )
+            .into_bytes();
+        d
+    });
+}
+
+// --- MTEXT: escape in sequenza, frammenti ricomposti, testo intero ----------
+
+/// La colonna `text` di una `RecordBatch` del driver.
+fn colonna_testo(batch: &RecordBatch) -> Vec<Option<String>> {
+    let indice = batch.schema().index_of("text").unwrap();
+    let colonna = batch
+        .column(indice)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    (0..colonna.len())
+        .map(|i| (!colonna.is_null(i)).then(|| colonna.value(i).to_owned()))
+        .collect()
+}
+
+/// I testi in uscita dai due lettori: completo (`Drawing::load` e
+/// `build_batch`) e progressivo (`DxfDriver::open`, il percorso della CLI).
+/// `Err(())` se il lettore rifiuta.
+/// I testi letti, o `Err(())` se il lettore rifiuta.
+type Testi = std::result::Result<Vec<Option<String>>, ()>;
+
+fn testi_dei_due_lettori(dxf: &[u8]) -> (Testi, Testi) {
+    let completo = Drawing::load(&mut std::io::Cursor::new(dxf.to_vec()))
+        .map_err(|_| ())
+        .and_then(|drawing| {
+            let crs = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
+            build_batch(&drawing, crs, DxfQuote::predefinite())
+                .map(|(batch, _, _)| colonna_testo(&batch))
+                .map_err(|_| ())
+        });
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mtext.dxf");
+    std::fs::write(&path, dxf).unwrap();
+    let progressivo = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .map_err(|_| ())
+        .and_then(|dataset| {
+            let mut reader = dataset
+                .open_layer_reader(&plenora_io_core::request::ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::Complete,
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })
+                .map_err(|_| ())?;
+            let mut testi = Vec::new();
+            while let Some(batch) = reader.next_batch().map_err(|_| ())? {
+                testi.extend(colonna_testo(&batch));
+            }
+            Ok(testi)
+        });
+    (completo, progressivo)
+}
+
+/// Un MTEXT con i gruppi `3` dati e il gruppo `1` finale.
+fn mtext(frammenti: &[&str], finale: &str) -> Vec<u8> {
+    let mut corpo = String::from("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n");
+    for frammento in frammenti {
+        corpo.push_str("3\n");
+        corpo.push_str(frammento);
+        corpo.push('\n');
+    }
+    corpo.push_str("1\n");
+    corpo.push_str(finale);
+    corpo.push('\n');
+    entita(&corpo)
+}
+
+fn testo_uguale(nome: &str, dxf: &[u8], atteso: &str) {
+    let (completo, progressivo) = testi_dei_due_lettori(dxf);
+    let atteso = Ok(vec![Some(atteso.to_owned())]);
+    assert_eq!(completo, atteso, "{nome}: lettore completo");
+    assert_eq!(progressivo, atteso, "{nome}: lettore progressivo");
+}
+
+fn testo_rifiutato(nome: &str, dxf: &[u8]) {
+    let (completo, progressivo) = testi_dei_due_lettori(dxf);
+    assert!(
+        completo.is_err(),
+        "{nome}: il lettore completo accetta {completo:?}"
+    );
+    assert!(
+        progressivo.is_err(),
+        "{nome}: il lettore progressivo accetta {progressivo:?}"
+    );
+}
+
+/// `\\` e' la barra letterale di MTEXT: la barra che segue non apre una
+/// sequenza. La prima stesura di #32 cercava `\U+` ignorando le barre
+/// escapate: `\\U+ZZZZ` veniva rifiutato, e `\\U+0041` diventava barra + `A`.
+#[test]
+fn una_doppia_barra_in_mtext_non_apre_una_sequenza() {
+    testo_uguale("barra + testo", &mtext(&[], "C:\\\\U+ZZZZ"), "C:\\\\U+ZZZZ");
+    testo_uguale("barra + cifre", &mtext(&[], "x\\\\U+0041"), "x\\\\U+0041");
+    testo_uguale("tre barre", &mtext(&[], "x\\\\\\U+0041"), "x\\\\A");
+    testo_uguale("barra finale", &mtext(&[], "fine\\"), "fine\\");
+}
+
+/// Un MTEXT lungo: il driver passava a `emit_text` il solo gruppo `1`, cioe'
+/// l'ultimo frammento, e il testo in uscita era la coda.
+#[test]
+fn il_testo_di_un_mtext_lungo_esce_intero() {
+    let primo = "a".repeat(250);
+    let secondo = "b".repeat(250);
+    testo_uguale(
+        "tre frammenti",
+        &mtext(&[&primo, &secondo], "fine"),
+        &format!("{primo}{secondo}fine"),
+    );
+}
+
+/// Il taglio a 250 caratteri puo' cadere dentro una `\U+XXXX` o una `^x`: la
+/// sequenza si decodifica sul testo ricomposto. Una sequenza aperta che il
+/// frammento seguente non completa resta un errore, e cosi' una sequenza
+/// incompleta in un gruppo che non e' di MTEXT.
+#[test]
+fn una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta() {
+    testo_uguale(
+        "\\U+ dopo 3 cifre",
+        &mtext(&["Rep\\U+00"], "E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "\\U+ dopo il +",
+        &mtext(&["Rep\\U+"], "00E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "dopo la barra",
+        &mtext(&["Rep\\"], "U+00E8re"),
+        "Rep\u{e8}re",
+    );
+    testo_uguale(
+        "fra due gruppi 3",
+        &mtext(&["a\\U", "+00E8", "b"], "c"),
+        "a\u{e8}bc",
+    );
+    testo_uguale("caret", &mtext(&["riga^"], "Jdopo"), "riga\ndopo");
+    testo_uguale(
+        "barra doppia spezzata",
+        &mtext(&["x\\"], "\\U+0041"),
+        "x\\\\U+0041",
+    );
+    testo_rifiutato("non completata", &mtext(&["Rep\\U+00"], "ZZre"));
+    testo_rifiutato("seguita da altro", &{
+        let mut dxf = String::from_utf8(mtext(&["Rep\\U+00"], "E8")).unwrap();
+        dxf = dxf.replace("1\nE8\n", "7\nSTANDARD\n1\nE8\n");
+        dxf.into_bytes()
+    });
+    testo_rifiutato(
+        "fuori da MTEXT",
+        &entita("0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nRep\\U+00\n"),
+    );
+}
+
+/// Spazio bianco in coda a un documento senza `EOF`, e un ingresso fatto di
+/// solo spazio bianco: restano un documento e un documento vuoto, e non
+/// diventano errori con la distinzione fra riga vuota e fine dell'ingresso.
+#[test]
+fn lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono() {
+    let mut con_coda = b"0\nSECTION\n2\nENTITIES\n".to_vec();
+    con_coda.extend_from_slice(LINEA.as_bytes());
+    con_coda.extend_from_slice(b"0\nENDSEC\n\n  \n\t\n");
+    letto("spazi in coda, senza EOF", &con_coda, 1);
+    letto("solo spazi", b"  \n\n \t \n", 0);
+}
+
+/// GEODATA con punti sorgente e destinazione in numero diverso, e IMAGE con
+/// coordinate di ritaglio disallineate (`combine_points_2`): rifiutati invece
+/// di essere troncati. GEODATA arriva al driver -- ne risolve il CRS --, IMAGE
+/// no, e si prova sul lettore del fork.
+#[test]
+fn geodata_e_image_disallineati_si_rifiutano() {
+    let geodata = |destinazioni: &str| {
+        format!(
+            "0\nSECTION\n2\nOBJECTS\n0\nGEODATA\n13\n0\n23\n0\n13\n1\n23\n1\n{destinazioni}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{LINEA}0\nENDSEC\n0\nEOF\n"
+        )
+        .into_bytes()
+    };
+    let completo = |dxf: Vec<u8>| Drawing::load(&mut std::io::Cursor::new(dxf)).is_ok();
+    assert!(
+        completo(geodata("14\n0\n24\n0\n14\n1\n24\n1\n")),
+        "controllo"
+    );
+    rifiutato("GEODATA disallineato", &geodata("14\n0\n24\n0\n"));
+    let image = |y: &str| {
+        entita(&format!(
+            "0\nIMAGE\n8\n0\n10\n0\n20\n0\n14\n0\n24\n0\n14\n1\n{y}"
+        ))
+    };
+    assert!(completo(image("24\n1\n")), "controllo IMAGE");
+    assert!(!completo(image("")), "IMAGE con due X e una Y");
+}
+
+/// Una SPLINE cubica valida sul percorso 3D: le guardie di
+/// `tessellate_spline3` non rifiutano cio' che va letto.
+#[test]
+fn una_spline_cubica_valida_si_legge() {
+    let spline = entita(
+        "0\nSPLINE\n8\n0\n70\n8\n71\n3\n72\n8\n73\n4\n40\n0\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n30\n0\n10\n1\n20\n2\n30\n1\n10\n2\n20\n2\n30\n2\n10\n3\n20\n0\n30\n3\n",
+    );
+    letto("cubica 3D", &spline, 1);
+}
+
+/// Un DXF binario post-R13: codici da due byte, stringhe terminate da NUL,
+/// reali in otto byte little-endian.
+fn dxf_binario(coppie: &[(u16, &str)]) -> Vec<u8> {
+    let mut byte = b"AutoCAD Binary DXF\r\n\x1a\x00".to_vec();
+    for (codice, valore) in coppie {
+        byte.extend_from_slice(&codice.to_le_bytes());
+        if (10..=59).contains(codice) {
+            let reale: f64 = valore.parse().unwrap();
+            byte.extend_from_slice(&reale.to_le_bytes());
+        } else {
+            byte.extend_from_slice(valore.as_bytes());
+            byte.push(0);
+        }
+    }
+    byte
+}
+
+/// Nel binario il controllo della coda reclamata stava nel solo ramo del
+/// testo: un gruppo numerico fra il `3` e il `1` passava, e `3="abc^"`,
+/// `40=1.0`, `1="Jdef"` dava `"abc\ndef"`, dove l'ASCII rifiutava.
+#[test]
+fn una_coda_reclamata_e_interrotta_si_rifiuta_anche_nel_binario() {
+    let mtext = |in_mezzo: &[(u16, &'static str)]| {
+        let mut coppie: Vec<(u16, &str)> = vec![
+            (0, "SECTION"),
+            (2, "ENTITIES"),
+            (0, "MTEXT"),
+            (8, "0"),
+            (10, "0"),
+            (20, "0"),
+            (40, "1"),
+            (3, "abc^"),
+        ];
+        coppie.extend_from_slice(in_mezzo);
+        coppie.extend_from_slice(&[(1, "Jdef"), (0, "ENDSEC"), (0, "EOF")]);
+        dxf_binario(&coppie)
+    };
+    testo_uguale("binario, controllo", &mtext(&[]), "abc\ndef");
+    testo_rifiutato("binario, reale in mezzo", &mtext(&[(41, "2")]));
+    testo_rifiutato(
+        "ASCII, reale in mezzo",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\nabc^\n41\n2\n1\nJdef\n"),
+    );
+}
+
+/// Gruppi `3` senza il gruppo `1` finale davano un testo plausibile e
+/// troncato; un `3` dopo il `1` finiva fuori ordine; un secondo `1`
+/// sostituiva il primo.
+#[test]
+fn un_mtext_senza_gruppo_1_finale_si_rifiuta() {
+    testo_uguale("controllo, solo 1", &mtext(&[], "abc"), "abc");
+    testo_rifiutato(
+        "3 senza 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\nabc\n"),
+    );
+    testo_rifiutato(
+        "3 dopo 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nabc\n3\ndef\n"),
+    );
+    testo_rifiutato(
+        "due 1",
+        &entita("0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\nabc\n1\ndef\n"),
+    );
+}
+
+/// A fine ingresso una coda reclamata e' un errore, letterale o no, e anche
+/// dopo spazio bianco finale; e l'API progressiva non consegna prima un MTEXT
+/// mutilato.
+#[test]
+fn una_coda_reclamata_alla_fine_dell_ingresso_si_rifiuta_subito() {
+    let senza_fine = |coda: &str| {
+        format!("0\nSECTION\n2\nENTITIES\n0\nMTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n3\n{coda}\n")
+            .into_bytes()
+    };
+    for (nome, mut dxf) in [
+        ("letterale", senza_fine("abc^")),
+        ("non letterale", senza_fine("abc\\U+00")),
+        ("non letterale e spazi", {
+            let mut d = senza_fine("abc\\U+00");
+            d.extend_from_slice(b"\n  \n");
+            d
+        }),
+    ] {
+        testo_rifiutato(nome, &dxf);
+        let mut lettore =
+            dxf::DrawingEntityReader::load(std::io::Cursor::new(std::mem::take(&mut dxf))).unwrap();
+        assert!(
+            lettore.next_entity().is_err(),
+            "{nome}: l'API progressiva consegna l'MTEXT prima dell'errore"
+        );
+    }
+}
+
 #[test]
 fn row_level_dxf_failure_reports_the_top_level_entity_index() {
     let directory = tempfile::tempdir().unwrap();
@@ -772,4 +1612,159 @@ fn missing_geometry_contract_is_rejected_before_output_creation() {
         .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
         .is_err());
     assert!(!output.exists());
+}
+
+/// Il `decode_wkb` del writer DXF dichiara `Write`, e nient'altro cambia.
+///
+/// # Perche' lo stato del writer si costruisce a mano
+///
+/// Perche' `create` lo avvolge con `with_write_validation`, che ispeziona la
+/// geometria e registra una **violazione di riga** invece di propagare: per la
+/// via normale un WKB illeggibile viene respinto li'. Davanti a questa
+/// decodifica ci sono due strati -- la validazione in lettura e quella in
+/// scrittura -- e il ramo e' percio' **difensivo**.
+///
+/// Difensivo non vuol dire esente: se ci si arriva, la fase dev'essere quella
+/// in corso. Costruire lo stato come fa `create`, ma senza la guardia, e' il
+/// modo di raggiungere il ramo davvero invece di dichiararlo corretto e basta.
+#[test]
+fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("guasto.dxf");
+    let mut geometry = GeometryColumnContract::wkb_xy(
+        FieldId(0),
+        GEOMETRY,
+        CrsResolution::resolved(resolved_wgs84()),
+        true,
+    );
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+        &geometry_field(GEOMETRY, "EPSG:4326"),
+        &geometry,
+    )]));
+    // Byte order valido, tipo 99 che non esiste.
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![Some(
+            &[0x01_u8, 0x63, 0x00, 0x00, 0x00][..],
+        )]))],
+    )
+    .unwrap();
+
+    let mut sotto_prova = DxfWriterState {
+        drawing: Drawing::new(),
+        path: output,
+        durable: false,
+        loss: LossReport::default(),
+        dropped_cols: Vec::new(),
+        rows: 0,
+        input_total: None,
+        first: true,
+        wkb_limits: WkbLimits::default(),
+        max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
+    };
+
+    let errore = sotto_prova
+        .write(&batch)
+        .expect_err("un WKB illeggibile non si scrive");
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Write,
+        "la scrittura e' in corso: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}
+
+/// Lo spool su file rifiuta una cella oltre il tetto, e dichiara la lettura.
+///
+/// # Quale delle due righe e' in esame
+///
+/// L'**ispezione**, non la decodifica sotto di essa. `next_row` chiama
+/// `inspect_wkb` con gli stessi limiti e solo dopo, se le dimensioni non
+/// coincidono, decodifica: un tetto superato ferma percio' l'ispezione, e la
+/// decodifica non gira. Correggere la sola decodifica avrebbe lasciato scoperta
+/// l'unica delle due che si raggiunge.
+///
+/// # Perche' la prova e' interna
+///
+/// Perche' il ramo `File` dello spool si apre oltre i 64 MB, che e' una costante
+/// del driver e non un'opzione della riga di comando: dal percorso pubblico
+/// servirebbe una fixture di quella misura. `with_memory_limit` esiste per
+/// questo, ed e' gia' usata dalla prova sullo spill.
+#[test]
+fn lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella() {
+    let mut spool = DxfSpoolWriter::with_memory_limit(4096, 1);
+    spool
+        .push(DxfSpoolRow {
+            geometry: Some(WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            }),
+            layer: Some("layer".to_owned()),
+            entity_type: Some("POINT".to_owned()),
+            text: None,
+        })
+        .unwrap();
+    let storage = spool.finish().unwrap();
+    assert!(
+        matches!(storage, DxfSpoolStorage::File(_)),
+        "la premessa: il ramo in esame e' quello su file"
+    );
+    let mut reader = storage.reader().unwrap();
+
+    // Un WKB di Point misura ventuno byte: cinque non bastano.
+    let stretti = WkbLimits {
+        max_cell_bytes: 5,
+        ..WkbLimits::default()
+    };
+    let Err(errore) = reader.next_row(CoordinateDimensions::Xy, &stretti) else {
+        unreachable!("il tetto per cella deve rifiutare");
+    };
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Read,
+        "lo spool si sta scorrendo: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
 }

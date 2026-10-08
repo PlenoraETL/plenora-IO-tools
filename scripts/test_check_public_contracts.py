@@ -9,12 +9,16 @@ regole mordono davvero, e ciascuna ha la propria controprova positiva -- senza,
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import hashlib
+import io
 import json
 import os
 import pathlib
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -1239,3 +1243,113 @@ class SondeDelleMisure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SondeAttestazione(unittest.TestCase):
+    """L'ingresso che estrae il binario dai byte distribuiti, e li attesta.
+
+    Il punto della voce e' che il legame sia **costruito**, non dichiarato: il
+    chiamante non indica il binario, lo indica l'archivio. Le prove qui sotto
+    fissano quel legame e i modi in cui puo' rompersi.
+    """
+
+    def setUp(self) -> None:
+        self.temporanea = tempfile.TemporaryDirectory()
+        self.radice = pathlib.Path(self.temporanea.name)
+        self.addCleanup(self.temporanea.cleanup)
+
+    def _archivio(self, voci: dict[str, bytes], nome: str = "a.tar.gz") -> pathlib.Path:
+        albero = self.radice / "albero"
+        for relativo, contenuto in voci.items():
+            percorso = albero / relativo
+            percorso.parent.mkdir(parents=True, exist_ok=True)
+            percorso.write_bytes(contenuto)
+        archivio = self.radice / nome
+        with tarfile.open(archivio, "w:gz") as contenitore:
+            contenitore.add(albero, arcname=".")
+        return archivio
+
+    # --- il legame -------------------------------------------------------
+
+    def test_il_digest_attestato_e_quello_dell_archivio(self) -> None:
+        # E' la proprieta' centrale: cio' che si attesta sono i byte
+        # distribuiti, non l'albero che ne esce ne' un file nominato accanto.
+        archivio = self._archivio({"bin/plenora-io": b"#!/bin/sh\nexit 9\n"})
+        atteso = hashlib.sha256(archivio.read_bytes()).hexdigest()
+        self.assertEqual(gate.digest_di(archivio), f"sha256:{atteso}")
+
+    def test_il_binario_si_trova_dentro_l_archivio(self) -> None:
+        archivio = self._archivio({"bin/plenora-io": b"x", "leggimi.txt": b"y"})
+        albero = self.radice / "estratto"
+        albero.mkdir()
+        gate.estrai(archivio, albero)
+        trovato = gate.binario_nell_albero(albero)
+        self.assertEqual(trovato.name, "plenora-io")
+
+    def test_due_binari_nell_archivio_sono_un_errore(self) -> None:
+        # Due candidati vorrebbero dire che non si sa quale sia stato
+        # interrogato, ed e' l'ambiguita' che l'attestazione toglie.
+        archivio = self._archivio(
+            {"bin/plenora-io": b"x", "altro/plenora-io": b"y"}
+        )
+        albero = self.radice / "estratto"
+        albero.mkdir()
+        gate.estrai(archivio, albero)
+        with self.assertRaises(ValueError) as caso:
+            gate.binario_nell_albero(albero)
+        self.assertIn("piu' binari", str(caso.exception))
+
+    def test_un_archivio_senza_binario_e_un_errore(self) -> None:
+        archivio = self._archivio({"leggimi.txt": b"y"})
+        albero = self.radice / "estratto"
+        albero.mkdir()
+        gate.estrai(archivio, albero)
+        with self.assertRaises(ValueError) as caso:
+            gate.binario_nell_albero(albero)
+        self.assertIn("nessun binario", str(caso.exception))
+
+    def test_una_voce_che_esce_dall_albero_e_rifiutata(self) -> None:
+        # L'archivio e' un ingresso: un tar con `..` scrive dove gli pare, e il
+        # controllo sta dove quei nomi diventano percorsi veri.
+        self.assertFalse(gate._voce_sicura("../fuori"))
+        self.assertFalse(gate._voce_sicura("/assoluto"))
+        self.assertTrue(gate._voce_sicura("./bin/plenora-io"))
+
+    def test_l_attestazione_si_scrive_anche_quando_la_verifica_fallisce(self) -> None:
+        # Scriverla solo in caso di successo lascerebbe una corsa rossa senza
+        # traccia, e la via piu' breve al verde sarebbe rieseguire.
+        archivio = self._archivio({"leggimi.txt": b"nessun binario qui"})
+        destinazione = self.radice / "att.json"
+        codice = gate.verifica_artefatto(
+            pathlib.Path("."), archivio, destinazione
+        )
+        self.assertEqual(codice, 2)
+        documento = json.loads(destinazione.read_text(encoding="utf-8"))
+        self.assertFalse(documento["conforme"])
+        self.assertIn("errore", documento)
+        self.assertEqual(
+            documento["artefatto"]["digest"], gate.digest_di(archivio)
+        )
+
+    # --- la riga di comando ----------------------------------------------
+
+    def _main(self, *argomenti: str) -> int:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return gate.main(list(argomenti))
+
+    def test_cli_e_artefatto_insieme_sono_rifiutati(self) -> None:
+        # Ammetterli insieme vorrebbe dire poter attestare un archivio
+        # interrogandone un altro.
+        esito = self._main(
+            "--contracts", ".", "--cli", "x", "--artefatto", "y"
+        )
+        self.assertEqual(esito, 2)
+
+    def test_senza_ne_cli_ne_artefatto_e_rifiutato(self) -> None:
+        self.assertEqual(self._main("--contracts", "."), 2)
+
+    def test_l_attestazione_pretende_l_artefatto(self) -> None:
+        esito = self._main(
+            "--contracts", ".", "--cli", "x", "--attestazione", "a.json"
+        )
+        self.assertEqual(esito, 2)

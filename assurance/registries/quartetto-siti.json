@@ -392,52 +392,11 @@
     ]
   },
   "crates/plenora-io-core/src/driver.rs": {
-    "account": [
-      "esplicito/esplicito/Generic/esplicito",
-      "Unsupported/Validate/Capability/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "Unsupported/Validate/Capability/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "commit": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "declare_input_total": [
-      "InvalidPlan/Validate/Contract/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "InvalidPlan/Validate/Contract/Never"
-    ],
-    "errore_di_rifiuto_senza_report": [
-      "esplicito/esplicito/Generic/esplicito"
-    ],
-    "finish": [
-      "DataMapping/Read/Format/Never",
-      "InvalidPlan/Validate/Contract/Never"
-    ],
     "geometry_contracts_for_validation": [
       "InvalidPlan/Validate/Contract/Never"
     ],
-    "geometry_violation": [
-      "Unsupported/Validate/Capability/Never"
-    ],
-    "inspect_geometry_row": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "leggendo_arrow": [
       "DataMapping/Read/Format/Never"
-    ],
-    "nullability_violations": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "permit_gia_speso": [
       "ResourceLimit/Validate/LimitExceeded/Never"
@@ -449,21 +408,11 @@
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
-    "write": [
-      "DataMapping/Read/Format/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "write_rejection_error": [
-      "esplicito/esplicito/Generic/esplicito"
-    ],
     "write_row_rejection": [
       "esplicito/esplicito/Generic/esplicito"
     ],
     "write_to_layer": [
-      "Unsupported/Validate/Unsupported/Never",
-      "DataMapping/Read/Format/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ]
   },
   "crates/plenora-io-core/src/driver/batch_worker.rs": {
@@ -518,12 +467,69 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-core/src/driver/scrittura_limitata.rs": {
+    "account": [
+      "esplicito/esplicito/Generic/esplicito",
+      "Unsupported/Validate/Capability/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Capability/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "commit": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "declare_input_total": [
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "finish": [
+      "DataMapping/Finalize/Format/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "write": [
+      "DataMapping/Write/Format/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write_to_layer": [
+      "DataMapping/Write/Format/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
   "crates/plenora-io-core/src/driver/spool.rs": {
     "contract_error": [
       "InvalidPlan/Validate/Contract/Never"
     ],
     "spool_error": [
       "esplicito/esplicito/Io/esplicito"
+    ]
+  },
+  "crates/plenora-io-core/src/driver/validazione_geometrie.rs": {
+    "errore_di_rifiuto_senza_report": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "geometry_violation": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "inspect_geometry_row": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "nullability_violations": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write_rejection_error": [
+      "esplicito/esplicito/Generic/esplicito"
     ]
   },
   "crates/plenora-io-core/src/publish.rs": {
@@ -534,14 +540,14 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "publish_file_atomic_limited": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "ResourceLimit/Commit/LimitExceeded/Never"
     ],
     "publish_files_ordered_limited": [
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "ResourceLimit/Commit/LimitExceeded/Never",
+      "ResourceLimit/Commit/LimitExceeded/Never"
     ],
     "publish_rename_error": [
       "Conflict/Commit/OutputExists/Never"

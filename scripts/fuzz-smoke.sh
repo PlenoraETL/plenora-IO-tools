@@ -166,8 +166,35 @@ for target in "${targets[@]}"; do
     fi
 done
 
+# --- la classificazione del crash ------------------------------------------
+#
+# Prima un crash faceva fallire lo smoke e basta. Un finding gia' tracciato a
+# monte lo faceva fallire ogni volta, e l'unica via era la quarantena -- che e'
+# per **bersaglio**, cioe' smetteva di esplorarlo del tutto.
+#
+# Ora l'uscita di ogni corsa si conserva e si classifica. Tre esiti, tre
+# insiemi, e nessuno dei tre si confonde con gli altri:
+#
+#   * nessun crash    -- il bersaglio ha finito il proprio tempo;
+#   * crash compatibile con un finding noto -- la firma corrisponde a una voce
+#                        di `assurance/registries/finding-noti-fuzz.json`.
+#                        **Compatibile, non identico**: due difetti diversi
+#                        possono dare lo stesso errore nello stesso modulo, e la
+#                        firma non li separa. Non fa fallire lo smoke, ma il
+#                        bersaglio **si e\' fermato li\'**: libFuzzer non riparte
+#                        dopo un crash. Non entra fra quelli che hanno finito, e
+#                        l\'input viene conservato con il suo referto perche\' la
+#                        classificazione si possa riesaminare;
+#   * finding nuovo   -- rosso, come prima.
+#
+# Un crash che il classificatore non riesce a leggere e' rosso anch'esso: una
+# corsa fallita senza panico riconoscibile e' un guasto, non un finding noto.
 failed=()
+noti=()
 skipped=0
+uscite=$(mktemp -d)
+trap 'rm -rf "${uscite}"' EXIT
+
 for target in "${targets[@]}"; do
     if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
         echo "=== ${target}: saltato (quarantena) ==="
@@ -175,16 +202,68 @@ for target in "${targets[@]}"; do
         continue
     fi
     echo "=== ${target}: ${duration}s ==="
-    if ! cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
+    uscita="${uscite}/${target}.txt"
+    if cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \
         "-timeout=15" \
         "-print_final_stats=1" \
-        "-artifact_prefix=fuzz/artifacts/${target}/"; then
-        failed+=("${target}")
+        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}"; then
+        continue
     fi
+    # `pipefail` non e' attivo qui: l'esito della corsa e' quello di `cargo`,
+    # non di `tee`, e si rilegge da PIPESTATUS.
+    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+        continue
+    fi
+    python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
+        --uscita "${uscita}" \
+        --conserva "assurance/evidence/finding-fuzz"
+    case "$?" in
+        3) noti+=("${target}") ;;
+        *) failed+=("${target}") ;;
+    esac
 done
+
+# Il verbale della corsa, e perche' esiste.
+#
+# Lo smoke esce 0 anche quando un bersaglio si e' fermato a un crash noto: e'
+# voluto, perche' lo sviluppo prosegua sugli altri. Quello 0 pero' non deve
+# diventare «campagna completata» piu' in la' nella catena -- la CI e il passo
+# `fuzz_smoke` del checkpoint leggono l'esito, non la riga stampata.
+#
+# Il verbale separa i due stati e li rende leggibili da un gate. La
+# qualificazione finale lo rilegge con
+# `classifica_finding_fuzz.py --verifica-campagna`, che e' rossa se qualcuno si
+# e' fermato.
+# «Finito» vuol dire **una** cosa: il bersaglio ha consumato il proprio
+# tempo senza fermarsi. Chi si e' fermato a un crash noto non ci sta, e
+# nemmeno chi e' fallito su un finding nuovo -- quello si e' fermato pure
+# lui, e contarlo fra i completi renderebbe il verbale piu' generoso della
+# corsa che descrive.
+finiti=()
+for target in "${targets[@]}"; do
+    fermo=0
+    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"}; do
+        [ "${gia}" = "${target}" ] && fermo=1
+    done
+    if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
+        fermo=1
+    fi
+    [ "${fermo}" -eq 0 ] && finiti+=("${target}")
+done
+
+# Il verbale si scrive **prima** dell'uscita rossa: una corsa che ha
+# trovato un finding nuovo e' comunque una corsa avvenuta, e cancellarne
+# la traccia lascerebbe la qualificazione a rileggere il verbale di quella
+# precedente.
+python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
+    --scrivi-verbale "${duration}" \
+    --finiti ${finiti[@]+"${finiti[@]}"} \
+    --fermati ${noti[@]+"${noti[@]}"} \
+    --falliti ${failed[@]+"${failed[@]}"} \
+    --dichiarati ${dichiarati[@]+"${dichiarati[@]}"}
 
 if [ "${#failed[@]}" -ne 0 ]; then
     echo "target con finding: ${failed[*]}" >&2
@@ -192,6 +271,15 @@ if [ "${#failed[@]}" -ne 0 ]; then
 fi
 
 eseguiti=$(( ${#targets[@]} - skipped ))
+if [ "${#noti[@]}" -ne 0 ]; then
+    # La riga non puo' dire «completato»: i bersagli fermati a un finding noto
+    # non hanno esplorato il tempo che restava, e una riga che li contasse fra
+    # i completi direbbe di una campagna piu' di quanto sia successo.
+    finiti=$(( eseguiti - ${#noti[@]} ))
+    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
+    exit 0
+fi
+
 if [ "${#targets[@]}" -eq "${#dichiarati[@]}" ]; then
     echo "smoke fuzz completato senza finding su ${eseguiti} target eseguiti (${skipped} in quarantena, comunque compilati)"
 else

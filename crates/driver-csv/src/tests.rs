@@ -825,3 +825,165 @@ fn background_reader_preserves_wkb_error_variant() {
         Err(error) if error.code == plenora_io_model::IoErrorCode::Wkb
     ));
 }
+
+/// Il `decode_wkb` del writer CSV dichiara `Write`, e nient'altro cambia.
+///
+/// # Perche' il writer si costruisce a mano
+///
+/// Perche' `create` lo avvolge con `with_write_validation`, che ispeziona la
+/// geometria e registra una **violazione di riga** invece di propagare: per la
+/// via normale un WKB illeggibile viene respinto li'. Davanti a questa
+/// decodifica ci sono due strati -- la validazione in lettura e quella in
+/// scrittura -- e il ramo e' percio' **difensivo**.
+///
+/// Difensivo non vuol dire esente: se ci si arriva, la fase dev'essere quella
+/// in corso. Costruire il writer come fa `create`, ma senza la guardia, e' il
+/// modo di raggiungere il ramo davvero invece di dichiararlo corretto e basta.
+///
+/// Lo schema resta quello vero, prodotto dal lettore: cambia solo il contenuto
+/// della colonna geometrica, cosi' il writer arriva alla decodifica invece di
+/// fermarsi prima su una forma che non riconosce.
+#[test]
+fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
+    let dir = tempfile::tempdir().unwrap();
+    let sorgente = dir.path().join("in.csv");
+    std::fs::write(
+        &sorgente,
+        "id,geometry
+1,POINT (1 2)
+",
+    )
+    .unwrap();
+
+    let dataset = CsvDriver
+        .open(
+            Source::Path(sorgente),
+            read_opts(&[("wkt_column", "geometry")]),
+        )
+        .expect("la sorgente si apre");
+    let mut reader = dataset
+        .open_layer_reader(&req(1_000))
+        .expect("il reader si apre");
+    let batch = reader
+        .next_batch()
+        .expect("il batch si legge")
+        .expect("c'e' una riga");
+
+    // Byte order valido, tipo 99 che non esiste.
+    let mut colonne: Vec<arrow_array::ArrayRef> = batch.columns().to_vec();
+    colonne[0] = Arc::new(BinaryArray::from(vec![
+        Some(
+            &[0x01_u8, 0x63, 0x00, 0x00, 0x00][..]
+        );
+        batch.num_rows()
+    ]));
+    let guasto = RecordBatch::try_new(batch.schema(), colonne).unwrap();
+
+    let destinazione = dir.path().join("uscita.csv");
+    let opzioni = opzioni_scrittura();
+    let staging = plenora_io_core::publish::StagedFile::new(
+        &destinazione,
+        false,
+        u64::MAX,
+        opzioni.budget().context(),
+    )
+    .expect("lo staging si crea");
+    let writer = csv::WriterBuilder::new()
+        .delimiter(b',')
+        .from_writer(staging.reopen().expect("lo staging si riapre"));
+    let mut sotto_prova = CsvWriter {
+        staging,
+        writer: Some(writer),
+        xy: false,
+        header_written: false,
+        wkb_limits: WkbLimits::default(),
+    };
+
+    let errore = sotto_prova
+        .write(&guasto)
+        .expect_err("un WKB illeggibile non si scrive");
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Write,
+        "la scrittura e' in corso: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}
+
+/// Una scadenza che arriva **dopo** il controllo d'ingresso di `finish` -- nel
+/// flush del writer CSV, nel caso reale -- non pubblica.
+///
+/// Il writer si costruisce a mano, senza `LimitedWriter`, per arrivare al
+/// `finish` del driver con il contesto gia' scaduto: e' la condizione in cui la
+/// scadenza passa fra il controllo di `LimitedWriter::finish` e il rename. La
+/// scadenza e' armata sul token, senza attese.
+#[test]
+fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
+    let dir = tempfile::tempdir().unwrap();
+    let destinazione = dir.path().join("uscita.csv");
+    let token = CancellationToken::new();
+    let opzioni = match plenora_io_model::budget::PipelineBudget::builder()
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
+    };
+    let staging = plenora_io_core::publish::StagedFile::new(
+        &destinazione,
+        true,
+        u64::MAX,
+        opzioni.budget().context(),
+    )
+    .expect("lo staging si crea");
+    let percorso_staging = staging.path().expect("percorso").to_path_buf();
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(b',')
+        .from_writer(staging.reopen().expect("lo staging si riapre"));
+    writer.write_record(["id"]).expect("intestazione");
+    let sotto_prova = Box::new(CsvWriter {
+        staging,
+        writer: Some(writer),
+        xy: false,
+        header_written: true,
+        wkb_limits: WkbLimits::default(),
+    });
+
+    token.cancel_due_to_deadline();
+    let Err(errore) = sotto_prova.finish() else {
+        panic!("oltre la scadenza il CSV non si pubblica");
+    };
+
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Finalize,
+        "{errore}"
+    );
+    assert!(!destinazione.exists(), "la destinazione non deve comparire");
+    assert!(
+        !percorso_staging.exists(),
+        "lo staging deve essere ripulito"
+    );
+}

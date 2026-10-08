@@ -418,7 +418,12 @@ impl FormatDriver for CsvDriver {
                 ));
             }
         };
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?)
             .from_writer(staging.reopen()?);
@@ -630,7 +635,20 @@ fn infer_wkt_geometry(
         // questa riga usava il default, quindi il flag non arrivava
         // all'inferenza e una cella oltre la soglia configurata veniva
         // parsata comunque.
-        let geometry = parse_wkt_bounded(text, &quote.cella_wkt)?;
+        // La fase la dichiara **questo** sito, non il parser.
+        //
+        // `parse_wkt_bounded` e' un analizzatore puro: non sa se sta servendo
+        // l'inferenza, il loop di lettura o un writer che ricodifica in uscita.
+        // La fase del suo costruttore (`Validate`) e' percio' un default, non
+        // una determinazione, e lasciarla qui violava ERR-003: questa passata
+        // gira dentro `open`, dove il reader viene allestito, e `validate`
+        // faceva dire alla busta una fase che non e' quella in corso.
+        //
+        // `Prepare` e non `Probe`: e' lo stadio di `reader_busy` e
+        // `projection_unsupported`, che nascono nello stesso `open`. `Probe`
+        // etichetta la scoperta della sorgente, che viene prima.
+        let geometry = parse_wkt_bounded(text, &quote.cella_wkt)
+            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
@@ -688,7 +706,18 @@ fn spawn_parser(
                 break;
             }
             if let (Some(builder), Some(spec)) = (&mut geom_b, geom) {
-                append_geometry(builder, spec, &rec, &mut wkb_buf, cella_wkt)?;
+                // La fase si dichiara **qui**, non nel parser. `parse_wkt_bounded`
+                // e' un analizzatore puro: non sa se sta servendo l'inferenza,
+                // questo loop o un writer che ricodifica in uscita, e la fase di
+                // default del suo costruttore (`Validate`) e' percio' un
+                // segnaposto, non una determinazione.
+                //
+                // Chi sa e' questo punto: qui `read_record` e' gia' riuscito, e
+                // la riga accanto lo dice -- `required_cell` dichiara `Read`.
+                // Lasciare `Validate` faceva dire alla busta «non ho cominciato»
+                // mentre migliaia di righe erano state lette, contro ERR-003.
+                append_geometry(builder, spec, &rec, &mut wkb_buf, cella_wkt)
+                    .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
             }
             for (k, (ci, _)) in attrs.iter().enumerate() {
                 builders[k].append_csv_cell(required_cell(&rec, *ci)?)?;
@@ -886,7 +915,11 @@ impl FormatWriter for CsvWriter {
                         })?;
                     }
                 } else {
-                    let geom = decode_wkb(geom_col.value(row), &limits)?;
+                    // `decode_wkb` e `format_wkt` sono analizzatori condivisi: il loro
+                    // costruttore fissa `Validate` perche' non sanno in quale passata
+                    // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
+                    let geom = decode_wkb(geom_col.value(row), &limits)
+                        .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
                     if xy {
                         match geom.value {
                             WkbValue::Point(point)
@@ -915,7 +948,8 @@ impl FormatWriter for CsvWriter {
                         }
                     } else {
                         fbuf.clear();
-                        format_wkt_into(&geom, &mut fbuf)?;
+                        format_wkt_into(&geom, &mut fbuf)
+                            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
                         w.write_field(&fbuf).map_err(|_| {
                             err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
                         })?;

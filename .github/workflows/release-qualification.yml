@@ -39,6 +39,10 @@ jobs:
       #
       # Il job della 2.0.0 fu saltato, quindi questa via non era mai stata
       # esercitata: e' emersa alla prima qualifica che la percorre davvero.
+      #
+      # E' la GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: GDAL, che una prova di invariante rimisura
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Test release qualification semantics
@@ -57,6 +61,13 @@ jobs:
       # invece che dentro un gate: sono tre condizioni indipendenti, e
       # nasconderle in uno script il cui scopo e' un'altra cosa le rende
       # difficili da leggere e facili da perdere.
+      #
+      # Questo job gira anche sul **checkout del tag**, cioe' sull'albero
+      # congelato, e li' una domanda cambia oggetto: `tag_creato` non puo'
+      # essere vero su un commit che il tag lo precede. La distinzione sta nel
+      # gate, in `_candidate_legata_alle_fonti`, e non qui: e' una proprieta'
+      # del modello a due revisioni, non di questo workflow, e ripeterla qui
+      # vorrebbe dire due luoghi che possono divergere.
       - name: Qualify the exact clean checkout selected by GitHub
         env:
           EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}

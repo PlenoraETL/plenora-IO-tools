@@ -429,6 +429,7 @@ impl FormatDriver for XlsDriver {
                 batches: Vec::new(),
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -775,6 +776,8 @@ struct XlsWriterState {
     batches: Vec<RecordBatch>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 // Usata come funzione in `map_err`: la firma per valore è imposta dal punto di
@@ -898,7 +901,11 @@ impl FormatWriter for XlsWriterState {
                     }
                 }
                 if !geom_col.is_null(row) {
-                    let g = decode_wkb(geom_col.value(row), &limits)?;
+                    // `Finalize` e non `Write`: il writer XLSX accumula i batch e
+                    // materializza il foglio in `finish`, che e' dove siamo. E'
+                    // la stessa fase che `scrittura_limitata` dichiara li'.
+                    let g = decode_wkb(geom_col.value(row), &limits)
+                        .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Finalize))?;
                     if self.xy {
                         match &g.value {
                             WkbValue::Point(point) if g.dimensions == CoordinateDimensions::Xy => {
@@ -913,7 +920,13 @@ impl FormatWriter for XlsWriterState {
                         }
                     } else {
                         sheet
-                            .write_string(r, col, format_wkt(&g)?)
+                            .write_string(
+                                r,
+                                col,
+                                format_wkt(&g).map_err(|errore| {
+                                    errore.during(plenora_io_model::ErrorPhase::Finalize)
+                                })?,
+                            )
                             .map_err(xls_err)?;
                     }
                 }
@@ -925,8 +938,13 @@ impl FormatWriter for XlsWriterState {
         let mut temp = create_staged_file(&self.path)?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = publish_file_atomic_limited(
+            temp,
+            &self.path,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -1187,7 +1205,9 @@ fn encode_geometry_cell(
             // Da S5 e' la quota **configurata** dal chiamante: chi stringe
             // `--max-wkb-cell-bytes` vede il rifiuto qui, dove l'AST verrebbe
             // allocato, invece che dopo.
-            let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)?;
+            // `infer_layout` gira dentro `open`, come l'inferenza del CSV.
+            let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();

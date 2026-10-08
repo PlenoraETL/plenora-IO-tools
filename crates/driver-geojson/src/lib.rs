@@ -228,7 +228,12 @@ impl FormatDriver for GeoJsonDriver {
                 &PublicMessage::Curated("GeoJSON: un solo layer per file nella v1"),
             ));
         }
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let mut writer = BufWriter::new(staging.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(
@@ -1563,7 +1568,11 @@ fn write_feature<W: Write>(
     if geom_col.is_null(row) {
         w.write_all(b"null")?;
     } else {
-        let geom = decode_wkb(geom_col.value(row), limits)?;
+        // `decode_wkb` e `format_wkt` sono analizzatori condivisi: il loro
+        // costruttore fissa `Validate` perche' non sanno in quale passata
+        // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
+        let geom = decode_wkb(geom_col.value(row), limits)
+            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
         geometry::write_wkb_geojson(w, &geom)?;
     }
     w.write_all(b",\"properties\":{")?;

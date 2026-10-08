@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 146,
+  "totale": 143,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -12,8 +12,8 @@
       "ragione": "delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton"
     },
     "driver-dxf": {
-      "conteggio": 15,
-      "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill"
+      "conteggio": 10,
+      "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill Dal 2026-10-06 cinque in meno (15 -> 10, #32): i tre `unwrap_or` degli assi in `Transform3::ocs`, la normale dell'ellisse in `tessellate_ellipse3` e il peso `unwrap_or(1.0)` di `tessellate_spline3` sostituivano un valore del documento -- una normale nulla diventava l'asse Z, un peso non valido 1.0 -- e ora sono rifiuti espliciti. Le scale INSERT nulle (`if == 0.0 { 1.0 }`, non contate come forma) sono rifiutate nello stesso giro. Restano i ripieghi di `Transform::ocs` e `tessellate_spline` 2D, che il driver non chiama."
     },
     "driver-filegdb": {
       "conteggio": 6,
@@ -24,8 +24,8 @@
       "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso; piu' il messaggio che distingue un JSON malformato da un rifiuto di una nostra regola, quando il canale laterale dell'errore e' vuoto"
     },
     "driver-geoparquet": {
-      "conteggio": 3,
-      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza"
+      "conteggio": 5,
+      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; due nelle prove Q2, dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore"
     },
     "driver-gpkg": {
       "conteggio": 3,

@@ -1,0 +1,14 @@
+[package]
+name = "byte-stream-split-oob"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Nessuna dipendenza dal workspace di plenora-IO-tools: il caso deve poter
+# essere compilato da chi non ha questo repository.
+# Pinned to the latest release at the time of writing. 59.3.0 reproduces
+# identically -- change these three lines to check.
+[dependencies]
+parquet = { version = "60.0.0", features = ["arrow"] }
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"

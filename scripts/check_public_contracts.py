@@ -72,12 +72,17 @@ e' rotto, meno requisiti sembrano soddisfatti, e piu' «normale» appare.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
+import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1502,7 +1507,13 @@ def registro_coerente(registro: dict[str, Any]) -> list[str]:
     return errori
 
 
-def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
+def esegui(
+    contratti: Path,
+    binario: Path,
+    esigente: bool,
+    *,
+    referto: dict[str, Any] | None = None,
+) -> int:
     adozione = json.loads(ADOZIONE.read_text(encoding="utf-8"))
     atteso = adozione["contracts_source"]["revision"]
     corrente = subprocess.run(
@@ -1521,6 +1532,9 @@ def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if referto is not None:
+        referto["contratti"] = {"pin": corrente}
 
     registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
     guasti = registro_coerente(registro)
@@ -1549,6 +1563,16 @@ def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
             avanzamenti.append(f"{identita} ({voce['regola']})")
         else:
             mancanti.append(f"{identita} ({voce['regola']}): {esito.dettaglio}")
+
+    if referto is not None:
+        referto["requisiti"] = {
+            "totale": len(registro["requisiti"]),
+            "protetti": protetti,
+            "regressioni": list(regressioni),
+            "da_dichiarare": list(avanzamenti),
+            "non_soddisfatti": list(mancanti),
+            "invocazioni_guaste": list(artefatto.guasti),
+        }
 
     # I guasti vengono prima di tutto, e valgono anche per i `non_ancora`.
     #
@@ -1599,6 +1623,11 @@ def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
         )
         return 1
 
+    # Conforme solo di qua: e' l'unica via che ha superato guasti, regressioni,
+    # avanzamenti non dichiarati e -- se esigente -- i requisiti non soddisfatti.
+    if referto is not None:
+        referto["conforme"] = True
+
     print(
         f"profilo pubblico: {protetti} requisiti verificati e protetti su {totale}"
         + (f", {len(mancanti)} ancora da implementare." if mancanti else ".")
@@ -1606,6 +1635,148 @@ def esegui(contratti: Path, binario: Path, esigente: bool) -> int:
     for riga in mancanti:
         print(f"  DA IMPLEMENTARE {riga}")
     return 0
+
+
+# --- l'attestazione: legare l'esito ai byte dell'artefatto -------------------
+#
+# Il manifesto di adozione elenca, per ogni artefatto, i comandi che lo hanno
+# verificato. Sono **stringhe scritte**: nessuno controlla che siano state
+# eseguite, ne' su quali byte. Un manifesto che elencasse una verifica mai
+# fatta sarebbe formalmente valido.
+#
+# Qui il legame si costruisce invece di dichiararlo. Il binario non lo indica
+# il chiamante: viene **estratto dall'archivio distribuito**, il cui digest
+# finisce nell'attestazione insieme all'esito. «Questi requisiti sono
+# verificati su questi byte» diventa cosi' una conseguenza di come la verifica
+# e' stata eseguita, non una promessa a margine.
+#
+# Il digest si calcola sull'archivio **prima** di aprirlo: cio' che si attesta
+# e' il file distribuito, non l'albero che ne e' uscito.
+
+NOME_BINARIO = frozenset({"plenora-io", "plenora-io.exe"})
+
+
+def digest_di(percorso: Path) -> str:
+    """Il digest di un file, nella forma che il manifesto gia' usa."""
+    somma = hashlib.sha256()
+    with percorso.open("rb") as flusso:
+        for pezzo in iter(lambda: flusso.read(1024 * 1024), b""):
+            somma.update(pezzo)
+    return f"sha256:{somma.hexdigest()}"
+
+
+def _voce_sicura(nome: str) -> bool:
+    """Una voce d'archivio che non esce dalla directory di estrazione.
+
+    L'archivio e' un ingresso, e un percorso assoluto o con `..` dentro un tar
+    scrive dove gli pare. Il controllo sta qui e non piu' in la' perche'
+    l'estrazione e' l'unico punto in cui quei nomi diventano percorsi veri.
+    """
+    if nome[:1] in {"/", "\\"}:
+        return False
+    parti = PurePosixPath(nome).parts
+    return ".." not in parti and not any(voce.endswith(":") for voce in parti)
+
+
+def estrai(archivio: Path, destinazione: Path) -> None:
+    """Apre un `.tar.gz` o uno `.zip` sotto `destinazione`, e niente fuori."""
+    if archivio.name.endswith(".zip"):
+        with zipfile.ZipFile(archivio) as contenitore:
+            nomi = contenitore.namelist()
+            if not all(_voce_sicura(nome) for nome in nomi):
+                raise ValueError("voci fuori dall'albero di estrazione")
+            contenitore.extractall(destinazione)
+        return
+    with tarfile.open(archivio, "r:*") as contenitore:
+        if not all(_voce_sicura(voce.name) for voce in contenitore.getmembers()):
+            raise ValueError("voci fuori dall'albero di estrazione")
+        try:
+            # Dove esiste, neutralizza permessi e link speciali.
+            contenitore.extractall(destinazione, filter="data")
+        except TypeError:
+            contenitore.extractall(destinazione)
+
+
+def binario_nell_albero(radice: Path) -> Path:
+    """Il solo eseguibile della CLI dentro l'albero estratto.
+
+    «Il solo» e' una pretesa, non una comodita': due candidati vorrebbero dire
+    che non si sa quale sia stato interrogato, ed e' proprio l'ambiguita' che
+    questa attestazione esiste per togliere.
+    """
+    trovati = sorted(
+        percorso
+        for percorso in radice.rglob("*")
+        if percorso.is_file() and percorso.name in NOME_BINARIO
+    )
+    if not trovati:
+        raise ValueError(
+            f"nessun binario della CLI nell'archivio: attesi {sorted(NOME_BINARIO)}"
+        )
+    if len(trovati) > 1:
+        nomi = ", ".join(str(v.relative_to(radice)) for v in trovati)
+        raise ValueError(f"piu' binari della CLI nell'archivio: {nomi}")
+    return trovati[0]
+
+
+def verifica_artefatto(
+    contratti: Path, archivio: Path, attestazione: Path | None
+) -> int:
+    """Verifica il profilo pubblico **sui byte distribuiti**, e lo attesta.
+
+    L'esigenza e' implicita e non opzionale: un'attestazione nata da una corsa
+    non esigente direbbe «conforme» con dei requisiti non soddisfatti, e la
+    conformita' parziale non qualifica.
+
+    L'attestazione si scrive **anche quando la verifica fallisce**. Scriverla
+    solo in caso di successo lascerebbe una corsa rossa senza traccia, e la via
+    piu' breve al verde sarebbe rieseguire finche' non passa.
+    """
+    referto: dict[str, Any] = {
+        "schema_version": 1,
+        "prodotto_da": "scripts/check_public_contracts.py",
+        "prodotto_il": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "artefatto": {
+            "nome": archivio.name,
+            "digest": digest_di(archivio),
+            "byte": archivio.stat().st_size,
+        },
+        "esigente": True,
+        "conforme": False,
+    }
+
+    with tempfile.TemporaryDirectory(prefix="plenora-attestazione-") as temporanea:
+        albero = Path(temporanea)
+        try:
+            estrai(archivio, albero)
+            binario = binario_nell_albero(albero)
+        except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile) as guasto:
+            print(f"{archivio.name}: {guasto}", file=sys.stderr)
+            referto["errore"] = str(guasto)
+            _scrivi_attestazione(attestazione, referto)
+            return 2
+        referto["binario"] = {
+            "percorso_nell_archivio": binario.relative_to(albero).as_posix(),
+            "digest": digest_di(binario),
+        }
+        # Lo zip non porta il bit di esecuzione, e un binario non eseguibile
+        # sarebbe un guasto dell'estrazione travestito da difetto del prodotto.
+        binario.chmod(binario.stat().st_mode | stat.S_IXUSR)
+        codice = esegui(contratti, binario, True, referto=referto)
+
+    _scrivi_attestazione(attestazione, referto)
+    return codice
+
+
+def _scrivi_attestazione(destinazione: Path | None, referto: dict[str, Any]) -> None:
+    if destinazione is None:
+        return
+    destinazione.parent.mkdir(parents=True, exist_ok=True)
+    destinazione.write_text(
+        json.dumps(referto, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"attestazione scritta in {destinazione}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1618,9 +1789,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     argomenti.add_argument(
         "--cli",
-        required=True,
         type=Path,
         help="percorso del binario da interrogare; la provenienza non e' giudicata qui",
+    )
+    argomenti.add_argument(
+        "--artefatto",
+        type=Path,
+        help=(
+            "archivio distribuito da cui estrarre il binario: l'esito viene "
+            "legato al digest di questi byte, ed e' sempre esigente"
+        ),
+    )
+    argomenti.add_argument(
+        "--attestazione",
+        type=Path,
+        help="dove scrivere l'attestazione; richiede --artefatto",
     )
     argomenti.add_argument(
         "--esigente",
@@ -1629,13 +1812,38 @@ def main(argv: list[str] | None = None) -> int:
     )
     opzioni = argomenti.parse_args(argv)
 
-    if not opzioni.cli.is_file():
-        print(f"{opzioni.cli}: binario assente", file=sys.stderr)
+    # I due ingressi si escludono: `--cli` giudica un binario e non dice da dove
+    # venga, `--artefatto` lo ricava dai byte distribuiti. Ammetterli insieme
+    # vorrebbe dire poter attestare un archivio interrogandone un altro.
+    if bool(opzioni.cli) == bool(opzioni.artefatto):
+        print(
+            "serve esattamente uno fra --cli e --artefatto: il primo verifica un "
+            "binario qualunque, il secondo lega l'esito ai byte distribuiti.",
+            file=sys.stderr,
+        )
+        return 2
+    if opzioni.attestazione is not None and opzioni.artefatto is None:
+        print(
+            "--attestazione richiede --artefatto: senza i byte distribuiti non ci "
+            "sarebbe niente a cui legare l'esito.",
+            file=sys.stderr,
+        )
         return 2
     if not (opzioni.contracts / ".git").exists():
         print(f"{opzioni.contracts}: non e' un checkout git", file=sys.stderr)
         return 2
 
+    if opzioni.artefatto is not None:
+        if not opzioni.artefatto.is_file():
+            print(f"{opzioni.artefatto}: archivio assente", file=sys.stderr)
+            return 2
+        return verifica_artefatto(
+            opzioni.contracts, opzioni.artefatto, opzioni.attestazione
+        )
+
+    if not opzioni.cli.is_file():
+        print(f"{opzioni.cli}: binario assente", file=sys.stderr)
+        return 2
     return esegui(opzioni.contracts, opzioni.cli, opzioni.esigente)
 
 

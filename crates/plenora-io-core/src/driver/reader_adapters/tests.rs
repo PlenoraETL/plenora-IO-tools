@@ -1806,3 +1806,144 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
         "il reader deve tenere la quota di concorrenza del context collegato"
     );
 }
+
+// ---------------------------------------------------------------------------
+// La scadenza ha la precedenza sulla quota (SURF-010).
+//
+// Il driver finto arma la scadenza del token **dentro** `next_batch()` e
+// restituisce un batch oltre la prenotazione: e' la gara fra deadline e quota,
+// resa deterministica senza orologio.
+
+struct ScadeDentroIlBatch {
+    contract: LayerContract,
+    token: CancellationToken,
+    batch: Option<RecordBatch>,
+}
+
+impl LayerReader for ScadeDentroIlBatch {
+    fn contract(&self) -> &LayerContract {
+        &self.contract
+    }
+
+    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        self.token.cancel_due_to_deadline();
+        Ok(self.batch.take())
+    }
+}
+
+fn reader_che_scade(limits: PipelineLimits, righe: usize) -> BudgetedReader {
+    let contract = validating_contract();
+    let token = CancellationToken::new();
+    let budget = match PipelineBudget::builder()
+        .limits(limits)
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    let operation = budget.context().lease_concurrency().unwrap();
+    let batch = geometry_batch(&contract, &vec![true; righe]);
+    BudgetedReader::new(
+        Box::new(ScadeDentroIlBatch {
+            contract,
+            token,
+            batch: Some(batch),
+        }),
+        budget,
+        true,
+        CancellationToken::default(),
+        BatchTarget::default(),
+        ReadScope::Complete,
+        operation,
+    )
+    .unwrap()
+}
+
+/// Il batch supera le righe prenotate (`max_rows` 3, ne arrivano 5) e la
+/// scadenza e' passata dentro `next_batch()`: e' un `timeout`, non una quota.
+#[test]
+fn a_deadline_inside_next_batch_beats_the_reservation_overflow() {
+    let mut reader = reader_che_scade(PipelineLimits::default().with_max_rows(3), 5);
+    let errore = reader.next_batch().unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Read, "{errore:?}");
+}
+
+/// Il ramo della sonda: quota di righe gia' esaurita, la sonda legge per
+/// scoprire la fine e trova un batch -- ma intanto la scadenza e' passata.
+#[test]
+fn a_deadline_inside_the_end_of_input_probe_beats_the_exhausted_quota() {
+    // Le quattro righe ammesse le consuma un primo batch normale; il secondo
+    // arriva nella sonda, e con lui la scadenza.
+    struct PrimaPoiScade {
+        contract: LayerContract,
+        token: CancellationToken,
+        batch: VecDeque<RecordBatch>,
+    }
+    impl LayerReader for PrimaPoiScade {
+        fn contract(&self) -> &LayerContract {
+            &self.contract
+        }
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            if self.batch.len() == 1 {
+                self.token.cancel_due_to_deadline();
+            }
+            Ok(self.batch.pop_front())
+        }
+    }
+    let contract = validating_contract();
+    let token = CancellationToken::new();
+    let budget = match PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_max_rows(4))
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    let operation = budget.context().lease_concurrency().unwrap();
+    let mut reader = BudgetedReader::new(
+        Box::new(PrimaPoiScade {
+            batch: VecDeque::from([
+                geometry_batch(&contract, &[true; 4]),
+                geometry_batch(&contract, &[true; 1]),
+            ]),
+            contract,
+            token,
+        }),
+        budget,
+        true,
+        CancellationToken::default(),
+        BatchTarget::default(),
+        ReadScope::Complete,
+        operation,
+    )
+    .unwrap();
+    let errore = reader.next_batch().unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+}
+
+/// La precedenza vale soltanto per la quota: senza scadenza, il batch oltre
+/// la prenotazione resta un `resource_limit`.
+#[test]
+fn without_a_deadline_the_reservation_overflow_stays_a_limit() {
+    let mut reader = budgeted_sequence_with_budget(
+        VecDeque::from([Ok(Some(geometry_batch(&validating_contract(), &[true; 5])))]),
+        budget_con(PipelineLimits::default().with_max_rows(3)),
+    );
+    let errore = reader.next_batch().unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+}

@@ -43,6 +43,22 @@ fn cancelled_future_is_woken_without_polling() {
     );
 }
 
+/// La scadenza dichiarata sul genitore arriva ai figli come scadenza, sia per
+/// i figli che esistevano gia' sia per quelli creati dopo: era `Parent` per i
+/// primi e `Deadline` per i secondi, e la categoria dipendeva dall'ordine.
+#[test]
+fn deadline_cancellation_propagates_as_deadline() {
+    let parent = CancellationToken::new();
+    let before = parent.child_token();
+    let grandchild = before.child_token();
+    parent.cancel_due_to_deadline();
+    let after = parent.child_token();
+    assert_eq!(parent.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(before.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(grandchild.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(after.reason(), Some(CancellationReason::Deadline));
+}
+
 #[test]
 fn deadline_is_declarative() {
     let token = CancellationToken::with_deadline(Instant::now());

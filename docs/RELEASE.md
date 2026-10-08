@@ -21,43 +21,43 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `6beb410` |
-| revisione misurata | `6beb410` |
-| passi del checkpoint | 104 |
-| passi verdi | 104 |
+| ultima qualificata | `1d1b8d2` |
+| revisione misurata | `1d1b8d2` |
+| passi del checkpoint | 111 |
+| passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 89 707 |
+| input di replay | 141 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,48% |
-| righe coperte LCOV | 24 720 |
-| righe strumentate LCOV | 28 584 |
-| copertura cargo | 84,03% |
+| copertura LCOV | 86,51% |
+| righe coperte LCOV | 24 789 |
+| righe strumentate LCOV | 28 656 |
+| copertura cargo | 84,06% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `28bf62c` |
-| esito differenziale | 94.04% |
+| baseline differenziale | `6beb410` |
+| esito differenziale | 83.47% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `6beb410` |
-| candidate, versione del manifesto | `4.0.0` |
+| S9, qualificato su | `1d1b8d2` |
+| candidate, versione del manifesto | `4.1.0` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `6beb410b9984f527f3e89bba420764ac9e24e436` |
-| candidate, versione del workspace | `4.0.0` |
+| candidate, revisione congelata | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| candidate, versione del workspace | `4.1.0` |
 | candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v4.0.0` |
+| candidate, tag previsto | `v4.1.0` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `6beb410b9984f527f3e89bba420764ac9e24e436` |
+| candidate, revisione del tag | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 2 |
+| release pubblicate | 3 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -1003,6 +1003,42 @@ un kill forzato vale la stessa cautela, perché non esiste una busta che possa
 certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
 lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
 dopo la terminazione forzata.
+
+### L'attestazione del profilo pubblico
+
+Dalla 4.1.0 l'autorizzazione ha una condizione in piu', e comporta un passo
+operativo: **prima** di eseguire `check_release_contract.py --release`, ogni
+artefatto `cli` del manifesto va attestato.
+
+```
+python3 scripts/check_public_contracts.py \
+  --contracts .plenora-contracts \
+  --artefatto dist/plenora-io-X.Y.Z-linux-x86_64-base.tar.gz \
+  --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-base.json
+```
+
+`--artefatto` non e' una comodita' rispetto a `--cli`: cambia che cosa viene
+provato. Il binario non lo indica chi lancia il comando, lo si **estrae
+dall'archivio**, e il digest che finisce nell'attestazione e' quello dei byte su
+cui le sonde hanno girato. La condizione confronta quel digest con quello che il
+manifesto distribuisce, e un'attestazione che parlasse di altri byte non e' una
+verifica parziale di questi: non dice niente di questi.
+
+Le due opzioni si escludono, per la stessa ragione: `--cli` interroga un binario
+senza dire da dove venga, ed e' quello che serve in CI; ammetterli insieme
+vorrebbe dire poter attestare un archivio interrogandone un altro.
+
+**Su ogni piattaforma.** Un binario Windows non si esegue in una corsa Linux,
+quindi la sua attestazione si produce dove quel binario gira, e si versiona
+insieme alle altre. Non c'e' una via differita: sarebbe la stessa cosa che
+manca. `assurance/evidence/` resta scrivibile dopo il congelamento proprio
+perche' evidenze come questa nascono li'.
+
+**Che cosa non fa.** Non sostituisce lo smoke sull'artefatto installato, che e'
+un'altra delle sei condizioni di uscita: risponde a «i requisiti pubblici sono
+verificati su questi byte», non a «il pacchetto si installa e funziona».
+
+---
 
 ### 5-bis. Il congelamento, e le due revisioni
 

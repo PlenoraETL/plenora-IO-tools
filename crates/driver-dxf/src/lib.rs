@@ -313,6 +313,7 @@ impl FormatDriver for DxfDriver {
                 "chiusura della scansione DXF fallita",
             ))
         })?;
+        rifiuta_entita_non_supportate_nel_modello(&drawing)?;
         let crs = resolve_dxf_crs(&drawing, &opts)?;
         let loss = walker.loss.clone();
         let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
@@ -395,6 +396,7 @@ impl FormatDriver for DxfDriver {
                 first: true,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -416,6 +418,8 @@ struct DxfWriterState {
     first: bool,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 struct BoundedOutput<W> {
@@ -502,7 +506,11 @@ impl FormatWriter for DxfWriterState {
                 decoded.push(None);
                 continue;
             }
-            let geometry = decode_wkb(geom_col.value(row), &limits)?;
+            // `decode_wkb` e `format_wkt` sono analizzatori condivisi: il loro
+            // costruttore fissa `Validate` perche' non sanno in quale passata
+            // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
+            let geometry = decode_wkb(geom_col.value(row), &limits)
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
             let cause = if geometry.srid.is_some() {
                 Some("dxf.embedded_srid_unsupported")
             } else if matches!(
@@ -581,8 +589,13 @@ impl FormatWriter for DxfWriterState {
         let mut buffered = output.into_inner();
         buffered.flush()?;
         drop(buffered);
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = publish_file_atomic_limited(
+            temp,
+            &self.path,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )?;
         Ok(Published {
             bytes,
             loss: self.loss,
@@ -932,10 +945,20 @@ impl DxfSpoolReader {
                 let geometry = match read_dxf_spool_value(input)? {
                     None => None,
                     Some(bytes) => {
-                        if inspect_wkb(&bytes, limits)?.dimensions == dimensions {
+                        // L'ispezione e' il controllo **raggiungibile** dei due:
+                        // applica gli stessi limiti, e la decodifica sotto non
+                        // gira finche' questa non e' passata. La fase e' la
+                        // lettura, e lo spool che stiamo scorrendo ne fa parte.
+                        let ispezione = inspect_wkb(&bytes, limits)
+                            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
+                        if ispezione.dimensions == dimensions {
                             Some(bytes)
                         } else {
-                            let mut geometry = decode_wkb(&bytes, limits)?;
+                            // Qui lo stadio e' la **lettura**, non la scrittura:
+                            // `next_row` serve lo spool del reader.
+                            let mut geometry = decode_wkb(&bytes, limits).map_err(|errore| {
+                                errore.during(plenora_io_model::ErrorPhase::Read)
+                            })?;
                             set_geometry_dimensions(&mut geometry, dimensions);
                             Some(encode_wkb(&geometry, WkbFlavor::Iso)?)
                         }
@@ -1117,6 +1140,17 @@ impl DxfSpoolWriter {
         walker: &mut Walker,
         cancellation: &CancellationToken,
     ) -> Result<()> {
+        // Le quattro colonne crescono insieme in `Walker::push`; se un giorno
+        // non fosse cosi', `zip` taglierebbe le righe in piu' senza dirlo.
+        let righe = walker.geometries.len();
+        if walker.layers.len() != righe
+            || walker.types.len() != righe
+            || walker.texts.len() != righe
+        {
+            return Err(err(&PublicMessage::Curated(
+                "colonne DXF di lunghezza diversa",
+            )));
+        }
         for (index, (((mut geometry, layer), entity_type), text)) in walker
             .geometries
             .drain(..)
@@ -1397,8 +1431,32 @@ const fn coordinate(point: [f64; 3]) -> WkbCoordinate {
 }
 
 /// Trasformazione OCS→WCS dall'extrusion direction di un'entità.
-fn ocs_of(normal: &Vector) -> Transform3 {
-    Transform3::ocs([normal.x, normal.y, normal.z])
+///
+/// Una normale nulla o non normalizzabile si rifiuta. Prima diventava l'asse
+/// Z, e l'entita' finiva disegnata in un piano che il file non dichiarava.
+fn ocs_of(normal: &Vector) -> Result<Transform3> {
+    Transform3::ocs([normal.x, normal.y, normal.z]).ok_or_else(|| {
+        err(&PublicMessage::Curated(
+            "normale di estrusione DXF nulla o non normalizzabile",
+        ))
+    })
+}
+
+/// Il lettore DXF scarta le entita' di un tipo che non conosce, e le DIMENSION
+/// senza un sottotipo riconosciuto: upstream lo faceva in silenzio, e un
+/// documento con quelle entita' si leggeva come se non le avesse. Il fork ora
+/// le conta. La politica e' quella delle entita' che il lettore conosce e il
+/// driver non sa rappresentare: il documento si rifiuta.
+fn rifiuta_entita_non_supportate_nel_modello(drawing: &Drawing) -> Result<()> {
+    if drawing.unsupported_model_space_entities() > 0 {
+        return Err(read_row_error(
+            err(&PublicMessage::Curated("entità DXF non gestita")),
+            None,
+            "dxf.entity_not_representable",
+            Some(GEOMETRY),
+        ));
+    }
+    Ok(())
 }
 
 /// Mappa i punti locali (già tassellati) in coordinate WCS via la trasformazione.
@@ -1414,6 +1472,7 @@ fn mapped(local: &[[f64; 2]], elevation: f64, transform: &Transform3) -> Vec<Wkb
 /// driver (AST WKB lossless + `LossReport` invece di `GeoJSON`).
 struct Walker {
     blocks: HashMap<String, Arc<Block>>,
+    blocchi_con_entita_non_supportate: HashSet<String>,
     geometries: Vec<Option<WkbGeometry>>,
     layers: Vec<Option<String>>,
     types: Vec<Option<String>>,
@@ -1433,12 +1492,17 @@ impl Walker {
     /// tipo non esiste.
     fn new(drawing: &Drawing, quote: DxfQuote, cancellation: &CancellationToken) -> Result<Self> {
         let mut blocks = HashMap::new();
+        let mut blocchi_con_entita_non_supportate = HashSet::new();
         for (index, block) in drawing.blocks().enumerate() {
             check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+            if drawing.block_has_unsupported_entities(&block.name) {
+                blocchi_con_entita_non_supportate.insert(block.name.clone());
+            }
             blocks.insert(block.name.clone(), Arc::new(block.clone()));
         }
         Ok(Self {
             blocks,
+            blocchi_con_entita_non_supportate,
             geometries: Vec::new(),
             layers: Vec::new(),
             types: Vec::new(),
@@ -1530,7 +1594,7 @@ impl Walker {
                 )?;
             }
             EntityType::LwPolyline(p) => {
-                let object_to_world = transform.then(ocs_of(&p.extrusion_direction));
+                let object_to_world = transform.then(ocs_of(&p.extrusion_direction)?);
                 let vertices: Vec<([f64; 3], f64)> = p
                     .vertices
                     .iter()
@@ -1545,7 +1609,7 @@ impl Walker {
                 )?;
             }
             EntityType::Polyline(p) => {
-                let object_to_world = transform.then(ocs_of(&p.normal));
+                let object_to_world = transform.then(ocs_of(&p.normal)?);
                 let vertices: Vec<([f64; 3], f64)> = p
                     .vertices()
                     .map(|vertex| {
@@ -1564,7 +1628,7 @@ impl Walker {
                 )?;
             }
             EntityType::Circle(cir) => {
-                let object_to_world = transform.then(ocs_of(&cir.normal));
+                let object_to_world = transform.then(ocs_of(&cir.normal)?);
                 let local =
                     tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
                 if local.len() < 4 {
@@ -1581,7 +1645,7 @@ impl Walker {
                 )?;
             }
             EntityType::Arc(a) => {
-                let object_to_world = transform.then(ocs_of(&a.normal));
+                let object_to_world = transform.then(ocs_of(&a.normal)?);
                 let local = tessellate_arc(
                     [a.center.x, a.center.y],
                     a.radius,
@@ -1603,12 +1667,12 @@ impl Walker {
                 )?;
             }
             EntityType::ModelPoint(pt) => {
-                let object_to_world = transform.then(ocs_of(&pt.extrusion_direction));
+                let object_to_world = transform.then(ocs_of(&pt.extrusion_direction)?);
                 let mapped = object_to_world.apply([pt.location.x, pt.location.y, pt.location.z]);
                 self.push(WkbValue::Point(coordinate(mapped)), &layer, "POINT", None)?;
             }
             EntityType::Text(txt) => {
-                let object_to_world = transform.then(ocs_of(&txt.normal));
+                let object_to_world = transform.then(ocs_of(&txt.normal)?);
                 let mapped =
                     object_to_world.apply([txt.location.x, txt.location.y, txt.location.z]);
                 self.emit_text(&layer, mapped, &txt.value, "TEXT")?;
@@ -1621,11 +1685,16 @@ impl Walker {
                     txt.insertion_point.y,
                     txt.insertion_point.z,
                 ]);
-                self.emit_text(&layer, mapped, &txt.text, "MTEXT")?;
+                // Il testo di un MTEXT lungo e' spezzato: i gruppi `3`
+                // (`extended_text`) in ordine, poi il gruppo `1` (`text`). Prima
+                // usciva solo `text`, cioe' la coda.
+                let mut testo = txt.extended_text.concat();
+                testo.push_str(&txt.text);
+                self.emit_text(&layer, mapped, &testo, "MTEXT")?;
                 self.loss.record("MTEXT rappresentato come punto", 1);
             }
             EntityType::Solid(s) => {
-                let object_to_world = transform.then(ocs_of(&s.extrusion_direction));
+                let object_to_world = transform.then(ocs_of(&s.extrusion_direction)?);
                 // Ordine di traversata del quadrilatero DXF: 1,2,4,3.
                 let corners = [
                     object_to_world.apply([s.first_corner.x, s.first_corner.y, s.first_corner.z]),
@@ -1687,17 +1756,25 @@ impl Walker {
                     .map(|point| [point.x, point.y, point.z])
                     .collect();
                 let samples = controls.len().max(2) * 6;
-                // `.max(1)` garantisce un valore positivo: la conversione a
-                // usize non puo' perdere il segno.
-                #[allow(clippy::cast_sign_loss)]
-                let degree = sp.degree_of_curve.max(1) as usize;
-                let local = tessellate_spline3(
-                    degree,
-                    &sp.knot_values,
-                    &controls,
-                    &sp.weight_values,
-                    samples,
-                );
+                // Un grado nullo o negativo diventava 1 (`.max(1)`): ora e'
+                // una SPLINE non valida, come un vettore dei nodi sbagliato o un
+                // peso non positivo -- vedi `tessellate_spline3`.
+                let local = usize::try_from(sp.degree_of_curve)
+                    .ok()
+                    .and_then(|degree| {
+                        tessellate_spline3(
+                            degree,
+                            &sp.knot_values,
+                            &controls,
+                            &sp.weight_values,
+                            samples,
+                        )
+                    })
+                    .ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "SPLINE non valida non convertibile",
+                        ))
+                    })?;
                 if local.len() < 2 {
                     return Err(err(&PublicMessage::Curated(
                         "SPLINE degenere non convertibile",
@@ -1830,7 +1907,7 @@ impl Walker {
             )));
         }
         // L'INSERT ha una propria OCS: inserimento, rotazione e scala vi sono espressi.
-        let base = transform.then(ocs_of(&insert.extrusion_direction));
+        let base = transform.then(ocs_of(&insert.extrusion_direction)?);
         let at = base.apply([insert.location.x, insert.location.y, insert.location.z]);
         // Timbro: se l'INSERT porta attributi, emette un punto all'inserimento col
         // nome del blocco (i valori dei tag non hanno colonna → perdita dichiarata).
@@ -1858,31 +1935,39 @@ impl Walker {
                 "riferimento ciclico fra blocchi DXF",
             )));
         }
+        // Un fattore di scala nullo diventava 1: il blocco veniva disegnato a
+        // grandezza piena dove il file diceva di schiacciarlo. Si rifiuta.
+        if insert.x_scale_factor == 0.0
+            || insert.y_scale_factor == 0.0
+            || insert.z_scale_factor == 0.0
+        {
+            return Err(err(&PublicMessage::Curated(
+                "fattore di scala INSERT nullo",
+            )));
+        }
+        // Un blocco con entita' che il lettore ha scartato non si esplode: le
+        // sue geometrie mancherebbero senza che niente lo dica.
+        if self
+            .blocchi_con_entita_non_supportate
+            .contains(&insert.name)
+        {
+            return Err(err(&PublicMessage::Curated("entità DXF non gestita")));
+        }
         let composed = base.then(Transform3::insert(
             [insert.location.x, insert.location.y, insert.location.z],
             insert.rotation,
-            if insert.x_scale_factor == 0.0 {
-                1.0
-            } else {
-                insert.x_scale_factor
-            },
-            if insert.y_scale_factor == 0.0 {
-                1.0
-            } else {
-                insert.y_scale_factor
-            },
-            if insert.z_scale_factor == 0.0 {
-                1.0
-            } else {
-                insert.z_scale_factor
-            },
+            insert.x_scale_factor,
+            insert.y_scale_factor,
+            insert.z_scale_factor,
         ));
         if let Some(block) = self.blocks.get(&insert.name).cloned() {
             self.loss.record("blocco INSERT esploso", 1);
             for entity in &block.entities {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;
             }
-        } else if insert.attributes().next().is_none() {
+        } else {
+            // Prima un INSERT con attributi e senza blocco passava, con il solo
+            // punto timbro: la geometria del blocco mancava senza errore.
             return Err(err(&PublicMessage::Curated("blocco INSERT assente")));
         }
         visiting.remove(&insert.name);
@@ -2186,6 +2271,7 @@ fn build_batch_cancellable(
             ),
         ));
     }
+    rifiuta_entita_non_supportate_nel_modello(drawing)?;
     let mut walker = Walker::new(drawing, quote, cancellation)?;
     let mut visiting: HashSet<String> = HashSet::new();
     for e in drawing.entities() {

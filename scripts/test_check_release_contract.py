@@ -2002,12 +2002,21 @@ class SondeFontiLegate(unittest.TestCase):
         tag della candidate **esisteva**: quello della 2.0.0 non esiste ancora,
         quindi negare il campo produceva l'unica combinazione vera. Si nega ora
         cio' che git dice, qualunque cosa dica.
+
+        Con un'eccezione che la sonda deve conoscere per non diventare il
+        letterale che coincide con la verita': sul commit a cui il tag punta il
+        valore giusto e' `false` anche se il tag esiste, perche' quel commit non
+        puo' conoscerlo. E' il caso del checkout del tag nella qualifica.
         """
         stato = self.stato()
         candidate = stato["aperto"]["candidate_release"]
         atteso = f"v{candidate['versione_manifesto']}"
-        esiste = gate.revisione_risolta(atteso) is not None
-        candidate["tag_creato"] = not esiste
+        puntato = gate.revisione_risolta(atteso)
+        sul_commit_del_tag = (
+            puntato is not None and puntato == gate.revisione_risolta("HEAD")
+        )
+        vero = puntato is not None and not sul_commit_del_tag
+        candidate["tag_creato"] = not vero
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("tag_creato" in e for e in errori), errori)
 
@@ -3517,7 +3526,13 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         self.assertEqual(gate._sola_evidenza_corrente(stato), [])
         riferite, errori = gate._evidenze_riferite(stato)
         self.assertEqual(errori, [], errori)
-        presenti = sorted(v.name for v in gate.DIRECTORY_EVIDENZE.iterdir())
+        # I **file**, non ogni voce: la directory delle attestazioni del profilo
+        # pubblico ha un invariante suo, e confrontarla con i riferimenti la
+        # farebbe comparire fra gli estranei appena la prima attestazione venisse
+        # prodotta -- cioe' al passo del rilascio in cui costa di piu'.
+        presenti = sorted(
+            v.name for v in gate.DIRECTORY_EVIDENZE.iterdir() if v.is_file()
+        )
         self.assertEqual(presenti, sorted(riferite), presenti)
 
     def test_un_evidenza_precedente_rimasta_e_rossa(self) -> None:
@@ -3608,6 +3623,68 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
 
+    def test_la_directory_delle_attestazioni_non_e_un_estranea(self) -> None:
+        """Il difetto latente che si sarebbe visto al primo artefatto attestato.
+
+        `ATTESTAZIONI` vive **dentro** `assurance/evidence/`, e il confronto per
+        insieme guardava ogni voce: la directory sarebbe comparsa fra gli
+        estranei, nessun campo dello stato la cita, e il gate avrebbe chiesto di
+        citare una directory al posto di un verbale. Il rilascio si sarebbe
+        fermato li' -- al passo in cui costa di piu', con gli archivi gia'
+        costruiti.
+        """
+        stato = self.stato()
+        riferite, _ = gate._evidenze_riferite(stato)
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            for nome in riferite:
+                (radice / nome).write_text("{}", encoding="utf-8")
+            attestazioni = radice / gate.ATTESTAZIONI.name
+            attestazioni.mkdir()
+            (attestazioni / "plenora-io-cli-linux.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+
+    def test_una_directory_delle_attestazioni_che_e_un_link_e_rossa(self) -> None:
+        """La deroga vale per la directory vera, non per il suo nome.
+
+        Un link chiamato come quella ammessa passerebbe di qui **e** dal
+        controllo dei link, che gira sui soli nomi attesi.
+        """
+        stato = self.stato()
+        riferite, _ = gate._evidenze_riferite(stato)
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            for nome in riferite:
+                (radice / nome).write_text("{}", encoding="utf-8")
+            altrove = radice.parent / "altrove"
+            altrove.mkdir()
+            try:
+                (radice / gate.ATTESTAZIONI.name).symlink_to(
+                    altrove, target_is_directory=True
+                )
+            except (OSError, NotImplementedError) as impedimento:
+                self.skipTest(f"symlink non creabili qui: {impedimento}")
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+            altrove.rmdir()
+        self.assertTrue(any("e' un link" in m for m in errori), errori)
+
+    def test_un_verbale_di_campagna_non_riferito_e_rosso(self) -> None:
+        """Senza il campo che lo nomina, il verbale e' un'evidenza orfana.
+
+        E' il guasto vero incontrato alla prima campagna completa: lo smoke
+        deposita il proprio verbale qui dentro, nessuna fonte lo citava, e
+        l'insieme esatto tornava rosso a ogni corsa.
+        """
+        stato = self.stato()
+        stato.pop("ultima_campagna_fuzz", None)
+        _, errori = gate._evidenze_riferite(stato)
+        self.assertTrue(
+            any("ultima_campagna_fuzz.verbale" in m for m in errori), errori
+        )
 
     # --- la transizione fra due release, con fixture isolate ---------------
     #
@@ -3618,14 +3695,23 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
 
     STORICA = "checkpoint-a61a081.json"
     CORRENTE = "checkpoint-aa86f5f.json"
+    CAMPAGNA = "fuzz-smoke-ultima.json"
     REV_STORICA = "a61a0815b000f2856594375a2858c41e32a1fff7"
 
     def scenario(self, radice: pathlib.Path, *, file: tuple[str, ...]) -> dict:
         """Release 2.0.0 archiviata piu' candidate 3.0.0 con evidenza propria."""
         for nome in file:
             (radice / nome).write_text("{}", encoding="utf-8")
+        # Il verbale della campagna fa parte di **ogni** scenario, come la
+        # misura corrente: lo stato lo cita sempre. Lasciarlo fuori renderebbe
+        # rosso l'insieme per una ragione che non e' quella in prova, e il
+        # messaggio parlerebbe del riferimento mancante invece che del file.
+        (radice / self.CAMPAGNA).write_text("{}", encoding="utf-8")
         return {
             "ultima_misura": {"evidenza": f"assurance/evidence/{self.CORRENTE}"},
+            "ultima_campagna_fuzz": {
+                "verbale": f"assurance/evidence/{self.CAMPAGNA}"
+            },
             "chiuso": {
                 "release_pubblicate": [
                     {
@@ -4265,3 +4351,831 @@ class SondeDelCongelamentoAncoraAttivo(unittest.TestCase):
     def test_una_diff_di_sola_assurance_e_accettata(self) -> None:
         """L'altro verso: l'assurance **deve** poter avanzare."""
         self.assertEqual(self.motivi([]), [])
+
+
+PIN = "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e"
+
+
+def _attestazione(nome: str, digest: str, **sovrascritture: object) -> dict:
+    """Un'attestazione conforme, da guastare una proprieta' per volta."""
+    documento = {
+        "schema_version": 1,
+        "artefatto": {"nome": nome, "digest": digest, "byte": 10},
+        "binario": {"percorso_nell_archivio": "bin/plenora-io", "digest": "sha256:bb"},
+        "contratti": {"pin": PIN},
+        "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": [],
+        },
+        "esigente": True,
+        "conforme": True,
+    }
+    documento.update(sovrascritture)
+    return documento
+
+
+class SondeProfiloPubblicoAttestato(unittest.TestCase):
+    """La condizione che lega la verifica ai byte dell'artefatto.
+
+    Ogni prova guasta **una** proprieta' e lascia le altre sane: cosi' il rosso
+    nomina la causa invece di essere la somma di piu' cose rotte insieme.
+    """
+
+    def setUp(self) -> None:
+        self.temporanea = tempfile.TemporaryDirectory()
+        radice = pathlib.Path(self.temporanea.name)
+        self.manifesto = radice / "adoption-manifest.json"
+        self.attestazioni = radice / "profilo-pubblico"
+        self.attestazioni.mkdir()
+        self._manifesto_originale = gate.MANIFESTO
+        self._attestazioni_originali = gate.ATTESTAZIONI
+        gate.MANIFESTO = self.manifesto
+        gate.ATTESTAZIONI = self.attestazioni
+        self.addCleanup(self._ripristina)
+
+    def _ripristina(self) -> None:
+        gate.MANIFESTO = self._manifesto_originale
+        gate.ATTESTAZIONI = self._attestazioni_originali
+        self.temporanea.cleanup()
+
+    def _scrivi_manifesto(self, *artefatti: dict) -> None:
+        self.manifesto.write_text(
+            json.dumps(
+                {
+                    "contracts_source": {"revision": PIN},
+                    "artifacts": list(artefatti),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _deposita(self, nome_file: str, documento: dict) -> None:
+        (self.attestazioni / nome_file).write_text(
+            json.dumps(documento), encoding="utf-8"
+        )
+
+    @staticmethod
+    def _artefatto(nome: str, digest: str, superficie: str = "cli") -> dict:
+        return {"name": nome, "surface": superficie, "digest": digest}
+
+    def _motivi(self) -> list[str]:
+        return gate.condizione_profilo_pubblico_attestato({})
+
+    def test_un_artefatto_attestato_sui_suoi_byte_e_verde(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self.assertEqual(self._motivi(), [])
+
+    def test_senza_manifesto_e_rossa(self) -> None:
+        # Non e' un caso di laboratorio: e' la corsa di rilascio lanciata prima
+        # di costruire la distribuzione.
+        motivi = self._motivi()
+        self.assertTrue(any("assente" in m for m in motivi), motivi)
+
+    def test_un_artefatto_senza_attestazione_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        motivi = self._motivi()
+        self.assertTrue(any("nessuna attestazione" in m for m in motivi), motivi)
+
+    def test_un_digest_diverso_e_rosso_e_li_nomina_entrambi(self) -> None:
+        # Il cuore della voce: una verifica riuscita su altri byte non e' una
+        # verifica parziale di questi, e il messaggio deve far vedere lo scarto.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:bb"))
+        motivi = self._motivi()
+        self.assertEqual(len(motivi), 1, motivi)
+        self.assertIn("sha256:aa", motivi[0])
+        self.assertIn("sha256:bb", motivi[0])
+
+    def test_un_attestazione_non_conforme_e_rossa(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita(
+            "base.json", _attestazione("base.tar.gz", "sha256:aa", conforme=False)
+        )
+        motivi = self._motivi()
+        self.assertTrue(any("conformita" in m for m in motivi), motivi)
+
+    def test_un_attestazione_non_esigente_e_rossa(self) -> None:
+        # Una corsa non esigente dichiara «conforme» con requisiti non
+        # soddisfatti: accettarla qui sarebbe scambiare la conformita' parziale
+        # per una qualifica.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita(
+            "base.json", _attestazione("base.tar.gz", "sha256:aa", esigente=False)
+        )
+        motivi = self._motivi()
+        self.assertTrue(any("esigente" in m for m in motivi), motivi)
+
+    def test_un_pin_dei_contratti_diverso_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["contratti"] = {"pin": "0" * 40}
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("contratti" in m for m in motivi), motivi)
+
+    def test_meno_requisiti_protetti_del_totale_e_rosso(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["requisiti"]["protetti"] = 31
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("31" in m and "32" in m for m in motivi), motivi)
+
+    def test_una_regressione_registrata_e_rossa(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        attestazione = _attestazione("base.tar.gz", "sha256:aa")
+        attestazione["requisiti"]["regressioni"] = ["CLI-2.0-qualcosa"]
+        self._deposita("base.json", attestazione)
+        motivi = self._motivi()
+        self.assertTrue(any("regressioni" in m for m in motivi), motivi)
+
+    def test_un_attestazione_che_non_corrisponde_a_niente_e_rossa(self) -> None:
+        # Un residuo di una distribuzione precedente: resterebbe li' a sembrare
+        # evidenza di qualcosa che non si sta pubblicando.
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self._deposita("vecchia.json", _attestazione("vecchia.tar.gz", "sha256:cc"))
+        motivi = self._motivi()
+        self.assertTrue(any("non distribuisce" in m for m in motivi), motivi)
+
+    def test_due_attestazioni_per_lo_stesso_artefatto_sono_rosse(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        self._deposita("prima.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self._deposita("seconda.json", _attestazione("base.tar.gz", "sha256:zz"))
+        motivi = self._motivi()
+        self.assertTrue(any("seconda attestazione" in m for m in motivi), motivi)
+
+    def test_un_attestazione_illeggibile_non_e_un_attestazione_assente(self) -> None:
+        self._scrivi_manifesto(self._artefatto("base.tar.gz", "sha256:aa"))
+        (self.attestazioni / "rotta.json").write_text("{ non json", encoding="utf-8")
+        motivi = self._motivi()
+        self.assertTrue(any("non si legge" in m for m in motivi), motivi)
+
+    def test_nessun_artefatto_cli_non_e_un_verde(self) -> None:
+        # Un insieme vuoto soddisfa ogni «per ogni», e sarebbe la via piu' breve
+        # al verde: distribuire senza dichiarare nessun artefatto CLI.
+        self._scrivi_manifesto(self._artefatto("src.tar.gz", "sha256:aa", "rust"))
+        motivi = self._motivi()
+        self.assertTrue(any("nessun artefatto" in m for m in motivi), motivi)
+
+    def test_le_superfici_non_cli_non_pretendono_attestazione(self) -> None:
+        self._scrivi_manifesto(
+            self._artefatto("base.tar.gz", "sha256:aa"),
+            self._artefatto("src.tar.gz", "sha256:dd", "rust"),
+        )
+        self._deposita("base.json", _attestazione("base.tar.gz", "sha256:aa"))
+        self.assertEqual(self._motivi(), [])
+
+    def test_la_condizione_e_fra_quelle_obbligatorie(self) -> None:
+        # Senza questa riga, togliere la voce dal registro sarebbe la via piu'
+        # breve al verde: la condizione che non passa sparisce.
+        self.assertIn("profilo-pubblico-attestato", gate.CONDIZIONI_OBBLIGATORIE)
+
+    def test_il_registro_reale_la_dichiara_con_la_funzione_giusta(self) -> None:
+        registro = json.loads(
+            (
+                pathlib.Path(gate.__file__).resolve().parents[1]
+                / "assurance"
+                / "registries"
+                / "release-contract-current.json"
+            ).read_text(encoding="utf-8")
+        )
+        voce = next(
+            c
+            for c in registro["autorizzazione_di_release"]["condizioni"]
+            if c["id"] == "profilo-pubblico-attestato"
+        )
+        self.assertEqual(
+            voce["verifica"]["funzione"], "condizione_profilo_pubblico_attestato"
+        )
+
+
+class SondeRinvioControQualificazione(unittest.TestCase):
+    """Le due facce del rinvio, provate sui comandi che il registro dichiara.
+
+    Un rinvio che passasse anche in qualificazione sarebbe un permesso, non una
+    registrazione: la misura scaduta risulterebbe valida e nessuno la
+    rifarebbe. Un rinvio che bloccasse anche lo sviluppo fermerebbe il lavoro
+    fino alla campagna, che e' proprio cio' che si e' deciso di rinviare.
+
+    Le prove non nominano i comandi: li **leggono dal registro**, cosi' che
+    cambiarli li' senza cambiare il comportamento non lasci queste prove a
+    verificare un comando che nessuno esegue piu'.
+
+    # I due regimi, e perche' l'atteso non e' fisso
+
+    Queste prove pretendevano il rinvio: sviluppo verde con `DIFFERITO`,
+    qualificazione rossa. Era giusto finche' un rinvio era dichiarato, e cioe'
+    fino al candidato finale -- dove le misure si rifanno, le dichiarazioni si
+    chiudono e tutte e tre si invertono insieme. Un oracolo che e' lo stato
+    transitorio del repository si spegne da solo proprio quando conta.
+
+    L'atteso si legge percio' dai registri: se un rinvio e' dichiarato valgono
+    le due facce di prima; se non ce n'e' nessuno, la qualificazione dev'essere
+    **verde** e nessuna riga puo' dire `DIFFERITO`. Il secondo ramo non e' piu'
+    debole del primo: dice che una misura rifatta non lascia dietro di se' una
+    dichiarazione che nessuno rilegge.
+
+    Che il meccanismo funzioni resta provato **in entrambi i regimi** da
+    `SondeDelRinvioSuUnRegistroCostruito` in `test_check_profondita_fuzz`, che
+    il rinvio se lo costruisce invece di cercarlo.
+    """
+
+    CONDIZIONI = ("profondita-fuzz-rimisurata", "confine-asan-rimisurato")
+
+    @staticmethod
+    def _registro() -> dict:
+        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _rinvio_dichiarato(identita: str) -> bool:
+        """Se **oggi**, nei registri, un rinvio e' dichiarato per la condizione.
+
+        Si chiede ai registri e non all'uscita del comando: chiedere al comando
+        renderebbe la prova circolare, perche' e' proprio il suo esito che si
+        vuole verificare.
+        """
+        from scripts import check_asan_filegdb as asan
+        from scripts import check_profondita_fuzz as profondita
+
+        if identita == "profondita-fuzz-rimisurata":
+            return any(
+                profondita.leggi_registro(bersaglio).get("rimisurazione_dovuta")
+                is not None
+                for bersaglio in profondita.BERSAGLI.values()
+            )
+        registro = profondita.leggi_registro(profondita.BERSAGLI["filegdb_reader"])
+        return registro.get(asan.CHIAVE_RINVIO) is not None
+
+    def _comando(self, identita: str) -> list[str]:
+        voce = next(
+            c
+            for c in self._registro()["autorizzazione_di_release"]["condizioni"]
+            if c["id"] == identita
+        )
+        self.assertEqual(voce["verifica"]["tipo"], "gate")
+        return voce["verifica"]["comando"]
+
+    def test_in_sviluppo_il_rinvio_passa(self) -> None:
+        # Lo stesso gate senza `--qualifica`: e' quello che gira in CI e nel
+        # checkpoint, e deve restare verde mentre la campagna e' rinviata.
+        for identita in self.CONDIZIONI:
+            comando = [v for v in self._comando(identita) if v != "--qualifica"]
+            with self.subTest(condizione=identita):
+                esito = subprocess.run(
+                    comando, cwd=gate.ROOT, capture_output=True, text=True, check=False
+                )
+                # Su una copia di lavoro con CRLF l'impronta non e' calcolabile,
+                # e il gate lo dice invece di misurare male. Non e' l'oggetto di
+                # questa prova: si salta **solo** su quel messaggio, cosi' un
+                # rosso vero non ci si nasconde dentro.
+                if "non sarebbe riproducibile su un checkout pulito" in esito.stderr:
+                    self.skipTest(
+                        "copia di lavoro con fine riga non normalizzati: "
+                        "l'impronta si misura su un checkout pulito, come in CI"
+                    )
+                self.assertEqual(esito.returncode, 0, esito.stderr[-600:])
+                if self._rinvio_dichiarato(identita):
+                    self.assertIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
+                else:
+                    # Nessun rinvio dichiarato: la riga che lo annuncerebbe non
+                    # puo' esserci. Una misura rifatta non lascia dietro di se'
+                    # una dichiarazione che nessun gate rilegge.
+                    self.assertNotIn("DIFFERITO", esito.stdout, esito.stdout[-600:])
+
+    def test_in_qualificazione_il_rinvio_ferma(self) -> None:
+        for identita in self.CONDIZIONI:
+            comando = self._comando(identita)
+            self.assertIn("--qualifica", comando)
+            with self.subTest(condizione=identita):
+                esito = subprocess.run(
+                    comando, cwd=gate.ROOT, capture_output=True, text=True, check=False
+                )
+                if self._rinvio_dichiarato(identita):
+                    self.assertNotEqual(esito.returncode, 0, esito.stdout[-600:])
+                else:
+                    # Senza rinvii la qualificazione non ha niente da rifiutare:
+                    # pretenderla rossa vorrebbe dire pretendere che la release
+                    # non si possa qualificare mai.
+                    self.assertEqual(esito.returncode, 0, esito.stderr[-600:])
+
+    def test_il_comando_di_rilascio_rifiuta_e_dice_quali(self) -> None:
+        """La via vera: `verifica_condizione`, la stessa che `--release` chiama.
+
+        Invocare qui l'intero `--release` vorrebbe dire rieseguire ogni prova di
+        ogni invariante -- minuti di corsa per verificare due righe. La funzione
+        che le condizioni le esegue e' questa, ed e' il punto in cui un rinvio
+        deve diventare un rifiuto.
+        """
+        documento = self._registro()
+        for identita in self.CONDIZIONI:
+            condizione = next(
+                c
+                for c in documento["autorizzazione_di_release"]["condizioni"]
+                if c["id"] == identita
+            )
+            with self.subTest(condizione=identita):
+                motivi = gate.verifica_condizione(condizione, documento)
+                if self._rinvio_dichiarato(identita):
+                    self.assertTrue(
+                        motivi, "un rinvio non puo' autorizzare il rilascio"
+                    )
+                else:
+                    self.assertFalse(motivi, motivi)
+
+    def test_le_due_condizioni_sono_obbligatorie(self) -> None:
+        # Senza, la via piu' breve al verde sarebbe toglierle dal registro.
+        for identita in self.CONDIZIONI:
+            self.assertIn(identita, gate.CONDIZIONI_OBBLIGATORIE)
+
+
+class SondeDelTagSuiDueAlberi(unittest.TestCase):
+    """`tag_creato` ha risposte diverse sull'albero congelato e su quello dopo.
+
+    La push di `v4.0.0` ha innescato «Release checkout qualification» sulla
+    revisione congelata, e il gate e' andato rosso: lo stato diceva
+    `tag_creato: false`, git il tag lo trovava. Nessuno dei due mentiva. Il tag
+    punta a quella revisione, e il campo che lo registra sta in un commit
+    successivo, perche' un commit non puo' nominare se stesso.
+
+    La chiusura non allenta il confronto -- sul ramo di sviluppo serve, ed e'
+    nato perche' lo stato dichiarava `tag_creato: false` mentre `v1.0.1`
+    esisteva. Cambia **oggetto** sull'albero congelato: li' il campo dev'essere
+    falso, e un `true` sarebbe un commit che afferma di conoscere un tag creato
+    dopo di se'.
+    """
+
+    CONGELATA = "a" * 40
+    ASSURANCE = "b" * 40
+
+    def _stato(self, **modifiche):
+        candidate = {
+            "stato": "attiva",
+            "versione_manifesto": "9.9.9",
+            "versione_workspace": gate.versione_workspace(),
+            "revisione_candidate": self.CONGELATA,
+            "tag_previsto": "v9.9.9",
+            "tag_creato": False,
+            "release_authorized": False,
+            "release_action_allowed": False,
+            "assurance_entro_l_allowlist": True,
+        }
+        candidate.update(modifiche)
+        return {"aperto": {"candidate_release": candidate}}
+
+    #: Il commit a cui il tag punta quando **non** e' la revisione congelata:
+    #: e' il caso reale, perche' `revisione_candidate` si scrive dopo la
+    #: revisione che nomina e il commit del tag ne porta una precedente.
+    TAG = "c" * 40
+
+    def _errori(
+        self, head: str, tag_esiste: bool, tag_su: str | None = None, **modifiche
+    ) -> list[str]:
+        """Gli errori con HEAD e il tag scelti, e git per il resto finto."""
+        bersaglio = tag_su or self.CONGELATA
+
+        def finto_git(*argomenti):
+            # Il solo uso di `_git` qui e' la ricerca del tag.
+            if argomenti[:2] == ("rev-parse", "--verify"):
+                return bersaglio if tag_esiste else None
+            return None
+
+        def finta_risoluzione(revisione):
+            # `revisione_risolta` e' memoizzata, quindi il mock va messo su di
+            # lei e non sul `_git` che ha sotto: altrimenti la cache
+            # risponderebbe con lo SHA vero del repository.
+            if revisione == "HEAD":
+                return head
+            noti = {self.CONGELATA, self.ASSURANCE, self.TAG}
+            return revisione if revisione in noti else None
+
+        with mock.patch.object(gate, "_git", side_effect=finto_git), mock.patch.object(
+            gate, "revisione_risolta", side_effect=finta_risoluzione
+        ):
+            return gate._candidate_legata_alle_fonti(self._stato(**modifiche))
+
+    def _sul_tag(self) -> list[str]:
+        return [
+            e for e in self._errori(self.CONGELATA, True) if "tag_creato" in e
+        ]
+
+    def test_il_checkout_del_tag_non_e_piu_rosso(self) -> None:
+        """Il difetto originale, riprodotto e chiuso.
+
+        HEAD e' la revisione congelata, il tag esiste e punta li', lo stato dice
+        `tag_creato: false`. Prima questa combinazione dava «vale «False» ma git
+        trova il tag»: era la qualifica che chiedeva a un commit di sapere
+        qualcosa scritto dopo di lui.
+        """
+        self.assertEqual(self._sul_tag(), [])
+
+    def test_sull_albero_congelato_un_tag_creato_vero_e_rosso(self) -> None:
+        # La pretesa non sparisce, cambia oggetto: quel commit non puo'
+        # affermare di conoscere un tag creato dopo di se'.
+        errori = [
+            e
+            for e in self._errori(self.CONGELATA, True, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(errori, "un `true` sul congelato deve restare rosso")
+        self.assertTrue(
+            any("non puo' conoscere un tag creato" in e for e in errori), errori
+        )
+
+    def test_fuori_dall_albero_congelato_il_confronto_resta_intero(self) -> None:
+        """Il caso per cui il controllo e' nato, e che non va perso.
+
+        HEAD e' il commit di assurance, il tag esiste, lo stato dice di no: e'
+        la copia scritta a mano che nessuno confrontava con git, ed e' rossa
+        come prima.
+        """
+        errori = [
+            e for e in self._errori(self.ASSURANCE, True) if "tag_creato" in e
+        ]
+        self.assertTrue(errori, "sul ramo di sviluppo il confronto deve restare")
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+
+    def test_fuori_dal_congelato_anche_il_verso_opposto_e_rosso(self) -> None:
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, False, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(any("non trova il tag" in e for e in errori), errori)
+
+    def test_fuori_dal_congelato_la_verita_passa(self) -> None:
+        # La controprova positiva: senza, «sempre rosso» sarebbe una difesa.
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, True, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertEqual(errori, [])
+
+    # --- il commit del tag non e' la revisione congelata -------------------
+    #
+    # Le sonde sopra mettono HEAD sulla revisione congelata **e** il tag li'.
+    # Nella storia vera le due cose non coincidono mai sul commit del tag: lo
+    # stato di quel commit nomina la candidate precedente, perche' il
+    # congelamento si scrive dopo. `v3.0.0`, `v4.0.0` e `v4.1.0` hanno reso
+    # rossa la qualifica per questo, con la condizione `HEAD ==
+    # revisione_candidate` che le sonde sopra soddisfacevano per costruzione.
+
+    def _sul_commit_del_tag(self, **modifiche) -> list[str]:
+        return [
+            e
+            for e in self._errori(self.TAG, True, tag_su=self.TAG, **modifiche)
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+
+    def test_sul_commit_del_tag_lo_stato_che_non_lo_conosce_e_verde(self) -> None:
+        """Il difetto della push di `v4.1.0`, riprodotto e chiuso.
+
+        HEAD e' il commit del tag, la revisione congelata e' un'altra, lo stato
+        dice `tag_creato: false` e nessuna `tag_revisione`. Prima: «vale
+        «False» ma git trova il tag» e «`tag_revisione` vale «None», il tag
+        punta a ...».
+        """
+        self.assertEqual(self._sul_commit_del_tag(), [])
+
+    def test_sul_commit_del_tag_un_tag_creato_vero_e_rosso(self) -> None:
+        errori = self._sul_commit_del_tag(tag_creato=True)
+        self.assertTrue(
+            any("non puo' conoscere un tag creato" in e for e in errori), errori
+        )
+
+    def test_sul_commit_del_tag_una_tag_revisione_e_rossa(self) -> None:
+        # Il commit non puo' scrivere il proprio SHA: un valore qui e' copiato
+        # da fuori, non saputo.
+        errori = self._sul_commit_del_tag(tag_revisione=self.TAG)
+        self.assertTrue(
+            any("non puo' conoscerne la revisione" in e for e in errori), errori
+        )
+
+    def test_dopo_il_commit_del_tag_il_confronto_resta_intero(self) -> None:
+        """Il ramo di sviluppo dopo il rilascio non eredita l'esenzione.
+
+        HEAD discende dal commit del tag, lo stato non lo registra: e' la copia
+        a mano che nessuno confronta con git, ed e' rossa come prima.
+        """
+        errori = [
+            e
+            for e in self._errori(self.ASSURANCE, True, tag_su=self.TAG)
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        self.assertTrue(any("tag_revisione" in e for e in errori), errori)
+
+    def test_dopo_il_commit_del_tag_la_verita_passa(self) -> None:
+        errori = [
+            e
+            for e in self._errori(
+                self.ASSURANCE,
+                True,
+                tag_su=self.TAG,
+                tag_creato=True,
+                tag_revisione=self.TAG,
+            )
+            if "tag_creato" in e or "tag_revisione" in e
+        ]
+        self.assertEqual(errori, [])
+
+    def test_sulla_congelata_senza_tag_il_confronto_resta_intero(self) -> None:
+        # HEAD sulla congelata non basta piu' a esentare: senza un tag che la
+        # punti, `tag_creato: true` e' una dichiarazione falsa come altrove.
+        errori = [
+            e
+            for e in self._errori(self.CONGELATA, False, tag_creato=True)
+            if "tag_creato" in e
+        ]
+        self.assertTrue(any("non trova il tag" in e for e in errori), errori)
+
+    def test_il_workflow_rimanda_al_gate_e_non_ripete_la_regola(self) -> None:
+        """Due luoghi che dicono la stessa regola possono divergere.
+
+        La distinzione e' una proprieta' del modello a due revisioni, non di
+        quel workflow: sta nel gate, e il workflow la nomina invece di
+        riscriverla.
+        """
+        workflow = (
+            gate.ROOT / ".github" / "workflows" / "release-qualification.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("_candidate_legata_alle_fonti", workflow)
+
+
+class SondeDelTagSuGitVero(unittest.TestCase):
+    """Le stesse domande, contro un repository git vero invece che finto.
+
+    Le sonde sopra fingono `_git` e `revisione_risolta`, e una finzione dice
+    soltanto cio' che chi l'ha scritta ha immaginato. Qui git risolve davvero:
+    tag annotato e leggero, tag spostato, piu' tag sullo stesso commit.
+    """
+
+    VERSIONE = "9.9.9"
+    TAG = f"v{VERSIONE}"
+
+    def setUp(self) -> None:
+        self._cartella = tempfile.TemporaryDirectory(prefix="plenora-tag-")
+        self.radice = pathlib.Path(self._cartella.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "sonda@example.invalid")
+        self.git("config", "user.name", "sonda")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "tag.gpgsign", "false")
+        self.congelata = self.commit("congelata")
+        self.del_tag = self.commit("commit del tag")
+        gate._revisione_risolta.cache_clear()
+        self.addCleanup(gate._revisione_risolta.cache_clear)
+        self.addCleanup(self._cartella.cleanup)
+
+    def git(self, *argomenti: str) -> str:
+        return subprocess.run(
+            ["git", *argomenti],
+            cwd=self.radice,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def commit(self, messaggio: str) -> str:
+        self.git("commit", "-q", "--allow-empty", "-m", messaggio)
+        return self.git("rev-parse", "HEAD")
+
+    def errori(self, **modifiche) -> list[str]:
+        candidate = {
+            "stato": "attiva",
+            "versione_manifesto": self.VERSIONE,
+            "versione_workspace": self.VERSIONE,
+            "revisione_candidate": self.congelata,
+            "tag_previsto": self.TAG,
+            "tag_creato": False,
+            "release_authorized": False,
+            "release_action_allowed": False,
+            "assurance_entro_l_allowlist": True,
+        }
+        candidate.update(modifiche)
+        gate._revisione_risolta.cache_clear()
+        with mock.patch.object(gate, "ROOT", self.radice), mock.patch.object(
+            gate, "versione_workspace", return_value=self.VERSIONE
+        ):
+            tutti = gate._candidate_legata_alle_fonti(
+                {"aperto": {"candidate_release": candidate}}
+            )
+        return [e for e in tutti if "tag_creato" in e or "tag_revisione" in e]
+
+    def test_tag_annotato_sul_commit_del_tag(self) -> None:
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.assertEqual(self.errori(), [])
+        self.assertTrue(self.errori(tag_creato=True))
+
+    def test_tag_leggero_sul_commit_del_tag(self) -> None:
+        self.git("tag", self.TAG)
+        self.assertEqual(self.errori(), [])
+        self.assertTrue(self.errori(tag_revisione=self.del_tag))
+
+    def test_un_tag_spostato_altrove_toglie_l_esenzione(self) -> None:
+        """HEAD era il commit del tag; il tag ora punta alla congelata."""
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.git("tag", "-f", "-a", self.TAG, self.congelata, "-m", "spostato")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        # E la verita' che lo registra passa.
+        self.assertEqual(
+            self.errori(tag_creato=True, tag_revisione=self.congelata),
+            [],
+        )
+
+    def test_un_altro_tag_su_head_non_esenta(self) -> None:
+        """L'esenzione segue il tag **previsto**, non un tag qualunque."""
+        self.git("tag", "-a", self.TAG, self.congelata, "-m", "rilascio")
+        self.git("tag", "v9.9.9-rc1")
+        self.git("tag", "-a", "v9.9.8", "-m", "altro")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+
+    def test_piu_tag_sullo_stesso_commit_del_tag(self) -> None:
+        self.git("tag", "v9.9.9-rc1")
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.git("tag", "ultimo")
+        self.assertEqual(self.errori(), [])
+
+    def test_dopo_il_commit_del_tag_il_confronto_e_pieno(self) -> None:
+        self.git("tag", "-a", self.TAG, "-m", "rilascio")
+        self.commit("sviluppo dopo il rilascio")
+        errori = self.errori()
+        self.assertTrue(any("git trova il tag" in e for e in errori), errori)
+        self.assertEqual(
+            self.errori(tag_creato=True, tag_revisione=self.del_tag), []
+        )
+
+
+class SondeDellEvidenzaAncoraValida(unittest.TestCase):
+    """Quando una misura girata altrove vale ancora per l'albero corrente.
+
+    La regola sta fra due errori opposti. «Uguale a HEAD» rende impossibile
+    registrare l'evidenza: committarla sposta HEAD, e la misura smette di valere
+    nell'istante in cui viene messa al sicuro -- e' il guasto trovato alla prima
+    campagna fuzz completa. «Basta che sia nella storia» e' peggio: una campagna
+    di dieci commit fa qualificherebbe il codice di oggi.
+
+    Le quattro direzioni sono provate una per una, e nessuna si deduce dalle
+    altre.
+    """
+
+    MISURATA = "a" * 40
+    ALBERO = "b" * 40
+
+    def _motivi(
+        self, misurata, *, discende=True, cambiati=(), diff_rotta=False
+    ) -> list[str]:
+        def finta_risoluzione(revisione):
+            if revisione == "HEAD":
+                return self.ALBERO
+            if revisione in (self.MISURATA, self.ALBERO):
+                return revisione
+            return None
+
+        def finta_diff(_antenato, _fino_a):
+            # `None` non e' una diff vuota: e' git che non ha risposto.
+            return None if diff_rotta else "\n".join(cambiati)
+
+        with mock.patch.object(
+            gate, "revisione_risolta", side_effect=finta_risoluzione
+        ), mock.patch.object(
+            gate, "_discende_da", side_effect=lambda *_: discende
+        ), mock.patch.object(gate, "_uscita_della_diff", side_effect=finta_diff):
+            return gate.evidenza_ancora_valida(misurata)
+
+    def test_la_misura_sull_albero_corrente_vale(self) -> None:
+        self.assertEqual(self._motivi(self.ALBERO), [])
+
+    def test_l_evidenza_pubblicata_in_un_commit_ammesso_vale(self) -> None:
+        """Il caso per cui la regola esiste.
+
+        Il commit che registra la campagna tocca soltanto cio' che l'assurance
+        produce: la misura continua a qualificare l'albero, ed e' esattamente
+        quello che l'allowlist del congelamento significa.
+        """
+        self.assertEqual(
+            self._motivi(
+                self.MISURATA,
+                cambiati=[
+                    "assurance/evidence/fuzz-smoke-ultima.json",
+                    "assurance/current-state.json",
+                    "docs/RELEASE.md",
+                ],
+            ),
+            [],
+        )
+
+    def test_una_modifica_del_prodotto_invalida_la_misura(self) -> None:
+        motivi = self._motivi(
+            self.MISURATA, cambiati=["crates/driver-shp/src/lib.rs"]
+        )
+        self.assertTrue(motivi)
+        self.assertTrue(any("driver-shp" in m for m in motivi), motivi)
+
+    def test_una_revisione_che_non_e_un_antenato_e_rossa(self) -> None:
+        """La sola appartenenza alla storia non basta, e nemmeno la esistenza.
+
+        Un altro ramo non dice niente di questo albero, e la diff fra i due non
+        e' la domanda che si sta ponendo.
+        """
+        motivi = self._motivi(self.MISURATA, discende=False)
+        self.assertTrue(any("non e' un antenato" in m for m in motivi), motivi)
+
+    def test_una_revisione_che_git_non_risolve_e_rossa(self) -> None:
+        motivi = self._motivi("f" * 40)
+        self.assertTrue(
+            any("non esiste in questo repository" in m for m in motivi), motivi
+        )
+
+    def test_una_revisione_non_dichiarata_e_rossa(self) -> None:
+        for valore in ("", "   ", None, 7, []):
+            with self.subTest(valore=valore):
+                self.assertTrue(self._motivi(valore))
+
+    def test_una_diff_che_non_acquisisce_non_e_una_diff_vuota(self) -> None:
+        # Sarebbe il verde per assenza di domanda: nessun percorso fuori
+        # allowlist perche' nessun percorso.
+        self.assertTrue(self._motivi(self.MISURATA, diff_rotta=True))
+
+
+class SondeDellaCampagnaCitataDalloStato(unittest.TestCase):
+    """`ultima_campagna_fuzz` non e' un'etichetta: si rilegge dalla fonte.
+
+    Senza questo controllo «citata dallo stato» sarebbe soddisfatta da un nome
+    di file qualunque, e l'insieme esatto delle evidenze -- che quel campo
+    esiste per rendere di nuovo possibile -- tornerebbe una formalita'.
+    """
+
+    VERBALE = "assurance/evidence/fuzz-smoke-ultima.json"
+    SHA = "a" * 40
+
+    def _verbale_completo(self, revisione: str) -> dict:
+        return {
+            "schema_version": 1,
+            "revisione": revisione,
+            "bersagli_dichiarati": ["shp_reader"],
+            "secondi_per_bersaglio": 60,
+            "hanno_finito": ["shp_reader"],
+            "fermati_a_finding_noto": [],
+            "falliti_su_finding_nuovo": [],
+        }
+
+    def _motivi(self, *, contenuto=None, sha=None, crea=True) -> list[str]:
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            if crea:
+                destinazione = radice / self.VERBALE
+                destinazione.parent.mkdir(parents=True, exist_ok=True)
+                destinazione.write_text(
+                    json.dumps(
+                        self._verbale_completo(self.SHA)
+                        if contenuto is None
+                        else contenuto
+                    ),
+                    encoding="utf-8",
+                )
+            stato = {
+                "ultima_campagna_fuzz": {
+                    "sha": self.SHA if sha is None else sha,
+                    "verbale": self.VERBALE,
+                    "significato": "prosa",
+                }
+            }
+            with mock.patch.object(gate, "ROOT", radice), mock.patch.object(
+                gate,
+                "revisione_risolta",
+                side_effect=lambda r: r if isinstance(r, str) and len(r) == 40 else None,
+            ):
+                return gate._campagna_legata_al_verbale(stato)
+
+    def test_un_verbale_coerente_passa(self) -> None:
+        self.assertEqual(self._motivi(), [])
+
+    def test_un_verbale_assente_e_rosso(self) -> None:
+        motivi = self._motivi(crea=False)
+        self.assertTrue(any("non esiste" in m for m in motivi), motivi)
+
+    def test_un_file_che_non_e_un_verbale_e_rosso(self) -> None:
+        # Citare come campagna un file qualunque direbbe piu' di quel che c'e'.
+        parziale = self._verbale_completo(self.SHA)
+        del parziale["hanno_finito"]
+        motivi = self._motivi(contenuto=parziale)
+        self.assertTrue(any("hanno_finito" in m for m in motivi), motivi)
+
+    def test_uno_sha_che_la_fonte_non_dichiara_e_rosso(self) -> None:
+        motivi = self._motivi(sha="b" * 40)
+        self.assertTrue(
+            any("la sua fonte non dichiara" in m for m in motivi), motivi
+        )
+
+    def test_una_revisione_che_git_non_risolve_e_rossa(self) -> None:
+        motivi = self._motivi(contenuto=self._verbale_completo("corta"))
+        self.assertTrue(any("git non risolve" in m for m in motivi), motivi)

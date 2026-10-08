@@ -312,6 +312,39 @@ set -eu
 # quella che prova il caso insidioso: un calo reale mascherato da un commento
 # che nomina la forma.
 #
+# Il 2026-09-16 il gate era rosso da tempo, e la riconciliazione ha trovato
+# cinque occorrenze non registrate: quattro in driver-geoparquet (3 -> 7) dal
+# blocco Q2, una in plenora-io-tools (44 -> 45) dal blocco M3. Nessuna
+# spostata, nessun cambiamento di comportamento; solo occorrenze nuove.
+#
+# Quattro delle cinque non erano fallback, erano assunzioni taciute, e sono
+# state **tolte** invece che registrate:
+#
+#   1. `usize::try_from(lunghezza).unwrap_or(usize::MAX)` nel costruttore della
+#      fixture sintetica: il ripiego non produceva un offset sbagliato in
+#      silenzio -- la sottrazione sarebbe andata sotto zero -- ma non diceva
+#      che cosa si stava assumendo. Ora e' `expect`, e un bersaglio a 16 bit
+#      fallisce con la ragione scritta;
+#   2. `u8::try_from(n & 0x7F).unwrap_or_default()` nello stesso file: la
+#      maschera tiene il valore sotto 128, quindi il ripiego era irraggiungibile
+#      -- e se fosse scattato avrebbe corrotto il varint con uno zero. Ora
+#      l'invariante e' detto;
+#   3. `errore["message"].as_str().unwrap_or_default()` in
+#      `fallimento_tardivo.rs`: con la stringa vuota l'asserzione falliva
+#      comunque, ma dicendo «il messaggio non nomina i byte» di un messaggio
+#      che non c'era. Due guasti diversi, ora leggibili diversi. E' la stessa
+#      correzione gia' fatta in L1, dove togliere un `unwrap_or_default()`
+#      migliorava anche la diagnostica.
+#
+# Le due che restano sono legittime e sono state registrate (driver-geoparquet
+# 3 -> 5, totale 146 -> 148): `.unwrap_or("(payload non testuale)")` nelle prove
+# Q2, dove un payload che non e' UTF-8 diventa quella frase dentro il messaggio
+# d'asserzione. Li' l'assenza di testo **e'** la risposta, ed e' la stessa forma
+# gia' registrata per driver-common, driver-shp e plenora-io-tools.
+#
+# Nessuna revisione H-01 dovuta: nessuna delle sette e' un default che sostituisce
+# un valore del prodotto.
+#
 # Questo file resta il punto d'ingresso perche' CI e s9-checkpoint.sh lo
 # invocano, e perche' la storia sopra vale piu' del meccanismo sotto.
 exec python3 "$(dirname "$0")/check_assurance_fallbacks.py" "$@"

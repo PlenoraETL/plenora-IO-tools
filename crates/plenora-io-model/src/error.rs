@@ -1008,6 +1008,34 @@ impl PlenoraIoError {
         )
     }
 
+    /// Una quota superata **alla pubblicazione**, redatta.
+    ///
+    /// # Perche' un costruttore a parte
+    ///
+    /// Perche' la fase e' un'altra, ed e' un valore osservabile.
+    /// `ERRORS-1.0` ERR-003 dice che `phase` nomina «the last externally
+    /// meaningful phase known to have started», e un limite rilevato mentre si
+    /// pubblica arriva quando la lettura e' avvenuta e la scrittura e' finita:
+    /// lo staging esiste, e la sua dimensione e' cio' che il limite confronta.
+    /// Dichiarare `Validate` direbbe a un orchestratore che l'operazione non
+    /// aveva cominciato, mentre l'intero output e' stato prodotto e scartato.
+    ///
+    /// [`Self::limite_redatto`] resta per i limiti che scattano davvero in
+    /// validazione -- il tetto sulle righe, quelli sul WKT -- dove `Validate`
+    /// e' giusto. Cambiarlo per tutti avrebbe spostato la fase di ottantasei
+    /// chiamanti per correggerne tre.
+    #[must_use]
+    pub fn limite_alla_pubblicazione_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::LimitExceeded,
+            ErrorCategory::ResourceLimit,
+            ErrorPhase::Commit,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
     /// Una violazione di contratto, redatta.
     #[must_use]
     pub fn contratto_redatto(message: &PublicMessage) -> Self {

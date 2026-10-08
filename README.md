@@ -139,6 +139,18 @@ Due vincoli di coerenza si notano solo quando si stringe:
   migrato e la quota deve reggere buffer e batch insieme. Sotto quel valore
   l'errore è `LIMIT_EXCEEDED`, «batch materializzato oltre la quota prenotata».
 
+`--deadline-ms` non è una quota come le altre: quando scade l'operazione si
+ferma e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code `5`), come vuole
+PUBLIC-SURFACES-1.0 SURF-010, anche quando nello stesso momento una quota
+risulta superata. La scadenza si controlla un'ultima volta subito prima della
+pubblicazione: fra quel controllo e il rename atomico resta una finestra breve
+che nessun controllo chiude, e una scadenza che cade lì trova l'output già
+pubblicato. Per uno Shapefile pubblicato come file sciolti la finestra è
+l'intera sequenza dei rename: superato il controllo, la sequenza si completa,
+per non lasciare un set pubblicato in parte. Fino alla 4.1.0 usciva
+`resource_limit` (`LIMIT_EXCEEDED`, exit code `4`). Un valore a zero resta il
+rifiuto di una quota, `resource_limit`.
+
 ### Ctrl+C
 
 Il primo `SIGINT` **annulla in modo cooperativo**: la pipeline lo osserva ai
@@ -184,6 +196,12 @@ Lo stato in forma strutturata è
 ne riporta i numeri e un gate verifica che coincidano.
 
 ## Licenza
+
+Il codice di questo repository -- il binario, i crate del workspace e lo SDK
+Python -- è proprietario: [`LICENSE`](LICENSE), «Copyright (c) Plenora ETL. All
+rights reserved.», la stessa licenza di plenora-database-tools. Nessun diritto
+d'uso, copia, modifica o distribuzione è concesso se non per accordo scritto con
+Plenora ETL. I crate dichiarano `license-file`, lo SDK `License: Proprietary`.
 
 I tre crate vendorizzati sotto `vendor/` — `gdal`, `dxf` e `shapefile` —
 conservano la propria licenza upstream (MIT) e il proprio file di licenza. La

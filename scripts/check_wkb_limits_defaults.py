@@ -76,7 +76,24 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # portare il contatore delle righe a ridosso di `u64::MAX`: lo stato ha un
 # campo `wkb_limits`, e li' la quota e' il contesto della prova, non il suo
 # oggetto -- cio' che si prova e' l'ordine fra conteggio e scrittura.
-ATTESI = {"test": 83, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 83 a 88 con le cinque sonde sulla **fase** dichiarata dai
+# driver: una per CSV, DXF, GeoJSON e XLS sul ramo difensivo dei loro writer, e
+# una sullo spool su file di DXF.
+#
+# Nelle prime quattro la quota e' il contesto e non l'oggetto: cio' che si prova
+# e' che un WKB illeggibile faccia dichiarare la fase in corso, e un tetto
+# diverso proverebbe lo stesso percorso sotto una quota che nessun uso reale
+# imposta. La quinta e' l'eccezione che vale la pena distinguere: li' il tetto
+# **e'** l'oggetto -- `max_cell_bytes: 5` contro i ventuno byte di un Point --
+# e il default riempie gli altri campi, perche' stringere anche quelli
+# sposterebbe il rifiuto su un limite che la prova non sta esaminando.
+# `test` passa da 88 a 90 con le due sonde SURF-010 della 4.1.1 sulla scadenza
+# in finalizzazione: `una_scadenza_durante_la_finalizzazione_non_pubblica`
+# (CSV) e `una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce`
+# (Shapefile). Costruiscono il contesto del writer a mano, e li' la quota WKB
+# e' contesto e non oggetto: cio' che si prova e' che la scadenza prevalga e
+# che nulla venga pubblicato.
+ATTESI = {"test": 90, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

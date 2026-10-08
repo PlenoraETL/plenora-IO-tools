@@ -76,18 +76,21 @@ pubblici, e il pacchetto Python porta nei metadati il classificatore
 `Private :: Do Not Upload`, che i servizi d'indice leggono per rifiutare il
 caricamento.
 
-Nessuna licenza first-party è dichiarata: dentro l'archivio non ci sono termini
-che concedano qualcosa, e la loro assenza non è un permesso. Ciò che è concesso
-lo stabilisce il contratto con cui l'artefatto è stato consegnato. In
-particolare, chi riceve un artefatto non è autorizzato a ridistribuirlo né a
-pubblicarlo.
+Il codice è sotto la licenza **proprietaria** del repository,
+[`LICENSE`](../LICENSE): «Copyright (c) Plenora ETL. All rights reserved.»,
+nessun diritto d'uso, copia, modifica, distribuzione o pubblicazione se non per
+accordo scritto con Plenora ETL. I crate la dichiarano con `license-file`, il
+pacchetto Python con `License: Proprietary`. Chi riceve un artefatto non è
+autorizzato a ridistribuirlo né a pubblicarlo.
 
-Il contratto di release lo registra nell'invariante
-`distribuzione.licenza-first-party` come **capacità differita** — perimetro
-dichiarato, non blocco chiuso — e
-[docs/RELEASE.md](RELEASE.md) ne riporta la riga con ciò che la 2.0.0 non
-promette. Una distribuzione pubblica richiederebbe una decisione separata del
-titolare.
+Lo stesso testo viaggia con ogni artefatto: `LICENSE` alla radice degli alberi
+nativi, `.dist-info/licenses/LICENSE` nella wheel, `LICENSE` alla radice della
+sdist; il referto `licenze-artefatto` lo dichiara (`licenza_first_party`) e la
+verifica lo pretende identico a quello del repository. Fino alla 4.1.0 nessuna
+licenza first-party era dichiarata, e il contratto di release lo registra
+nell'invariante `distribuzione.licenza-first-party` come **capacità differita**,
+con la riga in [docs/RELEASE.md](RELEASE.md): chiuderla è della registrazione
+della prossima release.
 
 Le licenze dei **componenti di terzi** sono un'altra cosa, e restano dovute:
 ogni artefatto nativo porta in `LICENSES/` il testo di ognuna, e un gate conta
@@ -160,6 +163,22 @@ verifica sopra è a carico di chi riceve, e questo documento la scrive per estes
 proprio perché non c'è un comando da invocare al suo posto. Nel repository lo
 stesso controllo lo fa `scripts/check-digest-manifesto.py --albero <estratto>`,
 e la CI lo esegue su ogni artefatto costruito.
+
+Il manifesto dice che i file sono quelli dell'archivio; non dice da dove venga
+l'archivio. Per gli artefatti del canale `candidate` lo dice un'attestazione di
+provenienza **firmata** (GitHub attestations, Sigstore), scritta dal workflow
+`Distribuzione` sulla revisione da cui l'archivio è uscito. Si verifica
+sull'archivio scaricato, prima di estrarlo, e senza fidarsi di nessun file che
+lo accompagna:
+
+```
+gh attestation verify plenora-io-<versione>-linux-x86_64-base.tar.gz \
+  --repo PlenoraETL/plenora-IO-tools \
+  --signer-workflow PlenoraETL/plenora-IO-tools/.github/workflows/distribuzione.yml
+```
+
+Le `*.provenance.json` accanto agli archivi restano, e dicono di più -- il lock
+del runtime, gli strumenti -- ma le scrivono i nostri script e nessuno le firma.
 
 ### La prima prova
 

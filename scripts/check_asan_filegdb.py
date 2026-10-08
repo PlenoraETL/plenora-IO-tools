@@ -106,7 +106,26 @@ from check_profondita_fuzz import (  # noqa: E402
     impronta_del_perimetro,
     leggi_registro,
     percorsi_del_perimetro,
+    rimisurazione_ben_dichiarata,
 )
+
+# --- il rinvio, e perche' la chiave non e' la stessa della profondita' -------
+#
+# Questo gate e quello di profondita' condividono il **perimetro**: leggono lo
+# stesso registro di `filegdb_reader` e calcolano la stessa impronta. Quando
+# quell'impronta cambia, cambia per entrambi, e le due misure scadono insieme.
+#
+# Non attestano pero' la stessa cosa, e il rinvio non puo' essere lo stesso. La
+# misura di profondita' dice quali requisiti il target raggiunge; questa dice
+# dov'e' il **confine di AddressSanitizer** -- che GDAL non e' strumentata, che
+# il runtime e' nel binario, quanti file del wrapper sono coperti. Da rieseguire
+# c'e' `asan-filegdb.sh`, non `fuzz-profondita.sh`, e cio' che smette di essere
+# affermato e' un'altra frase.
+#
+# Percio' due chiavi nello stesso registro, e non una condivisa: un rinvio solo
+# per due misure diverse direbbe «rifatta» di una campagna che non e' stata
+# rifatta.
+CHIAVE_RINVIO = "rimisurazione_asan_dovuta"
 
 ROOT = Path(__file__).resolve().parent.parent
 BERSAGLIO = BERSAGLI["filegdb_reader"]
@@ -324,7 +343,12 @@ def identita(percorso: Path) -> dict[str, str]:
 # --- la verifica ------------------------------------------------------------
 
 
-def verifica(misura: dict[str, Any]) -> list[str]:
+def verifica(
+    misura: dict[str, Any],
+    *,
+    qualifica: bool = False,
+    rinvii: list[str] | None = None,
+) -> list[str]:
     errori: list[str] = []
 
     if misura.get("target") != BERSAGLIO.nome:
@@ -383,13 +407,37 @@ def verifica(misura: dict[str, Any]) -> list[str]:
         attesa, problemi = impronta_del_perimetro(percorsi)
         errori.extend(problemi)
         if attesa and misura.get("impronta_perimetro") != attesa:
-            errori.append(
-                f"impronta del perimetro diversa: la misura dice "
-                f"«{misura.get('impronta_perimetro')}», il working tree "
-                f"«{attesa}». Il binario misurato non e' quello che il codice "
-                "corrente produrrebbe: va rifatta con "
-                "`bash scripts/asan-filegdb.sh`."
-            )
+            rinvio = registro.get(CHIAVE_RINVIO)
+            if rinvio is None:
+                errori.append(
+                    f"impronta del perimetro diversa: la misura dice "
+                    f"«{misura.get('impronta_perimetro')}», il working tree "
+                    f"«{attesa}». Il binario misurato non e' quello che il codice "
+                    "corrente produrrebbe: va rifatta con "
+                    "`bash scripts/asan-filegdb.sh`."
+                )
+            else:
+                mal_dichiarato = rimisurazione_ben_dichiarata(
+                    rinvio, misura.get("impronta_perimetro"), attesa
+                )
+                if mal_dichiarato:
+                    errori.extend(
+                        f"`{CHIAVE_RINVIO}`: {motivo}" for motivo in mal_dichiarato
+                    )
+                elif qualifica:
+                    errori.append(
+                        "il confine ASan e' dichiarato non piu' valido per il "
+                        "perimetro corrente, e la qualificazione non accetta un "
+                        f"rinvio. {rinvio['non_promette']} Va rifatto con "
+                        f"«{rinvio['comando']}»."
+                    )
+                elif rinvii is not None:
+                    rinvii.append(
+                        "DIFFERITO confine ASan: misura NON valida per il "
+                        f"perimetro corrente. {rinvio['non_promette']} "
+                        f"Rimisura dovuta {rinvio['quando']}, con "
+                        f"«{rinvio['comando']}»."
+                    )
 
     # --- e infine la libreria di **questa** macchina -----------------------
     #
@@ -435,6 +483,14 @@ def _riga_di_esito(misura: dict[str, Any], locale: Path) -> str:
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--registra", type=Path, help="la misura grezza da registrare")
+    argomenti.add_argument(
+        "--qualifica",
+        action="store_true",
+        help=(
+            "rifiuta un confine dichiarato non piu' valido: e' la modalita' del "
+            "candidato finale, dove un rinvio non qualifica"
+        ),
+    )
     opzioni = argomenti.parse_args(argv)
 
     if opzioni.registra:
@@ -525,11 +581,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"assurance/asan-filegdb.json: non e' JSON leggibile ({errore})", file=sys.stderr)
         return 1
 
-    errori = verifica(misura)
+    rinvii: list[str] = []
+    errori = verifica(misura, qualifica=opzioni.qualifica, rinvii=rinvii)
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
     if errori:
         return 1
+
+    if rinvii:
+        # Il rinvio si stampa **al posto** della riga d'esito: quella descrive un
+        # confine misurato, e qui il confine misurato non e' quello dell'albero.
+        for riga in rinvii:
+            print(riga)
+        return 0
 
     locale = _libreria_locale()
     print(_riga_di_esito(misura, locale))

@@ -99,6 +99,14 @@ OPERATIVI = {
     "vendor/shapefile/CHANGELOG.md": "cronaca upstream ridistribuita; contenuto di terzi",
     "vendor/shapefile/LICENSE.md": "licenza MIT upstream ridistribuita; contenuto di terzi",
     ".github/pull_request_template.md": "GitHub lo legge per convenzione di percorso",
+    "upstream/arrow-rs-byte-stream-split/SEGNALAZIONE.md": (
+        "il testo della segnalazione ad arrow-rs, che vive accanto al caso "
+        "minimo perche' i due si leggono insieme: il documento cita l'output "
+        "che il programma stampa, e separarli lascerebbe l'uno a descrivere "
+        "una versione dell'altro. Non e' documentazione del prodotto -- quella "
+        "sta in `docs/` -- ed e' scritto in inglese perche' il destinatario e' "
+        "un progetto di terzi."
+    ),
     "sdk/python/README.md": (
         "`pyproject.toml` lo dichiara `readme`, e finisce nei metadati del "
         "pacchetto: e' la stessa convenzione di percorso dei fork Cargo. Non "

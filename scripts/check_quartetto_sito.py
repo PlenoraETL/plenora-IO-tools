@@ -77,6 +77,12 @@ SNAPSHOT = ROOT / "assurance" / "registries" / "quartetto-siti.json"
 FAMIGLIA = {
     "wkb_redatto": "DataMapping/Validate/Wkb/Never",
     "limite_redatto": "ResourceLimit/Validate/LimitExceeded/Never",
+    # La quota superata **alla pubblicazione**: stessa famiglia, altra fase.
+    # Senza questa riga i tre siti di `publish.rs` che la usano sparivano dal
+    # censimento -- non cambiavano quartetto, proprio non c'erano piu' -- e
+    # rigenerare lo snapshot avrebbe scritto «qui non si costruisce nessun
+    # errore» dove se ne costruisce uno.
+    "limite_alla_pubblicazione_redatto": "ResourceLimit/Commit/LimitExceeded/Never",
     "contratto_redatto": "InvalidPlan/Validate/Contract/Never",
     "non_supportato_redatto": "Unsupported/Validate/Unsupported/Never",
     "schema_redatto": "Schema/Validate/Schema/Never",
@@ -105,6 +111,35 @@ CHIAMATA = re.compile(
 )
 CODICE = re.compile(r"\bIoErrorCode::(\w+)")
 
+# `during()` ridichiara la fase, e il censimento deve leggerla.
+#
+# Il costruttore porta una fase di **default**: `formato_redatto` dice `Read`
+# perche' e' li' che nasce la maggior parte dei suoi errori. Chi conosce lo
+# stadio la corregge con `during()`, ed e' l'idioma che `scrittura_limitata`
+# usa per dire `Write` e `Finalize`. Finche' il gate leggeva il solo nome del
+# costruttore, il censimento affermava `Read` di siti che producono `Write`:
+# un quartetto scritto e mai verificato, cioe' la cosa che questo gate esiste
+# per impedire.
+#
+# La finestra si ferma al primo `;`: `during()` sta nella stessa espressione
+# del costruttore, e allargare oltre farebbe catturare la fase di un errore
+# vicino.
+DURANTE = re.compile(r"\.during\(\s*(?:[\w:]*::)?ErrorPhase::(\w+)")
+
+
+def con_fase_ridichiarata(quartetto: str, coda: str) -> str:
+    """Il quartetto con la fase che `during()` impone, se ce n'e' una."""
+    fine = coda.find(";")
+    finestra = coda if fine == -1 else coda[:fine]
+    trovata = DURANTE.search(finestra)
+    if trovata is None:
+        return quartetto
+    assi = quartetto.split("/")
+    if len(assi) != 4:
+        return quartetto
+    assi[1] = trovata.group(1)
+    return "/".join(assi)
+
 
 def quartetti_del_file(percorso: pathlib.Path) -> dict[str, list[str]]:
     grezzo = percorso.read_text(encoding="utf-8")
@@ -126,6 +161,7 @@ def quartetti_del_file(percorso: pathlib.Path) -> dict[str, list[str]]:
             coda = testo[m.end() : m.end() + 200]
             codice = CODICE.search(coda)
             quartetto = f"esplicito/esplicito/{codice.group(1) if codice else '?'}/esplicito"
+        quartetto = con_fase_ridichiarata(quartetto, testo[m.end() : m.end() + 400])
         funzione = funzione_che_racchiude(intervalli, m.start())
         per_funzione.setdefault(funzione, []).append(quartetto)
     # **Ordine di apparizione, non insieme ordinato.**

@@ -880,3 +880,80 @@ fn streams_multiple_batches() {
         "atteso streaming multi-batch, avuti {batches}"
     );
 }
+
+/// Il `decode_wkb` del writer dichiara `Write`, e nient'altro dell'errore cambia.
+///
+/// # Perche' la prova chiama `write_feature` invece del writer
+///
+/// Perche' altrimenti non arriverebbe alla riga in esame. `create` avvolge il
+/// writer con `with_write_validation`, che ispeziona la geometria e registra
+/// una **violazione di riga** invece di propagare: un WKB illeggibile viene
+/// respinto li', con «righe rifiutate prima della scrittura».
+///
+/// Davanti a questa decodifica ci sono percio' due strati. Il primo e' in
+/// lettura: corrompendo uno a uno i cinque WKB di un file IPC, cinque volte su
+/// cinque l'errore arriva con `phase: read`. Il secondo e' la guardia in
+/// scrittura. La decodifica del writer e' quindi un ramo **difensivo**.
+///
+/// Difensivo non vuol dire esente: se ci si arriva, la fase dichiarata dev'essere
+/// quella in corso. `write_feature` e' il livello piu' alto da cui il ramo si
+/// raggiunge davvero, ed e' li' che la prova sta.
+#[test]
+fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("in.geojson");
+    std::fs::write(
+        &src,
+        r#"{"type":"FeatureCollection","features":[
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{"k":1}}
+        ]}"#,
+    )
+    .unwrap();
+
+    let driver = GeoJsonDriver;
+    let (batch, _layer) = read_all(&driver, &src);
+    let schema = batch.schema();
+    let geom_idx = geometry_index(&schema).unwrap();
+
+    // Byte order valido, tipo 99 che non esiste: la forma basta a superare un
+    // controllo di lunghezza, non la decodifica.
+    let guasto = BinaryArray::from(vec![
+        Some(&[0x01_u8, 0x63, 0x00, 0x00, 0x00][..]);
+        batch.num_rows()
+    ]);
+
+    let mut uscita: Vec<u8> = Vec::new();
+    let errore = write_feature(
+        &mut uscita,
+        &schema,
+        geom_idx,
+        &guasto,
+        &batch,
+        0,
+        &WkbLimits::default(),
+    )
+    .expect_err("un WKB illeggibile non si scrive");
+
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Write,
+        "la scrittura e' in corso: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso, che non sa in quale passata gira"
+    );
+    // La correzione riguarda la sola fase: gli altri assi non si muovono.
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.remote_effect,
+        plenora_io_model::RemoteEffect::None,
+        "{errore}"
+    );
+}

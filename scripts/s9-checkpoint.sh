@@ -55,6 +55,22 @@ cd "$(dirname "$0")/.."
 LOG_DIR="${S9_CHECKPOINT_LOG_DIR:-/tmp/s9-checkpoint}"
 mkdir -p "${LOG_DIR}"
 
+# Dove la campagna di questa corsa scrive il proprio verbale.
+#
+# **Fuori dall'albero**, e non e' una comodita'. Lo smoke lo scriverebbe in
+# `assurance/evidence/fuzz-smoke-ultima.json`, che e' un file tracciato: un
+# passo che scrive nell'albero che la corsa sta verificando rende rosso
+# `albero_invariato`, e un checkpoint che modifica l'albero che sta
+# qualificando non qualifica niente. E' la stessa ragione per cui
+# `fuzz-profondita.sh` non e' un passo del checkpoint.
+#
+# Cambia il momento della registrazione, non il requisito: il verbale resta
+# completo e attribuito alla revisione eseguita, e `registra-evidenza-s9.py`
+# lo pubblica poi nell'albero dell'assurance. Vive nella directory dei log,
+# quindi sopravvive anche a una corsa fallita -- che e' proprio quando
+# serve rileggerlo.
+export PLENORA_VERBALE_CAMPAGNA="${LOG_DIR}/fuzz-smoke-ultima.json"
+
 # Il risultato della corsa, su disco.
 #
 # L'esito viveva **solo sullo stdout**. La corsa del 2026-08-21 lo ha mostrato
@@ -302,6 +318,7 @@ salta() {
 PASSI_PESANTI=(
     fuzz_replay
     fuzz_smoke
+    fuzz_campagna_completa
     coverage_pulizia
     coverage_misura
     coverage_export
@@ -713,6 +730,20 @@ passo sonde_dettaglio_congelato python3 -m unittest scripts.test_check_dettaglio
 passo check_dettaglio_congelato python3 scripts/check_dettaglio_congelato.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
+# Il registro dei finding noti e il suo classificatore: la quarantena e' per
+# bersaglio, questo e' per famiglia di crash, e le due vie si leggono insieme.
+passo sonde_finding_noti python3 -m unittest scripts.test_classifica_finding_fuzz
+# Il wrapper che tiene in vita la campagna oltre il client, e che ora salva
+# il log prima di rimuovere il container.
+passo sonde_wrapper_campagna python3 -m unittest scripts.test_fuzz_container
+# La regola del riuso delle evidenze: che sia scritta, e che chi dovrebbe
+# accorgersene esista. Che se ne accorga lo provano le sue regressioni.
+passo sonde_riuso_evidenze python3 -m unittest scripts.test_check_riuso_evidenze
+passo check_riuso_evidenze python3 scripts/check_riuso_evidenze.py
+# La pubblicazione del verbale della campagna: e' il passaggio che porta
+# nell'albero un file prodotto fuori, e un passaggio che sbaglia in
+# silenzio attribuirebbe a questa corsa la campagna di un'altra.
+passo sonde_registra_evidenza python3 -m unittest scripts.test_registra_evidenza_s9
 passo sonde_soak python3 -m unittest scripts.test_soak_misurato
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder
 passo check_prevalidazione python3 scripts/check_prevalidazione_decoder.py
@@ -813,6 +844,21 @@ echo "--- 4. fuzz: replay deterministico, poi smoke ----------------"
 # scoprire una regressione nota solo per fortuna.
 passo_pesante fuzz_replay bash scripts/fuzz-replay.sh
 passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
+
+# La campagna si giudica dal **verbale**, non dall'uscita dello smoke.
+#
+# Lo smoke esce 0 anche quando un bersaglio si e' fermato a un crash
+# compatibile con un finding noto: e' deliberato, perche' lo sviluppo prosegua
+# sugli altri. Quello 0 non e' «campagna completa», e dedurlo dall'exit code
+# renderebbe il livello 2 piu' generoso del gate del rilascio.
+#
+# Il verbale che si legge e' quello che **questa** corsa ha prodotto, nella
+# directory dei log, e `--revisione-della-corsa` lo pretende esattamente su
+# questa revisione: senza, un verbale gia' versionato o quello di un antenato
+# passerebbe al posto suo, ed e' il ripiego che il passo esiste per impedire.
+passo_pesante fuzz_campagna_completa python3 scripts/classifica_finding_fuzz.py \
+    --verifica-campagna "${PLENORA_VERBALE_CAMPAGNA}" \
+    --revisione-della-corsa "${REVISIONE}"
 
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"

@@ -640,8 +640,64 @@ def osserva(
 # --- la verifica ------------------------------------------------------------
 
 
+# --- la misura che il perimetro ha invalidato -------------------------------
+#
+# Una misura di profondita' vale per l'albero su cui e' girata, e l'impronta del
+# perimetro serve proprio a farlo vedere: cambia una riga del driver, del target,
+# dei semi o del lock, e l'impronta non coincide piu'.
+#
+# Quando succede ci sono tre vie, e due sono sbagliate. Aggiornare l'impronta
+# farebbe dire alla misura vecchia che descrive l'albero nuovo, che e' la bugia
+# esatta che l'impronta esiste per impedire. Togliere il gate perderebbe anche
+# cio' che la misura continua a dire di vero. La terza e' dichiarare che la
+# misura **non e' piu' valida** e che la rimisura e' dovuta, dicendo quando.
+#
+# La dichiarazione costa: nomina le due impronte, e la seconda dev'essere quella
+# dell'albero corrente. Cosi' un albero che cambia ancora la rende stantia e il
+# gate torna rosso, invece di lasciarla buona per sempre. E non basta a
+# qualificare: `--qualifica` la rifiuta, ed e' la modalita' che gira sul
+# candidato finale.
+
+CAMPI_RIMISURAZIONE = ("perche", "impronta_della_misura", "impronta_attesa",
+                       "non_promette", "quando", "comando")
+
+
+def rimisurazione_ben_dichiarata(
+    voce: Any, impronta_misura: Any, impronta_attesa: str
+) -> list[str]:
+    """I motivi per cui un rinvio non e' dichiarato come deve; vuoto se lo e'."""
+    if not isinstance(voce, dict):
+        return ["`rimisurazione_dovuta` non e' un oggetto"]
+    motivi = [
+        f"`rimisurazione_dovuta.{campo}` assente o vuoto"
+        for campo in CAMPI_RIMISURAZIONE
+        if not isinstance(voce.get(campo), str) or not voce[campo].strip()
+    ]
+    if motivi:
+        return motivi
+    if voce["impronta_della_misura"] != impronta_misura:
+        motivi.append(
+            "`rimisurazione_dovuta` parla di una misura con impronta "
+            f"«{voce['impronta_della_misura']}», l'artefatto ne porta "
+            f"«{impronta_misura}»: il rinvio non riguarda questa misura"
+        )
+    if voce["impronta_attesa"] != impronta_attesa:
+        motivi.append(
+            "`rimisurazione_dovuta` e' stantia: dichiara l'albero "
+            f"«{voce['impronta_attesa']}», il working tree e' "
+            f"«{impronta_attesa}». Il codice e' cambiato ancora dopo il rinvio, "
+            "quindi il rinvio non descrive piu' la distanza che dichiarava."
+        )
+    return motivi
+
+
 def verifica(
-    bersaglio: Bersaglio, registro: dict[str, Any], misura: dict[str, Any]
+    bersaglio: Bersaglio,
+    registro: dict[str, Any],
+    misura: dict[str, Any],
+    *,
+    qualifica: bool = False,
+    rinvii: list[str] | None = None,
 ) -> list[str]:
     voci, errori = requisiti(bersaglio, registro)
     percorsi, problemi = percorsi_del_perimetro(bersaglio, registro)
@@ -687,12 +743,36 @@ def verifica(
     attesa, problemi = impronta_del_perimetro(percorsi)
     errori.extend(problemi)
     if attesa and misura.get("impronta_perimetro") != attesa:
-        errori.append(
-            f"impronta del perimetro diversa: la misura dice "
-            f"«{misura.get('impronta_perimetro')}», il working tree "
-            f"«{attesa}». Il codice che il target attraversa e' cambiato dopo "
-            f"la misura: va rifatta con `scripts/fuzz-profondita.sh {bersaglio.nome}`."
-        )
+        rinvio = registro.get("rimisurazione_dovuta")
+        if rinvio is None:
+            errori.append(
+                f"impronta del perimetro diversa: la misura dice "
+                f"«{misura.get('impronta_perimetro')}», il working tree "
+                f"«{attesa}». Il codice che il target attraversa e' cambiato dopo "
+                f"la misura: va rifatta con `scripts/fuzz-profondita.sh {bersaglio.nome}`."
+            )
+        else:
+            mal_dichiarato = rimisurazione_ben_dichiarata(
+                rinvio, misura.get("impronta_perimetro"), attesa
+            )
+            if mal_dichiarato:
+                errori.extend(
+                    f"`rimisurazione_dovuta` di {bersaglio.nome}: {motivo}"
+                    for motivo in mal_dichiarato
+                )
+            elif qualifica:
+                errori.append(
+                    f"{bersaglio.nome}: la misura di profondita' e' dichiarata "
+                    "non piu' valida per il perimetro corrente, e la "
+                    "qualificazione non accetta un rinvio. "
+                    f"{rinvio['non_promette']} Va rifatta con «{rinvio['comando']}»."
+                )
+            elif rinvii is not None:
+                rinvii.append(
+                    f"DIFFERITO {bersaglio.nome}: misura NON valida per il "
+                    f"perimetro corrente. {rinvio['non_promette']} "
+                    f"Rimisura dovuta {rinvio['quando']}, con «{rinvio['comando']}»."
+                )
 
     osservazioni = misura.get("requisiti")
     if not isinstance(osservazioni, list) or not osservazioni:
@@ -859,11 +939,39 @@ def registra(
 
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
-    argomenti.add_argument("bersaglio", choices=sorted(BERSAGLI), help="quale fuzz target")
+    # Il bersaglio si puo' omettere **solo** in qualificazione, e allora sono
+    # tutti. Cosi' la condizione di rilascio nomina un comando che non va
+    # riscritto il giorno in cui nasce un target nuovo: un elenco ripetuto la'
+    # sarebbe la seconda rappresentazione che invecchia per prima.
+    argomenti.add_argument(
+        "bersaglio", nargs="?", choices=sorted(BERSAGLI), help="quale fuzz target"
+    )
     argomenti.add_argument("--registra", type=Path, help="l'export JSON di llvm-cov")
     argomenti.add_argument("--lcov", type=Path, help="il report lcov della stessa misura")
     argomenti.add_argument("--input", type=int, default=0, help="quanti input ha rigiocato")
+    argomenti.add_argument(
+        "--qualifica",
+        action="store_true",
+        help=(
+            "rifiuta una misura dichiarata non piu' valida: e' la modalita' del "
+            "candidato finale, dove un rinvio non qualifica"
+        ),
+    )
     opzioni = argomenti.parse_args(argv)
+
+    if opzioni.bersaglio is None:
+        # Nessun bersaglio vuol dire **tutti**, in entrambe le modalita'. Legarlo
+        # a `--qualifica` rendeva la sola via di sviluppo impossibile da scrivere
+        # senza elencarli, e un elenco ripetuto altrove invecchia per primo.
+        if opzioni.registra:
+            print("--registra riguarda un bersaglio solo", file=sys.stderr)
+            return 2
+        coda = ["--qualifica"] if opzioni.qualifica else []
+        peggiore = 0
+        for nome in sorted(BERSAGLI):
+            peggiore = max(peggiore, main([nome, *coda]))
+        return peggiore
+
     bersaglio = BERSAGLI[opzioni.bersaglio]
 
     try:
@@ -893,13 +1001,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{registro.get('artefatto')}: non e' JSON leggibile ({errore})", file=sys.stderr)
         return 1
 
-    errori = verifica(bersaglio, registro, misura)
+    rinvii: list[str] = []
+    errori = verifica(
+        bersaglio, registro, misura, qualifica=opzioni.qualifica, rinvii=rinvii
+    )
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
     if errori:
         return 1
 
     quanti = len(misura.get("requisiti", []))
+    if rinvii:
+        # Il rinvio si stampa **al posto** della riga che direbbe «valida»: e'
+        # l'unica riga che chi legge guardera', e non puo' dire due cose.
+        for riga in rinvii:
+            print(riga)
+        print(
+            f"profondita' del target {registro['target']}: {quanti} requisiti "
+            "letti dalla misura in archivio, che NON vale per il perimetro "
+            "corrente."
+        )
+        return 0
+
     print(
         f"profondita' del target {registro['target']}: {quanti} requisiti "
         f"raggiunti, misura valida per il perimetro corrente."

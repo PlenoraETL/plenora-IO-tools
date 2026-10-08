@@ -44,6 +44,9 @@ jobs:
           toolchain: "1.98.1"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Verify real feature-on FileGDB catalog evidence
@@ -57,6 +60,11 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_action_pins
           python3 scripts/check_action_pins.py
+      # La licenza del prodotto, detta allo stesso modo nel dato, nei metadati,
+      # nei crate e dentro i pacchetti: costa millisecondi, e prima della 4.1.1
+      # due di questi posti si contraddicevano.
+      - name: Probe the product license
+        run: python3 -m unittest scripts.test_licenza_del_prodotto
       - name: Verify unique public identities
         run: |
           python3 -m unittest scripts.test_check_public_identity
@@ -215,6 +223,10 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_quarantena_fuzz
           python3 scripts/check_quarantena_fuzz.py
+          python3 -m unittest scripts.test_classifica_finding_fuzz
+          python3 -m unittest scripts.test_fuzz_container
+          python3 -m unittest scripts.test_check_riuso_evidenze
+          python3 scripts/check_riuso_evidenze.py
       - name: Verify soak measurement regressions
         run: python3 -m unittest scripts.test_soak_misurato
       # I due gate dei fork condividono `fork_comune`, che calcola l'impronta
@@ -317,17 +329,27 @@ jobs:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
+      # Versione esatta: senza, `install-action` installa l'ultima pubblicata, e
+      # lo stesso commit puo' passare o fallire secondo il giorno in cui gira.
+      # E' la versione che la CI usava gia' quando il pin mancava.
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.2
       # Gli ID ignorati vengono dal registro, non da un elenco scritto qui: due
       # elenchi divergono, e il secondo non porta la ragione dell'eccezione.
+      #
+      # I lockfile sono due. `fuzz/` e' un workspace staccato con il proprio
+      # `Cargo.lock`, e quel grafo compila i driver contro input ostili: un
+      # advisory li' e' un advisory sul codice che il fuzz esercita, e
+      # auditarne uno solo lasciava l'altro senza nessuno che lo guardasse.
       - name: Audit locked dependencies
         run: |
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
           # shellcheck disable=SC2046
           cargo audit --deny warnings $(python3 scripts/audit_ignores.py)
+          # shellcheck disable=SC2046
+          cargo audit --file fuzz/Cargo.lock --deny warnings $(python3 scripts/audit_ignores.py)
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -452,6 +474,9 @@ jobs:
         with:
           toolchain: "1.98.1"
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install distribution GDAL/OpenFileGDB
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Record native dependency and filesystem identities
@@ -523,6 +548,9 @@ jobs:
       # GDAL serve **alla misura**, non solo ai test: con `--all-features` la
       # copertura compila anche il percorso `gdal-backend` di driver-filegdb, e
       # senza la libreria non compilerebbe affatto.
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Measure coverage
@@ -578,7 +606,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: PlenoraETL/plenora-contracts
-          ref: 453c8d1ff2eb260840e6cedc033a2b76b58a0b9e
+          ref: 1e902dfaab5819c1d9ce785878d5b26dbeae48b3
           path: .plenora-contracts
 
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
@@ -601,6 +629,16 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_manifesto_adozione
           python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
+
+      # Le prove Rust validano i documenti del prodotto con schemi del
+      # repository comune, letti da copie in `contracts/copie-dal-pin/`: il
+      # checkout fissato esiste solo qui. Questo passo e' cio' che impedisce a
+      # una copia di divergere dal pin -- per un cambio di pin dimenticato o per
+      # una modifica a mano che fa tornare un verde.
+      - name: Le copie dei contratti sono i byte del pin
+        run: |
+          python3 -m unittest scripts.test_check_copie_dal_pin
+          python3 scripts/check_copie_dal_pin.py --contracts .plenora-contracts
 
       # Qui la domanda e' «il codice di questo commit rispetta i contratti?», e
       # si interroga il binario appena costruito. L'altra domanda -- «l'artefatto
@@ -642,6 +680,9 @@ jobs:
         with:
           toolchain: "1.98.1"
 
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Installa GDAL
         run: sudo apt-get update && sudo apt-get install -y libgdal-dev
 

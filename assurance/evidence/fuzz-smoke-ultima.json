@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "descrizione": "L'esito dell'ultima corsa di `scripts/fuzz-smoke.sh`, per bersaglio. Un bersaglio fermato a un crash compatibile con un finding noto non ha esplorato il tempo restante: lo smoke esce 0 perche' lo sviluppo prosegua sugli altri, e questo verbale tiene separata la campagna completa da quella interrotta.",
+  "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+  "bersagli_dichiarati": [
+    "csv_reader",
+    "dxf_reader",
+    "filegdb_reader",
+    "from_wkb",
+    "geojson_reader",
+    "geoparquet_reader",
+    "gpkg_geometry",
+    "gpkg_reader",
+    "ipc_reader",
+    "ipc_to_gpkg",
+    "kml_reader",
+    "shp_reader",
+    "shp_wkb",
+    "wkt_parse",
+    "xlsx_reader"
+  ],
+  "secondi_per_bersaglio": 60,
+  "hanno_finito": [
+    "csv_reader",
+    "dxf_reader",
+    "filegdb_reader",
+    "from_wkb",
+    "geojson_reader",
+    "geoparquet_reader",
+    "gpkg_geometry",
+    "gpkg_reader",
+    "ipc_reader",
+    "ipc_to_gpkg",
+    "kml_reader",
+    "shp_reader",
+    "shp_wkb",
+    "wkt_parse",
+    "xlsx_reader"
+  ],
+  "fermati_a_finding_noto": [],
+  "falliti_su_finding_nuovo": []
+}

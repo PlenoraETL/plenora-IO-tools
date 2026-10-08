@@ -127,6 +127,9 @@ def metadata(versione_pacchetto: str) -> str:
         "Summary: Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2",
         "Project-URL: Repository, https://github.com/PlenoraETL/plenora-IO-tools",
         f"Requires-Python: {requires_python()}",
+        # Lo stesso valore di `license` nel `pyproject.toml`: il repository e'
+        # proprietario (`LICENSE`), e la wheel lo dice a `pip show`.
+        "License: Proprietary",
         "Description-Content-Type: text/markdown",
     ]
     righe += [f"Classifier: {c}" for c in classificatori()]
@@ -158,6 +161,13 @@ def costruisci_wheel(uscita: pathlib.Path, versione_pacchetto: str) -> pathlib.P
 
     voci.append((f"{dist_info}/METADATA", metadata(versione_pacchetto).encode("utf-8")))
     voci.append((f"{dist_info}/WHEEL", wheel_metadata().encode("utf-8")))
+    # Il testo della licenza dove PEP 639 lo mette: `.dist-info/licenses/`.
+    voci.append(
+        (
+            f"{dist_info}/licenses/{distribuzione.NOME_DEL_TESTO}",
+            distribuzione.testo_della_licenza(),
+        )
+    )
     voci.sort()
 
     record = "".join(
@@ -208,7 +218,8 @@ def costruisci_sdist(uscita: pathlib.Path, versione_pacchetto: str) -> pathlib.P
     percorso = uscita / f"{radice}.tar.gz"
 
     voci: list[tuple[str, bytes]] = [
-        (f"{radice}/PKG-INFO", metadata(versione_pacchetto).encode("utf-8"))
+        (f"{radice}/PKG-INFO", metadata(versione_pacchetto).encode("utf-8")),
+        (f"{radice}/{distribuzione.NOME_DEL_TESTO}", distribuzione.testo_della_licenza()),
     ]
     for nome, sorgente in file_della_sdist():
         voci.append((f"{radice}/{nome}", sorgente.read_bytes()))
@@ -283,16 +294,14 @@ def sbom(versione_pacchetto: str, artefatti: list[pathlib.Path]) -> dict:
 
 
 def licenze(versione_pacchetto: str) -> dict:
-    """Le licenze dei componenti spediti: nessuno, e la propria che manca ancora.
+    """Le licenze dei componenti spediti: nessuno di terzi, e la propria.
 
     Il primo numero e' zero perche' non si spedisce niente di terzi, e zero e'
     una misura come le altre.
 
-    Il secondo fatto e' che una licenza first-party **non e' dichiarata**, e per
-    questa distribuzione non serve: il pacchetto va a clienti autorizzati per un
-    canale riservato, dove i termini stanno nel contratto con loro. Non e' un
-    blocco e non e' una verifica: e' un perimetro, e il contratto di release lo
-    registra come tale.
+    Il secondo fatto e' la licenza del prodotto: proprietaria, con il testo
+    dentro il pacchetto (`.dist-info/licenses/LICENSE` nella wheel, `LICENSE`
+    alla radice della sdist) e `License: Proprietary` nei metadati.
 
     Il dato viene da `distribuzione.LICENZA_FIRST_PARTY`, che e' l'unica fonte:
     scritto qui e nel referto nativo, sarebbe divergiuto il giorno in cui lo

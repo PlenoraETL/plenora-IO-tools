@@ -55,6 +55,33 @@ def docset() -> list[pathlib.Path]:
 
 
 
+#: Quando una riga parla del **runtime nativo**, e non di una versione qualunque.
+#:
+#: Una definizione sola, usata dalla sonda e dalle sue due controprove: erano
+#: tre copie della stessa espressione, e tre copie divergono.
+#:
+#: `conda` non c'e' piu', ed e' il termine che ha prodotto un falso positivo:
+#: nomina un **canale di distribuzione**, non il soggetto, e compare nell'URL di
+#: qualunque libreria. La cella «[3.15.0](https://anaconda.org/conda-forge/geos)»
+#: dichiara una versione di GEOS e veniva letta come una GDAL fuori contratto.
+#: I termini rimasti nominano cio' di cui la riga parla, che e' la proprieta' su
+#: cui la difesa storica si reggeva: i documenti incriminati dicevano «GDAL
+#: 3.10.3» e «binding 3.6.0».
+CONTESTO_DEL_RUNTIME = re.compile(
+    r"\b(gdal|proj|binding|runtime|libgdal|gdal-sys)", re.I
+)
+
+
+#: Una cella che e' **soltanto** un collegamento, cioe' una citazione.
+#:
+#: Il censimento delle librerie ha una colonna con l'ultima versione disponibile
+#: a monte, scritta come collegamento al catalogo. Dice che cosa esiste altrove;
+#: non e' una dichiarazione su cio' che spediamo, che sta nella colonna accanto.
+#: Distinguere le due e' la differenza fra «il documento contraddice il
+#: contratto» e «il documento riporta un fatto esterno».
+CITAZIONE_ESTERNA = re.compile(r"\s*\[[^\]]+\]\(https?://[^)]+\)\s*")
+
+
 class SondeMatrice(unittest.TestCase):
     def setUp(self) -> None:
         self.matrice = carica(MATRICE)
@@ -324,9 +351,7 @@ class SondeMatrice(unittest.TestCase):
         ]
         ammesse = {contratto, binding}
         schema = re.compile(r"(?<![\w.])3\.\d+\.\d+(?!\w|\.\d)")
-        contesto = re.compile(
-            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
-        )
+        contesto = CONTESTO_DEL_RUNTIME
         riga = "Il runtime GDAL fissato e' 3.10.3 su entrambe le piattaforme."
         self.assertTrue(contesto.search(riga), "la riga nomina il runtime")
         trovate = [v for v in schema.findall(riga) if v not in ammesse]
@@ -334,12 +359,44 @@ class SondeMatrice(unittest.TestCase):
 
     def test_una_versione_del_prodotto_non_e_una_versione_gdal(self) -> None:
         """E il falso positivo che il filtro toglie."""
-        contesto = re.compile(
-            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
-        )
+        contesto = CONTESTO_DEL_RUNTIME
         self.assertIsNone(
             contesto.search("## Verso la 3.0.0 - primo passo concordato")
         )
+
+    def test_una_cella_non_da_contesto_a_quella_accanto(self) -> None:
+        """Il falso positivo che la granularita' di cella toglie.
+
+        La riga e' quella vera che ha fatto fallire il checkpoint: una cella
+        nomina due versioni di `syn`, un'altra dice «costo runtime», e la riga
+        letta per intero sembrava dichiarare una GDAL fuori contratto.
+        """
+        riga = (
+            "| D6 | `syn` 2.0.119 / 3.0.3 | Dipendenze delle macro: misurare "
+            "il costo di compilazione, non presumere costo runtime |"
+        )
+        schema = re.compile(r"(?<![\w.])3\.\d+\.\d+(?!\w|\.\d)")
+        self.assertTrue(CONTESTO_DEL_RUNTIME.search(riga), "la riga intera dava contesto")
+        trovate = [
+            versione
+            for cella in riga.split("|")
+            if CONTESTO_DEL_RUNTIME.search(cella)
+            for versione in schema.findall(cella)
+        ]
+        self.assertEqual(trovate, [], "nessuna cella nomina insieme runtime e versione")
+
+    def test_una_citazione_esterna_non_e_una_dichiarazione(self) -> None:
+        """La colonna «ultima disponibile a monte» riporta, non promette."""
+        cella = "[3.13.3](https://anaconda.org/conda-forge/libgdal-core)"
+        self.assertTrue(CONTESTO_DEL_RUNTIME.search(cella), "il contesto c'e' davvero")
+        self.assertTrue(CITAZIONE_ESTERNA.fullmatch(cella), "ed e' una citazione")
+
+    def test_una_cella_che_non_e_un_collegamento_resta_rossa(self) -> None:
+        """La controprova della deroga: senza, basterebbe una cella per tacere."""
+        for cella in (" GDAL 3.10.3 ", " runtime 3.10.3, vedi [qui](https://x.y) "):
+            with self.subTest(cella=cella):
+                self.assertTrue(CONTESTO_DEL_RUNTIME.search(cella))
+                self.assertIsNone(CITAZIONE_ESTERNA.fullmatch(cella))
 
     def test_nessun_documento_nomina_una_versione_gdal_diversa(self) -> None:
         """La sonda che avrebbe colto la contraddizione dove e' sopravvissuta.
@@ -371,23 +428,52 @@ class SondeMatrice(unittest.TestCase):
         # Il contesto non indebolisce la difesa: il difetto storico erano
         # documenti che dicevano «GDAL 3.10.3» e «binding 3.6.0», e quelle righe
         # nominano cio' di cui parlano. La controprova qui sotto lo verifica.
-        contesto = re.compile(
-            r"\b(gdal|proj|binding|conda|runtime|libgdal|gdal-sys)", re.I
-        )
+        contesto = CONTESTO_DEL_RUNTIME
+        # Il contesto si cerca nella **cella**, non nella riga intera.
+        #
+        # Una riga di tabella mette accanto cose che non parlano fra loro. La
+        # voce D6 del piano 4.1.0 lo mostra: una cella dice «`syn` 2.0.119 /
+        # 3.0.3» -- due versioni di una crate -- e un'altra dice «non presumere
+        # costo runtime». La sonda leggeva la riga per intero, trovava
+        # «runtime» in una cella e «3.0.3» nell'altra, e accusava il documento
+        # di nominare una GDAL diversa dal contratto. La riga diceva il vero, su
+        # un'altra cosa.
+        #
+        # La difesa non si indebolisce: una cella che dica «GDAL 3.10.3» porta
+        # dentro di se' sia il contesto sia la versione, ed e' rossa come prima.
+        # Cio' che smette di valere e' il legame fra clausole che la tabella
+        # accosta e il testo non unisce. Fuori dalle tabelle il segmento e' la
+        # riga, e il comportamento non cambia.
         for documento in docset():
             if not documento.exists():
                 continue
             for numero, riga in enumerate(documento.read_text(encoding="utf-8").splitlines(), 1):
-                if not contesto.search(riga):
-                    continue
-                for versione in schema.findall(riga):
-                    if versione in ammesse or storica.search(riga):
+                segmenti = riga.split("|")
+                for segmento in segmenti:
+                    if not contesto.search(segmento):
                         continue
-                    self.fail(
-                        f"{documento.name}:{numero} nomina {versione} mentre il contratto e' "
-                        f"{contratto}: «{riga.strip()[:90]}». Se e' una versione storica, la riga "
-                        "deve dirlo."
-                    )
+                    # Una cella che e' **solo** un collegamento cita un catalogo
+                    # esterno: dice che cosa esiste altrove, non che cosa
+                    # spediamo. Il censimento delle librerie ha una colonna
+                    # cosi' -- «[3.13.3](https://anaconda.org/conda-forge/
+                    # libgdal-core)», cioe' l'ultima disponibile a monte --
+                    # accanto alla colonna della versione spedita, che per
+                    # `libgdal-core` dice 3.9.3, cioe' il contratto.
+                    #
+                    # Leggerla come una nostra dichiarazione accusava il
+                    # documento di contraddire il contratto proprio dove lo
+                    # rispetta. La difesa resta intera sul testo: «GDAL 3.10.3»
+                    # in prosa, o in una cella non-collegamento, e' rossa.
+                    if CITAZIONE_ESTERNA.fullmatch(segmento):
+                        continue
+                    for versione in schema.findall(segmento):
+                        if versione in ammesse or storica.search(riga):
+                            continue
+                        self.fail(
+                            f"{documento.name}:{numero} nomina {versione} mentre il contratto e' "
+                            f"{contratto}: «{riga.strip()[:90]}». Se e' una versione storica, la riga "
+                            "deve dirlo."
+                        )
 
     def test_nessun_documento_promette_una_piattaforma_fuori_perimetro(self) -> None:
         """Una promessa verso chi installa non si ritira dai registri e si

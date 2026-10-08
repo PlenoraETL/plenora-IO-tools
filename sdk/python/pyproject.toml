@@ -52,22 +52,14 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# `license` non c'e', e la sua assenza e' **dichiarata**.
-#
-# Questo repository non dichiara una licenza propria: nessun `Cargo.toml` ha un
-# campo `license`, tutti hanno `publish = false`, e la sezione «Licenza» del
-# README parla soltanto dei fork vendorizzati, che portano la propria. La prima
-# stesura di questo file diceva `Apache-2.0`: era un'invenzione, e propagarla
-# nei metadati di un pacchetto installabile l'avrebbe fatta leggere come una
-# concessione che nessuno ha fatto.
-#
-# Il 2026-09-05 il titolare ha deciso di non produrre per ora un documento
-# legale first-party. Non e' un rinvio della pubblicazione: e' il perimetro. Il
-# pacchetto si consegna a clienti autorizzati per un canale riservato, dove i
-# termini stanno nel contratto con loro, e su nessun indice pubblico -- che e'
-# esattamente cio' che il classificatore qui sopra dichiara. Il contratto di
-# release lo registra nell'invariante `distribuzione.licenza-first-party`, e
+# La licenza e' quella del repository, `LICENSE` alla radice: proprietaria,
+# «Copyright (c) Plenora ETL. All rights reserved.», la stessa di
+# plenora-database-tools. Prima questo campo mancava di proposito, perche' il
+# titolare non aveva ancora fornito termini first-party; ora li ha forniti, e
+# il campo li dichiara invece di lasciarli dedurre. Il pacchetto resta fuori da
+# ogni indice pubblico -- il classificatore qui sopra -- e
 # `scripts/check_canale_privato.py` verifica che il canale resti chiuso.
+license = { text = "Proprietary" }
 
 [project.urls]
 Repository = "https://github.com/PlenoraETL/plenora-IO-tools"

@@ -760,6 +760,51 @@
           "tipo": "interna",
           "funzione": "condizione_qualifica_cross_component"
         }
+      },
+      {
+        "id": "profilo-pubblico-attestato",
+        "descrizione": "ogni artefatto CLI distribuito ha un'attestazione del profilo pubblico legata al digest dei byte su cui le sonde hanno girato",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_profilo_pubblico_attestato"
+        }
+      },
+      {
+        "id": "profondita-fuzz-rimisurata",
+        "descrizione": "nessuna misura di profondita' e' dichiarata non piu' valida: il rinvio vale durante lo sviluppo, non sul candidato finale",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "--qualifica"
+          ]
+        }
+      },
+      {
+        "id": "confine-asan-rimisurato",
+        "descrizione": "il confine di AddressSanitizer non e' dichiarato non piu' valido: condivide il perimetro con la profondita', non l'evidenza, e si rifa' con un comando suo",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/check_asan_filegdb.py",
+            "--qualifica"
+          ]
+        }
+      },
+      {
+        "id": "campagna-fuzz-completa",
+        "descrizione": "l'ultima corsa dello smoke ha portato ogni bersaglio a fine tempo: un bersaglio fermato a un crash compatibile con un finding noto non soddisfa il requisito, anche se lo smoke esce 0 perche' lo sviluppo prosegua",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/classifica_finding_fuzz.py",
+            "--verifica-campagna",
+            "assurance/evidence/fuzz-smoke-ultima.json"
+          ]
+        }
       }
     ]
   },

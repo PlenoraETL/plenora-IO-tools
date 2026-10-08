@@ -69,10 +69,41 @@ fn transform3_preserves_z_through_insert_and_ocs() {
     assert!(close(mapped[1], 8.0));
     assert!(close(mapped[2], 15.0));
 
-    let identity = Transform3::ocs([0.0, 0.0, 1.0]);
+    let identity = Transform3::ocs([0.0, 0.0, 1.0]).unwrap();
     assert_eq!(identity.apply([1.0, 2.0, 3.0]), [1.0, 2.0, 3.0]);
-    let reversed = Transform3::ocs([0.0, 0.0, -1.0]);
+    let reversed = Transform3::ocs([0.0, 0.0, -1.0]).unwrap();
     assert_eq!(reversed.apply([1.0, 2.0, 3.0]), [-1.0, 2.0, -3.0]);
+}
+
+/// Una normale nulla o senza lunghezza finita non ha un OCS. Prima diventava
+/// l'asse Z, e l'entita' finiva in un piano che il file non dichiarava.
+#[test]
+fn transform3_rifiuta_una_normale_nulla_o_non_finita() {
+    assert!(Transform3::ocs([0.0, 0.0, 0.0]).is_none());
+    assert!(Transform3::ocs([f64::MAX, f64::MAX, f64::MAX]).is_none());
+    assert!(Transform3::ocs([f64::NAN, 0.0, 1.0]).is_none());
+}
+
+/// Ogni ripiego della valutazione NURBS ora e' un rifiuto: nodi sbagliati,
+/// grado fuori intervallo, pesi assenti per qualche control point, non
+/// finiti o non positivi.
+#[test]
+fn tessellate_spline3_rifiuta_invece_di_ripiegare() {
+    let controls = [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [2.0, 0.0, 0.0]];
+    let knots = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    assert!(tessellate_spline3(2, &knots, &controls, &[], 8).is_some());
+    assert!(tessellate_spline3(2, &knots, &controls, &[1.0, 2.0, 1.0], 8).is_some());
+    // nodi della lunghezza sbagliata, o decrescenti
+    assert!(tessellate_spline3(2, &knots[..5], &controls, &[], 8).is_none());
+    assert!(tessellate_spline3(2, &[0.0, 0.0, 0.0, 1.0, 0.5, 1.0], &controls, &[], 8).is_none());
+    // grado nullo o oltre n - 1: prima veniva abbassato o alzato in silenzio
+    assert!(tessellate_spline3(0, &knots, &controls, &[], 8).is_none());
+    assert!(tessellate_spline3(3, &[0.0; 7], &controls, &[], 8).is_none());
+    // pesi: uno mancante, uno non finito, uno nullo o negativo
+    assert!(tessellate_spline3(2, &knots, &controls, &[1.0, 1.0], 8).is_none());
+    assert!(tessellate_spline3(2, &knots, &controls, &[1.0, f64::NAN, 1.0], 8).is_none());
+    assert!(tessellate_spline3(2, &knots, &controls, &[1.0, 0.0, 1.0], 8).is_none());
+    assert!(tessellate_spline3(2, &knots, &controls, &[1.0, -2.0, 1.0], 8).is_none());
 }
 
 // Niente `hypot`: l'asserzione replica la stessa forma sqrt(x²+y²) usata

@@ -1379,3 +1379,6 @@ fn valida_unione(driver: &'static str, campo: &FbField<'_>) -> Result<bool> {
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tetto_dei_messaggi;

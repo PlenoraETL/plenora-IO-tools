@@ -23,10 +23,8 @@ use serde_json::{json, Value};
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::publish::PublishOutcome;
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
-use plenora_io_core::{
-    DriverRegistry, Fidelity, FidelityAssessment, LossReport, WriteLayer, WritePlan,
-};
-use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
+use plenora_io_core::{Fidelity, FidelityAssessment, LossReport, WriteLayer, WritePlan};
+use plenora_io_model::budget::PipelineBudget;
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::{
@@ -39,7 +37,7 @@ pub type CliResult = Result<Value, (i32, Value)>;
 
 /// Le estensioni che la CLI riconosce. Vocabolario chiuso di letterali
 /// nostri: puo' comparire in un messaggio pubblico.
-const ESTENSIONI_AMMESSE: &str =
+pub(crate) const ESTENSIONI_AMMESSE: &str =
     "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
 
 /// I flag che la CLI riconosce. Stessa ragione.
@@ -48,9 +46,10 @@ const ESTENSIONI_AMMESSE: &str =
 /// Sta accanto a `ESTENSIONI_AMMESSE` e non lo sostituisce: sono due
 /// vocabolari diversi, uno del filesystem e uno del catalogo, e confonderli e'
 /// esattamente cio' che `--to` esiste per evitare.
-const FORMATI_AMMESSI: &str = "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
+pub(crate) const FORMATI_AMMESSI: &str =
+    "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --from, --to, --version";
+pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --from, --to, --version";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -200,7 +199,7 @@ fn local_err_doc(
 /// La forma che `SURF-001` pretende e' `plenora-<domain>-tools`, tutta
 /// minuscola. Il manifesto di protocollo scriveva `plenora-IO-tools`, che quella
 /// forma non ammette, e nessuna busta lo esponeva affatto.
-const COMPONENTE: &str = "plenora-io-tools";
+pub(crate) const COMPONENTE: &str = "plenora-io-tools";
 
 /// Il `command` di una busta prodotta prima che un comando sia stato scelto.
 ///
@@ -306,7 +305,7 @@ fn errore_di_avvio(errore: &PlenoraIoError) -> (i32, Value) {
     )
 }
 
-fn usage_err(message: &PublicMessage) -> (i32, Value) {
+pub(crate) fn usage_err(message: &PublicMessage) -> (i32, Value) {
     local_err_doc(
         "CLI_USAGE",
         ErrorCategory::InvalidConfiguration,
@@ -336,10 +335,13 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
         IoErrorCode::CrsUnresolved => "CRS_UNRESOLVED",
         _ => "FORMAT_ERROR",
     };
-    let code = if e.category == ErrorCategory::Cancelled {
-        "CANCELLED"
-    } else {
-        code
+    // Una scadenza e' un `timeout` con codice proprio: cadeva nel ramo
+    // generico e usciva `FORMAT_ERROR`, che a chi legge diceva un file
+    // malformato.
+    let code = match (e.category, e.code) {
+        (ErrorCategory::Cancelled, _) => "CANCELLED",
+        (ErrorCategory::Timeout, IoErrorCode::Cancelled) => "DEADLINE_EXCEEDED",
+        _ => code,
     };
     let document = err_doc(code, &e);
     // La diagnostica interna non conforme e' sostituita da un errore
@@ -457,287 +459,8 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
     Ok(d)
 }
 
-// --- parsing argomenti ------------------------------------------------------
-
-#[derive(Default)]
-pub struct Cli {
-    pub(crate) positionals: Vec<String>,
-    /// Dove `read` consegna il dataset Arrow.
-    ///
-    /// E' un flag e non un posizionale perche' la consegna e' **facoltativa**:
-    /// `read SORGENTE` legge e riporta senza materializzare, ed e' il modo in
-    /// cui si valida una sorgente grande. Un secondo posizionale avrebbe reso
-    /// la consegna obbligatoria o la sua assenza indistinguibile da un refuso.
-    pub(crate) output: Option<PathBuf>,
-    pub(crate) assume_crs: Option<String>,
-    /// Il formato del sink di `write`, **nominato**.
-    ///
-    /// Non dedotto dall'estensione della destinazione: il profilo io-tools dice
-    /// che il comportamento specifico di un formato non va scelto analizzando
-    /// l'estensione quando l'operazione richiede un formato esplicito, e il
-    /// catalogo descrive `io.write` come «publish an Arrow dataset to an
-    /// **explicit** sink format». Un'estensione e' una convenzione del
-    /// filesystem, non un identificatore di formato: `.json` e' `GeoJSON` qui e
-    /// mille altre cose altrove, e una destinazione senza estensione non
-    /// avrebbe risposta.
-    ///
-    /// I valori ammessi sono gli `id` che `io.catalog` rende, e una prova lo
-    /// verifica nei due versi: nessun formato del catalogo senza driver, e
-    /// nessun driver che il catalogo non dichiari.
-    pub(crate) to: Option<String>,
-    /// Il formato della **sorgente** di `convert`, nominato.
-    ///
-    /// Esiste per la stessa ragione di `to`, e la ragione e' nel catalogo:
-    /// `io.convert` vi e' descritto come «convert an external dataset between
-    /// **explicit** formats». Due formati, due nomi.
-    ///
-    /// Non vale per `inspect`, `layers` e `read`, e non e' una dimenticanza:
-    /// quelle operazioni **riconoscono** la sorgente invece di riceverla
-    /// dichiarata -- `io.inspect` rende «its **declared** format» -- e il
-    /// suffisso li' e' l'unico segnale che c'e'. Riconoscere e dichiarare sono
-    /// due cose, e il catalogo le distingue operazione per operazione.
-    pub(crate) from_: Option<String>,
-    pub(crate) layer: Option<u32>,
-    pub(crate) limit: Option<usize>,
-    pub(crate) durable: bool,
-    pub(crate) opts: BTreeMap<String, String>,
-    pub(crate) in_opts: BTreeMap<String, String>,
-    pub(crate) out_opts: BTreeMap<String, String>,
-    /// I flag di quota, gia' nel tipo del modello unificato.
-    ///
-    /// Fino a S4.d atterravano in un `Limits` legacy e venivano tradotti piu'
-    /// tardi. Il tipo intermedio non serviva a nulla se non a tenere in vita
-    /// il modello vecchio nel punto piu' visibile del componente.
-    pub(crate) limits: PipelineLimits,
-    /// Il token che il gestore dei segnali arma.
-    ///
-    /// `parse` ne mette uno **nuovo e non armato**: un token e' un canale, e
-    /// fabbricarlo qui non lega niente a niente. Chi lo lega e' `run`, che
-    /// sostituisce quello del processo dopo il parsing. Un test che chiama
-    /// `parse` ottiene percio' un token isolato, e non puo' annullare per
-    /// sbaglio l'operazione di un altro test.
-    pub(crate) cancellazione: CancellationToken,
-}
-
-fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
-    s.split_once('=')
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        // Il valore non esce: viene da argv. Il flag che lo ha introdotto e'
-        // gia' nel messaggio del chiamante.
-        .ok_or_else(|| {
-            usage_err(&PublicMessage::Curated(
-                "opzione di formato non nel formato chiave=valore",
-            ))
-        })
-}
-
-// `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
-// flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
-// violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
-fn parse_usize(value: Option<&String>, flag: &'static str) -> Result<usize, (i32, Value)> {
-    value
-        .ok_or_else(|| usage_err(&PublicMessage::CuratedPair(flag, "richiede un valore")))?
-        .parse()
-        .map_err(|_| {
-            usage_err(&PublicMessage::CuratedPair(
-                flag,
-                "richiede un intero non negativo",
-            ))
-        })
-}
-
-// `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
-// flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
-// violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
-fn parse_u64(value: Option<&String>, flag: &'static str) -> Result<u64, (i32, Value)> {
-    value
-        .ok_or_else(|| usage_err(&PublicMessage::CuratedPair(flag, "richiede un valore")))?
-        .parse()
-        .map_err(|_| {
-            usage_err(&PublicMessage::CuratedPair(
-                flag,
-                "richiede un intero non negativo",
-            ))
-        })
-}
-
-/// I flag che governano una quota, tutti insieme.
-///
-/// Estratti da `parse` perche' la funzione superava il tetto di righe, ma
-/// stanno bene insieme anche di merito: sono l'unico gruppo di flag che
-/// finisce nello stesso posto — `PipelineLimits` — e che condivide la stessa
-/// disciplina fail-closed. Nessuno di loro degrada a un default quando il
-/// valore e' assente o malformato.
-///
-/// Ritorna `None` se il flag non e' una quota, cosi' `parse` prosegue con i
-/// propri casi invece di dover sapere quali sono.
-///
-/// # Errors
-///
-/// Se il flag e' una quota ma il valore manca o non e' un intero.
-fn limite_da_flag<'a>(
-    flag: &str,
-    limiti: PipelineLimits,
-    it: &mut impl Iterator<Item = &'a String>,
-) -> Result<Option<PipelineLimits>, (i32, Value)> {
-    let aggiornati = match flag {
-        // La deadline della pipeline, finora fissata a 30 000 ms nel modello e
-        // non raggiungibile da riga di comando. Sta con le altre quote perche'
-        // e' una quota: governa il tempo come `--max-rows` governa le righe, e
-        // condivide la disciplina fail-closed del gruppo — lo zero lo rifiuta
-        // `PipelineLimits::validate`, un valore che sposta la scadenza oltre
-        // cio' che `Instant` rappresenta lo rifiuta `build`. Nessuno dei due
-        // degrada al default.
-        "--deadline-ms" => limiti.with_duration_ms(parse_u64(it.next(), "--deadline-ms")?),
-        "--max-input-bytes" => {
-            limiti.with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?)
-        }
-        // Quota di memoria, distinta da quella dell'ingresso: da FZ-0.2.1
-        // il tetto su una pagina Parquet non compressa ne e' la meta'.
-        // Zero e incoerenze le rifiuta il modello, non il parser; la
-        // motivazione estesa sta nel README.
-        "--memory-bytes" => limiti.with_memory_bytes(parse_u64(it.next(), "--memory-bytes")?),
-        "--max-input-entries" => {
-            limiti.with_max_input_entries(parse_u64(it.next(), "--max-input-entries")?)
-        }
-        "--max-output-bytes" => {
-            limiti.with_max_output_bytes(parse_u64(it.next(), "--max-output-bytes")?)
-        }
-        "--max-rows" => limiti.with_max_rows(parse_u64(it.next(), "--max-rows")?),
-        "--max-columns" => limiti.with_max_columns(parse_u64(it.next(), "--max-columns")?),
-        "--max-vertices" => limiti.with_max_vertices(parse_usize(it.next(), "--max-vertices")?),
-        "--max-wkb-cell-bytes" => {
-            limiti.with_max_wkb_cell_bytes(parse_usize(it.next(), "--max-wkb-cell-bytes")?)
-        }
-        "--max-wkb-components" => {
-            limiti.with_max_wkb_components(parse_usize(it.next(), "--max-wkb-components")?)
-        }
-        "--max-wkb-depth" => limiti.with_max_wkb_depth(parse_usize(it.next(), "--max-wkb-depth")?),
-        _ => return Ok(None),
-    };
-    Ok(Some(aggiornati))
-}
-
-/// Legge gli argomenti in una `Cli`.
-///
-/// # Errors
-///
-/// `Err` quando un argomento manca, e' ripetuto o non e' del tipo atteso: la
-/// busta ha categoria `invalid_configuration` e codice `CLI_USAGE`, e l'`i32`
-/// e' la proiezione che il binding applichera'.
-pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
-    let mut cli = Cli::default();
-    let mut it = args.iter();
-    while let Some(a) = it.next() {
-        // Le quote si riconoscono prima: sono un gruppo omogeneo che finisce
-        // tutto in `PipelineLimits`, e tenerle qui allungava `parse` senza
-        // aggiungere niente a chi la legge.
-        if let Some(aggiornati) = limite_da_flag(a.as_str(), cli.limits, &mut it)? {
-            cli.limits = aggiornati;
-            continue;
-        }
-        match a.as_str() {
-            "--assume-crs" => {
-                cli.assume_crs = Some(
-                    it.next()
-                        .ok_or_else(|| {
-                            usage_err(&PublicMessage::Curated("--assume-crs richiede un valore"))
-                        })?
-                        .clone(),
-                );
-            }
-            // Il selettore del modo macchina e' accettato da ogni comando, ed
-            // e' l'unico valore ammesso: `--format` con altro non e' una
-            // modalita' che non abbiamo, e' un refuso che fallisce chiuso.
-            FLAG_FORMATO => {
-                let v = it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--format richiede un valore"))
-                })?;
-                if v != FORMATO_JSON {
-                    return Err(usage_err(&PublicMessage::Curated(
-                        "--format ammette soltanto json",
-                    )));
-                }
-            }
-            "--output" => {
-                let v = it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--output richiede un percorso"))
-                })?;
-                cli.output = Some(PathBuf::from(v));
-            }
-            "--layer" => {
-                let v = it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--layer richiede un valore"))
-                })?;
-                cli.layer = Some(v.parse().map_err(|_| {
-                    usage_err(&PublicMessage::Curated("--layer richiede un intero"))
-                })?);
-            }
-            "--limit" => {
-                let v = it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--limit richiede un valore"))
-                })?;
-                cli.limit = Some(v.parse().map_err(|_| {
-                    usage_err(&PublicMessage::Curated("--limit richiede un intero"))
-                })?);
-            }
-            "--from" => {
-                cli.from_ = Some(
-                    it.next()
-                        .ok_or_else(|| {
-                            usage_err(&PublicMessage::Curated(
-                                "--from richiede un identificatore di formato",
-                            ))
-                        })?
-                        .clone(),
-                );
-            }
-            "--to" => {
-                cli.to = Some(
-                    it.next()
-                        .ok_or_else(|| {
-                            usage_err(&PublicMessage::Curated(
-                                "--to richiede un identificatore di formato",
-                            ))
-                        })?
-                        .clone(),
-                );
-            }
-            "--durable" => cli.durable = true,
-            // Il nome dice che cosa si sta scegliendo. `--protocol 1` sarebbe
-            // stato piu' corto e avrebbe fatto sembrare le due versioni due
-            // opzioni pari: non lo sono.
-            "--opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--opt richiede chiave=valore"))
-                })?)?;
-                cli.opts.insert(k, v);
-            }
-            "--in-opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--in-opt richiede chiave=valore"))
-                })?)?;
-                cli.in_opts.insert(k, v);
-            }
-            "--out-opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--out-opt richiede chiave=valore"))
-                })?)?;
-                cli.out_opts.insert(k, v);
-            }
-            other if other.starts_with("--") => {
-                // Il token non esce: viene da argv. Resta la condizione, e
-                // l'uso completo e' nel messaggio del comando senza argomenti.
-                return Err(usage_err(&PublicMessage::CuratedPair(
-                    "opzione sconosciuta; ammesse:",
-                    OPZIONI_AMMESSE,
-                )));
-            }
-            _ => cli.positionals.push(a.clone()),
-        }
-    }
-    Ok(cli)
-}
+pub(crate) mod cli;
+pub use cli::{parse, Cli};
 
 // --- rappresentazione JSON --------------------------------------------------
 
@@ -855,312 +578,9 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
 
 // --- comandi ----------------------------------------------------------------
 
-/// Che cosa questo binario espone, e che cosa non espone.
-///
-/// # La regola che governa questo documento
-///
-/// Descrive **l'artefatto che sta rispondendo**, non il perimetro che il
-/// catalogo comune definisce. Un'operazione che il catalogo dichiara richiesta e
-/// che questo binario non serve va dichiarata `unavailable` con una ragione
-/// leggibile da una macchina, non omessa e tantomeno annunciata: un documento
-/// che promette cio' che non c'e' e' peggio di nessun documento, perche' un
-/// orchestratore lo crede.
-///
-/// # Perche' non elenca i formati
-///
-/// Il profilo lo dice per esteso: il risultato versionato di `io.catalog` e' la
-/// **sola** fonte normativa per gli identificatori di formato, le opzioni
-/// ammesse, la disponibilita' in lettura e scrittura, il comportamento dei
-/// layer, la geometria, il CRS e i vincoli di fedelta'; e gli `attributes` non
-/// devono duplicare quella matrice. Qui si dice che `io.catalog` esiste e come
-/// si invoca, e il resto lo dice lui.
-///
-/// Ne segue una cosa che sorprende: la build `base` e quella `gdal-backend`
-/// producono lo **stesso** documento. La feature non cambia quali operazioni
-/// esistono -- cambia quali formati `io.catalog` dichiara disponibili, e quella
-/// e' una domanda sua.
-///
-/// # Perche' i contratti dicono `-v2`
-///
-/// Il catalogo comune fissa `plenora-io-catalog-v1` e le altre undici forme; il
-/// binario emette `-v2`. Qui si dichiara cio' che **esce davvero**: un documento
-/// capability che nominasse i contratti del catalogo mentre il binario ne emette
-/// altri sarebbe falso proprio nel punto in cui un consumatore si fida. La
-/// divergenza e' una deviazione da registrare nel manifesto di adozione, non da
-/// nascondere qui.
-/// Un'operazione che questo binario serve davvero.
-///
-/// # Perche' due superfici e non una
-///
-/// Fino alla superficie Rust, `["cli"]` era vero: le operazioni vivevano dentro
-/// un binario e un binario non si importa. Ora `plenora_io_tools::operazioni`
-/// espone le stesse sei per nome, con lo stesso risultato e lo stesso errore --
-/// e' la proprieta' che `tests/equivalenza_superfici.rs` misura -- quindi un
-/// documento che ne dichiarasse una sola direbbe meno del vero a chi sceglie
-/// come invocarci.
-fn operazione_esposta(
-    id: &str,
-    ingresso: &str,
-    uscita: &str,
-    effetto: &str,
-    controlli: bool,
-) -> Value {
-    json!({
-        "id": id,
-        "version": 1,
-        "status": "available",
-        "surfaces": ["cli", "rust"],
-        "input": { "contract": ingresso, "content_types": ["application/json"] },
-        "output": { "contract": uscita, "content_types": ["application/json"] },
-        "side_effect": effetto,
-        "controls": {
-            "cancellation": controlli,
-            "deadline": controlli,
-            "idempotency_key": false,
-        },
-    })
-}
-
-/// Il descrittore di `io.read`, che non passa da `operazione_esposta`.
-///
-/// E' l'unica operazione disponibile la cui uscita non e' JSON, e l'unica
-/// che dichiari attributi: sta in una funzione sua perche' e' cresciuta
-/// abbastanza da non stare comoda dentro il documento che la contiene.
-fn descrittore_di_read() -> Value {
-    // `io.read` consegna, e la sua uscita non e' JSON: e' l'unica
-    // operazione disponibile che produce Arrow, ed e' la ragione per
-    // cui non passa da `operazione_esposta`.
-    //
-    // `side_effect` e' `local` e non `none`: con `--output` scrive un
-    // file, e un effetto che il documento tacesse sarebbe un effetto
-    // che chi orchestra non si aspetta. La forma senza consegna non
-    // scrive niente, ma il descrittore dichiara il **massimo** rischio,
-    // non quello del caso migliore.
-    json!({
-        "id": "io.read",
-        "version": 1,
-        "status": "available",
-        "surfaces": ["cli", "rust"],
-        "input": {
-            "contract": "plenora-io-read-input-v1",
-            "content_types": ["application/json"],
-        },
-        "output": {
-            "contract": "plenora-io-read-result-v1",
-            // Le due serializzazioni che Arrow IPC registra, e che
-            // questa superficie ora produce entrambe. L'ordine segue
-            // il catalogo comune; il default resta il contenitore, e
-            // il flusso si chiede con `--out-opt serialization=stream`.
-            "content_types": [
-                "application/vnd.apache.arrow.stream",
-                "application/vnd.apache.arrow.file",
-            ],
-            // Il catalogo comune lo dichiara, e noi lo rispettiamo: le
-            // undici sonde di `metadati_arrow.rs` leggono dal file
-            // consegnato cio' che ARROW-001..012 pretende. Ometterlo
-            // qui diceva **meno** del vero -- un consumatore che
-            // cercasse il contratto d'interscambio non lo trovava, e
-            // avrebbe concluso che il payload non ne segue nessuno.
-            "interchange_contracts": ["plenora-arrow-interchange-v1"],
-        },
-        "side_effect": "local",
-        "controls": {
-            "cancellation": true,
-            "deadline": true,
-            "idempotency_key": false,
-        },
-        "attributes": {
-            "materialization": "bounded",
-            "delivery": "operation_atomic",
-            "nota": "diagnostica opaca (CAP-013): la selezione si fa sui content type, non su queste chiavi. `materialization: bounded` e' la dichiarazione che ARROW-011 ammette esplicitamente («unless the operation descriptor explicitly declares bounded materialization»), ed e' la forma in cui questa superficie soddisfa quel requisito ora che annuncia anche lo stream. `delivery: operation_atomic` dice quando il primo batch diventa visibile, ed e' vero per tutti e dieci i driver: se una violazione emerge in un punto qualsiasi della sorgente l'operazione e' rifiutata come blocco unico. Le due cose rispondono a domande diverse, e produrre un flusso non cambia la seconda: i byte si scrivono per intero nello staging e la pubblicazione resta l'ultima operazione. Quale delle due serializzazioni esca lo sceglie l'opzione di formato `serialization` del driver IPC, che `io.catalog` pubblica."
-        },
-    })
-}
-
-/// Un'operazione che il catalogo comune pretende e che questo binario non serve.
-///
-/// # Perche' e' sparita, e perche' la regola resta
-///
-/// C'era `operazione_assente`, e la usava `io.write`. Con `io.write`
-/// implementata tutte e sei le operazioni del catalogo sono `available`, e una
-/// funzione che nessuno chiama e' codice che nessuno prova: il lint la boccia,
-/// e ha ragione.
-///
-/// La regola che quella funzione serviva non e' sparita con lei, ed e' del
-/// profilo: un artefatto rilasciato **puo'** omettere un'operazione che non fa
-/// parte di quell'artefatto, ma **non deve** annunciarla disponibile. Il giorno
-/// in cui una build parziale -- senza un driver, senza una feature -- non
-/// servisse una delle sei, il documento dovra' dichiararla `unavailable` con la
-/// ragione, non tacerla e non dirla disponibile. La forma sta in questo
-/// commento e in `git log`, che e' dove va tenuto cio' che non ha chiamanti.
-#[must_use]
-pub fn capabilities_document() -> Value {
-    json!({
-        "schema_version": 2,
-        "component": COMPONENTE,
-        "component_version": env!("CARGO_PKG_VERSION"),
-        "interfaces": [
-            {
-                "kind": "cli",
-                "contract": "plenora-cli-v2",
-                "version": busta::PROTOCOLLO,
-                "artifact": "plenora-io",
-            },
-            // La superficie Rust, che dalla 4.0.0 esiste davvero. CAP-007
-            // pretende che ogni superficie dichiarata da un'operazione sia
-            // anche fra le interfacce dell'artefatto: dichiarare `rust` sulle
-            // operazioni e tacerlo qui e' esattamente cio' che il verificatore
-            // ha respinto, e aveva ragione -- un consumatore avrebbe letto una
-            // superficie senza il contratto che la descrive.
-            //
-            // Il contratto e' **nostro**: SURFACE-BINDINGS-1.0 §2 non
-            // prescrive nomi Rust e chiede invece che ogni componente pubblichi
-            // una mappatura versionata da operazione a export pubblico. Quella
-            // mappatura e' `contracts/superficie-rust.json`, e questo e' il suo
-            // identificatore.
-            {
-                "kind": "rust",
-                "contract": "plenora-io-rust-v1",
-                "version": 1,
-                "artifact": "plenora-io-tools",
-            }
-        ],
-        "operations": [
-            operazione_esposta(
-                "io.catalog",
-                "plenora-io-catalog-query-v1",
-                "plenora-io-catalog-v1",
-                "none",
-                false,
-            ),
-            operazione_esposta(
-                "io.inspect",
-                "plenora-io-inspect-input-v1",
-                "plenora-io-inspect-v1",
-                "none",
-                true,
-            ),
-            operazione_esposta(
-                "io.layers",
-                "plenora-io-layers-input-v1",
-                "plenora-io-layers-v1",
-                "none",
-                true,
-            ),
-            descrittore_di_read(),
-            // `io.write` accetta un dataset Arrow e ne pubblica uno esterno,
-            // quindi i content type d'ingresso sono due: il documento dei
-            // parametri e il payload. Su questa superficie il payload arriva
-            // come **file** e non come stream, per la ragione speculare a
-            // quella di `io.read`: CLI-2.0 §4 riserva stdout alla busta, e
-            // stdin a un solo documento non basta a portare i due.
-            json!({
-                "id": "io.write",
-                "version": 1,
-                "status": "available",
-                "surfaces": ["cli", "rust"],
-                "input": {
-                    "contract": "plenora-io-write-input-v1",
-                    "content_types": [
-                        "application/json",
-                        // Il payload arriva in una delle due serializzazioni, e
-                        // quale sia lo dicono i suoi byte -- non il nome del
-                        // file. `io.write` le legge entrambe.
-                        "application/vnd.apache.arrow.stream",
-                        "application/vnd.apache.arrow.file",
-                    ],
-                    "interchange_contracts": ["plenora-arrow-interchange-v1"],
-                },
-                "output": {
-                    "contract": "plenora-io-write-result-v1",
-                    "content_types": ["application/json"],
-                },
-                "side_effect": "local",
-                "controls": {
-                    "cancellation": true,
-                    "deadline": true,
-                    "idempotency_key": false,
-                },
-            }),
-            operazione_esposta(
-                "io.convert",
-                "plenora-io-convert-input-v1",
-                "plenora-io-convert-v1",
-                "local",
-                true,
-            ),
-        ],
-    })
-}
-
-/// `capabilities` accetta soltanto il selettore esplicito del modo macchina.
-fn parse_capabilities(argomenti: &[String]) -> Result<(), (i32, Value)> {
-    match argomenti {
-        [] => Ok(()),
-        [uno, due] if uno == FLAG_FORMATO && due == FORMATO_JSON => Ok(()),
-        _ => Err(usage_err(&PublicMessage::Curated(
-            "capabilities non prende argomenti, salvo --format json",
-        ))),
-    }
-}
-
-fn catalog_document_con(filegdb_available: bool) -> Value {
-    let mut registry = DriverRegistry::new();
-    registry.register(Box::new(driver_geoparquet::GeoParquetDriver));
-    registry.register(Box::new(driver_geojson::GeoJsonDriver));
-    registry.register(Box::new(driver_csv::CsvDriver));
-    registry.register(Box::new(driver_gpkg::GpkgDriver));
-    registry.register(Box::new(driver_shp::ShpDriver));
-    registry.register(Box::new(driver_kml::KmlDriver));
-    registry.register(Box::new(driver_xls::XlsDriver));
-    registry.register(Box::new(driver_dxf::DxfDriver));
-    registry.register(Box::new(driver_filegdb::FileGdbDriver));
-    registry.register(Box::new(driver_ipc::IpcDriver));
-    let drivers = registry
-        .descriptors()
-        .into_iter()
-        .map(|descriptor| {
-            let mut document = serde_json::to_value(descriptor).unwrap_or(Value::Null);
-            let is_filegdb = descriptor.id() == "filegdb";
-            if let Some(fields) = document.as_object_mut() {
-                fields.insert(
-                    "available".to_owned(),
-                    Value::Bool(!is_filegdb || filegdb_available),
-                );
-                fields.insert(
-                    "required_feature".to_owned(),
-                    if is_filegdb {
-                        Value::String("gdal-backend".to_owned())
-                    } else {
-                        Value::Null
-                    },
-                );
-            }
-            document
-        })
-        .collect::<Vec<_>>();
-    json!({
-
-        "determinism": "byte_for_byte",
-        "drivers": drivers,
-    })
-}
-
-/// `catalog` accetta soltanto il selettore esplicito del modo macchina.
-///
-/// Fino alla 3.0.0 accettava anche `--legacy-protocol-v1-unsafe`, che sceglieva
-/// il protocollo congelato. Il profilo pubblico vieta a un artefatto di servire
-/// due versioni del protocollo JSON, e il flag e' stato tolto: ora e' un flag
-/// sconosciuto, e un flag sconosciuto fallisce chiuso come gli altri.
-fn parse_catalog(argomenti: &[String]) -> Result<(), (i32, Value)> {
-    match argomenti {
-        [] => Ok(()),
-        [uno, due] if uno == FLAG_FORMATO && due == FORMATO_JSON => Ok(()),
-        _ => Err(usage_err(&PublicMessage::Curated(
-            "catalog non prende argomenti, salvo --format json",
-        ))),
-    }
-}
+pub(crate) mod capability;
+pub use capability::capabilities_document;
+pub(crate) use capability::{catalog_document_con, parse_capabilities, parse_catalog};
 
 #[must_use]
 pub fn cmd_catalog() -> Value {
@@ -2020,8 +1440,8 @@ pub fn parse_legato(
 /// orchestratore per implicito. Accettarlo su ogni comando costa una riga e
 /// toglie l'ambiguita': senza, un consumatore non puo' dichiarare che cosa si
 /// aspetta.
-const FLAG_FORMATO: &str = "--format";
-const FORMATO_JSON: &str = "json";
+pub(crate) const FLAG_FORMATO: &str = "--format";
+pub(crate) const FORMATO_JSON: &str = "json";
 
 /// L'esito di un comando: il nome canonico e il documento, o l'errore.
 ///

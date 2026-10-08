@@ -85,7 +85,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import ProtocolError, failure_from_envelope
+from .errors import ProtocolError, _tipo, carica_json, failure_from_envelope
 
 
 
@@ -143,6 +143,25 @@ class Completed:
 
     def stream(self, name: str) -> str:
         return self.stdout if name == "stdout" else self.stderr
+
+
+def _quanto(testo: str) -> str:
+    """Quanto un flusso contiene, mai che cosa.
+
+    I messaggi riportavano i primi duecento caratteri di stdout o stderr. Su
+    un flusso che non e' la busta attesa quei caratteri possono essere
+    qualunque cosa -- anche valori del file letto -- e un errore non porta
+    dati. Restano la lunghezza e il flusso; il contenuto lo legge chi esegue
+    il binario a mano.
+    """
+    return f"{len(testo)} caratteri, contenuto non riportato"
+
+
+def _stato(valore: Any) -> str:
+    """Lo `status` della busta se e' del vocabolario, altrimenti il suo tipo."""
+    if _tipo(valore) == "string" and valore in ("ok", "error"):
+        return f"«{valore}»"
+    return f"fuori vocabolario ({_tipo(valore)})"
 
 
 class Runner:
@@ -240,7 +259,7 @@ class Runner:
                 f"`plenora-io {' '.join(completed.argv)}` e' riuscito e ha "
                 "scritto su stderr, dove il protocollo v2 non mette niente in "
                 "caso di successo. L'SDK parla v2: un altro protocollo si "
-                f"sceglie, non si deduce.\nstderr: {completed.stderr[:200]!r}"
+                f"sceglie, non si deduce. stderr: {_quanto(completed.stderr)}."
             )
         documento = self._decode(completed, "stdout")
         stato = documento.get("status")
@@ -250,7 +269,7 @@ class Runner:
             # buono un documento che il prodotto non ha dichiarato tale.
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' uscito con zero e "
-                f"ha scritto su stdout una busta di stato «{stato}»: il "
+                f"ha scritto su stdout una busta di stato {_stato(stato)}: il "
                 "protocollo non prevede questa combinazione."
             )
         # Al chiamante interessa il **risultato**, non la busta che lo avvolge.
@@ -263,7 +282,7 @@ class Runner:
         # `--help` non passa di qui: non e' una busta, e il client non lo
         # chiama.
         risultato = documento.get("result")
-        if not isinstance(risultato, dict):
+        if _tipo(risultato) != "object":
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' riuscito ma la sua "
                 "busta non porta un oggetto `result`: il protocollo mette li' i "
@@ -284,7 +303,7 @@ class Runner:
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' uscito con "
                 f"{completed.exit_code} e ha scritto su stdout una busta di "
-                f"stato «{documento.get('status')}»: un'uscita diversa da zero "
+                f"stato {_stato(documento.get('status'))}: un'uscita diversa da zero "
                 "porta una busta d'errore."
             )
         if completed.stderr != "":
@@ -293,8 +312,8 @@ class Runner:
             # che rende il flusso inutilizzabile per chi lo analizza.
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' fallito e ha "
-                "scritto su stderr, dove il protocollo non mette niente.\n"
-                f"stderr: {completed.stderr[:200]!r}"
+                "scritto su stderr, dove il protocollo non mette niente. "
+                f"stderr: {_quanto(completed.stderr)}."
             )
         return documento
 
@@ -306,19 +325,20 @@ class Runner:
             raise ProtocolError(
                 f"`plenora-io {' '.join(completed.argv)}` e' uscito con "
                 f"{completed.exit_code} e non ha scritto niente su {stream}, "
-                f"dove il protocollo mette la busta.\n"
-                f"{altro}: {completed.stream(altro)[:200]!r}"
+                f"dove il protocollo mette la busta. "
+                f"{altro}: {_quanto(completed.stream(altro))}."
             )
         try:
-            documento = json.loads(testo)
+            documento = carica_json(testo)
         except json.JSONDecodeError as errore:
             raise ProtocolError(
                 f"cio' che `plenora-io {' '.join(completed.argv)}` ha scritto "
-                f"su {stream} non e' JSON: {errore}\n{testo[:200]!r}"
+                f"su {stream} non e' JSON ({errore.msg}, riga {errore.lineno}, "
+                f"colonna {errore.colno}); {_quanto(testo)}."
             ) from errore
-        if not isinstance(documento, dict):
+        if _tipo(documento) != "object":
             raise ProtocolError(
-                f"la busta su {stream} e' {type(documento).__name__} e non un "
+                f"la busta su {stream} e' {_tipo(documento)} e non un "
                 "oggetto JSON."
             )
         return documento
