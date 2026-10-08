@@ -2021,103 +2021,99 @@ fn scrivi_e_rileggi(
         .collect())
 }
 
-/// Colonne senza righe, celle vuote in coda a una colonna, una colonna tutta
-/// vuota, meno nomi che colonne e un nome oltre le colonne: la scrittura le
-/// rappresenta tutte, e la rilettura da' la stessa tabella.
-///
-/// Upstream la tabella senza righe andava in panico in `Drawing::save`
-/// (`values[0]`), la colonna la cui prima cella e' vuota non si scriveva -- e
-/// le colonne seguenti si rileggevano spostate --, e un nome mancante
-/// indicizzava fuori da `column_names`.
-#[test]
-fn un_datatable_con_righe_e_celle_vuote_torna_uguale() {
-    use dxf::objects::DataTable;
+/// Una tabella completa di due colonne per tre righe, tutti valori.
+fn tabella_completa() -> dxf::objects::DataTable {
     use dxf::DataTableValue;
 
-    let senza_righe = DataTable {
+    dxf::objects::DataTable {
         column_count: 2,
-        row_count: 0,
-        name: String::from("vuota"),
-        column_names: vec![String::from("a"), String::from("b")],
-        values: vec![],
-        ..Default::default()
-    };
-    let con_celle_vuote = DataTable {
-        column_count: 3,
         row_count: 3,
-        name: String::from("rada"),
-        column_names: vec![
-            String::from("piena"),
-            String::from("in coda"),
-            String::from("vuota"),
-            String::from("oltre le colonne"),
-        ],
-        values: vec![
-            vec![
-                Some(DataTableValue::Integer(1)),
-                Some(DataTableValue::Str(String::from("x"))),
-                None,
-            ],
-            vec![Some(DataTableValue::Integer(2)), None, None],
-            vec![Some(DataTableValue::Boolean(true)), None, None],
-        ],
+        name: String::from("completa"),
+        column_names: vec![String::from("interi"), String::from("testi")],
+        values: (0..3)
+            .map(|riga| {
+                vec![
+                    Some(DataTableValue::Integer(riga)),
+                    Some(DataTableValue::Str(format!("riga {riga}"))),
+                ]
+            })
+            .collect(),
         ..Default::default()
-    };
-    let meno_nomi = DataTable {
-        column_count: 2,
-        row_count: 1,
-        name: String::from("senza un nome"),
-        column_names: vec![String::from("solo la prima")],
-        values: vec![vec![
-            Some(DataTableValue::Double(1.5)),
-            Some(DataTableValue::Double(2.5)),
-        ]],
-        ..Default::default()
-    };
-    for tabella in [senza_righe, con_celle_vuote, meno_nomi] {
-        let riletta = scrivi_e_rileggi(&tabella).unwrap();
-        assert_eq!(riletta, [tabella]);
     }
 }
 
-/// Cio' che il formato non sa rappresentare si rifiuta in `Drawing::save`, con
-/// un errore e senza panico: una cella vuota seguita da un valore nella stessa
-/// colonna -- in rilettura il valore salirebbe di una riga -- e dimensioni che
-/// non coincidono con `values`.
+/// Una tabella completa -- un nome per colonna, un valore per ogni riga di
+/// ogni colonna, un tipo per colonna -- si scrive come dice la specifica e si
+/// rilegge uguale.
 #[test]
-fn un_datatable_non_rappresentabile_si_rifiuta_in_scrittura() {
-    use dxf::objects::DataTable;
+fn un_datatable_completo_torna_uguale() {
+    let tabella = tabella_completa();
+    let riletta = scrivi_e_rileggi(&tabella).unwrap();
+    assert_eq!(riletta, [tabella]);
+}
+
+/// La specifica Autodesk scrive «one value is written for every row in each
+/// column», dopo una `92` con il tipo della colonna: non rappresenta una cella
+/// vuota, ne' il tipo di una colonna senza valori. Il fork non inventa una
+/// rappresentazione che rileggerebbe solo lui: tutto cio' che la specifica
+/// non rappresenta si rifiuta in `Drawing::save`, con `WrongItemType`, prima
+/// di scrivere e senza panico.
+///
+/// Upstream la tabella con colonne e zero righe andava in panico
+/// (`values[0]`), la colonna con la prima cella vuota non si scriveva e le
+/// seguenti si rileggevano spostate, e un nome mancante indicizzava fuori da
+/// `column_names`.
+#[test]
+fn un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura() {
     use dxf::DataTableValue;
 
-    let buco = DataTable {
-        column_count: 1,
-        row_count: 2,
-        values: vec![vec![None], vec![Some(DataTableValue::Integer(1))]],
-        ..Default::default()
+    let base = tabella_completa();
+    let con = |modifica: &dyn Fn(&mut dxf::objects::DataTable)| {
+        let mut tabella = base.clone();
+        modifica(&mut tabella);
+        tabella
     };
-    let righe_mancanti = DataTable {
-        column_count: 1,
-        row_count: 1,
-        values: vec![],
-        ..Default::default()
-    };
-    let riga_corta = DataTable {
-        column_count: 2,
-        row_count: 1,
-        values: vec![vec![Some(DataTableValue::Integer(1))]],
-        ..Default::default()
-    };
-    let oltre_il_tetto = DataTable {
-        column_count: (1 << 20) + 1,
-        row_count: 0,
-        ..Default::default()
-    };
-    for (nome, tabella) in [
-        ("cella vuota prima di un valore", buco),
-        ("righe dichiarate senza valori", righe_mancanti),
-        ("riga piu' corta delle colonne", riga_corta),
-        ("colonne oltre il tetto", oltre_il_tetto),
-    ] {
+    let casi = [
+        (
+            "colonne con zero righe",
+            con(&|t| {
+                t.row_count = 0;
+                t.values.clear();
+            }),
+        ),
+        ("cella vuota in mezzo", con(&|t| t.values[1][0] = None)),
+        ("cella vuota in coda", con(&|t| t.values[2][1] = None)),
+        (
+            "colonna tutta vuota",
+            con(&|t| t.values.iter_mut().for_each(|riga| riga[1] = None)),
+        ),
+        (
+            "meno nomi che colonne",
+            con(&|t| t.column_names.truncate(1)),
+        ),
+        (
+            "piu' nomi che colonne",
+            con(&|t| t.column_names.push(String::from("in piu'"))),
+        ),
+        (
+            "tipi diversi nella stessa colonna",
+            con(&|t| t.values[1][0] = Some(DataTableValue::Double(1.5))),
+        ),
+        ("righe dichiarate senza valori", con(&|t| t.values.clear())),
+        (
+            "riga piu' corta delle colonne",
+            con(&|t| t.values[0].truncate(1)),
+        ),
+        (
+            "colonne oltre il tetto",
+            con(&|t| {
+                t.column_count = (1 << 20) + 1;
+                t.row_count = 0;
+                t.values.clear();
+            }),
+        ),
+    ];
+    for (nome, tabella) in casi {
         assert!(
             matches!(
                 scrivi_e_rileggi(&tabella),

@@ -88,12 +88,19 @@ fn dimensioni_ammesse(righe: usize, colonne: usize) -> bool {
             .is_some_and(|celle| celle <= MASSIME_CELLE_DATATABLE)
 }
 
-/// Il codice di gruppo `92` di una colonna senza valori. Il formato apre ogni
-/// colonna con un `92` che porta il codice del tipo dei suoi valori; una
-/// colonna vuota non ha un tipo, ma la sua `92` va scritta lo stesso, perche'
-/// e' cio' che fa avanzare l'indice di colonna in lettura. Upstream la
-/// saltava, e le colonne seguenti si rileggevano spostate di una.
-const CODICE_COLONNA_VUOTA: i32 = 0;
+/// Il codice di gruppo con cui la specifica scrive un valore di quel tipo, che
+/// e' anche il codice di tipo che la `92` di una colonna porta.
+const fn codice_del_valore(valore: &DataTableValue) -> i32 {
+    match valore {
+        DataTableValue::Boolean(_) => 71,
+        DataTableValue::Integer(_) => 93,
+        DataTableValue::Double(_) => 40,
+        DataTableValue::Str(_) => 3,
+        DataTableValue::Point2D(_) => 10,
+        DataTableValue::Point3D(_) => 11,
+        DataTableValue::Handle(_) => 331,
+    }
+}
 
 impl DataTable {
     /// Scrive una cella della tabella gia' prenotata. Una cella fuori dalla
@@ -115,34 +122,45 @@ impl DataTable {
         }
     }
 
-    /// Una tabella che la scrittura sa rappresentare in modo che la rilettura
-    /// dia la stessa tabella, o `WrongItemType`.
+    /// Una tabella che la specifica sa rappresentare, o `WrongItemType`.
     ///
-    /// Il formato scrive ogni colonna come una sequenza di valori, senza
-    /// posizione: in rilettura il primo valore va nella riga 0, il secondo
-    /// nella 1, e cosi' via. Una cella vuota e' quindi rappresentabile solo in
-    /// coda alla sua colonna, dove la rilettura la lascia vuota; una cella
-    /// vuota seguita da un valore sposterebbe quel valore di una riga, e si
-    /// rifiuta. Si rifiutano anche le dimensioni che non coincidono con
-    /// `values` -- la scrittura upstream indicizzava fuori dai `Vec` e andava in
-    /// panico, anche con colonne e zero righe -- e quelle oltre il tetto della
-    /// lettura, che non si rileggerebbero.
+    /// La specifica Autodesk del DATATABLE scrive ogni colonna come una `92`
+    /// con il codice del tipo della colonna, il nome (`2`) e poi «one value is
+    /// written for every row in each column». Non c'e' modo di scrivere una
+    /// cella vuota, ne' il tipo di una colonna che non ha valori: il fork non
+    /// inventa una rappresentazione che rileggerebbe solo lui. Si rifiutano
+    /// quindi, prima di scrivere:
+    ///
+    /// - dimensioni che non coincidono con `values`, oltre il tetto della
+    ///   lettura o oltre un `i32`;
+    /// - un nome per colonna, ne' di piu' ne' di meno;
+    /// - colonne con zero righe: senza valori la colonna non ha un tipo da
+    ///   scrivere nella `92`;
+    /// - qualunque cella vuota, in mezzo o in coda, e colonne tutte vuote;
+    /// - una colonna con valori di tipi diversi, che la sua `92` dichiarerebbe
+    ///   male.
+    ///
+    /// Upstream la tabella con colonne e zero righe andava in panico
+    /// (`values[0]`), e una colonna con la prima cella vuota non si scriveva.
     pub(crate) fn verifica_scrivibile(&self) -> DxfResult<()> {
         let dimensioni_coerenti = dimensioni_ammesse(self.row_count, self.column_count)
             && i32::try_from(self.row_count).is_ok()
             && i32::try_from(self.column_count).is_ok()
             && self.values.len() == self.row_count
-            && self.values.iter().all(|riga| riga.len() == self.column_count);
-        if !dimensioni_coerenti {
+            && self.values.iter().all(|riga| riga.len() == self.column_count)
+            && self.column_names.len() == self.column_count;
+        if !dimensioni_coerenti || (self.column_count > 0 && self.row_count == 0) {
             return Err(DxfError::WrongItemType);
         }
         for colonna in 0..self.column_count {
-            let mut vuota_prima = false;
+            let mut codice_della_colonna = None;
             for riga in &self.values {
-                match riga.get(colonna) {
-                    Some(Some(_)) if vuota_prima => return Err(DxfError::WrongItemType),
-                    Some(Some(_)) => (),
-                    Some(None) | None => vuota_prima = true,
+                let Some(Some(valore)) = riga.get(colonna) else {
+                    return Err(DxfError::WrongItemType);
+                };
+                let codice = codice_del_valore(valore);
+                if *codice_della_colonna.get_or_insert(codice) != codice {
+                    return Err(DxfError::WrongItemType);
                 }
             }
         }
@@ -1628,10 +1646,11 @@ impl Object {
     fn add_custom_code_pairs(&self, pairs: &mut Vec<CodePair>, version: AcadVersion) -> bool {
         match self.specific {
             ObjectType::DataTable(ref data) => {
-                // Le dimensioni e le celle le ha gia' verificate
+                // Dimensioni, nomi e celle li ha gia' verificati
                 // `verifica_scrivibile`, chiamata da `Drawing::code_pairs` prima
-                // di scrivere: qui nessun accesso indicizza, e una tabella non
-                // verificata non puo' andare in panico.
+                // di scrivere: qui ogni colonna ha un nome e un valore per ogni
+                // riga, tutti dello stesso tipo. Nessun accesso indicizza, e
+                // una tabella non verificata non puo' andare in panico.
                 pairs.push(CodePair::new_str(100, "AcDbDataTable"));
                 pairs.push(CodePair::new_i16(70, data.field));
                 pairs.push(CodePair::new_i32(
@@ -1643,62 +1662,45 @@ impl Object {
                     i32::try_from(data.row_count).unwrap_or(i32::MAX),
                 ));
                 pairs.push(CodePair::new_string(1, &data.name));
-                for col in 0..data.column_count {
-                    let primo = data
+                for (col, nome) in data.column_names.iter().enumerate() {
+                    let valori = data
                         .values
                         .iter()
-                        .find_map(|riga| riga.get(col).and_then(Option::as_ref));
-                    let column_code = match primo {
-                        Some(DataTableValue::Boolean(_)) => 71,
-                        Some(DataTableValue::Integer(_)) => 93,
-                        Some(DataTableValue::Double(_)) => 40,
-                        Some(DataTableValue::Str(_)) => 3,
-                        Some(DataTableValue::Point2D(_)) => 10,
-                        Some(DataTableValue::Point3D(_)) => 11,
-                        Some(DataTableValue::Handle(_)) => 331,
-                        None => CODICE_COLONNA_VUOTA,
+                        .filter_map(|riga| riga.get(col).and_then(Option::as_ref));
+                    let Some(codice) = valori.clone().next().map(codice_del_valore) else {
+                        continue;
                     };
-                    pairs.push(CodePair::new_i32(92, column_code));
-                    if let Some(nome) = data.column_names.get(col) {
-                        pairs.push(CodePair::new_string(2, nome));
-                    }
-                    for valore in data.values.iter().filter_map(|riga| riga.get(col)) {
+                    pairs.push(CodePair::new_i32(92, codice));
+                    pairs.push(CodePair::new_string(2, nome));
+                    for valore in valori {
                         match valore {
-                            Some(DataTableValue::Boolean(val)) => {
+                            DataTableValue::Boolean(val) => {
                                 pairs.push(CodePair::new_i16(71, as_i16(*val)));
                             }
-                            Some(DataTableValue::Integer(val)) => {
+                            DataTableValue::Integer(val) => {
                                 pairs.push(CodePair::new_i32(93, *val));
                             }
-                            Some(DataTableValue::Double(val)) => {
+                            DataTableValue::Double(val) => {
                                 pairs.push(CodePair::new_f64(40, *val));
                             }
-                            Some(DataTableValue::Str(val)) => {
+                            DataTableValue::Str(val) => {
                                 pairs.push(CodePair::new_string(3, val));
                             }
-                            Some(DataTableValue::Point2D(val)) => {
+                            DataTableValue::Point2D(val) => {
                                 pairs.push(CodePair::new_f64(10, val.x));
                                 pairs.push(CodePair::new_f64(20, val.y));
                                 pairs.push(CodePair::new_f64(30, val.z));
                             }
-                            Some(DataTableValue::Point3D(val)) => {
+                            DataTableValue::Point3D(val) => {
                                 pairs.push(CodePair::new_f64(11, val.x));
                                 pairs.push(CodePair::new_f64(21, val.y));
                                 pairs.push(CodePair::new_f64(31, val.z));
                             }
-                            Some(DataTableValue::Handle(val)) => {
+                            DataTableValue::Handle(val) => {
                                 pairs.push(CodePair::new_string(331, &val.as_string()));
                             }
-                            // Solo in coda alla colonna (`verifica_scrivibile`):
-                            // la rilettura la lascia vuota.
-                            None => (),
                         }
                     }
-                }
-                // I nomi oltre le colonne: la lettura li accoda nello stesso
-                // ordine, ovunque stiano, e saltarli li perderebbe.
-                for nome in data.column_names.iter().skip(data.column_count) {
-                    pairs.push(CodePair::new_string(2, nome));
                 }
             }
             ObjectType::Dictionary(ref dict) => {
