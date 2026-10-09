@@ -52,13 +52,13 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, versione del workspace | `4.1.1` |
 | candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.1.1` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
+| candidate, release_action consentita | sì |
 | release pubblicate | 4 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
