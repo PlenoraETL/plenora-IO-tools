@@ -835,18 +835,13 @@ class SondeDellEsaurimento(unittest.TestCase):
         al modulo (`libc`), e frame con il solo nome del modulo (`__rust_try`):
         sono righe di stack valide, e la firma resta quella del frame utile."""
         coda = (
-            "    #29 0x55af77e04623 in __rust_try driver_geoparquet.b2f642e7786b642f-cgu.0
-"
+            "    #29 0x55af77e04623 in __rust_try driver_geoparquet.b2f642e7786b642f-cgu.0\n"
             "    #30 0x7fd13d02a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) "
-            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
-"
+            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)\n"
             "    #31 0x7fd13d02a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) "
-            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
-"
+            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)\n"
         )
-        altro = ESAURIMENTO.replace(_frame(28) + "
-", _frame(28) + "
-" + coda)
+        altro = ESAURIMENTO.replace(_frame(28) + "\n", _frame(28) + "\n" + coda)
         self.assertEqual(self._stato(altro), "noto")
 
     def test_una_coda_malformata_dopo_il_frame_utile_e_illeggibile(self) -> None:
