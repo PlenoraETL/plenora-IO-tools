@@ -227,26 +227,30 @@ for target in "${targets[@]}"; do
     fi
     echo "=== ${target}: ${duration}s ==="
     uscita="${uscite}/${target}.txt"
-    if cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
+    # Lo script gira con `set -euo pipefail`: un comando che esce diverso da
+    # zero lo interromperebbe qui, prima della classificazione, del verbale e
+    # del riepilogo. L'esito della corsa e quello del classificatore si
+    # catturano percio' esplicitamente, con `|| codice=$?`. Con `pipefail`
+    # l'esito della pipeline e' quello di `cargo`, perche' `tee` esce 0.
+    esito_corsa=0
+    cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \
         "-timeout=15" \
         "-print_final_stats=1" \
-        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}"; then
-        continue
-    fi
-    # `pipefail` non e' attivo qui: l'esito della corsa e' quello di `cargo`,
-    # non di `tee`, e si rilegge da PIPESTATUS.
-    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}" || esito_corsa=$?
+    if [ "${esito_corsa}" -eq 0 ]; then
         continue
     fi
     voce_nota="${uscite}/${target}.voce"
+    codice=0
     python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
         --uscita "${uscita}" \
+        --codice-uscita "${esito_corsa}" \
         --conserva "assurance/evidence/finding-fuzz" \
-        --voce-nota "${voce_nota}"
-    case "$?" in
+        --voce-nota "${voce_nota}" || codice=$?
+    case "${codice}" in
         3)
             noti+=("${target}")
             voci+=("${target}=$(cat "${voce_nota}")")

@@ -64,31 +64,43 @@ debole:
 
 Un'allocazione oltre `-malloc_limit_mb` (che libFuzzer pone uguale a
 `-rss_limit_mb`) non e' un panico: libFuzzer stampa
-`ERROR: libFuzzer: out-of-memory (malloc(N))` e lo stack dell'allocazione.
-La firma e' allora:
+`==N== ERROR: libFuzzer: out-of-memory (malloc(N))` e lo stack
+dell'allocazione. La firma e' allora:
 
 * il **tipo** `esaurimento-memoria`, distinto da `panico`: un panico e un
   esaurimento nello stesso modulo sono due finding;
-* il **primo frame che non e' l'allocatore ne' chi riporta l'errore** --
-  `malloc`, i frame della libreria standard (percorsi sotto `/rustc/`), il
-  runtime del sanitizer (`compiler-rt`, `__sanitizer`, `__asan`) e libFuzzer
-  stesso (`libfuzzer-sys/libfuzzer/`, `fuzzer::`), che stampa lo stack da
-  dentro il proprio gancio su `malloc` -- ridotto a modulo, come per il
-  panico, e a **funzione**: il nome semplice, senza percorso, hash ne'
-  parametri generici. Il nome semplice e non quello qualificato perche' un
-  frame inline arriva dal simbolizzatore col solo nome (`read_thrift_vec<...>`)
-  e uno non inline col percorso intero; il modulo, che viene dal file, tiene
-  la firma stretta lo stesso;
+* il **primo frame utile** dello stack, ridotto a modulo, come per il panico,
+  e a **funzione**: il nome semplice, senza percorso, hash ne' parametri
+  generici. Un frame inline arriva dal simbolizzatore col solo nome
+  (`read_thrift_vec<...>`) e uno non inline col percorso intero; il modulo,
+  che viene dal file, tiene la firma stretta lo stesso;
 * la forma del messaggio, `out-of-memory (malloc(N))`.
 
-La corrispondenza resta congiunta: tipo, modulo, funzione e forma, per il
-bersaglio dichiarato. Restano **fuori**, e quindi rossi:
+# Come si legge lo stack, e perche' in modo conservativo
 
-* l'esaurimento misurato sull'RSS (`out-of-memory (used: ...)`), che arriva dal
-  thread che sorveglia la memoria e non porta lo stack di un'allocazione: non
-  c'e' una firma da leggere;
-* uno stack non simbolizzato, cioe' indirizzi senza nomi: senza nomi non c'e'
-  firma, e un crash senza firma e' **illeggibile**, mai «noto».
+Un errore di lettura qui non deve poter produrre un falso «noto». Percio':
+
+* l'intestazione deve combaciare con **l'intera** riga;
+* lo stack va dal primo `#0` dopo l'intestazione alla prima riga vuota, a
+  `SUMMARY:` o a un altro marcatore d'errore; ogni riga in mezzo deve avere la
+  forma di una riga di stack, con i numeri consecutivi, altrimenti la firma e'
+  **illeggibile**;
+* si saltano **solo** i frame del runtime, per nome **esatto** e luogo
+  riconosciuto: il sanitizer e l'intercettazione di `malloc` senza file, il
+  sanitizer col solo nome del file, libFuzzer dal suo sorgente nel registro di
+  cargo, la libreria standard che alloca dal sorgente della toolchain. Sono gli
+  insiemi chiusi qui sotto, presi dall'uscita vera della CI. Un frame con un
+  file del repository (`crates/`, `vendor/`, `fuzz/fuzz_targets/`) non si salta
+  mai;
+* il primo frame che non si salta deve avere un file: senza file la firma e'
+  illeggibile, perche' firmare con il chiamante vorrebbe dire firmare un altro
+  punto.
+
+E i marcatori decidono prima dello stack. Un marcatore che non e' ne'
+l'esaurimento da `malloc` ne' il segnale mortale di un panico -- un leak, un
+errore di AddressSanitizer, un timeout, l'esaurimento misurato sull'RSS -- fa
+il crash **nuovo**, mai «senza crash»; due marcatori nello stesso log pure.
+Un'uscita senza marcatori ma con un codice diverso da zero e' illeggibile.
 
 Per questo lo smoke cerca un `llvm-symbolizer` prima di correre: senza, ogni
 esaurimento di memoria e' illeggibile, cioe' rosso.
@@ -130,44 +142,99 @@ CAMPI = (
 #: panico: e' la forma delle voci scritte prima che esistesse il secondo tipo.
 TIPI = ("panico", "esaurimento-memoria")
 
-#: `ERROR: libFuzzer: out-of-memory (malloc(2315255472))`
-ESAURIMENTO = re.compile(r"ERROR: libFuzzer: (out-of-memory \(malloc\(\d+\)\))")
-
-#: Un frame simbolizzato di AddressSanitizer:
-#: `#12 0x55d0c3b0f2a1 in <funzione> <percorso>:<riga>:<colonna>`.
-FRAME = re.compile(
-    r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(?P<funzione>.+?)\s+"
-    r"(?P<percorso>/\S+?):(?P<riga>\d+)(?::\d+)?\s*$"
+#: L'intestazione di un esaurimento di memoria da `malloc`, sull'**intera**
+#: riga: `==30580== ERROR: libFuzzer: out-of-memory (malloc(2315255472))`. Un
+#: suffisso, o un prefisso diverso dal pid di libFuzzer, non e' questa riga.
+ESAURIMENTO = re.compile(
+    r"^==\d+== ERROR: libFuzzer: (?P<messaggio>out-of-memory \(malloc\(\d+\)\))$"
 )
 
-#: Le funzioni che sono l'allocatore, o chi riporta l'errore, e non chi alloca.
-ALLOCATORE = (
-    "malloc",
-    "calloc",
-    "realloc",
-    "posix_memalign",
-    "aligned_alloc",
-    "__interceptor_",
-    "__rust_",
-    "__rdl_",
-    "__rg_",
-    "__sanitizer",
-    "__asan",
-    "__lsan",
-    "fuzzer::",
+#: Il segno con cui libFuzzer chiude un panico Rust: `deadly signal`.
+SEGNALE_MORTALE = re.compile(r"^==\d+== ERROR: libFuzzer: deadly signal$")
+
+#: Ogni riga con cui libFuzzer o un sanitizer dichiarano un errore:
+#: `==N== ERROR: libFuzzer: ...`, `==N==ERROR: AddressSanitizer: ...`,
+#: `==N==ERROR: LeakSanitizer: ...`. Quelle che il classificatore non sa
+#: leggere fanno il crash **nuovo**, mai «senza crash».
+MARCATORE = re.compile(r"^==\d+==\s*ERROR:\s*\S")
+
+#: Una riga di stack: `#N 0xINDIRIZZO`, poi `in <funzione> <dove>` oppure il
+#: solo modulo fra parentesi. Una riga dentro lo stack che non e' cosi' rende
+#: la firma illeggibile: non si salta.
+RIGA_DI_STACK = re.compile(
+    r"^\s+#(?P<numero>\d+) 0x[0-9a-fA-F]+"
+    r"(?: in (?P<funzione>.+?) (?P<dove>\S+(?: \(BuildId: [0-9a-fA-F]+\))?)"
+    r"| (?P<solo_modulo>\(\S+\+0x[0-9a-fA-F]+\)(?: \(BuildId: [0-9a-fA-F]+\))?))$"
 )
 
-#: Un frame qualsiasi, simbolizzato o no: serve a riconoscere il frame che
-#: non si legge e fermarsi li', invece di saltarlo e firmare con il chiamante.
-FRAME_QUALSIASI = re.compile(r"^\s*#\d+\s+0x[0-9a-fA-F]+(?:\s+in\s+(?P<funzione>\S.*))?")
+#: `<percorso assoluto>:<riga>[:<colonna>]`
+CON_FILE = re.compile(r"^(?P<percorso>/\S+?):(?P<riga>\d+)(?::\d+)?$")
 
-#: I segni di un crash che libFuzzer o il sanitizer hanno riportato. Se il
-#: testo ne porta uno e nessuna firma si legge, il crash e' **illeggibile**.
-SEGNI_DI_CRASH = (
-    "ERROR: libFuzzer:",
-    "ERROR: AddressSanitizer:",
-    "panicked at",
+#: `(<binario>+0x<offset>)`, con o senza BuildId: un frame senza file.
+SENZA_FILE = re.compile(r"^\(\S+\+0x[0-9a-fA-F]+\)(?: \(BuildId: [0-9a-fA-F]+\))?$")
+
+#: I frame del runtime che si saltano: nome **esatto** e luogo riconosciuto.
+#: Nient'altro si salta. Sono quelli che la CI produce sull'input registrato
+#: (corsa 37735627087): libFuzzer stampa lo stack da dentro il proprio gancio
+#: su `malloc`, quindi prima vengono lui e il sanitizer, poi `malloc`, poi la
+#: libreria standard che alloca, poi chi ha chiesto la memoria.
+#:
+#: Senza file: il sanitizer e l'intercettazione di `malloc`, che il binario
+#: porta senza informazioni di riga.
+RUNTIME_SENZA_FILE = frozenset(
+    {
+        "__sanitizer_print_stack_trace",
+        "malloc",
+        "calloc",
+        "realloc",
+        "__interceptor_malloc",
+        "__interceptor_calloc",
+        "__interceptor_realloc",
+    }
 )
+#: Il sanitizer, che il simbolizzatore riporta col solo nome del file.
+RUNTIME_SANITIZER = frozenset(
+    {
+        "__sanitizer::RunMallocHooks(void*, unsigned long)",
+        "__asan::Allocator::Allocate(unsigned long, unsigned long, "
+        "__sanitizer::BufferedStackTrace*, __asan::AllocType, bool)",
+        "__asan::asan_malloc(unsigned long, __sanitizer::BufferedStackTrace*)",
+    }
+)
+FILE_DEL_SANITIZER = frozenset(
+    {"sanitizer_common.cpp", "asan_allocator.cpp", "asan_malloc_linux.cpp"}
+)
+#: libFuzzer, dal sorgente vendorizzato in `libfuzzer-sys` nel registro di cargo.
+RUNTIME_LIBFUZZER = frozenset(
+    {
+        "fuzzer::PrintStackTrace()",
+        "fuzzer::Fuzzer::HandleMalloc(unsigned long)",
+        "fuzzer::MallocHook(void const volatile*, unsigned long)",
+    }
+)
+PERCORSO_LIBFUZZER = re.compile(
+    r"^/(?:[^/]+/)*registry/src/[^/]+/libfuzzer-sys-\d+\.\d+\.\d+/libfuzzer/Fuzzer\w+\.cpp$"
+)
+#: La libreria standard che alloca: nome semplice esatto, percorso del
+#: sorgente della toolchain.
+RUNTIME_STD = frozenset(
+    {
+        "alloc",
+        "alloc_zeroed",
+        "alloc_impl",
+        "alloc_impl_runtime",
+        "allocate",
+        "allocate_in",
+        "try_allocate_in",
+        "with_capacity_in",
+        "with_capacity",
+    }
+)
+PERCORSO_STD = re.compile(r"^/rustc/[0-9a-f]{40}/library/(?:alloc|core|std)/src/")
+
+#: Segmenti che dicono «codice di questo repository»: un frame che li porta
+#: ferma sempre lo skip, qualunque nome abbia.
+SEGMENTI_DEL_REPOSITORY = ("/crates/", "/vendor/", "/fuzz/fuzz_targets/")
 
 #: `thread '<nome>' panicked at <percorso>:<riga>:<colonna>:`
 PANICO = re.compile(r"panicked at ([^\s:]+(?:/[^\s:]+)*):(\d+):(\d+)")
@@ -238,78 +305,158 @@ def funzione_normalizzata(nome: str) -> str:
     return senza_generici.rsplit("::", 1)[-1].strip()
 
 
-def _e_allocatore(funzione: str, percorso: str) -> bool:
-    """Un frame dell'allocatore, della libreria standard o del sanitizer."""
-    normalizzato = percorso.replace("\\", "/")
-    if (
-        "/rustc/" in normalizzato
-        or "compiler-rt" in normalizzato
-        or modulo_normalizzato(normalizzato).startswith("libfuzzer-sys/libfuzzer/")
-    ):
-        return True
-    return funzione.startswith(ALLOCATORE)
+def _frame_del_runtime(funzione: str, dove: str) -> bool:
+    """Il frame e' del runtime -- sanitizer, libFuzzer, allocatore, libreria
+    standard -- e si salta. Solo per nome **esatto** e luogo riconosciuto."""
+    if any(segmento in dove for segmento in SEGMENTI_DEL_REPOSITORY):
+        return False
+    if SENZA_FILE.match(dove):
+        return funzione in RUNTIME_SENZA_FILE
+    if dove in FILE_DEL_SANITIZER:
+        return funzione in RUNTIME_SANITIZER
+    con_file = CON_FILE.match(dove)
+    if con_file is None:
+        return False
+    percorso = con_file.group("percorso")
+    if PERCORSO_LIBFUZZER.match(percorso):
+        return funzione in RUNTIME_LIBFUZZER
+    if PERCORSO_STD.match(percorso):
+        return funzione_normalizzata(funzione) in RUNTIME_STD
+    return False
 
 
-def _esaurimento_osservato(testo: str) -> dict[str, str] | None:
-    """L'esaurimento di memoria da `malloc`, ridotto a firma; `None` se non
-    c'e' o se lo stack non e' simbolizzato."""
-    trovato = ESAURIMENTO.search(testo)
-    if trovato is None:
-        return None
-    for riga in testo[trovato.end() :].splitlines():
-        qualsiasi = FRAME_QUALSIASI.match(riga)
-        if qualsiasi is None:
-            continue
-        frame = FRAME.match(riga)
-        if frame is None:
-            # Un frame senza nome o senza file. Se e' dell'allocatore si
-            # salta; altrimenti la firma si ferma qui: saltarlo vorrebbe dire
-            # firmare con il chiamante, cioe' con un punto diverso da quello
-            # in cui si e' allocato.
-            nome = qualsiasi.group("funzione") or ""
-            if nome.startswith(ALLOCATORE):
-                continue
-            return None
+def _esaurimento_osservato(righe: list[str], indice: int, artefatto: str) -> dict[str, str]:
+    """La firma dell'esaurimento la cui intestazione sta a `righe[indice]`.
+
+    Lo stack si legge dal primo `#0` dopo l'intestazione fino alla prima riga
+    vuota, a `SUMMARY:` o a un altro marcatore d'errore. Dentro lo stack ogni
+    riga deve essere una riga di stack; i frame del runtime si saltano, e il
+    primo che non lo e' da' la firma -- purche' abbia un file. Ogni deviazione
+    da questa forma da' `illeggibile`.
+    """
+    illeggibile = {"stato": "illeggibile", "artefatto": artefatto}
+    messaggio = ESAURIMENTO.match(righe[indice])
+    if messaggio is None:
+        return illeggibile
+    inizio = None
+    for posizione in range(indice + 1, len(righe)):
+        riga = righe[posizione]
+        if MARCATORE.match(riga) or riga.startswith("SUMMARY:"):
+            return illeggibile
+        if re.match(r"^\s+#0 ", riga):
+            inizio = posizione
+            break
+    if inizio is None:
+        return illeggibile
+    atteso = 0
+    for riga in righe[inizio:]:
+        if not riga.strip() or riga.startswith("SUMMARY:") or MARCATORE.match(riga):
+            break
+        frame = RIGA_DI_STACK.match(riga)
+        if frame is None or int(frame.group("numero")) != atteso:
+            return illeggibile
+        atteso += 1
         funzione = frame.group("funzione")
-        percorso = frame.group("percorso")
-        if _e_allocatore(funzione, percorso):
+        if funzione is None:
+            # Il solo modulo, senza nome: nessuna funzione da firmare, e non
+            # e' un frame del runtime riconosciuto.
+            return illeggibile
+        dove = frame.group("dove")
+        if _frame_del_runtime(funzione, dove):
             continue
-        artefatto = ARTEFATTO.search(testo)
-        messaggio = trovato.group(1)
+        con_file = CON_FILE.match(dove)
+        if con_file is None:
+            # Il primo frame utile senza file: firmare con il chiamante
+            # vorrebbe dire firmare un altro punto.
+            return illeggibile
+        testo_messaggio = messaggio.group("messaggio")
         return {
+            "stato": "letto",
             "tipo": "esaurimento-memoria",
-            "modulo": modulo_normalizzato(percorso),
+            "modulo": modulo_normalizzato(con_file.group("percorso")),
             "funzione": funzione_normalizzata(funzione),
-            "riga": frame.group("riga"),
-            "messaggio": messaggio,
-            "forma_del_messaggio": forma_del_messaggio(messaggio),
-            "artefatto": artefatto.group(1) if artefatto else "",
+            "riga": con_file.group("riga"),
+            "messaggio": testo_messaggio,
+            "forma_del_messaggio": forma_del_messaggio(testo_messaggio),
+            "artefatto": artefatto,
         }
-    return None
+    return illeggibile
 
 
-def crash_osservato(testo: str) -> dict[str, str] | None:
-    """Il primo panico nel testo, o l'esaurimento di memoria, ridotto a
-    firma; `None` se non ce n'e' una leggibile."""
+def _panico_osservato(testo: str, artefatto: str) -> dict[str, str] | None:
+    """Il primo panico nel testo, ridotto a firma; `None` se non ce n'e'."""
     trovato = PANICO.search(testo)
     if trovato is None:
-        return _esaurimento_osservato(testo)
+        return None
     # Il messaggio sta sulla riga **dopo** quella del panico: la riga del
     # panico finisce con i due punti, e prenderne la coda dava una stringa
     # vuota. Si salta percio' al primo a capo e si legge la riga seguente.
     coda = testo[trovato.end() :]
     a_capo = coda.find("\n")
     prima_riga = "" if a_capo == -1 else coda[a_capo + 1 :].split("\n", 1)[0]
-    artefatto = ARTEFATTO.search(testo)
     return {
+        "stato": "letto",
         "tipo": "panico",
         "modulo": modulo_normalizzato(trovato.group(1)),
         "funzione": "",
         "riga": trovato.group(2),
         "messaggio": prima_riga.strip(),
         "forma_del_messaggio": forma_del_messaggio(prima_riga),
-        "artefatto": artefatto.group(1) if artefatto else "",
+        "artefatto": artefatto,
     }
+
+
+def osserva(testo: str, codice_uscita: int | None = None) -> dict[str, str]:
+    """Che cosa dice l'uscita di una corsa: `senza-crash`, `illeggibile`,
+    `altro` (un errore che nessuna firma descrive) o `letto` con la firma.
+
+    I marcatori d'errore decidono, non la sola presenza di un panico o di uno
+    stack:
+
+    * nessun marcatore e nessun panico: senza crash -- ma se la corsa e'
+      uscita con un codice diverso da zero, illeggibile;
+    * un marcatore che non e' ne' l'esaurimento da `malloc` ne' il segnale
+      mortale di un panico (un leak, un errore di AddressSanitizer, un timeout,
+      l'esaurimento sull'RSS): `altro`, cioe' nuovo;
+    * l'esaurimento e un altro marcatore qualsiasi: `altro` -- due errori nello
+      stesso log non sono il finding registrato;
+    * il segnale mortale senza un panico leggibile: illeggibile.
+    """
+    righe = [riga.rstrip("\r") for riga in testo.splitlines()]
+    trovato = ARTEFATTO.search(testo)
+    artefatto = trovato.group(1) if trovato else ""
+    marcatori = [indice for indice, riga in enumerate(righe) if MARCATORE.match(riga)]
+    esaurimenti = [i for i in marcatori if ESAURIMENTO.match(righe[i])]
+    mortali = [i for i in marcatori if SEGNALE_MORTALE.match(righe[i])]
+    altri = [i for i in marcatori if i not in esaurimenti and i not in mortali]
+
+    if altri or (esaurimenti and (mortali or len(esaurimenti) > 1)):
+        riga = righe[altri[0]] if altri else righe[marcatori[0]]
+        messaggio = re.sub(r"^==\d+==\s*", "", riga).strip()
+        return {
+            "stato": "letto",
+            "tipo": "altro",
+            "modulo": "",
+            "funzione": "",
+            "riga": "",
+            "messaggio": messaggio,
+            "forma_del_messaggio": forma_del_messaggio(messaggio),
+            "artefatto": artefatto,
+        }
+    if esaurimenti:
+        return _esaurimento_osservato(righe, esaurimenti[0], artefatto)
+    panico = _panico_osservato(testo, artefatto)
+    if panico is not None:
+        return panico
+    if mortali or (codice_uscita is not None and codice_uscita != 0):
+        return {"stato": "illeggibile", "artefatto": artefatto}
+    return {"stato": "senza-crash"}
+
+
+def crash_osservato(testo: str) -> dict[str, str] | None:
+    """La firma del crash, o `None` se non ce n'e' una leggibile."""
+    osservato = osserva(testo)
+    return osservato if osservato["stato"] == "letto" else None
 
 
 def registro_ben_formato(documento: Any) -> list[str]:
@@ -345,16 +492,16 @@ def registro_ben_formato(documento: Any) -> list[str]:
     return motivi
 
 
-def classifica(bersaglio: str, testo: str, documento: Any) -> dict[str, Any]:
-    """`stato` fra `senza-crash`, `noto` e `nuovo`, con cio' che lo sostiene."""
-    osservato = crash_osservato(testo)
-    if osservato is None:
-        # Un crash c'e' ma la firma non si legge: stack non simbolizzato,
-        # esaurimento misurato sull'RSS, un errore del sanitizer. Non e' «senza
-        # crash», e non e' «noto».
-        if any(segno in testo for segno in SEGNI_DI_CRASH):
-            return {"stato": "illeggibile"}
+def classifica(
+    bersaglio: str, testo: str, documento: Any, codice_uscita: int | None = None
+) -> dict[str, Any]:
+    """`stato` fra `senza-crash`, `illeggibile`, `noto` e `nuovo`, con cio' che
+    lo sostiene."""
+    osservato = osserva(testo, codice_uscita)
+    if osservato["stato"] == "senza-crash":
         return {"stato": "senza-crash"}
+    if osservato["stato"] == "illeggibile":
+        return {"stato": "illeggibile", "osservato": osservato}
 
     for voce in documento["finding"]:
         if voce["bersaglio"] != bersaglio:
@@ -436,12 +583,12 @@ def conserva(
             "possa riesaminare."
         ),
         "firma_osservata": {
-            "tipo": osservato["tipo"],
-            "funzione": osservato["funzione"],
-            "modulo": osservato["modulo"],
-            "riga": osservato["riga"],
-            "messaggio": osservato["messaggio"],
-            "forma_del_messaggio": osservato["forma_del_messaggio"],
+            "tipo": osservato.get("tipo", ""),
+            "funzione": osservato.get("funzione", ""),
+            "modulo": osservato.get("modulo", ""),
+            "riga": osservato.get("riga", ""),
+            "messaggio": osservato.get("messaggio", ""),
+            "forma_del_messaggio": osservato.get("forma_del_messaggio", ""),
         },
         "artefatto_dichiarato_dalla_corsa": percorso,
         "input_conservato": scritti[0] if scritti else None,
@@ -716,6 +863,15 @@ def main(argv: list[str] | None = None) -> int:
         help="per ogni fermato, `bersaglio=id` della voce che l'ha fermato",
     )
     argomenti.add_argument(
+        "--codice-uscita",
+        type=int,
+        help=(
+            "il codice d'uscita della corsa: diverso da zero senza alcun "
+            "marcatore d'errore nell'uscita vuol dire illeggibile, non «senza "
+            "crash»"
+        ),
+    )
+    argomenti.add_argument(
         "--voce-nota",
         type=Path,
         help="se il crash e' noto, scrive qui l'id della voce",
@@ -800,7 +956,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{opzioni.uscita}: uscita della corsa assente", file=sys.stderr)
         return 2
     testo = opzioni.uscita.read_text(encoding="utf-8", errors="replace")
-    esito = classifica(opzioni.bersaglio, testo, documento)
+    esito = classifica(opzioni.bersaglio, testo, documento, opzioni.codice_uscita)
 
     # I tre stati hanno tre codici d'uscita, perche' chi chiama deve poterli
     # distinguere senza rileggere il testo: 0 nessun crash, 3 crash noto,
@@ -810,10 +966,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{opzioni.bersaglio}: nessun crash nell'uscita")
         return 0
     if esito["stato"] == "illeggibile":
+        if opzioni.conserva is not None:
+            for scritto in conserva(opzioni.conserva, opzioni.bersaglio, esito, None):
+                print(f"{opzioni.bersaglio}: conservato {scritto}")
         print(
-            f"{opzioni.bersaglio}: crash ILLEGGIBILE -- c'e' un crash ma "
-            "nessuna firma si legge (stack non simbolizzato, esaurimento "
-            "misurato sull'RSS, errore del sanitizer). Non e' un finding noto.",
+            f"{opzioni.bersaglio}: crash ILLEGGIBILE -- la corsa e' fallita ma "
+            "nessuna firma si legge (stack non simbolizzato o fuori forma, un "
+            "frame senza file prima del primo utile, un'uscita diversa da zero "
+            "senza marcatori). Non e' un finding noto.",
             file=sys.stderr,
         )
         return 1
