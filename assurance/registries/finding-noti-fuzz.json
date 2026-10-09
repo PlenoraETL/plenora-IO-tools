@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "I finding del fuzz gia' noti, riconosciuti per famiglia e non per digest. Una voce qui non disabilita il bersaglio e non rende completa la campagna che si e' interrotta: dice soltanto che quel crash e' gia' tracciato altrove.",
   "perche_non_una_lista_di_digest": "Il fuzzer rigenera lo stesso difetto da un input diverso, o ne produce una variante. Gli artefatti locali di `geoparquet_reader` lo mostrano: due misurano 3.966 byte, la stessa dimensione del seme del finding, con digest tutti diversi dal suo. Una lista di digest li riconoscerebbe uno per volta.",
-  "come_si_riconosce": "Tipo, modulo **e** forma del messaggio, congiunti, per il bersaglio dichiarato; per un esaurimento di memoria anche la funzione. Il modulo e' `crate/percorso` di una crate **nel registro di cargo dichiarato dallo smoke**, alla versione che `fuzz/Cargo.lock` fissa: una copia locale, un altro registro o un'altra versione non sono il finding registrato, e con un aggiornamento della crate la voce va rivalidata invece di essere ereditata. La forma del messaggio ha le cifre ridotte a N. Il numero di riga non e' nella firma: e' registrato come dato e non come criterio. La firma resta stretta non perche' basti a identificare la causa, ma perche' allargarla aumenterebbe i crash nella stessa cesta senza aumentare cio' che si sa di loro.",
+  "come_si_riconosce": "Tipo, modulo **e** forma del messaggio, congiunti, per il bersaglio dichiarato; per un esaurimento di memoria anche la funzione. Il modulo e' `crate/percorso` di una crate **nel registro di cargo dichiarato dallo smoke**, e la crate dev'essere fissata da `fuzz/Cargo.lock` una volta sola, da crates.io, alla stessa versione del percorso; e quella versione dev'essere fra le `versioni_rivalidate` della voce. Una copia locale, un altro registro, un'altra versione, due versioni nel lock, una sorgente git o path: non sono il finding registrato. Con un aggiornamento della crate la voce va rivalidata, aggiungendo la versione, invece di essere ereditata. La forma del messaggio ha le cifre ridotte a N. Il numero di riga non e' nella firma: e' registrato come dato e non come criterio. La firma resta stretta non perche' basti a identificare la causa, ma perche' allargarla aumenterebbe i crash nella stessa cesta senza aumentare cio' che si sa di loro.",
   "finding": [
     {
       "id": "arrow-rs-byte-stream-split-oob",
@@ -13,6 +13,9 @@
       "versioni_osservate": [
         "59.3.0",
         "60.0.0"
+      ],
+      "versioni_rivalidate": [
+        "59.3.0"
       ],
       "dove_e_tracciato": "Q2 del piano 4.1.0; caso minimo in `upstream/arrow-rs-byte-stream-split/`, segnalazione ad arrow-rs da inviare",
       "non_promette": "Non e' affermato che `geoparquet_reader` sia libero da crash su GeoParquet malformato: questo difetto e' a monte, nel decoder BYTE_STREAM_SPLIT di `parquet`, e il nostro prodotto lo intercetta sulla superficie pubblica ma il target del fuzz non puo' osservarlo, perche' `libfuzzer-sys` chiama `abort()` prima dell'unwinding.",
@@ -27,6 +30,9 @@
       "forma_del_messaggio": "out-of-memory (malloc(N))",
       "riga_osservata": "724",
       "versioni_osservate": [
+        "59.3.0"
+      ],
+      "versioni_rivalidate": [
         "59.3.0"
       ],
       "dove_e_tracciato": "limite dichiarato nella deviazione CLI-2.0 sotto esaurimento di memoria (contracts/adozione-4.0.0.json) e in docs/PRODUCT.md; riproduzione in `upstream/parquet-footer-thrift-list/`; correzione pianificata per la 4.2.0 (parquet/arrow 60 piu' un controllo nostro su row_groups e sullo schema)",

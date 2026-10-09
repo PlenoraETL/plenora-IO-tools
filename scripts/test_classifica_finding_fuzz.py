@@ -38,6 +38,7 @@ RADICE = "/home/runner/.cargo/registry/src"
 COMMIT = "87e5904f5eb6398af6b22eac2802c78934260c48"
 CONTESTO = gate.Contesto(RADICE, COMMIT)
 PROVENIENZA = ["--radice-registry", RADICE, "--rustc-commit", COMMIT]
+CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 
 
 def registro() -> dict:
@@ -916,6 +917,102 @@ class SondeDellEsaurimento(unittest.TestCase):
         self.assertFalse(gate.conclusione_regolare(""))
         self.assertFalse(gate.conclusione_regolare("Done 100 runs in 60 second(s)\n"))
         self.assertFalse(gate.conclusione_regolare(conclusa + conclusa))
+
+    # --- il quarto giro della revisione ---------------------------------------
+
+    def _con_lock(self, **crate: tuple[tuple[str, str], ...]) -> "gate.Contesto":
+        """Il contesto della corsa vera con il lock modificato per le crate date."""
+        lock = dict(gate.voci_del_lock())
+        lock.update(crate)
+        return gate.Contesto(RADICE, COMMIT, lock)
+
+    def test_lock_e_log_a_una_versione_non_rivalidata_sono_nuovi(self) -> None:
+        """N3: con lock e log entrambi a 60.0.0 la crate e' quella fissata, ma
+        la voce e' stata rivalidata solo su 59.3.0: un aggiornamento del lock
+        non eredita la voce."""
+        contesto = self._con_lock(parquet=(("60.0.0", CRATES_IO),))
+        altro = ESAURIMENTO.replace("parquet-59.3.0", "parquet-60.0.0")
+        esito = gate.classifica("geoparquet_reader", altro, registro(), contesto=contesto)
+        self.assertEqual(esito["osservato"]["crate_fissata"], "si")
+        self.assertEqual(esito["stato"], "nuovo")
+        panico = CRASH.replace("parquet-59.3.0", "parquet-60.0.0")
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", panico, registro(), contesto=contesto)["stato"],
+            "nuovo",
+        )
+
+    def test_una_voce_senza_versioni_rivalidate_e_rossa(self) -> None:
+        for valore in (None, [], [""], "59.3.0"):
+            documento = registro()
+            if valore is None:
+                del documento["finding"][0]["versioni_rivalidate"]
+            else:
+                documento["finding"][0]["versioni_rivalidate"] = valore
+            self.assertTrue(gate.registro_ben_formato(documento), valore)
+
+    def test_uno_stack_senza_delimitatore_e_illeggibile(self) -> None:
+        """N4: lo stack troncato dopo il #18, alla fine del log, potrebbe non
+        essere tutto: senza riga vuota, `SUMMARY:` o un altro marcatore non si
+        firma."""
+        righe = ESAURIMENTO.splitlines()
+        fine = next(i for i, riga in enumerate(righe) if riga.lstrip().startswith("#18 "))
+        troncato = "\n".join(righe[: fine + 1]) + "\n"
+        self.assertEqual(self._stato(troncato), "illeggibile")
+
+    def test_due_versioni_della_crate_nel_lock_sono_nuove(self) -> None:
+        """N1: con due versioni di parquet nel lock non si sa quale abbia
+        compilato il frame."""
+        contesto = self._con_lock(
+            parquet=(("59.3.0", CRATES_IO), ("60.0.0", CRATES_IO))
+        )
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", ESAURIMENTO, registro(), contesto=contesto)[
+                "stato"
+            ],
+            "nuovo",
+        )
+
+    def test_una_crate_che_non_viene_da_crates_io_e_nuova(self) -> None:
+        """N2: git, un percorso, o nessuna sorgente non sono la crate pubblicata;
+        l'indice sparse di crates.io lo e'."""
+        for sorgente, atteso in (
+            ("git+https://github.com/apache/arrow-rs?rev=abc#abc", "nuovo"),
+            ("path+file:///home/x/parquet", "nuovo"),
+            ("", "nuovo"),
+            ("sparse+https://index.crates.io/", "noto"),
+        ):
+            contesto = self._con_lock(parquet=(("59.3.0", sorgente),))
+            self.assertEqual(
+                gate.classifica(
+                    "geoparquet_reader", ESAURIMENTO, registro(), contesto=contesto
+                )["stato"],
+                atteso,
+                sorgente,
+            )
+
+    def test_un_panico_insieme_all_esaurimento_e_nuovo(self) -> None:
+        """N5: un panico nella stessa corsa dell'esaurimento, anche senza il suo
+        segnale mortale, fa due crash."""
+        con_panico = CRASH.split("\n", 1)[1] + ESAURIMENTO
+        self.assertEqual(self._stato(con_panico), "nuovo")
+
+    def test_una_conclusione_senza_esecuzioni_o_con_errori_non_e_finita(self) -> None:
+        """N6: `Done 0 runs`, o un marcatore d'errore o un panico nello stesso
+        log, non sono una corsa finita."""
+        conclusa = (
+            "Done 100 runs in 60 second(s)\n"
+            "stat::number_of_executed_units: 100\n"
+        )
+        self.assertTrue(gate.conclusione_regolare(conclusa))
+        self.assertFalse(
+            gate.conclusione_regolare(conclusa.replace("Done 100 runs", "Done 0 runs"))
+        )
+        self.assertFalse(
+            gate.conclusione_regolare(
+                "==1==ERROR: LeakSanitizer: detected memory leaks\n" + conclusa
+            )
+        )
+        self.assertFalse(gate.conclusione_regolare(CRASH.split("\n", 1)[1] + conclusa))
 
     def test_una_voce_di_esaurimento_senza_funzione_e_rossa(self) -> None:
         documento = registro()

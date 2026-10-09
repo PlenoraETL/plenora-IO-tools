@@ -23,13 +23,16 @@ riconoscerebbe uno per volta, e ogni variante sarebbe un rosso da triare a mano.
 
 La **famiglia**, cioe' il punto in cui il difetto si manifesta:
 
-* il modulo, come `crate/percorso` nel sorgente della crate -- e la crate
-  deve stare **nel registro di cargo della corsa**, alla versione che
-  `fuzz/Cargo.lock` fissa. Una copia locale di un sorgente, un registro che
-  non e' quello dichiarato dallo smoke, un'altra versione: non sono il finding
-  registrato. Con un aggiornamento della crate la voce smette di combaciare e
-  va rivalidata sulla versione nuova, invece di essere ereditata. Un crash nel
-  codice di questo repository non e' mai noto: si corregge, non si registra;
+* il modulo, come `crate/percorso` nel sorgente della crate. La crate deve
+  stare **nel registro di cargo della corsa**; `fuzz/Cargo.lock` deve fissarla
+  **una volta sola**, **da crates.io** (indice git o sparse), alla stessa
+  versione del percorso; e quella versione deve essere fra le
+  `versioni_rivalidate` della voce. Una copia locale, un altro registro,
+  un'altra versione, due versioni nel lock, una sorgente git o path: non sono
+  il finding registrato. Con un aggiornamento della crate la voce smette di
+  combaciare finche' qualcuno non la rivalida sulla versione nuova e la
+  aggiunge: un lock aggiornato non eredita una voce. Un crash nel codice di
+  questo repository non e' mai noto: si corregge, non si registra;
 * la **forma** del messaggio, con le cifre ridotte a `N` -- «the len is 2 but
   the index is 2» e «the len is 56 but the index is 56» sono lo stesso difetto
   su due ingressi.
@@ -86,8 +89,10 @@ Un errore di lettura qui non deve poter produrre un falso «noto». Percio':
 
 * l'intestazione deve combaciare con **l'intera** riga;
 * lo stack va dal primo `#0` dopo l'intestazione alla prima riga vuota, a
-  `SUMMARY:` o a un altro marcatore d'errore; ogni riga in mezzo deve avere la
-  forma di una riga di stack, con i numeri consecutivi, altrimenti la firma e'
+  `SUMMARY:` o a un altro marcatore d'errore, e deve **finire** su uno di
+  questi: uno stack che arriva alla fine del log e' troncato. Ogni riga in
+  mezzo deve avere la forma di una riga di stack, con i numeri consecutivi, e
+  lo stack si valida tutto prima di sceglierne il frame; altrimenti la firma e'
   **illeggibile**;
 * si saltano **solo** i frame del runtime, per nome **esatto** e luogo
   riconosciuto: il sanitizer e l'intercettazione di `malloc` senza file, il
@@ -103,8 +108,14 @@ Un errore di lettura qui non deve poter produrre un falso «noto». Percio':
 E i marcatori decidono prima dello stack. Un marcatore che non e' ne'
 l'esaurimento da `malloc` ne' il segnale mortale di un panico -- un leak, un
 errore di AddressSanitizer, un timeout, l'esaurimento misurato sull'RSS -- fa
-il crash **nuovo**, mai «senza crash»; due marcatori nello stesso log pure.
-Un'uscita senza marcatori ma con un codice diverso da zero e' illeggibile.
+il crash **nuovo**, mai «senza crash»; due marcatori nello stesso log pure,
+cosi' come due panici, o un panico insieme a un esaurimento. Un panico senza il
+segnale mortale che lo chiude e' illeggibile, e lo e' un'uscita senza marcatori
+ma con un codice diverso da zero.
+
+Una corsa uscita con 0 ha **finito** solo se porta un solo riepilogo conclusivo
+di libFuzzer con almeno un'esecuzione, una sola riga di statistiche e nessun
+segno d'errore; altrimenti e' illeggibile, e la campagna non e' completa.
 
 Per questo lo smoke cerca un `llvm-symbolizer` prima di correre: senza, ogni
 esaurimento di memoria e' illeggibile, cioe' rosso.
@@ -243,7 +254,7 @@ RUNTIME_STD = frozenset(
 LOCK_DEL_FUZZ = ROOT / "fuzz" / "Cargo.lock"
 
 #: Il riepilogo con cui libFuzzer chiude una corsa che ha finito il tempo.
-CONCLUSIONE = re.compile(r"^Done \d+ runs in \d+ second\(s\)$")
+CONCLUSIONE = re.compile(r"^Done (?P<esecuzioni>\d+) runs in \d+ second\(s\)$")
 STATISTICHE = re.compile(r"^stat::number_of_executed_units: *\d+$")
 
 #: Segmenti che dicono «codice di questo repository»: un frame che li porta
@@ -319,24 +330,39 @@ def funzione_normalizzata(nome: str) -> str:
     return senza_generici.rsplit("::", 1)[-1].strip()
 
 
-def versioni_bloccate(lock: Path = LOCK_DEL_FUZZ) -> dict[str, frozenset[str]]:
-    """Le versioni di ogni crate nel lockfile; vuoto se il file non si legge.
+#: Le sorgenti del lockfile che dicono «crates.io»: l'indice git e quello
+#: sparse. Una crate da git, da un percorso o senza sorgente non e' la crate
+#: pubblicata a cui una firma nota si riferisce.
+SORGENTI_CRATES_IO = frozenset(
+    {
+        "registry+https://github.com/rust-lang/crates.io-index",
+        "sparse+https://index.crates.io/",
+    }
+)
 
-    Vuoto vuol dire che nessuna firma d'esaurimento puo' essere nota: senza
-    sapere quale versione il bersaglio ha compilato, una crate nel registro
-    non si attribuisce.
+
+def voci_del_lock(lock: Path = LOCK_DEL_FUZZ) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Per ogni crate del lockfile, le coppie `(versione, sorgente)`; vuoto se
+    il file non si legge.
+
+    Vuoto vuol dire che nessuna firma puo' essere nota: senza sapere quale
+    versione il bersaglio ha compilato, e da dove, una crate nel registro non
+    si attribuisce.
     """
     try:
         documento = tomllib.loads(lock.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return {}
-    versioni: dict[str, set[str]] = {}
+    voci: dict[str, list[tuple[str, str]]] = {}
     for pacchetto in documento.get("package", []):
         nome = pacchetto.get("name")
         versione = pacchetto.get("version")
+        sorgente = pacchetto.get("source")
         if isinstance(nome, str) and isinstance(versione, str):
-            versioni.setdefault(nome, set()).add(versione)
-    return {nome: frozenset(insieme) for nome, insieme in versioni.items()}
+            voci.setdefault(nome, []).append(
+                (versione, sorgente if isinstance(sorgente, str) else "")
+            )
+    return {nome: tuple(sorted(coppie)) for nome, coppie in voci.items()}
 
 
 class Contesto:
@@ -351,13 +377,13 @@ class Contesto:
         self,
         radice_registry: str | None = None,
         rustc_commit: str | None = None,
-        versioni: dict[str, frozenset[str]] | None = None,
+        lock: dict[str, tuple[tuple[str, str], ...]] | None = None,
     ) -> None:
         radice = (radice_registry or "").replace("\\", "/").rstrip("/")
         self.radice_registry = radice if radice.startswith("/") else ""
         commit = rustc_commit or ""
         self.rustc_commit = commit if re.fullmatch(r"[0-9a-f]{40}", commit) else ""
-        self.versioni = versioni if versioni is not None else versioni_bloccate()
+        self.lock = lock if lock is not None else voci_del_lock()
 
     def crate_del_registry(self, percorso: str) -> tuple[str, str, str] | None:
         """`(crate, versione, resto)` se il percorso sta **sotto** la radice
@@ -376,8 +402,19 @@ class Contesto:
         return trovato.group("nome"), trovato.group("versione"), "/".join(pezzi[2:])
 
     def bloccata(self, crate: str, versione: str) -> bool:
-        """La versione e' quella che il lockfile del fuzz fissa per la crate."""
-        return versione in self.versioni.get(crate, frozenset())
+        """La crate e' fissata dal lockfile del fuzz **a questa versione**, una
+        sola volta, e viene da crates.io.
+
+        Due versioni della stessa crate nel lock: non si sa quale abbia
+        compilato il frame, e la firma non si attribuisce. Una sorgente git,
+        un percorso o nessuna sorgente: non e' la crate pubblicata.
+        """
+        voci = self.lock.get(crate, ())
+        return (
+            len(voci) == 1
+            and voci[0][0] == versione
+            and voci[0][1] in SORGENTI_CRATES_IO
+        )
 
 
 def _frame_del_runtime(funzione: str, dove: str, contesto: Contesto) -> bool:
@@ -411,13 +448,19 @@ def _frame_del_runtime(funzione: str, dove: str, contesto: Contesto) -> bool:
 
 
 def conclusione_regolare(testo: str) -> bool:
-    """La corsa ha finito il proprio tempo: c'e' **un** riepilogo conclusivo
-    di libFuzzer e **una** riga di statistiche. Un'uscita vuota, troncata o
-    doppia non e' una corsa finita, anche con il codice 0."""
+    """La corsa ha finito il proprio tempo: **un** riepilogo conclusivo di
+    libFuzzer con almeno un'esecuzione, **una** riga di statistiche, e nessun
+    segno d'errore -- un marcatore o un panico. Un'uscita vuota, troncata,
+    doppia o con un errore non e' una corsa finita, anche con il codice 0."""
     righe = [riga.rstrip("\r") for riga in testo.splitlines()]
+    conclusioni = [CONCLUSIONE.match(riga) for riga in righe]
+    conclusioni = [trovata for trovata in conclusioni if trovata is not None]
     return (
-        sum(1 for riga in righe if CONCLUSIONE.match(riga)) == 1
+        len(conclusioni) == 1
+        and int(conclusioni[0].group("esecuzioni")) > 0
         and sum(1 for riga in righe if STATISTICHE.match(riga)) == 1
+        and not any(MARCATORE.match(riga) for riga in righe)
+        and PANICO.search(testo) is None
     )
 
 
@@ -454,13 +497,19 @@ def _esaurimento_osservato(
         return illeggibile
 
     frame: list[re.Match[str]] = []
+    delimitato = False
     for riga in righe[inizio:]:
         if not riga.strip() or riga.startswith("SUMMARY:") or MARCATORE.match(riga):
+            delimitato = True
             break
         letto = RIGA_DI_STACK.match(riga)
         if letto is None or int(letto.group("numero")) != len(frame):
             return illeggibile
         frame.append(letto)
+    if not delimitato:
+        # Lo stack arriva alla fine del log senza un delimitatore: l'uscita e'
+        # troncata, e lo stack che si vede potrebbe non essere tutto.
+        return illeggibile
 
     for letto in frame:
         funzione = letto.group("funzione")
@@ -584,9 +633,22 @@ def osserva(
             "forma_del_messaggio": forma_del_messaggio(messaggio),
             "artefatto": artefatto,
         }
+    panici = len(PANICO.findall(testo))
+    if esaurimenti and panici:
+        # Un panico e un esaurimento nella stessa corsa: due crash, non il
+        # finding registrato.
+        return {
+            "stato": "letto",
+            "tipo": "altro",
+            "modulo": "",
+            "funzione": "",
+            "riga": "",
+            "messaggio": "un panico e un esaurimento nella stessa corsa",
+            "forma_del_messaggio": "un panico e un esaurimento nella stessa corsa",
+            "artefatto": artefatto,
+        }
     if esaurimenti:
         return _esaurimento_osservato(righe, esaurimenti[0], artefatto, contesto)
-    panici = len(PANICO.findall(testo))
     if panici > 1:
         # Due panici nello stesso log non sono il finding registrato.
         return {
@@ -633,6 +695,17 @@ def registro_ben_formato(documento: Any) -> list[str]:
         for campo in CAMPI:
             if not isinstance(voce.get(campo), str) or not voce[campo].strip():
                 motivi.append(f"{dove}: `{campo}` assente o vuoto")
+        rivalidate = voce.get("versioni_rivalidate")
+        if (
+            not isinstance(rivalidate, list)
+            or not rivalidate
+            or not all(isinstance(v, str) and v.strip() for v in rivalidate)
+        ):
+            motivi.append(
+                f"{dove}: `versioni_rivalidate` assente, vuoto o non un elenco di "
+                "versioni: una voce vale solo per le versioni su cui e' stata "
+                "rivalidata"
+            )
         tipo = voce.get("tipo", "panico")
         if tipo not in TIPI:
             motivi.append(f"{dove}: `tipo` «{tipo}» sconosciuto")
@@ -684,6 +757,9 @@ def classifica(
             # rivalidata, ed e' voluto. Un crash nel codice di questo
             # repository non e' mai noto: si corregge, non si registra.
             and osservato.get("crate_fissata") == "si"
+            # ...e la versione e' fra quelle su cui la voce e' stata
+            # rivalidata: un lock aggiornato non eredita la voce.
+            and osservato.get("versione") in voce.get("versioni_rivalidate", [])
         ):
             return {"stato": "noto", "id": voce["id"], "osservato": osservato}
     return {"stato": "nuovo", "osservato": osservato}
