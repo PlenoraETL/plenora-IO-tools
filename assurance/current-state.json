@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "1d1b8d2",
+      "sha": "e0270b5",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "1d1b8d2",
-    "evidenza": "assurance/evidence/checkpoint-1d1b8d2.json",
+    "sha": "e0270b5",
+    "evidenza": "assurance/evidence/checkpoint-e0270b5.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 141,
+      "replay_input": 143,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.51,
-      "lcov_righe_coperte": 24789,
-      "lcov_righe_strumentate": 28656,
-      "cargo_lines_percentuale": 84.06,
+      "lcov_percentuale": 86.93,
+      "lcov_righe_coperte": 25127,
+      "lcov_righe_strumentate": 28904,
+      "cargo_lines_percentuale": 84.53,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "6beb410",
-      "esito": "83.47%",
-      "righe_cambiate_eseguibili": 1240,
-      "coperte": 1035,
-      "scoperte": 205,
-      "cambiate_non_eseguibili": 2337,
-      "ragione": "misurata fra `6beb410`, l'ultimo checkpoint superato e registrato, e `1d1b8d2`, nel perimetro di libreria.",
-      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una; la concentrazione maggiore e' in `plenora-io-core/src/driver/validazione_geometrie.rs` e `scrittura_limitata.rs`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
+      "baseline": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "esito": "73.54%",
+      "righe_cambiate_eseguibili": 393,
+      "coperte": 289,
+      "scoperte": 104,
+      "cambiate_non_eseguibili": 2689,
+      "ragione": "misurata fra `1d1b8d2`, l'ultimo checkpoint superato e registrato, e `e0270b5`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; molte sono rami d'errore dei driver e degli adattatori di lettura in `plenora-io-core`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+    "sha": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo, nessuno fermato a un finding noto -- e' lo smoke del livello 2 su `1d1b8d2`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
+    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "1d1b8d2"
+      "qualificato_su": "e0270b5"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -360,8 +360,46 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate **attiva**, congelata su `e0270b5`: la revisione che porta la correzione dell'esaurimento di memoria del lettore DXF (#37) e la dichiarazione del caso GeoParquet come limite di `parquet` a monte (#39). Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\nLa candidate precedente, congelata su `7131843`, e' stata **ritirata**: la riqualifica dell'8 ottobre e' finita rossa al soak di `dxf_reader`, OOM dopo 568 s con `malloc(2147483648)` su 218 byte (un `DATATABLE` con `90` a -53, che il lettore del fork convertiva con `as usize` prima di prenotare la tabella). La correzione chiude la classe nel fork -- conteggi negativi e tabelle oltre 2^20 righe, colonne o celle si rifiutano, l'anteprima BMP ha un tetto esplicito -- e il seme e' in `fuzz/seeds/dxf_reader/`. Gli artefatti costruiti per `7131843` non valgono per questa revisione.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli e confine ASan (180153 contatori, `libgdal.so.32`) rimisurati su `e0270b5` e identici a quelli registrati: `dxf_reader` non e' fra i bersagli misurati, e nessun commit di misure si e' reso necessario.\n\n**Il caso GeoParquet e' dichiarato, non corretto.** Un footer con elenchi Thrift enormi fa prenotare a `parquet` 59.3 fino a circa 2,3 GB (`read_thrift_vec`); e' nella deviazione OOM del manifesto di adozione e in `docs/PRODUCT.md`, il classificatore dello smoke lo riconosce come finding noto con una firma stretta, e la correzione e' pianificata per la 4.2.0 (#38).\n\n**Che cosa resta, intero.** La qualifica di questa candidate, nell'ordine della sezione 5-bis: Distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, soak completo senza finding su `dxf_reader` e `shp_reader`, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v4.1.1` su questa revisione. `campagna-fuzz-completa` resta rossa finche' una campagna su questa revisione non e' registrata: il verbale versionato e' di uno smoke precedente, che non dichiarava gli illeggibili. Le note di rilascio devono dichiarare che la 4.1.1 sostituisce la 4.1.0.",
+      "nota": "Candidate **attiva**, congelata su `e0270b5`: la revisione che porta la correzione dell'esaurimento di memoria del lettore DXF (#37) e la dichiarazione del caso GeoParquet come limite di `parquet` a monte (#39). Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\nLa candidate precedente, congelata su `7131843`, e' stata **ritirata**: la riqualifica dell'8 ottobre e' finita rossa al soak di `dxf_reader`, OOM dopo 568 s con `malloc(2147483648)` su 218 byte (un `DATATABLE` con `90` a -53, che il lettore del fork convertiva con `as usize` prima di prenotare la tabella). La correzione chiude la classe nel fork -- conteggi negativi e tabelle oltre 2^20 righe, colonne o celle si rifiutano, l'anteprima BMP ha un tetto esplicito -- e il seme e' in `fuzz/seeds/dxf_reader/`. Gli artefatti costruiti per `7131843` non valgono per questa revisione.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli e confine ASan (180153 contatori, `libgdal.so.32`) rimisurati su `e0270b5` e identici a quelli registrati: `dxf_reader` non e' fra i bersagli misurati, e nessun commit di misure si e' reso necessario.\n\n**Il caso GeoParquet e' dichiarato, non corretto.** Un footer con elenchi Thrift enormi fa prenotare a `parquet` 59.3 fino a circa 2,3 GB (`read_thrift_vec`); e' nella deviazione OOM del manifesto di adozione e in `docs/PRODUCT.md`, il classificatore dello smoke lo riconosce come finding noto con una firma stretta, e la correzione e' pianificata per la 4.2.0 (#38).\n\n**La qualifica tecnica e' registrata.** Livello 2 su `e0270b5`, 111 passi su 111, impronta invariata; replay e smoke su 15 bersagli senza finding, nessuno fermato a un finding noto, nessuno illeggibile; soak da un'ora completi e senza finding su `dxf_reader` e `shp_reader`, il criterio d'uscita che la 4.1.0 non aveva soddisfatto; i due casi OOM DXF escono con la busta sotto `ulimit -v`. Evidenza in `assurance/evidence/checkpoint-e0270b5.json`. I sei artefatti sono fissati dalla provenance della distribuzione candidate 37918160541.\n\n**Che cosa resta.** Nell'ordine della sezione 5-bis: draft release riscaricata e verificata contro gli artefatti fissati, attestazioni del profilo pubblico, autorizzazione, tag `v4.1.1` su questa revisione. Le note di rilascio devono dichiarare che la 4.1.1 sostituisce la 4.1.0.",
       "revisione_candidate": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+      "artefatti": [
+        {
+          "nome": "plenora-io-4.1.1-linux-x86_64-base.tar.gz",
+          "sha256": "46f14dde8d1e0a78c181ad4b34b54c3aceb1ae5fecd6085a9b42d8ddcc3a4796",
+          "dimensione": 8613822,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        },
+        {
+          "nome": "plenora-io-4.1.1-linux-x86_64-filegdb.tar.gz",
+          "sha256": "8ac24e180a4cbd9afdad46d4550849263a2db25ddf9eaffb7ac45422dd409e0c",
+          "dimensione": 64459880,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        },
+        {
+          "nome": "plenora_io-4.1.1-py3-none-any.whl",
+          "sha256": "933c87a3f33b4f5a65433c4c0d87de48c2859d0eca011bf6ad6f72b8e791f229",
+          "dimensione": 44915,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        },
+        {
+          "nome": "plenora_io-4.1.1.tar.gz",
+          "sha256": "18d2d666ec709d162cd814aa23d7a64a57e965592af3c6617254d0d84d5cd75e",
+          "dimensione": 68265,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        },
+        {
+          "nome": "plenora-io-4.1.1-windows-x86_64-base.zip",
+          "sha256": "5a0272daaf13da8592693690d9d708b076b5afece5e79b38242a0934c7d59a72",
+          "dimensione": 8763039,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        },
+        {
+          "nome": "plenora-io-4.1.1-windows-x86_64-filegdb.zip",
+          "sha256": "b6b8dd897b1df0edfaca9151924f5cfcfe301636e94323ad8ad46fea501ae15f",
+          "dimensione": 47821711,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+        }
+      ],
       "assurance_entro_l_allowlist": true
     }
   },

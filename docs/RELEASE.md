@@ -21,36 +21,36 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `1d1b8d2` |
-| revisione misurata | `1d1b8d2` |
+| ultima qualificata | `e0270b5` |
+| revisione misurata | `e0270b5` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 141 |
+| input di replay | 143 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,51% |
-| righe coperte LCOV | 24 789 |
-| righe strumentate LCOV | 28 656 |
-| copertura cargo | 84,06% |
+| copertura LCOV | 86,93% |
+| righe coperte LCOV | 25 127 |
+| righe strumentate LCOV | 28 904 |
+| copertura cargo | 84,53% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `6beb410` |
-| esito differenziale | 83.47% |
+| baseline differenziale | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| esito differenziale | 73.54% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `1d1b8d2` |
+| S9, qualificato su | `e0270b5` |
 | candidate, versione del manifesto | `4.1.1` |
 | candidate, stato | attiva |
 | candidate, revisione congelata | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
 | candidate, versione del workspace | `4.1.1` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v4.1.1` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
