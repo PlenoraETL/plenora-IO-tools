@@ -169,7 +169,9 @@ MARCATORE = re.compile(r"^==\d+==\s*ERROR:\s*\S")
 RIGA_DI_STACK = re.compile(
     r"^\s+#(?P<numero>\d+) 0x[0-9a-fA-F]+"
     r"(?: in (?P<funzione>.+?) (?P<dove>\S+(?: \(BuildId: [0-9a-fA-F]+\))?)"
-    r"| (?P<solo_modulo>\(\S+\+0x[0-9a-fA-F]+\)(?: \(BuildId: [0-9a-fA-F]+\))?))$"
+    # Un frame senza nome: il sanitizer lo stampa con due spazi davanti al
+    # modulo (`#51 0x7fd1...  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9)`).
+    r"| +(?P<solo_modulo>\(\S+\+0x[0-9a-fA-F]+\)(?: \(BuildId: [0-9a-fA-F]+\))?))$"
 )
 
 #: `<percorso assoluto>:<riga>[:<colonna>]`

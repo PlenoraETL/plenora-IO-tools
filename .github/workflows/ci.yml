@@ -426,8 +426,9 @@ jobs:
             -rss_limit_mb=2048 -runs=1 \
             -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
           esito_corsa=$?
-          # L'errore e i primi frame, cioe' cio' da cui si legge la firma.
-          grep -E 'ERROR: libFuzzer|^ *#[0-9]+ ' /tmp/riproduzione.txt | head -n 30
+          # L'errore e lo stack intero: il classificatore lo valida tutto, e
+          # una riga fuori forma si deve poter vedere qui.
+          grep -E 'ERROR: libFuzzer|^ *#[0-9]+ ' /tmp/riproduzione.txt
           # La provenienza, come la passa lo smoke: solo sotto questi prefissi
           # libFuzzer, la libreria standard e le crate si riconoscono.
           python3 scripts/classifica_finding_fuzz.py geoparquet_reader \
