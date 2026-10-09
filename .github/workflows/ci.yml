@@ -420,10 +420,21 @@ jobs:
       - name: The registered fuzz OOM still reproduces and is still recognised
         run: |
           set +e
-          ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"             cargo fuzz run geoparquet_reader             upstream/parquet-footer-thrift-list/caso.parquet --             -rss_limit_mb=2048 -runs=1             -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
+          ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)" \
+            cargo fuzz run geoparquet_reader \
+            upstream/parquet-footer-thrift-list/caso.parquet -- \
+            -rss_limit_mb=2048 -runs=1 \
+            -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
+          esito_corsa=$?
           # L'errore e i primi frame, cioe' cio' da cui si legge la firma.
           grep -E 'ERROR: libFuzzer|^ *#[0-9]+ ' /tmp/riproduzione.txt | head -n 30
-          python3 scripts/classifica_finding_fuzz.py geoparquet_reader             --uscita /tmp/riproduzione.txt
+          # La provenienza, come la passa lo smoke: solo sotto questi prefissi
+          # libFuzzer, la libreria standard e le crate si riconoscono.
+          python3 scripts/classifica_finding_fuzz.py geoparquet_reader \
+            --uscita /tmp/riproduzione.txt \
+            --codice-uscita "${esito_corsa}" \
+            --radice-registry "${CARGO_HOME:-${HOME}/.cargo}/registry/src" \
+            --rustc-commit "$(rustc -vV | sed -n 's/^commit-hash: //p')"
           codice=$?
           if [ "${codice}" -ne 3 ]; then
             echo "atteso 3 (finding noto), ottenuto ${codice}" >&2

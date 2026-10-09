@@ -90,6 +90,13 @@ if [ -n "${ASAN_SYMBOLIZER_PATH:-}" ]; then
 else
     echo "ATTENZIONE: nessun llvm-symbolizer: un esaurimento di memoria sara' illeggibile, cioe' rosso" >&2
 fi
+# La provenienza della corsa, per il classificatore: la radice reale del
+# registro di cargo e il commit della toolchain del fuzzing. Solo sotto questi
+# prefissi esatti libFuzzer e la libreria standard si riconoscono come runtime,
+# e una crate del registro si attribuisce alla versione del lockfile.
+radice_registry="${CARGO_HOME:-${HOME}/.cargo}/registry/src"
+rustc_commit="$(rustc +"${toolchain}" -vV | sed -n 's/^commit-hash: //p')"
+echo "registro: ${radice_registry}; rustc: ${rustc_commit}"
 rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
 max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
 
@@ -215,6 +222,10 @@ noti=()
 # `bersaglio=id` per ogni bersaglio fermato a un finding noto: l'arresto si
 # legge con la voce che l'ha riconosciuto, nel riepilogo e nel verbale.
 voci=()
+# Chi e' uscito senza un esito leggibile: un crash senza firma, o una corsa
+# terminata con 0 ma senza il riepilogo conclusivo di libFuzzer -- un'uscita
+# vuota non e' un bersaglio che ha finito.
+illeggibili=()
 skipped=0
 uscite=$(mktemp -d)
 trap 'rm -rf "${uscite}"' EXIT
@@ -241,6 +252,12 @@ for target in "${targets[@]}"; do
         "-print_final_stats=1" \
         "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}" || esito_corsa=$?
     if [ "${esito_corsa}" -eq 0 ]; then
+        conclusa=0
+        python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
+            --conclusa "${uscita}" || conclusa=$?
+        if [ "${conclusa}" -ne 0 ]; then
+            illeggibili+=("${target}")
+        fi
         continue
     fi
     voce_nota="${uscite}/${target}.voce"
@@ -248,6 +265,8 @@ for target in "${targets[@]}"; do
     python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
         --uscita "${uscita}" \
         --codice-uscita "${esito_corsa}" \
+        --radice-registry "${radice_registry}" \
+        --rustc-commit "${rustc_commit}" \
         --conserva "assurance/evidence/finding-fuzz" \
         --voce-nota "${voce_nota}" || codice=$?
     case "${codice}" in
@@ -255,6 +274,7 @@ for target in "${targets[@]}"; do
             noti+=("${target}")
             voci+=("${target}=$(cat "${voce_nota}")")
             ;;
+        4) illeggibili+=("${target}") ;;
         *) failed+=("${target}") ;;
     esac
 done
@@ -278,7 +298,7 @@ done
 finiti=()
 for target in "${targets[@]}"; do
     fermo=0
-    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"}; do
+    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"} ${illeggibili[@]+"${illeggibili[@]}"}; do
         [ "${gia}" = "${target}" ] && fermo=1
     done
     if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
@@ -297,10 +317,16 @@ python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
     --fermati ${noti[@]+"${noti[@]}"} \
     --voci ${voci[@]+"${voci[@]}"} \
     --falliti ${failed[@]+"${failed[@]}"} \
+    --illeggibili ${illeggibili[@]+"${illeggibili[@]}"} \
     --dichiarati ${dichiarati[@]+"${dichiarati[@]}"}
 
-if [ "${#failed[@]}" -ne 0 ]; then
-    echo "target con finding: ${failed[*]}" >&2
+if [ "${#failed[@]}" -ne 0 ] || [ "${#illeggibili[@]}" -ne 0 ]; then
+    if [ "${#failed[@]}" -ne 0 ]; then
+        echo "target con finding: ${failed[*]}" >&2
+    fi
+    if [ "${#illeggibili[@]}" -ne 0 ]; then
+        echo "target senza un esito leggibile: ${illeggibili[*]}" >&2
+    fi
     exit 1
 fi
 

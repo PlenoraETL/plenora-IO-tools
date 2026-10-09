@@ -23,9 +23,13 @@ riconoscerebbe uno per volta, e ogni variante sarebbe un rosso da triare a mano.
 
 La **famiglia**, cioe' il punto in cui il difetto si manifesta:
 
-* il modulo, col nome della crate spogliato della versione -- `parquet-59.3.0`
-  e `parquet-60.0.0` sono la stessa crate, e un finding aperto a monte non
-  smette di esserlo perche' il pin sale;
+* il modulo, come `crate/percorso` nel sorgente della crate -- e la crate
+  deve stare **nel registro di cargo della corsa**, alla versione che
+  `fuzz/Cargo.lock` fissa. Una copia locale di un sorgente, un registro che
+  non e' quello dichiarato dallo smoke, un'altra versione: non sono il finding
+  registrato. Con un aggiornamento della crate la voce smette di combaciare e
+  va rivalidata sulla versione nuova, invece di essere ereditata. Un crash nel
+  codice di questo repository non e' mai noto: si corregge, non si registra;
 * la **forma** del messaggio, con le cifre ridotte a `N` -- «the len is 2 but
   the index is 2» e «the len is 56 but the index is 56» sono lo stesso difetto
   su due ingressi.
@@ -122,6 +126,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -204,7 +209,9 @@ RUNTIME_SANITIZER = frozenset(
 FILE_DEL_SANITIZER = frozenset(
     {"sanitizer_common.cpp", "asan_allocator.cpp", "asan_malloc_linux.cpp"}
 )
-#: libFuzzer, dal sorgente vendorizzato in `libfuzzer-sys` nel registro di cargo.
+#: libFuzzer, dal sorgente vendorizzato in `libfuzzer-sys` nel registro di
+#: cargo. Il registro e' quello che lo smoke dichiara (`--radice-registry`),
+#: non un percorso che somiglia a un registro.
 RUNTIME_LIBFUZZER = frozenset(
     {
         "fuzzer::PrintStackTrace()",
@@ -212,11 +219,9 @@ RUNTIME_LIBFUZZER = frozenset(
         "fuzzer::MallocHook(void const volatile*, unsigned long)",
     }
 )
-PERCORSO_LIBFUZZER = re.compile(
-    r"^/(?:[^/]+/)*registry/src/[^/]+/libfuzzer-sys-\d+\.\d+\.\d+/libfuzzer/Fuzzer\w+\.cpp$"
-)
-#: La libreria standard che alloca: nome semplice esatto, percorso del
-#: sorgente della toolchain.
+#: La libreria standard che alloca: nome semplice esatto, e sorgente della
+#: toolchain del fuzzing, `/rustc/<commit>/library/...`, con il commit che lo
+#: smoke dichiara (`--rustc-commit`).
 RUNTIME_STD = frozenset(
     {
         "alloc",
@@ -230,7 +235,14 @@ RUNTIME_STD = frozenset(
         "with_capacity",
     }
 )
-PERCORSO_STD = re.compile(r"^/rustc/[0-9a-f]{40}/library/(?:alloc|core|std)/src/")
+
+#: Il lockfile con cui i bersagli del fuzz si costruiscono: le versioni delle
+#: crate che una firma d'esaurimento deve nominare.
+LOCK_DEL_FUZZ = ROOT / "fuzz" / "Cargo.lock"
+
+#: Il riepilogo con cui libFuzzer chiude una corsa che ha finito il tempo.
+CONCLUSIONE = re.compile(r"^Done \d+ runs in \d+ second\(s\)$")
+STATISTICHE = re.compile(r"^stat::number_of_executed_units: *\d+$")
 
 #: Segmenti che dicono «codice di questo repository»: un frame che li porta
 #: ferma sempre lo skip, qualunque nome abbia.
@@ -305,9 +317,71 @@ def funzione_normalizzata(nome: str) -> str:
     return senza_generici.rsplit("::", 1)[-1].strip()
 
 
-def _frame_del_runtime(funzione: str, dove: str) -> bool:
+def versioni_bloccate(lock: Path = LOCK_DEL_FUZZ) -> dict[str, frozenset[str]]:
+    """Le versioni di ogni crate nel lockfile; vuoto se il file non si legge.
+
+    Vuoto vuol dire che nessuna firma d'esaurimento puo' essere nota: senza
+    sapere quale versione il bersaglio ha compilato, una crate nel registro
+    non si attribuisce.
+    """
+    try:
+        documento = tomllib.loads(lock.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    versioni: dict[str, set[str]] = {}
+    for pacchetto in documento.get("package", []):
+        nome = pacchetto.get("name")
+        versione = pacchetto.get("version")
+        if isinstance(nome, str) and isinstance(versione, str):
+            versioni.setdefault(nome, set()).add(versione)
+    return {nome: frozenset(insieme) for nome, insieme in versioni.items()}
+
+
+class Contesto:
+    """Da dove viene la corsa: il registro di cargo e la toolchain.
+
+    Senza, nessun frame di libFuzzer o della libreria standard si salta, e
+    nessuna crate del registro si riconosce: la firma di un esaurimento non
+    puo' essere nota.
+    """
+
+    def __init__(
+        self,
+        radice_registry: str | None = None,
+        rustc_commit: str | None = None,
+        versioni: dict[str, frozenset[str]] | None = None,
+    ) -> None:
+        radice = (radice_registry or "").replace("\\", "/").rstrip("/")
+        self.radice_registry = radice if radice.startswith("/") else ""
+        commit = rustc_commit or ""
+        self.rustc_commit = commit if re.fullmatch(r"[0-9a-f]{40}", commit) else ""
+        self.versioni = versioni if versioni is not None else versioni_bloccate()
+
+    def crate_del_registry(self, percorso: str) -> tuple[str, str, str] | None:
+        """`(crate, versione, resto)` se il percorso sta **sotto** la radice
+        dichiarata del registro, in `<indice>/<crate>-<versione>/`."""
+        if not self.radice_registry:
+            return None
+        prefisso = self.radice_registry + "/"
+        if not percorso.startswith(prefisso):
+            return None
+        pezzi = percorso[len(prefisso) :].split("/")
+        if len(pezzi) < 3 or not pezzi[0] or ".." in pezzi:
+            return None
+        trovato = re.fullmatch(r"(?P<nome>[A-Za-z0-9_-]+?)-(?P<versione>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)", pezzi[1])
+        if trovato is None:
+            return None
+        return trovato.group("nome"), trovato.group("versione"), "/".join(pezzi[2:])
+
+    def bloccata(self, crate: str, versione: str) -> bool:
+        """La versione e' quella che il lockfile del fuzz fissa per la crate."""
+        return versione in self.versioni.get(crate, frozenset())
+
+
+def _frame_del_runtime(funzione: str, dove: str, contesto: Contesto) -> bool:
     """Il frame e' del runtime -- sanitizer, libFuzzer, allocatore, libreria
-    standard -- e si salta. Solo per nome **esatto** e luogo riconosciuto."""
+    standard -- e si salta. Solo per nome **esatto** e luogo riconosciuto, e
+    per libFuzzer e la libreria standard solo sotto i prefissi dichiarati."""
     if any(segmento in dove for segmento in SEGMENTI_DEL_REPOSITORY):
         return False
     if SENZA_FILE.match(dove):
@@ -318,21 +392,49 @@ def _frame_del_runtime(funzione: str, dove: str) -> bool:
     if con_file is None:
         return False
     percorso = con_file.group("percorso")
-    if PERCORSO_LIBFUZZER.match(percorso):
-        return funzione in RUNTIME_LIBFUZZER
-    if PERCORSO_STD.match(percorso):
+    crate = contesto.crate_del_registry(percorso)
+    if crate is not None:
+        nome, versione, resto = crate
+        return (
+            nome == "libfuzzer-sys"
+            and contesto.bloccata(nome, versione)
+            and re.fullmatch(r"libfuzzer/Fuzzer\w+\.cpp", resto) is not None
+            and funzione in RUNTIME_LIBFUZZER
+        )
+    if contesto.rustc_commit and re.match(
+        rf"^/rustc/{contesto.rustc_commit}/library/(?:alloc|core|std)/src/", percorso
+    ):
         return funzione_normalizzata(funzione) in RUNTIME_STD
     return False
 
 
-def _esaurimento_osservato(righe: list[str], indice: int, artefatto: str) -> dict[str, str]:
+def conclusione_regolare(testo: str) -> bool:
+    """La corsa ha finito il proprio tempo: c'e' **un** riepilogo conclusivo
+    di libFuzzer e **una** riga di statistiche. Un'uscita vuota, troncata o
+    doppia non e' una corsa finita, anche con il codice 0."""
+    righe = [riga.rstrip("\r") for riga in testo.splitlines()]
+    return (
+        sum(1 for riga in righe if CONCLUSIONE.match(riga)) == 1
+        and sum(1 for riga in righe if STATISTICHE.match(riga)) == 1
+    )
+
+
+def _esaurimento_osservato(
+    righe: list[str], indice: int, artefatto: str, contesto: Contesto
+) -> dict[str, str]:
     """La firma dell'esaurimento la cui intestazione sta a `righe[indice]`.
 
     Lo stack si legge dal primo `#0` dopo l'intestazione fino alla prima riga
-    vuota, a `SUMMARY:` o a un altro marcatore d'errore. Dentro lo stack ogni
-    riga deve essere una riga di stack; i frame del runtime si saltano, e il
-    primo che non lo e' da' la firma -- purche' abbia un file. Ogni deviazione
-    da questa forma da' `illeggibile`.
+    vuota, a `SUMMARY:` o a un altro marcatore d'errore, e si valida **tutto**
+    prima di sceglierne un frame: ogni riga deve essere una riga di stack, con i
+    numeri consecutivi. Poi i frame del runtime si saltano, e il primo che non
+    lo e' da' la firma -- purche' abbia un file. Ogni deviazione da questa
+    forma da' `illeggibile`.
+
+    Il modulo della firma porta la crate **e** la versione, e la firma vale
+    solo per una crate del registro dichiarato alla versione che il lockfile
+    del fuzz fissa. Una copia locale di un sorgente, o un'altra versione, non
+    sono il finding registrato.
     """
     illeggibile = {"stato": "illeggibile", "artefatto": artefatto}
     messaggio = ESAURIMENTO.match(righe[indice])
@@ -348,32 +450,40 @@ def _esaurimento_osservato(righe: list[str], indice: int, artefatto: str) -> dic
             break
     if inizio is None:
         return illeggibile
-    atteso = 0
+
+    frame: list[re.Match[str]] = []
     for riga in righe[inizio:]:
         if not riga.strip() or riga.startswith("SUMMARY:") or MARCATORE.match(riga):
             break
-        frame = RIGA_DI_STACK.match(riga)
-        if frame is None or int(frame.group("numero")) != atteso:
+        letto = RIGA_DI_STACK.match(riga)
+        if letto is None or int(letto.group("numero")) != len(frame):
             return illeggibile
-        atteso += 1
-        funzione = frame.group("funzione")
+        frame.append(letto)
+
+    for letto in frame:
+        funzione = letto.group("funzione")
         if funzione is None:
             # Il solo modulo, senza nome: nessuna funzione da firmare, e non
             # e' un frame del runtime riconosciuto.
             return illeggibile
-        dove = frame.group("dove")
-        if _frame_del_runtime(funzione, dove):
+        dove = letto.group("dove")
+        if _frame_del_runtime(funzione, dove, contesto):
             continue
         con_file = CON_FILE.match(dove)
         if con_file is None:
             # Il primo frame utile senza file: firmare con il chiamante
             # vorrebbe dire firmare un altro punto.
             return illeggibile
+        modulo, versione, bloccata = _identita_del_modulo(
+            con_file.group("percorso"), contesto
+        )
         testo_messaggio = messaggio.group("messaggio")
         return {
             "stato": "letto",
             "tipo": "esaurimento-memoria",
-            "modulo": modulo_normalizzato(con_file.group("percorso")),
+            "modulo": modulo,
+            "versione": versione,
+            "crate_fissata": "si" if bloccata else "no",
             "funzione": funzione_normalizzata(funzione),
             "riga": con_file.group("riga"),
             "messaggio": testo_messaggio,
@@ -383,8 +493,25 @@ def _esaurimento_osservato(righe: list[str], indice: int, artefatto: str) -> dic
     return illeggibile
 
 
-def _panico_osservato(testo: str, artefatto: str) -> dict[str, str] | None:
-    """Il primo panico nel testo, ridotto a firma; `None` se non ce n'e'."""
+def _identita_del_modulo(percorso: str, contesto: Contesto) -> tuple[str, str, bool]:
+    """`(modulo, versione, crate_fissata)` di un file.
+
+    Dentro il registro dichiarato: `crate/resto`, la versione dal percorso, e
+    se e' quella che il lockfile del fuzz fissa. Fuori -- codice nostro, una
+    copia locale di un sorgente --: il modulo leggibile per il referto, nessuna
+    versione, mai fissata.
+    """
+    crate = contesto.crate_del_registry(percorso.replace("\\", "/"))
+    if crate is None:
+        return modulo_normalizzato(percorso), "", False
+    nome, versione, resto = crate
+    return f"{nome}/{resto}", versione, contesto.bloccata(nome, versione)
+
+
+def _panico_osservato(
+    testo: str, artefatto: str, contesto: Contesto
+) -> dict[str, str] | None:
+    """Il panico nel testo, ridotto a firma; `None` se non ce n'e'."""
     trovato = PANICO.search(testo)
     if trovato is None:
         return None
@@ -394,10 +521,13 @@ def _panico_osservato(testo: str, artefatto: str) -> dict[str, str] | None:
     coda = testo[trovato.end() :]
     a_capo = coda.find("\n")
     prima_riga = "" if a_capo == -1 else coda[a_capo + 1 :].split("\n", 1)[0]
+    modulo, versione, fissata = _identita_del_modulo(trovato.group(1), contesto)
     return {
         "stato": "letto",
         "tipo": "panico",
-        "modulo": modulo_normalizzato(trovato.group(1)),
+        "modulo": modulo,
+        "versione": versione,
+        "crate_fissata": "si" if fissata else "no",
         "funzione": "",
         "riga": trovato.group(2),
         "messaggio": prima_riga.strip(),
@@ -406,7 +536,9 @@ def _panico_osservato(testo: str, artefatto: str) -> dict[str, str] | None:
     }
 
 
-def osserva(testo: str, codice_uscita: int | None = None) -> dict[str, str]:
+def osserva(
+    testo: str, codice_uscita: int | None = None, contesto: Contesto | None = None
+) -> dict[str, str]:
     """Che cosa dice l'uscita di una corsa: `senza-crash`, `illeggibile`,
     `altro` (un errore che nessuna firma descrive) o `letto` con la firma.
 
@@ -420,17 +552,24 @@ def osserva(testo: str, codice_uscita: int | None = None) -> dict[str, str]:
       l'esaurimento sull'RSS): `altro`, cioe' nuovo;
     * l'esaurimento e un altro marcatore qualsiasi: `altro` -- due errori nello
       stesso log non sono il finding registrato;
-    * il segnale mortale senza un panico leggibile: illeggibile.
+    * il segnale mortale senza un panico leggibile: illeggibile;
+    * due segnali mortali, o due panici: `altro` -- due crash nello stesso log
+      non sono il finding registrato, anche se il primo lo e';
+    * un panico senza il segnale mortale che lo chiude: illeggibile.
     """
+    contesto = contesto if contesto is not None else Contesto()
     righe = [riga.rstrip("\r") for riga in testo.splitlines()]
-    trovato = ARTEFATTO.search(testo)
-    artefatto = trovato.group(1) if trovato else ""
+    # L'artefatto si prende solo se la corsa ne nomina **uno**: con due,
+    # conservare il primo vorrebbe dire attribuire il referto a un input che
+    # forse non e' quello del crash.
+    artefatti = ARTEFATTO.findall(testo)
+    artefatto = artefatti[0] if len(artefatti) == 1 else ""
     marcatori = [indice for indice, riga in enumerate(righe) if MARCATORE.match(riga)]
     esaurimenti = [i for i in marcatori if ESAURIMENTO.match(righe[i])]
     mortali = [i for i in marcatori if SEGNALE_MORTALE.match(righe[i])]
     altri = [i for i in marcatori if i not in esaurimenti and i not in mortali]
 
-    if altri or (esaurimenti and (mortali or len(esaurimenti) > 1)):
+    if altri or len(mortali) > 1 or (esaurimenti and (mortali or len(esaurimenti) > 1)):
         riga = righe[altri[0]] if altri else righe[marcatori[0]]
         messaggio = re.sub(r"^==\d+==\s*", "", riga).strip()
         return {
@@ -444,9 +583,26 @@ def osserva(testo: str, codice_uscita: int | None = None) -> dict[str, str]:
             "artefatto": artefatto,
         }
     if esaurimenti:
-        return _esaurimento_osservato(righe, esaurimenti[0], artefatto)
-    panico = _panico_osservato(testo, artefatto)
+        return _esaurimento_osservato(righe, esaurimenti[0], artefatto, contesto)
+    panici = len(PANICO.findall(testo))
+    if panici > 1:
+        # Due panici nello stesso log non sono il finding registrato.
+        return {
+            "stato": "letto",
+            "tipo": "altro",
+            "modulo": "",
+            "funzione": "",
+            "riga": "",
+            "messaggio": "piu' di un panico nella stessa corsa",
+            "forma_del_messaggio": "piu' di un panico nella stessa corsa",
+            "artefatto": artefatto,
+        }
+    panico = _panico_osservato(testo, artefatto, contesto)
     if panico is not None:
+        # Un panico sotto libFuzzer finisce con **un** segnale mortale: senza,
+        # il testo non e' l'uscita di una corsa che e' morta di quel panico.
+        if len(mortali) != 1:
+            return {"stato": "illeggibile", "artefatto": artefatto}
         return panico
     if mortali or (codice_uscita is not None and codice_uscita != 0):
         return {"stato": "illeggibile", "artefatto": artefatto}
@@ -493,11 +649,15 @@ def registro_ben_formato(documento: Any) -> list[str]:
 
 
 def classifica(
-    bersaglio: str, testo: str, documento: Any, codice_uscita: int | None = None
+    bersaglio: str,
+    testo: str,
+    documento: Any,
+    codice_uscita: int | None = None,
+    contesto: Contesto | None = None,
 ) -> dict[str, Any]:
     """`stato` fra `senza-crash`, `illeggibile`, `noto` e `nuovo`, con cio' che
     lo sostiene."""
-    osservato = osserva(testo, codice_uscita)
+    osservato = osserva(testo, codice_uscita, contesto)
     if osservato["stato"] == "senza-crash":
         return {"stato": "senza-crash"}
     if osservato["stato"] == "illeggibile":
@@ -515,6 +675,13 @@ def classifica(
             and voce["modulo"] == osservato["modulo"]
             and voce.get("funzione", "") == osservato["funzione"]
             and voce["forma_del_messaggio"] == osservato["forma_del_messaggio"]
+            # Un crash e' noto solo in una crate del registro dichiarato, alla
+            # versione che il lockfile del fuzz fissa. Una copia locale, un
+            # registro che non e' quello della corsa, un'altra versione: no. Con
+            # un aggiornamento della crate la voce smette di combaciare e va
+            # rivalidata, ed e' voluto. Un crash nel codice di questo
+            # repository non e' mai noto: si corregge, non si registra.
+            and osservato.get("crate_fissata") == "si"
         ):
             return {"stato": "noto", "id": voce["id"], "osservato": osservato}
     return {"stato": "nuovo", "osservato": osservato}
@@ -585,6 +752,8 @@ def conserva(
         "firma_osservata": {
             "tipo": osservato.get("tipo", ""),
             "funzione": osservato.get("funzione", ""),
+            "versione": osservato.get("versione", ""),
+            "crate_fissata": osservato.get("crate_fissata", ""),
             "modulo": osservato.get("modulo", ""),
             "riga": osservato.get("riga", ""),
             "messaggio": osservato.get("messaggio", ""),
@@ -683,6 +852,23 @@ def verifica_campagna(
     fermati = documento.get("fermati_a_finding_noto")
     if not isinstance(fermati, list):
         return [f"{percorso.name}: non dichiara quali bersagli si siano fermati"]
+    illeggibili = documento.get("illeggibili")
+    if not isinstance(illeggibili, list):
+        # Uno smoke che non scrive gli illeggibili contava fra i finiti anche
+        # un bersaglio uscito con 0 senza aver girato: il suo «hanno finito»
+        # non distingue una corsa vera da un'uscita vuota.
+        return [
+            f"{percorso.name}: non dichiara gli illeggibili. E' il verbale di uno "
+            "smoke che contava finito ogni bersaglio uscito con 0, anche senza "
+            "il riepilogo conclusivo di libFuzzer: va rifatta la campagna."
+        ]
+    if illeggibili:
+        return [
+            "la campagna non e' completa: "
+            f"{', '.join(sorted(illeggibili))} non hanno un esito leggibile "
+            "(un crash senza firma, o una corsa uscita senza il riepilogo "
+            "conclusivo di libFuzzer)"
+        ]
     falliti = documento.get("falliti_su_finding_nuovo") or []
     if falliti:
         return [
@@ -768,6 +954,7 @@ def scrivi_verbale(
     falliti: list[str],
     dichiarati: list[str],
     voci: dict[str, str] | None = None,
+    illeggibili: list[str] | None = None,
 ) -> None:
     """Il verbale della corsa: su che cosa ha girato, e com'e' finita.
 
@@ -813,6 +1000,10 @@ def scrivi_verbale(
                 # numero di bersagli fermati.
                 "voci_dei_fermati": dict(sorted((voci or {}).items())),
                 "falliti_su_finding_nuovo": sorted(falliti),
+                # Chi e' uscito senza un esito leggibile: un crash senza
+                # firma, o una corsa senza il riepilogo conclusivo. Non ha
+                # finito, e non e' un finding noto.
+                "illeggibili": sorted(illeggibili or []),
             },
             indent=2,
             ensure_ascii=False,
@@ -861,6 +1052,31 @@ def main(argv: list[str] | None = None) -> int:
         nargs="*",
         default=[],
         help="per ogni fermato, `bersaglio=id` della voce che l'ha fermato",
+    )
+    argomenti.add_argument(
+        "--radice-registry",
+        help=(
+            "la radice del registro di cargo della corsa, `$CARGO_HOME/registry/src`: "
+            "solo li' libFuzzer e le crate si riconoscono"
+        ),
+    )
+    argomenti.add_argument(
+        "--rustc-commit",
+        help="il commit della toolchain del fuzzing (`rustc -vV`, commit-hash)",
+    )
+    argomenti.add_argument(
+        "--conclusa",
+        type=Path,
+        help=(
+            "l'uscita di una corsa terminata con 0: esce 0 se porta un solo "
+            "riepilogo conclusivo di libFuzzer, 4 altrimenti"
+        ),
+    )
+    argomenti.add_argument(
+        "--illeggibili",
+        nargs="*",
+        default=[],
+        help="i bersagli usciti senza un esito leggibile",
     )
     argomenti.add_argument(
         "--codice-uscita",
@@ -921,8 +1137,23 @@ def main(argv: list[str] | None = None) -> int:
             opzioni.falliti,
             opzioni.dichiarati,
             voci,
+            opzioni.illeggibili,
         )
         return 0
+
+    if opzioni.conclusa is not None:
+        try:
+            testo = opzioni.conclusa.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            testo = ""
+        if conclusione_regolare(testo):
+            return 0
+        print(
+            f"{opzioni.conclusa}: la corsa e' uscita con 0 ma senza un solo "
+            "riepilogo conclusivo di libFuzzer: non ha finito, e' illeggibile",
+            file=sys.stderr,
+        )
+        return 4
 
     if opzioni.verifica_campagna is not None:
         motivi = verifica_campagna(
@@ -956,12 +1187,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{opzioni.uscita}: uscita della corsa assente", file=sys.stderr)
         return 2
     testo = opzioni.uscita.read_text(encoding="utf-8", errors="replace")
-    esito = classifica(opzioni.bersaglio, testo, documento, opzioni.codice_uscita)
+    contesto = Contesto(opzioni.radice_registry, opzioni.rustc_commit)
+    esito = classifica(
+        opzioni.bersaglio, testo, documento, opzioni.codice_uscita, contesto
+    )
 
-    # I tre stati hanno tre codici d'uscita, perche' chi chiama deve poterli
+    # Gli stati hanno codici d'uscita distinti, perche' chi chiama deve poterli
     # distinguere senza rileggere il testo: 0 nessun crash, 3 crash noto,
-    # 1 crash nuovo. Un noto non e' un successo, ed e' il motivo per cui non
-    # esce 0.
+    # 1 crash nuovo, 4 illeggibile. Un noto non e' un successo, ed e' il motivo
+    # per cui non esce 0.
     if esito["stato"] == "senza-crash":
         print(f"{opzioni.bersaglio}: nessun crash nell'uscita")
         return 0
@@ -976,7 +1210,7 @@ def main(argv: list[str] | None = None) -> int:
             "senza marcatori). Non e' un finding noto.",
             file=sys.stderr,
         )
-        return 1
+        return 4
     voce = (
         next(v for v in documento["finding"] if v["id"] == esito["id"])
         if esito["stato"] == "noto"

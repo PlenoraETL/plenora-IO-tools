@@ -26,10 +26,18 @@ from scripts import classifica_finding_fuzz as gate
 #: L'uscita vera della corsa che ha trovato il finding, ridotta all'essenziale.
 CRASH = """==12345== ERROR: libFuzzer: deadly signal
 thread '<unnamed>' panicked at \
-/root/.cargo/registry/src/index.crates.io-1949cf8c/parquet-59.3.0/src/encodings/decoding/byte_stream_split_decoder.rs:61:38:
+/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/encodings/decoding/byte_stream_split_decoder.rs:61:38:
 index out of bounds: the len is 2 but the index is 2
 note: run with `RUST_BACKTRACE=1`
 """.replace("\\\n", "")
+
+
+#: La provenienza della corsa vera: la radice del registro di cargo e il
+#: commit della toolchain del fuzzing. Lo smoke li passa al classificatore.
+RADICE = "/home/runner/.cargo/registry/src"
+COMMIT = "87e5904f5eb6398af6b22eac2802c78934260c48"
+CONTESTO = gate.Contesto(RADICE, COMMIT)
+PROVENIENZA = ["--radice-registry", RADICE, "--rustc-commit", COMMIT]
 
 
 def registro() -> dict:
@@ -38,7 +46,7 @@ def registro() -> dict:
 
 class SondeDellaFirma(unittest.TestCase):
     def test_il_crash_registrato_e_riconosciuto(self) -> None:
-        esito = gate.classifica("geoparquet_reader", CRASH, registro())
+        esito = gate.classifica("geoparquet_reader", CRASH, registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "noto")
         self.assertEqual(esito["id"], "arrow-rs-byte-stream-split-oob")
 
@@ -47,14 +55,34 @@ class SondeDellaFirma(unittest.TestCase):
         # ingressi: e' il motivo per cui la firma riduce le cifre a `N`.
         altro = CRASH.replace("the len is 2 but the index is 2", "the len is 56 but the index is 56")
         self.assertEqual(
-            gate.classifica("geoparquet_reader", altro, registro())["stato"], "noto"
+            gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)["stato"], "noto"
         )
 
-    def test_un_altra_versione_della_crate_e_riconosciuta(self) -> None:
-        # Un difetto aperto a monte non smette di esserlo quando il pin sale.
+    def test_un_altra_versione_della_crate_non_e_riconosciuta(self) -> None:
+        # La firma vale per la versione che il lockfile del fuzz fissa: con un
+        # aggiornamento della crate la voce va rivalidata, non ereditata.
         altro = CRASH.replace("parquet-59.3.0", "parquet-60.0.0")
         self.assertEqual(
-            gate.classifica("geoparquet_reader", altro, registro())["stato"], "noto"
+            gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)["stato"], "nuovo"
+        )
+
+    def test_senza_provenienza_un_panico_non_e_noto(self) -> None:
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", CRASH, registro())["stato"], "nuovo"
+        )
+
+    def test_un_panico_senza_segnale_mortale_e_illeggibile(self) -> None:
+        senza = CRASH.split("\n", 1)[1]
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", senza, registro(), contesto=CONTESTO)["stato"],
+            "illeggibile",
+        )
+
+    def test_due_panici_sono_nuovi(self) -> None:
+        doppio = CRASH + CRASH.split("\n", 1)[1]
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", doppio, registro(), contesto=CONTESTO)["stato"],
+            "nuovo",
         )
 
     def test_la_firma_dice_compatibile_e_non_identico(self) -> None:
@@ -70,7 +98,7 @@ class SondeDellaFirma(unittest.TestCase):
             percorso.write_text(CRASH, encoding="utf-8")
             catturato = io.StringIO()
             with contextlib.redirect_stdout(catturato):
-                gate.main(["geoparquet_reader", "--uscita", str(percorso)])
+                gate.main(["geoparquet_reader", "--uscita", str(percorso), *PROVENIENZA])
         detto = catturato.getvalue()
         self.assertIn("COMPATIBILE", detto)
         self.assertIn("non dimostra la stessa causa", detto)
@@ -81,7 +109,7 @@ class SondeDellaFirma(unittest.TestCase):
             "attempt to subtract with overflow",
         )
         self.assertEqual(
-            gate.classifica("geoparquet_reader", altro, registro())["stato"], "nuovo"
+            gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)["stato"], "nuovo"
         )
 
     def test_lo_stesso_messaggio_in_un_altro_modulo_e_nuovo(self) -> None:
@@ -89,7 +117,7 @@ class SondeDellaFirma(unittest.TestCase):
             "byte_stream_split_decoder.rs", "delta_byte_array_decoder.rs"
         )
         self.assertEqual(
-            gate.classifica("geoparquet_reader", altro, registro())["stato"], "nuovo"
+            gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)["stato"], "nuovo"
         )
 
     def test_lo_stesso_crash_su_un_altro_bersaglio_e_nuovo(self) -> None:
@@ -153,7 +181,7 @@ class SondeDeiCodiciDUscita(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
                 io.StringIO()
             ):
-                return gate.main([bersaglio, "--uscita", str(percorso)])
+                return gate.main([bersaglio, "--uscita", str(percorso), *PROVENIENZA])
 
     def test_senza_crash_esce_zero(self) -> None:
         self.assertEqual(self._esegui("geoparquet_reader", "tutto bene\n"), 0)
@@ -173,7 +201,7 @@ class SondeDeiCodiciDUscita(unittest.TestCase):
             percorso.write_text(CRASH, encoding="utf-8")
             catturato = io.StringIO()
             with contextlib.redirect_stdout(catturato):
-                gate.main(["geoparquet_reader", "--uscita", str(percorso)])
+                gate.main(["geoparquet_reader", "--uscita", str(percorso), *PROVENIENZA])
         self.assertIn("si e\' fermato", catturato.getvalue())
         self.assertIn("non e\' stato esplorato", catturato.getvalue())
 
@@ -224,6 +252,7 @@ class SondeDellaConservazione(unittest.TestCase):
                     str(uscita),
                     "--conserva",
                     str(conserva),
+                    *PROVENIENZA,
                 ]
             )
         return codice, conserva / "geoparquet_reader"
@@ -292,6 +321,7 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
             "hanno_finito": ["shp_reader"],
             "fermati_a_finding_noto": [],
             "falliti_su_finding_nuovo": [],
+            "illeggibili": [],
         }
         documento.update(campi)
         with tempfile.TemporaryDirectory() as temporanea:
@@ -323,6 +353,16 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
             percorso = pathlib.Path(temporanea) / "non-c-e.json"
             motivi = gate.verifica_campagna(percorso)
         self.assertTrue(any("assente" in m for m in motivi), motivi)
+
+    def test_un_verbale_senza_illeggibili_e_rosso(self) -> None:
+        """Uno smoke che non scriveva gli illeggibili contava finito anche un
+        bersaglio uscito con 0 senza aver girato: il suo verbale non qualifica."""
+        motivi = self._verbale(illeggibili=None)
+        self.assertTrue(motivi)
+
+    def test_un_bersaglio_illeggibile_non_e_una_campagna_completa(self) -> None:
+        motivi = self._verbale(illeggibili=["shp_reader"])
+        self.assertTrue(motivi)
 
     def test_un_verbale_muto_sulle_fermate_e_rosso(self) -> None:
         motivi = self._verbale(fermati_a_finding_noto=None)
@@ -419,7 +459,7 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
         self.assertIn("--conserva", smoke)
         # I falliti escono dai «finiti»: contarli fra i completi renderebbe il
         # verbale piu' generoso della corsa.
-        self.assertIn('${failed[@]+"${failed[@]}"}; do', smoke)
+        self.assertIn('${failed[@]+"${failed[@]}"} ${illeggibili[@]+"${illeggibili[@]}"}; do', smoke)
 
 
 class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
@@ -504,6 +544,7 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
             "hanno_finito": ["shp_reader"],
             "fermati_a_finding_noto": [],
             "falliti_su_finding_nuovo": [],
+            "illeggibili": [],
         }
 
     def test_il_verbale_della_corsa_passa(self) -> None:
@@ -584,10 +625,10 @@ class SondeDellEsaurimento(unittest.TestCase):
     l'uscita non ha la forma attesa."""
 
     def _stato(self, testo: str, bersaglio: str = "geoparquet_reader") -> str:
-        return gate.classifica(bersaglio, testo, registro())["stato"]
+        return gate.classifica(bersaglio, testo, registro(), contesto=CONTESTO)["stato"]
 
     def test_l_esaurimento_registrato_e_riconosciuto(self) -> None:
-        esito = gate.classifica("geoparquet_reader", ESAURIMENTO, registro())
+        esito = gate.classifica("geoparquet_reader", ESAURIMENTO, registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "noto")
         self.assertEqual(esito["id"], "parquet-footer-lista-thrift-oom")
         self.assertEqual(esito["osservato"]["tipo"], "esaurimento-memoria")
@@ -630,7 +671,7 @@ class SondeDellEsaurimento(unittest.TestCase):
                 riga = f"    #{numero} {resto}"
                 numero += 1
             rinumerate.append(riga)
-        esito = gate.classifica("geoparquet_reader", "\n".join(rinumerate), registro())
+        esito = gate.classifica("geoparquet_reader", "\n".join(rinumerate), registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "nuovo")
         self.assertEqual(esito["osservato"]["funzione"], "parquet_metadata_from_bytes")
 
@@ -639,6 +680,7 @@ class SondeDellEsaurimento(unittest.TestCase):
 
     def test_un_panico_nello_stesso_punto_non_e_l_esaurimento(self) -> None:
         panico = (
+            "==1== ERROR: libFuzzer: deadly signal\n"
             "thread '<unnamed>' panicked at /home/runner/.cargo/registry/src/"
             "index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19:\n"
             "out-of-memory (malloc(2315255472))\n"
@@ -658,7 +700,7 @@ class SondeDellEsaurimento(unittest.TestCase):
             "    #19 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
         )
         altro = _rinumera(altro)
-        esito = gate.classifica("geoparquet_reader", altro, registro())
+        esito = gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "nuovo")
         self.assertEqual(esito["osservato"]["funzione"], "malloc_buffer")
 
@@ -671,7 +713,7 @@ class SondeDellEsaurimento(unittest.TestCase):
             "/home/compiler-rt/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:10:5\n"
             "    #19 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
         )
-        esito = gate.classifica("geoparquet_reader", _rinumera(altro), registro())
+        esito = gate.classifica("geoparquet_reader", _rinumera(altro), registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "nuovo")
         self.assertEqual(esito["osservato"]["funzione"], "alloca_qui")
 
@@ -751,7 +793,7 @@ class SondeDellEsaurimento(unittest.TestCase):
             "senza-crash",
         )
 
-    def test_illeggibile_esce_uno(self) -> None:
+    def test_illeggibile_esce_quattro(self) -> None:
         crudo = ESAURIMENTO.split("    #0", 1)[0]
         with tempfile.TemporaryDirectory() as temporanea:
             percorso = pathlib.Path(temporanea) / "uscita.txt"
@@ -760,7 +802,7 @@ class SondeDellEsaurimento(unittest.TestCase):
                 io.StringIO()
             ):
                 self.assertEqual(
-                    gate.main(["geoparquet_reader", "--uscita", str(percorso)]), 1
+                    gate.main(["geoparquet_reader", "--uscita", str(percorso)]), 4
                 )
 
     def test_il_noto_scrive_l_id_della_voce(self) -> None:
@@ -777,6 +819,7 @@ class SondeDellEsaurimento(unittest.TestCase):
                         str(uscita),
                         "--voce-nota",
                         str(voce),
+                        *PROVENIENZA,
                     ]
                 )
             self.assertEqual(codice, 3)
@@ -784,6 +827,86 @@ class SondeDellEsaurimento(unittest.TestCase):
                 voce.read_text(encoding="utf-8").strip(),
                 "parquet-footer-lista-thrift-oom",
             )
+
+    # --- il terzo giro della revisione --------------------------------------
+
+    def test_una_coda_malformata_dopo_il_frame_utile_e_illeggibile(self) -> None:
+        """Lo stack si valida tutto prima di sceglierne un frame: una riga fuori
+        forma dopo il primo utile non si ignora."""
+        altro = ESAURIMENTO.replace(_frame(25), _frame(25).replace("#25 ", "#25"))
+        self.assertEqual(self._stato(altro), "illeggibile")
+        buco = ESAURIMENTO.replace(_frame(25) + "\n", "")
+        self.assertEqual(self._stato(buco), "illeggibile")
+
+    def test_due_segnali_mortali_con_un_panico_noto_sono_nuovi(self) -> None:
+        doppio = (
+            "==12345== ERROR: libFuzzer: deadly signal\n"
+            + CRASH.split("\n", 1)[1]
+            + "==12345== ERROR: libFuzzer: deadly signal\n"
+        )
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", CRASH, registro(), contesto=CONTESTO)["stato"],
+            "noto",
+        )
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", doppio, registro(), contesto=CONTESTO)["stato"],
+            "nuovo",
+        )
+
+    def test_parquet_di_un_altra_versione_non_e_noto(self) -> None:
+        """La firma porta la versione dal percorso del registro, confrontata con
+        il pin del lockfile del fuzz: con un bump la voce va rivalidata."""
+        altro = ESAURIMENTO.replace("parquet-59.3.0", "parquet-60.0.0")
+        esito = gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)
+        self.assertEqual(esito["stato"], "nuovo")
+        self.assertEqual(esito["osservato"]["versione"], "60.0.0")
+
+    def test_una_copia_locale_di_parquet_non_e_mai_nota(self) -> None:
+        """Un sorgente fuori dal registro -- una copia nel checkout -- ha lo
+        stesso modulo relativo, ma non e' la crate fissata."""
+        altro = ESAURIMENTO.replace(
+            "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/"
+            "parquet-59.3.0/src/parquet_thrift.rs",
+            f"/home/runner/work/{gate.ROOT.name}/{gate.ROOT.name}/parquet/src/parquet_thrift.rs",
+        )
+        esito = gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)
+        self.assertEqual(esito["stato"], "nuovo")
+        self.assertEqual(esito["osservato"]["modulo"], "parquet/src/parquet_thrift.rs")
+
+    def test_un_registro_falso_non_e_il_registro(self) -> None:
+        """Un percorso che somiglia a un registro, fuori dalla radice dichiarata,
+        non fa saltare libFuzzer ne' attribuisce parquet."""
+        falso = gate.Contesto("/home/altro/.cargo/registry/src", COMMIT)
+        self.assertEqual(
+            gate.classifica("geoparquet_reader", ESAURIMENTO, registro(), contesto=falso)[
+                "stato"
+            ],
+            "nuovo",
+        )
+
+    def test_un_altro_commit_di_rustc_non_e_la_libreria_standard(self) -> None:
+        diverso = gate.Contesto(RADICE, "0" * 40)
+        esito = gate.classifica("geoparquet_reader", ESAURIMENTO, registro(), contesto=diverso)
+        self.assertEqual(esito["stato"], "nuovo")
+        self.assertEqual(esito["osservato"]["funzione"], "alloc")
+
+    def test_senza_provenienza_niente_e_noto(self) -> None:
+        """Senza radice del registro e commit, nessun frame di libFuzzer o della
+        libreria standard si salta: la firma e' il primo frame di libFuzzer."""
+        esito = gate.classifica("geoparquet_reader", ESAURIMENTO, registro())
+        self.assertEqual(esito["stato"], "nuovo")
+        self.assertEqual(esito["osservato"]["funzione"], "PrintStackTrace()")
+
+    def test_un_uscita_vuota_con_zero_non_e_una_corsa_finita(self) -> None:
+        conclusa = (
+            "#100 DONE cov: 1 ft: 1 corp: 1/1b\n"
+            "Done 100 runs in 60 second(s)\n"
+            "stat::number_of_executed_units: 100\n"
+        )
+        self.assertTrue(gate.conclusione_regolare(conclusa))
+        self.assertFalse(gate.conclusione_regolare(""))
+        self.assertFalse(gate.conclusione_regolare("Done 100 runs in 60 second(s)\n"))
+        self.assertFalse(gate.conclusione_regolare(conclusa + conclusa))
 
     def test_una_voce_di_esaurimento_senza_funzione_e_rossa(self) -> None:
         documento = registro()
@@ -877,8 +1000,9 @@ def _bash() -> str | None:
 
 
 #: Un `cargo` finto: `fuzz list` dichiara due bersagli, `fuzz build` riesce,
-#: `fuzz run` stampa l'uscita registrata ed esce 1 per `geoparquet_reader`,
-#: ed esce 0 per l'altro.
+#: `fuzz run` stampa l'uscita registrata ed esce 1 per `geoparquet_reader`;
+#: per `shp_reader` stampa cio' che sta in `FINTO_SHP` (il riepilogo
+#: conclusivo, o niente) ed esce 0.
 CARGO_FINTO = """#!/usr/bin/env bash
 shift  # +toolchain
 if [ "$1 $2" = "fuzz list" ]; then
@@ -893,7 +1017,7 @@ if [ "$1 $2" = "fuzz run" ]; then
         cat "${FINTO_USCITA}"
         exit 1
     fi
-    echo "Done 100 runs in 60 second(s)"
+    cat "${FINTO_SHP}"
     exit 0
 fi
 echo "cargo finto: $*" >&2
@@ -904,86 +1028,136 @@ RUSTUP_FINTO = """#!/usr/bin/env bash
 echo "nightly-2026-07-21-x86_64-unknown-linux-gnu"
 """
 
+#: `rustc -vV` con il commit della toolchain della corsa vera.
+RUSTC_FINTO = f"""#!/usr/bin/env bash
+echo "rustc 1.99.0-nightly"
+echo "commit-hash: {COMMIT}"
+"""
+
+CONCLUSA = (
+    "#100\tDONE   cov: 1 ft: 1 corp: 1/1b exec/s: 1 rss: 1Mb\n"
+    "Done 100 runs in 60 second(s)\n"
+    "stat::number_of_executed_units: 100\n"
+)
+
 
 @unittest.skipIf(_bash() is None, "serve una bash: su Windows impostare PLENORA_BASH")
 class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
-    """Lo smoke vero, con un fuzz finto fermato su un finding noto.
+    """Lo smoke vero, con un fuzz finto.
 
     Lo script gira con `set -euo pipefail`, e il codice 3 del classificatore lo
     interrompeva prima del `case`, del verbale e del riepilogo: un noto
     diventava un rosso senza traccia. Qui si esegue `fuzz-smoke.sh` per intero
-    in un albero temporaneo -- lo script, il classificatore e il registro
-    copiati, `cargo` e `rustup` finti -- e si pretende che esca 0, che il
-    riepilogo e il verbale nominino bersaglio e voce, e che l'altro bersaglio
-    risulti finito.
+    in un albero temporaneo -- lo script, il classificatore, il registro e il
+    lockfile del fuzz copiati, `cargo`, `rustup` e `rustc` finti, `CARGO_HOME`
+    puntato al registro della corsa vera.
     """
 
-    def test_un_noto_arriva_al_riepilogo_e_al_verbale(self) -> None:
+    def _smoke(self, uscita_shp: str) -> tuple[subprocess.CompletedProcess[str], pathlib.Path, tempfile.TemporaryDirectory[str]]:
         bash = _bash()
         assert bash is not None
-        with tempfile.TemporaryDirectory() as temporanea:
-            radice = pathlib.Path(temporanea)
-            (radice / "scripts").mkdir()
-            (radice / "assurance" / "registries").mkdir(parents=True)
-            (radice / "fuzz").mkdir()
-            for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
-                shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
-            shutil.copy(gate.REGISTRO, radice / "assurance" / "registries" / gate.REGISTRO.name)
-            uscita = radice / "uscita-registrata.txt"
-            uscita.write_text(ESAURIMENTO, encoding="utf-8", newline="\n")
+        temporanea = tempfile.TemporaryDirectory()
+        self.addCleanup(temporanea.cleanup)
+        radice = pathlib.Path(temporanea.name)
+        (radice / "scripts").mkdir()
+        (radice / "assurance" / "registries").mkdir(parents=True)
+        (radice / "fuzz").mkdir()
+        for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
+            shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
+        shutil.copy(gate.REGISTRO, radice / "assurance" / "registries" / gate.REGISTRO.name)
+        shutil.copy(gate.LOCK_DEL_FUZZ, radice / "fuzz" / "Cargo.lock")
+        uscita = radice / "uscita-registrata.txt"
+        uscita.write_text(ESAURIMENTO, encoding="utf-8", newline="\n")
+        shp = radice / "uscita-shp.txt"
+        shp.write_text(uscita_shp, encoding="utf-8", newline="\n")
 
-            finti = radice / "bin"
-            finti.mkdir()
-            for nome, testo in (("cargo", CARGO_FINTO), ("rustup", RUSTUP_FINTO)):
-                (finti / nome).write_text(testo, encoding="utf-8", newline="\n")
-                (finti / nome).chmod(0o755)
-            # `python3` e' quello che sta eseguendo questa prova.
-            (finti / "python3").write_text(
-                f'#!/usr/bin/env bash\nexec "{pathlib.Path(sys.executable).as_posix()}" "$@"\n',
-                encoding="utf-8",
-                newline="\n",
-            )
-            (finti / "python3").chmod(0o755)
+        finti = radice / "bin"
+        finti.mkdir()
+        for nome, testo in (
+            ("cargo", CARGO_FINTO),
+            ("rustup", RUSTUP_FINTO),
+            ("rustc", RUSTC_FINTO),
+        ):
+            (finti / nome).write_text(testo, encoding="utf-8", newline="\n")
+            (finti / nome).chmod(0o755)
+        # `python3` e' quello che sta eseguendo questa prova.
+        (finti / "python3").write_text(
+            f'#!/usr/bin/env bash\nexec "{pathlib.Path(sys.executable).as_posix()}" "$@"\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        (finti / "python3").chmod(0o755)
 
-            ambiente = {
-                chiave: valore
-                for chiave, valore in os.environ.items()
-                if chiave not in (gate.VARIABILE_VERBALE, "PLENORA_FUZZ_SECONDS")
-            }
-            ambiente["PATH"] = finti.as_posix() + os.pathsep + ambiente.get("PATH", "")
-            ambiente["FINTO_USCITA"] = uscita.as_posix()
-            ambiente["ASAN_SYMBOLIZER_PATH"] = "/finto/llvm-symbolizer"
-            esito = subprocess.run(
-                [bash, (radice / "scripts" / "fuzz-smoke.sh").as_posix(), "--seconds", "1"],
-                cwd=radice,
-                env=ambiente,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
+        ambiente = {
+            chiave: valore
+            for chiave, valore in os.environ.items()
+            if chiave not in (gate.VARIABILE_VERBALE, "PLENORA_FUZZ_SECONDS")
+        }
+        ambiente["PATH"] = finti.as_posix() + os.pathsep + ambiente.get("PATH", "")
+        ambiente["FINTO_USCITA"] = uscita.as_posix()
+        ambiente["FINTO_SHP"] = shp.as_posix()
+        ambiente["ASAN_SYMBOLIZER_PATH"] = "/finto/llvm-symbolizer"
+        ambiente["CARGO_HOME"] = "/home/runner/.cargo"
+        # Con la bash di Git su Windows, un percorso POSIX passato a un
+        # eseguibile Windows verrebbe riscritto: la radice del registro non
+        # sarebbe piu' quella dichiarata. Si esclude dalla conversione solo
+        # quella; su Linux la variabile non ha effetto.
+        ambiente["MSYS2_ARG_CONV_EXCL"] = "/home/runner"
+        esito = subprocess.run(
+            [bash, (radice / "scripts" / "fuzz-smoke.sh").as_posix(), "--seconds", "1"],
+            cwd=radice,
+            env=ambiente,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        return esito, radice, temporanea
+
+    def _verbale(self, radice: pathlib.Path) -> dict:
+        return json.loads(
+            (radice / "assurance" / "evidence" / "fuzz-smoke-ultima.json").read_text(
+                encoding="utf-8"
             )
-            detto = esito.stdout + esito.stderr
-            self.assertEqual(esito.returncode, 0, detto)
-            self.assertIn(
-                "bersaglio=voce: geoparquet_reader=parquet-footer-lista-thrift-oom",
-                esito.stdout,
+        )
+
+    def test_un_noto_arriva_al_riepilogo_e_al_verbale(self) -> None:
+        esito, radice, _ = self._smoke(CONCLUSA)
+        detto = esito.stdout + esito.stderr
+        self.assertEqual(esito.returncode, 0, detto)
+        self.assertIn(
+            "bersaglio=voce: geoparquet_reader=parquet-footer-lista-thrift-oom",
+            esito.stdout,
+        )
+        verbale = self._verbale(radice)
+        self.assertEqual(verbale["fermati_a_finding_noto"], ["geoparquet_reader"])
+        self.assertEqual(
+            verbale["voci_dei_fermati"],
+            {"geoparquet_reader": "parquet-footer-lista-thrift-oom"},
+        )
+        self.assertEqual(verbale["hanno_finito"], ["shp_reader"])
+        self.assertEqual(verbale["falliti_su_finding_nuovo"], [])
+        self.assertEqual(verbale["illeggibili"], [])
+        conservati = list(
+            (radice / "assurance" / "evidence" / "finding-fuzz" / "geoparquet_reader").glob(
+                "*.json"
             )
-            verbale = json.loads(
-                (radice / "assurance" / "evidence" / "fuzz-smoke-ultima.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(verbale["fermati_a_finding_noto"], ["geoparquet_reader"])
-            self.assertEqual(
-                verbale["voci_dei_fermati"],
-                {"geoparquet_reader": "parquet-footer-lista-thrift-oom"},
-            )
-            self.assertEqual(verbale["hanno_finito"], ["shp_reader"])
-            self.assertEqual(verbale["falliti_su_finding_nuovo"], [])
-            conservati = list(
-                (radice / "assurance" / "evidence" / "finding-fuzz" / "geoparquet_reader").glob(
-                    "*.json"
-                )
-            )
-            self.assertEqual(len(conservati), 1)
+        )
+        self.assertEqual(len(conservati), 1)
+
+    def test_un_uscita_vuota_con_zero_e_illeggibile_e_la_campagna_e_rossa(self) -> None:
+        """Un bersaglio che esce 0 senza stampare niente non ha finito: senza il
+        riepilogo conclusivo di libFuzzer e' illeggibile, lo smoke esce 1 e la
+        verifica della campagna e' rossa."""
+        esito, radice, _ = self._smoke("")
+        self.assertEqual(esito.returncode, 1, esito.stdout + esito.stderr)
+        self.assertIn("target senza un esito leggibile: shp_reader", esito.stderr)
+        verbale = self._verbale(radice)
+        self.assertEqual(verbale["illeggibili"], ["shp_reader"])
+        self.assertNotIn("shp_reader", verbale["hanno_finito"])
+        motivi = gate.verifica_campagna(
+            radice / "assurance" / "evidence" / "fuzz-smoke-ultima.json",
+            verbale["revisione"],
+        )
+        self.assertTrue(motivi)
