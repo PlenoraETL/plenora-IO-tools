@@ -21,43 +21,43 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `1d1b8d2` |
-| revisione misurata | `1d1b8d2` |
+| ultima qualificata | `e0270b5` |
+| revisione misurata | `e0270b5` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 141 |
+| input di replay | 143 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,51% |
-| righe coperte LCOV | 24 789 |
-| righe strumentate LCOV | 28 656 |
-| copertura cargo | 84,06% |
+| copertura LCOV | 86,93% |
+| righe coperte LCOV | 25 127 |
+| righe strumentate LCOV | 28 904 |
+| copertura cargo | 84,53% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `6beb410` |
-| esito differenziale | 83.47% |
+| baseline differenziale | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| esito differenziale | 73.54% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `1d1b8d2` |
-| candidate, versione del manifesto | `4.1.0` |
+| S9, qualificato su | `e0270b5` |
+| candidate, versione del manifesto | `4.1.1` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
-| candidate, versione del workspace | `4.1.0` |
+| candidate, revisione congelata | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| candidate, versione del workspace | `4.1.1` |
 | candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v4.1.0` |
+| candidate, tag previsto | `v4.1.1` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| candidate, revisione del tag | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 3 |
+| release pubblicate | 4 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -74,7 +74,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
 | `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 4.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Che questo componente produca e accetti, alla 4.0.0, entrambe le serializzazioni Arrow che i quattro archi `direct` della matrice di composizione nominano riguarda la **condizione a nostro carico** su quei collegamenti: e' conformita' al contratto dichiarato, non interoperabilita' verificata con gli altri componenti, e non riduce di nulla cio' che questo rinvio lascia scoperto. |
-| `distribuzione.licenza-first-party` | differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale | La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
+| `distribuzione.licenza-first-party` | differita: dalla 4.1.1 gli artefatti portano la licenza proprietaria decisa dal titolare; manca la sua conferma esterna | Fino alla 4.1.0 compresa gli archivi non portano termini first-party. Dalla 4.1.1 portano `LICENSE` con la licenza proprietaria; la prova esterna che questo invariante pretende -- `release/licenza-first-party.json`, la conferma del titolare del testo e della propria denominazione legale -- non c'e', e l'invariante resta differito e **non verificato**: il testo negli artefatti non dimostra da solo di essere l'atto del titolare. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
 
 <!-- generato da assurance/current-state.json: fine -->
 

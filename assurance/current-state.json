@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "1d1b8d2",
+      "sha": "e0270b5",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "1d1b8d2",
-    "evidenza": "assurance/evidence/checkpoint-1d1b8d2.json",
+    "sha": "e0270b5",
+    "evidenza": "assurance/evidence/checkpoint-e0270b5.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 141,
+      "replay_input": 143,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.51,
-      "lcov_righe_coperte": 24789,
-      "lcov_righe_strumentate": 28656,
-      "cargo_lines_percentuale": 84.06,
+      "lcov_percentuale": 86.93,
+      "lcov_righe_coperte": 25127,
+      "lcov_righe_strumentate": 28904,
+      "cargo_lines_percentuale": 84.53,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "6beb410",
-      "esito": "83.47%",
-      "righe_cambiate_eseguibili": 1240,
-      "coperte": 1035,
-      "scoperte": 205,
-      "cambiate_non_eseguibili": 2337,
-      "ragione": "misurata fra `6beb410`, l'ultimo checkpoint superato e registrato, e `1d1b8d2`, nel perimetro di libreria.",
-      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una; la concentrazione maggiore e' in `plenora-io-core/src/driver/validazione_geometrie.rs` e `scrittura_limitata.rs`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
+      "baseline": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "esito": "73.54%",
+      "righe_cambiate_eseguibili": 393,
+      "coperte": 289,
+      "scoperte": 104,
+      "cambiate_non_eseguibili": 2689,
+      "ragione": "misurata fra `1d1b8d2`, l'ultimo checkpoint superato e registrato, e `e0270b5`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; molte sono rami d'errore dei driver e degli adattatori di lettura in `plenora-io-core`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+    "sha": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo, nessuno fermato a un finding noto -- e' lo smoke del livello 2 su `1d1b8d2`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
+    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "1d1b8d2"
+      "qualificato_su": "e0270b5"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -265,6 +265,61 @@
         "evidenza": "assurance/evidence/checkpoint-6beb410.json",
         "versione_pacchetto_python": "4.0.0",
         "perche_e_qui": "La 4.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 4.1.0. Lo spostamento non ne allenta niente: i campi restano quelli del congelamento, e il gate li rilegge dall'archivio con le stesse domande -- revisione congelata risolvibile, tag su quella revisione, artefatti fissati, evidenza leggibile, commit di registrazione discendente."
+      },
+      {
+        "versione_manifesto": "4.1.0",
+        "tag_previsto": "v4.1.0",
+        "tag_creato": true,
+        "tag_revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "revisione_candidate": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+        "assurance_entro_l_allowlist": true,
+        "commit_di_assurance": "6b15bd1",
+        "nota": "Congelata su `1d1b8d2`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati sui byte riscaricati dalla release pubblicata** il 2026-10-05, e coincidono con sidecar e provenance della corsa di distribuzione 35350743054.\n\nIl congelamento precedente, su `23df4d5`, era stato ritirato perche' la registrazione dell'evidenza aveva rifiutato la corsa; `1d1b8d2` corregge quella giuntura in `scripts/`, e i suoi esiti restano conservati in `campagne-log/verbali-4.1.0-23df4d5/`.\n\nLivello 2 superato 111/111 su `1d1b8d2`, impronta invariata; replay 141 input su 15 bersagli senza crash; smoke 15 su 15 senza finding; soak da un'ora su `shp_reader` completo e senza finding; soak su `dxf_reader` **fermato da un finding** dopo 2006 s (out-of-memory su 235 byte, abort senza busta del binario distribuito): la 4.1.0 **non soddisfa il criterio d'uscita** della sezione 6 e resta pubblicata con un difetto noto, corretto per la 4.1.1 da #23; quattro attestazioni del profilo pubblico, 32 requisiti su 32 ciascuna, sui byte distribuiti.\n\n**Pubblicata il 2026-09-18** dal tag `v4.1.0`, che punta alla revisione congelata. `release_authorized` e' `true`: registra la decisione con cui la release e' stata pubblicata, e lo fa **dopo**, il 2026-10-05 -- e' la deviazione (a), approvata come tale dal titolare il 2026-10-06. Il permesso operativo `release_action_allowed` e' speso e resta `false`. I sei archivi riscaricati dalla release pubblicata coincidono con i digest fissati qui (`check-deliverable.py --contro-la-candidate`).\n\n**Cinque deviazioni, approvate dal titolare il 2026-10-06.** (a) La release e' stata **pubblicata il 2026-09-18** dal tag `v4.1.0` su `1d1b8d2`, mentre lo stato versionato su quella revisione diceva candidate **ritirata** su `23df4d5`, senza artefatti fissati ne' evidenza registrata; il job sul tag era rosso un minuto prima della pubblicazione. La qualifica e' rifatta il 2026-10-05 **sui byte distribuiti**, riscaricati dalla release. (b) Il replay ha rieseguito **141** semi versionati, non i **99.158** input che le note della release dichiarano: il corpus fuori da git e' perso. E' una garanzia **piu' debole**; si rientra ricostruendo e versionando (o archiviando con digest) un corpus e rieseguendo il replay. (c) Il livello 2 e' stato eseguito in un clone **senza il tag `v4.1.0`**: con il tag, `sonde_release` e `check_release` sono rossi per costruzione perche' lo stato su `1d1b8d2` dice `tag_creato: false`. (d) `/tmp` del container era un **tmpfs**, per togliere l'I/O del disco dalla pulizia delle `TempDir` dopo i due timeout del primo tentativo; l'ipotesi sull'I/O resta non dimostrata. (e) Il soak su `dxf_reader` ha trovato un difetto nel codice distribuito: **il criterio d'uscita non e' soddisfatto**, e questa registrazione allinea lo stato alla storia senza farlo diventare vero. Regola, ambito, hazard e condizione di rientro di ciascuna stanno in `deviazioni_dichiarate` dell'evidenza.",
+        "artefatti": [
+          {
+            "nome": "plenora-io-4.1.0-linux-x86_64-base.tar.gz",
+            "sha256": "2e5e06613fb64f1322713ff6bf9542f6784ff39a48f7152d72838f2da21f6258",
+            "dimensione": 8615925,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          },
+          {
+            "nome": "plenora-io-4.1.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "48c8049cec0e8879a8bf036eb456af2c7b2d6475de8b3d8b919e6df8b7f23d8c",
+            "dimensione": 64458532,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          },
+          {
+            "nome": "plenora_io-4.0.0-py3-none-any.whl",
+            "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
+            "dimensione": 37414,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          },
+          {
+            "nome": "plenora_io-4.0.0.tar.gz",
+            "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
+            "dimensione": 54614,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          },
+          {
+            "nome": "plenora-io-4.1.0-windows-x86_64-base.zip",
+            "sha256": "f7202352a594260632ca964f4c4edbcc636fc8bf96172d89742518856d0b4f2d",
+            "dimensione": 8754136,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          },
+          {
+            "nome": "plenora-io-4.1.0-windows-x86_64-filegdb.zip",
+            "sha256": "318d443f8e0b40dc3a009c7d811e2d9e5011fccc748416a33da39952570bf11d",
+            "dimensione": 47820986,
+            "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          }
+        ],
+        "evidenza": "assurance/evidence/checkpoint-1d1b8d2.json",
+        "versione_pacchetto_python": "4.0.0",
+        "perche_e_qui": "La 4.1.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 4.1.1. Lo spostamento non ne allenta niente: i campi restano quelli della registrazione approvata il 2026-10-06, deviazioni comprese, e il gate rilegge dall'archivio le stesse domande. La 4.1.1 la sostituisce: corregge il difetto che il soak su `dxf_reader` aveva trovato nel codice distribuito (deviazione (e))."
       }
     ]
   },
@@ -297,57 +352,57 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "4.1.0",
-      "versione_workspace": "4.1.0",
-      "tag_previsto": "v4.1.0",
+      "versione_manifesto": "4.1.1",
+      "versione_workspace": "4.1.1",
+      "tag_previsto": "v4.1.1",
       "tag_creato": true,
-      "tag_revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "tag_revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
       "tag_sulla_candidate": true,
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "pubblicata",
-      "revisione_candidate": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
-      "assurance_entro_l_allowlist": true,
-      "commit_di_assurance": "6b15bd1",
-      "nota": "Congelata su `1d1b8d2`, e le tre revisioni coincidono: quella misurata dal livello 2 (`ultima_misura.sha`), quella da cui escono i sei artefatti (ogni provenance la nomina) e quella congelata. I digest sono **ricalcolati sui byte riscaricati dalla release pubblicata** il 2026-10-05, e coincidono con sidecar e provenance della corsa di distribuzione 35350743054.\n\nIl congelamento precedente, su `23df4d5`, era stato ritirato perche' la registrazione dell'evidenza aveva rifiutato la corsa; `1d1b8d2` corregge quella giuntura in `scripts/`, e i suoi esiti restano conservati in `campagne-log/verbali-4.1.0-23df4d5/`.\n\nLivello 2 superato 111/111 su `1d1b8d2`, impronta invariata; replay 141 input su 15 bersagli senza crash; smoke 15 su 15 senza finding; soak da un'ora su `shp_reader` completo e senza finding; soak su `dxf_reader` **fermato da un finding** dopo 2006 s (out-of-memory su 235 byte, abort senza busta del binario distribuito): la 4.1.0 **non soddisfa il criterio d'uscita** della sezione 6 e resta pubblicata con un difetto noto, corretto per la 4.1.1 da #23; quattro attestazioni del profilo pubblico, 32 requisiti su 32 ciascuna, sui byte distribuiti.\n\n**Pubblicata il 2026-09-18** dal tag `v4.1.0`, che punta alla revisione congelata. `release_authorized` e' `true`: registra la decisione con cui la release e' stata pubblicata, e lo fa **dopo**, il 2026-10-05 -- e' la deviazione (a), approvata come tale dal titolare il 2026-10-06. Il permesso operativo `release_action_allowed` e' speso e resta `false`. I sei archivi riscaricati dalla release pubblicata coincidono con i digest fissati qui (`check-deliverable.py --contro-la-candidate`).\n\n**Cinque deviazioni, approvate dal titolare il 2026-10-06.** (a) La release e' stata **pubblicata il 2026-09-18** dal tag `v4.1.0` su `1d1b8d2`, mentre lo stato versionato su quella revisione diceva candidate **ritirata** su `23df4d5`, senza artefatti fissati ne' evidenza registrata; il job sul tag era rosso un minuto prima della pubblicazione. La qualifica e' rifatta il 2026-10-05 **sui byte distribuiti**, riscaricati dalla release. (b) Il replay ha rieseguito **141** semi versionati, non i **99.158** input che le note della release dichiarano: il corpus fuori da git e' perso. E' una garanzia **piu' debole**; si rientra ricostruendo e versionando (o archiviando con digest) un corpus e rieseguendo il replay. (c) Il livello 2 e' stato eseguito in un clone **senza il tag `v4.1.0`**: con il tag, `sonde_release` e `check_release` sono rossi per costruzione perche' lo stato su `1d1b8d2` dice `tag_creato: false`. (d) `/tmp` del container era un **tmpfs**, per togliere l'I/O del disco dalla pulizia delle `TempDir` dopo i due timeout del primo tentativo; l'ipotesi sull'I/O resta non dimostrata. (e) Il soak su `dxf_reader` ha trovato un difetto nel codice distribuito: **il criterio d'uscita non e' soddisfatto**, e questa registrazione allinea lo stato alla storia senza farlo diventare vero. Regola, ambito, hazard e condizione di rientro di ciascuna stanno in `deviazioni_dichiarate` dell'evidenza.",
+      "nota": "Candidate **attiva**, congelata su `e0270b5`: la revisione che porta la correzione dell'esaurimento di memoria del lettore DXF (#37) e la dichiarazione del caso GeoParquet come limite di `parquet` a monte (#39). Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\nLa candidate precedente, congelata su `7131843`, e' stata **ritirata**: la riqualifica dell'8 ottobre e' finita rossa al soak di `dxf_reader`, OOM dopo 568 s con `malloc(2147483648)` su 218 byte (un `DATATABLE` con `90` a -53, che il lettore del fork convertiva con `as usize` prima di prenotare la tabella). La correzione chiude la classe nel fork -- conteggi negativi e tabelle oltre 2^20 righe, colonne o celle si rifiutano, l'anteprima BMP ha un tetto esplicito -- e il seme e' in `fuzz/seeds/dxf_reader/`. Gli artefatti costruiti per `7131843` non valgono per questa revisione.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli e confine ASan (180153 contatori, `libgdal.so.32`) rimisurati su `e0270b5` e identici a quelli registrati: `dxf_reader` non e' fra i bersagli misurati, e nessun commit di misure si e' reso necessario.\n\n**Il caso GeoParquet e' dichiarato, non corretto.** Un footer con elenchi Thrift enormi fa prenotare a `parquet` 59.3 fino a circa 2,3 GB (`read_thrift_vec`); e' nella deviazione OOM del manifesto di adozione e in `docs/PRODUCT.md`, il classificatore dello smoke lo riconosce come finding noto con una firma stretta, e la correzione e' pianificata per la 4.2.0 (#38).\n\n**La qualifica tecnica e' registrata.** Livello 2 su `e0270b5`, 111 passi su 111, impronta invariata; replay e smoke su 15 bersagli senza finding, nessuno fermato a un finding noto, nessuno illeggibile; soak da un'ora completi e senza finding su `dxf_reader` e `shp_reader`, il criterio d'uscita che la 4.1.0 non aveva soddisfatto; i due casi OOM DXF escono con la busta sotto `ulimit -v`. Evidenza in `assurance/evidence/checkpoint-e0270b5.json`. I sei artefatti sono fissati dalla provenance della distribuzione candidate 37918160541.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 4.1.1 a gate verdi il 2026-10-09: `release_authorized` registra quella decisione e non la deriva da niente. Il tag annotato `v4.1.1` (oggetto `ffa0b79`) punta a `e0270b5`, la revisione congelata. La draft v4.1.1 (23 asset, target `e0270b5`) e' stata riscaricata e verificata: i byte coincidono con i sei artefatti fissati qui. Le attestazioni del profilo pubblico, 32 requisiti su 32 per ciascuno dei quattro archivi CLI, sono in `assurance/evidence/profilo-pubblico/` (7270b84). `release_action_allowed` e' vero: e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione.\n\nIl job `release-qualification` sul push del tag e' rosso per costruzione: sul commit del tag la decisione non e' ancora registrata. Il gate `--release` si esegue su questo commit di autorizzazione.\n\n**Pubblicata il 2026-10-09** alle 15:32:38Z, dalla draft immutata, come release `v4.1.1` (latest). Il gate `check_release_contract.py --release` e' stato eseguito verde sul commit di autorizzazione `eec0773`, sulla VM 192.168.2.133 con il manifesto della draft e i contratti al pin: 37 invarianti, nessun blocco, nove condizioni verificate, i due rinvii dichiarati. In CI la stessa condizione `profilo-pubblico-attestato` non puo' passare, perche' il workflow non scarica il manifesto: #41 per la 4.2.0. Il permesso operativo `release_action_allowed` e' speso e torna `false`.\n\n**Verifica dopo la pubblicazione** (passo 13): i byte riscaricati dalla release pubblicata coincidono con i sei artefatti fissati qui, il digest dell'archivio sorgente si verifica, il manifesto di adozione e' invariato, le sei attestazioni di provenienza si verificano.\n\nLa 4.1.1 **sostituisce** la 4.1.0: le note della 4.1.0 ricevono l'appendice che lo dice.",
+      "revisione_candidate": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
       "artefatti": [
         {
-          "nome": "plenora-io-4.1.0-linux-x86_64-base.tar.gz",
-          "sha256": "2e5e06613fb64f1322713ff6bf9542f6784ff39a48f7152d72838f2da21f6258",
-          "dimensione": 8615925,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora-io-4.1.1-linux-x86_64-base.tar.gz",
+          "sha256": "46f14dde8d1e0a78c181ad4b34b54c3aceb1ae5fecd6085a9b42d8ddcc3a4796",
+          "dimensione": 8613822,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         },
         {
-          "nome": "plenora-io-4.1.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "48c8049cec0e8879a8bf036eb456af2c7b2d6475de8b3d8b919e6df8b7f23d8c",
-          "dimensione": 64458532,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora-io-4.1.1-linux-x86_64-filegdb.tar.gz",
+          "sha256": "8ac24e180a4cbd9afdad46d4550849263a2db25ddf9eaffb7ac45422dd409e0c",
+          "dimensione": 64459880,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         },
         {
-          "nome": "plenora_io-4.0.0-py3-none-any.whl",
-          "sha256": "ccfa6911b0153c8d6e08c73eb77ef9a9a61da659931cd6067b9c4225fcc7e284",
-          "dimensione": 37414,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora_io-4.1.1-py3-none-any.whl",
+          "sha256": "933c87a3f33b4f5a65433c4c0d87de48c2859d0eca011bf6ad6f72b8e791f229",
+          "dimensione": 44915,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         },
         {
-          "nome": "plenora_io-4.0.0.tar.gz",
-          "sha256": "85d51412f56893c778212ec2240f1b7f6e1d4e7e0a14c47e3110e2a198121107",
-          "dimensione": 54614,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora_io-4.1.1.tar.gz",
+          "sha256": "18d2d666ec709d162cd814aa23d7a64a57e965592af3c6617254d0d84d5cd75e",
+          "dimensione": 68265,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         },
         {
-          "nome": "plenora-io-4.1.0-windows-x86_64-base.zip",
-          "sha256": "f7202352a594260632ca964f4c4edbcc636fc8bf96172d89742518856d0b4f2d",
-          "dimensione": 8754136,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora-io-4.1.1-windows-x86_64-base.zip",
+          "sha256": "5a0272daaf13da8592693690d9d708b076b5afece5e79b38242a0934c7d59a72",
+          "dimensione": 8763039,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         },
         {
-          "nome": "plenora-io-4.1.0-windows-x86_64-filegdb.zip",
-          "sha256": "318d443f8e0b40dc3a009c7d811e2d9e5011fccc748416a33da39952570bf11d",
-          "dimensione": 47820986,
-          "revisione": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5"
+          "nome": "plenora-io-4.1.1-windows-x86_64-filegdb.zip",
+          "sha256": "b6b8dd897b1df0edfaca9151924f5cfcfe301636e94323ad8ad46fea501ae15f",
+          "dimensione": 47821711,
+          "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         }
-      ]
+      ],
+      "assurance_entro_l_allowlist": true,
+      "commit_di_assurance": "2f4ce0b"
     }
   },
   "docset": {

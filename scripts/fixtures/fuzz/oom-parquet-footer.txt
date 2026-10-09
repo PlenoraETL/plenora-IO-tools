@@ -1,0 +1,60 @@
+==34252== ERROR: libFuzzer: out-of-memory (malloc(2315255472))
+   To change the out-of-memory limit use -rss_limit_mb=<N>
+
+    #0 0x561ad74de1d1 in __sanitizer_print_stack_trace (/home/runner/work/plenora-IO-tools/plenora-IO-tools/fuzz/target/x86_64-unknown-linux-gnu/release/geoparquet_reader+0x17ba1d1) (BuildId: 7a743400961a405ba9a7c91afd18b0102911f3ef)
+    #1 0x561ad96daa4d in fuzzer::PrintStackTrace() /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerUtil.cpp:210:38
+    #2 0x561ad968d067 in fuzzer::Fuzzer::HandleMalloc(unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:131:18
+    #3 0x561ad968d067 in fuzzer::Fuzzer::HandleMalloc(unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:125:6
+    #4 0x561ad968d0e5 in fuzzer::MallocHook(void const volatile*, unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:100:18
+    #5 0x561ad74e46e2 in __sanitizer::RunMallocHooks(void*, unsigned long) sanitizer_common.cpp
+    #6 0x561ad7449b1c in __asan::Allocator::Allocate(unsigned long, unsigned long, __sanitizer::BufferedStackTrace*, __asan::AllocType, bool) asan_allocator.cpp
+    #7 0x561ad74494e3 in __asan::asan_malloc(unsigned long, __sanitizer::BufferedStackTrace*) asan_allocator.cpp
+    #8 0x561ad74d6724 in malloc (/home/runner/work/plenora-IO-tools/plenora-IO-tools/fuzz/target/x86_64-unknown-linux-gnu/release/geoparquet_reader+0x17b2724) (BuildId: 7a743400961a405ba9a7c91afd18b0102911f3ef)
+    #9 0x561ad8865922 in alloc /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/alloc.rs:101:9
+    #10 0x561ad8865922 in alloc_impl_runtime /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/alloc.rs:210:73
+    #11 0x561ad8865922 in alloc_impl /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/alloc.rs:332:9
+    #12 0x561ad8865922 in allocate /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/alloc.rs:449:14
+    #13 0x561ad8865922 in try_allocate_in<alloc::alloc::Global> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/raw_vec/mod.rs:466:47
+    #14 0x561ad8865922 in with_capacity_in<alloc::alloc::Global> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/raw_vec/mod.rs:435:15
+    #15 0x561ad8865922 in with_capacity_in<parquet::file::metadata::KeyValue, alloc::alloc::Global> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/raw_vec/mod.rs:177:20
+    #16 0x561ad8865922 in with_capacity_in<parquet::file::metadata::KeyValue, alloc::alloc::Global> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/vec/mod.rs:975:20
+    #17 0x561ad8865922 in with_capacity<parquet::file::metadata::KeyValue> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/alloc/src/vec/mod.rs:522:9
+    #18 0x561ad8865922 in read_thrift_vec<parquet::file::metadata::KeyValue, parquet::parquet_thrift::ThriftSliceInputProtocol> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/parquet_thrift.rs:724:19
+    #19 0x561ad8865922 in parquet::file::metadata::thrift::parquet_metadata_from_bytes /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/thrift/mod.rs:831:27
+    #20 0x561ad86d1fad in decode_metadata /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/parser.rs:233:5
+    #21 0x561ad86d1fad in decode_metadata /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/parser.rs:196:17
+    #22 0x561ad86d1fad in <parquet::file::metadata::push_decoder::ParquetMetaDataPushDecoder>::try_decode /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/push_decoder.rs:400:57
+    #23 0x561ad87caff7 in <parquet::file::metadata::reader::ParquetMetaDataReader>::decode_footer_metadata /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/reader.rs:744:28
+    #24 0x561ad7547f5b in parse_metadata<std::fs::File> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/reader.rs:558:14
+    #25 0x561ad7547f5b in try_parse_sized<std::fs::File> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/reader.rs:289:36
+    #26 0x561ad7547f5b in try_parse<std::fs::File> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/reader.rs:213:14
+    #27 0x561ad7547f5b in <parquet::file::metadata::reader::ParquetMetaDataReader>::parse_and_finish::<std::fs::File> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/metadata/reader.rs:203:14
+    #28 0x561ad7648876 in new<std::fs::File> /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parquet-59.3.0/src/file/serialized_reader.rs:232:53
+    #29 0x561ad7648876 in {closure#0} /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:748:9
+    #30 0x561ad7648876 in call_once<core::result::Result<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>, plenora_io_model::error::PlenoraIoError>, driver_geoparquet::valida_schema_arrow_incorporato::{closure_env#0}> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/core/src/panic/unwind_safe.rs:275:9
+    #31 0x561ad7648876 in std::panicking::catch_unwind::do_call::<core::panic::unwind_safe::AssertUnwindSafe<driver_geoparquet::valida_schema_arrow_incorporato::{closure#0}>, core::result::Result<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>, plenora_io_model::error::PlenoraIoError>> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panicking.rs:576:43
+    #32 0x561ad78fa623 in __rust_try driver_geoparquet.b2f642e7786b642f-cgu.0
+    #33 0x561ad767ebca in catch_unwind<core::result::Result<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>, plenora_io_model::error::PlenoraIoError>, core::panic::unwind_safe::AssertUnwindSafe<driver_geoparquet::valida_schema_arrow_incorporato::{closure_env#0}>> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panicking.rs:544:19
+    #34 0x561ad767ebca in catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<driver_geoparquet::valida_schema_arrow_incorporato::{closure_env#0}>, core::result::Result<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>, plenora_io_model::error::PlenoraIoError>> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panic.rs:359:14
+    #35 0x561ad767ebca in leggendo_arrow<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>, driver_geoparquet::valida_schema_arrow_incorporato::{closure_env#0}> /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/plenora-io-core/src/driver.rs:607:5
+    #36 0x561ad767ebca in driver_geoparquet::valida_schema_arrow_incorporato /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:744:19
+    #37 0x561ad76e3700 in <driver_geoparquet::GeoParquetDriver as plenora_io_core::driver::FormatDriver>::open /home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:1007:9
+    #38 0x561ad750f1ac in read_all /home/runner/work/plenora-IO-tools/plenora-IO-tools/fuzz/fuzz_targets/harness.rs:209:26
+    #39 0x561ad750f1ac in geoparquet_reader::_::__libfuzzer_sys_run /home/runner/work/plenora-IO-tools/plenora-IO-tools/fuzz/fuzz_targets/geoparquet_reader.rs:14:13
+    #40 0x561ad7518025 in rust_fuzzer_test_input /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/src/lib.rs:276:60
+    #41 0x561ad96853d4 in {closure#0} /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/src/lib.rs:62:9
+    #42 0x561ad96853d4 in std::panicking::catch_unwind::do_call::<libfuzzer_sys::test_input_wrap::{closure#0}, i32> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panicking.rs:576:43
+    #43 0x561ad9686018 in __rust_try libfuzzer_sys.f13a938c7b0ef14f-cgu.0
+    #44 0x561ad9684acd in catch_unwind<i32, libfuzzer_sys::test_input_wrap::{closure_env#0}> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panicking.rs:544:19
+    #45 0x561ad9684acd in catch_unwind<libfuzzer_sys::test_input_wrap::{closure_env#0}, i32> /rustc/87e5904f5eb6398af6b22eac2802c78934260c48/library/std/src/panic.rs:359:14
+    #46 0x561ad9684acd in LLVMFuzzerTestOneInput /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/src/lib.rs:60:22
+    #47 0x561ad968d7a8 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:619:15
+    #48 0x561ad96b5181 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerDriver.cpp:335:21
+    #49 0x561ad96b953e in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerDriver.cpp:871:19
+    #50 0x561ad9686046 in main /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerMain.cpp:20:30
+    #51 0x7f161f02a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
+    #52 0x7f161f02a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
+    #53 0x561ad7447ca4 in _start (/home/runner/work/plenora-IO-tools/plenora-IO-tools/fuzz/target/x86_64-unknown-linux-gnu/release/geoparquet_reader+0x1723ca4) (BuildId: 7a743400961a405ba9a7c91afd18b0102911f3ef)
+
+artifact_prefix='/tmp/'; Test unit written to /tmp/oom-0fe0b59475f1ce80fc5a2646bbea49f31939b073
+SUMMARY: libFuzzer: out-of-memory

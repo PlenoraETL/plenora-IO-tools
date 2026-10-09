@@ -558,6 +558,14 @@ impl Drawing {
     /// Gets all code pairs that will be written.
     pub(crate) fn code_pairs(&self) -> DxfResult<Vec<CodePair>> {
         let write_handles = self.header.version >= AcadVersion::R13 || self.header.handles_enabled;
+        // Prima di scrivere: un oggetto che la scrittura non sa rappresentare
+        // si rifiuta con un errore, invece di uscire mutilato o di andare in
+        // panico a meta' (`Object::verifica_scrivibile`).
+        if self.header.version >= AcadVersion::R13 {
+            for o in &self.__objects {
+                o.verifica_scrivibile(self.header.version)?;
+            }
+        }
         let mut pairs = Vec::new();
         self.header.add_code_pairs(&mut pairs);
         self.add_classes_pairs(&mut pairs);

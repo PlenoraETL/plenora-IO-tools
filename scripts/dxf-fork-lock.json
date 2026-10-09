@@ -9,7 +9,7 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
   "file_count": 59,
-  "tree_sha256": "921cfb2986a31b07c3d61e8cfdf97cd0e2a1236eacd82aeb286800bd43fe9d7c",
+  "tree_sha256": "d675a77a2a26f5d495d22f242b9a14f0b90259c586bba1ccbc032ec41131007d",
   "functional_delta_files": [
     "src/block.rs",
     "src/code_pair_iter.rs",
@@ -25,6 +25,7 @@
     "src/object.rs",
     "src/object_iter.rs",
     "src/section_type_settings.rs",
+    "src/thumbnail.rs",
     "src/x_data.rs"
   ],
   "packaging_delta_files": [
