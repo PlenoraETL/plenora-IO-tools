@@ -401,7 +401,8 @@
           "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
         }
       ],
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": true,
+      "commit_di_assurance": "2f4ce0b"
     }
   },
   "docset": {
