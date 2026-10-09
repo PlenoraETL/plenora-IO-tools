@@ -596,9 +596,9 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
         self.assertIn("--revisione-della-corsa", script)
 
 
-#: L'uscita di libFuzzer sull'input di 3966 byte, **com'e'**: intestazione,
-#: stack simbolizzato e coda, presi dalla corsa di CI 37735627087 (i frame fino
-#: al #28, che la corsa ha stampato). Prima i frame di chi riporta l'errore --
+#: L'uscita di libFuzzer sull'input di 3966 byte, **com'e'**: intestazione e
+#: stack simbolizzato intero, dal #0 al #53, presi dalla corsa di CI
+#: 37904926518 del passo che esegue la riproduzione. Prima i frame di chi riporta l'errore --
 #: il sanitizer e libFuzzer, che stampa da dentro il proprio gancio su
 #: `malloc` --, poi `malloc`, poi la libreria standard che alloca, poi
 #: `read_thrift_vec`, inline, col solo nome.
@@ -694,10 +694,10 @@ class SondeDellEsaurimento(unittest.TestCase):
         """`malloc_buffer` non e' `malloc`: lo skip per prefisso lo saltava, e
         la firma passava al chiamante."""
         altro = ESAURIMENTO.replace(
-            "    #18 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
-            "    #18 0x5560ef18a922 in malloc_buffer "
+            _frame(18),
+            "    #18 0x1 in malloc_buffer "
             "/home/runner/work/plenora-IO-tools/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:10:5\n"
-            "    #19 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
+            + _frame(18).replace("#18 ", "#19 ", 1),
         )
         altro = _rinumera(altro)
         esito = gate.classifica("geoparquet_reader", altro, registro(), contesto=CONTESTO)
@@ -708,10 +708,10 @@ class SondeDellEsaurimento(unittest.TestCase):
         """Un checkout in una cartella che contiene `compiler-rt` non fa di
         codice nostro un frame del sanitizer."""
         altro = ESAURIMENTO.replace(
-            "    #18 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
-            "    #18 0x5560ef18a922 in alloca_qui "
+            _frame(18),
+            "    #18 0x1 in alloca_qui "
             "/home/compiler-rt/plenora-IO-tools/crates/driver-geoparquet/src/lib.rs:10:5\n"
-            "    #19 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
+            + _frame(18).replace("#18 ", "#19 ", 1),
         )
         esito = gate.classifica("geoparquet_reader", _rinumera(altro), registro(), contesto=CONTESTO)
         self.assertEqual(esito["stato"], "nuovo")
@@ -731,9 +731,9 @@ class SondeDellEsaurimento(unittest.TestCase):
         `malloc` ma non lo e': prima del primo utile ferma la firma, mentre
         il classificatore precedente lo saltava per prefisso."""
         altro = ESAURIMENTO.replace(
-            "    #18 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
-            "    #18 0x5560ef18a922 in malloc_qui (/bin/x+0x1)\n"
-            "    #19 0x5560ef18a922 " + PRIMO_UTILE.rstrip(),
+            _frame(18),
+            "    #18 0x1 in malloc_qui (/bin/x+0x1)\n"
+            + _frame(18).replace("#18 ", "#19 ", 1),
         )
         self.assertEqual(self._stato(_rinumera(altro)), "illeggibile")
 
@@ -831,18 +831,13 @@ class SondeDellEsaurimento(unittest.TestCase):
     # --- il terzo giro della revisione --------------------------------------
 
     def test_i_frame_senza_nome_della_coda_vera_sono_righe_di_stack(self) -> None:
-        """La coda vera dello stack porta frame senza nome con due spazi davanti
-        al modulo (`libc`), e frame con il solo nome del modulo (`__rust_try`):
-        sono righe di stack valide, e la firma resta quella del frame utile."""
-        coda = (
-            "    #29 0x55af77e04623 in __rust_try driver_geoparquet.b2f642e7786b642f-cgu.0\n"
-            "    #30 0x7fd13d02a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) "
-            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)\n"
-            "    #31 0x7fd13d02a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) "
-            "(BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)\n"
-        )
-        altro = ESAURIMENTO.replace(_frame(28) + "\n", _frame(28) + "\n" + coda)
-        self.assertEqual(self._stato(altro), "noto")
+        """La coda vera dello stack porta un frame senza nome con due spazi
+        davanti al modulo (`libc`) e frame con il solo nome del modulo
+        (`__rust_try`): sono righe di stack valide, e il campione, che e'
+        l'uscita intera della CI, resta riconosciuto."""
+        self.assertIn("  (/lib/x86_64-linux-gnu/libc.so.6+", _frame(51))
+        self.assertIn(" in __rust_try ", ESAURIMENTO)
+        self.assertEqual(self._stato(ESAURIMENTO), "noto")
 
     def test_una_coda_malformata_dopo_il_frame_utile_e_illeggibile(self) -> None:
         """Lo stack si valida tutto prima di sceglierne un frame: una riga fuori
