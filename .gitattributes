@@ -17,6 +17,9 @@ fuzz/seeds/**/*.xlsx binary
 fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf binary
 # Il caso del soak dxf_reader del 2026-10-08, stessa natura: 218 byte.
 fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf binary
+# L'esaurimento di memoria del footer Parquet del 2026-10-08: una riproduzione,
+# fuori dai semi perche' lo smoke non la esegua (e' un finding noto, dichiarato).
+upstream/parquet-footer-thrift-list/caso.parquet binary
 
 # Copie storiche usate dalle regressioni del misuratore: digest sui byte originali.
 scripts/fixtures/soak/misuratore-originale.py.txt binary
