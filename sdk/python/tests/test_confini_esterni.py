@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import sys
 import tempfile
 import traceback
 import unittest
@@ -50,7 +51,7 @@ from plenora_io import (
 )
 from plenora_io import arrow as adattatore
 from plenora_io import discovery
-from plenora_io.errors import failure_from_envelope
+from plenora_io.errors import copia_json, failure_from_envelope
 from plenora_io.process import Runner
 
 from test_contratto_sdk import capacita_sane, pa, scrittura_sana, serve_pyarrow
@@ -276,9 +277,15 @@ class LeCapacita(unittest.TestCase):
 
     @prova("errors.copia_json")
     def test_un_documento_profondo_e_protocol_error(self) -> None:
+        # Oltre il limite di ricorsione di **questo** interprete: 600 livelli
+        # bastavano su 3.11 e non su 3.12, dove i frame costano meno.
         profondo: object = 0
-        for _ in range(600):
+        for _ in range(sys.getrecursionlimit() + 100):
             profondo = [profondo]
+        with self.assertRaises(PlenoraError) as preso:
+            copia_json(profondo, "prova")
+        self.assertIsInstance(preso.exception, ProtocolError)
+        tradotto(self, preso.exception, "none")
         documento = dict(capacita_sane(), extra=profondo)
         with self.assertRaises(PlenoraError) as preso:
             cliente_con(documento).capabilities()
