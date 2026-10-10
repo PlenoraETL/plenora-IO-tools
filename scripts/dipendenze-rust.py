@@ -97,7 +97,21 @@ def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
             if dipendenza["pkg"] not in visti:
                 da_visitare.append(dipendenza["pkg"])
 
-    nostri = {p["id"] for p in metadati["packages"] if p.get("source") is None}
+    # «Nostro» e' un membro del workspace, non «un pacchetto senza `source`».
+    # Un fork vendorizzato si risolve per percorso e non ha `source`, ma e'
+    # codice di terzi con la licenza di terzi: contarlo come nostro lo toglieva
+    # dall'SBOM e dagli identificatori di licenza dell'artefatto.
+    nostri = set(metadati.get("workspace_members", []))
+    vendor = (RADICE / "vendor").resolve()
+
+    def origine(pacchetto: dict) -> str:
+        if pacchetto.get("source"):
+            return pacchetto["source"]
+        manifesto = pathlib.Path(pacchetto["manifest_path"]).resolve()
+        if manifesto.is_relative_to(vendor):
+            return f"fork vendorizzato in {manifesto.parent.relative_to(RADICE).as_posix()}"
+        return "questo repository"
+
     return sorted(
         (
             {
@@ -105,7 +119,7 @@ def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
                 "versione": per_id[i]["version"],
                 "licenza": per_id[i].get("license") or "",
                 "licenza_file": per_id[i].get("license_file") or "",
-                "origine": per_id[i].get("source") or "questo repository",
+                "origine": origine(per_id[i]),
                 "nostro": i in nostri,
             }
             for i in visti
