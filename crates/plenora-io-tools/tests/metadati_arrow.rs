@@ -36,14 +36,11 @@
 //! trovato due cose che gli argomenti non avevano visto, e stanno nei commenti
 //! delle sonde.
 //!
-//! Resta fuori **ARROW-011**, e la ragione è dell'antecedente: «An operation
-//! advertised with Arrow **stream** output MUST allow the consumer to process
-//! batches without first materializing the complete result». Il documento
-//! capability di questo artefatto dichiara per `io.read` il solo
-//! `application/vnd.apache.arrow.file`, perché CLI-2.0 §4 riserva stdout alla
-//! busta e i byte devono andare in un file. L'antecedente è falso su questa
-//! superficie, e lo si vede in `capabilities`. Diventa vero con B13, che porta
-//! lo streaming, e allora questa sarà la sua sonda.
+//! **ARROW-011** non sta qui. Dalla 4.0.0 `io.read` annuncia anche
+//! `application/vnd.apache.arrow.stream` (`--out-opt serialization=stream`),
+//! quindi il requisito si applica: lo soddisfa la dichiarazione
+//! `materialization: bounded` che il requisito stesso prevede, e la sua sonda
+//! e' in `tests/capacita_dichiarate.rs`, accanto al descrittore che lo dichiara.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
