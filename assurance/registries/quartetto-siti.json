@@ -566,6 +566,11 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-model/src/clock.rs": {
+    "advance": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
   "crates/plenora-io-model/src/format_options.rs": {
     "scarto": [
       "esplicito/esplicito/Unsupported/esplicito"
