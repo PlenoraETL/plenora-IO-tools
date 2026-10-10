@@ -623,7 +623,12 @@ fn sync_dir(dir: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
+// La firma e' quella della variante Unix, che puo' fallire: il chiamante e'
+// uno solo per le due piattaforme. Senza questi `allow` il ramo Windows non
+// passa clippy, e lo si scopre solo compilando su Windows: il job `rust` della
+// CI gira su Linux e questo ramo non lo vede.
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
 fn sync_dir(_dir: &Path) -> std::io::Result<bool> {
     // Il fsync di directory non è disponibile in modo portabile su Windows:
     // il publish prosegue ma l'esito deve restare non confermato.

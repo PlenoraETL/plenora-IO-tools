@@ -724,7 +724,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgdal-dev
 
       - name: La mappatura, il consumatore e l'archivio
-        run: python3 scripts/check_superficie_rust.py
+        run: |
+          python3 -m unittest scripts.test_check_superficie_rust
+          python3 scripts/check_superficie_rust.py
 
   python-sdk:
     runs-on: ubuntu-latest

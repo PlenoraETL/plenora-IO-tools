@@ -1,7 +1,8 @@
 # Politica della catena delle dipendenze (cargo-deny), sul modello di
 # plenora-database-tools: advisory rifiutate salvo le eccezioni del registro,
 # crate ritirati (yanked) rifiutati, licenze permissive in allowlist, sorgenti
-# solo da crates.io o dai fork governati in `vendor/` (patch per percorso).
+# solo da crates.io o dai fork governati in `vendor/` (dipendenze dirette per
+# percorso, con nome proprio).
 #
 # Il workflow `supply-chain` la applica al grafo del workspace e a quello
 # separato di `fuzz/`, su push, pull request e a calendario. La versione dello

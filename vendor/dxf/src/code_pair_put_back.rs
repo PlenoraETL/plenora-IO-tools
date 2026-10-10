@@ -225,7 +225,10 @@ mod tests {
 
     #[test]
     fn un_giro_che_consuma_passa() {
-        let mut iter = iteratore(vec![CodePair::new_str(72, "x"), CodePair::new_str(0, "EOF")]);
+        let mut iter = iteratore(vec![
+            CodePair::new_str(72, "x"),
+            CodePair::new_str(0, "EOF"),
+        ]);
         let prima = iter.posizione();
         let _ = iter.next();
         assert!(iter.esigi_progresso(prima).is_ok());

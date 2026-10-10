@@ -103,8 +103,8 @@ fn update_thumbnail_data_offset_in_situ(data: &mut [u8]) -> DxfResult<bool> {
     // calculate the image data offset
     // Le dimensioni lette dall'intestazione sono dell'input: un valore negativo
     // o una somma che non sta in un `i32` e' un errore, non un offset troncato.
-    let dib_header_size =
-        usize::try_from(read_i32(data, FILE_HEADER_LENGTH)?).map_err(|_| DxfError::ParseError(0))?;
+    let dib_header_size = usize::try_from(read_i32(data, FILE_HEADER_LENGTH)?)
+        .map_err(|_| DxfError::ParseError(0))?;
 
     // calculate the palette size
     let palette_size = if dib_header_size >= BITMAP_HEADER_PALETTE_COUNT_OFFSET + 4 {
@@ -251,8 +251,7 @@ fn verifica_dimensioni_anteprima(data: &[u8]) -> DxfResult<()> {
 }
 
 fn read_thumbnail_from_bytes(data: &[u8]) -> DxfResult<Option<image::DynamicImage>> {
-    let mut lettore =
-        image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format()?;
+    let mut lettore = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format()?;
     let mut limiti = image::Limits::default();
     limiti.max_alloc = Some(MASSIMA_MEMORIA_ANTEPRIMA);
     lettore.limits(limiti);

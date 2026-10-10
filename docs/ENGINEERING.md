@@ -21,8 +21,18 @@ plenora-fuzz         attrezzaggio di fuzzing, non spedito
 Le dipendenze vanno in una direzione sola: i driver dipendono da `core` e da
 `model`, mai fra loro. `model` non conosce i driver.
 
-`vendor/dxf` e `vendor/gdal` sono fork governati, risolti via
-`[patch.crates-io]` e fissati da un lock più un registro di provenienza.
+`vendor/dxf`, `vendor/gdal` e `vendor/shapefile` sono fork governati, fissati
+da un lock più un registro di provenienza. Entrano nel grafo come
+**dipendenze dirette per percorso con un nome di pacchetto proprio**
+(`plenora-fork-dxf`, `plenora-fork-gdal`, `plenora-fork-shapefile`), mentre il
+nome della libreria resta quello upstream. Fino alla 4.1.1 erano
+`[patch.crates-io]`, e una patch vale solo dal workspace radice: chi usava
+questi crate come dipendenza riceveva le versioni di crates.io senza i delta.
+Allora la compilazione falliva per coincidenza -- i driver chiamano API che
+solo i fork espongono --, non per costruzione. `scripts/fork_comune.py` vieta
+che una sezione `[patch]` ricompaia, e il consumatore esterno di
+`scripts/check_superficie_rust.py`, senza `[patch]`, prova che il grafo di chi
+dipende da noi contiene i fork e nessun crate upstream con lo stesso nome.
 
 Il lock ne fissa il **tree hash**, calcolato **esclusivamente sull'insieme che
 git traccia**. Un artefatto di build non può alterarlo — è il punto: un lock

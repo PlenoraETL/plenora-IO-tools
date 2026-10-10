@@ -30,6 +30,7 @@ Le due proprieta' sono indipendenti:
 from __future__ import annotations
 
 import hashlib
+import tomllib
 import subprocess
 from pathlib import Path
 
@@ -161,3 +162,103 @@ def comando_package(vendor: Path, extra: list[str] | None = None) -> list[str]:
         f"{TARGET_ESTERNO}-{nome}",
         *(extra or []),
     ]
+
+
+# --- risoluzione dei fork -----------------------------------------------------
+#
+# Fino alla 4.1.1 i tre fork entravano come `[patch.crates-io]`. Cargo applica
+# una patch **solo dal workspace radice**: chi dipendeva da questi crate per git
+# o per percorso riceveva `gdal`, `shapefile` e `dxf` da crates.io, cioe' senza
+# i delta. Che la compilazione allora fallisse era una coincidenza -- i driver
+# chiamano API che solo i fork espongono --, non una garanzia: un delta di solo
+# comportamento sarebbe passato in silenzio.
+#
+# Ora ogni fork e' una dipendenza diretta per percorso con un nome di pacchetto
+# proprio. Le funzioni qui sotto tengono ferma quella forma per tutti e tre, e
+# rifiutano che una sezione `[patch]` ricompaia in uno dei due manifesti di
+# workspace.
+
+#: I manifesti che risolvono il grafo: il workspace e quello staccato del fuzz.
+MANIFESTI_DI_WORKSPACE = ("Cargo.toml", "fuzz/Cargo.toml")
+
+
+def patch_presenti(radice: Path = ROOT) -> list[str]:
+    """Le sezioni `[patch]` nei manifesti di workspace: devono essere zero.
+
+    Una patch, qualunque sorgente sostituisca, vale solo qui e non per chi ci
+    usa come dipendenza: e' esattamente la forma che ha reso i fork non
+    transitivi.
+    """
+    trovate: list[str] = []
+    for manifesto in MANIFESTI_DI_WORKSPACE:
+        dati = tomllib.loads((radice / manifesto).read_text(encoding="utf-8"))
+        for sorgente in sorted(dati.get("patch", {})):
+            trovate.append(f"{manifesto}: [patch.{sorgente}]")
+    return trovate
+
+
+def problemi_di_risoluzione(lock: dict, radice: Path = ROOT) -> list[str]:
+    """Che il fork del `lock` sia risolto come dipendenza diretta e con nome proprio.
+
+    `lock["package"]` e' il nome **upstream** (l'identita' da cui il fork
+    deriva), `lock["fork_package"]` quello con cui il fork entra nel grafo.
+    """
+    problemi = list(patch_presenti(radice))
+    upstream = lock["package"]
+    fork = lock["fork_package"]
+    if fork == upstream or not fork.startswith("plenora-fork-"):
+        problemi.append(
+            f"il nome del fork «{fork}» non e' un nome proprio: un nome uguale a "
+            "quello upstream si puo' risolvere da crates.io"
+        )
+
+    cargo = tomllib.loads((radice / "Cargo.toml").read_text(encoding="utf-8"))
+    dichiarata = cargo.get("workspace", {}).get("dependencies", {}).get(upstream)
+    attesa = {
+        "package": fork,
+        "version": f"={lock['version']}",
+        "path": lock["vendor_path"],
+    }
+    if not isinstance(dichiarata, dict) or {
+        chiave: dichiarata.get(chiave) for chiave in attesa
+    } != attesa:
+        problemi.append(
+            f"Cargo.toml non dichiara «{upstream}» come dipendenza diretta del "
+            f"fork: atteso {attesa}"
+        )
+
+    vendor = radice / lock["vendor_path"]
+    manifesto = tomllib.loads((vendor / "Cargo.toml").read_text(encoding="utf-8"))
+    pacchetto = manifesto.get("package", {})
+    if pacchetto.get("name") != fork or pacchetto.get("version") != lock["version"]:
+        problemi.append("manifest del fork incoerente col lock")
+    # Il nome della libreria resta quello upstream: il codice dei driver, i
+    # simboli e i requisiti di profondita' del fuzz lo nominano.
+    if manifesto.get("lib", {}).get("name") != upstream:
+        problemi.append(
+            f"il fork non dichiara `[lib] name = \"{upstream}\"`: il crate "
+            "compilato cambierebbe nome"
+        )
+
+    for nome_lock in ("Cargo.lock", "fuzz/Cargo.lock"):
+        pacchetti = tomllib.loads(
+            (radice / nome_lock).read_text(encoding="utf-8")
+        )["package"]
+        del_fork = [p for p in pacchetti if p.get("name") == fork]
+        if (
+            len(del_fork) != 1
+            or del_fork[0].get("version") != lock["version"]
+            or "source" in del_fork[0]
+            or "checksum" in del_fork[0]
+        ):
+            problemi.append(
+                f"{nome_lock} non risolve un'unica dipendenza per percorso "
+                f"{fork} {lock['version']}"
+            )
+        # Il controllo che conta: l'upstream non deve comparire affatto. Se
+        # comparisse, qualcosa nel grafo lo chiederebbe ancora per nome.
+        if any(p.get("name") == upstream for p in pacchetti):
+            problemi.append(
+                f"{nome_lock} contiene ancora il pacchetto upstream «{upstream}»"
+            )
+    return problemi
