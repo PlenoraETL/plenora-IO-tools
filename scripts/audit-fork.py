@@ -45,7 +45,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fork_comune  # noqa: E402
 from fork_comune import fini_riga_divergenti, impronta, insieme_versionato  # noqa: E402
 
-FORK = ("gdal", "dxf", "shapefile")
+FORK = ("gdal", "dxf", "shapefile", "parquet")
 
 def normalizza_eol(dati: bytes) -> bytes:
     """I fine riga non sono un delta.

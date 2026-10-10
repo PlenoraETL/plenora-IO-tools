@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "descrizione": "Provenienza del fork governato di `parquet`, registrata separatamente dal lock (`scripts/parquet-fork-lock.json`). Il gate `scripts/check_parquet_fork.py` confronta i due.",
+  "package": "parquet",
+  "fork_package": "plenora-fork-parquet",
+  "version": "60.0.0",
+  "crate_sha256": "8af83d2940bc0510f9aef86d865f56fdc6095f87ab115ac885a80b7c5226d3ba",
+  "verifica_del_checksum": "il `.crate` della cache di cargo (`parquet-60.0.0.crate`) ha questo sha256, che e' quello registrato da `Cargo.lock` quando `parquet` 60.0.0 arrivava da crates.io; estratto, differisce dall'albero vendorizzato nei soli file del delta qui sotto e nel manifesto. Il pacchetto pubblicato non porta `.cargo_vcs_info.json`, quindi non c'e' una revisione git da legare.",
+  "licenza_upstream": "Apache-2.0",
+  "file_licenza": "LICENSE.txt",
+  "file_notice": "NOTICE.txt",
+  "risoluzione": "il workspace dipende da parquet 60.0.0 come dipendenza diretta per percorso su vendor/parquet, con il nome di pacchetto proprio plenora-fork-parquet e il nome di libreria upstream `parquet`; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
+  "base": {
+    "che_cosa": "il fork `-eof` di plenora-data-tools: `vendor/parquet-60.0.0-eof`, cioe' il pacchetto crates.io 60.0.0 piu' `patches/parquet-eof.patch` (provenienza e motivazioni in `vendor/parquet-60.0.0-eof/PROVENANCE.md` di quel repository)",
+    "revisione": "3a07e68a8f8f60c86b72ebf36df9a0a672dff32f",
+    "come_e_stato_copiato": "i file versionati di quella cartella, esclusa `PROVENANCE.md` (la provenienza qui e' questo registro), byte per byte; poi il nome del pacchetto nel manifesto. Non c'e' una seconda copia da tenere allineata a mano: un aggiornamento riparte dal pacchetto pubblicato, riapplica il delta e lo confronta con la base di data-tools.",
+    "perche_lo_stesso_fork": "la strada Rust comune ai tre componenti compila IO e data nello stesso grafo. Con lo stesso albero di partenza i due fork differiscono solo per i delta elencati come `di_questo_repository`, che vanno proposti anche a data-tools invece di divergere."
+  },
+  "delta_funzionale": {
+    "src/parquet_thrift.rs": "base (data-tools, punti 1-7): il protocollo Thrift compact non gira piu' a vuoto (`skip_bytes` e `read_bytes_owned` danno `Eof` a fine dati, gli elementi booleani di un elenco si leggono, i varint hanno al piu' dieci byte e un valore entro u64, `read_i16`/`read_i32` rifiutano un valore fuori tipo, `skip_element` rispetta il limite di profondita'); `capacita_dichiarata` lega ai byte residui ogni capacita' presa da un conteggio dichiarato.",
+    "src/file/metadata/thrift/mod.rs": "base (punto 7): i row group del footer prenotano con `capacita_dichiarata` invece che con `Vec::with_capacity(dichiarato)`. E' la variante che `parquet` 60.0.0 lascia aperta dopo aver limitato `read_thrift_vec` (#38): un footer di 147 byte chiedeva 5 GB.",
+    "src/file/page_index/offset_index.rs": "base (punto 7): le posizioni dell'offset index prenotano con la stessa regola.",
+    "src/file/reader.rs": "base (punto 8): `File::get_bytes` rifiuta un intervallo oltre la fine del file prima di riservare la lunghezza chiesta.",
+    "src/file/serialized_reader.rs": "base (punto 9 e 10): un header di pagina non dichiara piu' byte non compressi ne' piu' valori del suo column chunk, nei due stati del lettore; l'header v2 conta solo su una pagina v2; un dizionario PLAIN non dichiara piu' di otto valori per byte.",
+    "src/encodings/decoding.rs": "base (punto 11): il conteggio di `DeltaBitPackDecoder::set_data` non supera i valori della pagina.",
+    "src/arrow/array_reader/byte_array.rs": "base (punto 11): i lettori Arrow delta passano i valori della pagina invece di 0.",
+    "src/arrow/array_reader/byte_view_array.rs": "base (punto 11): come sopra, per le viste.",
+    "src/arrow/decoder/delta_byte_array.rs": "base (punto 11): `DeltaByteArrayDecoder::new` riceve il massimo dei valori della pagina.",
+    "src/schema/types.rs": "base (punto 12): i figli dichiarati da `num_children` non superano gli elementi che restano dopo il nodo.",
+    "src/arrow/array_reader/fixed_len_byte_array.rs": "base (punti 11 e 13: delta dei `FixedLenByteArray`, prodotto valori x larghezza del dizionario con `checked_mul`) **e** di questo repository: una colonna `FIXED_LEN_BYTE_ARRAY` di larghezza 0 -- lo schema la ammette -- fa dividere per zero i decoder PLAIN e BYTE_STREAM_SPLIT del lettore Arrow (`attempt to divide by zero`, un panico). Si rifiuta alla costruzione del lettore. Prova: `crates/driver-geoparquet/tests/fork_parquet.rs`.",
+    "src/encodings/decoding/byte_stream_split_decoder.rs": "di questo repository: `join_streams_*` indicizza `src[values_decoded + i + j * stride]` senza confrontare con la lunghezza, e il numero di valori viene dal file. Con dichiarazioni concordi di pagina, column chunk e righe il controllo del punto 9 non scatta e il decoder panicava (`index out of bounds`: il finding `arrow-rs-byte-stream-split-oob` della 4.1.0, presente identico in 60.0.0). Ora `valori_disponibili` restituisce un errore; anche una larghezza 0 in `VariableWidthByteStreamSplitDecoder`. Prove: `crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`."
+  },
+  "di_questo_repository": [
+    "src/encodings/decoding/byte_stream_split_decoder.rs",
+    "src/arrow/array_reader/fixed_len_byte_array.rs (solo la larghezza 0)"
+  ],
+  "delta_di_packaging": [
+    {
+      "file": "Cargo.toml",
+      "che_cosa_cambia": "il manifesto normalizzato del pacchetto, con il nome `plenora-fork-parquet`; `[lib] name = \"parquet\"` c'era gia'.",
+      "perche": "una `[patch]` vale solo dal workspace radice: chi dipende da IO-tools riceverebbe `parquet` da crates.io senza i delta. Il nome e' diverso da quello del fork di data-tools (`plenora-parquet`) perche' l'albero non e' identico (i delta `di_questo_repository`) e perche' due pacchetti per percorso con lo stesso nome e la stessa versione, in un consumatore che usasse entrambi i repository per percorso, collidono nel suo `Cargo.lock`."
+    }
+  ],
+  "limiti_che_restano": [
+    "Come nella base: un irrobustimento mirato, non completo contro file costruiti apposta. Le espansioni vere (un dizionario ripetuto su molte righe) le copre il budget dei driver, non il fork.",
+    "Lo schema del footer resta senza limite di profondita' e senza un tetto al costo dei percorsi delle foglie (`SchemaDescriptor::new`): e' il resto di #38, trattato a parte.",
+    "Il percorso cifrato degli header alloca dalla lunghezza dichiarata; la feature `encryption` non e' abilitata, quindi non e' raggiungibile."
+  ],
+  "procedura_di_aggiornamento": [
+    "ripartire dal pacchetto crates.io della nuova versione, verificandone lo sha256 contro quello pubblicato",
+    "riapplicare la patch della base di data-tools e i delta `di_questo_repository`, e rileggere ciascuno contro il codice nuovo: un delta che upstream ha assorbito cade, con la ragione",
+    "eseguire `crates/driver-geoparquet` (comprese `tests/fork_parquet.rs` e `tests/byte_stream_split_sintetico.rs`) e questo gate",
+    "aggiornare insieme questo registro, `scripts/parquet-fork-lock.json` e la versione fissata in `scripts/check_parquet_fork.py`"
+  ]
+}

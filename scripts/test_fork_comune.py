@@ -98,7 +98,7 @@ class SondeFiniRiga(unittest.TestCase):
     def test_i_tre_fork_sono_gia_normalizzati(self) -> None:
         """La controprova positiva: senza, «nessun divergente» sarebbe una
         difesa che non ha mai visto niente."""
-        for nome in ("dxf", "gdal", "shapefile"):
+        for nome in ("dxf", "gdal", "shapefile", "parquet"):
             with self.subTest(fork=nome):
                 self.assertEqual(
                     calcolo.fini_riga_divergenti(calcolo.ROOT / "vendor" / nome), []
@@ -187,6 +187,7 @@ class SondeRisoluzione(unittest.TestCase):
         "vendor/dxf/Cargo.toml",
         "vendor/gdal/Cargo.toml",
         "vendor/shapefile/Cargo.toml",
+        "vendor/parquet/Cargo.toml",
     )
 
     def setUp(self) -> None:
@@ -204,7 +205,7 @@ class SondeRisoluzione(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            for nome in ("dxf", "gdal", "shapefile")
+            for nome in ("dxf", "gdal", "shapefile", "parquet")
         }
 
     def _aggiungi(self, relativo: str, testo: str) -> None:
