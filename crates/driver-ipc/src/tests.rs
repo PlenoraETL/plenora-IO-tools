@@ -417,8 +417,8 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
     ));
 }
 
-/// Il limite dichiarato in docs/PRODUCT.md («Limitazioni di prodotto», IPC):
-/// il CRS che un produttore GeoArrow mette **solo** in
+/// Il limite dichiarato in `docs/PRODUCT.md` («Limitazioni di prodotto», IPC):
+/// il CRS che un produttore `GeoArrow` mette **solo** in
 /// `ARROW:extension:metadata` non e' letto, e la geometria risulta senza CRS.
 ///
 /// La prova fissa il comportamento di oggi perche' cambiarlo -- leggerlo, o
