@@ -138,7 +138,7 @@
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
   },
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), e plenora-io-core con il modulo ewkb (#48). La misura si rifa'.",
     "impronta_della_misura": "aee38b0aa59296a546e65485cea2565db90c7090ade5858cc5f9e3875031c004",
     "impronta_attesa": "49b2994189500658a2c3b7d4d57e9e7bf6c0f4bc54560a33f3f091fa60e84789",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
@@ -146,7 +146,7 @@
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
   },
   "rimisurazione_asan_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), e plenora-io-core con il modulo ewkb (#48). La misura si rifa'.",
     "impronta_della_misura": "aee38b0aa59296a546e65485cea2565db90c7090ade5858cc5f9e3875031c004",
     "impronta_attesa": "49b2994189500658a2c3b7d4d57e9e7bf6c0f4bc54560a33f3f091fa60e84789",
     "non_promette": "Il confine di AddressSanitizer non e' affermato sull'albero corrente: i numeri descrivono il binario su cui la misura e' girata, e non quello che il codice corrente produrrebbe.",

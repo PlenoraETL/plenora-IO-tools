@@ -111,7 +111,7 @@
   ],
   "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), e plenora-io-core con il modulo ewkb (#48). La misura si rifa'.",
     "impronta_della_misura": "b1cedf705f8a6ab937b63c013183b79355cf6fd75fa13c8d192d2c01086d70a7",
     "impronta_attesa": "55807e7a211bc2cb6193b70c9276f24e11863df393e9114976316c4d81f410b9",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",

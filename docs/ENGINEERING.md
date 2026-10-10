@@ -169,6 +169,19 @@ Il **capability-check** è fail-closed: ciò che il formato non dichiara di sape
 scrivere viene rifiutato. I driver possono aggiungere vincoli propri, mai
 rimuoverne.
 
+**EWKB in ingresso.** Prima del capability-check, `io.write` e `io.convert`
+portano a WKB ISO una geometria dichiarata `ewkb` quando il sink non la scrive
+(`plenora_io_core::ewkb`; oggi tutti tranne Arrow IPC). E' la forma che
+plenora-database-tools emette, e `ARROW-VOCABULARY-1.0` la ammette. La
+conversione conserva i valori delle coordinate bit per bit e scrive WKB ISO
+little-endian: da un EWKB little-endian cambiano solo la parola di tipo e lo
+SRID, da uno big-endian anche l'ordine dei byte (il valore si conserva, i byte
+no). Non perde il SRID in
+silenzio: e' ammessa solo se il SRID coincide con l'autorita' del CRS dei
+metadati, e ogni geometria del payload deve portare quel SRID o nessuno.
+Altrimenti e' un rifiuto `geometry_encoding` prima di creare la destinazione,
+o un errore WKB durante la scrittura, che non pubblica nulla.
+
 Il **publish** ha tre forme, e **due sole** sono crash-atomic: il rename di un
 file singolo e il rename di una directory-dataset. La terza — il set di file
 sciolti dello Shapefile, `*.shp` più companion — non lo è e non può esserlo,
