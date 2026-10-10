@@ -732,7 +732,7 @@ fn valida_metadati_thrift(
 
 /// La profondita' massima dello schema del footer.
 ///
-/// Uno schema GeoParquet reale arriva a qualche livello: la geometria nativa
+/// Uno schema `GeoParquet` reale arriva a qualche livello: la geometria nativa
 /// annida elenchi di strutture, cinque o sei livelli nel caso del
 /// multipoligono. 64 e' largo, ed e' **finito**: la conversione dello schema in
 /// `parquet` e in Arrow e' ricorsiva, e uno schema profondo quanto il footer e'
@@ -757,7 +757,7 @@ fn opzioni_arrow_del_footer(tetto: u64) -> parquet::arrow::arrow_reader::ArrowRe
 /// **prima** di farla, e rifiuta uno schema piu' profondo del limite prima di
 /// convertirlo. Il tetto e' quello delle pagine: meta' della capacita'
 /// effettiva.
-fn opzioni_del_footer(tetto: u64) -> (u64, usize) {
+const fn opzioni_del_footer(tetto: u64) -> (u64, usize) {
     (tetto, PROFONDITA_SCHEMA)
 }
 

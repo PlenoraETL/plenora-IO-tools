@@ -58,9 +58,9 @@ fn annidata(livelli: usize) -> (Field, ArrayRef) {
     let mut campo = Field::new("x", DataType::Int32, false);
     let mut valori: ArrayRef = Arc::new(Int32Array::from(vec![1]));
     for _ in 0..livelli {
-        let campi = Fields::from(vec![campo]);
-        valori = Arc::new(StructArray::new(campi.clone(), vec![valori], None));
-        campo = Field::new("s", DataType::Struct(campi), false);
+        let figli = Fields::from(vec![campo]);
+        valori = Arc::new(StructArray::new(figli.clone(), vec![valori], None));
+        campo = Field::new("s", DataType::Struct(figli), false);
     }
     (campo, valori)
 }
