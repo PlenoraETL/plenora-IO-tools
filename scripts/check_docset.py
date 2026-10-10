@@ -98,6 +98,12 @@ OPERATIVI = {
     "vendor/shapefile/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
     "vendor/shapefile/CHANGELOG.md": "cronaca upstream ridistribuita; contenuto di terzi",
     "vendor/shapefile/LICENSE.md": "licenza MIT upstream ridistribuita; contenuto di terzi",
+    # Il quarto fork, dalla 4.2.0: il pacchetto crates.io di `parquet` porta
+    # tre Markdown, e l'albero si vendorizza intero come nella base di
+    # plenora-data-tools. L'integrita' e' di `scripts/check_parquet_fork.py`.
+    "vendor/parquet/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
+    "vendor/parquet/CONTRIBUTING.md": "parte del pacchetto upstream ridistribuito; contenuto di terzi",
+    "vendor/parquet/THRIFT.md": "parte del pacchetto upstream ridistribuito; contenuto di terzi",
     ".github/pull_request_template.md": "GitHub lo legge per convenzione di percorso",
     "upstream/arrow-rs-byte-stream-split/SEGNALAZIONE.md": (
         "il testo della segnalazione ad arrow-rs, che vive accanto al caso "
@@ -289,6 +295,7 @@ def vendor_coperti_dai_lock() -> list[str]:
         ("vendor/dxf/README.md", "scripts/dxf-fork-lock.json"),
         ("vendor/gdal/README.md", "scripts/gdal-fork-lock.json"),
         ("vendor/shapefile/README.md", "scripts/shapefile-fork-lock.json"),
+        ("vendor/parquet/README.md", "scripts/parquet-fork-lock.json"),
     ):
         percorso = ROOT / relativo
         if not percorso.is_file():

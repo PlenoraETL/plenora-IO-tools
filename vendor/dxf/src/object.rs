@@ -147,7 +147,10 @@ impl DataTable {
             && i32::try_from(self.row_count).is_ok()
             && i32::try_from(self.column_count).is_ok()
             && self.values.len() == self.row_count
-            && self.values.iter().all(|riga| riga.len() == self.column_count)
+            && self
+                .values
+                .iter()
+                .all(|riga| riga.len() == self.column_count)
             && self.column_names.len() == self.column_count;
         if !dimensioni_coerenti || (self.column_count > 0 && self.row_count == 0) {
             return Err(DxfError::WrongItemType);
@@ -1538,10 +1541,10 @@ impl Object {
                 }
                 7 => {
                     iter.put_back(Ok(pair)); // let the TableCellStyle reader parse this
-                    // Il ciclo esterno rilegge la coppia `7` se `TableCellStyle::read`
-                    // non la consuma. Oggi la consuma sempre -- e' il nome dello
-                    // stile -- ma il ciclo non ha modo di saperlo: la guardia lo
-                    // pretende invece di supporlo.
+                                             // Il ciclo esterno rilegge la coppia `7` se `TableCellStyle::read`
+                                             // non la consuma. Oggi la consuma sempre -- e' il nome dello
+                                             // stile -- ma il ciclo non ha modo di saperlo: la guardia lo
+                                             // pretende invece di supporlo.
                     let prima = iter.posizione();
                     let letto = TableCellStyle::read(iter)?;
                     iter.esigi_progresso(prima)?;

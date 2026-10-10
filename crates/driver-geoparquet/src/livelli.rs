@@ -14,7 +14,8 @@
 //! numero di bit lo dichiara l'header del run; i byte disponibili li ha il
 //! buffer. Quando il primo e' piu' grande dei secondi, l'intervallo esce dal
 //! buffer e arrow abbatte il processo -- `offset + len out of bounds`,
-//! `arrow-buffer 59.1.0`, `util/bit_chunk_iterator.rs:224`.
+//! `arrow-buffer 59.1.0`, `util/bit_chunk_iterator.rs:224` (invariato in 60.0.0,
+//! `:235`).
 //!
 //! La prevalidazione che c'era guardava le **dimensioni** delle pagine e il bit
 //! width degli indici di dizionario. Erano due difese vere e restavano fuori da

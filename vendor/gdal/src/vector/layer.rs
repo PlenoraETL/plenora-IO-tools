@@ -458,8 +458,7 @@ pub trait LayerAccess: Sized {
             .collect::<std::result::Result<Vec<_>, NulError>>()?;
         let mut pointers = names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>();
         pointers.push(std::ptr::null());
-        let rv =
-            unsafe { gdal_sys::OGR_L_SetIgnoredFields(self.c_layer(), pointers.as_mut_ptr()) };
+        let rv = unsafe { gdal_sys::OGR_L_SetIgnoredFields(self.c_layer(), pointers.as_mut_ptr()) };
         if rv != OGRErr::OGRERR_NONE {
             return Err(GdalError::OgrError {
                 err: rv,

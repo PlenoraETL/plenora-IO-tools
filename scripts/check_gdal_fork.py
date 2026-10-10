@@ -6,11 +6,15 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fork_comune import artefatti_estranei, fini_riga_divergenti, impronta  # noqa: E402
+from fork_comune import (  # noqa: E402
+    artefatti_estranei,
+    fini_riga_divergenti,
+    impronta,
+    problemi_di_risoluzione,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +30,7 @@ def main() -> None:
     expected_keys = {
         "schema_version",
         "package",
+        "fork_package",
         "version",
         "source",
         "crate_sha256",
@@ -87,29 +92,15 @@ def main() -> None:
             f"(files={count}, sha256={digest})"
         )
 
-    cargo = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-    patch = cargo.get("patch", {}).get("crates-io", {}).get("gdal")
-    if patch != {"path": lock["vendor_path"]}:
-        fail("Cargo.toml non usa esclusivamente il fork governato")
-
-    package = tomllib.loads((vendor / "Cargo.toml").read_text(encoding="utf-8"))[
-        "package"
-    ]
-    if package.get("name") != lock["package"] or package.get("version") != lock["version"]:
-        fail("manifest del fork incoerente col lock")
+    # Dipendenza diretta per percorso, con nome proprio, e nessuna
+    # `[patch]` nei manifesti di workspace: vedi `fork_comune`.
+    problemi = problemi_di_risoluzione(lock)
+    if problemi:
+        fail("; ".join(problemi))
 
     vcs = json.loads((vendor / ".cargo_vcs_info.json").read_text(encoding="utf-8"))
     if vcs.get("git", {}).get("sha1") != lock["upstream_revision"]:
         fail("revisione upstream nel pacchetto incoerente col lock")
-
-    cargo_lock = tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))
-    matches = [
-        item
-        for item in cargo_lock["package"]
-        if item.get("name") == lock["package"] and item.get("version") == lock["version"]
-    ]
-    if len(matches) != 1 or "source" in matches[0] or "checksum" in matches[0]:
-        fail("Cargo.lock non risolve un'unica dipendenza path gdal 0.19.0")
 
     # Registro di provenienza **strutturato**. Era un Markdown letto come
     # database: un gate non deve dipendere dalla prosa, che nessuno puo'
