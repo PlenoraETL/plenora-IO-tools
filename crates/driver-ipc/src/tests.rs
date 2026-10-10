@@ -399,7 +399,7 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
             plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
             plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
         ))
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -448,7 +448,7 @@ fn unresolved_authority_without_definition_is_preserved() {
             (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -503,7 +503,7 @@ fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
             (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -596,7 +596,7 @@ fn declared_unresolved_srid_only_with_axis_order_fails_at_open() {
             (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     let values = BinaryArray::from(vec![Some(
@@ -633,7 +633,7 @@ fn canonical_metadata_without_geoarrow_extension_is_geometry() {
             (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -667,7 +667,7 @@ fn incomplete_or_conflicting_canonical_identity_is_rejected() {
                 (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
             ]
             .into_iter()
-            .collect(),
+            .collect::<arrow_schema::Metadata>(),
         ),
         (
             "conflicting-extension",
@@ -715,7 +715,7 @@ fn multiple_geoarrow_fields_are_rejected() {
                 plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
                 plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
             ))
-            .collect(),
+            .collect::<arrow_schema::Metadata>(),
         )
     };
     let schema = Schema::new(vec![
