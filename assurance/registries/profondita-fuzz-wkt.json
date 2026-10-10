@@ -109,5 +109,13 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
+  "rimisurazione_dovuta": {
+    "perche": "Il perimetro e' cambiato nella 4.2.0 (#43): i tre fork sono dipendenze dirette con nome proprio, quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork, e le righe del delta sono formattate da rustfmt. Nessun codice attraversato cambia comportamento, ma l'impronta esiste per non lasciarlo dire a chi ha scritto la modifica: la misura si rifa'.",
+    "impronta_della_misura": "91713fcde0033145c761c3040b790eaa972652608a858ae0209d48cb6a4c2f07",
+    "impronta_attesa": "b44077fc34357180af8c82faabc40fe5d7989cd0441a7de49cfed62e82bd01c0",
+    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
+    "quando": "sul candidato finale della 4.2.0, prima del rilascio",
+    "comando": "scripts/fuzz-profondita.sh wkt_parse"
+  }
 }
