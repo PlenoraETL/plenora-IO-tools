@@ -1250,7 +1250,8 @@ progressiva, e per GDAL la rilocabilità dei dati PROJ.
 **Criterio di chiusura, per ciascun fork:** modifiche accettate upstream,
 release ufficiale che le contiene, dipendenza e lock aggiornati in IO-tools,
 test dei driver e verifiche pertinenti superati senza la patch locale.
-Solo a quel punto si elimina il relativo `[patch.crates-io]`, la copia in
+Solo a quel punto la dipendenza torna al nome upstream su crates.io e si
+elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.

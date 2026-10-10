@@ -9,7 +9,7 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "licenza_upstream": "MIT",
   "file_licenza": "LICENSE.txt",
-  "risoluzione": "il workspace risolve dxf 0.6.1 esclusivamente da vendor/dxf via [patch.crates-io]",
+  "risoluzione": "il workspace dipende da dxf 0.6.1 come dipendenza diretta per percorso su vendor/dxf, con il nome di pacchetto proprio plenora-fork-dxf e il nome di libreria upstream; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "delta_funzionale": [
     {
       "file": "src/code_pair_iter.rs",
@@ -131,6 +131,13 @@
       "che_cosa_cambia": "e' il manifesto **originale** dell'autore, non quello che `cargo package` normalizza dentro il `.crate`. Il lock lo dice gia' nel campo `source`: dxf e' stato vendorizzato dal tag git `v0.6.1`, e a quel commit il manifesto ha questa forma.",
       "perche_non_e_una_modifica": "confrontato campo per campo col manifesto del `.crate` della stessa release, coincide in tutto cio' che decide la compilazione: le nove dipendenze, la dipendenza di build, le due di sviluppo, con versioni, feature, `default-features` e `optional` identici; la sola feature `serialize`; nome, versione, edition, licenza, `build` e repository. Cio' che il `.crate` ha in piu' sono i campi che `cargo package` genera -- `autolib`, `autobins`, `autoexamples`, `autotests`, `autobenches` e un `[lib]` esplicito -- che spengono una scoperta automatica di target che qui non ha niente da trovare: l'albero vendorizzato non ha `examples/`, `tests/`, `benches/` ne' `src/main.rs`, e `src/lib.rs` e' gia' la posizione predefinita.",
       "perche_dichiararlo_lo_stesso": "perche' il delta dichiarato serve a rispondere alla domanda «in che cosa questo albero differisce da quello pubblicato», e la risposta onesta include questo file. Lasciarlo fuori faceva sembrare che il manifesto fosse quello di crates.io, e l'audit dei fork l'ha trovato confrontando l'albero col `.crate` invece che con l'elenco."
+    },
+    {
+      "file": "Cargo.toml",
+      "che_cosa_cambia": "il nome del pacchetto diventa `plenora-fork-dxf`; il nome della libreria resta `dxf`, dichiarato con un `[lib]` esplicito perche' il manifesto originale non lo aveva.",
+      "perche": "fino alla 4.1.1 il fork entrava come `[patch.crates-io]`, e Cargo applica una patch solo dal workspace radice: chi dipendeva da IO-tools per git o per percorso riceveva `dxf` 0.6.1 da crates.io, senza i delta. Che la compilazione allora fallisse era una coincidenza -- i driver chiamano API che solo il fork espone --, non una garanzia. Con un nome di pacchetto proprio e una dipendenza diretta per percorso il fork viaggia con il crate che lo usa, e nessun registro puo' sostituirlo: quel nome su crates.io non esiste.",
+      "perche_la_libreria_no": "il codice dei driver, i simboli e i requisiti di profondita' del fuzz nominano il crate compilato: rinominarlo cambierebbe tutti e tre senza cambiare un comportamento.",
+      "verificata_da": "`scripts/fork_comune.problemi_di_risoluzione` (nei tre gate dei fork) e il consumatore esterno di `scripts/check_superficie_rust.py`"
     }
   ],
   "perimetro_vendorizzato": {
@@ -440,5 +447,6 @@
         "stato": "fuori dal censimento perche' non esistono nel fork: nelle specifiche XML sono segnaposto `TODO`, non entita' generate. Il lettore le tratta come entita' di tipo sconosciuto, che il driver rifiuta (`dxf.blocco-non-inserito-con-entita-sconosciute` per il caso nei BLOCK). Se un giorno venissero generate, i loro conteggi andrebbero censiti."
       }
     ]
-  }
+  },
+  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/code_pair_put_back.rs`, `src/drawing.rs`, `src/object.rs`, `src/thumbnail.rs`, `src/x_data.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato."
 }

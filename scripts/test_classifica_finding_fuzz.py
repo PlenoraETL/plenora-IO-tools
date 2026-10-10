@@ -36,13 +36,52 @@ note: run with `RUST_BACKTRACE=1`
 #: commit della toolchain del fuzzing. Lo smoke li passa al classificatore.
 RADICE = "/home/runner/.cargo/registry/src"
 COMMIT = "87e5904f5eb6398af6b22eac2802c78934260c48"
-CONTESTO = gate.Contesto(RADICE, COMMIT)
+
+#: Il registro e il lock **della 4.1.1**, fissati come fixture. Le sonde
+#: provano il classificatore su firme vere, e le due firme vere erano quelle:
+#: dalla 4.2.0 il registro e' vuoto -- il fork di `parquet` corregge entrambi i
+#: difetti, e un crash nel codice di questo repository non si registra, si
+#: corregge -- e il lock del fuzz non porta piu' `parquet` da crates.io.
+#: Provare il classificatore sul registro vuoto non proverebbe niente.
+FIXTURE = pathlib.Path(__file__).resolve().parent / "fixtures" / "classifica"
+REGISTRO_STORICO = FIXTURE / "finding-noti-4.1.1.json"
+LOCK_STORICO = FIXTURE / "fuzz-4.1.1.lock"
+CONTESTO = gate.Contesto(RADICE, COMMIT, gate.voci_del_lock(LOCK_STORICO))
+
+#: Il registro e il lock veri, prima che `setUpModule` li sostituisca per le
+#: sonde che passano dal punto d'ingresso del classificatore.
+REGISTRO_VERO = gate.REGISTRO
+_VOCI_DEL_LOCK_VERE = gate.voci_del_lock
+_PATCH: list = []
+
+
+def setUpModule() -> None:  # noqa: N802 - nome imposto da unittest
+    """Il punto d'ingresso legge `REGISTRO` e il lock del fuzz a ogni chiamata:
+    per le sonde li si punta sulla fixture storica, una volta per tutto il
+    modulo, e si ripristinano alla fine."""
+    from unittest import mock
+
+    for bersaglio in (
+        mock.patch.object(gate, "REGISTRO", REGISTRO_STORICO),
+        mock.patch.object(
+            gate,
+            "voci_del_lock",
+            lambda lock=LOCK_STORICO: _VOCI_DEL_LOCK_VERE(lock),
+        ),
+    ):
+        bersaglio.start()
+        _PATCH.append(bersaglio)
+
+
+def tearDownModule() -> None:  # noqa: N802 - nome imposto da unittest
+    while _PATCH:
+        _PATCH.pop().stop()
 PROVENIENZA = ["--radice-registry", RADICE, "--rustc-commit", COMMIT]
 CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 
 
 def registro() -> dict:
-    return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+    return json.loads(REGISTRO_STORICO.read_text(encoding="utf-8"))
 
 
 class SondeDellaFirma(unittest.TestCase):
@@ -150,7 +189,26 @@ class SondeDellaFirma(unittest.TestCase):
 
 class SondeDelRegistro(unittest.TestCase):
     def test_il_registro_vero_e_ben_formato(self) -> None:
+        vero = json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
+        self.assertEqual(gate.registro_ben_formato(vero), [])
+
+    def test_il_registro_storico_e_ben_formato(self) -> None:
+        """La fixture e' un registro vero, non un campione scritto a mano."""
         self.assertEqual(gate.registro_ben_formato(registro()), [])
+
+    def test_il_registro_vero_non_porta_firme_del_fork(self) -> None:
+        """Un crash nel fork vendorizzato e' codice di questo repository: si
+        corregge, non si registra. Nessuna voce puo' nominare un modulo che il
+        lock del fuzz risolve per percorso."""
+        vero = json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
+        per_percorso = {
+            nome
+            for nome, coppie in _VOCI_DEL_LOCK_VERE(gate.LOCK_DEL_FUZZ).items()
+            if any(sorgente == "" for _, sorgente in coppie)
+        }
+        for voce in vero["finding"]:
+            crate = voce["modulo"].split("/", 1)[0]
+            self.assertNotIn(crate, per_percorso, voce["id"])
 
     def test_ogni_campo_e_obbligatorio(self) -> None:
         # Una voce senza `non_promette` o senza `quando_si_toglie` non e' una
@@ -922,7 +980,7 @@ class SondeDellEsaurimento(unittest.TestCase):
 
     def _con_lock(self, **crate: tuple[tuple[str, str], ...]) -> "gate.Contesto":
         """Il contesto della corsa vera con il lock modificato per le crate date."""
-        lock = dict(gate.voci_del_lock())
+        lock = dict(gate.voci_del_lock(LOCK_STORICO))
         lock.update(crate)
         return gate.Contesto(RADICE, COMMIT, lock)
 
@@ -1170,8 +1228,8 @@ class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
         (radice / "fuzz").mkdir()
         for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
             shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
-        shutil.copy(gate.REGISTRO, radice / "assurance" / "registries" / gate.REGISTRO.name)
-        shutil.copy(gate.LOCK_DEL_FUZZ, radice / "fuzz" / "Cargo.lock")
+        shutil.copy(REGISTRO_STORICO, radice / "assurance" / "registries" / REGISTRO_VERO.name)
+        shutil.copy(LOCK_STORICO, radice / "fuzz" / "Cargo.lock")
         uscita = radice / "uscita-registrata.txt"
         uscita.write_text(ESAURIMENTO, encoding="utf-8", newline="\n")
         shp = radice / "uscita-shp.txt"

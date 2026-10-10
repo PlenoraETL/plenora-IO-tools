@@ -195,11 +195,48 @@ class SondeDelConfine(unittest.TestCase):
         misura["target"] = "shp_reader"
         self.assertTrue(any("shp_reader" in m for m in gate.verifica(misura)))
 
+    def _senza_rinvio(self) -> None:
+        """Il registro vero, senza l'eventuale rinvio dichiarato: la sonda misura
+        il gate, non lo stato transitorio del repository."""
+        leggi = gate.leggi_registro
+        self.addCleanup(setattr, gate, "leggi_registro", leggi)
+
+        def senza(bersaglio):
+            registro = dict(leggi(bersaglio))
+            registro.pop(gate.CHIAVE_RINVIO, None)
+            return registro
+
+        gate.leggi_registro = senza
+
     def test_una_misura_di_un_altro_albero_e_rossa(self) -> None:
+        self._senza_rinvio()
         gate.impronta_del_perimetro = lambda percorsi: ("0" * 64, [])
         errori = gate.verifica(misura_minima())
         self.assertTrue(any("impronta del perimetro diversa" in m for m in errori), errori)
         self.assertTrue(any("asan-filegdb.sh" in m for m in errori))
+
+    def test_un_rinvio_che_non_descrive_la_misura_e_rosso(self) -> None:
+        """Con un rinvio dichiarato per un'altra misura e un altro albero il gate
+        resta rosso: il rinvio vale solo per la distanza che dichiara."""
+        leggi = gate.leggi_registro
+        self.addCleanup(setattr, gate, "leggi_registro", leggi)
+
+        def con_rinvio(bersaglio):
+            registro = dict(leggi(bersaglio))
+            registro[gate.CHIAVE_RINVIO] = {
+                "perche": "sonda",
+                "impronta_della_misura": "a" * 64,
+                "impronta_attesa": "b" * 64,
+                "non_promette": "sonda",
+                "quando": "sonda",
+                "comando": "bash scripts/asan-filegdb.sh",
+            }
+            return registro
+
+        gate.leggi_registro = con_rinvio
+        gate.impronta_del_perimetro = lambda percorsi: ("0" * 64, [])
+        errori = gate.verifica(misura_minima())
+        self.assertTrue(any("rimisurazione_asan_dovuta" in m for m in errori), errori)
 
 
 class SondeDellaRisoluzione(unittest.TestCase):

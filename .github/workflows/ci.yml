@@ -240,6 +240,10 @@ jobs:
           python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork
         run: python3 scripts/check_dxf_fork.py
+      - name: Verify governed shapefile and parquet forks
+        run: |
+          python3 scripts/check_shapefile_fork.py
+          python3 scripts/check_parquet_fork.py
       # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
       # come prova dell'invariante `errori.static-non-promuovibile`: qui serve
       # la sua sonda, che e' l'unica cosa che verifica il gate invece del
@@ -410,37 +414,6 @@ jobs:
       # visibile invece di trasformare il gate in un rosso permanente.
       - name: Build and smoke every fuzz target under AddressSanitizer
         run: bash scripts/fuzz-smoke.sh
-      # La voce `parquet-footer-lista-thrift-oom` del registro dei finding noti
-      # vale finche' la sua riproduzione riproduce **e** la firma la riconosce
-      # sull'uscita vera di libFuzzer, non su un campione scritto a mano. Qui si
-      # esegue l'input una volta, fuori dallo smoke, e si pretende il codice 3
-      # (noto). Se il pin di `parquet` corregge il difetto l'input non crasha
-      # piu', il classificatore esce 0 e il passo diventa rosso: e' il segnale
-      # che la voce va tolta. Se la firma smette di corrispondere, esce 1.
-      - name: The registered fuzz OOM still reproduces and is still recognised
-        run: |
-          set +e
-          ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)" \
-            cargo fuzz run geoparquet_reader \
-            upstream/parquet-footer-thrift-list/caso.parquet -- \
-            -rss_limit_mb=2048 -runs=1 \
-            -artifact_prefix=/tmp/ > /tmp/riproduzione.txt 2>&1
-          esito_corsa=$?
-          # L'errore e lo stack intero: il classificatore lo valida tutto, e
-          # una riga fuori forma si deve poter vedere qui.
-          grep -E 'ERROR: libFuzzer|^ *#[0-9]+ ' /tmp/riproduzione.txt
-          # La provenienza, come la passa lo smoke: solo sotto questi prefissi
-          # libFuzzer, la libreria standard e le crate si riconoscono.
-          python3 scripts/classifica_finding_fuzz.py geoparquet_reader \
-            --uscita /tmp/riproduzione.txt \
-            --codice-uscita "${esito_corsa}" \
-            --radice-registry "${CARGO_HOME:-${HOME}/.cargo}/registry/src" \
-            --rustc-commit "$(rustc -vV | sed -n 's/^commit-hash: //p')"
-          codice=$?
-          if [ "${codice}" -ne 3 ]; then
-            echo "atteso 3 (finding noto), ottenuto ${codice}" >&2
-            exit 1
-          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: failure()
         with:
@@ -724,7 +697,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgdal-dev
 
       - name: La mappatura, il consumatore e l'archivio
-        run: python3 scripts/check_superficie_rust.py
+        run: |
+          python3 -m unittest scripts.test_check_superficie_rust
+          python3 scripts/check_superficie_rust.py
 
   python-sdk:
     runs-on: ubuntu-latest

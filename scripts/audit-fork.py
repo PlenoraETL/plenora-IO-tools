@@ -42,9 +42,10 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import fork_comune  # noqa: E402
 from fork_comune import fini_riga_divergenti, impronta, insieme_versionato  # noqa: E402
 
-FORK = ("gdal", "dxf", "shapefile")
+FORK = ("gdal", "dxf", "shapefile", "parquet")
 
 def normalizza_eol(dati: bytes) -> bytes:
     """I fine riga non sono un delta.
@@ -307,42 +308,34 @@ def audita(nome: str, scarico: pathlib.Path | None) -> dict:
     return voce
 
 
-#: I manifesti che devono patchare i fork. Il workspace fuzz e' detached e non
-#: eredita le patch del principale: un fork che mancasse la' non darebbe un
-#: errore di risoluzione, darebbe un target costruito su un altro codice.
-MANIFESTI = ("Cargo.toml", "fuzz/Cargo.toml")
-
-
 def risoluzione() -> dict:
-    """Dove ciascun workspace risolve i tre fork.
+    """Come il workspace risolve i tre fork, e che nessuna `[patch]` ricompaia.
 
-    Il gate di ogni fork guarda il proprio nome nel manifesto principale.
-    Nessuno guarda l'**insieme**: che i tre siano patchati ovunque serva, che
-    nessuna patch punti fuori da `vendor/`, e che un quarto nome non si sia
-    aggiunto senza che qualcuno se ne accorgesse. Sono domande sul sistema, non
-    sul singolo fork, e per questo stanno qui.
+    Il gate di ogni fork guarda il proprio nome. Nessuno guarda l'**insieme**:
+    che i tre siano dipendenze dirette verso `vendor/`, che nessuna dipendenza
+    per percorso esca da `vendor/` con un nome di fork, e che un quarto nome
+    non si sia aggiunto senza che qualcuno se ne accorgesse. Sono domande sul
+    sistema, non sul singolo fork, e per questo stanno qui.
+
+    Fino alla 4.1.1 la stessa funzione verificava le `[patch.crates-io]` del
+    workspace e del fuzz. Una patch pero' vale solo dal workspace radice, e chi
+    dipendeva da noi riceveva i crate upstream: ora i fork sono dipendenze
+    dirette con nome proprio, e una patch e' un rilievo.
     """
-    fuori: dict[str, dict] = {}
-    for manifesto in MANIFESTI:
-        percorso = ROOT / manifesto
-        dati = tomllib.loads(percorso.read_text(encoding="utf-8"))
-        patch = dati.get("patch", {}).get("crates-io", {})
-        risolti = {}
-        for nome, valore in patch.items():
-            destinazione = valore.get("path") if isinstance(valore, dict) else None
-            # I percorsi sono relativi al manifesto che li dichiara: `fuzz/`
-            # scrive `../vendor/...`. Si risolvono per poterli confrontare.
-            assoluto = (
-                (percorso.parent / destinazione).resolve() if destinazione else None
-            )
-            risolti[nome] = {
-                "path": destinazione,
-                "dentro_vendor": assoluto is not None
-                and assoluto.is_relative_to(ROOT / "vendor"),
-                "esiste": assoluto is not None and assoluto.is_dir(),
-            }
-        fuori[manifesto] = risolti
-    return fuori
+    radice = ROOT / "Cargo.toml"
+    dati = tomllib.loads(radice.read_text(encoding="utf-8"))
+    dirette: dict[str, dict] = {}
+    for nome, valore in dati.get("workspace", {}).get("dependencies", {}).items():
+        if not isinstance(valore, dict) or "path" not in valore:
+            continue
+        assoluto = (radice.parent / valore["path"]).resolve()
+        dirette[nome] = {
+            "package": valore.get("package"),
+            "path": valore["path"],
+            "dentro_vendor": assoluto.is_relative_to(ROOT / "vendor"),
+            "esiste": assoluto.is_dir(),
+        }
+    return {"dipendenze_dirette": dirette, "patch": fork_comune.patch_presenti()}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -437,24 +430,32 @@ def main(argv: list[str] | None = None) -> int:
         }}
 
     rapporto["risoluzione"] = risoluzione()
-    for manifesto, patch in rapporto["risoluzione"].items():
-        for atteso in FORK:
-            if atteso not in patch:
-                rilievi.append(
-                    f"{manifesto}: non patcha «{atteso}», e allora quel "
-                    "workspace compila la versione di crates.io invece del fork"
-                )
-        for nome, dove in patch.items():
-            if nome not in FORK:
-                rilievi.append(
-                    f"{manifesto}: patcha «{nome}», che non e' fra i fork "
-                    "governati: un fork senza lock, senza registro e senza gate"
-                )
-            if not dove["dentro_vendor"] or not dove["esiste"]:
-                rilievi.append(
-                    f"{manifesto}: «{nome}» e' patchato su {dove['path']!r}, che "
-                    "non e' una directory dentro `vendor/`"
-                )
+    for patch in rapporto["risoluzione"]["patch"]:
+        rilievi.append(
+            f"{patch}: una patch vale solo dal workspace radice, e chi dipende "
+            "da noi non la eredita"
+        )
+    dirette = rapporto["risoluzione"]["dipendenze_dirette"]
+    for atteso in FORK:
+        voce = dirette.get(atteso)
+        if voce is None or voce["package"] != f"plenora-fork-{atteso}":
+            rilievi.append(
+                f"Cargo.toml: «{atteso}» non e' una dipendenza diretta del fork "
+                f"con nome proprio, e chi dipende da noi riceverebbe la versione "
+                "di crates.io"
+            )
+    for nome, voce in dirette.items():
+        if not voce["dentro_vendor"]:
+            continue
+        if nome not in FORK:
+            rilievi.append(
+                f"Cargo.toml: «{nome}» dipende da {voce['path']!r}, che non e' fra "
+                "i fork governati: un fork senza lock, senza registro e senza gate"
+            )
+        if not voce["esiste"]:
+            rilievi.append(
+                f"Cargo.toml: «{nome}» dipende da {voce['path']!r}, che non esiste"
+            )
 
     rapporto["rilievi"] = rilievi
 
@@ -494,8 +495,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    delta reale:       non misurato ({confronto['perche'][:60]}...)")
 
     print()
-    for manifesto, patch in rapporto["risoluzione"].items():
-        print(f"    {manifesto}: patcha {', '.join(sorted(patch))}")
+    dirette = rapporto["risoluzione"]["dipendenze_dirette"]
+    for nome in sorted(dirette):
+        voce = dirette[nome]
+        print(f"    {nome}: dipendenza diretta {voce['package']} da {voce['path']}")
+    patch = rapporto["risoluzione"]["patch"]
+    print(f"    [patch]: {', '.join(patch) if patch else 'nessuna'}")
 
     print()
     if rilievi:

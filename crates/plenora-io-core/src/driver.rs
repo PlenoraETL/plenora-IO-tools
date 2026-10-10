@@ -577,9 +577,14 @@ pub fn check_cancelled_periodically(
 /// mestiere e promette una busta d'errore a quattro assi: la barriera
 /// ripristina il contratto, non lo aggira.
 ///
-/// Segnalato a monte: apache/arrow-rs#10575. Va rimossa quando quella issue e'
-/// chiusa e il pin di arrow sale a una versione che rende fallibile la
-/// conversione dello schema.
+/// Segnalato a monte: apache/arrow-rs#10575. Con arrow 60.0.0 i lettori
+/// convertono lo schema con `try_fb_to_schema`, che e' fallibile, e i metadati
+/// incompleti del footer sono un errore: quella parte del difetto e' chiusa.
+/// La barriera resta, perche' non copre solo lo schema: il decoder del corpo
+/// affetta il body con `Buffer::slice_with_length`, che in 60.0.0 **asserisce**
+/// ancora i limiti (`arrow-buffer/src/buffer/immutable.rs:299`), e i decoder di
+/// `parquet` passano dallo stesso bordo. Si toglie quando nessuno dei percorsi
+/// che avvolge puo' piu' panicare su un input, non quando ne guarisce uno.
 ///
 /// # Correttezza dell'unwind safety
 ///

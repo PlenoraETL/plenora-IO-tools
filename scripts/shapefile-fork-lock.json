@@ -1,17 +1,20 @@
 {
   "schema_version": 1,
   "package": "shapefile",
+  "fork_package": "plenora-fork-shapefile",
   "version": "0.9.0",
   "source": "crates.io",
   "crate_sha256": "92fedc0c44dc53a02655cd8dccd2fdf3159c372c0f6eb59115e889f11325e4f0",
   "upstream_revision": "4a8a491a13349393571cf00491836c1e51bf7134",
   "vendor_path": "vendor/shapefile",
   "file_count": 29,
-  "tree_sha256": "509ad92a61ae39732ff0b74ee859cf5bf4d9bf8bcfef3e6e77973e4b015a2386",
+  "tree_sha256": "b5537e00d15a64ebef8c0e4c51eb9fa17e8f3c871c7773a2886cf5bfe54663fc",
   "functional_delta_files": [
     "src/reader.rs",
     "src/record/mod.rs",
     "src/writer.rs"
   ],
-  "packaging_delta_files": []
+  "packaging_delta_files": [
+    "Cargo.toml"
+  ]
 }

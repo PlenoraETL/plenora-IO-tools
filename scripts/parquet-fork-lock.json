@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "package": "parquet",
+  "fork_package": "plenora-fork-parquet",
+  "version": "60.0.0",
+  "source": "crates.io",
+  "crate_sha256": "8af83d2940bc0510f9aef86d865f56fdc6095f87ab115ac885a80b7c5226d3ba",
+  "base": {
+    "repository": "PlenoraETL/plenora-data-tools2",
+    "percorso": "vendor/parquet-60.0.0-eof",
+    "revisione": "3a07e68a8f8f60c86b72ebf36df9a0a672dff32f"
+  },
+  "vendor_path": "vendor/parquet",
+  "file_count": 238,
+  "tree_sha256": "ea478023ba5c0b226658e2fa5bd6914213497f2e03f8c3ad4add5db686b1044b",
+  "functional_delta_files": [
+    "src/arrow/array_reader/byte_array.rs",
+    "src/arrow/array_reader/byte_view_array.rs",
+    "src/arrow/array_reader/fixed_len_byte_array.rs",
+    "src/arrow/decoder/delta_byte_array.rs",
+    "src/encodings/decoding.rs",
+    "src/encodings/decoding/byte_stream_split_decoder.rs",
+    "src/file/metadata/thrift/mod.rs",
+    "src/file/page_index/offset_index.rs",
+    "src/file/reader.rs",
+    "src/file/serialized_reader.rs",
+    "src/parquet_thrift.rs",
+    "src/schema/types.rs"
+  ],
+  "packaging_delta_files": [
+    "Cargo.toml"
+  ]
+}
