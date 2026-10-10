@@ -47,6 +47,21 @@ from fork_comune import fini_riga_divergenti, impronta, insieme_versionato  # no
 
 FORK = ("gdal", "dxf", "shapefile", "parquet")
 
+
+def voci_del_delta(delta: object) -> list:
+    """I file del delta funzionale, nelle due forme dei registri.
+
+    I registri di gdal, dxf e shapefile lo scrivono come elenco di voci con
+    `file`; quello di parquet come mappa da file a motivazione. L'audit leggeva
+    solo la prima forma, e sul registro di parquet si fermava con
+    `AttributeError` invece di riportare.
+    """
+    if isinstance(delta, dict):
+        return sorted(delta)
+    if isinstance(delta, list):
+        return [voce.get("file") if isinstance(voce, dict) else voce for voce in delta]
+    raise SystemExit("audit: `delta_funzionale` non e' ne' un elenco ne' una mappa")
+
 def normalizza_eol(dati: bytes) -> bytes:
     """I fine riga non sono un delta.
 
@@ -236,9 +251,7 @@ def audita(nome: str, scarico: pathlib.Path | None) -> dict:
             "packaging": sorted(lock.get("packaging_delta_files", [])),
         },
         "licenza_upstream": registro.get("licenza_upstream"),
-        "voci_del_registro": [
-            v.get("file") for v in registro.get("delta_funzionale", [])
-        ],
+        "voci_del_registro": voci_del_delta(registro.get("delta_funzionale", [])),
     }
 
     # La licenza: quella che redistribuiamo, non quella che diciamo.
