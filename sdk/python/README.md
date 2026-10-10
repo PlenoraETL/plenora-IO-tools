@@ -22,11 +22,145 @@ questi comandi fanno: leggono e scrivono file, e il costo sta li'.
 * la scoperta del binario, **fail-closed**;
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
-* i cinque comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`,
-  `convert` -- con i modelli tipizzati e i tetti in `Limits`.
+* `version()` del pacchetto e `Client.capabilities()` del binario;
+* i comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`,
+  `read`, `write`, `convert` -- con i modelli tipizzati e i tetti in `Limits`;
+* con l'extra `pyarrow`, `read_table()` e `write()` da un oggetto Arrow.
 
-Manca il packaging: il pacchetto non e' pubblicato da nessuna parte, e si
-installa dal repository.
+Il pacchetto non e' pubblicato su un indice: wheel e sdist si consegnano con
+gli artefatti della release.
+
+## `capabilities()` e `version()`
+
+`Client.capabilities()` rende il documento `plenora-capabilities-v2` del
+**binario** in uso, tipizzato: `Capabilities.operation("io.write")` porta
+versione, stato, superfici, contratti d'ingresso e d'uscita, effetto e
+controlli come attributi, senza testo da analizzare. Lo si chiede al binario e
+non lo si scrive nell'SDK, perche' cio' che conta e' che cosa l'artefatto
+installato espone.
+
+`plenora_io.version()` e' un'altra cosa: la versione del **pacchetto**, letta
+dai metadati installati (`importlib.metadata.version("plenora-io")`). Quella
+del binario la dice `Client.version()`.
+
+Ogni metodo del dominio corrisponde a un'operazione del catalogo
+(`plenora_io.client.OPERAZIONI`): `catalog`, `inspect`, `layers`, `convert`
+alle omonime; `validate`, `read` e `read_table` a `io.read`; `write` a
+`io.write`. Una sonda confronta la mappa con i metodi pubblici e con il
+documento del binario vero.
+
+## L'adattatore Arrow, facoltativo
+
+```
+pip install "plenora_io-<versione>-py3-none-any.whl[pyarrow]"
+```
+
+L'extra installa `pyarrow>=25,<26`, la serie di plenora-data-tools: due
+librerie Plenora nello stesso ambiente stanno sulla stessa pyarrow. Con
+l'extra:
+
+* `Client.read_table(source, ...)` legge in un file Arrow IPC temporaneo e
+  rende `TableRead(table, result)`: la `pa.Table` **e** la busta di `read`,
+  perche' la fedelta' della lettura non si perda per strada;
+* `Client.write(source, ...)` accetta, al posto del percorso, un `pa.Table`, un
+  `pa.RecordBatch`, un `pa.RecordBatchReader` o qualunque oggetto con
+  `__arrow_c_stream__`, scritto a batch in un file IPC temporaneo.
+
+Il file temporaneo sta in `temp_dir`, se indicata, e si cancella al ritorno,
+riuscito o no. `read_table()` tiene la tabella intera in memoria, che e' cio'
+che `pa.Table` e': per un dataset piu' grande della memoria la strada resta
+`read()` su un percorso, letto poi a batch. Senza l'extra, o con un'altra serie
+di pyarrow installata a mano, le due chiamate si rifiutano con
+`OptionalDependencyError` (`unsupported`) prima di eseguire.
+
+## Conformita' a `plenora-python-sdk-v1`
+
+Il contratto e' PYTHON-SDK-1.0 di plenora-contracts (identico fra la revisione
+fissata in `contracts/adoption-source.json` e la v1.1.0, `3c395a8`). Il profilo
+io-tools non richiede la superficie Python e il catalogo comune non la dichiara
+per IO-tools: il pacchetto e' scritto contro il contratto, e lo **reclamera'**
+quando il catalogo lo fara'. Fino ad allora `contracts/adoption-source.json` lo
+tiene fuori dal profilo.
+
+| § | requisito | stato |
+|---|---|---|
+| 2 | nome `plenora-io` / `plenora_io` | conforme |
+| 2 | Python 3.10 o piu' recente | conforme: `>=3.10,<3.15`, tutte provate dalla CI |
+| 2 | `version()` = metadati = nome della wheel | conforme: lo smoke installato lo verifica |
+| 3 | PEP 561, nomi pubblici intenzionali, risultati strutturati | conforme: `py.typed`, `__all__`, dataclass |
+| 3 | Arrow al confine tabellare (SHOULD) | conforme: file Arrow IPC, e oggetti PyArrow con l'extra |
+| 4 | parita' sync/async | solo sync, nessun metodo asincrono nominale; `api_modes: ["sync"]` quando l'artefatto entrera' nel manifesto |
+| 5 | ciclo di vita | non applicabile: `Client` non tiene risorse aperte, ogni chiamata e' un processo atteso fino alla fine |
+| 6 | radice `PlenoraError`, cinque assi su ogni eccezione | conforme dalla 4.2.0: prima li portava solo `CommandFailed` |
+| 6 | redazione dei segreti | non applicabile: nessuna credenziale; i messaggi non riportano contenuti dei documenti |
+| 7 | scoperta strutturata, fail-closed | conforme: `capabilities()` rende il documento del binario con l'interfaccia e la superficie `python_sdk` (CAP-003, CAP-006) |
+| 8 | cancellazione, scadenza, budget (SHOULD) | scadenza e budget in `Limits`; cancellazione limitata, sotto |
+| 9 | sicurezza di rete | non applicabile: nessuna rete |
+| 10 | verifica dell'artefatto installato | conforme: `scripts/smoke-pacchetto-python.sh` e `smoke-sdk-installato.py` |
+| 12 | identita' delle operazioni | conforme: `OPERAZIONI` e la sua sonda |
+
+### Limiti dichiarati
+
+**La cancellazione non e' un parametro.** Regola: PYTHON-SDK-1.0 §8 (SHOULD).
+Ambito: tutti i metodi. Un Ctrl-C e' inoltrato al prodotto soltanto dal thread
+principale e fuori da Windows (`Client.cancellable`); non c'e' un token che il
+chiamante possa armare da un altro thread. Hazard: un lavoro lungo avviato da
+un thread secondario o su Windows si ferma solo con `Client(timeout=...)`, che
+uccide il processo e rende `ProtocolError` con `remote_effect: unknown` se il
+comando scriveva. Rientro: un token di cancellazione dell'SDK inoltrato al
+processo su entrambe le piattaforme.
+
+**Un errore di protocollo dopo una scrittura dice `unknown`.** Non e' una
+deviazione ma una scelta da conoscere: se il processo e' partito e il comando
+scrive (`write`, `convert`, `read` con destinazione), un `ProtocolError` porta
+`remote_effect: unknown` e `retry: never`, perche' che cosa sia rimasto sul
+disco non lo dice una risposta che non si legge. Per i comandi che leggono
+soltanto resta `none`. Vale per ogni guasto dopo l'avvio -- un flusso che non
+e' UTF-8, un errore delle pipe, un timeout -- mentre un processo che non parte
+resta `none`. I messaggi nominano il solo sottocomando (`plenora-io write`),
+mai percorsi e opzioni, e non portano la catena delle eccezioni di pyarrow o
+del sistema (`from None`): il loro testo puo' citare valori della sorgente.
+
+**I temporanei dell'adattatore Arrow.** Una `temp_dir` che non c'e' o non si
+scrive e' `LocalIoError` (`io`, `prepare`). Se la directory temporanea non si
+cancella dopo che `write` ha pubblicato, e' `CleanupError` (ERRORS-1.0, ERR-015:
+`cleanup`, `committed`, `never`): l'operazione e' avvenuta e la directory va
+tolta a mano. `read_table()` che non trova la consegna dichiarata, o non la
+legge come la busta dice, e' `ProtocolError` con `remote_effect: unknown`:
+`read` ha gia' scritto il file, anche se la pulizia che segue fallisce.
+
+**Gli argomenti si verificano prima di eseguire.** Ogni argomento dei metodi
+pubblici e' controllato per tipo esatto prima di diventare una riga di comando:
+un percorso e' `str` o `os.PathLike[str]`, un intero e' un `int` che non e' un
+`bool`, `durable` e' un `bool`, le opzioni sono un dizionario di stringhe la cui
+chiave non contiene `=` (la CLI divide al primo `=`, e la coppia arriverebbe con
+un'altra chiave), e nessun argomento porta un carattere NUL. Il rifiuto e'
+`InvalidArgumentError` con effetto `none`; il messaggio nomina l'argomento, non
+il suo valore, e l'eccezione di `__fspath__` o `__str__` non resta nella
+catena. Non e' una deviazione: prima le stesse chiamate uscivano come
+`TypeError`, `ValueError` di `Popen` o l'eccezione di chi chiama, oppure -- un
+`layer=True`, un `durable="no"` -- diventavano un altro argomento in silenzio.
+Ogni argomento si converte all'ingresso nel tipo base esatto (`str`, `int`,
+`bool`, `dict` di `str`, `Limits` e `timedelta` nuovi), con i metodi non
+legati del tipo base: una sottoclasse con `__str__`, `__format__` o
+`__contains__` ridefiniti non esegue codice dopo il confine. Un intero oltre
+64 bit si rifiuta prima di ogni conversione. E' un cambiamento incompatibile,
+dichiarato in `docs/RELEASE.md`, «Note della prossima release».
+
+**La rete.** Ogni metodo pubblico di ogni tipo esportato, e ogni funzione
+esportata, passa da `confine.confinato`: un'eccezione che nessun punto ha
+tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
+dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
+senza testo e senza catena. I punti noti restano tradotti dove nascono, con
+l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
+nuovo senza rete. Le ricerche nei risultati (`layer`, `field`, `driver`,
+`operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
+messaggio.
+
+L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
+di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`; nella CI con
+pyarrow (`PLENORA_INVENTARIO_STRETTO=1`) un punto la cui prova non e' stata
+eseguita e' rosso.
 
 ## `convert()` e le tre famiglie di opzioni
 

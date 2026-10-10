@@ -115,7 +115,13 @@ else:
 # 6. Il pacchetto non ha guadagnato dipendenze, e non porta binari.
 from importlib import metadata
 
-misure["dipendenze"] = len(metadata.requires("plenora-io") or [])
+# Le dipendenze **obbligatorie**: l'extra `pyarrow` e' facoltativo, e pip
+# lo installa solo a chi lo chiede.
+misure["dipendenze"] = sum(
+    1 for r in (metadata.requires("plenora-io") or []) if "extra ==" not in r
+)
+if misure["dipendenze"]:
+    errori.append("il pacchetto ha dipendenze obbligatorie")
 dentro = pathlib.Path(plenora_io.__file__).parent
 misure["file_del_pacchetto"] = sum(1 for _ in dentro.rglob("*") if _.is_file())
 binari = [p.name for p in dentro.rglob("*") if p.suffix in {".so", ".pyd", ".dll", ".exe"}]

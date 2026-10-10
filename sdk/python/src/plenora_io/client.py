@@ -25,11 +25,17 @@ funzionano, per una difesa che l'SDK non e' il posto giusto per fare.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from . import argomenti as arg
+from . import arrow
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
+from .errors import ProtocolError, copia_json
 from .limits import Limits
 from .models import (
+    Capabilities,
     Catalog,
     ConvertResult,
     Inspect,
@@ -38,7 +44,84 @@ from .models import (
     Version,
     WriteResult,
 )
-from .process import Runner
+from .process import Runner, _con_effetto_ignoto
+
+#: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
+#:
+#: Ogni metodo che invoca una funzionalita' del dominio corrisponde a un
+#: identificatore che `capabilities()` annuncia, nella stessa versione. I nomi
+#: Python possono essere idiomatici -- `validate` e `read` sono due forme di
+#: `io.read`, e `read_table` ne e' l'adattatore Arrow -- ma la validazione, i
+#: default, il significato del risultato e gli effetti sono quelli
+#: dell'operazione. `version` e `capabilities` sono la scoperta, non
+#: operazioni del dominio, e per questo non compaiono.
+#:
+#: Una sonda confronta questa mappa con i metodi pubblici di `Client` e con il
+#: documento del binario vero: un metodo nuovo senza riga, o un'operazione che
+#: il binario non annuncia, e' rosso.
+OPERAZIONI: dict[str, str] = {
+    "catalog": "io.catalog",
+    "inspect": "io.inspect",
+    "layers": "io.layers",
+    "validate": "io.read",
+    "read": "io.read",
+    "read_table": "io.read",
+    "write": "io.write",
+    "convert": "io.convert",
+}
+
+
+#: L'interfaccia che l'SDK aggiunge al documento del binario.
+INTERFACCIA_PYTHON: dict[str, Any] = {
+    "kind": "python_sdk",
+    "contract": "plenora-python-sdk-v1",
+    "version": 1,
+    # Il nome della distribuzione, lo stesso di `plenora_io.DISTRIBUTION` (una
+    # prova lo confronta): importarlo da `__init__` sarebbe circolare.
+    "artifact": "plenora-io",
+}
+
+
+def con_superficie_python(documento: dict[str, Any]) -> dict[str, Any]:
+    """Il documento capabilities del binario con la superficie dell'SDK.
+
+    Una copia: il documento del binario resta quello che il binario ha scritto.
+    `python_sdk` entra solo sulle operazioni che un metodo dell'SDK chiama
+    davvero, e una volta sola anche se il binario la dichiarasse gia'.
+
+    Si chiama **dopo** `Capabilities.from_json` sul documento del binario, che
+    ne verifica la forma: prima, un `"operations": 1` o un `"id": []` davano
+    `TypeError` qui dentro, fuori dalla gerarchia. La copia e' `copia_json`, che
+    traduce anche un annidamento troppo profondo; `deepcopy` non lo faceva.
+    """
+    copia = copia_json(documento, "capabilities")
+    mappate = set(OPERAZIONI.values())
+    interfacce = copia.get("interfaces")
+    if isinstance(interfacce, list) and not any(
+        isinstance(voce, dict) and voce.get("kind") == "python_sdk" for voce in interfacce
+    ):
+        interfacce.append(dict(INTERFACCIA_PYTHON))
+    for operazione in copia.get("operations") or []:
+        if not isinstance(operazione, dict) or operazione.get("id") not in mappate:
+            continue
+        superfici = operazione.get("surfaces")
+        if isinstance(superfici, list) and "python_sdk" not in superfici:
+            superfici.append("python_sdk")
+    return copia
+
+
+@dataclass(frozen=True)
+class TableRead:
+    """L'esito di `read_table()`: la tabella e la busta che la descrive.
+
+    La busta non e' un accessorio. Porta la fedelta' della lettura -- che cosa
+    il formato sorgente non ha potuto dare, e perche' -- e restituire la sola
+    tabella perderebbe quell'informazione in silenzio: una colonna ridotta o
+    una geometria omessa sarebbero indistinguibili da un file letto per intero.
+    """
+
+    table: Any
+    result: Validation
 
 
 class Client:
@@ -55,6 +138,7 @@ class Client:
         *,
         timeout: float | None = None,
     ) -> None:
+        timeout = arg.timeout(timeout)
         percorso = trova_binario(binary)
         self._runner = Runner(percorso, timeout=timeout)
         self._manifest = leggi_manifesto(percorso)
@@ -92,11 +176,40 @@ class Client:
         E' la prima chiamata che ha senso fare: dice che binario si ha in mano,
         e lo dice senza pretendere di conoscere il protocollo.
         """
-        return Version.from_json(self._runner.run(["--version"]))
+        return self._chiama(["--version"], Version)
 
     def catalog(self) -> Catalog:
         """Il catalogo dei driver di **questa** installazione."""
-        return Catalog.from_json(self._runner.run(["catalog"]))
+        return self._chiama(["catalog"], Catalog)
+
+    def capabilities(self) -> Capabilities:
+        """Il documento `plenora-capabilities-v2` di **questo** binario.
+
+        E' la scoperta strutturata che PYTHON-SDK-1.0 §7 chiede prima di
+        un'operazione distruttiva: le operazioni, le versioni, le superfici, i
+        contratti, lo stato e i controlli, tipizzati. Lo si chiede al binario e
+        non lo si scrive nell'SDK, perche' un SDK puo' parlare con un binario
+        piu' vecchio o piu' nuovo di lui, e cio' che conta e' che cosa quello
+        espone.
+
+        # La superficie `python_sdk`
+
+        Il documento descrive **questo** artefatto, e l'artefatto che il
+        chiamante ha in mano e' l'SDK: PYTHON-SDK-1.0 §7 (con CAP-003 e
+        CAP-006) chiede che dichiari la propria superficie. Al documento del
+        binario si aggiungono percio' l'interfaccia `python_sdk`
+        (`plenora-python-sdk-v1`, artefatto `plenora-io`) e la superficie
+        `python_sdk` sulle operazioni che `OPERAZIONI` mappa su un metodo. Il
+        resto -- versioni, contratti, stato, controlli -- e' quello del
+        binario: l'SDK lo inoltra e non ha semantica propria.
+        """
+        documento = self._runner.run(["capabilities"])
+        # Prima si valida il documento del binario, poi lo si arricchisce: un
+        # documento malformato e' `ProtocolError` (effetto `none`, il comando
+        # legge soltanto), e l'arricchimento lavora su una forma nota.
+        argv = ["capabilities"]
+        self._decodifica(documento, Capabilities, argv)
+        return self._decodifica(con_superficie_python(documento), Capabilities, argv)
 
     def inspect(
         self,
@@ -117,9 +230,7 @@ class Client:
         e' dire «lo so io», e resta distinguibile nella busta -- `crs_resolution`
         porta lo `status` che dice da dove il CRS viene.
         """
-        return Inspect.from_json(
-            self._runner.run(self._argomenti("inspect", source, assume_crs, options))
-        )
+        return self._chiama(self._argomenti("inspect", source, assume_crs, options), Inspect)
 
     def layers(
         self,
@@ -133,9 +244,7 @@ class Client:
         Non porta lo schema, ed e' il motivo per cui esiste accanto a
         `inspect()`.
         """
-        return Layers.from_json(
-            self._runner.run(self._argomenti("layers", source, assume_crs, options))
-        )
+        return self._chiama(self._argomenti("layers", source, assume_crs, options), Layers)
 
     def validate(
         self,
@@ -182,12 +291,11 @@ class Client:
         """
         argomenti = self._argomenti("read", source, assume_crs, options)
         if layer is not None:
-            argomenti += ["--layer", str(layer)]
+            argomenti += ["--layer", arg.intero(layer, "layer")]
         if limit is not None:
-            argomenti += ["--limit", str(limit)]
-        if limits is not None:
-            argomenti += limits.to_argv()
-        return Validation.from_json(self._runner.run(argomenti))
+            argomenti += ["--limit", arg.intero(limit, "limit")]
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, Validation)
 
     def read(
         self,
@@ -237,17 +345,79 @@ class Client:
         una combinazione che fallisce sempre.
         """
         argomenti = self._argomenti("read", source, assume_crs, options)
-        argomenti += ["--output", os.fspath(output)]
+        argomenti += ["--output", arg.percorso(output, "output")]
         if layer is not None:
-            argomenti += ["--layer", str(layer)]
-        if limits is not None:
-            argomenti += limits.to_argv()
-        return Validation.from_json(self._runner.run(argomenti))
+            argomenti += ["--layer", arg.intero(layer, "layer")]
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, Validation)
+
+    def read_table(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+        temp_dir: str | os.PathLike[str] | None = None,
+    ) -> TableRead:
+        """`read()` in un file temporaneo, restituito come `pa.Table`.
+
+        Vuole l'extra `plenora-io[pyarrow]`; senza, `OptionalDependencyError`
+        prima di eseguire. La consegna va in un file Arrow IPC dentro
+        `temp_dir` -- o nella directory temporanea del sistema -- e si legge
+        per intero in memoria con la serializzazione che la busta dichiara di
+        aver consegnato; il file si cancella al ritorno, riuscito o no.
+
+        La tabella sta in memoria per intero: e' cio' che `pa.Table` e'. Per un
+        dataset piu' grande della memoria la strada resta `read()` su un
+        percorso, letto poi a batch con `pa.ipc.open_file`.
+
+        Il ritorno porta anche la busta (`TableRead.result`), con la fedelta'
+        della lettura: senza, una perdita dichiarata dal prodotto arriverebbe
+        al chiamante come una tabella qualunque.
+        """
+        # Gli argomenti si normalizzano prima di tutto: un argomento sbagliato
+        # non costa ne' l'import di pyarrow ne' una directory temporanea.
+        self._argomenti("read", source, assume_crs, options)
+        if layer is not None:
+            arg.intero(layer, "layer")
+        limits = arg.limiti(limits)
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
+        arrow.pyarrow()
+        # `committed`: se la pulizia fallisce, il file che `read` ha consegnato
+        # nella directory temporanea resta sul disco.
+        with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
+            consegna = Path(cartella) / "consegna.arrow"
+            esito = self.read(
+                source,
+                consegna,
+                layer=layer,
+                assume_crs=assume_crs,
+                options=options,
+                limits=limits,
+            )
+            # Da qui `read` ha gia' scritto: una consegna non dichiarata o un
+            # file che non si legge come la busta dice sono `ProtocolError`
+            # con effetto `unknown`, non `none` -- il file consegnato c'e', o
+            # c'e' stato, e che cosa contenga non lo dice una risposta che non
+            # torna. Resta `unknown` anche se la pulizia fallisce: la
+            # cartella la segna con `cleanup_failed`, e non tocca l'effetto.
+            try:
+                if esito.delivered is None:
+                    raise ProtocolError(
+                        "`read` con una destinazione e' riuscito senza dichiarare "
+                        "la consegna: non si sa che cosa leggere."
+                    )
+                tabella = arrow.leggi_ipc(consegna, esito.delivered.content_type)
+            except ProtocolError as errore:
+                raise _con_effetto_ignoto(errore, ["read", "--output"]) from None
+        return TableRead(table=tabella, result=esito)
 
 
     def write(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | Any,
         destination: str | os.PathLike[str],
         *,
         format: str,
@@ -258,6 +428,7 @@ class Client:
         options: dict[str, str] | None = None,
         durable: bool = False,
         limits: Limits | None = None,
+        temp_dir: str | os.PathLike[str] | None = None,
     ) -> WriteResult:
         """Pubblica un dataset Arrow in un formato esplicito.
 
@@ -288,22 +459,47 @@ class Client:
         quelle di sempre, tipizzate per categoria: un formato che non sa
         esprimere questi dati fallisce, e il fallimento non lascia una
         destinazione a meta'.
+
+        # Le tre famiglie di opzioni, come in `convert()`
+
+        `read_options` va al lettore del dataset Arrow (`--in-opt`),
+        `write_options` al sink (`--out-opt`), `options` a entrambi (`--opt`).
+
+        # Un oggetto Arrow al posto del percorso
+
+        Con l'extra `plenora-io[pyarrow]`, `source` puo' essere un oggetto che
+        espone `__arrow_c_stream__` -- `pa.Table`, `pa.RecordBatchReader` -- o
+        un `pa.RecordBatch`. Si scrive a batch in un file IPC temporaneo, in
+        `temp_dir` se indicata, e da li' la CLI lo legge come qualunque altro:
+        il contratto, la fedelta' e gli errori sono gli stessi. Il file si
+        cancella al ritorno, riuscito o no. Senza pyarrow la chiamata e'
+        `OptionalDependencyError` prima di eseguire; un oggetto che non e' ne'
+        un percorso ne' un produttore Arrow e' `InvalidArgumentError`.
         """
-        argomenti = self._argomenti("write", source, assume_crs, options)
-        argomenti += [os.fspath(destination), "--to", format]
+        # Tutto cio' che non e' la sorgente si verifica **prima** di scrivere
+        # il file temporaneo: un argomento sbagliato non costa una copia del
+        # dataset sul disco.
+        crs = self._crs(assume_crs)
+        coda = [arg.percorso(destination, "destination"), "--to", arg.testo(format, "format")]
         if layer is not None:
-            argomenti += ["--layer", str(layer)]
-        if durable:
-            argomenti.append("--durable")
-        for bandiera, mappa in (
-            ("--in-opt", read_options),
-            ("--out-opt", write_options),
-        ):
-            for chiave, valore in (mappa or {}).items():
-                argomenti += [bandiera, f"{chiave}={valore}"]
-        if limits is not None:
-            argomenti += limits.to_argv()
-        return WriteResult.from_json(self._runner.run(argomenti))
+            coda += ["--layer", arg.intero(layer, "layer")]
+        if arg.booleano(durable, "durable"):
+            coda.append("--durable")
+        # `options` va a **entrambi** i driver (`--opt`), come in `convert()`.
+        # Fino alla 4.1.1 qui diventava `--in-opt`: lo stesso parametro aveva
+        # due significati nei due metodi, e una chiave del sink passata in
+        # `options` arrivava al solo lettore Arrow invece che anche al sink.
+        coda += self._tre_famiglie(options, read_options, write_options)
+        coda += arg.argv_dei_limiti(arg.limiti(limits))
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
+        if not arrow.e_un_percorso(source):
+            # `committed`: se la pulizia fallisce, `write` ha gia' pubblicato.
+            with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
+                ingresso = arrow.scrivi_ipc(source, Path(cartella))
+                return self._chiama(
+                    ["write", arg.percorso(ingresso, "source"), *crs, *coda], WriteResult
+                )
+        return self._chiama(["write", arg.percorso(source, "source"), *crs, *coda], WriteResult)
 
     def convert(
         self,
@@ -374,29 +570,21 @@ class Client:
         """
         argomenti = [
             "convert",
-            os.fspath(source),
-            os.fspath(target),
+            arg.percorso(source, "source"),
+            arg.percorso(target, "target"),
             "--from",
-            source_format,
+            arg.testo(source_format, "source_format"),
             "--to",
-            target_format,
+            arg.testo(target_format, "target_format"),
         ]
-        if assume_crs is not None:
-            argomenti += ["--assume-crs", assume_crs]
+        argomenti += self._crs(assume_crs)
         if layer is not None:
-            argomenti += ["--layer", str(layer)]
-        if durable:
+            argomenti += ["--layer", arg.intero(layer, "layer")]
+        if arg.booleano(durable, "durable"):
             argomenti.append("--durable")
-        for bandiera, coppie in (
-            ("--opt", options),
-            ("--in-opt", read_options),
-            ("--out-opt", write_options),
-        ):
-            for chiave, valore in (coppie or {}).items():
-                argomenti += [bandiera, f"{chiave}={valore}"]
-        if limits is not None:
-            argomenti += limits.to_argv()
-        return ConvertResult.from_json(self._runner.run(argomenti))
+        argomenti += self._tre_famiglie(options, read_options, write_options)
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, ConvertResult)
 
     @property
     def cancellable(self) -> bool:
@@ -408,7 +596,62 @@ class Client:
         """
         return self._runner.sigint_forwarding_available
 
+    # --- l'esecuzione e la decodifica --------------------------------------
+
+    def _chiama(self, argv: list[str], modello: Any) -> Any:
+        """Esegue, e decodifica il risultato nel modello atteso.
+
+        La decodifica sta qui e non in ciascun metodo per una ragione: un
+        risultato che non si decodifica arriva **dopo** che il processo ha
+        finito, e se il comando scriveva il disco puo' essere cambiato.
+        `ProtocolError` allora porta `remote_effect: unknown`, come quando la
+        busta stessa non si legge.
+        """
+        return self._decodifica(self._runner.run(argv), modello, argv)
+
+    @staticmethod
+    def _decodifica(risultato: Any, modello: Any, argv: list[str]) -> Any:
+        """Il risultato nel modello, o `ProtocolError` (`unknown` se scrive).
+
+        I modelli rifiutano un documento sbagliato con `ProtocolError`, e
+        `test_confini_esterni.IModelli` lo prova campo per campo. Il ramo
+        `Exception` e' la difesa per cio' che quella prova non ha previsto:
+        un'eccezione di Python nata decodificando una risposta esterna e'
+        comunque una risposta che non rispetta il protocollo, e non attraversa
+        il confine con il proprio tipo.
+        """
+        try:
+            return modello.from_json(risultato)
+        except ProtocolError as errore:
+            raise _con_effetto_ignoto(errore, argv) from None
+        except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+            raise _con_effetto_ignoto(
+                ProtocolError(
+                    f"il risultato di `plenora-io {argv[0]}` non si decodifica nel "
+                    f"modello {modello.__name__}."
+                ),
+                argv,
+            ) from None
+
     # --- la riga di argomenti ---------------------------------------------
+
+    @staticmethod
+    def _crs(assume_crs: Any) -> list[str]:
+        if assume_crs is None:
+            return []
+        return ["--assume-crs", arg.testo(assume_crs, "assume_crs")]
+
+    @staticmethod
+    def _tre_famiglie(options: Any, read_options: Any, write_options: Any) -> list[str]:
+        """`--opt`, `--in-opt` e `--out-opt`, ciascuna una per coppia."""
+        argomenti: list[str] = []
+        for bandiera, nome, mappa in (
+            ("--opt", "options", options),
+            ("--in-opt", "read_options", read_options),
+            ("--out-opt", "write_options", write_options),
+        ):
+            argomenti += arg.righe_di_opzioni(bandiera, arg.opzioni(mappa, nome))
+        return argomenti
 
     @staticmethod
     def _argomenti(
@@ -431,9 +674,6 @@ class Client:
         sbagliata passava in silenzio. Ora il driver la vede, e
         `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
         """
-        argomenti = [comando, os.fspath(source)]
-        if assume_crs is not None:
-            argomenti += ["--assume-crs", assume_crs]
-        for chiave, valore in (options or {}).items():
-            argomenti += ["--in-opt", f"{chiave}={valore}"]
+        argomenti = [comando, arg.percorso(source, "source"), *Client._crs(assume_crs)]
+        argomenti += arg.righe_di_opzioni("--in-opt", arg.opzioni(options, "options"))
         return argomenti

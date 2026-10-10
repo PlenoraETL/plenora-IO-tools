@@ -39,7 +39,7 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
-from .errors import ProtocolError, _tipo, copia_json
+from .errors import ProtocolError, ResultLookupError, _tipo, copia_json
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -141,12 +141,13 @@ def _pretendi(
     suggerimenti = typing.get_type_hints(modello)
     rinominati = getattr(modello, "RINOMINATI", {})
     opzionali = getattr(modello, "OPZIONALI", ())
+    annullabili = getattr(modello, "ANNULLABILI", ())
     for campo in tuple(campi) + tuple(c for c in opzionali if c in documento):
         annotazione = suggerimenti[rinominati.get(campo, campo)]
         ammessi = tipi_json(annotazione)
         if ammessi is None:
             continue
-        if campo in opzionali:
+        if campo in opzionali and campo not in annullabili:
             ammessi = ammessi - {"null"}
         valore = documento[campo]
         if _tipo(valore) not in ammessi:
@@ -374,7 +375,7 @@ class Catalog:
         )
 
     def driver(self, identificatore: str) -> Driver:
-        """Il driver con quell'id, o `KeyError`.
+        """Il driver con quell'id, o `ResultLookupError` (anche un `KeyError`).
 
         Non restituisce `None`: un id che non c'e' e' quasi sempre un refuso, e
         un `None` restituito lo trasforma in un `AttributeError` tre righe piu'
@@ -383,8 +384,7 @@ class Catalog:
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
-        noti = ", ".join(sorted(d.id for d in self.drivers))
-        raise KeyError(f"nessun driver «{identificatore}»; il catalogo ha: {noti}")
+        raise ResultLookupError("nessun driver con l'id richiesto nel catalogo.")
 
     @property
     def available(self) -> list[Driver]:
@@ -541,34 +541,51 @@ class CrsResolution:
     assunto dal chiamante hanno lo stesso aspetto in `id`, e solo questo campo
     li distingue. Un consumatore che li confondesse attribuirebbe al file una
     coordinata che gli e' stata suggerita da fuori.
+
+    Solo `status` e' sempre presente: lo schema `plenora-io-inspect-v1` non
+    pretende altro, e per una geometria senza CRS (`missing`) il binario rende
+    `{"status": "missing"}` e basta. Gli altri campi sono `None` quando mancano
+    o valgono `null`; quando ci sono, devono essere testo.
     """
 
-    id: str
-    kind: str
     status: str
-    axis_order: str
-    definition: str | None
-    definition_format: str | None
+    id: str | None = None
+    kind: str | None = None
+    axis_order: str | None = None
+    definition: str | None = None
+    definition_format: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("id", "kind", "status", "axis_order", "definition", "definition_format")
+    OBBLIGATORI = ("status",)
+    OPZIONALI = ("id", "kind", "axis_order", "definition", "definition_format")
+    #: Fra gli opzionali, quelli che quando ci sono possono valere `null`: il
+    #: protocollo li dichiara cosi' (una definizione puo' mancare a un CRS
+    #: risolto per identificatore).
+    ANNULLABILI = ("definition", "definition_format")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls)
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls
+        )
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            status=documento["status"],
+            **{campo: documento.get(campo) for campo in cls.OPZIONALI},
             raw=dict(documento),
         )
 
 
 @dataclass(frozen=True, kw_only=True)
 class Geometry:
-    """La colonna geometrica di un layer, col suo sistema di riferimento."""
+    """La colonna geometrica di un layer, col suo sistema di riferimento.
+
+    `crs` e' `None` per una geometria senza CRS: `crs_resolution.status` dice
+    allora `missing`, ed e' quello il campo da guardare.
+    """
 
     name: str
     kind: str
-    crs: str
+    crs: str | None
     crs_resolution: CrsResolution
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -593,7 +610,8 @@ class Layer:
     id: int
     name: str
     fields: list[Field]
-    geometry: Geometry
+    #: `None` per un layer senza geometria, che il binario legge e scrive.
+    geometry: Geometry | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = ("id", "name", "fields", "geometry")
@@ -610,17 +628,20 @@ class Layer:
             id=documento["id"],
             name=documento["name"],
             fields=[Field.from_json(voce) for voce in colonne],
-            geometry=Geometry.from_json(documento["geometry"]),
+            geometry=(
+                None
+                if documento["geometry"] is None
+                else Geometry.from_json(documento["geometry"])
+            ),
             raw=dict(documento),
         )
 
     def field(self, name: str) -> Field:
-        """La colonna con quel nome, o `KeyError` che elenca quelle che ci sono."""
+        """La colonna con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
-        noti = ", ".join(colonna.name for colonna in self.fields)
-        raise KeyError(f"nessun campo «{name}» nel layer «{self.name}»; ci sono: {noti}")
+        raise ResultLookupError("nessun campo con il nome richiesto nel layer.")
 
     @property
     def attributes(self) -> list[Field]:
@@ -641,7 +662,8 @@ class LayerSummary:
     id: int
     name: str
     field_count: int
-    geometry_crs: str
+    #: `None` per un layer senza geometria o senza CRS.
+    geometry_crs: str | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
@@ -685,12 +707,11 @@ class Inspect:
         )
 
     def layer(self, name: str) -> Layer:
-        """Il layer con quel nome, o `KeyError` che elenca quelli che ci sono."""
+        """Il layer con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -729,8 +750,7 @@ class Layers:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1070,8 +1090,7 @@ class ConvertResult:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}» nella conversione; ci sono: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nella conversione.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1171,3 +1190,186 @@ class WriteResult:
             raw=dict(documento),
         )
 
+
+
+# --- la scoperta delle capacita' --------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityInterface:
+    """Una superficie che l'artefatto espone: tipo, contratto, versione, nome."""
+
+    kind: str
+    contract: str
+    version: int
+    artifact: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("kind", "contract", "version", "artifact")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
+        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities.interfaces[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationContent:
+    """L'ingresso o l'uscita di un'operazione: il contratto e i content type."""
+
+    contract: str
+    content_types: list[str]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("contract", "content_types")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationContent":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[].input", cls
+        )
+        return cls(
+            contract=documento["contract"],
+            content_types=list(documento["content_types"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationControls:
+    """I controlli che l'operazione onora: cancellazione, scadenza, idempotenza."""
+
+    cancellation: bool
+    deadline: bool
+    idempotency_key: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("cancellation", "deadline", "idempotency_key")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationControls":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[].controls", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityOperation:
+    """Un'operazione del documento `capabilities-v2`.
+
+    Identificatore, versione, stato, superfici, contratti, effetto e controlli
+    sono attributi tipizzati: PYTHON-SDK-1.0 §7 pretende che restino leggibili
+    senza analizzare testo. `attributes` e' diagnostica **opaca** (CAP-013):
+    resta un dizionario, e la selezione si fa sui content type.
+    """
+
+    id: str
+    version: int
+    status: str
+    surfaces: list[str]
+    input: OperationContent
+    output: OperationContent
+    side_effect: str
+    controls: OperationControls
+    attributes: dict[str, Any] | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "id",
+        "version",
+        "status",
+        "surfaces",
+        "input",
+        "output",
+        "side_effect",
+        "controls",
+    )
+    #: `attributes` c'e' solo sulle operazioni che dichiarano qualcosa oltre al
+    #: descrittore: oggi `io.read`. Il manifesto del protocollo lo dice
+    #: «sempre» perche' misura la presenza **per busta**, non per elemento:
+    #: `scripts/check_sdk_python.py` lo sa da `OPZIONALI_PER_ELEMENTO`.
+    OPZIONALI = ("attributes",)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityOperation":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[]", cls
+        )
+        return cls(
+            id=documento["id"],
+            version=documento["version"],
+            status=documento["status"],
+            surfaces=list(documento["surfaces"]),
+            input=OperationContent.from_json(documento["input"]),
+            output=OperationContent.from_json(documento["output"]),
+            side_effect=documento["side_effect"],
+            controls=OperationControls.from_json(documento["controls"]),
+            attributes=documento.get("attributes"),
+            raw=dict(documento),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Lo stato e' `available`: l'operazione si puo' chiamare."""
+        return self.status == "available"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Capabilities:
+    """Il documento `plenora-capabilities-v2` del binario in uso.
+
+    E' quello di `plenora-io capabilities` con la superficie dell'SDK: il
+    client aggiunge l'interfaccia `python_sdk` e la superficie `python_sdk`
+    sulle operazioni che espone (PYTHON-SDK-1.0 §7, CAP-003, CAP-006). Tutto
+    il resto e' il documento del binario, tipizzato e non riscritto.
+    """
+
+    schema_version: int
+    component: str
+    component_version: str
+    interfaces: list[CapabilityInterface]
+    operations: list[CapabilityOperation]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
+        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities", cls)
+        if documento["schema_version"] != 2:
+            raise ProtocolError(
+                "capabilities.schema_version non e' 2: l'SDK legge "
+                "`plenora-capabilities-v2` e non indovina un'altra forma."
+            )
+        return cls(
+            schema_version=documento["schema_version"],
+            component=documento["component"],
+            component_version=documento["component_version"],
+            interfaces=[
+                CapabilityInterface.from_json(voce) for voce in documento["interfaces"]
+            ],
+            operations=[
+                CapabilityOperation.from_json(voce) for voce in documento["operations"]
+            ],
+            raw=dict(documento),
+        )
+
+    def operation(self, identificatore: str) -> CapabilityOperation:
+        """L'operazione con quell'id, o `ResultLookupError` (anche un `KeyError`), senza id nel messaggio."""
+        for operazione in self.operations:
+            if operazione.id == identificatore:
+                return operazione
+        raise ResultLookupError("nessuna operazione con l'id richiesto.")

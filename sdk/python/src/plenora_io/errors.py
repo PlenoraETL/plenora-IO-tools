@@ -33,7 +33,73 @@ from typing import Any
 
 
 class PlenoraError(Exception):
-    """La radice: un `except PlenoraError` prende tutto quel che l'SDK solleva."""
+    """La radice: un `except PlenoraError` prende tutto quel che l'SDK solleva.
+
+    # I cinque assi stanno su **ogni** eccezione pubblica
+
+    PYTHON-SDK-1.0 §6 pretende che ogni eccezione pubblica renda leggibili,
+    senza analizzare testo, `category`, `phase`, `remote_effect`, `retry` e
+    `message`, con i valori e il significato di `error-v1.schema.json`. Fino
+    alla 4.1.1 li portava soltanto `CommandFailed`, che li ha dalla busta; gli
+    errori nati nell'SDK -- binario introvabile, manifesto illeggibile, profilo
+    sbagliato, risposta fuori protocollo -- erano eccezioni con il solo testo.
+
+    Qui gli assi hanno un valore per classe, scelto una volta e dichiarato
+    accanto alla classe: `_CATEGORIA` e `_FASE`. L'effetto remoto parte da
+    `none`; `ProtocolError` e' l'unico che lo puo' alzare, perche' e' l'unico
+    che puo' nascere **dopo** che il processo e' partito (vedi `process.py`).
+    Il ritentativo e' sempre `never`: un errore dell'SDK non diventa un
+    successo ripetendo la stessa chiamata, e dire il contrario sarebbe una
+    promessa che nessuno ha verificato.
+    """
+
+    #: La categoria di `error-v1` per gli errori nati nell'SDK.
+    _CATEGORIA = "internal"
+    #: La fase di `error-v1` in cui l'SDK li solleva.
+    _FASE = "validate"
+
+    @property
+    def category(self) -> str:
+        """La categoria di `plenora-error-v1`."""
+        return self._CATEGORIA
+
+    @property
+    def phase(self) -> str:
+        """La fase di `plenora-error-v1`."""
+        return self._FASE
+
+    @property
+    def remote_effect(self) -> str:
+        """L'effetto remoto di `plenora-error-v1`: `none` se nessuno l'ha alzato."""
+        return getattr(self, "_effetto_remoto", None) or "none"
+
+    @property
+    def retry(self) -> dict[str, Any]:
+        """La disposizione al ritentativo, come oggetto `{kind}` nuovo a ogni lettura."""
+        return {"kind": "never"}
+
+    @property
+    def message(self) -> str:
+        """Il messaggio curato, lo stesso di `str(errore)`."""
+        return str(self)
+
+    @property
+    def code(self) -> str | None:
+        """Il codice stabile, quando l'errore ne ha uno: gli errori dell'SDK no."""
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Il documento `plenora-error-v1` dell'errore, con i soli campi che ha."""
+        documento: dict[str, Any] = {
+            "category": self.category,
+            "phase": self.phase,
+            "remote_effect": self.remote_effect,
+            "retry": self.retry,
+            "message": self.message,
+        }
+        if self.code is not None:
+            documento["code"] = self.code
+        return documento
 
 
 class BinaryNotFound(PlenoraError):
@@ -44,7 +110,15 @@ class BinaryNotFound(PlenoraError):
     stata letta, se il `PATH` sia quello giusto, se il nome sia quello atteso.
     """
 
+    #: La configurazione della macchina non porta al binario, e il comando
+    #: non e' partito.
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
+
     def __init__(self, searched: list[str]) -> None:
+        # I **posti**, non i percorsi: il valore della variabile d'ambiente, il
+        # percorso indicato e il `PATH` sono della macchina di chi chiama, e un
+        # errore non porta dati. Chi li vuole li legge dal proprio ambiente.
         self.searched = list(searched)
         posti = "\n".join(f"  - {dove}" for dove in self.searched)
         super().__init__(
@@ -64,6 +138,9 @@ class ManifestError(PlenoraError):
     trattarlo come assente nasconderebbe il guasto.
     """
 
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
+
 
 class ProfileError(PlenoraError):
     """L'artefatto non ha il profilo che il chiamante pretende.
@@ -73,13 +150,30 @@ class ProfileError(PlenoraError):
     parziale e un errore che parla di un driver invece che di un pacchetto.
     """
 
+    #: `unsupported`: e' il caso che PYTHON-SDK-1.0 §7 nomina -- un
+    #: comportamento che questo artefatto non ha si rifiuta chiuso con quella
+    #: categoria, prima di cominciare.
+    _CATEGORIA = "unsupported"
+    _FASE = "validate"
+
     def __init__(self, required: str, actual: str | None) -> None:
         self.required = required
         self.actual = actual
-        quale = f"«{actual}»" if actual else "sconosciuto: nessun manifesto"
+        # Il profilo richiesto non entra nel messaggio: e' un valore di chi
+        # chiama, e sta in `required`. Quello dell'artefatto si nomina solo se
+        # e' uno dei profili noti: il manifesto e' un file, e un valore fuori
+        # vocabolario sarebbe un dato.
+        noti = ("base", "filegdb")
+        if actual is None:
+            quale = "sconosciuto: nessun manifesto"
+        elif actual in noti:
+            quale = f"«{actual}»"
+        else:
+            quale = "fuori vocabolario"
         super().__init__(
-            f"questo artefatto ha profilo {quale} e ne serve «{required}». "
-            "I profili si scelgono al momento di installare, non a runtime."
+            f"questo artefatto ha profilo {quale} e non quello richiesto "
+            f"(profili noti: {', '.join(noti)}). I profili si scelgono al "
+            "momento di installare, non a runtime."
         )
 
 
@@ -90,7 +184,128 @@ class ProtocolError(PlenoraError):
     che non c'e'. E' fail-closed per scelta: un SDK che tirasse a indovinare i
     campi mancanti trasformerebbe l'incompatibilita' di versione in dati
     sbagliati piu' avanti, dove nessuno la riconosce piu'.
+
+    # L'effetto remoto non e' sempre `none`
+
+    Un `ProtocolError` puo' nascere prima che il processo parta -- il binario
+    non si esegue -- o dopo: una busta illeggibile, un timeout che uccide il
+    processo. Nel secondo caso, se il comando scrive (`write`, `convert`,
+    `read` con una destinazione), non si sa che cosa sia rimasto sul disco, e
+    l'effetto e' `unknown`: lo alza `Runner`, che e' l'unico a sapere se il
+    processo e' partito e che comando fosse. Un `none` li' direbbe a chi
+    decide se ripetere che non e' successo niente, ed e' esattamente cio' che
+    nessuno sa.
     """
+
+    _CATEGORIA = "protocol"
+    _FASE = "finalize"
+
+
+class LocalIoError(PlenoraError):
+    """Un'operazione dell'SDK sul filesystem locale e' fallita prima di eseguire.
+
+    Oggi e' la directory temporanea dell'adattatore Arrow: una `temp_dir` che
+    non esiste o non si puo' scrivere, o il file IPC temporaneo che non si
+    scrive. Il comando non e' partito, e l'effetto e' `none`. L'errore del
+    sistema operativo non entra nel messaggio ne' nella catena: porta il
+    percorso di chi chiama.
+    """
+
+    _CATEGORIA = "io"
+    _FASE = "prepare"
+
+
+class CleanupError(PlenoraError):
+    """Il comando e' riuscito, e la pulizia dei file temporanei dell'SDK no.
+
+    ERRORS-1.0, ERR-015: un fallimento di pulizia dopo che l'effetto e' gia'
+    avvenuto non si fa passare per un fallimento dell'operazione. La fase e'
+    `cleanup`, l'effetto e' quello gia' avvenuto -- `committed` per `write`,
+    che ha pubblicato la destinazione -- e il ritentativo e' `never`: ripetere
+    la chiamata ripeterebbe l'effetto. Resta da togliere a mano la directory
+    temporanea, il cui percorso non e' nel messaggio.
+    """
+
+    _CATEGORIA = "io"
+    _FASE = "cleanup"
+
+    def __init__(self, message: str, *, remote_effect: str) -> None:
+        super().__init__(message)
+        self._effetto_remoto = remote_effect
+
+
+class InvalidArgumentError(PlenoraError):
+    """Un argomento che l'SDK non sa trasformare in una riga di comando.
+
+    Per esempio un oggetto che non e' un percorso e non espone
+    `__arrow_c_stream__`, passato come sorgente di `write()`. Si rifiuta prima
+    di eseguire, e non si ripiega su un'interpretazione: un argomento ignorato
+    o tradotto con un altro significato e' cio' che PYTHON-SDK-1.0 §7 vieta.
+    """
+
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "validate"
+
+
+class OptionalDependencyError(PlenoraError):
+    """Serve una dipendenza facoltativa che non e' installata.
+
+    L'adattatore Arrow (`read_table()`, `write()` da un oggetto Arrow) vuole
+    `pyarrow`, che il pacchetto dichiara come extra `plenora-io[pyarrow]` e non
+    come dipendenza: chi lavora per percorsi non lo paga. Senza, la chiamata si
+    rifiuta con `unsupported` prima di eseguire niente.
+    """
+
+    _CATEGORIA = "unsupported"
+    _FASE = "validate"
+
+
+class UnexpectedError(PlenoraError):
+    """Un'eccezione che nessun punto dell'SDK ha tradotto, presa dalla rete.
+
+    Ogni metodo pubblico passa da `confine.confinato`: un'eccezione che non e'
+    un `PlenoraError` -- di Python, di una dipendenza, di codice del chiamante
+    -- diventa questa, senza messaggio originale e senza catena. I punti noti
+    restano tradotti dove nascono, con l'effetto preciso; questa e' la rete
+    per quelli che nessuno ha previsto, e il suo effetto e' **conservativo**:
+    `none` se nessun comando e' partito, `unknown` se e' partito un comando che
+    scrive.
+    """
+
+    _CATEGORIA = "internal"
+    _FASE = "validate"
+
+    def __init__(self, message: str, *, remote_effect: str = "none") -> None:
+        super().__init__(message)
+        self._effetto_remoto = remote_effect
+
+
+class PackageMetadataError(PlenoraError):
+    """I metadati del pacchetto installato non si leggono.
+
+    `version()` legge i metadati della distribuzione: da un checkout non
+    installato non ci sono, e la risposta non e' `__version__`, che direbbe una
+    cosa diversa da cio' che e' installato.
+    """
+
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
+
+
+class ResultLookupError(PlenoraError, KeyError):
+    """Un nome cercato in un risultato -- layer, campo, driver, operazione -- non c'e'.
+
+    E' anche un `KeyError`, come prima, perche' chi lo intercettava cosi' non
+    debba cambiare. Il messaggio non riporta il nome cercato ne' quelli che ci
+    sono: sono nomi del file o del chiamante, e un errore non porta dati. Chi
+    vuole sapere che cosa c'e' legge il risultato.
+    """
+
+    _CATEGORIA = "not_found"
+    _FASE = "validate"
+
+    # `KeyError` mostra il `repr` dell'argomento; qui il messaggio e' testo.
+    __str__ = Exception.__str__
 
 
 @dataclass(frozen=True)
@@ -316,7 +531,7 @@ def _tipo(valore: Any) -> str:
     return "non JSON"
 
 
-def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
+def copia_json(valore: Any, dove: str) -> Any:
     """Una copia profonda di un valore JSON, ricostruita con i soli tipi esatti.
 
     Ogni oggetto ed elenco e' nuovo; le foglie sono di tipo **identico** a
@@ -328,7 +543,20 @@ def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
     Il messaggio non vi aggiunge le chiavi del documento -- sono dati di chi
     l'ha scritto, una colonna di `row_diagnostics` per esempio -- ma soltanto
     la profondita' a cui il difetto sta.
+
+    La copia e' ricorsiva, e un documento che `json.loads` accetta puo' essere
+    piu' profondo di quanto lo stack di Python regga qui: `RecursionError`
+    diventa `ProtocolError`, invece di attraversare il confine.
     """
+    try:
+        return _copia_json(valore, dove, 0)
+    except RecursionError:
+        raise ProtocolError(
+            f"`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare."
+        ) from None
+
+
+def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
     tipo = _tipo(valore)
     if tipo == "object":
         copia = {}
@@ -338,10 +566,10 @@ def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
                     f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
                     f"{_tipo(chiave)} e non una stringa."
                 )
-            copia[chiave] = copia_json(interno, dove, _profondita + 1)
+            copia[chiave] = _copia_json(interno, dove, _profondita + 1)
         return copia
     if tipo == "array":
-        return [copia_json(interno, dove, _profondita + 1) for interno in valore]
+        return [_copia_json(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
         raise ProtocolError(
             f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
@@ -389,15 +617,31 @@ def carica_json(testo: str) -> Any:
     un numero come `1e400` diventa infinito per trabocco; una chiave ripetuta
     nello stesso oggetto si risolve tenendo l'ultima. Sono modi in cui un
     documento diverso da quello scritto arriverebbe ai modelli senza che
-    nessuno lo veda: qui sono `ProtocolError`. Gli errori di sintassi restano
-    `json.JSONDecodeError`, come prima.
+    nessuno lo veda: qui sono `ProtocolError`.
+
+    Lo sono anche **tutti** i modi in cui il parser fallisce, non solo la
+    sintassi: `json.loads` solleva `RecursionError` su un annidamento profondo
+    e `ValueError` su un intero oltre il limite di cifre di Python, e prima
+    uscivano com'erano -- fuori dalla gerarchia, e per un comando che scrive
+    senza l'effetto `unknown`. Il messaggio dice posizione e motivo, mai il
+    testo; `from None` taglia la catena, che porterebbe il documento in `doc`.
     """
-    return json.loads(
-        testo,
-        object_pairs_hook=_rifiuta_chiavi_doppie,
-        parse_constant=_rifiuta_costante,
-        parse_float=_float_finito,
-    )
+    try:
+        return json.loads(
+            testo,
+            object_pairs_hook=_rifiuta_chiavi_doppie,
+            parse_constant=_rifiuta_costante,
+            parse_float=_float_finito,
+        )
+    except ProtocolError:
+        raise
+    except json.JSONDecodeError as errore:
+        motivo = f"{errore.msg}, riga {errore.lineno}, colonna {errore.colno}"
+    except RecursionError:
+        motivo = "annidamento oltre la profondita' che il parser regge"
+    except ValueError:
+        motivo = "un valore che il parser non converte, come un intero oltre il limite di cifre"
+    raise ProtocolError(f"il documento non e' JSON valido ({motivo}).") from None
 
 
 def _valida_busta(busta: "ErrorEnvelope") -> None:
@@ -474,11 +718,52 @@ class CommandFailed(PlenoraError):
         self.envelope = envelope
         self.exit_code = exit_code
         self.argv = list(argv or [])
+        # Il solo nome del sottocomando: la riga intera porta percorsi e opzioni
+        # di chi chiama, che restano in `argv` e non entrano nel messaggio.
+        nome = self.argv[0] if self.argv and self.argv[0].replace("-", "").isalnum() else "?"
         super().__init__(
-            f"`plenora-io {' '.join(self.argv)}` e' uscito con {exit_code}: "
+            f"`plenora-io {nome}` e' uscito con {exit_code}: "
             f"[{envelope.category}/{envelope.phase}] "
             f"{envelope.code}: {envelope.message}"
         )
+
+    # I cinque assi vengono dalla busta, non dai default della radice.
+
+    @property
+    def category(self) -> str:
+        return self.envelope.category
+
+    @property
+    def phase(self) -> str:
+        return self.envelope.phase
+
+    @property
+    def remote_effect(self) -> str:
+        # La decisione fissata alla costruzione, non il campo pubblico: chi
+        # cambia `envelope.remote_effect` cambia la propria copia.
+        return self.envelope._effetto_remoto
+
+    @property
+    def retry(self) -> dict[str, Any]:
+        """La disposizione fissata alla costruzione, come oggetto nuovo.
+
+        Ricostruita dalle decisioni private della busta e non copiata da
+        `envelope.retry`: quel campo e' una copia che chi la tiene puo'
+        cambiare, e l'asse dell'eccezione deve dire cio' che e' stato validato.
+        """
+        busta = self.envelope
+        if busta._tipo_di_ritentativo == "after":
+            return {"kind": "after", "delay_ms": busta._ritardo_ms}
+        return {"kind": busta._tipo_di_ritentativo}
+
+    @property
+    def message(self) -> str:
+        """Il messaggio della busta, senza la riga di comando che lo precede."""
+        return self.envelope.message
+
+    @property
+    def code(self) -> str | None:
+        return self.envelope.code
 
     @property
     def retryable(self) -> bool:

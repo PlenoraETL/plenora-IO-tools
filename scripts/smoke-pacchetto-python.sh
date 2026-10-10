@@ -111,7 +111,34 @@ assert d["Version"] == "$ATTESA", "i metadati dichiarano un'altra versione"
 assert "Private :: Do Not Upload" in d.get_all("Classifier"), (
     "manca il classificatore che impedisce la pubblicazione su un indice"
 )
-assert not metadata.requires("plenora-io"), "il pacchetto ha guadagnato dipendenze"
+# Nessuna dipendenza **obbligatoria**: le sole righe ammesse sono quelle
+# dell'extra pyarrow, che pip installa soltanto a chi lo chiede (niente
+# backtick qui: l'heredoc non e' quotato e bash li eseguirebbe).
+requisiti = metadata.requires("plenora-io") or []
+obbligatori = [r for r in requisiti if "extra ==" not in r]
+assert not obbligatori, "il pacchetto ha guadagnato dipendenze obbligatorie"
+assert requisiti == ['pyarrow<26,>=25; extra == "pyarrow"'], (
+    "l'extra pyarrow non e' quello dichiarato"
+)
+assert d.get_all("Provides-Extra") == ["pyarrow"], "Provides-Extra inatteso"
+FINE
+
+# --- 2-bis. `version()` e' quella dei metadati -----------------------------
+#
+# PYTHON-SDK-1.0 §2: `plenora_io.version()` rende i metadati installati, che
+# coincidono con `__version__` e con il nome della wheel.
+echo "=== 2-bis. version() del pacchetto installato"
+"$LAVORO/da-wheel/bin/python" - <<FINE
+from importlib import metadata
+import plenora_io
+
+assert plenora_io.version() == metadata.version("plenora-io") == "$ATTESA", (
+    "version(), i metadati e la versione attesa non coincidono"
+)
+assert "$(basename "$WHEEL")".startswith(f"plenora_io-{plenora_io.version()}-"), (
+    "il nome della wheel non porta la versione dei metadati"
+)
+print("   version():", plenora_io.version())
 FINE
 
 # --- 3. la sdist: si ricostruisce e si installa ----------------------------

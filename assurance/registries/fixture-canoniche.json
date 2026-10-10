@@ -445,6 +445,16 @@
       "percorso": "canonico_punti_z.shx",
       "byte": 116,
       "sha256": "cd4ea381067ab693721db4d7cf5ad31374a04039c16a7da70b9805e32342799d"
+    },
+    {
+      "percorso": "canonico_senza_crs.arrow",
+      "byte": 4802,
+      "sha256": "fb6f4c073905daca70fd49c0b7123de288179c72dc2f70f20bb42aa8f980c945"
+    },
+    {
+      "percorso": "canonico_senza_geometria.arrow",
+      "byte": 3138,
+      "sha256": "918678606f61bdba876ce1989f879119122bad7a84a99dd0ce5f2ddc897eedaa"
     }
   ]
 }

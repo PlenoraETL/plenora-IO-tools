@@ -1255,3 +1255,41 @@ elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
+
+## Note della prossima release
+
+Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
+alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
+la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
+numero di versione, `__version__` e il README dell'SDK si allineano al momento
+del rilascio, non qui.
+
+### Cambiamenti incompatibili dell'SDK Python
+
+La policy della sezione «La candidate `1.0.1` non qualifica HEAD» vuole un
+major quando l'insieme degli ingressi accettati si restringe, anche se prima
+l'ingresso dava un risultato sbagliato. Le voci qui sotto lo restringono: la
+prossima release è percio' una **major** (5.0.0).
+
+- **Gli argomenti si verificano per tipo esatto.** `layer`, `limit` e i campi
+  di `Limits` sono `int` che non sono `bool`, entro 64 bit; `durable` è un
+  `bool`; i percorsi sono `str` o `os.PathLike[str]`; le opzioni sono un
+  dizionario di stringhe la cui chiave non contiene `=`; nessun argomento porta
+  un carattere NUL o un surrogato non codificabile. Prima `layer="1"` e
+  `durable=1` erano accettati (il secondo come vero, anche `durable="no"`);
+  ora sono `InvalidArgumentError` con effetto `none`, prima di eseguire.
+- **Le ricerche nei risultati** (`Inspect.layer`, `Layer.field`,
+  `Catalog.driver`, `Capabilities.operation`, `Layers.layer`,
+  `ConvertResult.layer`) sollevano `ResultLookupError`, che è anche un
+  `KeyError`: chi intercettava `KeyError` non cambia. Il messaggio non riporta
+  più il nome cercato né quelli presenti.
+- **`version()` senza metadati** solleva `PackageMetadataError` invece di
+  `importlib.metadata.PackageNotFoundError`.
+- **Nessuna eccezione esterna attraversa un metodo pubblico.** Una che nessun
+  punto traduce diventa `UnexpectedError` (`internal`), con effetto `none` prima
+  dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive.
+- **I messaggi non portano dati.** `BinaryNotFound` nomina i posti in cui ha
+  cercato, non i percorsi né il `PATH`; `ManifestError` non riporta il percorso
+  del manifesto; `ProfileError` non riporta il profilo richiesto.
+- **`Limits(deadline=...)`** arriva alla CLI in millisecondi calcolati in
+  interi: una durata oltre 2^53 microsecondi perdeva i millisecondi.

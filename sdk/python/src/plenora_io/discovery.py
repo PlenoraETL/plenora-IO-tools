@@ -33,14 +33,24 @@ nasconderebbe il guasto.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import BinaryNotFound, ManifestError, ProfileError, ProtocolError, _tipo, carica_json, copia_json
+from .argomenti import testo
+from .errors import (
+    BinaryNotFound,
+    InvalidArgumentError,
+    LocalIoError,
+    ManifestError,
+    ProfileError,
+    ProtocolError,
+    _tipo,
+    carica_json,
+    copia_json,
+)
 
 #: Il nome dell'eseguibile, senza estensione: `shutil.which` aggiunge da se'
 #: quelle che la piattaforma usa.
@@ -62,11 +72,59 @@ def _albero_accanto_al_pacchetto() -> Path | None:
     directory `bin` qualunque nel percorso di installazione non e' un albero
     distribuito, e prenderla per tale farebbe eseguire un binario altrui.
     """
-    for radice in Path(__file__).resolve().parents:
+    for radice in _risolto(Path(__file__), "il pacchetto installato").parents:
         candidato = radice / "bin" / NOME
-        if candidato.is_file() and (radice / MANIFESTO).is_file():
+        if _e_un_file(candidato, "un candidato del binario") and _e_un_file(
+            radice / MANIFESTO, "il manifesto dell'artefatto"
+        ):
             return candidato
     return None
+
+
+def _e_un_file(percorso: Path, che_cosa: str) -> bool:
+    """`Path.is_file()`, con il guasto tradotto invece che inghiottito.
+
+    `is_file()` rende `False` per un percorso che non c'e', ma solleva
+    `OSError` per uno che non si puo' esaminare -- un permesso negato su una
+    directory intermedia. Trattarlo da assente farebbe passare la ricerca al
+    candidato successivo, e il binario scelto sarebbe un altro da quello che
+    il primo posto indicava, in silenzio: e' `LocalIoError`.
+    """
+    try:
+        return percorso.is_file()
+    except OSError:
+        raise LocalIoError(
+            f"{che_cosa} non si e' potuto esaminare: un permesso o un guasto del "
+            "filesystem impedisce di dire se c'e'."
+        ) from None
+
+
+def _risolto(percorso: Path, che_cosa: str) -> Path:
+    """`Path.resolve()`, con il guasto tradotto: un ciclo di collegamenti
+    (`RuntimeError` fino a Python 3.12, `OSError` dopo) o un permesso."""
+    try:
+        return percorso.resolve()
+    except (OSError, RuntimeError):
+        raise LocalIoError(
+            f"{che_cosa} non si e' potuto risolvere in un percorso assoluto."
+        ) from None
+
+
+def _percorso_indicato(esplicito: Any) -> Path:
+    """Il percorso passato a `Client(binary=...)`, o `InvalidArgumentError`.
+
+    `Path()` chiama `__fspath__`, che e' codice di chi chiama e puo' sollevare
+    qualunque cosa, e rifiuta con `TypeError` cio' che non e' un percorso.
+    """
+    try:
+        percorso = Path(esplicito)
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise InvalidArgumentError(
+            "`binary` non e' un percorso: serve una `str` o un `os.PathLike`."
+        ) from None
+    if "\x00" in str(percorso):
+        raise InvalidArgumentError("`binary` contiene un carattere NUL.")
+    return percorso
 
 
 def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
@@ -74,29 +132,37 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     cercati: list[str] = []
 
     if esplicito is not None:
-        percorso = Path(esplicito)
-        cercati.append(f"il percorso indicato: {percorso}")
-        if percorso.is_file():
-            return percorso.resolve()
+        percorso = _percorso_indicato(esplicito)
+        cercati.append("il percorso indicato con Client(binary=...)")
+        if _e_un_file(percorso, "il percorso indicato"):
+            return _risolto(percorso, "il percorso indicato")
 
     dall_ambiente = os.environ.get(VARIABILE)
     if dall_ambiente:
         percorso = Path(dall_ambiente)
-        cercati.append(f"{VARIABILE}={percorso}")
-        if percorso.is_file():
-            return percorso.resolve()
+        cercati.append(f"la variabile d'ambiente {VARIABILE}")
+        if _e_un_file(percorso, VARIABILE):
+            return _risolto(percorso, VARIABILE)
     else:
         cercati.append(f"{VARIABILE} (non impostata)")
 
     accanto = _albero_accanto_al_pacchetto()
     cercati.append("bin/plenora-io accanto al pacchetto, con MANIFEST.json")
     if accanto is not None:
-        return accanto.resolve()
+        return _risolto(accanto, "il binario accanto al pacchetto")
 
-    dal_path = shutil.which(NOME)
-    cercati.append(f"PATH ({os.environ.get('PATH', '')[:120]}...)")
+    # `shutil.which` legge `PATH` e il filesystem: un `PATH` con un NUL o una
+    # voce che non si esamina solleva, e non e' un binario introvabile.
+    try:
+        dal_path = shutil.which(NOME)
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise LocalIoError(
+            "la ricerca del binario nel `PATH` non si e' potuta fare: una voce "
+            "del `PATH` non si esamina."
+        ) from None
+    cercati.append("il `PATH`")
     if dal_path:
-        return Path(dal_path).resolve()
+        return _risolto(Path(dal_path), "il binario dal PATH")
 
     raise BinaryNotFound(cercati)
 
@@ -157,7 +223,7 @@ class Manifest:
         try:
             documento = copia_json(documento, "MANIFEST.json")
         except ProtocolError as errore:
-            raise ManifestError(str(errore)) from errore
+            raise ManifestError(str(errore)) from None
         return cls(
             name=documento["nome"],
             version=documento["versione"],
@@ -181,23 +247,30 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     """
     radice = binario.parent.parent
     percorso = radice / MANIFESTO
-    if not percorso.is_file():
+    if not _e_un_file(percorso, "il manifesto dell'artefatto"):
         return None
+    # Tre guasti, una traduzione: il file che non si legge, i byte che non
+    # sono UTF-8, il testo che non e' JSON. Un manifesto rotto non e' un
+    # manifesto assente -- l'artefatto e' guasto -- e nessuno dei tre lascia
+    # la propria eccezione nella catena (`from None`): il testo del sistema o
+    # del parser puo' citare il contenuto, e il percorso nel messaggio basta.
     try:
         testo = percorso.read_text(encoding="utf-8")
-    except OSError as errore:
-        raise ManifestError(f"{percorso} non si legge: {errore}") from errore
+    except OSError:
+        raise ManifestError(f"{MANIFESTO} c'e' e non si legge.") from None
+    except UnicodeDecodeError:
+        raise ManifestError(
+            f"{MANIFESTO} c'e' e non e' UTF-8: l'artefatto e' guasto."
+        ) from None
     try:
         documento = carica_json(testo)
     except ProtocolError as errore:
-        raise ManifestError(f"{percorso}: {errore}") from errore
-    except json.JSONDecodeError as errore:
         raise ManifestError(
-            f"{percorso} c'e' e non e' JSON valido: {errore}. Un manifesto "
+            f"{MANIFESTO} c'e' e non si legge come JSON: {errore} Un manifesto "
             "rotto non e' un manifesto assente: l'artefatto e' guasto."
-        ) from errore
+        ) from None
     if _tipo(documento) != "object":
-        raise ManifestError(f"{percorso} non contiene un oggetto JSON.")
+        raise ManifestError(f"{MANIFESTO} non contiene un oggetto JSON.")
     return Manifest.from_json(documento)
 
 
@@ -217,6 +290,10 @@ def verifica_profilo(manifesto: Manifest | None, richiesto: str) -> None:
     chi sta provando trasformerebbe questa verifica in un augurio, e il
     fallimento tornerebbe piu' avanti con un altro nome.
     """
+    # `ProfileError` cita il profilo richiesto: un oggetto qualunque passerebbe
+    # il proprio `__format__`, che e' codice di chi chiama, e un NUL non e' il
+    # nome di un profilo.
+    richiesto = testo(richiesto, "profile")
     if richiesto not in PROFILI:
         raise ProfileError(richiesto, manifesto.profile if manifesto else None)
     if manifesto is None or manifesto.profile != richiesto:

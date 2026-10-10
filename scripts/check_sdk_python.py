@@ -133,6 +133,28 @@ POSTI: dict[str, tuple[str, str]] = {
     # gli indici opzionali, e un confronto altrove direbbe che `field_index`
     # non esiste. Il tipo e' lo stesso -- e' il caso che cambia.
     "FidelityReason": ("convert", ".result.conversion_fidelity.reasons[]"),
+    "Capabilities": ("capabilities", ".result"),
+    "CapabilityInterface": ("capabilities", ".result.interfaces[]"),
+    "CapabilityOperation": ("capabilities", ".result.operations[]"),
+    "OperationControls": ("capabilities", ".result.operations[].controls"),
+    # `input` e `output` hanno la stessa forma e lo stesso modello: il
+    # confronto si fa sull'ingresso, e `OperationContent` legge entrambi.
+    "OperationContent": ("capabilities", ".result.operations[].input"),
+}
+
+#: I campi che il manifesto dice «sempre» e che un **elemento** puo' non avere.
+#:
+#: La colonna `sempre` di `release/cli-protocol-v2.json` misura la presenza
+#: per busta: un campo dentro un elenco e' «sempre» se ogni busta osservata lo
+#: porta in **almeno un** elemento. Un modello per elemento non puo' pretenderlo
+#: da ciascuno. Dichiarati qui, con la ragione, invece che accettati da una
+#: regola generale: un'eccezione che si estende da sola smetterebbe di vedere
+#: un campo davvero obbligatorio che il modello ha dimenticato.
+OPZIONALI_PER_ELEMENTO: dict[str, str] = {
+    ".result.operations[].attributes": (
+        "CAPABILITY-DISCOVERY-2.0 lo rende facoltativo per operazione, e oggi "
+        "solo `io.read` lo porta; il modello lo dichiara in `OPZIONALI`."
+    ),
 }
 
 #: I modelli che dichiarano campi **propri** oltre a quelli ereditati.
@@ -221,8 +243,12 @@ def confronta(
         ripetuti = sorted({c for c in dichiarati if dichiarati.count(c) > 1})
         problemi.append(f"{nome}: gli elenchi ripetono {ripetuti}")
 
-    sempre = {campo for campo, s in attesi.items() if s}
-    a_volte = {campo for campo, s in attesi.items() if not s}
+    sempre = {
+        campo
+        for campo, s in attesi.items()
+        if s and f"{dove}.{campo}" not in OPZIONALI_PER_ELEMENTO
+    }
+    a_volte = {campo for campo, s in attesi.items() if campo not in sempre}
 
     for campo in sorted(sempre - set(obbligatori)):
         problemi.append(
@@ -380,6 +406,9 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
             else tuple(classe.OBBLIGATORI)
         )
         opzionali = tuple(getattr(classe, "OPZIONALI", ()))
+        # Gli opzionali che quando ci sono possono valere `null`: il modello li
+        # dichiara in `ANNULLABILI`, e per loro il `null` e' un valore del wire.
+        annullabili = tuple(getattr(classe, "ANNULLABILI", ()))
         rinominati_qui = getattr(classe, "RINOMINATI", {})
         for campo in obbligatori + opzionali:
             annotazione = suggerimenti[rinominati_qui.get(campo, campo)]
@@ -394,7 +423,7 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
                     f"{sorted(dichiarati)}: la validazione non lo guarderebbe."
                 )
                 continue
-            if campo in opzionali:
+            if campo in opzionali and campo not in annullabili:
                 ammessi = ammessi - {"null"}
             if set(ammessi) != dichiarati:
                 problemi.append(
@@ -530,6 +559,24 @@ def main() -> int:
             problemi.append(
                 f"«{percorso}» e' dichiarato grezzo e il protocollo non lo "
                 "contiene piu': l'esenzione non ha piu' un oggetto."
+            )
+
+    for percorso in OPZIONALI_PER_ELEMENTO:
+        dichiarati = [
+            voce["struttura"].get(percorso)
+            for voce in manifesto["envelopes"].values()
+            if percorso in voce.get("struttura", {})
+        ]
+        if not dichiarati:
+            problemi.append(
+                f"«{percorso}» e' dichiarato facoltativo per elemento e il "
+                "protocollo non lo contiene piu': l'eccezione non ha piu' un "
+                "oggetto."
+            )
+        elif "[]" not in percorso:
+            problemi.append(
+                f"«{percorso}» non sta dentro un elenco: la presenza per busta e "
+                "quella per elemento coincidono, e l'eccezione non ha ragione."
             )
 
     # --- i tetti, contro le opzioni che la CLI ammette ---------------------

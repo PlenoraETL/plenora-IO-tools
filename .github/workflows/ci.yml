@@ -465,6 +465,25 @@ jobs:
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo test --workspace --all-targets --locked
+      # L'SDK Python con l'extra `pyarrow`, su Windows. La matrice Python gira
+      # su Linux; su Windows l'adattatore Arrow era provato solo dallo smoke
+      # manuale di distribuzione. Una versione basta: cio' che cambia fra le
+      # piattaforme sono i file temporanei, la loro cancellazione e i percorsi,
+      # non la versione dell'interprete. pyarrow e' fissato alla versione
+      # esatta con cui si prova, e solo da ruote binarie.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: "3.12"
+      - name: SDK Python con pyarrow su Windows
+        shell: pwsh
+        run: |
+          python -m pip install --only-binary=":all:" pyarrow==25.0.1
+          $env:PYTHONPATH = "sdk/python/src"
+          $env:PLENORA_IO_BIN = (Resolve-Path target/debug/plenora-io.exe).Path
+          # Con pyarrow ogni punto dell'inventario dei confini deve avere una
+          # prova eseguita: un punto provato solo da test saltati e' rosso.
+          $env:PLENORA_INVENTARIO_STRETTO = "1"
+          python -m unittest discover -s sdk/python/tests -p "test_*.py"
 
   gdal-linux-matrix:
     strategy:
@@ -593,7 +612,7 @@ jobs:
 
   # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
   #
-  # E' il job che rende onesta quella riga. `>=3.11,<3.14` non e' una stima: e'
+  # E' il job che rende onesta quella riga. `>=3.10,<3.15` non e' una stima: e'
   # l'insieme che questa matrice prova, e allargarla senza allargare la matrice
   # prometterebbe un Python su cui nessuno ha guardato. Il gate
   # `check_requires_python.py` confronta le due cose e diventa rosso se
@@ -706,7 +725,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
@@ -728,6 +747,16 @@ jobs:
       - name: Installa, importa, e la suite in ambienti puliti
         run: bash scripts/smoke-pacchetto-python.sh dist
 
+      # L'extra `pyarrow` dell'SDK, nella versione esatta con cui si prova: le
+      # sonde dell'adattatore Arrow saltano senza, e qui devono girare. Il
+      # vincolo del pacchetto e' la serie `>=25,<26`; il pin esatto e' questo,
+      # lo stesso di plenora-data-tools (`requirements-sdk-tests.txt`), e solo
+      # ruote binarie: una build da sorgente di pyarrow non e' cio' che si
+      # prova. Lo smoke dalla sdist, piu' sopra, gira **senza**, ed e' li' che
+      # le stesse sonde saltano come il registro dichiara.
+      - name: Installa pyarrow per le sonde dell'adattatore Arrow
+        run: python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
+
       # Le sonde dell'SDK dal **repository**, dove le fixture e il contratto ci
       # sono: quelle dello smoke girano dalla sdist, e li' saltano cio' che non
       # e' applicabile. Le due corse coprono insiemi diversi, ed entrambe
@@ -735,6 +764,10 @@ jobs:
       - name: Le sonde dell'SDK, con il contratto e le fixture
         env:
           PYTHONPATH: sdk/python/src
+          # Con pyarrow ogni punto dell'inventario dei confini
+          # (`test_confini_esterni.PUNTI`) deve avere una prova eseguita e
+          # riuscita: un punto provato solo da test saltati e' rosso.
+          PLENORA_INVENTARIO_STRETTO: "1"
         run: python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
 
       - name: I modelli non divergono dal protocollo
