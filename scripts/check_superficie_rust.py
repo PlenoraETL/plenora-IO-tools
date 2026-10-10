@@ -293,11 +293,12 @@ def fork_nel_grafo(consumatore: pathlib.Path, radice: pathlib.Path) -> list[str]
     """Che il grafo del consumatore risolva i tre fork dall'archivio, e nient'altro.
 
     E' la proprieta' che i `[patch]` non davano: una dipendenza per git o per
-    percorso riceveva i crate di crates.io senza i delta. Il lockfile non
-    dipende dalle feature, quindi un solo `cargo metadata` vede tutti e tre.
+    percorso riceveva i crate di crates.io senza i delta. `cargo metadata`
+    elenca solo le dipendenze delle feature attive: con `--all-features` vede
+    anche il fork di `gdal`, che entra con il backend FileGDB.
     """
     metadati = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1"],
+        ["cargo", "metadata", "--format-version", "1", "--all-features"],
         cwd=consumatore,
         capture_output=True,
         text=True,
