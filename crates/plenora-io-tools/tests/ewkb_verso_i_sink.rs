@@ -178,7 +178,9 @@ fn ewkb_con_srid_diverso_dal_crs_e_un_errore_esplicito() {
     ]);
     assert!(!riuscita, "{documento}");
     assert!(!gpkg.exists(), "nessuna destinazione su un rifiuto");
-    let messaggio = documento["error"]["message"].as_str().unwrap_or_default();
+    let messaggio = documento["error"]["message"]
+        .as_str()
+        .expect("la busta d'errore porta un messaggio");
     assert!(
         messaggio.contains("SRID") || messaggio.contains("CRS"),
         "il rifiuto nomina la discordanza: {documento}"
