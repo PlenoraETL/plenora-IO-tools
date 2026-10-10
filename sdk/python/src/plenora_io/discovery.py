@@ -133,14 +133,14 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
 
     if esplicito is not None:
         percorso = _percorso_indicato(esplicito)
-        cercati.append(f"il percorso indicato: {percorso}")
+        cercati.append("il percorso indicato con Client(binary=...)")
         if _e_un_file(percorso, "il percorso indicato"):
             return _risolto(percorso, "il percorso indicato")
 
     dall_ambiente = os.environ.get(VARIABILE)
     if dall_ambiente:
         percorso = Path(dall_ambiente)
-        cercati.append(f"{VARIABILE}={percorso}")
+        cercati.append(f"la variabile d'ambiente {VARIABILE}")
         if _e_un_file(percorso, VARIABILE):
             return _risolto(percorso, VARIABILE)
     else:
@@ -151,8 +151,16 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     if accanto is not None:
         return _risolto(accanto, "il binario accanto al pacchetto")
 
-    dal_path = shutil.which(NOME)
-    cercati.append(f"PATH ({os.environ.get('PATH', '')[:120]}...)")
+    # `shutil.which` legge `PATH` e il filesystem: un `PATH` con un NUL o una
+    # voce che non si esamina solleva, e non e' un binario introvabile.
+    try:
+        dal_path = shutil.which(NOME)
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise LocalIoError(
+            "la ricerca del binario nel `PATH` non si e' potuta fare: una voce "
+            "del `PATH` non si esamina."
+        ) from None
+    cercati.append("il `PATH`")
     if dal_path:
         return _risolto(Path(dal_path), "il binario dal PATH")
 
@@ -249,20 +257,20 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     try:
         testo = percorso.read_text(encoding="utf-8")
     except OSError:
-        raise ManifestError(f"{percorso} c'e' e non si legge.") from None
+        raise ManifestError(f"{MANIFESTO} c'e' e non si legge.") from None
     except UnicodeDecodeError:
         raise ManifestError(
-            f"{percorso} c'e' e non e' UTF-8: l'artefatto e' guasto."
+            f"{MANIFESTO} c'e' e non e' UTF-8: l'artefatto e' guasto."
         ) from None
     try:
         documento = carica_json(testo)
     except ProtocolError as errore:
         raise ManifestError(
-            f"{percorso} c'e' e non si legge come JSON: {errore} Un manifesto "
+            f"{MANIFESTO} c'e' e non si legge come JSON: {errore} Un manifesto "
             "rotto non e' un manifesto assente: l'artefatto e' guasto."
         ) from None
     if _tipo(documento) != "object":
-        raise ManifestError(f"{percorso} non contiene un oggetto JSON.")
+        raise ManifestError(f"{MANIFESTO} non contiene un oggetto JSON.")
     return Manifest.from_json(documento)
 
 

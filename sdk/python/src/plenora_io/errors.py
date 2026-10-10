@@ -116,6 +116,9 @@ class BinaryNotFound(PlenoraError):
     _FASE = "probe"
 
     def __init__(self, searched: list[str]) -> None:
+        # I **posti**, non i percorsi: il valore della variabile d'ambiente, il
+        # percorso indicato e il `PATH` sono della macchina di chi chiama, e un
+        # errore non porta dati. Chi li vuole li legge dal proprio ambiente.
         self.searched = list(searched)
         posti = "\n".join(f"  - {dove}" for dove in self.searched)
         super().__init__(
@@ -156,10 +159,21 @@ class ProfileError(PlenoraError):
     def __init__(self, required: str, actual: str | None) -> None:
         self.required = required
         self.actual = actual
-        quale = f"«{actual}»" if actual else "sconosciuto: nessun manifesto"
+        # Il profilo richiesto non entra nel messaggio: e' un valore di chi
+        # chiama, e sta in `required`. Quello dell'artefatto si nomina solo se
+        # e' uno dei profili noti: il manifesto e' un file, e un valore fuori
+        # vocabolario sarebbe un dato.
+        noti = ("base", "filegdb")
+        if actual is None:
+            quale = "sconosciuto: nessun manifesto"
+        elif actual in noti:
+            quale = f"«{actual}»"
+        else:
+            quale = "fuori vocabolario"
         super().__init__(
-            f"questo artefatto ha profilo {quale} e ne serve «{required}». "
-            "I profili si scelgono al momento di installare, non a runtime."
+            f"questo artefatto ha profilo {quale} e non quello richiesto "
+            f"(profili noti: {', '.join(noti)}). I profili si scelgono al "
+            "momento di installare, non a runtime."
         )
 
 
@@ -244,6 +258,54 @@ class OptionalDependencyError(PlenoraError):
 
     _CATEGORIA = "unsupported"
     _FASE = "validate"
+
+
+class UnexpectedError(PlenoraError):
+    """Un'eccezione che nessun punto dell'SDK ha tradotto, presa dalla rete.
+
+    Ogni metodo pubblico passa da `confine.confinato`: un'eccezione che non e'
+    un `PlenoraError` -- di Python, di una dipendenza, di codice del chiamante
+    -- diventa questa, senza messaggio originale e senza catena. I punti noti
+    restano tradotti dove nascono, con l'effetto preciso; questa e' la rete
+    per quelli che nessuno ha previsto, e il suo effetto e' **conservativo**:
+    `none` se nessun comando e' partito, `unknown` se e' partito un comando che
+    scrive.
+    """
+
+    _CATEGORIA = "internal"
+    _FASE = "validate"
+
+    def __init__(self, message: str, *, remote_effect: str = "none") -> None:
+        super().__init__(message)
+        self._effetto_remoto = remote_effect
+
+
+class PackageMetadataError(PlenoraError):
+    """I metadati del pacchetto installato non si leggono.
+
+    `version()` legge i metadati della distribuzione: da un checkout non
+    installato non ci sono, e la risposta non e' `__version__`, che direbbe una
+    cosa diversa da cio' che e' installato.
+    """
+
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
+
+
+class ResultLookupError(PlenoraError, KeyError):
+    """Un nome cercato in un risultato -- layer, campo, driver, operazione -- non c'e'.
+
+    E' anche un `KeyError`, come prima, perche' chi lo intercettava cosi' non
+    debba cambiare. Il messaggio non riporta il nome cercato ne' quelli che ci
+    sono: sono nomi del file o del chiamante, e un errore non porta dati. Chi
+    vuole sapere che cosa c'e' legge il risultato.
+    """
+
+    _CATEGORIA = "not_found"
+    _FASE = "validate"
+
+    # `KeyError` mostra il `repr` dell'argomento; qui il messaggio e' testo.
+    __str__ = Exception.__str__
 
 
 @dataclass(frozen=True)

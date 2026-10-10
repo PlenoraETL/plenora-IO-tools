@@ -39,7 +39,7 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
-from .errors import ProtocolError, _tipo, copia_json
+from .errors import ProtocolError, ResultLookupError, _tipo, copia_json
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -375,7 +375,7 @@ class Catalog:
         )
 
     def driver(self, identificatore: str) -> Driver:
-        """Il driver con quell'id, o `KeyError`.
+        """Il driver con quell'id, o `ResultLookupError` (anche un `KeyError`).
 
         Non restituisce `None`: un id che non c'e' e' quasi sempre un refuso, e
         un `None` restituito lo trasforma in un `AttributeError` tre righe piu'
@@ -384,8 +384,7 @@ class Catalog:
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
-        noti = ", ".join(sorted(d.id for d in self.drivers))
-        raise KeyError(f"nessun driver «{identificatore}»; il catalogo ha: {noti}")
+        raise ResultLookupError("nessun driver con l'id richiesto nel catalogo.")
 
     @property
     def available(self) -> list[Driver]:
@@ -638,12 +637,11 @@ class Layer:
         )
 
     def field(self, name: str) -> Field:
-        """La colonna con quel nome, o `KeyError` che elenca quelle che ci sono."""
+        """La colonna con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
-        noti = ", ".join(colonna.name for colonna in self.fields)
-        raise KeyError(f"nessun campo «{name}» nel layer «{self.name}»; ci sono: {noti}")
+        raise ResultLookupError("nessun campo con il nome richiesto nel layer.")
 
     @property
     def attributes(self) -> list[Field]:
@@ -709,12 +707,11 @@ class Inspect:
         )
 
     def layer(self, name: str) -> Layer:
-        """Il layer con quel nome, o `KeyError` che elenca quelli che ci sono."""
+        """Il layer con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -753,8 +750,7 @@ class Layers:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1094,8 +1090,7 @@ class ConvertResult:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}» nella conversione; ci sono: {noti}")
+        raise ResultLookupError("nessun layer con il nome richiesto nella conversione.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1373,9 +1368,8 @@ class Capabilities:
         )
 
     def operation(self, identificatore: str) -> CapabilityOperation:
-        """L'operazione con quell'id, o `KeyError` con gli id che ci sono."""
+        """L'operazione con quell'id, o `ResultLookupError` (anche un `KeyError`), senza id nel messaggio."""
         for operazione in self.operations:
             if operazione.id == identificatore:
                 return operazione
-        noti = ", ".join(sorted(o.id for o in self.operations))
-        raise KeyError(f"nessuna operazione «{identificatore}»; ci sono: {noti}")
+        raise ResultLookupError("nessuna operazione con l'id richiesto.")

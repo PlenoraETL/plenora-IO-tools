@@ -66,7 +66,11 @@ from .errors import (
     TimeoutError,
     TransientError,
     UnsupportedError,
+    PackageMetadataError,
+    ResultLookupError,
+    UnexpectedError,
 )
+from . import confine as _confine
 from .limits import Limits
 from .models import (
     Capabilities,
@@ -133,11 +137,20 @@ def version() -> str:
     wheel.
 
     Da un checkout non installato i metadati non ci sono, e la funzione lo
-    dice con `PackageNotFoundError` invece di ripiegare su `__version__`: un
+    dice con `PackageMetadataError` invece di ripiegare su `__version__`: un
     ripiego risponderebbe anche quando la domanda -- che cosa e' installato --
-    non ha risposta.
+    non ha risposta. Era `PackageNotFoundError`, fuori dalla gerarchia.
     """
-    return _metadata.version(DISTRIBUTION)
+    try:
+        letta = _metadata.version(DISTRIBUTION)
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise PackageMetadataError(
+            "i metadati del pacchetto `plenora-io` non si leggono: il pacchetto "
+            "non e' installato in questo ambiente."
+        ) from None
+    if type(letta) is not str:
+        raise PackageMetadataError("i metadati del pacchetto non portano una versione.")
+    return letta
 
 __all__ = [
     "DISTRIBUTION",
@@ -190,6 +203,9 @@ __all__ = [
     "CleanupError",
     "PROFILES",
     "PROTOCOL_VERSION",
+    "PackageMetadataError",
+    "ResultLookupError",
+    "UnexpectedError",
     "PlenoraError",
     "ProfileError",
     "ProtocolError",
@@ -208,3 +224,9 @@ __all__ = [
     "__version__",
     "version",
 ]
+
+# La rete (vedi `confine.py`): ogni classe e ogni funzione esportata, salvo le
+# eccezioni, passa da `confinato`. Qui e non classe per classe, perche' l'elenco
+# delle cose pubbliche e' `__all__`, e una prova lo confronta con cio' che e'
+# avvolto: un nome nuovo esportato senza rete non puo' sfuggire.
+_confine.confina_esportati(globals(), __all__)

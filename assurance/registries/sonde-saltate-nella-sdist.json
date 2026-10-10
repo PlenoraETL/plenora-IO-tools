@@ -5,7 +5,7 @@
   "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
   "dove_girano_invece": "nel repository, dove il job `python-sdk` della CI le esegue su ogni versione di Python della matrice. Saltare nell'installazione non vuol dire non essere verificate: vuol dire esserlo altrove, e questo registro dice dove.",
   "totale": 58,
-  "eseguite_nella_sdist": 182,
+  "eseguite_nella_sdist": 199,
   "condizioni": [
     {
       "id": "fixture-canoniche",

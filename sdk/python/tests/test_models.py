@@ -25,6 +25,7 @@ from plenora_io import (
     LayerSummary,
     Omissions,
     ProtocolError,
+    ResultLookupError,
     Validation,
     Version,
 )
@@ -148,8 +149,11 @@ class IlCatalogo(unittest.TestCase):
         la', dove il nome sbagliato non si vede piu'."""
         catalogo = Catalog.from_json(catalogo_sano())
         with self.assertRaises(KeyError) as preso:
-            catalogo.driver("gpkg")
-        self.assertIn("csv", str(preso.exception))
+            catalogo.driver("gpkg-cercato")
+        # Un errore non porta dati: ne' l'id cercato ne' quelli del catalogo.
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("csv", str(preso.exception))
+        self.assertNotIn("gpkg-cercato", str(preso.exception))
 
     def test_le_due_direzioni_derivate(self) -> None:
         self.assertTrue(Driver.from_json(driver_sano()).writable)
@@ -325,17 +329,21 @@ class LaBustaDiInspect(unittest.TestCase):
         self.assertEqual([c.name for c in strato.attributes], ["codice"])
         self.assertEqual(len(strato.fields), 2)
 
-    def test_un_campo_che_non_c_e_solleva_ed_elenca_quelli_che_ci_sono(self) -> None:
+    def test_un_campo_che_non_c_e_solleva_senza_nomi(self) -> None:
         strato = Inspect.from_json(inspect_sano()).layers[0]
         with self.assertRaises(KeyError) as preso:
             strato.field("inesistente")
-        self.assertIn("codice", str(preso.exception))
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("codice", str(preso.exception))
+        self.assertNotIn("inesistente", str(preso.exception))
 
     def test_un_layer_che_non_c_e_solleva(self) -> None:
         esito = Inspect.from_json(inspect_sano())
         with self.assertRaises(KeyError) as preso:
-            esito.layer("altro")
-        self.assertIn("canonico", str(preso.exception))
+            esito.layer("altro-cercato")
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("canonico", str(preso.exception))
+        self.assertNotIn("altro-cercato", str(preso.exception))
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
         for campo in Inspect.OBBLIGATORI:

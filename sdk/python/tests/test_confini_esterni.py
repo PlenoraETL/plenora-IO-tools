@@ -20,7 +20,9 @@ una riga per ciascuno, e una prova che lo esercita.
 from __future__ import annotations
 
 import copy
+import functools
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -61,7 +63,10 @@ from test_models import catalogo_sano, consegna_sana, inspect_sano, layers_sano,
 SEGRETO = "SEGRETO-9c1e"
 
 #: L'inventario: dove nasce un'eccezione esterna, e in che cosa si traduce.
-#: Una riga per punto; `PuntiInventariati` verifica che ognuno abbia una prova.
+#: Una riga per punto. Un punto conta come provato solo quando una sua prova e'
+#: **eseguita e riuscita** (non quando e' definita, e non quando salta): con
+#: `PLENORA_INVENTARIO_STRETTO=1` -- lo impostano i job della CI che hanno
+#: pyarrow -- `tearDownModule` fallisce se un punto resta senza prova eseguita.
 PUNTI: dict[str, tuple[str, str]] = {
     "process.Popen": ("ValueError/TypeError/OSError prima di partire", "InvalidArgumentError o ProtocolError, effetto none"),
     "process.communicate": ("OSError, ValueError, TimeoutExpired", "ProtocolError, unknown se scrive"),
@@ -76,20 +81,47 @@ PUNTI: dict[str, tuple[str, str]] = {
     "arrow.cartella": ("fspath, mkdtemp, rmtree", "InvalidArgumentError, LocalIoError, CleanupError"),
     "discovery.binario": ("__fspath__, is_file, resolve", "InvalidArgumentError o LocalIoError"),
     "discovery.manifesto": ("OSError, UnicodeDecodeError, JSON", "ManifestError, catena tagliata"),
+    "discovery.which": ("shutil.which che solleva", "LocalIoError"),
+    "argomenti.sottoclassi": ("__str__, __format__, __int__, Limits e timedelta derivati", "copie esatte, nessuna chiamata dopo il confine"),
+    "argomenti.grandezze": ("10**1000, 10**50000 in interi, limiti e timeout", "InvalidArgumentError prima di ogni conversione"),
+    "process.exit": ("__exit__ del context manager di Popen", "ProtocolError, unknown se scrive"),
+    "arrow.import": ("import di pyarrow e lettura di __version__", "OptionalDependencyError"),
+    "version.metadati": ("PackageNotFoundError di importlib.metadata", "PackageMetadataError"),
+    "confine.rete": ("qualunque eccezione non tradotta in un metodo pubblico", "UnexpectedError, none o unknown"),
+    "messaggi.senza_dati": ("ricerche nei modelli, scoperta, profilo", "nessun nome, percorso o valore nel messaggio"),
 }
 
 PROVATI: set[str] = set()
 
 
 def prova(punto: str):
-    """Registra che il test esercita `punto` dell'inventario."""
+    """Registra `punto` dell'inventario quando il test e' eseguito e riesce.
+
+    Prima lo registrava alla definizione: un test saltato -- senza pyarrow,
+    per esempio -- lasciava il punto «provato» senza aver provato niente.
+    """
     assert punto in PUNTI, punto
-    PROVATI.add(punto)
 
     def decora(funzione):
-        return funzione
+        @functools.wraps(funzione)
+        def eseguita(*argomenti, **opzioni):
+            esito = funzione(*argomenti, **opzioni)
+            PROVATI.add(punto)
+            return esito
+
+        return eseguita
 
     return decora
+
+
+def tearDownModule() -> None:  # noqa: N802 - il nome lo impone unittest
+    if os.environ.get("PLENORA_INVENTARIO_STRETTO") != "1":
+        return
+    mancanti = sorted(set(PUNTI) - PROVATI)
+    if mancanti:
+        raise AssertionError(
+            f"punti dell'inventario senza una prova eseguita e riuscita: {mancanti}"
+        )
 
 
 def tradotto(caso: unittest.TestCase, errore: BaseException, effetto: str | None = None) -> None:
@@ -712,8 +744,382 @@ class IModelli(unittest.TestCase):
 
 
 class PuntiInventariati(unittest.TestCase):
-    def test_ogni_punto_dell_inventario_ha_una_prova(self) -> None:
-        self.assertEqual(set(PUNTI) - PROVATI, set())
+    def test_ogni_punto_dell_inventario_ha_una_prova_definita(self) -> None:
+        """Il verso statico: ogni punto ha almeno un test che lo dichiara. Che
+        sia stato **eseguito** lo dice `tearDownModule`."""
+        import inspect
+
+        dichiarati = set()
+        for valore in globals().values():
+            if isinstance(valore, type) and issubclass(valore, unittest.TestCase):
+                for nome, metodo in vars(valore).items():
+                    if nome.startswith("test_"):
+                        sorgente = inspect.getsource(metodo)
+                        for punto in PUNTI:
+                            if f'@prova("{punto}")' in sorgente:
+                                dichiarati.add(punto)
+        self.assertEqual(set(PUNTI) - dichiarati, set())
+
+
+# --- 8. la normalizzazione degli argomenti -------------------------------------
+
+
+class Contatore:
+    chiamate = 0
+
+
+class StrOstile(str):
+    """Una `str` con i metodi ridefiniti: nessuno deve essere chiamato."""
+
+    def __str__(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    def __format__(self, specifica):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    def __contains__(self, altro):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    def __eq__(self, altro):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    __hash__ = str.__hash__
+
+
+class IntOstile(int):
+    def __int__(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    def __index__(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    def __repr__(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+    __str__ = __format__ = __repr__
+
+
+class DurataOstile(timedelta):
+    def total_seconds(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+
+class LimitsOstile(Limits):
+    def to_argv(self):
+        Contatore.chiamate += 1
+        raise RuntimeError(SEGRETO)
+
+
+class PopenCheRegistra(PopenFinto):
+    def __init__(self):
+        super().__init__(stdout=b"{}")
+        self.argv = None
+
+    def __call__(self, argv, **opzioni):
+        self.argv = list(argv)
+        return super().__call__(argv, **opzioni)
+
+
+class LaNormalizzazione(unittest.TestCase):
+    def setUp(self) -> None:
+        Contatore.chiamate = 0
+        self.cliente = Client.__new__(Client)
+        self.cliente._runner = Runner(Path("plenora-io"))
+        self.cliente._manifest = None
+
+    @prova("argomenti.sottoclassi")
+    def test_le_sottoclassi_diventano_copie_esatte_senza_essere_chiamate(self) -> None:
+        """Prima: `f"{chiave}={valore}"` chiamava `__format__`, `str(layer)`
+        `__str__`, `limits.to_argv()` il metodo della sottoclasse."""
+        finto = PopenCheRegistra()
+        with mock.patch.object(subprocess, "Popen", finto):
+            with self.assertRaises(ProtocolError):  # `{}` non e' una busta: va bene
+                self.cliente.convert(
+                    StrOstile("s.geojson"),
+                    StrOstile("o.gpkg"),
+                    source_format=StrOstile("geojson"),
+                    target_format=StrOstile("gpkg"),
+                    layer=IntOstile(2),
+                    assume_crs=StrOstile("EPSG:4326"),
+                    options={StrOstile("k"): StrOstile("v")},
+                    limits=LimitsOstile(max_rows=IntOstile(5), deadline=DurataOstile(seconds=3)),
+                )
+        self.assertEqual(Contatore.chiamate, 0, "codice del chiamante eseguito dopo il confine")
+        self.assertIsNotNone(finto.argv)
+        for elemento in finto.argv[1:]:
+            self.assertIs(type(elemento), str)
+        self.assertEqual(
+            finto.argv[1:],
+            ["convert", "s.geojson", "o.gpkg", "--from", "geojson", "--to", "gpkg",
+             "--assume-crs", "EPSG:4326", "--layer", "2", "--opt", "k=v",
+             "--deadline-ms", "3000", "--max-rows", "5"],
+        )
+
+    @prova("argomenti.sottoclassi")
+    def test_una_durata_lunga_arriva_esatta(self) -> None:
+        """Prima: `int(total_seconds() * 1000)` in virgola mobile."""
+        durata = timedelta(days=2 * 10**8, milliseconds=1)
+        argv = Limits(deadline=durata).to_argv()
+        self.assertEqual(argv, ["--deadline-ms", str((2 * 10**8 * 86_400) * 1000 + 1)])
+
+    @prova("argomenti.grandezze")
+    def test_le_grandezze_si_rifiutano_prima_delle_conversioni(self) -> None:
+        """`str(10**50000)` solleva `ValueError`, `math.isfinite(10**1000)`
+        `OverflowError`: si rifiuta prima, con un errore tipizzato."""
+        casi = {
+            "layer": lambda n: self.cliente.validate("s.geojson", layer=n),
+            "limit": lambda n: self.cliente.validate("s.geojson", limit=n),
+            "max_rows": lambda n: self.cliente.validate("s.geojson", limits=Limits(max_rows=n)),
+        }
+        for nome, chiama in casi.items():
+            for numero in (10**1000, 10**50000, -(10**1000), 1 << 64):
+                with self.subTest(argomento=nome, cifre=len(str(numero)) if numero < 10**4000 else "molte"):
+                    finto = PopenFinto(stdout=b"{}")
+                    with mock.patch.object(subprocess, "Popen", finto):
+                        with self.assertRaises(PlenoraError) as preso:
+                            chiama(numero)
+                    self.assertIsInstance(preso.exception, InvalidArgumentError)
+                    self.assertEqual(finto.partenze, 0)
+                    tradotto(self, preso.exception, "none")
+        for numero in (10**1000, 10**50000, 1 << 64):
+            with self.subTest(timeout="enorme"):
+                with self.assertRaises(PlenoraError) as preso:
+                    Runner(Path("plenora-io"), timeout=numero)
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                tradotto(self, preso.exception, "none")
+
+
+# --- 9. la rete ---------------------------------------------------------------
+
+
+def _avvolto(oggetto) -> bool:
+    from plenora_io.confine import SEGNO
+
+    return bool(getattr(oggetto, SEGNO, False))
+
+
+class LaRete(unittest.TestCase):
+    @prova("confine.rete")
+    def test_ogni_metodo_pubblico_e_avvolto(self) -> None:
+        """Per introspezione: un metodo pubblico nuovo senza rete e' rosso."""
+        import plenora_io
+
+        scoperti = 0
+        for nome in plenora_io.__all__:
+            valore = getattr(plenora_io, nome)
+            if isinstance(valore, type):
+                if issubclass(valore, BaseException):
+                    continue
+                for classe in valore.__mro__:
+                    if not classe.__module__.startswith("plenora_io"):
+                        continue
+                    for attributo, interno in vars(classe).items():
+                        if attributo.startswith("_") and attributo != "__init__":
+                            continue
+                        if isinstance(interno, (classmethod, staticmethod)):
+                            bersaglio = interno.__func__
+                        elif isinstance(interno, property):
+                            bersaglio = interno.fget
+                        elif callable(interno) and not isinstance(interno, type):
+                            bersaglio = interno
+                        else:
+                            continue
+                        with self.subTest(metodo=f"{classe.__name__}.{attributo}"):
+                            self.assertTrue(_avvolto(bersaglio))
+                            scoperti += 1
+            elif callable(valore):
+                with self.subTest(funzione=nome):
+                    self.assertTrue(_avvolto(valore))
+                    scoperti += 1
+        self.assertGreater(scoperti, 60)
+
+    @prova("confine.rete")
+    def test_un_eccezione_non_prevista_prima_dell_avvio_e_none(self) -> None:
+        with mock.patch("plenora_io.models.copia_json", side_effect=RuntimeError(SEGRETO)):
+            with self.assertRaises(PlenoraError) as preso:
+                Catalog.from_json(catalogo_sano())
+        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        self.assertEqual(preso.exception.category, "internal")
+        tradotto(self, preso.exception, "none")
+
+    @prova("confine.rete")
+    def test_un_eccezione_non_prevista_dopo_l_avvio_di_una_scrittura_e_unknown(self) -> None:
+        cliente = Client.__new__(Client)
+        cliente._runner = Runner(Path("plenora-io"))
+        finto = PopenFinto(stdout=b"{}")
+        with mock.patch.object(subprocess, "Popen", finto), \
+                mock.patch("plenora_io.process._testo", side_effect=RuntimeError(SEGRETO)):
+            with self.assertRaises(PlenoraError) as preso:
+                cliente.write("s.arrow", "o.gpkg", format="gpkg")
+        self.assertEqual(finto.partenze, 1)
+        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        tradotto(self, preso.exception, "unknown")
+
+    @prova("confine.rete")
+    def test_dopo_l_avvio_di_una_lettura_resta_none(self) -> None:
+        cliente = Client.__new__(Client)
+        cliente._runner = Runner(Path("plenora-io"))
+        finto = PopenFinto(stdout=b"{}")
+        with mock.patch.object(subprocess, "Popen", finto), \
+                mock.patch("plenora_io.process._testo", side_effect=RuntimeError(SEGRETO)):
+            with self.assertRaises(PlenoraError) as preso:
+                cliente.inspect("s.geojson")
+        tradotto(self, preso.exception, "none")
+
+    @prova("confine.rete")
+    def test_keyboardinterrupt_passa(self) -> None:
+        with mock.patch("plenora_io.models.copia_json", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                Catalog.from_json(catalogo_sano())
+
+
+# --- 10. i punti specifici del terzo giro --------------------------------------
+
+
+class PopenCheNonEsce(PopenFinto):
+    def __exit__(self, *eccezione):
+        raise OSError(SEGRETO)
+
+
+class IPuntiSpecifici(unittest.TestCase):
+    @prova("process.exit")
+    def test_l_uscita_dal_with_di_popen_e_tradotta(self) -> None:
+        """Prima: `__exit__` stava fuori dalla traduzione."""
+        for argv, effetto in ((SCRIVE, "unknown"), (["inspect", "s.geojson"], "none")):
+            with self.subTest(comando=argv[0]):
+                with mock.patch.object(subprocess, "Popen", PopenCheNonEsce(stdout=b"{}")):
+                    with self.assertRaises(PlenoraError) as preso:
+                        Runner(Path("plenora-io")).run(argv)
+                self.assertIsInstance(preso.exception, ProtocolError)
+                tradotto(self, preso.exception, effetto)
+
+    @prova("arrow.import")
+    def test_un_import_di_pyarrow_che_solleva_e_optional_dependency(self) -> None:
+        import builtins
+
+        vero = builtins.__import__
+
+        def importa(nome, *argomenti, **opzioni):
+            if nome == "pyarrow" or nome.startswith("pyarrow."):
+                raise OSError(SEGRETO)
+            return vero(nome, *argomenti, **opzioni)
+
+        with mock.patch.dict(sys.modules, {k: v for k, v in sys.modules.items() if not k.startswith("pyarrow")}, clear=True), \
+                mock.patch.object(builtins, "__import__", importa):
+            with self.assertRaises(PlenoraError) as preso:
+                adattatore.pyarrow()
+        self.assertIsInstance(preso.exception, OptionalDependencyError)
+        tradotto(self, preso.exception, "none")
+
+    @prova("arrow.import")
+    def test_una_versione_di_pyarrow_che_solleva_e_optional_dependency(self) -> None:
+        import types
+
+        class Modulo(types.ModuleType):
+            def __getattr__(self, nome):
+                raise RuntimeError(SEGRETO)
+
+        finto = Modulo("pyarrow")
+        finto.ipc = types.ModuleType("pyarrow.ipc")
+        with mock.patch.dict(sys.modules, {"pyarrow": finto, "pyarrow.ipc": finto.ipc}):
+            with self.assertRaises(PlenoraError) as preso:
+                adattatore.pyarrow()
+        self.assertIsInstance(preso.exception, OptionalDependencyError)
+        tradotto(self, preso.exception, "none")
+
+    @prova("arrow.cartella")
+    def test_mkdtemp_con_un_percorso_non_codificabile_e_local_io_error(self) -> None:
+        with mock.patch.object(adattatore.tempfile, "mkdtemp",
+                               side_effect=UnicodeEncodeError("utf-8", SEGRETO, 0, 1, "x")):
+            with self.assertRaises(PlenoraError) as preso:
+                with adattatore.cartella_temporanea(None):
+                    pass
+        self.assertIsInstance(preso.exception, LocalIoError)
+        tradotto(self, preso.exception, "none")
+        with self.assertRaises(PlenoraError) as preso:
+            adattatore.cartella_temporanea("\udcff" + SEGRETO)
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+        tradotto(self, preso.exception, "none")
+
+    @prova("discovery.which")
+    def test_shutil_which_che_solleva_e_local_io_error(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(discovery, "_albero_accanto_al_pacchetto", return_value=None), \
+                mock.patch.object(discovery.shutil, "which", side_effect=ValueError(SEGRETO)):
+            os.environ.pop(discovery.VARIABILE, None)
+            with self.assertRaises(PlenoraError) as preso:
+                discovery.trova_binario(None)
+        self.assertIsInstance(preso.exception, LocalIoError)
+        tradotto(self, preso.exception, "none")
+
+    @prova("version.metadati")
+    def test_version_senza_metadati_e_un_errore_plenora(self) -> None:
+        import importlib.metadata
+
+        import plenora_io
+
+        with mock.patch.object(importlib.metadata, "version",
+                               side_effect=importlib.metadata.PackageNotFoundError(SEGRETO)):
+            with self.assertRaises(PlenoraError) as preso:
+                plenora_io.version()
+        self.assertEqual(type(preso.exception).__name__, "PackageMetadataError")
+        tradotto(self, preso.exception, "none")
+
+
+class IMessaggi(unittest.TestCase):
+    @prova("messaggi.senza_dati")
+    def test_le_ricerche_nei_modelli_non_nominano_niente(self) -> None:
+        documento = dict(inspect_sano())
+        esito = Inspect.from_json(documento)
+        catalogo = Catalog.from_json(catalogo_sano())
+        capacita = Capabilities.from_json(capacita_sane())
+        for chiama in (
+            lambda: esito.layer(SEGRETO),
+            lambda: esito.layers[0].field(SEGRETO),
+            lambda: catalogo.driver(SEGRETO),
+            lambda: capacita.operation(SEGRETO),
+            lambda: Layers.from_json(layers_sano()).layer(SEGRETO),
+            lambda: ConvertResult.from_json(conversione_sana()).layer(SEGRETO),
+        ):
+            with self.assertRaises(KeyError) as preso:
+                chiama()
+            self.assertIsInstance(preso.exception, PlenoraError)
+            tradotto(self, preso.exception, "none")
+            for nome in ("canonico", "codice", "csv", "io.read"):
+                self.assertNotIn(nome, str(preso.exception))
+
+    @prova("messaggi.senza_dati")
+    def test_la_scoperta_non_riporta_percorsi(self) -> None:
+        radice = Path(tempfile.mkdtemp()) / SEGRETO
+        (radice / "bin").mkdir(parents=True)
+        binario = radice / "bin" / "plenora-io"
+        binario.write_bytes(b"")
+        (radice / "MANIFEST.json").write_bytes(b"{")
+        with self.assertRaises(PlenoraError) as preso:
+            discovery.leggi_manifesto(binario)
+        tradotto(self, preso.exception, "none")
+        with mock.patch.dict(os.environ, {discovery.VARIABILE: str(radice / "no"),
+                                          "PATH": str(radice)}), \
+                mock.patch.object(discovery, "_albero_accanto_al_pacchetto", return_value=None):
+            with self.assertRaises(PlenoraError) as preso:
+                discovery.trova_binario(radice / "nemmeno")
+        tradotto(self, preso.exception, "none")
+
+    @prova("messaggi.senza_dati")
+    def test_require_profile_non_riporta_il_valore(self) -> None:
+        cliente = Client.__new__(Client)
+        cliente._manifest = None
+        with self.assertRaises(PlenoraError) as preso:
+            cliente.require_profile(SEGRETO)
+        tradotto(self, preso.exception, "none")
 
 
 if __name__ == "__main__":

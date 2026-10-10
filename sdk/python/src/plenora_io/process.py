@@ -84,6 +84,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .argomenti import percorso, testo
+from .argomenti import timeout as timeout_valido
+from .confine import registra_avvio
 from .errors import InvalidArgumentError, ProtocolError, _tipo, carica_json, failure_from_envelope
 
 
@@ -222,6 +225,17 @@ def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError
     return errore
 
 
+def _argv_esatto(argv: Any) -> list[str]:
+    """Una lista nuova di `str` esatte.
+
+    `Runner.run` e' pubblico, e la riga di comando si normalizza al confine
+    come gli argomenti dei metodi del client.
+    """
+    if type(argv) not in (list, tuple):
+        raise InvalidArgumentError("`argv` non e' una lista di stringhe.")
+    return [testo(elemento, "argv") for elemento in argv]
+
+
 class Runner:
     """Esegue il binario e restituisce la busta, o solleva.
 
@@ -231,8 +245,8 @@ class Runner:
     """
 
     def __init__(self, binary: Path, *, timeout: float | None = None) -> None:
-        self._binary = binary
-        self._timeout = timeout
+        self._binary = Path(percorso(binary, "binary"))
+        self._timeout = timeout_valido(timeout)
 
     @property
     def binary(self) -> Path:
@@ -240,6 +254,7 @@ class Runner:
 
     def run(self, argv: list[str]) -> dict[str, Any]:
         """La busta di successo, o `CommandFailed` con quella d'errore."""
+        argv = _argv_esatto(argv)
         try:
             completed = self._execute(argv)
             if completed.exit_code == 0:
@@ -304,8 +319,30 @@ class Runner:
 
         # Da qui in avanti il processo e' partito: ogni guasto -- un timeout, un
         # errore di I/O sulle pipe, una seconda attesa che fallisce dopo il
-        # kill -- lascia un esito che non si conosce, e per un comando che
-        # scrive l'effetto e' `unknown` (vedi `_con_effetto_ignoto`).
+        # kill, la chiusura del context manager di `Popen` (che chiude le pipe
+        # e attende) -- lascia un esito che non si conosce, e per un comando
+        # che scrive l'effetto e' `unknown` (vedi `_con_effetto_ignoto`).
+        registra_avvio(argv)
+        try:
+            stdout, stderr = self._comunica(processo, argv)
+        except ProtocolError:
+            raise
+        except Exception:  # noqa: BLE001 - l'uscita dal `with` di `Popen`
+            self._chiudi(processo)
+            raise _con_effetto_ignoto(ProtocolError(
+                f"la chiusura del processo di {comando(argv)} non e' riuscita: "
+                "l'esito non si conosce."
+            ), argv) from None
+
+        return Completed(
+            argv=list(argv),
+            exit_code=processo.returncode,
+            stdout=_testo(stdout, argv, "stdout"),
+            stderr=_testo(stderr, argv, "stderr"),
+        )
+
+    def _comunica(self, processo: Any, argv: list[str]) -> tuple[bytes, bytes]:
+        """I due flussi del processo, letti fino alla fine dentro il suo `with`."""
         with processo:
             try:
                 with _inoltra_sigint(processo):
@@ -328,13 +365,7 @@ class Runner:
                     f"la comunicazione con {comando(argv)} e' fallita mentre il "
                     "processo era in corso: l'esito non si conosce."
                 ), argv) from None
-
-        return Completed(
-            argv=list(argv),
-            exit_code=processo.returncode,
-            stdout=_testo(stdout, argv, "stdout"),
-            stderr=_testo(stderr, argv, "stderr"),
-        )
+        return stdout, stderr
 
     @staticmethod
     def _chiudi(processo: subprocess.Popen[bytes]) -> None:
@@ -347,7 +378,7 @@ class Runner:
         try:
             processo.kill()
             processo.communicate()
-        except (OSError, ValueError):
+        except Exception:  # noqa: BLE001 - la chiusura non sostituisce l'errore
             return
 
     # --- i due flussi, ciascuno al proprio posto ---------------------------

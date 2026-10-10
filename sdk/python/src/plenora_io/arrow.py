@@ -67,15 +67,21 @@ def pyarrow() -> Any:
     Il messaggio non riporta il testo dell'`ImportError`: dice che cosa manca
     e come installarlo, che e' tutto cio' che serve a chi lo legge.
     """
+    # Qualunque eccezione dell'import, non solo `ImportError`: un pyarrow
+    # installato a meta' o rotto solleva `OSError` (una DLL che manca),
+    # `AttributeError` o altro dal proprio `__init__`. Anche la lettura di
+    # `__version__` sta dentro: e' codice di un modulo che non controlliamo.
     try:
         import pyarrow as pa  # noqa: PLC0415 - import pigro, e' il punto
         import pyarrow.ipc  # noqa: F401, PLC0415
-    except ImportError as errore:
+
+        dichiarata = getattr(pa, "__version__", "")
+        maggiore = str.join("", [dichiarata]).split(".", 1)[0] if isinstance(dichiarata, str) else ""
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         raise OptionalDependencyError(
-            "l'adattatore Arrow richiede pyarrow, che non e' installato: "
-            "installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
+            "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
+            "si importa: installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
         ) from None
-    maggiore = str(getattr(pa, "__version__", "")).split(".", 1)[0]
     if maggiore != str(SERIE_PYARROW):
         raise OptionalDependencyError(
             f"l'adattatore Arrow e' provato con pyarrow {SERIE_PYARROW}.x e "
@@ -87,7 +93,10 @@ def pyarrow() -> Any:
 
 def e_un_percorso(valore: Any) -> bool:
     """Una sorgente che la CLI legge da se': `str` o `os.PathLike`."""
-    return isinstance(valore, (str, os.PathLike))
+    # Dal tipo e non dall'istanza: `isinstance` consulta `__class__`, che un
+    # oggetto puo' ridefinire.
+    tipo = type(valore)
+    return issubclass(tipo, str) or hasattr(tipo, "__fspath__")
 
 
 def scrivi_ipc(dati: Any, cartella: Path) -> Path:
@@ -238,7 +247,9 @@ class CartellaTemporanea:
     def __enter__(self) -> str:
         try:
             self._percorso = tempfile.mkdtemp(prefix="plenora-io-arrow-", dir=self._temp_dir)
-        except OSError:
+        except (OSError, ValueError):
+            # `ValueError` comprende `UnicodeEncodeError`: un percorso che il
+            # filesystem non sa codificare.
             raise LocalIoError(
                 "la directory temporanea dell'adattatore Arrow non si e' potuta "
                 "creare: `temp_dir` non esiste o non si puo' scrivere."

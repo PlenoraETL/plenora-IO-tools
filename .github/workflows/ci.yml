@@ -480,6 +480,9 @@ jobs:
           python -m pip install --only-binary=":all:" pyarrow==25.0.1
           $env:PYTHONPATH = "sdk/python/src"
           $env:PLENORA_IO_BIN = (Resolve-Path target/debug/plenora-io.exe).Path
+          # Con pyarrow ogni punto dell'inventario dei confini deve avere una
+          # prova eseguita: un punto provato solo da test saltati e' rosso.
+          $env:PLENORA_INVENTARIO_STRETTO = "1"
           python -m unittest discover -s sdk/python/tests -p "test_*.py"
 
   gdal-linux-matrix:
@@ -761,6 +764,10 @@ jobs:
       - name: Le sonde dell'SDK, con il contratto e le fixture
         env:
           PYTHONPATH: sdk/python/src
+          # Con pyarrow ogni punto dell'inventario dei confini
+          # (`test_confini_esterni.PUNTI`) deve avere una prova eseguita e
+          # riuscita: un punto provato solo da test saltati e' rosso.
+          PLENORA_INVENTARIO_STRETTO: "1"
         run: python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
 
       - name: I modelli non divergono dal protocollo

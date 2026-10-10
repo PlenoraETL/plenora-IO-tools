@@ -107,7 +107,11 @@ class LaScoperta(SenzaAmbiente):
         with self.assertRaises(BinaryNotFound) as preso:
             trova_binario(self.tmp / "niente")
         messaggio = str(preso.exception)
-        self.assertIn("niente", messaggio)
+        # I posti, non i percorsi: il percorso indicato e il `PATH` sono della
+        # macchina di chi chiama (erano nel messaggio fino alla 4.1.1).
+        self.assertNotIn("niente", messaggio)
+        self.assertNotIn(str(self.tmp), messaggio)
+        self.assertIn("Client(binary=...)", messaggio)
         self.assertIn(VARIABILE, messaggio)
         self.assertIn("PATH", messaggio)
         self.assertIn("non lo scarica", messaggio)

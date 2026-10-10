@@ -78,12 +78,17 @@ class Limits:
             if valore is None:
                 continue
             if campo.name == self.DURATA:
-                argomenti += [
-                    "--deadline-ms",
-                    str(int(valore.total_seconds() * 1000)),
-                ]
+                # In interi, non da `total_seconds()`: un `float` perde i
+                # millisecondi oltre 2**53 microsecondi, e una durata lunga
+                # sarebbe arrivata alla CLI con un altro valore. Le frazioni di
+                # millisecondo si troncano, come prima.
+                millisecondi = (
+                    (valore.days * 86_400 + valore.seconds) * 1_000
+                    + valore.microseconds // 1_000
+                )
+                argomenti += ["--deadline-ms", int.__repr__(millisecondi)]
             else:
-                argomenti += [f"--{campo.name.replace('_', '-')}", str(valore)]
+                argomenti += [f"--{campo.name.replace('_', '-')}", int.__repr__(valore)]
         return argomenti
 
     @classmethod

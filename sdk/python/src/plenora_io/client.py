@@ -294,7 +294,7 @@ class Client:
             argomenti += ["--layer", arg.intero(layer, "layer")]
         if limit is not None:
             argomenti += ["--limit", arg.intero(limit, "limit")]
-        argomenti += arg.limiti(limits)
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
         return self._chiama(argomenti, Validation)
 
     def read(
@@ -348,7 +348,7 @@ class Client:
         argomenti += ["--output", arg.percorso(output, "output")]
         if layer is not None:
             argomenti += ["--layer", arg.intero(layer, "layer")]
-        argomenti += arg.limiti(limits)
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
         return self._chiama(argomenti, Validation)
 
     def read_table(
@@ -377,6 +377,13 @@ class Client:
         della lettura: senza, una perdita dichiarata dal prodotto arriverebbe
         al chiamante come una tabella qualunque.
         """
+        # Gli argomenti si normalizzano prima di tutto: un argomento sbagliato
+        # non costa ne' l'import di pyarrow ne' una directory temporanea.
+        self._argomenti("read", source, assume_crs, options)
+        if layer is not None:
+            arg.intero(layer, "layer")
+        limits = arg.limiti(limits)
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
         arrow.pyarrow()
         # `committed`: se la pulizia fallisce, il file che `read` ha consegnato
         # nella directory temporanea resta sul disco.
@@ -483,7 +490,8 @@ class Client:
         # due significati nei due metodi, e una chiave del sink passata in
         # `options` arrivava al solo lettore Arrow invece che anche al sink.
         coda += self._tre_famiglie(options, read_options, write_options)
-        coda += arg.limiti(limits)
+        coda += arg.argv_dei_limiti(arg.limiti(limits))
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
         if not arrow.e_un_percorso(source):
             # `committed`: se la pulizia fallisce, `write` ha gia' pubblicato.
             with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
@@ -575,7 +583,7 @@ class Client:
         if arg.booleano(durable, "durable"):
             argomenti.append("--durable")
         argomenti += self._tre_famiglie(options, read_options, write_options)
-        argomenti += arg.limiti(limits)
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
         return self._chiama(argomenti, ConvertResult)
 
     @property
@@ -642,8 +650,7 @@ class Client:
             ("--in-opt", "read_options", read_options),
             ("--out-opt", "write_options", write_options),
         ):
-            for coppia in arg.opzioni(mappa, nome):
-                argomenti += [bandiera, coppia]
+            argomenti += arg.righe_di_opzioni(bandiera, arg.opzioni(mappa, nome))
         return argomenti
 
     @staticmethod
@@ -668,6 +675,5 @@ class Client:
         `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
         """
         argomenti = [comando, arg.percorso(source, "source"), *Client._crs(assume_crs)]
-        for coppia in arg.opzioni(options, "options"):
-            argomenti += ["--in-opt", coppia]
+        argomenti += arg.righe_di_opzioni("--in-opt", arg.opzioni(options, "options"))
         return argomenti

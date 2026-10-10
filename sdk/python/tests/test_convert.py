@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 from plenora_io import (
+    ResultLookupError,
     Client,
     CommandFailed,
     ConflictError,
@@ -136,11 +137,15 @@ class LaBustaDiConvert(unittest.TestCase):
                 with self.assertRaises(ProtocolError):
                     ConvertResult.from_json(documento)
 
-    def test_un_layer_che_non_c_e_solleva_ed_elenca(self) -> None:
+    def test_un_layer_che_non_c_e_solleva_senza_nomi(self) -> None:
+        """Un errore non porta dati: ne' il nome cercato ne' quelli che ci
+        sono (erano nel messaggio fino alla 4.1.1). Resta un `KeyError`."""
         esito = ConvertResult.from_json(conversione_sana())
         with self.assertRaises(KeyError) as preso:
-            esito.layer("altro")
-        self.assertIn("canonico", str(preso.exception))
+            esito.layer("altro-cercato")
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("canonico", str(preso.exception))
+        self.assertNotIn("altro-cercato", str(preso.exception))
 
 
 class IlRapportoDiPerdita(unittest.TestCase):

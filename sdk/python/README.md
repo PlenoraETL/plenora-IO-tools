@@ -140,8 +140,27 @@ il suo valore, e l'eccezione di `__fspath__` o `__str__` non resta nella
 catena. Non e' una deviazione: prima le stesse chiamate uscivano come
 `TypeError`, `ValueError` di `Popen` o l'eccezione di chi chiama, oppure -- un
 `layer=True`, un `durable="no"` -- diventavano un altro argomento in silenzio.
+Ogni argomento si converte all'ingresso nel tipo base esatto (`str`, `int`,
+`bool`, `dict` di `str`, `Limits` e `timedelta` nuovi), con i metodi non
+legati del tipo base: una sottoclasse con `__str__`, `__format__` o
+`__contains__` ridefiniti non esegue codice dopo il confine. Un intero oltre
+64 bit si rifiuta prima di ogni conversione. E' un cambiamento incompatibile,
+dichiarato in `docs/RELEASE.md`, «Note della prossima release».
+
+**La rete.** Ogni metodo pubblico di ogni tipo esportato, e ogni funzione
+esportata, passa da `confine.confinato`: un'eccezione che nessun punto ha
+tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
+dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
+senza testo e senza catena. I punti noti restano tradotti dove nascono, con
+l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
+nuovo senza rete. Le ricerche nei risultati (`layer`, `field`, `driver`,
+`operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
+messaggio.
+
 L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
-di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`.
+di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`; nella CI con
+pyarrow (`PLENORA_INVENTARIO_STRETTO=1`) un punto la cui prova non e' stata
+eseguita e' rosso.
 
 ## `convert()` e le tre famiglie di opzioni
 
