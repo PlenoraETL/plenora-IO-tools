@@ -138,17 +138,17 @@
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
   },
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0 (#43): i tre fork sono dipendenze dirette con nome proprio, quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork, e le righe del delta sono formattate da rustfmt. Nessun codice attraversato cambia comportamento, ma l'impronta esiste per non lasciarlo dire a chi ha scritto la modifica: la misura si rifa'.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
     "impronta_della_misura": "aee38b0aa59296a546e65485cea2565db90c7090ade5858cc5f9e3875031c004",
-    "impronta_attesa": "8c3d30ca5b76dd58018e588db0d9f9fe72573584ba1cd02415f20d90242ad204",
+    "impronta_attesa": "49b2994189500658a2c3b7d4d57e9e7bf6c0f4bc54560a33f3f091fa60e84789",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
   },
   "rimisurazione_asan_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0 (#43): i tre fork sono dipendenze dirette con nome proprio, quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork, e le righe del delta sono formattate da rustfmt. Nessun codice attraversato cambia comportamento, ma l'impronta esiste per non lasciarlo dire a chi ha scritto la modifica: la misura si rifa'.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
     "impronta_della_misura": "aee38b0aa59296a546e65485cea2565db90c7090ade5858cc5f9e3875031c004",
-    "impronta_attesa": "8c3d30ca5b76dd58018e588db0d9f9fe72573584ba1cd02415f20d90242ad204",
+    "impronta_attesa": "49b2994189500658a2c3b7d4d57e9e7bf6c0f4bc54560a33f3f091fa60e84789",
     "non_promette": "Il confine di AddressSanitizer non e' affermato sull'albero corrente: i numeri descrivono il binario su cui la misura e' girata, e non quello che il codice corrente produrrebbe.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "bash scripts/asan-filegdb.sh"
