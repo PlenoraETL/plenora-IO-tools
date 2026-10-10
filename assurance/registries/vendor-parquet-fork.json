@@ -18,10 +18,10 @@
   },
   "delta_funzionale": {
     "src/parquet_thrift.rs": "base (data-tools, punti 1-7): il protocollo Thrift compact non gira piu' a vuoto (`skip_bytes` e `read_bytes_owned` danno `Eof` a fine dati, gli elementi booleani di un elenco si leggono, i varint hanno al piu' dieci byte e un valore entro u64, `read_i16`/`read_i32` rifiutano un valore fuori tipo, `skip_element` rispetta il limite di profondita'); `capacita_dichiarata` lega ai byte residui ogni capacita' presa da un conteggio dichiarato. **E** di questo repository: `ThriftCompactInputProtocol::reserve` e il budget di `ThriftSliceInputProtocol`, addebitato da `read_thrift_vec` prima di `Vec::with_capacity`.",
-    "src/file/metadata/thrift/mod.rs": "base (punto 7): i row group del footer prenotano con `capacita_dichiarata` invece che con `Vec::with_capacity(dichiarato)`. E' la variante che `parquet` 60.0.0 lascia aperta dopo aver limitato `read_thrift_vec` (#38): un footer di 147 byte chiedeva 5 GB. **E** di questo repository: il budget del footer e `schema_cost` (vedi `src/file/metadata/options.rs`); lo stesso limite di profondita' su `parquet_schema_from_bytes`.",
+    "src/file/metadata/thrift/mod.rs": "base (punto 7): i row group del footer prenotano con `capacita_dichiarata` invece che con `Vec::with_capacity(dichiarato)`. E' la variante che `parquet` 60.0.0 lascia aperta dopo aver limitato `read_thrift_vec` (#38): un footer di 147 byte chiedeva 5 GB. **E** di questo repository: il budget del footer e `schema_cost` (vedi `src/file/metadata/options.rs`); lo stesso limite di profondita' su `parquet_schema_from_bytes`. La capacita' di `RowGroupMetaDataBuilder::new` (un `ColumnChunkMetaData` per foglia) si addebita intera prima del costruttore, e non di nuovo per chunk: prima l'addebito era per chunk, dopo la prenotazione (revisione di #47).",
     "src/file/page_index/offset_index.rs": "base (punto 7): le posizioni dell'offset index prenotano con la stessa regola.",
     "src/file/reader.rs": "base (punto 8): `File::get_bytes` rifiuta un intervallo oltre la fine del file prima di riservare la lunghezza chiesta.",
-    "src/file/serialized_reader.rs": "base (punto 9 e 10): un header di pagina non dichiara piu' byte non compressi ne' piu' valori del suo column chunk, nei due stati del lettore; l'header v2 conta solo su una pagina v2; un dizionario PLAIN non dichiara piu' di otto valori per byte. **E** di questo repository: `ReadOptionsBuilder::with_footer_memory_budget` e `with_max_schema_depth`.",
+    "src/file/serialized_reader.rs": "base (punto 9 e 10): un header di pagina non dichiara piu' byte non compressi ne' piu' valori del suo column chunk, nei due stati del lettore; l'header v2 conta solo su una pagina v2; un dizionario PLAIN non dichiara piu' di otto valori per byte. **E** di questo repository: `ReadOptionsBuilder::with_footer_memory_budget` e `with_max_schema_depth`. Il lettore che carica gli indici di pagina riceve le stesse opzioni del footer: senza, il rifiuto con il tetto si aggirava (trovato dalla prova del lettore seriale).",
     "src/encodings/decoding.rs": "base (punto 11): il conteggio di `DeltaBitPackDecoder::set_data` non supera i valori della pagina.",
     "src/arrow/array_reader/byte_array.rs": "base (punto 11): i lettori Arrow delta passano i valori della pagina invece di 0.",
     "src/arrow/array_reader/byte_view_array.rs": "base (punto 11): come sopra, per le viste.",
@@ -31,7 +31,9 @@
     "src/encodings/decoding/byte_stream_split_decoder.rs": "di questo repository: `join_streams_*` indicizza `src[values_decoded + i + j * stride]` senza confrontare con la lunghezza, e il numero di valori viene dal file. Con dichiarazioni concordi di pagina, column chunk e righe il controllo del punto 9 non scatta e il decoder panicava (`index out of bounds`: il finding `arrow-rs-byte-stream-split-oob` della 4.1.0, presente identico in 60.0.0). Ora `valori_disponibili` restituisce un errore; anche una larghezza 0 in `VariableWidthByteStreamSplitDecoder`. Prove: `crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`.",
     "src/file/metadata/options.rs": "di questo repository (#38, il resto): limiti del decoder del footer. `ParquetMetaDataOptions` porta `max_schema_depth` (predefinita `DEFAULT_MAX_SCHEMA_DEPTH` = 64) e `footer_memory_budget` (predefinito nessuno); `ArrowReaderOptions` e `ReadOptionsBuilder` li espongono. `parquet_metadata_from_bytes` rifiuta uno schema piu' profondo prima della conversione ricorsiva (che senza limite esaurisce lo stack: misurato, `STATUS_STACK_OVERFLOW` a 2000 livelli) e addebita al budget, prima di farla, ogni prenotazione: il footer stesso (due volte: buffer e copie dei testi), ogni elenco di `read_thrift_vec` (`count * size_of`), i row group, ogni column chunk e il costo dei percorsi delle foglie che `SchemaDescriptor::new` costruira' (`schema_cost`). Il driver GeoParquet passa il tetto delle pagine. Prove: `crates/driver-geoparquet/tests/schema_del_footer.rs`.",
     "src/file/metadata/mod.rs": "di questo repository: esporta `DEFAULT_MAX_SCHEMA_DEPTH` (vedi `src/file/metadata/options.rs`).",
-    "src/arrow/arrow_reader/mod.rs": "di questo repository: `ArrowReaderOptions::with_footer_memory_budget` e `with_max_schema_depth` (vedi `src/file/metadata/options.rs`)."
+    "src/arrow/arrow_reader/mod.rs": "di questo repository: `ArrowReaderOptions::with_footer_memory_budget` e `with_max_schema_depth` (vedi `src/file/metadata/options.rs`).",
+    "src/file/metadata/parser.rs": "di questo repository: `MetadataParser::footer_memory_budget`, che il push decoder consulta (vedi `src/file/metadata/push_decoder.rs`).",
+    "src/file/metadata/push_decoder.rs": "di questo repository: con un tetto di memoria del footer gli indici di pagina (column index e offset index) sono rifiutati con un errore esplicito, prima di chiederne un byte. I loro decoder (`decode_column_index`, `decode_offset_index`, pubblici e senza opzioni) non portano il tetto, e i loro byte si leggono interi prima di decodificarli: il fork non promette un tetto che quei decoder non sanno tenere. Il driver GeoParquet li tiene a `Skip`. Prove: `crates/driver-geoparquet/tests/budget_del_footer.rs`."
   },
   "di_questo_repository": [
     "src/arrow/array_reader/fixed_len_byte_array.rs (solo la larghezza 0)",
@@ -39,6 +41,8 @@
     "src/encodings/decoding/byte_stream_split_decoder.rs",
     "src/file/metadata/mod.rs",
     "src/file/metadata/options.rs",
+    "src/file/metadata/parser.rs",
+    "src/file/metadata/push_decoder.rs",
     "src/file/metadata/thrift/mod.rs (budget e schema_cost)",
     "src/file/serialized_reader.rs (setter dei limiti)",
     "src/parquet_thrift.rs (reserve e budget)"
@@ -53,7 +57,7 @@
   "limiti_che_restano": [
     "Come nella base: un irrobustimento mirato, non completo contro file costruiti apposta. Le espansioni vere (un dizionario ripetuto su molte righe) le copre il budget dei driver, non il fork.",
     "Il percorso cifrato degli header alloca dalla lunghezza dichiarata; la feature `encryption` non e' abilitata, quindi non e' raggiungibile.",
-    "Il budget del footer copre il decoder dei metadati del file; l'offset index e il column index (page index) si decodificano con un altro protocollo, senza budget: il driver GeoParquet non li legge."
+    "Gli indici di pagina non sono coperti dal tetto: con un tetto sono rifiutati (errore esplicito), senza tetto si decodificano come a monte, limitati solo dai byte. Le funzioni pubbliche `decode_column_index` e `decode_offset_index` non prendono opzioni e restano senza tetto."
   ],
   "procedura_di_aggiornamento": [
     "ripartire dal pacchetto crates.io della nuova versione, verificandone lo sha256 contro quello pubblicato",

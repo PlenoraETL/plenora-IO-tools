@@ -554,8 +554,8 @@ fn read_column_chunk(
     col_index: usize,
     options: Option<&ParquetMetaDataOptions>,
 ) -> Result<ColumnChunkMetaData> {
-    // PLENORA: each column chunk is charged to the budget before it is built.
-    prot.reserve(1, std::mem::size_of::<ColumnChunkMetaData>())?;
+    // PLENORA: the column chunks are charged by `read_row_group`, all at once,
+    // before `RowGroupMetaDataBuilder::new` reserves their capacity.
     // create a default initialized ColumnMetaData
     let mut col = ColumnChunkMetaDataBuilder::new(column_descr.clone()).build()?;
 
@@ -643,6 +643,13 @@ fn read_row_group(
     schema_descr: &Arc<SchemaDescriptor>,
     options: Option<&ParquetMetaDataOptions>,
 ) -> Result<RowGroupMetaData> {
+    // PLENORA: `RowGroupMetaDataBuilder::new` reserves one `ColumnChunkMetaData`
+    // per leaf column of the schema before a single chunk is read: the whole
+    // capacity is charged to the budget here, once, and not again per chunk.
+    prot.reserve(
+        schema_descr.num_columns(),
+        std::mem::size_of::<ColumnChunkMetaData>(),
+    )?;
     // create default initialized RowGroupMetaData
     let mut row_group = RowGroupMetaDataBuilder::new(schema_descr.clone()).build_unchecked();
 

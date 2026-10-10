@@ -290,8 +290,11 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
 
         // If page indexes are desired, build them with the filtered set of row groups
         if options.enable_page_index {
+            // PLENORA: the same metadata options as the footer, so that a
+            // footer memory budget also governs (and refuses) the page index.
             let mut reader = ParquetMetaDataReader::new_with_metadata(metadata)
-                .with_page_index_policy(PageIndexPolicy::Required);
+                .with_page_index_policy(PageIndexPolicy::Required)
+                .with_metadata_options(Some(options.metadata_options.clone()));
             reader.read_page_indexes(&chunk_reader)?;
             metadata = reader.finish()?;
         }

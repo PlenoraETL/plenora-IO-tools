@@ -124,31 +124,51 @@ fn geoparquet_valido(valori: &[f64]) -> Vec<u8> {
     byte
 }
 
-fn legge(byte: &[u8]) -> Result<usize, String> {
+/// Come e' finita una lettura: tre esiti, e non due.
+///
+/// Un `Err` del decoder e un panico sono guasti diversi -- il primo e' il
+/// contratto, il secondo e' il difetto -- e le prove li devono distinguere
+/// senza cercare un testo: un `expect` sull'`Err` lo trasformerebbe in un
+/// panico, e la prova non saprebbe piu' quale dei due ha visto.
+#[derive(Debug)]
+enum Esito {
+    Letto(usize),
+    Errore(String),
+    Panico(String),
+}
+
+fn legge(byte: &[u8]) -> Esito {
     // Si passa per un file invece che per un buffer: `bytes::Bytes` non e' fra
     // le dipendenze dichiarate di questo crate, e un file e' anche il modo in
     // cui un consumatore riproduce il caso.
     let temporanea = tempfile::NamedTempFile::new().expect("file temporaneo");
     std::fs::write(temporanea.path(), byte).expect("il file si scrive");
     let percorso = temporanea.path().to_path_buf();
-    let esito = std::panic::catch_unwind(move || {
-        let file = std::fs::File::open(&percorso).expect("il file si apre");
+    // `catch_unwind` racchiude solo `parquet`; ogni `Err` che restituisce resta
+    // un `Err` dentro il risultato, senza passare da un panico.
+    let esito = std::panic::catch_unwind(move || -> Result<usize, String> {
+        let file = std::fs::File::open(&percorso).map_err(|e| e.to_string())?;
         let lettore = ParquetRecordBatchReaderBuilder::try_new(file)
-            .expect("il footer si legge")
+            .map_err(|e| e.to_string())?
             .build()
-            .expect("il lettore si costruisce");
-        lettore
-            .map(|batch| batch.expect("batch").num_rows())
-            .sum::<usize>()
+            .map_err(|e| e.to_string())?;
+        let mut righe = 0;
+        for batch in lettore {
+            righe += batch.map_err(|e| e.to_string())?.num_rows();
+        }
+        Ok(righe)
     });
     match esito {
-        Ok(righe) => Ok(righe),
-        Err(carico) => Err(carico
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| carico.downcast_ref::<&str>().copied())
-            .unwrap_or("(payload non testuale)")
-            .to_owned()),
+        Ok(Ok(righe)) => Esito::Letto(righe),
+        Ok(Err(errore)) => Esito::Errore(errore),
+        Err(carico) => Esito::Panico(
+            carico
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| carico.downcast_ref::<&str>().copied())
+                .unwrap_or("(payload non testuale)")
+                .to_owned(),
+        ),
     }
 }
 
@@ -160,13 +180,13 @@ fn legge(byte: &[u8]) -> Result<usize, String> {
 fn il_file_valido_con_byte_stream_split_si_legge() {
     let valori: Vec<f64> = (0..8).map(|i| f64::from(i) + 0.5).collect();
     match legge(&parquet_valido(&valori)) {
-        Ok(righe) => assert_eq!(
+        Esito::Letto(righe) => assert_eq!(
             righe,
             valori.len(),
             "il file valido deve restituire tutte le righe"
         ),
-        Err(messaggio) => panic!(
-            "il file valido panica: la codifica non e' utilizzabile per il \
+        Esito::Errore(messaggio) | Esito::Panico(messaggio) => panic!(
+            "il file valido non si legge: la codifica non e' utilizzabile per il \
              riproduttore, e il seguito non misurerebbe il campo: {messaggio}"
         ),
     }
@@ -178,7 +198,7 @@ fn parquet_con_num_values_gonfiato() -> (Vec<u8>, Vec<u8>) {
     let valori: Vec<f64> = (0..8).map(|i| f64::from(i) + 0.5).collect();
     let originale = parquet_valido(&valori);
     assert!(
-        legge(&originale).is_ok(),
+        matches!(legge(&originale), Esito::Letto(_)),
         "il controfattuale non regge: il file di partenza non si legge"
     );
     let (solo_pagina, concordi) = gonfia(&originale, valori.len());
@@ -226,17 +246,14 @@ fn gonfia(originale: &[u8], quanti: usize) -> (Vec<u8>, Vec<u8>) {
 fn num_values_della_sola_pagina_oltre_il_chunk_e_un_errore() {
     let (solo_pagina, _) = parquet_con_num_values_gonfiato();
     match legge(&solo_pagina) {
-        Err(messaggio) => {
-            assert!(
-                !messaggio.contains("index out of bounds"),
-                "il decoder ha panicato: {messaggio}"
-            );
+        Esito::Panico(messaggio) => panic!("il decoder ha panicato: {messaggio}"),
+        Esito::Errore(messaggio) => {
             assert!(
                 messaggio.contains("page value count exceeds the column chunk value count"),
                 "il rifiuto atteso e' quello del fork sul conteggio della pagina: {messaggio}"
             );
         }
-        Ok(righe) => panic!("il file alterato si legge, {righe} righe"),
+        Esito::Letto(righe) => panic!("il file alterato si legge, {righe} righe"),
     }
 }
 
@@ -247,18 +264,17 @@ fn num_values_della_sola_pagina_oltre_il_chunk_e_un_errore() {
 fn num_values_concordi_oltre_i_byte_sono_un_errore_del_decoder() {
     let (_, concordi) = parquet_con_num_values_gonfiato();
     match legge(&concordi) {
-        Err(messaggio) => {
-            assert!(
-                !messaggio.contains("index out of bounds"),
-                "il decoder ha panicato: il controllo del fork sui byte della \
-                 pagina non c'e' piu'. {messaggio}"
-            );
+        Esito::Panico(messaggio) => panic!(
+            "il decoder ha panicato: il controllo del fork sui byte della \
+             pagina non c'e' piu'. {messaggio}"
+        ),
+        Esito::Errore(messaggio) => {
             assert!(
                 messaggio.contains("values requested beyond"),
                 "il rifiuto atteso e' quello del decoder del fork: {messaggio}"
             );
         }
-        Ok(righe) => panic!("il file alterato si legge, {righe} righe"),
+        Esito::Letto(righe) => panic!("il file alterato si legge, {righe} righe"),
     }
 }
 
