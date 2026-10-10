@@ -34,7 +34,7 @@ fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
     }
 }
 
-fn comparable_crs_representations(
+pub(crate) fn comparable_crs_representations(
     geometry: &plenora_io_model::contract::GeometryColumnContract,
 ) -> [Option<i64>; 3] {
     let (definition, definition_format) = match &geometry.crs {

@@ -846,19 +846,41 @@ fn strati_da_pubblicare(
 
 /// Il piano di scrittura: un layer del sink per ciascun layer selezionato,
 /// nello stesso ordine, perche' e' l'ordine su cui `trasferisci_layer` indicizza.
-fn piano_di_scrittura(selezionati: &[LayerContract]) -> WritePlan {
-    WritePlan {
-        layers: selezionati
-            .iter()
-            .map(|l| WriteLayer {
-                name: l.name.clone(),
-                contract: DataContract {
-                    schema: l.contract.schema.clone(),
-                    geometry: l.contract.geometry.clone(),
-                },
-            })
-            .collect(),
+///
+/// Accanto al piano, per ogni layer, la conversione EWKB -> WKB ISO quando il
+/// contratto dichiara `ewkb` e il sink non lo scrive
+/// (`plenora_io_core::ewkb`): il layer si pianifica gia' WKB, e i batch si
+/// convertono in `trasferisci_layer`. Un SRID che il CRS non rappresenta e'
+/// un rifiuto qui, prima di creare la destinazione.
+///
+/// Propaga il contratto geometria (id CRS + WKT) ai writer che ne hanno
+/// bisogno (gpkg srs, shp .prj); i writer che rilevano la geometria dallo
+/// schema lo ignorano.
+fn piano_di_scrittura(
+    selezionati: &[LayerContract],
+    sink: &plenora_io_core::FormatDescriptor,
+    limiti: plenora_io_model::limits::WkbLimits,
+) -> Result<(WritePlan, Vec<Option<plenora_io_core::ewkb::DaEwkbAWkb>>), PlenoraIoError> {
+    let mut layers = Vec::with_capacity(selezionati.len());
+    let mut da_ewkb = Vec::with_capacity(selezionati.len());
+    for l in selezionati {
+        let pianificato = plenora_io_core::ewkb::pianifica(
+            sink,
+            &l.contract.schema,
+            l.contract.geometry.as_ref(),
+            limiti,
+        )?;
+        let (schema, geometry, adattamento) = match pianificato {
+            Some((schema, geometria, adattamento)) => (schema, Some(geometria), Some(adattamento)),
+            None => (l.contract.schema.clone(), l.contract.geometry.clone(), None),
+        };
+        layers.push(WriteLayer {
+            name: l.name.clone(),
+            contract: DataContract { schema, geometry },
+        });
+        da_ewkb.push(adattamento);
     }
+    Ok((WritePlan { layers }, da_ewkb))
 }
 
 /// `io.write`: pubblica un dataset Arrow in un formato **nominato**.
@@ -920,7 +942,8 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
     let fedelta_ingresso = ds.fidelity_assessment();
 
     let selezionati = strati_da_pubblicare(ds.layers(), cli.layer)?;
-    let piano = piano_di_scrittura(&selezionati);
+    let (piano, conversioni) =
+        piano_di_scrittura(&selezionati, sink.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
     wopts.durable = cli.durable;
     wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
     let mut writer = sink
@@ -940,8 +963,13 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
                     "numero di layer non rappresentabile",
                 )))
             })?);
-        let (righe, batch) =
-            trasferisci_layer(reader.as_mut(), writer.as_mut(), sink_layer).map_err(map_err)?;
+        let (righe, batch) = trasferisci_layer(
+            reader.as_mut(),
+            writer.as_mut(),
+            sink_layer,
+            conversioni[indice].as_ref(),
+        )
+        .map_err(map_err)?;
         perdita_in_ingresso.merge(&reader.loss_report());
         righe_totali = righe_totali.checked_add(righe).ok_or_else(|| {
             map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
@@ -1121,10 +1149,12 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     let mut reader = ds
         .open_layer_reader(&read_request(cli, layer_id, scopo))
         .map_err(map_err)?;
+    // Il sink di `read` e' Arrow IPC, che scrive EWKB: niente da convertire.
     let (rows, batches) = trasferisci_layer(
         reader.as_mut(),
         writer.as_mut(),
         plenora_io_model::contract::LayerId(0),
+        None,
     )
     .map_err(map_err)?;
     let perdita = reader.loss_report();
@@ -1200,6 +1230,7 @@ fn trasferisci_layer(
     reader: &mut dyn plenora_io_core::driver::LayerReader,
     writer: &mut dyn plenora_io_core::driver::FormatWriter,
     sink_layer: plenora_io_model::contract::LayerId,
+    conversione: Option<&plenora_io_core::ewkb::DaEwkbAWkb>,
 ) -> Result<(usize, usize), PlenoraIoError> {
     let mut corrente = reader.next_batch()?;
     let input_total = reader.accepted_total().ok_or_else(|| {
@@ -1220,7 +1251,12 @@ fn trasferisci_layer(
                 "overflow nel conteggio batch CLI",
             ))
         })?;
-        writer.write_to_layer(sink_layer, &batch)?;
+        match conversione {
+            Some(conversione) => {
+                writer.write_to_layer(sink_layer, &conversione.converti(&batch)?)?;
+            }
+            None => writer.write_to_layer(sink_layer, &batch)?,
+        }
         // Rilascio esplicito prima della lettura successiva: senza di esso il
         // picco sarebbe di due batch, e la sonda dell'alternanza resterebbe
         // verde su un codice che occupa il doppio.
@@ -1329,21 +1365,8 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
         );
     }
 
-    let plan = WritePlan {
-        layers: selected
-            .iter()
-            .map(|l| WriteLayer {
-                name: l.name.clone(),
-                contract: DataContract {
-                    schema: l.contract.schema.clone(),
-                    // Propaga il contratto geometria (id CRS + WKT) ai writer che
-                    // ne hanno bisogno (gpkg srs, shp .prj); i writer che rilevano
-                    // la geometria dallo schema lo ignorano.
-                    geometry: l.contract.geometry.clone(),
-                },
-            })
-            .collect(),
-    };
+    let (plan, da_ewkb) =
+        piano_di_scrittura(&selected, dst.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
     wopts.durable = cli.durable;
     // Finding #11: vedi commento speculare in `ropts`.
     wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
@@ -1365,8 +1388,13 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
                     "numero di layer sorgente non rappresentabile",
                 )))
             })?);
-        let (rows, batches) =
-            trasferisci_layer(reader.as_mut(), writer.as_mut(), sink_layer).map_err(map_err)?;
+        let (rows, batches) = trasferisci_layer(
+            reader.as_mut(),
+            writer.as_mut(),
+            sink_layer,
+            da_ewkb[sink_idx].as_ref(),
+        )
+        .map_err(map_err)?;
         read_loss.merge(&reader.loss_report());
         total_rows = total_rows.checked_add(rows).ok_or_else(|| {
             map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
