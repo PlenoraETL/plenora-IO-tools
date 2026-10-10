@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 # `upstream/` porta i casi minimi da mandare a monte: devono compilare per chi
 # non ha questo repository, quindi non sono membri del workspace.
-exclude = ["vendor/dxf", "vendor/gdal", "vendor/shapefile", "upstream/arrow-rs-byte-stream-split", "upstream/parquet-footer-thrift-list"]
+exclude = ["vendor/dxf", "vendor/gdal", "vendor/parquet", "vendor/shapefile", "upstream/arrow-rs-byte-stream-split", "upstream/parquet-footer-thrift-list"]
 
 [workspace.package]
 version = "4.1.1"
@@ -15,15 +15,34 @@ publish = false
 # plenora-database-tools. I manifesti dei crate lo ereditano.
 license-file = "LICENSE"
 
-# Pin comune con plenora-data-tools (ADR/D0): i RecordBatch passano fra le due
-# librerie senza conversione solo se la versione Arrow coincide.
+# Arrow 60.0.0, la stessa versione esatta di plenora-data-tools 2.x e di
+# plenora-database-tools 7.x. Un `RecordBatch` di arrow 59 e uno di arrow 60
+# sono tipi diversi: con la stessa versione i tre componenti possono scambiarsi
+# batch in memoria nella stessa compilazione, e il conflitto, se una delle tre
+# cambiasse da sola, sarebbe un errore di risoluzione e non una conversione.
+# Il pin precedente (59.3.0) era motivato come «comune con data-tools», che nel
+# frattempo e' passato a 60.
 [workspace.dependencies]
-arrow-array = "=59.3.0"
-arrow-schema = "=59.3.0"
-arrow-ipc = "=59.3.0"
-arrow-select = "=59.3.0"
-arrow-buffer = "=59.3.0"
-parquet = { version = "=59.3.0", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
+arrow-array = "=60.0.0"
+arrow-schema = "=60.0.0"
+arrow-ipc = "=60.0.0"
+arrow-select = "=60.0.0"
+arrow-buffer = "=60.0.0"
+# `parquet` 60.0.0 con le correzioni del fork `-eof` di plenora-data-tools,
+# vendorizzato in `vendor/parquet` con lo stesso albero (byte per byte, salvo il
+# nome del pacchetto) e come dipendenza diretta con nome proprio, per la stessa
+# ragione dei tre fork qui sotto: una `[patch]` non arriverebbe a chi dipende
+# da noi.
+#
+# Perche' il fork e non la 60.0.0 di crates.io: la 60.0.0 limita ai byte
+# residui gli elenchi letti con `read_thrift_vec` (il caso della 4.1.1,
+# `key_value_metadata`, 3966 byte che prenotavano 2,3 GB), ma non i row group
+# del footer, che prenota ancora dal conteggio dichiarato; ne' le posizioni
+# dell'offset index; e il protocollo Thrift su `Read` gira a vuoto sugli header
+# di pagina malformati. Il fork chiude quei casi (registro:
+# `assurance/registries/vendor-parquet-fork.json`). Le feature sono l'unione di
+# quelle di data-tools e delle nostre: brotli, flate2 e lz4 in piu'.
+parquet = { package = "plenora-fork-parquet", version = "=60.0.0", path = "vendor/parquet", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
 geo-types = "=0.7.20"
 geojson = { version = "=1.0.0", features = ["geo-types"] }
 csv = "=1.4.0"

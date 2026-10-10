@@ -91,7 +91,7 @@ fn schema_di(percorso: &Path) -> Schema {
     lettore.schema().as_ref().clone()
 }
 
-fn metadati(mappa: &std::collections::HashMap<String, String>) -> BTreeMap<&str, &str> {
+fn metadati(mappa: &arrow_schema::Metadata) -> BTreeMap<&str, &str> {
     mappa
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))

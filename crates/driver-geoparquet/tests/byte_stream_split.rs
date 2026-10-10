@@ -18,6 +18,16 @@
 //! sonda separata chiama `parquet` direttamente sullo stesso file, senza niente
 //! di nostro in mezzo, e panica.
 //!
+//! # Che cosa cambia con `parquet` 60
+//!
+//! Il decoder del footer della 60 rifiuta il seme prima delle pagine: il seme
+//! non raggiunge piu' `ByteStreamSplitDecoder`. Il difetto del decoder pero'
+//! c'e' ancora, identico, in `parquet-60.0.0` (`join_streams_const` indicizza
+//! senza confrontare con la lunghezza), e resta raggiungibile da un file in cui
+//! l'header di pagina **e** i metadati di colonna dichiarano piu' valori dei
+//! byte presenti. Il riproduttore e la prova della barriera su quel file stanno
+//! in `byte_stream_split_sintetico.rs`; qui restano le prove sul seme.
+//!
 //! # Perche' il fuzzer dice «crash» e il prodotto no
 //!
 //! `libfuzzer-sys` installa un panic hook che chiama `abort()` prima
@@ -58,10 +68,7 @@
 
 use std::path::{Path, PathBuf};
 
-use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::FormatDriver;
-use plenora_io_model::contract::LayerId;
-use plenora_io_model::CancellationToken;
 
 /// Il messaggio di un panico catturato, quando e' testuale.
 ///
@@ -90,138 +97,77 @@ fn opzioni_lettura() -> plenora_io_core::ReadOptions {
     }
 }
 
-/// La richiesta minima: il panico non dipende da cosa si chiede.
-fn richiesta() -> ReadRequest {
-    ReadRequest {
-        layer: LayerId(0),
-        projected_fields: None,
-        projection_mode: ProjectionMode::BestEffort,
-        pruning_predicate: None,
-        spatial_pruning_hint: None,
-        scope: ReadScope::default(),
-        batch_target: BatchTarget::default(),
-        cancellation: CancellationToken::default(),
-    }
-}
-
-/// La lettura completa restituisce un errore, e i quattro assi sono quelli.
+/// Il seme ora e' rifiutato all'apertura, con un errore tipizzato.
 ///
-/// «Rifiutato» non basterebbe: un input puo' essere rifiutato dal ramo
-/// sbagliato e la prova resterebbe verde mentre la barriera che pretende di
-/// pinnare e' sparita. Qui si pretendono fase, categoria, ritentabilita' e il
-/// messaggio curato -- e che il panico **non** sia arrivato fino al chiamante.
+/// Con `parquet` 60 il decoder del footer e' piu' severo: il seme del finding
+/// porta nel footer un campo il cui tipo Thrift non corrisponde a quello dello
+/// schema, e la lettura dei metadati lo rifiuta prima di arrivare alle pagine.
+/// Il seme non raggiunge piu' il decoder `BYTE_STREAM_SPLIT`; la barriera, che
+/// resta necessaria perche' il decoder e' ancora difettoso, e' provata su un
+/// file costruito apposta in `byte_stream_split_sintetico.rs`.
+///
+/// Qui si pretende che l'esito sia un errore e non un panico, con i quattro
+/// assi e il messaggio curato: «rifiutato» da solo non distinguerebbe il ramo.
 #[test]
-fn la_lettura_completa_non_propaga_il_panico() {
+fn il_seme_e_rifiutato_all_apertura_senza_panico() {
     // `catch_unwind` qui e' dello strumento, non del prodotto: distingue «il
-    // driver ha restituito un errore» da «il panico e' arrivato fin qui», che
-    // e' precisamente cio' che si misura. Senza, il secondo caso apparirebbe
-    // come un test rosso e basta, e non si saprebbe perche'.
+    // driver ha restituito un errore» da «il panico e' arrivato fin qui».
     let esito = std::panic::catch_unwind(|| {
-        let aperto = driver_geoparquet::GeoParquetDriver
+        driver_geoparquet::GeoParquetDriver
             .open(plenora_io_core::Source::Path(fixture()), opzioni_lettura())
-            .expect("l'apertura riesce: il footer e lo schema sono coerenti");
-        let mut lettore = aperto
-            .open_layer_reader(&richiesta())
-            .expect("il lettore si costruisce");
-        let mut batch = 0_usize;
-        loop {
-            match lettore.next_batch() {
-                Ok(Some(_)) => {
-                    batch += 1;
-                    assert!(batch < 1024, "il file e' piccolo: non deve ciclare");
-                }
-                Ok(None) => return Ok(batch),
-                Err(errore) => return Err(errore),
-            }
-        }
+            .map(|_| ())
     });
 
     let errore = match esito {
-        // Il carico del panico si riporta: se questa prova diventa rossa, il
-        // messaggio dice **quale** panico e' passato, e cercarlo nei log del
-        // processo sarebbe un passaggio in piu' per un'informazione che sta
-        // gia' qui.
         Err(carico) => panic!(
-            "il panico ha attraversato la lettura: «{}». La barriera di \
-             `plenora-io-core/src/driver.rs` non copre piu' questo percorso, e \
-             un consumatore della libreria crollerebbe invece di ricevere un \
-             errore",
+            "il panico ha attraversato l'apertura: «{}»",
             descrizione_del_panico(&*carico)
         ),
-        Ok(Ok(batch)) => panic!(
-            "la lettura ha restituito {batch} batch senza errore: o il decoder \
-             upstream e' stato corretto -- e allora questa prova va rivista \
-             insieme al pin di `parquet` -- o l'input non e' piu' quello del \
-             finding"
+        Ok(Ok(())) => panic!(
+            "il seme si apre: il decoder del footer di `parquet` non lo rifiuta \
+             piu', e allora puo' tornare a raggiungere le pagine. Rivedere \
+             questa prova insieme al pin"
         ),
         Ok(Err(errore)) => errore,
     };
-
-    // I quattro assi dell'errore. La categoria dice **di chi** e' il problema:
-    // `DataMapping` attribuisce all'input la mancata rappresentazione, che e'
-    // corretto -- il file dichiara un tipo e fornisce dati che non gli
-    // corrispondono.
-    assert_eq!(
-        errore.phase,
-        plenora_io_model::ErrorPhase::Read,
-        "il panico avviene decodificando le pagine, quindi la fase e' Read: {errore}"
-    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read, "{errore}");
     assert_eq!(
         errore.category,
         plenora_io_model::ErrorCategory::DataMapping,
-        "l'input non e' rappresentabile: la categoria e' DataMapping, non un \
-         errore interno o di configurazione: {errore}"
+        "{errore}"
     );
     assert_eq!(
         errore.retry,
         plenora_io_model::RetryDisposition::Never,
-        "rileggere lo stesso file dara' lo stesso esito: la ritentabilita' e' \n         Never: {errore}"
+        "{errore}"
     );
-
-    // Il messaggio e' **curato** e statico: non porta nulla derivato dal
-    // payload. E' la promessa del bordo, e nominare il panico e' anche cio'
-    // che distingue questo rifiuto da uno qualunque.
-    let testo = errore.to_string();
     assert!(
-        testo.contains("panico"),
-        "se il messaggio non nomina il panico, non e' la barriera ad aver \
-         prodotto questo errore, e la prova sta guardando un altro rifiuto: \
-         {testo}"
+        errore.to_string().contains("footer Parquet non valido"),
+        "il rifiuto deve venire dalla lettura del footer, non da un altro ramo: \
+         {errore}"
     );
 }
 
-/// Senza la barriera il panico esce: la causa e' upstream, non nostra.
+/// Anche `parquet` da solo, senza niente di nostro in mezzo, rifiuta il seme.
 ///
-/// Chiude l'altra meta' della domanda. Se questa prova diventasse verde per la
-/// via `Ok`, vorrebbe dire che `parquet` e' stato corretto a monte: allora la
-/// prova di sopra va rivista insieme al pin, e non si toglie una barriera che
-/// costa nulla.
+/// E' la controprova che il rifiuto e' del decoder a monte e non di una nostra
+/// prevalidazione: se questa diventasse verde per la via `Ok`, il seme
+/// tornerebbe a raggiungere il decoder delle pagine.
 #[test]
-fn senza_la_barriera_il_decoder_upstream_panica() {
+fn parquet_60_rifiuta_il_footer_del_seme() {
     let esito = std::panic::catch_unwind(|| {
         let file = std::fs::File::open(fixture()).expect("la fixture si apre");
-        let costruttore =
-            parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)
-                .expect("il footer si legge: il file non e' malformato in modo grossolano");
-        let lettore = costruttore.build().expect("il lettore si costruisce");
-        lettore
-            .map(|batch| batch.expect("batch").num_rows())
-            .sum::<usize>()
+        parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file).map(|_| ())
     });
-
     match esito {
-        Err(carico) => {
-            let messaggio = descrizione_del_panico(&*carico);
-            assert!(
-                messaggio.contains("index out of bounds"),
-                "il panico atteso e' l'indicizzazione fuori limite del decoder \
-                 BYTE_STREAM_SPLIT; questo e' un altro: {messaggio}"
-            );
-        }
-        Ok(righe) => panic!(
-            "`parquet` ha letto {righe} righe senza panicare. Se il pin e' \
-             stato aggiornato, il difetto upstream e' chiuso: aggiornare questo \
-             file invece di cancellarlo, perche' la barriera resta utile"
+        Err(carico) => panic!(
+            "`parquet` panica sul footer del seme: «{}»",
+            descrizione_del_panico(&*carico)
         ),
+        Ok(Ok(())) => panic!(
+            "`parquet` accetta il footer del seme: rivedere questa prova e \
+             quella di sopra insieme al pin"
+        ),
+        Ok(Err(_)) => {}
     }
 }

@@ -28,7 +28,7 @@ REGISTRO = "registry+https://github.com/rust-lang/crates.io-index"
 class SondeGrafo(unittest.TestCase):
     def setUp(self) -> None:
         self.radice = pathlib.Path(tempfile.mkdtemp(prefix="archivio-"))
-        for nome in ("gdal", "shapefile", "dxf"):
+        for nome in ("gdal", "shapefile", "dxf", "parquet"):
             (self.radice / "vendor" / nome).mkdir(parents=True)
 
     def _fork(self, fork: str, upstream: str) -> dict:
@@ -78,7 +78,7 @@ class SondeGrafo(unittest.TestCase):
 
         radice = pathlib.Path(__file__).resolve().parents[1]
         dai_lock = {}
-        for nome in ("gdal", "shapefile", "dxf"):
+        for nome in ("gdal", "shapefile", "dxf", "parquet"):
             lock = json.loads(
                 (radice / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8")
             )

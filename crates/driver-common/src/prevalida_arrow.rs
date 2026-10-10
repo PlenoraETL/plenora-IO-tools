@@ -8,6 +8,15 @@
 //! body con `Buffer::slice_with_length`, che asserisce che offset e lunghezza
 //! stiano dentro (`arrow-buffer/src/buffer/immutable.rs:288`).
 //!
+//! **Con `arrow-ipc` 60.0.0** la parte dello schema e' cambiata: i lettori
+//! convertono con `try_fb_to_schema`, fallibile (in `convert.rs` resta un solo
+//! `panic!`, fuori dal percorso di lettura), e i metadati del footer senza
+//! chiave o valore sono un `ParseError`. Le verifiche di schema e footer qui
+//! sotto restano come difesa in profondita' -- rifiutano solo input non
+//! conformi, e costano una visita dello schema --; quella dei buffer resta
+//! **necessaria**, perche' `read_buffer` affetta ancora il corpo con
+//! `slice_with_length`, che asserisce.
+//!
 //! I driver leggono file esterni non fidati per mestiere. Una barriera
 //! `catch_unwind` converte il panico in errore tipizzato e resta come difesa
 //! in profondita', ma **non chiude il difetto**: il panico e' avvenuto, e
@@ -190,9 +199,10 @@ pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> 
 /// la stessa ragione di FZ-0, e questa e' la voce che quella verifica non
 /// guardava.
 ///
-/// Il difetto e' aperto anche in arrow-ipc 59.2.0 e 59.3.0: l'aggiornamento
-/// alla 59.3.0 previsto per la 3.0.0 non lo chiude, e questa verifica va
-/// portata attraverso quell'aggiornamento senza toglierla.
+/// Il difetto era aperto in arrow-ipc 59.2.0 e 59.3.0. In 60.0.0 il lettore
+/// del file rifiuta la voce incompleta con un `ParseError`: la condizione di
+/// uscita scritta sopra e' soddisfatta, e la verifica resta come difesa in
+/// profondita' finche' le regressioni qui sotto non sono rilette contro 60.
 fn valida_metadati_del_footer(driver: &'static str, footer: &arrow_ipc::Footer<'_>) -> Result<()> {
     let Some(voci) = footer.custom_metadata() else {
         return Ok(());

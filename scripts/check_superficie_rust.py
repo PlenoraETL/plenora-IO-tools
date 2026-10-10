@@ -199,7 +199,7 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     if problemi:
         return problemi
 
-    for fork in ("gdal", "shapefile", "dxf"):
+    for fork in ("gdal", "shapefile", "dxf", "parquet"):
         if not (radice / "vendor" / fork / "Cargo.toml").is_file():
             return [
                 f"l'archivio non contiene `vendor/{fork}`: i driver ne dipendono "
@@ -286,6 +286,7 @@ FORK = {
     "plenora-fork-gdal": "gdal",
     "plenora-fork-shapefile": "shapefile",
     "plenora-fork-dxf": "dxf",
+    "plenora-fork-parquet": "parquet",
 }
 
 

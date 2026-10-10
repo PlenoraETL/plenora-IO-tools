@@ -3,24 +3,24 @@
   "descrizione": "La closure di `driver-geoparquet` sulle piattaforme che distribuiamo: ogni crate che quel driver raggiunge, con la versione, la licenza e l'origine -- prodotto o build. E' un **censimento**, non un'istantanea: il gate lo ricalcola da `cargo tree` e pretende che coincida **coppia per coppia**, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
   "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa, e per due ragioni. Un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. E il lock elenca anche le dipendenze **opzionali non abilitate**: `geo-types` vi dichiara sei versioni di `rstar`, una per feature, e non ne accendiamo nessuna. Cio' che conta e' che cosa **questo** driver puo' eseguire, e a dirlo e' il grafo con le feature risolte.",
   "radice": "driver-geoparquet",
-  "crate_totali": 128,
+  "crate_totali": 129,
   "licenze": {
     "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
     "0BSD OR MIT OR Apache-2.0": 1,
-    "Apache-2.0": 8,
+    "Apache-2.0": 9,
     "Apache-2.0 AND MIT": 1,
     "Apache-2.0 OR MIT": 5,
     "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT": 2,
     "Apache-2.0/MIT": 1,
     "BSD-2-Clause OR Apache-2.0 OR MIT": 2,
-    "BSD-3-Clause": 3,
+    "BSD-3-Clause": 6,
     "BSD-3-Clause AND MIT": 1,
     "BSD-3-Clause/MIT": 1,
-    "MIT": 22,
-    "MIT OR Apache-2.0": 68,
+    "MIT": 21,
+    "MIT OR Apache-2.0": 67,
     "MIT OR Zlib OR Apache-2.0": 1,
     "MIT-0": 1,
-    "MIT/Apache-2.0": 3,
+    "MIT/Apache-2.0": 2,
     "Unlicense OR MIT": 2,
     "Zlib": 1,
     "interna-al-workspace": 4
@@ -370,13 +370,13 @@
     },
     {
       "crate": "alloc-no-stdlib",
-      "versione": "2.0.4",
+      "versione": "3.0.0",
       "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
     {
       "crate": "alloc-stdlib",
-      "versione": "0.2.4",
+      "versione": "0.3.0",
       "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
@@ -388,37 +388,43 @@
     },
     {
       "crate": "arrow-array",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0 AND MIT",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-buffer",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "arrow-cmp",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-data",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-ipc",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-schema",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-select",
-      "versione": "59.3.0",
+      "versione": "60.0.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
@@ -466,13 +472,13 @@
     },
     {
       "crate": "brotli",
-      "versione": "8.0.4",
+      "versione": "9.0.0",
       "licenza": "BSD-3-Clause AND MIT",
       "origine": "prodotto"
     },
     {
       "crate": "brotli-decompressor",
-      "versione": "5.0.3",
+      "versione": "6.0.1",
       "licenza": "BSD-3-Clause/MIT",
       "origine": "prodotto"
     },
@@ -801,12 +807,6 @@
       "origine": "prodotto"
     },
     {
-      "crate": "parquet",
-      "versione": "59.3.0",
-      "licenza": "Apache-2.0",
-      "origine": "prodotto"
-    },
-    {
       "crate": "percent-encoding",
       "versione": "2.3.2",
       "licenza": "MIT OR Apache-2.0",
@@ -817,6 +817,12 @@
       "versione": "0.3.33",
       "licenza": "MIT OR Apache-2.0",
       "origine": "build"
+    },
+    {
+      "crate": "plenora-fork-parquet",
+      "versione": "60.0.0",
+      "licenza": "Apache-2.0",
+      "origine": "prodotto"
     },
     {
       "crate": "plenora-io-core",
@@ -1102,20 +1108,20 @@
     },
     {
       "crate": "zstd",
-      "versione": "0.13.3",
-      "licenza": "MIT",
+      "versione": "0.14.1",
+      "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
     {
       "crate": "zstd-safe",
-      "versione": "7.2.4",
-      "licenza": "MIT OR Apache-2.0",
+      "versione": "8.1.0",
+      "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
     {
       "crate": "zstd-sys",
-      "versione": "2.0.16+zstd.1.5.7",
-      "licenza": "MIT/Apache-2.0",
+      "versione": "2.1.1+zstd.1.5.7",
+      "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     }
   ],
@@ -1174,8 +1180,8 @@
     "come_e_stato_realineato": "chiamando `check_schemi_geoparquet.closure_dal_lock`, cioe' l'attraversamento del gate stesso. Replicarlo a mano e' l'errore che il 2026-09-07 produsse diciannove voci inventate."
   },
   "come_si_misura": "`cargo tree -p driver-geoparquet --edges normal,build --target all`. `normal,build` perche' conta cio' che il driver esegue e cio' che serve a costruirlo, non le `dev-dependencies`, che non arrivano a chi riceve l'artefatto. `--target all` perche' distribuiamo per Linux e per Windows, e una licenza da guardare non smette di esserlo perche' la guardiamo da Linux.",
-  "coppie_totali": 128,
-  "nomi_distinti": 122,
+  "coppie_totali": 129,
+  "nomi_distinti": 123,
   "variazione_confronto_per_coppie": {
     "quando": "2026-09-09",
     "perche": "il gate confrontava i **nomi**: una versione vecchia nel censimento restava verde, e la licenza censita e' quella della versione dichiarata. Passando alle coppie sono emerse due cose piu' grandi del difetto che cercavo.",
@@ -1280,12 +1286,12 @@
   },
   "perimetro_esteso": {
     "che_cos_e": "lo stesso conto con `--target all`, cioe' ogni piattaforma che Cargo riconosce.",
-    "coppie": 170,
+    "coppie": 171,
     "quante_in_piu": 42,
     "che_cosa_aggiunge": "redox, haiku, wasm, wasi, android, apple e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
     "non_e_equivalente": "e' una domanda diversa, non una versione piu' prudente della stessa. Il censimento dichiara il perimetro distribuito; questo numero sta qui misurato -- il gate lo verifica, non lo ricorda -- perche' la differenza fra i due resti visibile invece di dover essere ricalcolata da chi se lo chiede."
   },
-  "di_prodotto": 119,
+  "di_prodotto": 120,
   "di_build": 9,
   "variazione_versione_3_0_0": {
     "quando": "2026-09-10, portando il workspace da 2.0.0 a 3.0.0",
@@ -1370,5 +1376,44 @@
       "plenora-io-model 4.1.1: interna-al-workspace"
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 4.1.0 a 4.1.1 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 4.1.0, ed e' registrata perche' il gate confronta le versioni e non i nomi."
+  },
+  "variazione_arrow_60_0_0": {
+    "quando": "2026-10-10, portando arrow a 60.0.0 e parquet al fork `vendor/parquet` (60.0.0 piu' il delta -eof di data-tools2)",
+    "da": 128,
+    "a": 129,
+    "entrate": [
+      "alloc-no-stdlib 3.0.0",
+      "alloc-stdlib 0.3.0",
+      "arrow-array 60.0.0",
+      "arrow-buffer 60.0.0",
+      "arrow-cmp 60.0.0",
+      "arrow-data 60.0.0",
+      "arrow-ipc 60.0.0",
+      "arrow-schema 60.0.0",
+      "arrow-select 60.0.0",
+      "brotli 9.0.0",
+      "brotli-decompressor 6.0.1",
+      "plenora-fork-parquet 60.0.0",
+      "zstd 0.14.1",
+      "zstd-safe 8.1.0",
+      "zstd-sys 2.1.1+zstd.1.5.7"
+    ],
+    "uscite": [
+      "alloc-no-stdlib 2.0.4",
+      "alloc-stdlib 0.2.4",
+      "arrow-array 59.3.0",
+      "arrow-buffer 59.3.0",
+      "arrow-data 59.3.0",
+      "arrow-ipc 59.3.0",
+      "arrow-schema 59.3.0",
+      "arrow-select 59.3.0",
+      "brotli 8.0.4",
+      "brotli-decompressor 5.0.3",
+      "parquet 59.3.0",
+      "zstd 0.13.3",
+      "zstd-safe 7.2.4",
+      "zstd-sys 2.0.16+zstd.1.5.7"
+    ],
+    "licenze": "rilette da `cargo metadata` alla versione nuova, non riportate dalla riga vecchia. `plenora-fork-parquet` e' Apache-2.0 come `parquet`, di cui e' il fork; `arrow-cmp` entra con arrow 60, Apache-2.0."
   }
 }
