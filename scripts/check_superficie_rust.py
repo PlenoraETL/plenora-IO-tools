@@ -45,6 +45,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAPPATURA = ROOT / "contracts" / "superficie-rust.json"
@@ -201,9 +202,8 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     for fork in ("gdal", "shapefile", "dxf"):
         if not (radice / "vendor" / fork / "Cargo.toml").is_file():
             return [
-                f"l'archivio non contiene `vendor/{fork}`: il workspace lo "
-                "sostituisce a una dipendenza di crates.io, e senza il fork un "
-                "consumatore non compila affatto"
+                f"l'archivio non contiene `vendor/{fork}`: i driver ne dipendono "
+                "per percorso, e senza il fork un consumatore non compila"
             ]
 
     # Il consumatore accanto all'albero estratto, con la dipendenza riscritta
@@ -211,15 +211,19 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
     fuori = lavoro / "consumatore"
     shutil.copytree(CONSUMATORE, fuori)
     manifesto_consumatore = (fuori / "Cargo.toml").read_text(encoding="utf-8")
-    for relativo, assoluto in (
-        ("../../crates/plenora-io-tools", radice / "crates" / "plenora-io-tools"),
-        ("../../vendor/gdal", radice / "vendor" / "gdal"),
-        ("../../vendor/shapefile", radice / "vendor" / "shapefile"),
-        ("../../vendor/dxf", radice / "vendor" / "dxf"),
-    ):
-        manifesto_consumatore = manifesto_consumatore.replace(
-            f'path = "{relativo}"', f'path = "{assoluto.as_posix()}"'
-        )
+    # Il consumatore non dichiara `[patch]`: chi usa questa superficie come
+    # dipendenza non eredita quelle del workspace, e la prova vale solo se
+    # parte dalle stesse condizioni. Una patch qui farebbe passare il gate su
+    # un grafo che nessun consumatore vero avrebbe.
+    if tomllib.loads(manifesto_consumatore).get("patch"):
+        return [
+            "il consumatore dichiara `[patch]`: la prova non dice piu' che cosa "
+            "riceve chi dipende da questa superficie"
+        ]
+    manifesto_consumatore = manifesto_consumatore.replace(
+        'path = "../../crates/plenora-io-tools"',
+        f'path = "{(radice / "crates" / "plenora-io-tools").as_posix()}"',
+    )
     (fuori / "Cargo.toml").write_text(manifesto_consumatore, encoding="utf-8")
 
     # La toolchain e' quella che l'archivio dichiara, non quella di sistema.
@@ -255,6 +259,76 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
         )
     elif "sette export documentati" not in corsa.stdout:
         problemi.append(f"il consumatore non ha confermato: {corsa.stdout.strip()[:200]}")
+    if problemi:
+        return problemi
+
+    # Il terzo fork, `gdal`, entra solo con il backend FileGDB: senza questa
+    # compilazione la prova direbbe qualcosa di due fork su tre.
+    con_gdal = subprocess.run(
+        ["cargo", "check", "--quiet", "--features", "gdal-backend"],
+        cwd=fuori,
+        capture_output=True,
+        text=True,
+    )
+    if con_gdal.returncode != 0:
+        problemi.append(
+            "il consumatore esterno non compila con `gdal-backend`:\n"
+            + (con_gdal.stderr or con_gdal.stdout)[-1800:]
+        )
+        return problemi
+    problemi.extend(fork_nel_grafo(fuori, radice))
+    return problemi
+
+
+#: Il nome con cui ciascun fork entra nel grafo, e quello upstream che non deve
+#: comparire. Le stesse coppie dei lock in `scripts/*-fork-lock.json`.
+FORK = {
+    "plenora-fork-gdal": "gdal",
+    "plenora-fork-shapefile": "shapefile",
+    "plenora-fork-dxf": "dxf",
+}
+
+
+def fork_nel_grafo(consumatore: pathlib.Path, radice: pathlib.Path) -> list[str]:
+    """Che il grafo del consumatore risolva i tre fork dall'archivio, e nient'altro.
+
+    E' la proprieta' che i `[patch]` non davano: una dipendenza per git o per
+    percorso riceveva i crate di crates.io senza i delta. Il lockfile non
+    dipende dalle feature, quindi un solo `cargo metadata` vede tutti e tre.
+    """
+    metadati = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1"],
+        cwd=consumatore,
+        capture_output=True,
+        text=True,
+    )
+    if metadati.returncode != 0:
+        return [f"`cargo metadata` del consumatore fallito:\n{metadati.stderr[-1200:]}"]
+    return fork_nei_pacchetti(json.loads(metadati.stdout)["packages"], radice)
+
+
+def fork_nei_pacchetti(pacchetti: list[dict], radice: pathlib.Path) -> list[str]:
+    """La verifica sui pacchetti risolti, separata perche' la sonda la eserciti."""
+    problemi: list[str] = []
+    vendor = (radice / "vendor").resolve()
+    for fork, upstream in FORK.items():
+        trovati = [p for p in pacchetti if p["name"] == fork]
+        if len(trovati) != 1:
+            problemi.append(
+                f"il grafo del consumatore non contiene esattamente un «{fork}»"
+            )
+            continue
+        manifesto = pathlib.Path(trovati[0]["manifest_path"]).resolve()
+        if trovati[0]["source"] is not None or not manifesto.is_relative_to(vendor):
+            problemi.append(
+                f"«{fork}» non viene dal `vendor/` dell'archivio: "
+                f"{trovati[0]['source']}"
+            )
+        if any(p["name"] == upstream for p in pacchetti):
+            problemi.append(
+                f"il grafo del consumatore contiene «{upstream}» upstream: qualcosa "
+                "lo chiede ancora per nome, e arriverebbe senza i delta del fork"
+            )
     return problemi
 
 

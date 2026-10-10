@@ -326,10 +326,7 @@ impl DrawingEntityReader {
         Ok(())
     }
 
-    fn read_until_entities(
-        drawing: &mut Drawing,
-        iter: &mut CodePairPutBack,
-    ) -> DxfResult<bool> {
+    fn read_until_entities(drawing: &mut Drawing, iter: &mut CodePairPutBack) -> DxfResult<bool> {
         loop {
             match iter.next() {
                 Some(Ok(pair @ CodePair { code: 0, .. })) => match &*pair.assert_string()? {
@@ -883,12 +880,14 @@ impl Drawing {
             .any(|block| block == name)
     }
     pub(crate) fn note_unsupported_model_space_entities(&mut self, count: u64) {
-        self.__unsupported_model_space_entities =
-            self.__unsupported_model_space_entities.saturating_add(count);
+        self.__unsupported_model_space_entities = self
+            .__unsupported_model_space_entities
+            .saturating_add(count);
     }
     pub(crate) fn note_block_with_unsupported_entities(&mut self, name: &str) {
         if !self.block_has_unsupported_entities(name) {
-            self.__blocks_with_unsupported_entities.push(name.to_owned());
+            self.__blocks_with_unsupported_entities
+                .push(name.to_owned());
         }
     }
     pub fn clear(&mut self) {

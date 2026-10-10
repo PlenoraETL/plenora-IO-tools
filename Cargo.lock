@@ -518,7 +518,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "driver-common",
- "dxf",
+ "plenora-fork-dxf",
  "plenora-io-core",
  "plenora-io-model",
  "tempfile",
@@ -531,7 +531,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "driver-common",
- "gdal",
+ "plenora-fork-gdal",
  "plenora-io-core",
  "plenora-io-model",
  "tempfile",
@@ -622,10 +622,10 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "geo-types",
+ "plenora-fork-shapefile",
  "plenora-io-core",
  "plenora-io-model",
  "serde_json",
- "shapefile",
  "tempfile",
 ]
 
@@ -644,21 +644,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "zip",
-]
-
-[[package]]
-name = "dxf"
-version = "0.6.1"
-dependencies = [
- "byteorder",
- "chrono",
- "encoding_rs",
- "enum_primitive",
- "image",
- "itertools",
- "num",
- "uuid",
- "xmltree",
 ]
 
 [[package]]
@@ -821,18 +806,6 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
-]
-
-[[package]]
-name = "gdal"
-version = "0.19.0"
-dependencies = [
- "bitflags",
- "chrono",
- "gdal-sys",
- "geo-types",
- "semver",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -1542,6 +1515,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenora-fork-dxf"
+version = "0.6.1"
+dependencies = [
+ "byteorder",
+ "chrono",
+ "encoding_rs",
+ "enum_primitive",
+ "image",
+ "itertools",
+ "num",
+ "uuid",
+ "xmltree",
+]
+
+[[package]]
+name = "plenora-fork-gdal"
+version = "0.19.0"
+dependencies = [
+ "bitflags",
+ "chrono",
+ "gdal-sys",
+ "geo-types",
+ "semver",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "plenora-fork-shapefile"
+version = "0.9.0"
+dependencies = [
+ "byteorder",
+ "dbase",
+ "geo-types",
+]
+
+[[package]]
 name = "plenora-fuzz"
 version = "4.1.1"
 dependencies = [
@@ -1955,15 +1964,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "shapefile"
-version = "0.9.0"
-dependencies = [
- "byteorder",
- "dbase",
- "geo-types",
 ]
 
 [[package]]
