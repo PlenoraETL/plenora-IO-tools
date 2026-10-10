@@ -349,11 +349,13 @@ class LaBustaDiInspect(unittest.TestCase):
         """Un campo mancante in fondo all'albero non deve produrre un messaggio
         che parla della busta intera: chi lo legge deve sapere dove guardare."""
         documento = inspect_sano()
-        del documento["layers"][0]["geometry"]["crs_resolution"]["axis_order"]
+        # `status` e' l'unico campo che `crs_resolution` porta sempre: gli
+        # altri mancano legittimamente a una geometria senza CRS.
+        del documento["layers"][0]["geometry"]["crs_resolution"]["status"]
         with self.assertRaises(ProtocolError) as preso:
             Inspect.from_json(documento)
         self.assertIn("crs_resolution", str(preso.exception))
-        self.assertIn("axis_order", str(preso.exception))
+        self.assertIn("status", str(preso.exception))
 
     def test_un_campo_in_piu_resta_leggibile(self) -> None:
         esito = Inspect.from_json(inspect_sano(campo_futuro=1))
@@ -542,3 +544,54 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StratiSenzaGeometriaOSenzaCrs(unittest.TestCase):
+    """Le forme che il binario emette e che il protocollo ammette.
+
+    `layers[].geometry` e' `null` per un layer senza geometria; `crs` e' `null`
+    e `crs_resolution` porta il solo `status` per una geometria senza CRS
+    (schema `plenora-io-inspect-v1`: `geometry` e' `object|null`,
+    `crs_resolution` pretende soltanto `status`). L'SDK alzava `ProtocolError`
+    su entrambe, mentre il binario le legge e le scrive. Trovato dalla suite di
+    interoperabilita' (`io-sdk-senza-geometria`); i documenti qui sono quelli
+    che `plenora-io inspect` rende sui vettori `tipi_comuni` e `geo_senza_crs`.
+    """
+
+    SENZA_GEOMETRIA = {"fields": [{"geometry": False, "name": "id", "nullable": False,
+                                   "type": "Int64"}],
+                       "geometry": None, "id": 0, "name": "tipi_comuni"}
+    SENZA_CRS = {"fields": [{"geometry": True, "name": "geom", "nullable": True,
+                             "type": "Binary"}],
+                 "geometry": {"crs": None, "crs_resolution": {"status": "missing"},
+                              "kind": "Unresolved", "name": "geom"},
+                 "id": 0, "name": "geo_senza_crs"}
+
+    def test_un_layer_senza_geometria_si_legge(self) -> None:
+        strato = Inspect.from_json(inspect_sano(layers=[self.SENZA_GEOMETRIA])).layers[0]
+        self.assertIsNone(strato.geometry)
+        self.assertEqual([c.name for c in strato.attributes], ["id"])
+
+    def test_una_geometria_senza_crs_si_legge(self) -> None:
+        strato = Inspect.from_json(inspect_sano(layers=[self.SENZA_CRS])).layers[0]
+        self.assertIsNone(strato.geometry.crs)
+        self.assertEqual(strato.geometry.crs_resolution.status, "missing")
+        self.assertIsNone(strato.geometry.crs_resolution.id)
+        self.assertIsNone(strato.geometry.crs_resolution.axis_order)
+
+    def test_un_riassunto_senza_crs_si_legge(self) -> None:
+        voce = {"id": 0, "name": "tipi_comuni", "field_count": 1, "geometry_crs": None}
+        self.assertIsNone(Layers.from_json(layers_sano(layers=[voce])).layers[0].geometry_crs)
+
+    def test_lo_stato_resta_obbligatorio(self) -> None:
+        """La tolleranza e' quella del protocollo, non di piu': senza `status`
+        i tre stati di ARROW-007 non si distinguono."""
+        senza_stato = {**self.SENZA_CRS, "geometry": {**self.SENZA_CRS["geometry"],
+                                                      "crs_resolution": {}}}
+        with self.assertRaises(ProtocolError):
+            Inspect.from_json(inspect_sano(layers=[senza_stato]))
+
+    def test_un_crs_di_tipo_sbagliato_resta_un_errore(self) -> None:
+        sbagliato = {**self.SENZA_CRS, "geometry": {**self.SENZA_CRS["geometry"], "crs": 4326}}
+        with self.assertRaises(ProtocolError):
+            Inspect.from_json(inspect_sano(layers=[sbagliato]))

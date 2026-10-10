@@ -431,7 +431,7 @@
         }
       },
       "nota": "identica alla v1 salvo il nome del contratto: il catalogo non porta diagnostica di perdita, e i suoi campi restano quelli. Cambia soltanto perche' il protocollo e' uno e la versione la dichiarano tutte le buste allo stesso modo.",
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [
@@ -970,7 +970,7 @@
       "forbidden_legacy_fields": [
         "loss"
       ],
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [
@@ -1616,103 +1616,103 @@
           "tipi": [
             "object"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.completeness": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.contract": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.counts": {
           "tipi": [
             "object"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.counts{}": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples": {
           "tipi": [
             "array"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples[]": {
           "tipi": [
             "object"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples[].cause": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples[].column": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples[].source_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples_limit": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.examples_truncated": {
           "tipi": [
             "boolean"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.index_basis": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.knowledge_limits": {
           "tipi": [
             "array"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.knowledge_limits[]": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.observed_total": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.details.row_diagnostics.scope": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".error.message": {
           "tipi": [
@@ -1761,7 +1761,7 @@
       "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
       "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
       "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-tools`.",
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
       "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
       "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva.",
@@ -1778,7 +1778,7 @@
         "command",
         "result"
       ],
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [
@@ -1880,13 +1880,13 @@
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.reasons[].detail": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.troncato": {
           "tipi": [
@@ -1959,44 +1959,44 @@
             "null",
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].description": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].key": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].phase": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].value": {
           "tipi": [
             "object",
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].value.enum": {
           "tipi": [
             "array"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].value.enum[]": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].value.integer": {
           "tipi": [
@@ -2008,13 +2008,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.format_options[].value.integer.min": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.hostile_input_hardened": {
           "tipi": [
@@ -2148,7 +2148,7 @@
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.write_capabilities.crs_representations": {
           "tipi": [
@@ -2324,7 +2324,7 @@
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.format.write_capabilities.type_coercion": {
           "tipi": [
@@ -2394,12 +2394,14 @@
         },
         ".result.layers[].geometry": {
           "tipi": [
+            "null",
             "object"
           ],
           "sempre": true
         },
         ".result.layers[].geometry.crs": {
           "tipi": [
+            "null",
             "string"
           ],
           "sempre": true
@@ -2414,33 +2416,33 @@
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layers[].geometry.crs_resolution.definition": {
           "tipi": [
             "null",
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layers[].geometry.crs_resolution.definition_format": {
           "tipi": [
             "null",
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layers[].geometry.crs_resolution.id": {
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layers[].geometry.crs_resolution.kind": {
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layers[].geometry.crs_resolution.status": {
           "tipi": [
@@ -2496,7 +2498,7 @@
         "command",
         "result"
       ],
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [
@@ -2592,7 +2594,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.fidelity.reasons[].code": {
           "tipi": [
@@ -2638,6 +2640,7 @@
         },
         ".result.layers[].geometry_crs": {
           "tipi": [
+            "null",
             "string"
           ],
           "sempre": true
@@ -2678,7 +2681,7 @@
         "command",
         "result"
       ],
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [
@@ -2733,25 +2736,25 @@
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.delivered.content_type": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.delivered.interchange_contract": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.delivered.publish_outcome": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity": {
           "tipi": [
@@ -2817,13 +2820,13 @@
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.reasons[].detail": {
           "tipi": [
             "string"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.troncato": {
           "tipi": [
@@ -2881,12 +2884,14 @@
         },
         ".result.layer.geometry": {
           "tipi": [
+            "null",
             "object"
           ],
           "sempre": true
         },
         ".result.layer.geometry.crs": {
           "tipi": [
+            "null",
             "string"
           ],
           "sempre": true
@@ -2901,33 +2906,33 @@
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layer.geometry.crs_resolution.definition": {
           "tipi": [
             "null",
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layer.geometry.crs_resolution.definition_format": {
           "tipi": [
             "null",
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layer.geometry.crs_resolution.id": {
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layer.geometry.crs_resolution.kind": {
           "tipi": [
             "string"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.layer.geometry.crs_resolution.status": {
           "tipi": [
@@ -3179,7 +3184,7 @@
         "l_esito_di_pubblicazione": "due valori, `published` e `published_durability_unconfirmed`, e sono i due stati **osservabili** su questa superficie. Il rollback non e' un esito ma un errore, e si osserva sull'assenza della destinazione; la pubblicazione parziale non e' osservabile perche' il publish e' operation_atomic. Un valore per uno stato irraggiungibile sarebbe un vocabolario piu' ricco e meno vero. Lo esercitano `l_esito_di_pubblicazione_e_dichiarato` e `un_rifiuto_del_sink_non_lascia_una_destinazione`.",
         "il_nome_del_contratto": "`plenora-io-write-result-v1` e non `plenora-io-write-v2`: l'operazione nasce con i suoi schemi pubblicati in `contracts/schemas/`, quindi annuncia subito il nome che il catalogo comune le assegna. Le altre quattro lo faranno con B14, che e' un evento di migrazione."
       },
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
       "struttura": {
         ".command": {
           "tipi": [

@@ -406,6 +406,9 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
             else tuple(classe.OBBLIGATORI)
         )
         opzionali = tuple(getattr(classe, "OPZIONALI", ()))
+        # Gli opzionali che quando ci sono possono valere `null`: il modello li
+        # dichiara in `ANNULLABILI`, e per loro il `null` e' un valore del wire.
+        annullabili = tuple(getattr(classe, "ANNULLABILI", ()))
         rinominati_qui = getattr(classe, "RINOMINATI", {})
         for campo in obbligatori + opzionali:
             annotazione = suggerimenti[rinominati_qui.get(campo, campo)]
@@ -420,7 +423,7 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
                     f"{sorted(dichiarati)}: la validazione non lo guarderebbe."
                 )
                 continue
-            if campo in opzionali:
+            if campo in opzionali and campo not in annullabili:
                 ammessi = ammessi - {"null"}
             if set(ammessi) != dichiarati:
                 problemi.append(

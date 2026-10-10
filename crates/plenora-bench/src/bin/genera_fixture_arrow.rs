@@ -332,6 +332,72 @@ fn schema(projjson: &str) -> Schema {
     )
 }
 
+/// Lo stesso campo geometrico **senza CRS**: `crs_resolution` e' `missing`, e
+/// non ci sono ne' `crs`, ne' `crs_id`, ne' `axis_order`, ne' una definizione
+/// -- ARROW-VOCABULARY-1.0 li vieta tutti insieme a `missing`.
+///
+/// E' la forma che `inspect` rende con `crs: null` e `crs_resolution` ridotto
+/// al solo `status`, e che la matrice delle buste (`check_buste_v2.py`) deve
+/// raggiungere perche' il manifesto del protocollo la dichiari.
+fn campo_geometrico_senza_crs() -> Field {
+    let campo = campo_geometrico("");
+    let metadati: HashMap<String, String> = campo
+        .metadata()
+        .iter()
+        .filter(|(chiave, _)| {
+            !matches!(
+                chiave.as_str(),
+                CHIAVE_CRS
+                    | "plenora.geometry.crs_id"
+                    | "plenora.geometry.axis_order"
+                    | "plenora.geometry.crs_definition"
+                    | "plenora.geometry.crs_definition_format"
+            )
+        })
+        .map(|(chiave, valore)| {
+            if chiave == "plenora.geometry.crs_resolution" {
+                (chiave.clone(), "missing".to_owned())
+            } else {
+                (chiave.clone(), valore.clone())
+            }
+        })
+        .collect();
+    campo.with_metadata(metadati)
+}
+
+/// Gli otto campi di attributo dello schema canonico, senza la geometria.
+fn campi_di_attributo() -> Vec<Field> {
+    vec![
+        Field::new("id", DataType::Utf8, false),
+        Field::new("codice", DataType::Utf8, false),
+        Field::new("etichetta", DataType::Utf8, true),
+        Field::new("intero_largo", DataType::Int64, false),
+        Field::new("conteggio", DataType::Int32, true),
+        Field::new("misura", DataType::Float64, true),
+        Field::new("attivo", DataType::Boolean, true),
+        Field::new("istante", DataType::Date32, false),
+    ]
+}
+
+fn metadati_di_schema() -> HashMap<String, String> {
+    let mut metadati = HashMap::new();
+    metadati.insert("plenora.contract.version".to_owned(), "1".to_owned());
+    metadati
+}
+
+/// Il dataset canonico senza la colonna geometrica: un layer che `inspect`
+/// rende con `geometry: null`, e che il binario legge e scrive.
+fn schema_senza_geometria() -> Schema {
+    Schema::new_with_metadata(campi_di_attributo(), metadati_di_schema())
+}
+
+/// Il dataset canonico con la geometria priva di CRS.
+fn schema_senza_crs() -> Schema {
+    let mut campi = campi_di_attributo();
+    campi.push(campo_geometrico_senza_crs());
+    Schema::new_with_metadata(campi, metadati_di_schema())
+}
+
 fn batch(schema: &Arc<Schema>) -> RecordBatch {
     batch_da(schema, &RIGHE.iter().collect::<Vec<_>>())
 }
@@ -504,9 +570,32 @@ fn main() {
     let batch_pieno = batch_da(&schema, &righe_con_geometria());
     scrivi_parquet(&pieno, &schema, &batch_pieno, metadato_geo(&crs));
 
+    // Le due forme di layer che `inspect` rende con valori nulli -- senza
+    // geometria e senza CRS --, che il protocollo ammette e che la matrice
+    // delle buste deve raggiungere perche' il manifesto le dichiari.
+    let senza_crs = Arc::new(schema_senza_crs());
+    let batch_senza_crs = RecordBatch::try_new(Arc::clone(&senza_crs), batch.columns().to_vec())
+        .expect("stesse colonne, geometria senza CRS");
+    scrivi_arrow(
+        &destinazione.join("canonico_senza_crs.arrow"),
+        &senza_crs,
+        &batch_senza_crs,
+    );
+    let senza_geometria = Arc::new(schema_senza_geometria());
+    let colonne = batch.columns()[..batch.num_columns() - 1].to_vec();
+    let batch_senza_geometria = RecordBatch::try_new(Arc::clone(&senza_geometria), colonne)
+        .expect("stesse colonne meno la geometria");
+    scrivi_arrow(
+        &destinazione.join("canonico_senza_geometria.arrow"),
+        &senza_geometria,
+        &batch_senza_geometria,
+    );
+
     println!("  canonico.arrow");
     println!("  canonico.parquet");
     println!("  canonico_pieno.parquet");
-    println!("3 fixture generate in {}", destinazione.display());
+    println!("  canonico_senza_crs.arrow");
+    println!("  canonico_senza_geometria.arrow");
+    println!("5 fixture generate in {}", destinazione.display());
     println!("Ora aggiorna il registro: scripts/check-fixture-canoniche.py --mostra-manifesto");
 }

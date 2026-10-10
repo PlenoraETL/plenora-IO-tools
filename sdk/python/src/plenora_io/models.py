@@ -141,12 +141,13 @@ def _pretendi(
     suggerimenti = typing.get_type_hints(modello)
     rinominati = getattr(modello, "RINOMINATI", {})
     opzionali = getattr(modello, "OPZIONALI", ())
+    annullabili = getattr(modello, "ANNULLABILI", ())
     for campo in tuple(campi) + tuple(c for c in opzionali if c in documento):
         annotazione = suggerimenti[rinominati.get(campo, campo)]
         ammessi = tipi_json(annotazione)
         if ammessi is None:
             continue
-        if campo in opzionali:
+        if campo in opzionali and campo not in annullabili:
             ammessi = ammessi - {"null"}
         valore = documento[campo]
         if _tipo(valore) not in ammessi:
@@ -541,34 +542,51 @@ class CrsResolution:
     assunto dal chiamante hanno lo stesso aspetto in `id`, e solo questo campo
     li distingue. Un consumatore che li confondesse attribuirebbe al file una
     coordinata che gli e' stata suggerita da fuori.
+
+    Solo `status` e' sempre presente: lo schema `plenora-io-inspect-v1` non
+    pretende altro, e per una geometria senza CRS (`missing`) il binario rende
+    `{"status": "missing"}` e basta. Gli altri campi sono `None` quando mancano
+    o valgono `null`; quando ci sono, devono essere testo.
     """
 
-    id: str
-    kind: str
     status: str
-    axis_order: str
-    definition: str | None
-    definition_format: str | None
+    id: str | None = None
+    kind: str | None = None
+    axis_order: str | None = None
+    definition: str | None = None
+    definition_format: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("id", "kind", "status", "axis_order", "definition", "definition_format")
+    OBBLIGATORI = ("status",)
+    OPZIONALI = ("id", "kind", "axis_order", "definition", "definition_format")
+    #: Fra gli opzionali, quelli che quando ci sono possono valere `null`: il
+    #: protocollo li dichiara cosi' (una definizione puo' mancare a un CRS
+    #: risolto per identificatore).
+    ANNULLABILI = ("definition", "definition_format")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls)
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls
+        )
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            status=documento["status"],
+            **{campo: documento.get(campo) for campo in cls.OPZIONALI},
             raw=dict(documento),
         )
 
 
 @dataclass(frozen=True, kw_only=True)
 class Geometry:
-    """La colonna geometrica di un layer, col suo sistema di riferimento."""
+    """La colonna geometrica di un layer, col suo sistema di riferimento.
+
+    `crs` e' `None` per una geometria senza CRS: `crs_resolution.status` dice
+    allora `missing`, ed e' quello il campo da guardare.
+    """
 
     name: str
     kind: str
-    crs: str
+    crs: str | None
     crs_resolution: CrsResolution
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -593,7 +611,8 @@ class Layer:
     id: int
     name: str
     fields: list[Field]
-    geometry: Geometry
+    #: `None` per un layer senza geometria, che il binario legge e scrive.
+    geometry: Geometry | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = ("id", "name", "fields", "geometry")
@@ -610,7 +629,11 @@ class Layer:
             id=documento["id"],
             name=documento["name"],
             fields=[Field.from_json(voce) for voce in colonne],
-            geometry=Geometry.from_json(documento["geometry"]),
+            geometry=(
+                None
+                if documento["geometry"] is None
+                else Geometry.from_json(documento["geometry"])
+            ),
             raw=dict(documento),
         )
 
@@ -641,7 +664,8 @@ class LayerSummary:
     id: int
     name: str
     field_count: int
-    geometry_crs: str
+    #: `None` per un layer senza geometria o senza CRS.
+    geometry_crs: str | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
