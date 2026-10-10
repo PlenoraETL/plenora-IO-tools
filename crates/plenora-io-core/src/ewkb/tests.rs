@@ -7,7 +7,7 @@ use arrow_array::BinaryArray;
 use plenora_io_model::contract::{CoordinateDimensions, FieldId};
 use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::wkb::{encode_wkb, WkbCoordinate};
+use plenora_io_model::wkb::WkbCoordinate;
 
 use crate::descriptor::FormatDescriptor;
 
@@ -59,6 +59,59 @@ fn geometria(srid: Option<i32>) -> WkbGeometry {
         dimensions: CoordinateDimensions::Xy,
         srid,
     }
+}
+
+/// La stessa geometria di [`geometria`] scritta byte per byte, senza passare
+/// dall'encoder: little-endian, con il flag `0x2000_0000` e il SRID su
+/// collection, poligono e multipunto quando `srid` c'e' (EWKB come lo ripete
+/// `PostGIS`), WKB ISO quando manca.
+fn a_mano(srid: Option<u32>) -> Vec<u8> {
+    fn intestazione(byte: &mut Vec<u8>, tipo: u32, srid: Option<u32>) {
+        byte.push(1);
+        match srid {
+            Some(srid) => {
+                byte.extend_from_slice(&(tipo | 0x2000_0000).to_le_bytes());
+                byte.extend_from_slice(&srid.to_le_bytes());
+            }
+            None => byte.extend_from_slice(&tipo.to_le_bytes()),
+        }
+    }
+    fn punto(byte: &mut Vec<u8>, x: f64, y: f64) {
+        byte.extend_from_slice(&x.to_le_bytes());
+        byte.extend_from_slice(&y.to_le_bytes());
+    }
+    let mut byte = Vec::new();
+    intestazione(&mut byte, 7, srid);
+    byte.extend_from_slice(&2_u32.to_le_bytes());
+    intestazione(&mut byte, 3, srid);
+    byte.extend_from_slice(&2_u32.to_le_bytes());
+    byte.extend_from_slice(&4_u32.to_le_bytes());
+    punto(&mut byte, 0.1, 0.2);
+    punto(&mut byte, 10.000_000_000_000_002, 0.2);
+    punto(&mut byte, 10.0, 10.0);
+    punto(&mut byte, 0.1, 0.2);
+    byte.extend_from_slice(&4_u32.to_le_bytes());
+    punto(&mut byte, 1.0, 1.0);
+    punto(&mut byte, 2.0, 1.0);
+    punto(&mut byte, 2.0, 2.0);
+    punto(&mut byte, 1.0, 1.0);
+    intestazione(&mut byte, 4, srid);
+    byte.extend_from_slice(&1_u32.to_le_bytes());
+    intestazione(&mut byte, 1, None);
+    punto(&mut byte, f64::MIN_POSITIVE, -0.0);
+    byte
+}
+
+#[test]
+fn i_byte_scritti_a_mano_sono_la_geometria_di_riferimento() {
+    assert_eq!(
+        decode_wkb(&a_mano(Some(4326)), &limiti()).expect("ewkb"),
+        geometria(Some(4326))
+    );
+    assert_eq!(
+        decode_wkb(&a_mano(None), &limiti()).expect("iso"),
+        geometria(None)
+    );
 }
 
 fn contratto(crs_id: Option<&str>, srid: Option<i32>) -> GeometryColumnContract {
@@ -178,7 +231,7 @@ fn la_conversione_e_esatta_bit_per_bit() {
         "le altre chiavi restano"
     );
 
-    let ewkb = encode_wkb(&geometria(Some(4326)), WkbFlavor::Ewkb).expect("ewkb");
+    let ewkb = a_mano(Some(4326));
     let batch = RecordBatch::try_new(
         schema(),
         vec![Arc::new(BinaryArray::from(vec![
@@ -193,7 +246,7 @@ fn la_conversione_e_esatta_bit_per_bit() {
         .as_any()
         .downcast_ref::<BinaryArray>()
         .expect("binaria");
-    let atteso = encode_wkb(&geometria(None), WkbFlavor::Iso).expect("iso");
+    let atteso = a_mano(None);
     assert_eq!(
         colonna.value(0),
         atteso.as_slice(),
@@ -260,7 +313,7 @@ fn un_payload_con_un_altro_srid_e_un_errore() {
     )
     .expect("pianificabile")
     .expect("da convertire");
-    let altro = encode_wkb(&geometria(Some(3003)), WkbFlavor::Ewkb).expect("ewkb");
+    let altro = a_mano(Some(3003));
     let batch = RecordBatch::try_new(
         schema(),
         vec![Arc::new(BinaryArray::from(vec![Some(altro.as_slice())]))],
