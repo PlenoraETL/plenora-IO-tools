@@ -730,11 +730,76 @@ fn valida_metadati_thrift(
     Ok(())
 }
 
-fn valida_schema_arrow_incorporato(file: File, dimensione: u64) -> Result<()> {
+/// La profondita' massima dello schema del footer.
+///
+/// Uno schema GeoParquet reale arriva a qualche livello: la geometria nativa
+/// annida elenchi di strutture, cinque o sei livelli nel caso del
+/// multipoligono. 64 e' largo, ed e' **finito**: la conversione dello schema in
+/// `parquet` e in Arrow e' ricorsiva, e uno schema profondo quanto il footer e'
+/// un modo di esaurire lo stack, non un dato.
+const PROFONDITA_SCHEMA: usize = 64;
+
+/// Le stesse opzioni per il builder Arrow, che decodifica il footer di nuovo.
+fn opzioni_arrow_del_footer(tetto: u64) -> parquet::arrow::arrow_reader::ArrowReaderOptions {
+    let (budget, profondita) = opzioni_del_footer(tetto);
+    parquet::arrow::arrow_reader::ArrowReaderOptions::new()
+        .with_footer_memory_budget(budget)
+        .with_max_schema_depth(profondita)
+}
+
+/// Le opzioni del decoder del footer: profondita' dello schema e tetto di
+/// memoria (#38).
+///
+/// Il decoder di `parquet` prenota gli elenchi dai conteggi che il footer
+/// dichiara, copia i suoi testi e costruisce per ogni colonna foglia il
+/// percorso intero dalla radice -- profondita' per foglie, quadratico nei byte
+/// del footer. Il fork (`vendor/parquet`) addebita ogni prenotazione al tetto
+/// **prima** di farla, e rifiuta uno schema piu' profondo del limite prima di
+/// convertirlo. Il tetto e' quello delle pagine: meta' della capacita'
+/// effettiva.
+fn opzioni_del_footer(tetto: u64) -> (u64, usize) {
+    (tetto, PROFONDITA_SCHEMA)
+}
+
+/// La lunghezza del footer dichiarata dalla coda, contro il tetto.
+///
+/// Il lettore di `parquet` legge il footer in memoria per intero prima di
+/// decodificarlo; il fork lega l'intervallo alla fine del file, non al tetto.
+/// Il decoder addebita poi il footer due volte (il buffer e le copie dei suoi
+/// testi): un footer piu' grande di meta' del tetto non puo' essere decodificato,
+/// e si rifiuta prima di leggerlo.
+fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Result<()> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+
+    const CODA: u64 = 8;
+    let illeggibile = || fmt_err(&PublicMessage::Curated(MSG_FOOTER_NON_VALIDO));
+    let inizio_coda = dimensione.checked_sub(CODA).ok_or_else(illeggibile)?;
+    let mut lettore = file.try_clone().map_err(|_| illeggibile())?;
+    let mut coda = [0_u8; 8];
+    lettore
+        .seek(SeekFrom::Start(inizio_coda))
+        .and_then(|_| lettore.read_exact(&mut coda))
+        .map_err(|_| illeggibile())?;
+    let [l0, l1, l2, l3, ..] = coda;
+    let lunghezza = u64::from(u32::from_le_bytes([l0, l1, l2, l3]));
+    if lunghezza.saturating_mul(2) > tetto {
+        return Err(fmt_err(&PublicMessage::Curated(MSG_FOOTER_OLTRE_IL_TETTO)));
+    }
+    Ok(())
+}
+
+/// Il footer chiede piu' memoria di quanta la lettura ne abbia.
+pub const MSG_FOOTER_OLTRE_IL_TETTO: &str =
+    "footer Parquet che dichiara piu' metadati della memoria disponibile";
+
+fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> Result<()> {
     use base64::Engine as _;
     use parquet::file::reader::FileReader as _;
 
     const CHIAVE: &str = "ARROW:schema";
+
+    valida_lunghezza_del_footer(&file, dimensione, tetto)?;
+    let (budget, profondita) = opzioni_del_footer(tetto);
 
     // `SerializedFileReader` legge il footer Thrift e si ferma li': non
     // costruisce lo schema Arrow ne' i lettori di colonna, quindi non
@@ -745,7 +810,11 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64) -> Result<()> {
         // Statico come gli altri messaggi della prevalidazione: il testo
         // dell'errore della libreria e' derivato dal file, e `message`
         // dichiara di non contenere payload.
-        parquet::file::reader::SerializedFileReader::new(file)
+        let opzioni = parquet::file::serialized_reader::ReadOptionsBuilder::new()
+            .with_footer_memory_budget(budget)
+            .with_max_schema_depth(profondita)
+            .build();
+        parquet::file::reader::SerializedFileReader::new_with_options(file, opzioni)
             .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_FOOTER_NON_VALIDO)))
     })?;
     let metadati = lettore.metadata();
@@ -1004,10 +1073,14 @@ impl FormatDriver for GeoParquetDriver {
         // letto.
         let sorgente = File::open(&path)?;
         let dimensione = sorgente.metadata()?.len();
-        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione)?;
+        let tetto = tetto_pagina(opts.budget().context());
+        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione, tetto)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
-            ParquetRecordBatchReaderBuilder::try_new(sorgente.try_clone()?)
-                .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
+            ParquetRecordBatchReaderBuilder::try_new_with_options(
+                sorgente.try_clone()?,
+                opzioni_arrow_del_footer(tetto),
+            )
+            .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder, opt_in_crs_storico(&opts.format_options)?)?;
@@ -1357,10 +1430,11 @@ impl GeoParquetDataset {
     fn apri_verificato(&self) -> Result<(Arc<File>, ParquetRecordBatchReaderBuilder<File>)> {
         let sorgente = Arc::new(File::open(&self.path)?);
         let dimensione = sorgente.metadata()?.len();
-        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione)?;
+        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione, self.tetto_pagina)?;
         let per_builder = sorgente.try_clone()?;
+        let opzioni = opzioni_arrow_del_footer(self.tetto_pagina);
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
-            ParquetRecordBatchReaderBuilder::try_new(per_builder)
+            ParquetRecordBatchReaderBuilder::try_new_with_options(per_builder, opzioni)
                 .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         Ok((sorgente, builder))

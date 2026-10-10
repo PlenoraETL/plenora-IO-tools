@@ -146,7 +146,7 @@
       "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
       "surface": "cli",
       "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare. Caso noto a monte: un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 ~2,3 GB da 3966 byte.",
-      "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato; GeoParquet: gli elenchi del footer e i row group sono chiusi nella 4.2.0 (parquet 60 e il fork `vendor/parquet`), resta lo schema del footer (docs/PRODUCT.md)",
+      "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato; GeoParquet: il footer e' chiuso nella 4.2.0 (parquet 60 e il fork `vendor/parquet`, con profondita' dello schema e tetto di memoria del decoder: docs/PRODUCT.md)",
       "detectable_before_invocation": false
     }
   ],
