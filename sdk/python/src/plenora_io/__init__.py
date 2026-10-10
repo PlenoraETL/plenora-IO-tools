@@ -9,8 +9,18 @@ progetto promette.
 # Che cosa c'e' oggi
 
 La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
-e i cinque comandi: `--version`, `catalog`, `inspect`, `layers`, `validate`
-e `convert`.
+`version()` del pacchetto, `Client.capabilities()` del binario, e i comandi:
+`--version`, `catalog`, `inspect`, `layers`, `validate`, `read`, `write` e
+`convert`. Con l'extra `plenora-io[pyarrow]`, `Client.read_table()` e
+`Client.write()` da un oggetto Arrow (vedi `arrow.py`).
+
+# Il contratto Python
+
+Il pacchetto e' scritto contro `plenora-python-sdk-v1` (PYTHON-SDK-1.0 di
+plenora-contracts), requisito per requisito: la tabella di conformita' e le
+deviazioni dichiarate stanno in `sdk/python/README.md`. Il catalogo dei
+contratti non dichiara ancora la superficie `python_sdk` per IO-tools, e il
+pacchetto non la reclama finche' non lo fa.
 
 # Gli errori si distinguono per **categoria**, non per messaggio
 
@@ -20,7 +30,9 @@ riserviamo di riscriverlo. Le diciotto sottoclassi di `CommandFailed`
 corrispondono una a una alle categorie, e un gate lo verifica.
 """
 
-from .client import Client
+from importlib import metadata as _metadata
+
+from .client import Client, TableRead
 from .discovery import PROFILI as PROFILES
 from .discovery import Manifest
 from .errors import (
@@ -35,11 +47,13 @@ from .errors import (
     ErrorEnvelope,
     ExecutionError,
     InternalError,
+    InvalidArgumentError,
     InvalidConfigurationError,
     InvalidPlanError,
     IoError,
     ManifestError,
     NotFoundError,
+    OptionalDependencyError,
     PlenoraError,
     ProfileError,
     ProtocolError,
@@ -52,6 +66,9 @@ from .errors import (
 )
 from .limits import Limits
 from .models import (
+    Capabilities,
+    CapabilityInterface,
+    CapabilityOperation,
     Catalog,
     ConvertResult,
     ConvertedLayer,
@@ -71,6 +88,8 @@ from .models import (
     LossExample,
     LossReport,
     Omissions,
+    OperationContent,
+    OperationControls,
     Validation,
     Version,
     WriteInput,
@@ -96,11 +115,36 @@ __version__ = "4.1.1"
 #: l'SDK non pretende di capire una busta che ne dichiari un altro.
 PROTOCOL_VERSION = 2
 
+#: Il nome della distribuzione, come pip la registra.
+DISTRIBUTION = "plenora-io"
+
+
+def version() -> str:
+    """La versione del pacchetto **installato**, dai suoi metadati.
+
+    PYTHON-SDK-1.0 §2: `version()` rende cio' che
+    `importlib.metadata.version("plenora-io")` rende. Non e' la versione del
+    binario -- quella la dice `Client.version()` -- ne' una copia di
+    `__version__`: e' la lettura dei metadati, e lo smoke del pacchetto
+    installato verifica che coincidano con `__version__` e con il nome della
+    wheel.
+
+    Da un checkout non installato i metadati non ci sono, e la funzione lo
+    dice con `PackageNotFoundError` invece di ripiegare su `__version__`: un
+    ripiego risponderebbe anche quando la domanda -- che cosa e' installato --
+    non ha risposta.
+    """
+    return _metadata.version(DISTRIBUTION)
+
 __all__ = [
+    "DISTRIBUTION",
     "AuthenticationError",
     "AuthorizationError",
     "BinaryNotFound",
     "CancelledError",
+    "Capabilities",
+    "CapabilityInterface",
+    "CapabilityOperation",
     "Catalog",
     "Client",
     "CommandFailed",
@@ -121,6 +165,7 @@ __all__ = [
     "Geometry",
     "Inspect",
     "InternalError",
+    "InvalidArgumentError",
     "InvalidConfigurationError",
     "InvalidPlanError",
     "IoError",
@@ -135,6 +180,9 @@ __all__ = [
     "ManifestError",
     "NotFoundError",
     "Omissions",
+    "OperationContent",
+    "OperationControls",
+    "OptionalDependencyError",
     "PROFILES",
     "PROTOCOL_VERSION",
     "PlenoraError",
@@ -144,6 +192,7 @@ __all__ = [
     "ResourceLimitError",
     "Runner",
     "SchemaError",
+    "TableRead",
     "TimeoutError",
     "TransientError",
     "UnsupportedError",
@@ -152,4 +201,5 @@ __all__ = [
     "WriteInput",
     "WriteResult",
     "__version__",
+    "version",
 ]

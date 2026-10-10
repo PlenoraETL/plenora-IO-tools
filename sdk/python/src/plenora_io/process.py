@@ -164,6 +164,30 @@ def _stato(valore: Any) -> str:
     return f"fuori vocabolario ({_tipo(valore)})"
 
 
+def scrive(argv: list[str]) -> bool:
+    """Il comando pubblica qualcosa sul filesystem.
+
+    `write` e `convert` sempre; `read` solo con una destinazione, che e' la
+    forma che consegna. Gli altri leggono e basta.
+    """
+    if not argv:
+        return False
+    if argv[0] in ("write", "convert"):
+        return True
+    return argv[0] == "read" and "--output" in argv
+
+
+def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError:
+    """Lo stesso errore, con `remote_effect: unknown` se il comando scrive.
+
+    Per un comando che legge soltanto l'effetto resta `none`: il processo non
+    ha toccato niente che non fosse gia' li'.
+    """
+    if scrive(argv):
+        errore._effetto_remoto = "unknown"
+    return errore
+
+
 class Runner:
     """Esegue il binario e restituisce la busta, o solleva.
 
@@ -183,11 +207,18 @@ class Runner:
     def run(self, argv: list[str]) -> dict[str, Any]:
         """La busta di successo, o `CommandFailed` con quella d'errore."""
         completed = self._execute(argv)
-        if completed.exit_code == 0:
-            return self._success(completed)
-        raise failure_from_envelope(
-            self._failure(completed), completed.exit_code, argv
-        )
+        try:
+            if completed.exit_code == 0:
+                return self._success(completed)
+            documento = self._failure(completed)
+            fallimento = failure_from_envelope(documento, completed.exit_code, argv)
+        except ProtocolError as errore:
+            # Il processo e' partito e ha finito: se il comando scrive, che
+            # cosa abbia lasciato sul disco non lo dice una risposta che non si
+            # legge. Vedi `ProtocolError`.
+            _con_effetto_ignoto(errore, argv)
+            raise
+        raise fallimento
 
     # --- l'esecuzione -----------------------------------------------------
 
@@ -228,13 +259,13 @@ class Runner:
                 # binario che continua a scrivere sulla destinazione.
                 processo.kill()
                 processo.communicate()
-                raise ProtocolError(
+                raise _con_effetto_ignoto(ProtocolError(
                     f"`plenora-io {' '.join(argv)}` non ha risposto entro "
                     f"{self._timeout}s ed e' stato terminato. Il timeout lo "
                     "sceglie chi chiama, e questo errore non dice che il "
                     "comando sia fallito: dice che non si sa, e che una "
                     "destinazione parziale puo' essere rimasta."
-                ) from errore
+                ), argv) from errore
 
         return Completed(
             argv=list(argv),

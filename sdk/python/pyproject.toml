@@ -21,11 +21,17 @@ readme = "README.md"
 # Le versioni **provate**, e nient'altro.
 #
 # Il limite superiore non e' pessimismo: `Requires-Python` e' cio' che pip legge
-# per decidere se questo pacchetto puo' girare, e dichiarare `>=3.11` senza
-# limite prometterebbe ogni Python futuro. La matrice della CI prova 3.11, 3.12
-# e 3.13; il giorno in cui ne provera' un'altra, questa riga si allarga insieme
-# a lei.
-requires-python = ">=3.11,<3.14"
+# per decidere se questo pacchetto puo' girare, e dichiarare `>=3.10` senza
+# limite prometterebbe ogni Python futuro. La matrice della CI prova dalla 3.10
+# alla 3.14; il giorno in cui ne provera' un'altra, questa riga si allarga
+# insieme a lei.
+#
+# Il minimo e' 3.10 perche' PYTHON-SDK-1.0 §2 lo pretende («MUST support Python
+# 3.10 or newer») ed e' quello delle altre librerie Plenora: un ambiente che le
+# usa insieme ha una sola intersezione, e la 3.11 di prima la restringeva per
+# tutti. Il codice non usa niente che 3.10 non abbia -- `kw_only` delle
+# dataclass e `types.UnionType` sono della 3.10 -- e la matrice lo prova.
+requires-python = ">=3.10,<3.15"
 
 # Nessuna dipendenza, ed e' una scelta.
 #
@@ -46,9 +52,11 @@ classifiers = [
     # affermazione che i crate Rust di questo repository fanno con
     # `publish = false`.
     "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 
@@ -60,6 +68,21 @@ classifiers = [
 # ogni indice pubblico -- il classificatore qui sopra -- e
 # `scripts/check_canale_privato.py` verifica che il canale resti chiuso.
 license = { text = "Proprietary" }
+
+# L'adattatore Arrow, **facoltativo**: `Client.read_table()` e `Client.write()`
+# da un oggetto Arrow (`plenora_io/arrow.py`). Chi lavora per percorsi non lo
+# installa e non lo paga.
+#
+# La serie e' `>=25,<26`, la stessa che plenora-data-tools dichiara come
+# dipendenza: due librerie Plenora nello stesso ambiente devono poter stare
+# sulla stessa pyarrow, e una serie diversa qui renderebbe impossibile
+# installarle insieme. Un intervallo e non un pin esatto perche' e' un vincolo
+# di **installazione** per chi usa il pacchetto; il pin esatto, `25.0.1`, e'
+# quello con cui la CI prova (`.github/workflows/ci.yml`). Un'altra serie si
+# dichiara dopo averla provata, non prima, e `arrow.py` la rifiuta anche se
+# installata a mano accanto al vincolo.
+[project.optional-dependencies]
+pyarrow = ["pyarrow>=25,<26"]
 
 [project.urls]
 Repository = "https://github.com/PlenoraETL/plenora-IO-tools"

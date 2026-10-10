@@ -33,7 +33,73 @@ from typing import Any
 
 
 class PlenoraError(Exception):
-    """La radice: un `except PlenoraError` prende tutto quel che l'SDK solleva."""
+    """La radice: un `except PlenoraError` prende tutto quel che l'SDK solleva.
+
+    # I cinque assi stanno su **ogni** eccezione pubblica
+
+    PYTHON-SDK-1.0 §6 pretende che ogni eccezione pubblica renda leggibili,
+    senza analizzare testo, `category`, `phase`, `remote_effect`, `retry` e
+    `message`, con i valori e il significato di `error-v1.schema.json`. Fino
+    alla 4.1.1 li portava soltanto `CommandFailed`, che li ha dalla busta; gli
+    errori nati nell'SDK -- binario introvabile, manifesto illeggibile, profilo
+    sbagliato, risposta fuori protocollo -- erano eccezioni con il solo testo.
+
+    Qui gli assi hanno un valore per classe, scelto una volta e dichiarato
+    accanto alla classe: `_CATEGORIA` e `_FASE`. L'effetto remoto parte da
+    `none`; `ProtocolError` e' l'unico che lo puo' alzare, perche' e' l'unico
+    che puo' nascere **dopo** che il processo e' partito (vedi `process.py`).
+    Il ritentativo e' sempre `never`: un errore dell'SDK non diventa un
+    successo ripetendo la stessa chiamata, e dire il contrario sarebbe una
+    promessa che nessuno ha verificato.
+    """
+
+    #: La categoria di `error-v1` per gli errori nati nell'SDK.
+    _CATEGORIA = "internal"
+    #: La fase di `error-v1` in cui l'SDK li solleva.
+    _FASE = "validate"
+
+    @property
+    def category(self) -> str:
+        """La categoria di `plenora-error-v1`."""
+        return self._CATEGORIA
+
+    @property
+    def phase(self) -> str:
+        """La fase di `plenora-error-v1`."""
+        return self._FASE
+
+    @property
+    def remote_effect(self) -> str:
+        """L'effetto remoto di `plenora-error-v1`: `none` se nessuno l'ha alzato."""
+        return getattr(self, "_effetto_remoto", None) or "none"
+
+    @property
+    def retry(self) -> dict[str, Any]:
+        """La disposizione al ritentativo, come oggetto `{kind}` nuovo a ogni lettura."""
+        return {"kind": "never"}
+
+    @property
+    def message(self) -> str:
+        """Il messaggio curato, lo stesso di `str(errore)`."""
+        return str(self)
+
+    @property
+    def code(self) -> str | None:
+        """Il codice stabile, quando l'errore ne ha uno: gli errori dell'SDK no."""
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Il documento `plenora-error-v1` dell'errore, con i soli campi che ha."""
+        documento: dict[str, Any] = {
+            "category": self.category,
+            "phase": self.phase,
+            "remote_effect": self.remote_effect,
+            "retry": self.retry,
+            "message": self.message,
+        }
+        if self.code is not None:
+            documento["code"] = self.code
+        return documento
 
 
 class BinaryNotFound(PlenoraError):
@@ -43,6 +109,11 @@ class BinaryNotFound(PlenoraError):
     soltanto «non trovato» lascerebbe indovinare se la variabile d'ambiente sia
     stata letta, se il `PATH` sia quello giusto, se il nome sia quello atteso.
     """
+
+    #: La configurazione della macchina non porta al binario, e il comando
+    #: non e' partito.
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
 
     def __init__(self, searched: list[str]) -> None:
         self.searched = list(searched)
@@ -64,6 +135,9 @@ class ManifestError(PlenoraError):
     trattarlo come assente nasconderebbe il guasto.
     """
 
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "probe"
+
 
 class ProfileError(PlenoraError):
     """L'artefatto non ha il profilo che il chiamante pretende.
@@ -72,6 +146,12 @@ class ProfileError(PlenoraError):
     scoprirlo dal fallimento di una conversione a meta' costa un file di uscita
     parziale e un errore che parla di un driver invece che di un pacchetto.
     """
+
+    #: `unsupported`: e' il caso che PYTHON-SDK-1.0 §7 nomina -- un
+    #: comportamento che questo artefatto non ha si rifiuta chiuso con quella
+    #: categoria, prima di cominciare.
+    _CATEGORIA = "unsupported"
+    _FASE = "validate"
 
     def __init__(self, required: str, actual: str | None) -> None:
         self.required = required
@@ -90,7 +170,47 @@ class ProtocolError(PlenoraError):
     che non c'e'. E' fail-closed per scelta: un SDK che tirasse a indovinare i
     campi mancanti trasformerebbe l'incompatibilita' di versione in dati
     sbagliati piu' avanti, dove nessuno la riconosce piu'.
+
+    # L'effetto remoto non e' sempre `none`
+
+    Un `ProtocolError` puo' nascere prima che il processo parta -- il binario
+    non si esegue -- o dopo: una busta illeggibile, un timeout che uccide il
+    processo. Nel secondo caso, se il comando scrive (`write`, `convert`,
+    `read` con una destinazione), non si sa che cosa sia rimasto sul disco, e
+    l'effetto e' `unknown`: lo alza `Runner`, che e' l'unico a sapere se il
+    processo e' partito e che comando fosse. Un `none` li' direbbe a chi
+    decide se ripetere che non e' successo niente, ed e' esattamente cio' che
+    nessuno sa.
     """
+
+    _CATEGORIA = "protocol"
+    _FASE = "finalize"
+
+
+class InvalidArgumentError(PlenoraError):
+    """Un argomento che l'SDK non sa trasformare in una riga di comando.
+
+    Per esempio un oggetto che non e' un percorso e non espone
+    `__arrow_c_stream__`, passato come sorgente di `write()`. Si rifiuta prima
+    di eseguire, e non si ripiega su un'interpretazione: un argomento ignorato
+    o tradotto con un altro significato e' cio' che PYTHON-SDK-1.0 §7 vieta.
+    """
+
+    _CATEGORIA = "invalid_configuration"
+    _FASE = "validate"
+
+
+class OptionalDependencyError(PlenoraError):
+    """Serve una dipendenza facoltativa che non e' installata.
+
+    L'adattatore Arrow (`read_table()`, `write()` da un oggetto Arrow) vuole
+    `pyarrow`, che il pacchetto dichiara come extra `plenora-io[pyarrow]` e non
+    come dipendenza: chi lavora per percorsi non lo paga. Senza, la chiamata si
+    rifiuta con `unsupported` prima di eseguire niente.
+    """
+
+    _CATEGORIA = "unsupported"
+    _FASE = "validate"
 
 
 @dataclass(frozen=True)
@@ -479,6 +599,44 @@ class CommandFailed(PlenoraError):
             f"[{envelope.category}/{envelope.phase}] "
             f"{envelope.code}: {envelope.message}"
         )
+
+    # I cinque assi vengono dalla busta, non dai default della radice.
+
+    @property
+    def category(self) -> str:
+        return self.envelope.category
+
+    @property
+    def phase(self) -> str:
+        return self.envelope.phase
+
+    @property
+    def remote_effect(self) -> str:
+        # La decisione fissata alla costruzione, non il campo pubblico: chi
+        # cambia `envelope.remote_effect` cambia la propria copia.
+        return self.envelope._effetto_remoto
+
+    @property
+    def retry(self) -> dict[str, Any]:
+        """La disposizione fissata alla costruzione, come oggetto nuovo.
+
+        Ricostruita dalle decisioni private della busta e non copiata da
+        `envelope.retry`: quel campo e' una copia che chi la tiene puo'
+        cambiare, e l'asse dell'eccezione deve dire cio' che e' stato validato.
+        """
+        busta = self.envelope
+        if busta._tipo_di_ritentativo == "after":
+            return {"kind": "after", "delay_ms": busta._ritardo_ms}
+        return {"kind": busta._tipo_di_ritentativo}
+
+    @property
+    def message(self) -> str:
+        """Il messaggio della busta, senza la riga di comando che lo precede."""
+        return self.envelope.message
+
+    @property
+    def code(self) -> str | None:
+        return self.envelope.code
 
     @property
     def retryable(self) -> bool:

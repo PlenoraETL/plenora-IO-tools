@@ -1171,3 +1171,189 @@ class WriteResult:
             raw=dict(documento),
         )
 
+
+
+# --- la scoperta delle capacita' --------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityInterface:
+    """Una superficie che l'artefatto espone: tipo, contratto, versione, nome."""
+
+    kind: str
+    contract: str
+    version: int
+    artifact: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("kind", "contract", "version", "artifact")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
+        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities.interfaces[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationContent:
+    """L'ingresso o l'uscita di un'operazione: il contratto e i content type."""
+
+    contract: str
+    content_types: list[str]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("contract", "content_types")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationContent":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[].input", cls
+        )
+        return cls(
+            contract=documento["contract"],
+            content_types=list(documento["content_types"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationControls:
+    """I controlli che l'operazione onora: cancellazione, scadenza, idempotenza."""
+
+    cancellation: bool
+    deadline: bool
+    idempotency_key: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("cancellation", "deadline", "idempotency_key")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationControls":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[].controls", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityOperation:
+    """Un'operazione del documento `capabilities-v2`.
+
+    Identificatore, versione, stato, superfici, contratti, effetto e controlli
+    sono attributi tipizzati: PYTHON-SDK-1.0 §7 pretende che restino leggibili
+    senza analizzare testo. `attributes` e' diagnostica **opaca** (CAP-013):
+    resta un dizionario, e la selezione si fa sui content type.
+    """
+
+    id: str
+    version: int
+    status: str
+    surfaces: list[str]
+    input: OperationContent
+    output: OperationContent
+    side_effect: str
+    controls: OperationControls
+    attributes: dict[str, Any] | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "id",
+        "version",
+        "status",
+        "surfaces",
+        "input",
+        "output",
+        "side_effect",
+        "controls",
+    )
+    #: `attributes` c'e' solo sulle operazioni che dichiarano qualcosa oltre al
+    #: descrittore: oggi `io.read`. Il manifesto del protocollo lo dice
+    #: «sempre» perche' misura la presenza **per busta**, non per elemento:
+    #: `scripts/check_sdk_python.py` lo sa da `OPZIONALI_PER_ELEMENTO`.
+    OPZIONALI = ("attributes",)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityOperation":
+        documento = _pretendi(
+            documento, cls.OBBLIGATORI, "capabilities.operations[]", cls
+        )
+        return cls(
+            id=documento["id"],
+            version=documento["version"],
+            status=documento["status"],
+            surfaces=list(documento["surfaces"]),
+            input=OperationContent.from_json(documento["input"]),
+            output=OperationContent.from_json(documento["output"]),
+            side_effect=documento["side_effect"],
+            controls=OperationControls.from_json(documento["controls"]),
+            attributes=documento.get("attributes"),
+            raw=dict(documento),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Lo stato e' `available`: l'operazione si puo' chiamare."""
+        return self.status == "available"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Capabilities:
+    """Il documento `plenora-capabilities-v2` del binario in uso.
+
+    E' quello di `plenora-io capabilities`, tipizzato e non riscritto: la sola
+    fonte delle operazioni che **questo** artefatto espone. L'SDK non vi
+    aggiunge niente -- in particolare non vi aggiunge la superficie
+    `python_sdk`, che il catalogo dei contratti non dichiara ancora per
+    IO-tools: annunciarla da qui direbbe una superficie che il contratto non
+    riconosce.
+    """
+
+    schema_version: int
+    component: str
+    component_version: str
+    interfaces: list[CapabilityInterface]
+    operations: list[CapabilityOperation]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
+        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities", cls)
+        if documento["schema_version"] != 2:
+            raise ProtocolError(
+                "capabilities.schema_version non e' 2: l'SDK legge "
+                "`plenora-capabilities-v2` e non indovina un'altra forma."
+            )
+        return cls(
+            schema_version=documento["schema_version"],
+            component=documento["component"],
+            component_version=documento["component_version"],
+            interfaces=[
+                CapabilityInterface.from_json(voce) for voce in documento["interfaces"]
+            ],
+            operations=[
+                CapabilityOperation.from_json(voce) for voce in documento["operations"]
+            ],
+            raw=dict(documento),
+        )
+
+    def operation(self, identificatore: str) -> CapabilityOperation:
+        """L'operazione con quell'id, o `KeyError` con gli id che ci sono."""
+        for operazione in self.operations:
+            if operazione.id == identificatore:
+                return operazione
+        noti = ", ".join(sorted(o.id for o in self.operations))
+        raise KeyError(f"nessuna operazione «{identificatore}»; ci sono: {noti}")
