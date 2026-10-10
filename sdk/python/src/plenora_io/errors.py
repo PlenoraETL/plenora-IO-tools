@@ -469,7 +469,7 @@ def _tipo(valore: Any) -> str:
     return "non JSON"
 
 
-def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
+def copia_json(valore: Any, dove: str) -> Any:
     """Una copia profonda di un valore JSON, ricostruita con i soli tipi esatti.
 
     Ogni oggetto ed elenco e' nuovo; le foglie sono di tipo **identico** a
@@ -481,7 +481,20 @@ def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
     Il messaggio non vi aggiunge le chiavi del documento -- sono dati di chi
     l'ha scritto, una colonna di `row_diagnostics` per esempio -- ma soltanto
     la profondita' a cui il difetto sta.
+
+    La copia e' ricorsiva, e un documento che `json.loads` accetta puo' essere
+    piu' profondo di quanto lo stack di Python regga qui: `RecursionError`
+    diventa `ProtocolError`, invece di attraversare il confine.
     """
+    try:
+        return _copia_json(valore, dove, 0)
+    except RecursionError:
+        raise ProtocolError(
+            f"`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare."
+        ) from None
+
+
+def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
     tipo = _tipo(valore)
     if tipo == "object":
         copia = {}
@@ -491,10 +504,10 @@ def copia_json(valore: Any, dove: str, _profondita: int = 0) -> Any:
                     f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
                     f"{_tipo(chiave)} e non una stringa."
                 )
-            copia[chiave] = copia_json(interno, dove, _profondita + 1)
+            copia[chiave] = _copia_json(interno, dove, _profondita + 1)
         return copia
     if tipo == "array":
-        return [copia_json(interno, dove, _profondita + 1) for interno in valore]
+        return [_copia_json(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
         raise ProtocolError(
             f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
@@ -542,15 +555,31 @@ def carica_json(testo: str) -> Any:
     un numero come `1e400` diventa infinito per trabocco; una chiave ripetuta
     nello stesso oggetto si risolve tenendo l'ultima. Sono modi in cui un
     documento diverso da quello scritto arriverebbe ai modelli senza che
-    nessuno lo veda: qui sono `ProtocolError`. Gli errori di sintassi restano
-    `json.JSONDecodeError`, come prima.
+    nessuno lo veda: qui sono `ProtocolError`.
+
+    Lo sono anche **tutti** i modi in cui il parser fallisce, non solo la
+    sintassi: `json.loads` solleva `RecursionError` su un annidamento profondo
+    e `ValueError` su un intero oltre il limite di cifre di Python, e prima
+    uscivano com'erano -- fuori dalla gerarchia, e per un comando che scrive
+    senza l'effetto `unknown`. Il messaggio dice posizione e motivo, mai il
+    testo; `from None` taglia la catena, che porterebbe il documento in `doc`.
     """
-    return json.loads(
-        testo,
-        object_pairs_hook=_rifiuta_chiavi_doppie,
-        parse_constant=_rifiuta_costante,
-        parse_float=_float_finito,
-    )
+    try:
+        return json.loads(
+            testo,
+            object_pairs_hook=_rifiuta_chiavi_doppie,
+            parse_constant=_rifiuta_costante,
+            parse_float=_float_finito,
+        )
+    except ProtocolError:
+        raise
+    except json.JSONDecodeError as errore:
+        motivo = f"{errore.msg}, riga {errore.lineno}, colonna {errore.colno}"
+    except RecursionError:
+        motivo = "annidamento oltre la profondita' che il parser regge"
+    except ValueError:
+        motivo = "un valore che il parser non converte, come un intero oltre il limite di cifre"
+    raise ProtocolError(f"il documento non e' JSON valido ({motivo}).") from None
 
 
 def _valida_busta(busta: "ErrorEnvelope") -> None:

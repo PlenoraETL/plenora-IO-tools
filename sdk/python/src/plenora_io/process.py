@@ -76,7 +76,6 @@ invece di scoprirlo.
 from __future__ import annotations
 
 import contextlib
-import json
 import signal
 import subprocess
 import sys
@@ -85,7 +84,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import ProtocolError, _tipo, carica_json, failure_from_envelope
+from .errors import InvalidArgumentError, ProtocolError, _tipo, carica_json, failure_from_envelope
 
 
 
@@ -167,7 +166,8 @@ def comando(argv: list[str]) -> str:
     """
     if not argv:
         return "`plenora-io`"
-    nome = argv[0] if argv[0].replace("-", "").isalnum() else "?"
+    primo = argv[0]
+    nome = primo if isinstance(primo, str) and primo.replace("-", "").isalnum() else "?"
     return f"`plenora-io {nome}`"
 
 
@@ -279,6 +279,18 @@ class Runner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+        except (ValueError, TypeError):
+            # Un argomento che il sistema non sa passare -- un NUL in un
+            # percorso o in un'opzione (`ValueError`), un elemento che non e'
+            # testo (`TypeError`) -- e `Popen` rifiuta prima di partire. Il
+            # client li rifiuta gia' prima, argomento per argomento; questo e'
+            # il confine per chi usa `Runner` direttamente. Niente e' partito,
+            # quindi l'effetto e' `none`, e il testo dell'eccezione -- che
+            # puo' citare l'argomento -- resta fuori.
+            raise InvalidArgumentError(
+                f"un argomento di {comando(argv)} non si puo' passare a un "
+                "processo: contiene un carattere NUL o non e' testo."
+            ) from None
         except OSError:
             # Il processo non e' partito: niente puo' essere stato scritto, e
             # l'effetto resta `none`. Il testo dell'errore del sistema non
@@ -425,13 +437,14 @@ class Runner:
             )
         try:
             documento = carica_json(testo)
-        except json.JSONDecodeError as errore:
-            # `from None`: l'eccezione di `json` porta il documento intero in
-            # `doc`, e nel traceback finirebbe cio' che il binario ha scritto.
+        except ProtocolError as errore:
+            # `carica_json` traduce ogni guasto del parser -- sintassi,
+            # annidamento, interi oltre il limite di cifre -- e qui gli si
+            # aggiunge da dove viene. `from None`: la catena non serve a chi
+            # legge, e il messaggio di `carica_json` non porta il testo.
             raise ProtocolError(
-                f"cio' che {comando(completed.argv)} ha scritto "
-                f"su {stream} non e' JSON ({errore.msg}, riga {errore.lineno}, "
-                f"colonna {errore.colno}); {_quanto(testo)}."
+                f"cio' che {comando(completed.argv)} ha scritto su {stream} "
+                f"non si legge: {errore}; {_quanto(testo)}."
             ) from None
         if _tipo(documento) != "object":
             raise ProtocolError(

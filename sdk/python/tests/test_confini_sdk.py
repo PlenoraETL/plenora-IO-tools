@@ -236,15 +236,14 @@ class LAdattatore(unittest.TestCase):
         tabella = pa.table({"x": [1, 2, 3]})
         risultato = object()
 
-        def scrittura_riuscita(sorgente, *argomenti, **opzioni):
-            if not isinstance(sorgente, (str, Path)):
-                return Client.write(cliente, sorgente, *argomenti, **opzioni)
+        def scrittura_riuscita(argv, modello):
+            # Il comando riesce: la pulizia che segue e' cio' che si prova.
             return risultato
 
         def non_cancella(percorso, *argomenti, **opzioni):
             raise PermissionError(SEGRETO)
 
-        with mock.patch.object(cliente, "write", scrittura_riuscita, create=True), \
+        with mock.patch.object(cliente, "_chiama", scrittura_riuscita, create=True), \
                 mock.patch.object(adattatore.shutil, "rmtree", non_cancella):
             with self.assertRaises(CleanupError) as preso:
                 Client.write(cliente, tabella, self.tmp / "o.gpkg", format="gpkg",

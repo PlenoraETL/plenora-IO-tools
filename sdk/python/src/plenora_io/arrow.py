@@ -47,6 +47,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .argomenti import percorso
 from .errors import (
     CleanupError,
     InvalidArgumentError,
@@ -101,14 +102,22 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     copiare i buffer.
     """
     pa = pyarrow()
-    if isinstance(dati, pa.RecordBatch):
-        dati = pa.Table.from_batches([dati])
-    if not hasattr(dati, "__arrow_c_stream__"):
-        raise InvalidArgumentError(
-            "la sorgente non e' un percorso e non espone `__arrow_c_stream__`: "
-            "write() accetta un file Arrow IPC o un oggetto Arrow "
-            "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
-        )
+    non_arrow = InvalidArgumentError(
+        "la sorgente non e' un percorso e non espone `__arrow_c_stream__`: "
+        "write() accetta un file Arrow IPC o un oggetto Arrow "
+        "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
+    )
+    # `isinstance` e `hasattr` eseguono codice della sorgente -- `__class__`,
+    # `__getattr__` -- e `hasattr` inghiotte soltanto `AttributeError`: ogni
+    # altra eccezione usciva com'era.
+    try:
+        if isinstance(dati, pa.RecordBatch):
+            dati = pa.Table.from_batches([dati])
+        espone = hasattr(dati, "__arrow_c_stream__")
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise non_arrow from None
+    if not espone:
+        raise non_arrow
     destinazione = cartella / "ingresso.arrow"
     # Nessuna eccezione esterna attraversa il confine pubblico (PYTHON-SDK-1.0
     # §6), e nessuna resta nella catena: il testo di pyarrow, o di un
@@ -129,25 +138,44 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     )
     try:
         lettore = pa.RecordBatchReader.from_stream(dati)
+        schema = lettore.schema
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         raise InvalidArgumentError(illeggibile) from None
     try:
         uscita = pa.OSFile(str(destinazione), "wb")
-        scrittore = pa.ipc.new_file(uscita, lettore.schema)
     except Exception:  # noqa: BLE001
         raise LocalIoError(non_scrivibile) from None
-    with uscita, scrittore:
+    # Le chiusure stanno **dentro** la traduzione, e non in un `with`: chiudere
+    # lo scrittore scrive il footer, e su un disco pieno fallisce. Con `with
+    # uscita, scrittore` quell'errore usciva come eccezione di pyarrow o del
+    # sistema, e se il ciclo stava gia' sollevando lo copriva. Qui il primo
+    # errore tradotto vince; una chiusura che fallisce dopo un ciclo riuscito
+    # e' `LocalIoError`, perche' il file non e' completo.
+    errore: PlenoraError | None = None
+    scrittore = None
+    try:
+        scrittore = pa.ipc.new_file(uscita, schema)
         while True:
             try:
                 batch = lettore.read_next_batch()
             except StopIteration:
                 break
             except Exception:  # noqa: BLE001
-                raise InvalidArgumentError(illeggibile) from None
-            try:
-                scrittore.write_batch(batch)
-            except Exception:  # noqa: BLE001
-                raise LocalIoError(non_scrivibile) from None
+                errore = InvalidArgumentError(illeggibile)
+                break
+            scrittore.write_batch(batch)
+    except Exception:  # noqa: BLE001
+        errore = LocalIoError(non_scrivibile)
+    for chiusura in (scrittore, uscita):
+        if chiusura is None:
+            continue
+        try:
+            chiusura.close()
+        except Exception:  # noqa: BLE001
+            if errore is None:
+                errore = LocalIoError(non_scrivibile)
+    if errore is not None:
+        raise errore from None
     return destinazione
 
 
@@ -200,7 +228,10 @@ class CartellaTemporanea:
     """
 
     def __init__(self, temp_dir: str | os.PathLike[str] | None, *, effetto: str) -> None:
-        self._temp_dir = None if temp_dir is None else os.fspath(temp_dir)
+        # `percorso` verifica il tipo, `__fspath__` e il NUL: prima un
+        # `temp_dir` sbagliato usciva come `TypeError`, o come `ValueError` di
+        # `mkdtemp` per un NUL.
+        self._temp_dir = None if temp_dir is None else percorso(temp_dir, "temp_dir")
         self._effetto = effetto
         self._percorso: str | None = None
 

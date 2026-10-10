@@ -125,7 +125,23 @@ del sistema (`from None`): il loro testo puo' citare valori della sorgente.
 scrive e' `LocalIoError` (`io`, `prepare`). Se la directory temporanea non si
 cancella dopo che `write` ha pubblicato, e' `CleanupError` (ERRORS-1.0, ERR-015:
 `cleanup`, `committed`, `never`): l'operazione e' avvenuta e la directory va
-tolta a mano.
+tolta a mano. `read_table()` che non trova la consegna dichiarata, o non la
+legge come la busta dice, e' `ProtocolError` con `remote_effect: unknown`:
+`read` ha gia' scritto il file, anche se la pulizia che segue fallisce.
+
+**Gli argomenti si verificano prima di eseguire.** Ogni argomento dei metodi
+pubblici e' controllato per tipo esatto prima di diventare una riga di comando:
+un percorso e' `str` o `os.PathLike[str]`, un intero e' un `int` che non e' un
+`bool`, `durable` e' un `bool`, le opzioni sono un dizionario di stringhe la cui
+chiave non contiene `=` (la CLI divide al primo `=`, e la coppia arriverebbe con
+un'altra chiave), e nessun argomento porta un carattere NUL. Il rifiuto e'
+`InvalidArgumentError` con effetto `none`; il messaggio nomina l'argomento, non
+il suo valore, e l'eccezione di `__fspath__` o `__str__` non resta nella
+catena. Non e' una deviazione: prima le stesse chiamate uscivano come
+`TypeError`, `ValueError` di `Popen` o l'eccezione di chi chiama, oppure -- un
+`layer=True`, un `durable="no"` -- diventavano un altro argomento in silenzio.
+L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
+di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`.
 
 ## `convert()` e le tre famiglie di opzioni
 
