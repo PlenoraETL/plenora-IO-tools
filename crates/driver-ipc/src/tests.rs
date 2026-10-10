@@ -440,7 +440,7 @@ fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
             ),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
