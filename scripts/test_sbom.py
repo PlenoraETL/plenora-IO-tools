@@ -346,6 +346,40 @@ class SondeSullaCompletezzaDellSbom(unittest.TestCase):
                 self.assertIn("valida_spdx", sorgente)
                 self.assertIn("crate-rust", sorgente)
 
+    def test_un_fork_vendorizzato_e_di_terzi(self) -> None:
+        """«Nostro» e' un membro del workspace, non un pacchetto senza `source`.
+
+        Un fork in `vendor/` si risolve per percorso e non ha `source`: contato
+        come nostro spariva dall'SBOM e dagli identificatori di licenza
+        dell'artefatto, pur essendo codice di terzi sotto la licenza di terzi.
+        """
+        d = carica("dipendenze-rust.py")
+        vendor = RADICE / "vendor" / "dxf" / "Cargo.toml"
+        nostro = RADICE / "crates" / "plenora-io-tools" / "Cargo.toml"
+        metadati = {
+            "workspace_members": ["io"],
+            "packages": [
+                {"id": "io", "name": "plenora-io-tools", "version": "1", "source": None,
+                 "manifest_path": str(nostro), "license": None},
+                {"id": "fork", "name": "plenora-fork-dxf", "version": "0.6.1", "source": None,
+                 "manifest_path": str(vendor), "license": "MIT"},
+                {"id": "reg", "name": "csv", "version": "1.4.0",
+                 "source": "registry+https://github.com/rust-lang/crates.io-index",
+                 "manifest_path": "/registro/csv/Cargo.toml", "license": "MIT OR Unlicense"},
+            ],
+            "resolve": {"nodes": [
+                {"id": "io", "deps": [{"pkg": "fork", "dep_kinds": [{"kind": None}]},
+                                      {"pkg": "reg", "dep_kinds": [{"kind": None}]}]},
+                {"id": "fork", "deps": []},
+                {"id": "reg", "deps": []},
+            ]},
+        }
+        per_nome = {p["nome"]: p for p in d.linkati(metadati)}
+        self.assertTrue(per_nome["plenora-io-tools"]["nostro"])
+        self.assertFalse(per_nome["plenora-fork-dxf"]["nostro"])
+        self.assertEqual(per_nome["plenora-fork-dxf"]["origine"], "fork vendorizzato in vendor/dxf")
+        self.assertFalse(per_nome["csv"]["nostro"])
+
     def test_il_gate_confronta_anche_i_crate(self) -> None:
         """Il difetto era che confrontava due elenchi entrambi incompleti."""
         sorgente = (RADICE / "scripts" / "check-licenze-artefatto.py").read_text(encoding="utf-8")
