@@ -194,9 +194,15 @@ class SondeMatrice(unittest.TestCase):
         `gdal-sys` 0.10.0, mentre `Cargo.lock` risolveva 0.19.0 e 0.12.0 da
         un mese: lo stesso fatto in due posti, e nessuno li confrontava."""
         testo = (RADICE / "Cargo.lock").read_text(encoding="utf-8")
+        # Il fork entra nel grafo con il nome che il suo lock dichiara: dalla
+        # 4.2.0 un nome proprio (`fork_package`), prima quello upstream.
+        fork = json.loads(
+            (RADICE / "scripts" / "gdal-fork-lock.json").read_text(encoding="utf-8")
+        )
+        nome_gdal = fork.get("fork_package", fork["package"])
         risolte = {
-            nome: re.findall(rf'(?m)^name = "{re.escape(nome)}"\nversion = "([^"]+)"', testo)
-            for nome in ("gdal", "gdal-sys")
+            chiave: re.findall(rf'(?m)^name = "{re.escape(nome)}"\nversion = "([^"]+)"', testo)
+            for chiave, nome in (("gdal", nome_gdal), ("gdal-sys", "gdal-sys"))
         }
         for nome, versioni in risolte.items():
             self.assertEqual(len(versioni), 1, f"Cargo.lock non risolve un solo {nome}")

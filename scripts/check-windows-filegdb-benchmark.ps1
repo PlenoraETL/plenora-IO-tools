@@ -175,7 +175,10 @@ function Get-LockedVersion {
     }
     return $trovate[0].Groups[1].Value
 }
-$rustGdal = Get-LockedVersion -Name "gdal"
+# Il pacchetto si cerca con il nome con cui il fork entra nel grafo: dalla
+# 4.2.0 e' un nome proprio (`fork_package`), prima era quello upstream.
+$nomeFork = if ($forkGdal.PSObject.Properties.Name -contains 'fork_package') { [string]$forkGdal.fork_package } else { [string]$forkGdal.package }
+$rustGdal = Get-LockedVersion -Name $nomeFork
 $gdalSys = Get-LockedVersion -Name "gdal-sys"
 if ($rustGdal -ne [string]$forkGdal.version) {
     throw "Cargo.lock e gdal-fork-lock.json non concordano sulla versione di gdal"
