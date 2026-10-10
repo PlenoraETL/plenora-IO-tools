@@ -11,12 +11,18 @@
 //!
 //! # Che cosa fa, ed e' esatto per costruzione
 //!
-//! EWKB e WKB ISO differiscono **solo** nella parola di tipo -- i flag Z, M e
-//! SRID di `PostGIS` contro gli scarti 1000/2000/3000 -- e nei quattro byte del
-//! SRID che EWKB porta dopo di essa. Le coordinate sono gli stessi `f64`: la
-//! conversione decodifica l'AST lossless di `plenora-io-model` e lo ricodifica
-//! ISO, e le ordinate passano da `from_*_bytes` a `to_le_bytes` senza
-//! aritmetica, quindi bit per bit.
+//! EWKB e WKB ISO differiscono nella parola di tipo -- i flag Z, M e SRID di
+//! `PostGIS` contro gli scarti 1000/2000/3000 -- e nei quattro byte del SRID
+//! che EWKB porta dopo di essa. La conversione decodifica l'AST lossless di
+//! `plenora-io-model` e lo ricodifica ISO: i **valori** delle coordinate sono
+//! gli stessi `f64` bit per bit (passano da `from_*_bytes` a `to_le_bytes`
+//! senza aritmetica, -0.0, subnormali e NaN compresi).
+//!
+//! L'uscita e' sempre WKB ISO **little-endian**. Da un EWKB little-endian
+//! cambiano solo la parola di tipo e lo SRID; da un EWKB big-endian cambia
+//! anche l'ordine dei byte di ogni intero e di ogni ordinata: il valore e'
+//! conservato, i byte no. E' la scelta del WKB che il componente scrive
+//! ovunque, e i sink lo rileggono indipendentemente dall'ordine.
 //!
 //! Il SRID non sparisce in silenzio. Il contratto WKB non ha dove metterlo, e
 //! la conversione e' ammessa solo se il CRS del contratto lo rappresenta gia':
@@ -212,7 +218,8 @@ fn senza_srid(geometria: &mut WkbGeometry, atteso: Option<i32>) -> Result<()> {
 }
 
 impl DaEwkbAWkb {
-    /// Un valore EWKB come WKB ISO, con le stesse coordinate bit per bit.
+    /// Un valore EWKB come WKB ISO little-endian, con gli stessi valori delle
+    /// coordinate bit per bit.
     fn converti_valore(&self, valore: &[u8], uscita: &mut Vec<u8>) -> Result<()> {
         let mut geometria = decode_wkb(valore, &self.limiti)?;
         senza_srid(&mut geometria, self.srid)?;
