@@ -11,6 +11,7 @@ use arrow_schema::{DataType, Field, Schema};
 
 use super::*;
 use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
+use plenora_io_model::PipelineClock;
 
 /// Budget dell'operazione per i test, dal modello unificato.
 ///
@@ -738,10 +739,55 @@ fn replay_stops_on_cancellation() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
 }
 
+/// La scadenza scatta fra il sigillo e il replay, e solo li'.
+///
+/// Era una deadline di un millisecondo seguita da una `sleep`: sotto
+/// strumentazione (`coverage`) il millisecondo passava gia' durante la `push`,
+/// e la prova falliva nel punto sbagliato. Con l'orologio manuale il tempo non
+/// passa finche' la prova non lo fa passare, e la `push` e il sigillo girano a
+/// scadenza intatta per costruzione.
 #[test]
 fn replay_stops_when_the_deadline_expires() {
     let schema = schema();
-    let budget = budget_con(PipelineLimits::default().with_duration_ms(1));
+    let orologio = PipelineClock::manual(std::time::Instant::now());
+    let budget = match PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_duration_ms(1))
+        .clock(orologio.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    let mut spool = StagedSpool::new(
+        Arc::clone(&schema),
+        budget.clone(),
+        CancellationToken::default(),
+    );
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push a scadenza intatta");
+    spool.seal().expect("seal a scadenza intatta");
+    orologio
+        .advance(std::time::Duration::from_millis(1))
+        .expect("avanzamento");
+    let errore = spool
+        .next_batch()
+        .expect_err("la deadline deve interrompere il replay");
+    // SURF-010: una scadenza e' un `timeout`, non una quota.
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
+}
+
+/// Il controllo: un istante prima della scadenza il replay procede.
+#[test]
+fn replay_runs_until_the_last_instant_before_the_deadline() {
+    let schema = schema();
+    let orologio = PipelineClock::manual(std::time::Instant::now());
+    let budget = match PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_duration_ms(1))
+        .clock(orologio.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
     let mut spool = StagedSpool::new(
         Arc::clone(&schema),
         budget.clone(),
@@ -749,12 +795,16 @@ fn replay_stops_when_the_deadline_expires() {
     );
     spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
     spool.seal().expect("seal");
-    std::thread::sleep(std::time::Duration::from_millis(5));
-    let errore = spool
-        .next_batch()
-        .expect_err("la deadline deve interrompere il replay");
-    // SURF-010: una scadenza e' un `timeout`, non una quota.
-    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
+    orologio
+        .advance(std::time::Duration::from_micros(999))
+        .expect("avanzamento");
+    assert!(
+        spool
+            .next_batch()
+            .expect("ancora dentro la scadenza")
+            .is_some(),
+        "un istante prima della scadenza il replay consegna"
+    );
 }
 
 #[test]
