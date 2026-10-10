@@ -332,9 +332,9 @@
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
   },
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork sono dipendenze dirette con nome proprio (#43), arrow passa a 60.0.0 e parquet al fork vendor/parquet (#46), quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork. Le guardie legate alla versione di arrow e parquet vanno rimisurate, non ereditate.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'.",
     "impronta_della_misura": "e466b198db5fc5ee6ec3b3cf592ea117736094fb9b7f71ca02f977c335a4643f",
-    "impronta_attesa": "a5a0d6a33b5216e4043d0d50d82a3feb6e63c4df4b483a530aa8e12711fe63b0",
+    "impronta_attesa": "d34c3502bbb08fa8c4786c592a3f77df8018583bf380135934bf6eef1b2dfbdc",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh shp_reader"
