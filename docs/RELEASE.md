@@ -625,7 +625,7 @@ python3 scripts/genera-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
 ```
 
 Rigenerarlo invalida ogni misura fatta sul precedente. La versione è 3.9 e non
-l'ultima disponibile: `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto
+l'ultima disponibile: `gdal-sys 0.12.0` spedisce binding pre-costruiti soltanto
 fino a 3.9, e le due alternative sono peggiori.
 
 La feature `bindgen` genera i binding a build time, e `bindgen` non è una
