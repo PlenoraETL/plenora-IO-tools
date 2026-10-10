@@ -41,6 +41,7 @@ from plenora_io import (
     Limits,
     LocalIoError,
     ManifestError,
+    OptionalDependencyError,
     PlenoraError,
     ProtocolError,
     Validation,
@@ -452,7 +453,12 @@ class GliArgomenti(unittest.TestCase):
                         with mock.patch.object(subprocess, "Popen", finto):
                             with self.assertRaises(PlenoraError) as preso:
                                 getattr(cliente, metodo)(**chiamata)
-                        self.assertIsInstance(preso.exception, InvalidArgumentError)
+                        attese = (InvalidArgumentError,)
+                        if pa is None and metodo == "write" and argomento == "source":
+                            # Senza pyarrow un oggetto che non e' un percorso si
+                            # rifiuta come `unsupported`, prima di guardarlo.
+                            attese = (InvalidArgumentError, OptionalDependencyError)
+                        self.assertIsInstance(preso.exception, attese)
                         self.assertEqual(finto.partenze, 0, "il processo non parte")
                         tradotto(self, preso.exception, "none")
                         provati += 1
