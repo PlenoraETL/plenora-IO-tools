@@ -109,5 +109,13 @@
       "perche": "in GeoJSON i membri di un MULTIPOINT non hanno un oggetto proprio: sono le posizioni stesse. Senza questa riga il conteggio sarebbe la meta' di quello del bordo, ed e' il difetto che le sonde hanno trovato confrontando i due numeri."
     }
   ],
-  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`."
+  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
+  "rimisurazione_dovuta": {
+    "perche": "Il perimetro e' cambiato nella 4.2.0 (#43): i tre fork sono dipendenze dirette con nome proprio, quindi cambiano Cargo.lock, fuzz/Cargo.lock, fuzz/Cargo.toml e i manifesti dei fork, e le righe del delta sono formattate da rustfmt. Nessun codice attraversato cambia comportamento, ma l'impronta esiste per non lasciarlo dire a chi ha scritto la modifica: la misura si rifa'.",
+    "impronta_della_misura": "b1cedf705f8a6ab937b63c013183b79355cf6fd75fa13c8d192d2c01086d70a7",
+    "impronta_attesa": "f36cc40562c712c1222d663515e10717fda7785e56ff557dfd08e86032a2f4b8",
+    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
+    "quando": "sul candidato finale della 4.2.0, prima del rilascio",
+    "comando": "scripts/fuzz-profondita.sh geojson_reader"
+  }
 }
