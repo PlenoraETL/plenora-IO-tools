@@ -317,7 +317,14 @@ class ControIlBinarioVero(unittest.TestCase):
         self.assertNotIn(",", intestazione)
 
     def test_durable_non_cambia_l_esito(self) -> None:
-        """Costa in tempo e non in significato: la busta e' la stessa."""
+        """Costa in tempo e non in significato: la pubblicazione avviene.
+
+        Su Windows il fsync della directory non esiste, e il prodotto lo
+        dichiara invece di tacerlo: `published_durability_unconfirmed`
+        (`plenora-io-core/src/publish.rs`, `sync_dir`). La prova lo pretende
+        li', e `published` altrove: un esito di durabilita' che cambiasse in
+        silenzio fra le piattaforme sarebbe rosso.
+        """
         esito = self.cliente.convert(
             CANONICHE / "canonico.geojson",
             self.tmp / "durevole.csv",
@@ -325,7 +332,10 @@ class ControIlBinarioVero(unittest.TestCase):
             target_format="csv",
             durable=True,
         )
-        self.assertTrue(esito.published)
+        if sys.platform == "win32":
+            self.assertEqual(esito.publish_outcome, "published_durability_unconfirmed")
+        else:
+            self.assertTrue(esito.published)
 
     def test_un_tetto_superato_ferma_la_conversione(self) -> None:
         uscita = self.tmp / "mai-scritta.csv"

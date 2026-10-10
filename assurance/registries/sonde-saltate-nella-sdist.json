@@ -4,8 +4,8 @@
   "perche_un_elenco_e_non_un_numero": "«27 saltate» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
   "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
   "dove_girano_invece": "nel repository, dove il job `python-sdk` della CI le esegue su ogni versione di Python della matrice. Saltare nell'installazione non vuol dire non essere verificate: vuol dire esserlo altrove, e questo registro dice dove.",
-  "totale": 45,
-  "eseguite_nella_sdist": 155,
+  "totale": 51,
+  "eseguite_nella_sdist": 163,
   "condizioni": [
     {
       "id": "fixture-canoniche",
@@ -83,8 +83,14 @@
       "perche_non_sta_nella_sdist": "e' una dipendenza **facoltativa** e non un file: la sdist non porta dipendenze, e installarla nello smoke vorrebbe dire provare un ambiente che chi installa senza extra non ha. Lo smoke prova proprio quell'ambiente, e li' l'adattatore si rifiuta con `OptionalDependencyError` -- che `SenzaPyarrow` esercita senza saltare.",
       "che_cosa_resta_verificato": "il rifiuto senza pyarrow e il rifiuto di una serie diversa, che girano anche qui. Le sonde saltate -- la tabella da e verso il file IPC, contro un binario finto -- girano nel repository, nel job `python-sdk` della CI, che installa pyarrow==25.0.1 su ogni versione della matrice.",
       "ragione_del_salto": "serve pyarrow, l'extra `plenora-io[pyarrow]`, che l'installazione dalla sdist non porta",
-      "quante": 5,
+      "quante": 11,
       "sonde": [
+        "test_confini_sdk.LAdattatore.test_un_produttore_che_si_rompe_a_meta_e_un_errore_tipizzato",
+        "test_confini_sdk.LAdattatore.test_un_produttore_che_solleva_e_un_errore_tipizzato",
+        "test_confini_sdk.LAdattatore.test_una_pulizia_fallita_dopo_la_pubblicazione_e_err_015",
+        "test_confini_sdk.LAdattatore.test_una_pulizia_fallita_durante_un_errore_non_lo_sostituisce",
+        "test_confini_sdk.LAdattatore.test_una_temp_dir_che_non_c_e_e_un_errore_tipizzato",
+        "test_confini_sdk.LAdattatore.test_write_traduce_la_pulizia_fallita_dopo_la_pubblicazione",
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_read_table_rende_la_tabella_e_la_busta",
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_un_errore_di_pyarrow_non_attraversa_il_confine",
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_un_oggetto_che_non_e_arrow_si_rifiuta",

@@ -24,6 +24,8 @@ funzionano, per una difesa che l'SDK non e' il posto giusto per fare.
 
 from __future__ import annotations
 
+import copy
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +70,40 @@ OPERAZIONI: dict[str, str] = {
     "write": "io.write",
     "convert": "io.convert",
 }
+
+
+#: L'interfaccia che l'SDK aggiunge al documento del binario.
+INTERFACCIA_PYTHON: dict[str, Any] = {
+    "kind": "python_sdk",
+    "contract": "plenora-python-sdk-v1",
+    "version": 1,
+    # Il nome della distribuzione, lo stesso di `plenora_io.DISTRIBUTION` (una
+    # prova lo confronta): importarlo da `__init__` sarebbe circolare.
+    "artifact": "plenora-io",
+}
+
+
+def con_superficie_python(documento: dict[str, Any]) -> dict[str, Any]:
+    """Il documento capabilities del binario con la superficie dell'SDK.
+
+    Una copia: il documento del binario resta quello che il binario ha scritto.
+    `python_sdk` entra solo sulle operazioni che un metodo dell'SDK chiama
+    davvero, e una volta sola anche se il binario la dichiarasse gia'.
+    """
+    copia = copy.deepcopy(documento)
+    mappate = set(OPERAZIONI.values())
+    interfacce = copia.get("interfaces")
+    if isinstance(interfacce, list) and not any(
+        isinstance(voce, dict) and voce.get("kind") == "python_sdk" for voce in interfacce
+    ):
+        interfacce.append(dict(INTERFACCIA_PYTHON))
+    for operazione in copia.get("operations") or []:
+        if not isinstance(operazione, dict) or operazione.get("id") not in mappate:
+            continue
+        superfici = operazione.get("surfaces")
+        if isinstance(superfici, list) and "python_sdk" not in superfici:
+            superfici.append("python_sdk")
+    return copia
 
 
 @dataclass(frozen=True)
@@ -150,8 +186,20 @@ class Client:
         non lo si scrive nell'SDK, perche' un SDK puo' parlare con un binario
         piu' vecchio o piu' nuovo di lui, e cio' che conta e' che cosa quello
         espone.
+
+        # La superficie `python_sdk`
+
+        Il documento descrive **questo** artefatto, e l'artefatto che il
+        chiamante ha in mano e' l'SDK: PYTHON-SDK-1.0 §7 (con CAP-003 e
+        CAP-006) chiede che dichiari la propria superficie. Al documento del
+        binario si aggiungono percio' l'interfaccia `python_sdk`
+        (`plenora-python-sdk-v1`, artefatto `plenora-io`) e la superficie
+        `python_sdk` sulle operazioni che `OPERAZIONI` mappa su un metodo. Il
+        resto -- versioni, contratti, stato, controlli -- e' quello del
+        binario: l'SDK lo inoltra e non ha semantica propria.
         """
-        return self._chiama(["capabilities"], Capabilities)
+        documento = self._runner.run(["capabilities"])
+        return Capabilities.from_json(con_superficie_python(documento))
 
     def inspect(
         self,
@@ -322,7 +370,9 @@ class Client:
         al chiamante come una tabella qualunque.
         """
         arrow.pyarrow()
-        with arrow.cartella_temporanea(temp_dir) as cartella:
+        # `committed`: se la pulizia fallisce, il file che `read` ha consegnato
+        # nella directory temporanea resta sul disco.
+        with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
             consegna = Path(cartella) / "consegna.arrow"
             esito = self.read(
                 source,
@@ -403,7 +453,8 @@ class Client:
         un percorso ne' un produttore Arrow e' `InvalidArgumentError`.
         """
         if not arrow.e_un_percorso(source):
-            with arrow.cartella_temporanea(temp_dir) as cartella:
+            # `committed`: se la pulizia fallisce, `write` ha gia' pubblicato.
+            with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
                 return self.write(
                     arrow.scrivi_ipc(source, Path(cartella)),
                     destination,

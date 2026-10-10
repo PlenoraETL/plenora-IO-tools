@@ -1330,12 +1330,10 @@ class CapabilityOperation:
 class Capabilities:
     """Il documento `plenora-capabilities-v2` del binario in uso.
 
-    E' quello di `plenora-io capabilities`, tipizzato e non riscritto: la sola
-    fonte delle operazioni che **questo** artefatto espone. L'SDK non vi
-    aggiunge niente -- in particolare non vi aggiunge la superficie
-    `python_sdk`, che il catalogo dei contratti non dichiara ancora per
-    IO-tools: annunciarla da qui direbbe una superficie che il contratto non
-    riconosce.
+    E' quello di `plenora-io capabilities` con la superficie dell'SDK: il
+    client aggiunge l'interfaccia `python_sdk` e la superficie `python_sdk`
+    sulle operazioni che espone (PYTHON-SDK-1.0 §7, CAP-003, CAP-006). Tutto
+    il resto e' il documento del binario, tipizzato e non riscritto.
     """
 
     schema_version: int

@@ -157,6 +157,40 @@ def _quanto(testo: str) -> str:
     return f"{len(testo)} caratteri, contenuto non riportato"
 
 
+def comando(argv: list[str]) -> str:
+    """Il comando come compare nei messaggi: `plenora-io <nome>`, e basta.
+
+    La riga intera portava percorsi e opzioni -- dati di chi chiama, e a volte
+    valori della sorgente -- dentro un errore che finisce nei log. Il nome del
+    sottocomando dice gia' quale operazione e' fallita; gli argomenti li ha chi
+    ha fatto la chiamata.
+    """
+    if not argv:
+        return "`plenora-io`"
+    nome = argv[0] if argv[0].replace("-", "").isalnum() else "?"
+    return f"`plenora-io {nome}`"
+
+
+def _testo(dati: bytes, argv: list[str], flusso: str) -> str:
+    """I byte di un flusso come testo UTF-8, o `ProtocolError`.
+
+    Il protocollo v2 scrive UTF-8. `communicate()` con `text=True` decodificava
+    da se' e un byte fuori codifica usciva come `UnicodeDecodeError`, fuori
+    dalla gerarchia dell'SDK e senza gli assi d'errore. Ora si leggono i byte e
+    si decodificano qui, dove un fallimento ha un nome.
+    """
+    try:
+        return dati.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _con_effetto_ignoto(
+            ProtocolError(
+                f"{comando(argv)} ha scritto su {flusso} byte che non sono "
+                f"UTF-8 ({len(dati)} byte, contenuto non riportato)."
+            ),
+            argv,
+        ) from None
+
+
 def _stato(valore: Any) -> str:
     """Lo `status` della busta se e' del vocabolario, altrimenti il suo tipo."""
     if _tipo(valore) == "string" and valore in ("ok", "error"):
@@ -183,7 +217,7 @@ def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError
     Per un comando che legge soltanto l'effetto resta `none`: il processo non
     ha toccato niente che non fosse gia' li'.
     """
-    if scrive(argv):
+    if scrive(argv) and not getattr(errore, "_non_partito", False):
         errore._effetto_remoto = "unknown"
     return errore
 
@@ -206,8 +240,8 @@ class Runner:
 
     def run(self, argv: list[str]) -> dict[str, Any]:
         """La busta di successo, o `CommandFailed` con quella d'errore."""
-        completed = self._execute(argv)
         try:
+            completed = self._execute(argv)
             if completed.exit_code == 0:
                 return self._success(completed)
             documento = self._failure(completed)
@@ -236,43 +270,73 @@ class Runner:
         # `Popen` e non `run`: senza il pid non c'e' niente a cui inoltrare il
         # segnale, e l'inoltro e' il modo in cui un Ctrl-C diventa una
         # cancellazione cooperativa invece di un file mezzo scritto.
+        #
+        # I flussi si leggono in **byte**: la decodifica e' `_testo`, che
+        # trasforma un byte fuori codifica in un `ProtocolError`.
         try:
             processo = subprocess.Popen(  # noqa: S603 - argv e' costruito qui
                 [str(self._binary), *argv],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
             )
-        except OSError as errore:
-            raise ProtocolError(
-                f"`{self._binary}` non si e' potuto eseguire: {errore}"
-            ) from errore
+        except OSError:
+            # Il processo non e' partito: niente puo' essere stato scritto, e
+            # l'effetto resta `none`. Il testo dell'errore del sistema non
+            # entra nel messaggio.
+            errore = ProtocolError(
+                f"il binario di plenora-io non si e' potuto eseguire per "
+                f"{comando(argv)}."
+            )
+            errore._non_partito = True
+            raise errore from None
 
+        # Da qui in avanti il processo e' partito: ogni guasto -- un timeout, un
+        # errore di I/O sulle pipe, una seconda attesa che fallisce dopo il
+        # kill -- lascia un esito che non si conosce, e per un comando che
+        # scrive l'effetto e' `unknown` (vedi `_con_effetto_ignoto`).
         with processo:
             try:
                 with _inoltra_sigint(processo):
                     stdout, stderr = processo.communicate(timeout=self._timeout)
-            except subprocess.TimeoutExpired as errore:
+            except subprocess.TimeoutExpired:
                 # Il processo va chiuso prima di sollevare: lasciarlo vivo
                 # significherebbe restituire il controllo a chi chiama con un
                 # binario che continua a scrivere sulla destinazione.
-                processo.kill()
-                processo.communicate()
+                self._chiudi(processo)
                 raise _con_effetto_ignoto(ProtocolError(
-                    f"`plenora-io {' '.join(argv)}` non ha risposto entro "
-                    f"{self._timeout}s ed e' stato terminato. Il timeout lo "
-                    "sceglie chi chiama, e questo errore non dice che il "
-                    "comando sia fallito: dice che non si sa, e che una "
-                    "destinazione parziale puo' essere rimasta."
-                ), argv) from errore
+                    f"{comando(argv)} non ha risposto entro {self._timeout}s ed "
+                    "e' stato terminato. Il timeout lo sceglie chi chiama, e "
+                    "questo errore non dice che il comando sia fallito: dice "
+                    "che non si sa, e che una destinazione parziale puo' essere "
+                    "rimasta."
+                ), argv) from None
+            except (OSError, ValueError):
+                self._chiudi(processo)
+                raise _con_effetto_ignoto(ProtocolError(
+                    f"la comunicazione con {comando(argv)} e' fallita mentre il "
+                    "processo era in corso: l'esito non si conosce."
+                ), argv) from None
 
         return Completed(
             argv=list(argv),
             exit_code=processo.returncode,
-            stdout=stdout,
-            stderr=stderr,
+            stdout=_testo(stdout, argv, "stdout"),
+            stderr=_testo(stderr, argv, "stderr"),
         )
+
+    @staticmethod
+    def _chiudi(processo: subprocess.Popen[bytes]) -> None:
+        """Termina il processo e ne raccoglie i flussi, senza sollevare.
+
+        La seconda attesa dopo il kill era scoperta: se falliva, il suo errore
+        sostituiva quello del timeout. Qui un guasto della chiusura non cambia
+        l'errore che il chiamante riceve, che e' gia' `unknown`.
+        """
+        try:
+            processo.kill()
+            processo.communicate()
+        except (OSError, ValueError):
+            return
 
     # --- i due flussi, ciascuno al proprio posto ---------------------------
 
@@ -287,7 +351,7 @@ class Runner:
             # affermazione che rende quel flusso utilizzabile da chi compone la
             # CLI in una pipeline, e tollerarne la violazione la toglierebbe.
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' riuscito e ha "
+                f"{comando(completed.argv)} e' riuscito e ha "
                 "scritto su stderr, dove il protocollo v2 non mette niente in "
                 "caso di successo. L'SDK parla v2: un altro protocollo si "
                 f"sceglie, non si deduce. stderr: {_quanto(completed.stderr)}."
@@ -299,7 +363,7 @@ class Runner:
             # protocollo non lo prevede, e leggerla come successo darebbe per
             # buono un documento che il prodotto non ha dichiarato tale.
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' uscito con zero e "
+                f"{comando(completed.argv)} e' uscito con zero e "
                 f"ha scritto su stdout una busta di stato {_stato(stato)}: il "
                 "protocollo non prevede questa combinazione."
             )
@@ -315,7 +379,7 @@ class Runner:
         risultato = documento.get("result")
         if _tipo(risultato) != "object":
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' riuscito ma la sua "
+                f"{comando(completed.argv)} e' riuscito ma la sua "
                 "busta non porta un oggetto `result`: il protocollo mette li' i "
                 "dati dell'operazione, e senza non c'e' un risultato da "
                 "consegnare."
@@ -332,7 +396,7 @@ class Runner:
         documento = self._decode(completed, "stdout")
         if documento.get("status") != "error":
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' uscito con "
+                f"{comando(completed.argv)} e' uscito con "
                 f"{completed.exit_code} e ha scritto su stdout una busta di "
                 f"stato {_stato(documento.get('status'))}: un'uscita diversa da zero "
                 "porta una busta d'errore."
@@ -342,7 +406,7 @@ class Runner:
             # una diagnostica scritta accanto alla busta e' esattamente cio'
             # che rende il flusso inutilizzabile per chi lo analizza.
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' fallito e ha "
+                f"{comando(completed.argv)} e' fallito e ha "
                 "scritto su stderr, dove il protocollo non mette niente. "
                 f"stderr: {_quanto(completed.stderr)}."
             )
@@ -354,7 +418,7 @@ class Runner:
         if not testo.strip():
             altro = "stderr" if stream == "stdout" else "stdout"
             raise ProtocolError(
-                f"`plenora-io {' '.join(completed.argv)}` e' uscito con "
+                f"{comando(completed.argv)} e' uscito con "
                 f"{completed.exit_code} e non ha scritto niente su {stream}, "
                 f"dove il protocollo mette la busta. "
                 f"{altro}: {_quanto(completed.stream(altro))}."
@@ -362,11 +426,13 @@ class Runner:
         try:
             documento = carica_json(testo)
         except json.JSONDecodeError as errore:
+            # `from None`: l'eccezione di `json` porta il documento intero in
+            # `doc`, e nel traceback finirebbe cio' che il binario ha scritto.
             raise ProtocolError(
-                f"cio' che `plenora-io {' '.join(completed.argv)}` ha scritto "
+                f"cio' che {comando(completed.argv)} ha scritto "
                 f"su {stream} non e' JSON ({errore.msg}, riga {errore.lineno}, "
                 f"colonna {errore.colno}); {_quanto(testo)}."
-            ) from errore
+            ) from None
         if _tipo(documento) != "object":
             raise ProtocolError(
                 f"la busta su {stream} e' {_tipo(documento)} e non un "

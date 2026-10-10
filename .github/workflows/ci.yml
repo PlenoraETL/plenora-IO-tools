@@ -465,6 +465,22 @@ jobs:
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo test --workspace --all-targets --locked
+      # L'SDK Python con l'extra `pyarrow`, su Windows. La matrice Python gira
+      # su Linux; su Windows l'adattatore Arrow era provato solo dallo smoke
+      # manuale di distribuzione. Una versione basta: cio' che cambia fra le
+      # piattaforme sono i file temporanei, la loro cancellazione e i percorsi,
+      # non la versione dell'interprete. pyarrow e' fissato alla versione
+      # esatta con cui si prova, e solo da ruote binarie.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: "3.12"
+      - name: SDK Python con pyarrow su Windows
+        shell: pwsh
+        run: |
+          python -m pip install --only-binary=":all:" pyarrow==25.0.1
+          $env:PYTHONPATH = "sdk/python/src"
+          $env:PLENORA_IO_BIN = (Resolve-Path target/debug/plenora-io.exe).Path
+          python -m unittest discover -s sdk/python/tests -p "test_*.py"
 
   gdal-linux-matrix:
     strategy:

@@ -93,23 +93,13 @@ tiene fuori dal profilo.
 | 5 | ciclo di vita | non applicabile: `Client` non tiene risorse aperte, ogni chiamata e' un processo atteso fino alla fine |
 | 6 | radice `PlenoraError`, cinque assi su ogni eccezione | conforme dalla 4.2.0: prima li portava solo `CommandFailed` |
 | 6 | redazione dei segreti | non applicabile: nessuna credenziale; i messaggi non riportano contenuti dei documenti |
-| 7 | scoperta strutturata, fail-closed | conforme: `capabilities()`; limite sotto |
+| 7 | scoperta strutturata, fail-closed | conforme: `capabilities()` rende il documento del binario con l'interfaccia e la superficie `python_sdk` (CAP-003, CAP-006) |
 | 8 | cancellazione, scadenza, budget (SHOULD) | scadenza e budget in `Limits`; cancellazione limitata, sotto |
 | 9 | sicurezza di rete | non applicabile: nessuna rete |
 | 10 | verifica dell'artefatto installato | conforme: `scripts/smoke-pacchetto-python.sh` e `smoke-sdk-installato.py` |
 | 12 | identita' delle operazioni | conforme: `OPERAZIONI` e la sua sonda |
 
 ### Limiti dichiarati
-
-**Il documento delle capacita' non nomina la superficie `python_sdk`.**
-Regola: PYTHON-SDK-1.0 §7 e §12, CAPABILITY-DISCOVERY-2.0 («publish only the
-surfaces actually present»). Ambito: `Client.capabilities()`, che rende il
-documento della CLI con le superfici `cli` e `rust`. Hazard: chi scopre le
-superfici dal documento non vede quella Python, pur avendola in mano; nessuna
-operazione e' annunciata in piu' o in meno. Rientro: quando il catalogo dei
-contratti dichiara `python_sdk` per IO-tools, la CLI aggiunge l'interfaccia
-`python_sdk` e la superficie alle operazioni, e il pacchetto reclama il
-contratto in `contracts/adoption-source.json`.
 
 **La cancellazione non e' un parametro.** Regola: PYTHON-SDK-1.0 §8 (SHOULD).
 Ambito: tutti i metodi. Un Ctrl-C e' inoltrato al prodotto soltanto dal thread
@@ -125,7 +115,17 @@ deviazione ma una scelta da conoscere: se il processo e' partito e il comando
 scrive (`write`, `convert`, `read` con destinazione), un `ProtocolError` porta
 `remote_effect: unknown` e `retry: never`, perche' che cosa sia rimasto sul
 disco non lo dice una risposta che non si legge. Per i comandi che leggono
-soltanto resta `none`.
+soltanto resta `none`. Vale per ogni guasto dopo l'avvio -- un flusso che non
+e' UTF-8, un errore delle pipe, un timeout -- mentre un processo che non parte
+resta `none`. I messaggi nominano il solo sottocomando (`plenora-io write`),
+mai percorsi e opzioni, e non portano la catena delle eccezioni di pyarrow o
+del sistema (`from None`): il loro testo puo' citare valori della sorgente.
+
+**I temporanei dell'adattatore Arrow.** Una `temp_dir` che non c'e' o non si
+scrive e' `LocalIoError` (`io`, `prepare`). Se la directory temporanea non si
+cancella dopo che `write` ha pubblicato, e' `CleanupError` (ERRORS-1.0, ERR-015:
+`cleanup`, `committed`, `never`): l'operazione e' avvenuta e la directory va
+tolta a mano.
 
 ## `convert()` e le tre famiglie di opzioni
 

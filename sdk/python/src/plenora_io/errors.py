@@ -187,6 +187,39 @@ class ProtocolError(PlenoraError):
     _FASE = "finalize"
 
 
+class LocalIoError(PlenoraError):
+    """Un'operazione dell'SDK sul filesystem locale e' fallita prima di eseguire.
+
+    Oggi e' la directory temporanea dell'adattatore Arrow: una `temp_dir` che
+    non esiste o non si puo' scrivere, o il file IPC temporaneo che non si
+    scrive. Il comando non e' partito, e l'effetto e' `none`. L'errore del
+    sistema operativo non entra nel messaggio ne' nella catena: porta il
+    percorso di chi chiama.
+    """
+
+    _CATEGORIA = "io"
+    _FASE = "prepare"
+
+
+class CleanupError(PlenoraError):
+    """Il comando e' riuscito, e la pulizia dei file temporanei dell'SDK no.
+
+    ERRORS-1.0, ERR-015: un fallimento di pulizia dopo che l'effetto e' gia'
+    avvenuto non si fa passare per un fallimento dell'operazione. La fase e'
+    `cleanup`, l'effetto e' quello gia' avvenuto -- `committed` per `write`,
+    che ha pubblicato la destinazione -- e il ritentativo e' `never`: ripetere
+    la chiamata ripeterebbe l'effetto. Resta da togliere a mano la directory
+    temporanea, il cui percorso non e' nel messaggio.
+    """
+
+    _CATEGORIA = "io"
+    _FASE = "cleanup"
+
+    def __init__(self, message: str, *, remote_effect: str) -> None:
+        super().__init__(message)
+        self._effetto_remoto = remote_effect
+
+
 class InvalidArgumentError(PlenoraError):
     """Un argomento che l'SDK non sa trasformare in una riga di comando.
 
@@ -594,8 +627,11 @@ class CommandFailed(PlenoraError):
         self.envelope = envelope
         self.exit_code = exit_code
         self.argv = list(argv or [])
+        # Il solo nome del sottocomando: la riga intera porta percorsi e opzioni
+        # di chi chiama, che restano in `argv` e non entrano nel messaggio.
+        nome = self.argv[0] if self.argv and self.argv[0].replace("-", "").isalnum() else "?"
         super().__init__(
-            f"`plenora-io {' '.join(self.argv)}` e' uscito con {exit_code}: "
+            f"`plenora-io {nome}` e' uscito con {exit_code}: "
             f"[{envelope.category}/{envelope.phase}] "
             f"{envelope.code}: {envelope.message}"
         )

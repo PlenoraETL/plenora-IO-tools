@@ -411,7 +411,10 @@ class LAdattatoreContrUnFinto(unittest.TestCase):
         guasto.write_bytes(b"non e' Arrow")
         with self.assertRaises(ProtocolError) as preso:
             plenora_io.arrow.leggi_ipc(guasto, "application/vnd.apache.arrow.file")
-        self.assertIsInstance(preso.exception.__cause__, pa.ArrowException)
+        # Nessuna catena: il testo di pyarrow puo' citare valori del file, e
+        # `__cause__` lo porterebbe nel traceback. `from None` lo sopprime.
+        self.assertIsNone(preso.exception.__cause__)
+        self.assertTrue(preso.exception.__suppress_context__)
 
     def test_un_oggetto_che_non_e_arrow_si_rifiuta(self) -> None:
         cliente = Client.__new__(Client)

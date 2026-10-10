@@ -42,11 +42,19 @@ invece di un adattatore che gira su una libreria mai provata.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from .errors import InvalidArgumentError, OptionalDependencyError, ProtocolError
+from .errors import (
+    CleanupError,
+    InvalidArgumentError,
+    LocalIoError,
+    OptionalDependencyError,
+    PlenoraError,
+    ProtocolError,
+)
 
 #: La serie di pyarrow dichiarata dall'extra e provata dalla CI.
 SERIE_PYARROW = 25
@@ -65,7 +73,7 @@ def pyarrow() -> Any:
         raise OptionalDependencyError(
             "l'adattatore Arrow richiede pyarrow, che non e' installato: "
             "installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
-        ) from errore
+        ) from None
     maggiore = str(getattr(pa, "__version__", "")).split(".", 1)[0]
     if maggiore != str(SERIE_PYARROW):
         raise OptionalDependencyError(
@@ -102,21 +110,44 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
             "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
         )
     destinazione = cartella / "ingresso.arrow"
-    # Un errore di pyarrow non attraversa il confine pubblico (PYTHON-SDK-1.0
-    # §6): diventa un errore tipizzato, e il suo testo -- che puo' citare
-    # valori della sorgente -- resta nella catena `__cause__`, non nel
-    # messaggio.
+    # Nessuna eccezione esterna attraversa il confine pubblico (PYTHON-SDK-1.0
+    # §6), e nessuna resta nella catena: il testo di pyarrow, o di un
+    # produttore qualunque, puo' citare valori della sorgente, e `__cause__`
+    # lo porterebbe nel traceback. Quindi `from None`.
+    #
+    # Due famiglie, due errori: il file temporaneo che non si scrive e' del
+    # filesystem locale (`LocalIoError`); tutto il resto -- pyarrow che non
+    # legge lo stream, o un produttore `__arrow_c_stream__` che solleva
+    # un'eccezione sua -- e' la sorgente che non si lascia leggere.
+    illeggibile = (
+        "la sorgente Arrow non si e' potuta leggere come stream: il produttore "
+        "di `__arrow_c_stream__` ha sollevato, o pyarrow non ne legge lo stream."
+    )
+    non_scrivibile = (
+        "il file Arrow IPC temporaneo non si e' potuto scrivere nella "
+        "directory temporanea."
+    )
     try:
         lettore = pa.RecordBatchReader.from_stream(dati)
-        with pa.OSFile(str(destinazione), "wb") as uscita:
-            with pa.ipc.new_file(uscita, lettore.schema) as scrittore:
-                for batch in lettore:
-                    scrittore.write_batch(batch)
-    except pa.ArrowException as errore:
-        raise InvalidArgumentError(
-            "la sorgente Arrow non si e' potuta scrivere come file IPC: lo "
-            "stream che espone non e' leggibile da pyarrow."
-        ) from errore
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise InvalidArgumentError(illeggibile) from None
+    try:
+        uscita = pa.OSFile(str(destinazione), "wb")
+        scrittore = pa.ipc.new_file(uscita, lettore.schema)
+    except Exception:  # noqa: BLE001
+        raise LocalIoError(non_scrivibile) from None
+    with uscita, scrittore:
+        while True:
+            try:
+                batch = lettore.read_next_batch()
+            except StopIteration:
+                break
+            except Exception:  # noqa: BLE001
+                raise InvalidArgumentError(illeggibile) from None
+            try:
+                scrittore.write_batch(batch)
+            except Exception:  # noqa: BLE001
+                raise LocalIoError(non_scrivibile) from None
     return destinazione
 
 
@@ -141,21 +172,68 @@ def leggi_ipc(percorso: Path, content_type: str) -> Any:
     try:
         with pa.OSFile(str(percorso), "rb") as sorgente:
             return apri(sorgente).read_all()
-    except pa.ArrowException as errore:
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        # `from None`: il testo di pyarrow puo' citare valori del file.
         raise ProtocolError(
             "il file che `read` dichiara di aver consegnato non si legge come "
             "Arrow IPC nella serializzazione dichiarata."
-        ) from errore
+        ) from None
 
 
-def cartella_temporanea(temp_dir: str | os.PathLike[str] | None) -> Any:
+class CartellaTemporanea:
     """Una directory temporanea, cancellata all'uscita dal blocco.
 
     `temp_dir` sceglie **dove**: con dati grandi conta che stia su un disco
     con spazio, e che sia lo stesso filesystem della destinazione non conta,
     perche' la CLI pubblica la propria uscita da se'.
+
+    Al posto di `tempfile.TemporaryDirectory`, che ai due capi solleva errori
+    del sistema operativo con il percorso di chi chiama:
+
+    * se la directory non si crea -- `temp_dir` che non esiste, o non si
+      scrive -- e' `LocalIoError`, prima di eseguire niente;
+    * se non si cancella dopo che il blocco e' riuscito, e' `CleanupError`
+      (ERR-015) con l'effetto che il blocco ha gia' avuto: `committed` per
+      `write`, che ha pubblicato la destinazione;
+    * se non si cancella mentre il blocco sta gia' sollevando, resta l'errore
+      del blocco -- e' quello che conta -- e porta `cleanup_failed = True`.
     """
-    return tempfile.TemporaryDirectory(
-        prefix="plenora-io-arrow-",
-        dir=None if temp_dir is None else os.fspath(temp_dir),
-    )
+
+    def __init__(self, temp_dir: str | os.PathLike[str] | None, *, effetto: str) -> None:
+        self._temp_dir = None if temp_dir is None else os.fspath(temp_dir)
+        self._effetto = effetto
+        self._percorso: str | None = None
+
+    def __enter__(self) -> str:
+        try:
+            self._percorso = tempfile.mkdtemp(prefix="plenora-io-arrow-", dir=self._temp_dir)
+        except OSError:
+            raise LocalIoError(
+                "la directory temporanea dell'adattatore Arrow non si e' potuta "
+                "creare: `temp_dir` non esiste o non si puo' scrivere."
+            ) from None
+        return self._percorso
+
+    def __exit__(self, tipo: Any, valore: Any, traccia: Any) -> None:
+        if self._percorso is None:
+            return
+        try:
+            shutil.rmtree(self._percorso)
+        except OSError:
+            if valore is not None:
+                if isinstance(valore, PlenoraError):
+                    valore.cleanup_failed = True
+                return
+            raise CleanupError(
+                "l'operazione e' riuscita e la directory temporanea "
+                "dell'adattatore Arrow non si e' potuta cancellare: va tolta a "
+                "mano.",
+                remote_effect=self._effetto,
+            ) from None
+
+
+def cartella_temporanea(
+    temp_dir: str | os.PathLike[str] | None, *, effetto: str = "none"
+) -> CartellaTemporanea:
+    """Vedi `CartellaTemporanea`."""
+    return CartellaTemporanea(temp_dir, effetto=effetto)
