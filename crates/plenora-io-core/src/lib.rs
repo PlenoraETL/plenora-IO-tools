@@ -6,6 +6,7 @@
 pub mod capabilities;
 pub mod descriptor;
 pub mod driver;
+pub mod ewkb;
 pub mod loss;
 pub mod publish;
 // Le radici che l'artefatto porta con se': il **piano** sta qui, in un posto
