@@ -228,12 +228,23 @@ impl FormatDriver for IpcDriver {
             None => None,
             Some((i, field)) => {
                 validate_geometry_field_identity(field, canonical_version_present)?;
+                // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di
+                // prodotto»): una sola colonna geometrica. Il contratto comune
+                // non la impone; e' il modello di questo componente, un
+                // `GeometryColumnContract` per layer. La seconda colonna non si
+                // ignora: si rifiuta il file, prima di leggere una riga.
                 if geometry_fields.next().is_some() {
                     return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
                         "Arrow IPC contiene più colonne GeoArrow nel contratto v1",
                     )));
                 }
                 let f = schema.field(i);
+                // Il CRS si legge dalla chiave `crs` e poi dal blocco
+                // `plenora.geometry.*`, non da `ARROW:extension:metadata`: un
+                // file che lo porta solo nella forma GeoArrow standard risulta
+                // `Missing`, senza errore. Limite dichiarato in
+                // docs/PRODUCT.md; la prova e'
+                // `crs_only_in_geoarrow_extension_metadata_is_read_as_missing`.
                 let crs =
                     f.metadata()
                         .get(GEO_CRS_KEY)
