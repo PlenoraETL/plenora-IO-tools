@@ -112,7 +112,8 @@ assert "Private :: Do Not Upload" in d.get_all("Classifier"), (
     "manca il classificatore che impedisce la pubblicazione su un indice"
 )
 # Nessuna dipendenza **obbligatoria**: le sole righe ammesse sono quelle
-# dell'extra `pyarrow`, che pip installa soltanto a chi lo chiede.
+# dell'extra pyarrow, che pip installa soltanto a chi lo chiede (niente
+# backtick qui: l'heredoc non e' quotato e bash li eseguirebbe).
 requisiti = metadata.requires("plenora-io") or []
 obbligatori = [r for r in requisiti if "extra ==" not in r]
 assert not obbligatori, "il pacchetto ha guadagnato dipendenze obbligatorie"
