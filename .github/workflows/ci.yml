@@ -753,10 +753,6 @@ jobs:
       - name: Installa, importa, e la suite in ambienti puliti
         run: bash scripts/smoke-pacchetto-python.sh dist
 
-      # Le sonde dell'SDK dal **repository**, dove le fixture e il contratto ci
-      # sono: quelle dello smoke girano dalla sdist, e li' saltano cio' che non
-      # e' applicabile. Le due corse coprono insiemi diversi, ed entrambe
-      # servono.
       # L'extra `pyarrow` dell'SDK, nella versione esatta con cui si prova: le
       # sonde dell'adattatore Arrow saltano senza, e qui devono girare. Il
       # vincolo del pacchetto e' la serie `>=25,<26`; il pin esatto e' questo,
@@ -765,8 +761,12 @@ jobs:
       # prova. Lo smoke dalla sdist, piu' sopra, gira **senza**, ed e' li' che
       # le stesse sonde saltano come il registro dichiara.
       - name: Installa pyarrow per le sonde dell'adattatore Arrow
-        run: python3 -m pip install --only-binary=:all: pyarrow==25.0.1
+        run: python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
 
+      # Le sonde dell'SDK dal **repository**, dove le fixture e il contratto ci
+      # sono: quelle dello smoke girano dalla sdist, e li' saltano cio' che non
+      # e' applicabile. Le due corse coprono insiemi diversi, ed entrambe
+      # servono.
       - name: Le sonde dell'SDK, con il contratto e le fixture
         env:
           PYTHONPATH: sdk/python/src
