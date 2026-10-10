@@ -1228,7 +1228,7 @@ class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
         (radice / "fuzz").mkdir()
         for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
             shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
-        shutil.copy(REGISTRO_STORICO, radice / "assurance" / "registries" / gate.REGISTRO.name)
+        shutil.copy(REGISTRO_STORICO, radice / "assurance" / "registries" / REGISTRO_VERO.name)
         shutil.copy(LOCK_STORICO, radice / "fuzz" / "Cargo.lock")
         uscita = radice / "uscita-registrata.txt"
         uscita.write_text(ESAURIMENTO, encoding="utf-8", newline="\n")
