@@ -569,7 +569,7 @@ preferenza: oggi la CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e
 *presente* su 24.04. È la distribuzione a decidere che cosa il prodotto sa
 fare, e un artefatto che eredita quella decisione non ha un'identità stabile.
 
-Perché 3.9 e non l'ultima: `gdal-sys 0.10.0` spedisce binding pre-costruiti
+Perché 3.9 e non l'ultima: `gdal-sys 0.12.0` spedisce binding pre-costruiti
 soltanto fino a 3.9, e su 3.10 la build si ferma da sola. Le due uscite da quel
 vicolo sono peggiori. La feature `bindgen` genera i binding a build time, e
 `bindgen` non è una libreria in più: è un **generatore di codice** che va

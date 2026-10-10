@@ -187,6 +187,29 @@ class SondeMatrice(unittest.TestCase):
                     f"{lock['gdal_version']}",
                 )
 
+    def test_i_crate_gdal_dichiarati_sono_quelli_del_lock(self) -> None:
+        """La matrice nomina le versioni dei crate, e il lock le fissa.
+
+        Fino alla 4.1.1 la matrice diceva `gdal` 0.17.1 e la prosa
+        `gdal-sys` 0.10.0, mentre `Cargo.lock` risolveva 0.19.0 e 0.12.0 da
+        un mese: lo stesso fatto in due posti, e nessuno li confrontava."""
+        testo = (RADICE / "Cargo.lock").read_text(encoding="utf-8")
+        risolte = {
+            nome: re.findall(rf'(?m)^name = "{re.escape(nome)}"\nversion = "([^"]+)"', testo)
+            for nome in ("gdal", "gdal-sys")
+        }
+        for nome, versioni in risolte.items():
+            self.assertEqual(len(versioni), 1, f"Cargo.lock non risolve un solo {nome}")
+        binding = self.matrice["contratto_gdal"]["binding_rust"]
+        self.assertEqual(binding["versione"], f"={risolte['gdal'][0]}")
+        self.assertEqual(binding["gdal_sys"], risolte["gdal-sys"][0])
+        citate = re.findall(
+            r"gdal-sys (\d+\.\d+\.\d+)", json.dumps(self.matrice, ensure_ascii=False)
+        )
+        self.assertTrue(citate, "la matrice non nomina piu' gdal-sys: la sonda va rivista")
+        for citata in citate:
+            self.assertEqual(citata, risolte["gdal-sys"][0])
+
     def test_la_soglia_glibc_e_la_stessa_nei_due_posti(self) -> None:
         """La matrice la **dichiara**, il lock la fa **pretendere** al controllo.
 

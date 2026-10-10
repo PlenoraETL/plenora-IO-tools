@@ -417,6 +417,47 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
     ));
 }
 
+/// Il limite dichiarato in docs/PRODUCT.md («Limitazioni di prodotto», IPC):
+/// il CRS che un produttore GeoArrow mette **solo** in
+/// `ARROW:extension:metadata` non e' letto, e la geometria risulta senza CRS.
+///
+/// La prova fissa il comportamento di oggi perche' cambiarlo -- leggerlo, o
+/// rifiutare il file -- sia una decisione visibile e non una deriva: quando il
+/// limite rientra, questa prova cambia insieme alla riga del documento.
+#[test]
+fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crs-solo-geoarrow.arrow");
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+        [
+            (
+                plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (
+                "ARROW:extension:metadata".to_owned(),
+                r#"{"crs":"EPSG:4326","crs_type":"authority_code"}"#.to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(matches!(
+        &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
+        CrsResolution::Missing
+    ));
+}
+
 #[test]
 fn unresolved_authority_without_definition_is_preserved() {
     use plenora_io_model::geometry::{

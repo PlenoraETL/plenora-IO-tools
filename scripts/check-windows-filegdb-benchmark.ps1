@@ -162,6 +162,25 @@ if ($LASTEXITCODE -ne 0) {
 $lock = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "windows-gdal-lock.json") | ConvertFrom-Json
 $serieBinding = (([string]$lock.binding_version) -split '\.')[0..1] -join '.'
 
+# Le versioni dei crate si leggono dai lock, per la stessa ragione del runtime:
+# fino alla 4.1.1 qui c'erano `0.17.1` e `0.10.0` scritti a mano, e il verbale
+# del benchmark ha continuato a dichiararli dopo il passaggio a 0.19.0 / 0.12.0.
+$forkGdal = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "gdal-fork-lock.json") | ConvertFrom-Json
+$cargoLock = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "Cargo.lock")
+function Get-LockedVersion {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $trovate = [regex]::Matches($cargoLock, "(?m)^name = `"$([regex]::Escape($Name))`"\r?\nversion = `"([^`"]+)`"")
+    if ($trovate.Count -ne 1) {
+        throw "Cargo.lock non risolve un'unica versione di $Name"
+    }
+    return $trovate[0].Groups[1].Value
+}
+$rustGdal = Get-LockedVersion -Name "gdal"
+$gdalSys = Get-LockedVersion -Name "gdal-sys"
+if ($rustGdal -ne [string]$forkGdal.version) {
+    throw "Cargo.lock e gdal-fork-lock.json non concordano sulla versione di gdal"
+}
+
 $result = [ordered]@{
     schema_version = 1
     source_revision = $revision
@@ -171,10 +190,10 @@ $result = [ordered]@{
         # seconda verita', ed e' cosi' che 3.10.3 e' sopravvissuta al cambio di
         # contratto in tre documenti diversi.
         gdal = [string]$lock.gdal_version
-        rust_gdal = "0.17.1"
+        rust_gdal = $rustGdal
         rust_gdal_source = "governed-path-fork"
-        rust_gdal_upstream_checksum = "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f"
-        gdal_sys = "0.10.0"
+        rust_gdal_upstream_checksum = [string]$forkGdal.crate_sha256
+        gdal_sys = $gdalSys
         bindings = "prebuilt-$serieBinding"
     }
     fixture = @{
