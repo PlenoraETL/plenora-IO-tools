@@ -80,7 +80,7 @@ fn parquet_valido(valori: &[f64]) -> Vec<u8> {
     byte
 }
 
-/// Lo stesso file, ma GeoParquet: una colonna `geometry` di punti WKB e il
+/// Lo stesso file, ma `GeoParquet`: una colonna `geometry` di punti WKB e il
 /// metadato `geo`, perche' il driver lo apra e la lettura arrivi alle pagine.
 ///
 /// `x` resta la prima colonna, quindi i primi `num_values` dell'header di
@@ -291,7 +291,7 @@ fn il_driver_rifiuta_le_dichiarazioni_concordi_con_un_errore_tipizzato() {
     });
 
     let errore = match esito {
-        Err(_) => panic!("un panico ha attraversato la lettura"),
+        Err(carico) => std::panic::resume_unwind(carico),
         Ok(Ok(batch)) => panic!("la lettura ha restituito {batch} batch senza errore"),
         Ok(Err(errore)) => errore,
     };

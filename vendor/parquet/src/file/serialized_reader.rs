@@ -650,8 +650,8 @@ impl LimitiPagina {
             _ => None,
         };
         if let Some(valori) = valori {
-            let valori = u64::try_from(valori)
-                .map_err(|_| general_err!("negative page value count"))?;
+            let valori =
+                u64::try_from(valori).map_err(|_| general_err!("negative page value count"))?;
             if valori > self.valori {
                 return Err(general_err!(
                     "page value count exceeds the column chunk value count"

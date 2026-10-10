@@ -12,7 +12,7 @@
   },
   "vendor_path": "vendor/parquet",
   "file_count": 238,
-  "tree_sha256": "fcf80c0aa190621816fde99a6e2a1bde92af346e47e71688872d4fa9ccab6d50",
+  "tree_sha256": "ea478023ba5c0b226658e2fa5bd6914213497f2e03f8c3ad4add5db686b1044b",
   "functional_delta_files": [
     "src/arrow/array_reader/byte_array.rs",
     "src/arrow/array_reader/byte_view_array.rs",

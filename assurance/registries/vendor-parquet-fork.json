@@ -51,5 +51,6 @@
     "riapplicare la patch della base di data-tools e i delta `di_questo_repository`, e rileggere ciascuno contro il codice nuovo: un delta che upstream ha assorbito cade, con la ragione",
     "eseguire `crates/driver-geoparquet` (comprese `tests/fork_parquet.rs` e `tests/byte_stream_split_sintetico.rs`) e questo gate",
     "aggiornare insieme questo registro, `scripts/parquet-fork-lock.json` e la versione fissata in `scripts/check_parquet_fork.py`"
-  ]
+  ],
+  "formattazione_rustfmt": "da dipendenza per percorso il fork e' raggiunto da `cargo fmt --all`: le righe del delta della base che non erano nella forma di rustfmt sono state formattate (`src/arrow/array_reader/byte_array.rs`, `src/arrow/array_reader/byte_view_array.rs`, `src/file/metadata/thrift/mod.rs`, `src/file/page_index/offset_index.rs`, `src/file/serialized_reader.rs`). Solo spazi e a capo: rispetto alla base di data-tools questi file differiscono per formattazione, non per token."
 }

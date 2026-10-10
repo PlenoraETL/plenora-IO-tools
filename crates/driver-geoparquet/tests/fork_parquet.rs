@@ -86,7 +86,7 @@ fn il_footer_della_4_1_1_e_un_errore_e_non_una_prenotazione() {
             );
         }
         Ok(Ok(())) => panic!("il footer del caso si legge senza errore"),
-        Err(_) => panic!("il footer del caso fa panicare il decoder"),
+        Err(carico) => std::panic::resume_unwind(carico),
     }
 }
 
@@ -134,7 +134,7 @@ fn row_group_dichiarati_oltre_i_byte_sono_un_errore() {
     }
 }
 
-/// Un `FIXED_LEN_BYTE_ARRAY` di larghezza 0, in PLAIN e in BYTE_STREAM_SPLIT.
+/// Un `FIXED_LEN_BYTE_ARRAY` di larghezza 0, in `PLAIN` e in `BYTE_STREAM_SPLIT`.
 ///
 /// Lo schema Parquet ammette la larghezza 0, e il lettore Arrow di `parquet`
 /// 60.0.0 ci divide sopra: `attempt to divide by zero`. Il file si ottiene
