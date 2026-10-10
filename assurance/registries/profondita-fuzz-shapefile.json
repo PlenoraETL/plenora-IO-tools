@@ -332,9 +332,9 @@
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
   },
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro di shp_reader comprende plenora-io-core, che nella 4.2.0 acquista il modulo ewkb (conversione EWKB -> WKB ISO in scrittura). Il reader shapefile non lo attraversa, ma l'impronta esiste per non lasciarlo dire a chi ha scritto la modifica: la misura si rifa'.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), e plenora-io-core con il modulo ewkb (#48). La misura si rifa'.",
     "impronta_della_misura": "e466b198db5fc5ee6ec3b3cf592ea117736094fb9b7f71ca02f977c335a4643f",
-    "impronta_attesa": "03e0967562f5dd09a1b8aaf924d20a433d604f80828fdcca983b2dcef0e470c6",
+    "impronta_attesa": "523a86a0706b492325de486ef71386263b7f1e56078d333ecd27abdaa0348637",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh shp_reader"

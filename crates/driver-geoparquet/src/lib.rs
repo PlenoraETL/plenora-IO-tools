@@ -673,7 +673,7 @@ fn valida_livelli_v2(
 ///
 /// Il lettore li usa senza controlli: `ColumnChunkMetaData::byte_range`
 /// asserisce `col_start >= 0 && col_len >= 0` (parquet 59.1.0,
-/// `file/metadata/mod.rs:1063`), quindi un footer con un offset negativo
+/// `file/metadata/mod.rs:1063`; invariato in 60.0.0, `:1040`), quindi un footer con un offset negativo
 /// abbatte il processo prima di leggere un solo byte di dati.
 fn valida_metadati_thrift(
     metadati: &parquet::file::metadata::ParquetMetaData,

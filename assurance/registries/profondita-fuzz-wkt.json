@@ -109,5 +109,13 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
+  "rimisurazione_dovuta": {
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), e plenora-io-core con il modulo ewkb (#48). La misura si rifa'.",
+    "impronta_della_misura": "91713fcde0033145c761c3040b790eaa972652608a858ae0209d48cb6a4c2f07",
+    "impronta_attesa": "c4d9a121e1340170c9bcbc63a614494f79396db461b533962a3530a36948d16e",
+    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
+    "quando": "sul candidato finale della 4.2.0, prima del rilascio",
+    "comando": "scripts/fuzz-profondita.sh wkt_parse"
+  }
 }

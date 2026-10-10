@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "package": "dxf",
+  "fork_package": "plenora-fork-dxf",
   "version": "0.6.1",
   "source": "upstream_git_tag_and_crates_io_release",
   "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
@@ -9,7 +10,7 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
   "file_count": 59,
-  "tree_sha256": "d675a77a2a26f5d495d22f242b9a14f0b90259c586bba1ccbc032ec41131007d",
+  "tree_sha256": "5fe4e0a6893e11ab06e4876fab4e84435732198761357c4ad7b67809824a318b",
   "functional_delta_files": [
     "src/block.rs",
     "src/code_pair_iter.rs",

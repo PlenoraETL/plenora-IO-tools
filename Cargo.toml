@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 # `upstream/` porta i casi minimi da mandare a monte: devono compilare per chi
 # non ha questo repository, quindi non sono membri del workspace.
-exclude = ["vendor/dxf", "vendor/gdal", "vendor/shapefile", "upstream/arrow-rs-byte-stream-split", "upstream/parquet-footer-thrift-list"]
+exclude = ["vendor/dxf", "vendor/gdal", "vendor/parquet", "vendor/shapefile", "upstream/arrow-rs-byte-stream-split", "upstream/parquet-footer-thrift-list"]
 
 [workspace.package]
 version = "4.1.1"
@@ -15,28 +15,66 @@ publish = false
 # plenora-database-tools. I manifesti dei crate lo ereditano.
 license-file = "LICENSE"
 
-# Pin comune con plenora-data-tools (ADR/D0): i RecordBatch passano fra le due
-# librerie senza conversione solo se la versione Arrow coincide.
+# Arrow 60.0.0, la stessa versione esatta di plenora-data-tools 2.x e di
+# plenora-database-tools 7.x. Un `RecordBatch` di arrow 59 e uno di arrow 60
+# sono tipi diversi: con la stessa versione i tre componenti possono scambiarsi
+# batch in memoria nella stessa compilazione, e il conflitto, se una delle tre
+# cambiasse da sola, sarebbe un errore di risoluzione e non una conversione.
+# Il pin precedente (59.3.0) era motivato come «comune con data-tools», che nel
+# frattempo e' passato a 60.
 [workspace.dependencies]
-arrow-array = "=59.3.0"
-arrow-schema = "=59.3.0"
-arrow-ipc = "=59.3.0"
-arrow-select = "=59.3.0"
-arrow-buffer = "=59.3.0"
-parquet = { version = "=59.3.0", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
+arrow-array = "=60.0.0"
+arrow-schema = "=60.0.0"
+arrow-ipc = "=60.0.0"
+arrow-select = "=60.0.0"
+arrow-buffer = "=60.0.0"
+# `parquet` 60.0.0 con le correzioni del fork `-eof` di plenora-data-tools,
+# vendorizzato in `vendor/parquet` con lo stesso albero (byte per byte, salvo il
+# nome del pacchetto) e come dipendenza diretta con nome proprio, per la stessa
+# ragione dei tre fork qui sotto: una `[patch]` non arriverebbe a chi dipende
+# da noi.
+#
+# Perche' il fork e non la 60.0.0 di crates.io: la 60.0.0 limita ai byte
+# residui gli elenchi letti con `read_thrift_vec` (il caso della 4.1.1,
+# `key_value_metadata`, 3966 byte che prenotavano 2,3 GB), ma non i row group
+# del footer, che prenota ancora dal conteggio dichiarato; ne' le posizioni
+# dell'offset index; e il protocollo Thrift su `Read` gira a vuoto sugli header
+# di pagina malformati. Il fork chiude quei casi (registro:
+# `assurance/registries/vendor-parquet-fork.json`). Le feature sono l'unione di
+# quelle di data-tools e delle nostre: brotli, flate2 e lz4 in piu'.
+parquet = { package = "plenora-fork-parquet", version = "=60.0.0", path = "vendor/parquet", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
 geo-types = "=0.7.20"
 geojson = { version = "=1.0.0", features = ["geo-types"] }
 csv = "=1.4.0"
 wkt = "=0.14.0"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
-shapefile = { version = "=0.9.0", features = ["geo-types"] }
+# I tre fork governati (`shapefile`, `dxf`, `gdal`) sono dipendenze **dirette**
+# per percorso, con un nome di pacchetto proprio, e non piu' `[patch.crates-io]`.
+#
+# Perche': Cargo applica `[patch]` solo dal workspace radice. Chi usa questi
+# crate come dipendenza (git o percorso) non eredita le patch, e il nome
+# `shapefile` / `dxf` / `gdal` gli arriva da crates.io, cioe' **senza i
+# delta**. Oggi la compilazione fallisce perche' i driver chiamano API che solo
+# i fork espongono, ma e' una difesa accidentale: un delta solo di
+# comportamento -- come la correzione del ciclo infinito di `dxf` della 4.1.1 --
+# passerebbe in silenzio il giorno in cui l'API coincidesse.
+#
+# Con la dipendenza per percorso il fork viaggia con il crate che lo usa, e il
+# nome proprio (`plenora-fork-*`) impedisce che una versione di crates.io lo
+# sostituisca: quel nome su un registro non esiste. Il nome della libreria resta
+# quello upstream (`[lib] name` nei manifesti dei fork), quindi il codice e i
+# simboli non cambiano. La prova e' il consumatore esterno senza `[patch]` di
+# `scripts/check_superficie_rust.py`; `scripts/fork_comune.py` vieta che una
+# sezione `[patch]` ricompaia. Provenienza e delta: i registri
+# `assurance/registries/vendor-*-fork.json`.
+shapefile = { package = "plenora-fork-shapefile", version = "=0.9.0", path = "vendor/shapefile", features = ["geo-types"] }
 kml = { version = "=0.14.0", default-features = false, features = ["geo-types"] }
 quick-xml = { version = "=0.42.0", features = ["encoding"] }
 calamine = "=0.36.1"
 rust_xlsxwriter = "=0.99.1"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
-dxf = "=0.6.1"
-gdal = "=0.19.0"
+dxf = { package = "plenora-fork-dxf", version = "=0.6.1", path = "vendor/dxf" }
+gdal = { package = "plenora-fork-gdal", version = "=0.19.0", path = "vendor/gdal" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 # Validazione JSON-Schema draft-07 per i metadati GeoParquet.
@@ -105,18 +143,3 @@ strip = "symbols"
 # mediana +0,4%, peggiore +4,7%.
 overflow-checks = true
 
-[patch.crates-io]
-# Fork governato della sorgente crates.io gdal 0.19.0. Il delta espone
-# OGR_L_SetIgnoredFields dietro un metodo safe; provenienza e manutenzione sono
-# registrate in assurance/registries/vendor-gdal-fork.json.
-gdal = { path = "vendor/gdal" }
-# Fork governato della sorgente crates.io shapefile 0.6.0. Il delta espone la
-# scrittura di un record con geometria nulla, che la specifica ammette e che
-# l'API upstream non sa esprimere; provenienza e manutenzione sono registrate in
-# assurance/registries/vendor-shapefile-fork.json.
-shapefile = { path = "vendor/shapefile" }
-# Fork governato della sorgente upstream dxf 0.6.1. Il delta evita il
-# read-to-end e rende pubblico un reader fallibile di entità logiche;
-# provenienza e manutenzione sono registrate in
-# assurance/registries/vendor-dxf-fork.json.
-dxf = { path = "vendor/dxf" }

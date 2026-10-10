@@ -8,7 +8,7 @@
   "provenienza_della_revisione": "`.cargo_vcs_info.json` della release crates.io 0.9.0, che registra lo sha1 del commit da cui `cargo package` e' stato eseguito. Il file non entra nell'albero vendorizzato: e' un artefatto di packaging, non contenuto del crate, e lasciarlo dentro avrebbe messo nell'impronta un dato che descrive l'impronta.",
   "licenza_upstream": "MIT",
   "file_licenza": "LICENSE.md",
-  "risoluzione": "il workspace risolve shapefile 0.9.0 esclusivamente da vendor/shapefile via [patch.crates-io]",
+  "risoluzione": "il workspace dipende da shapefile 0.9.0 come dipendenza diretta per percorso su vendor/shapefile, con il nome di pacchetto proprio plenora-fork-shapefile e il nome di libreria upstream; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "perche_il_fork": "la specifica Shapefile ammette un record con shape type 0 -- `NullShape` -- dentro un file la cui intestazione ne dichiara un altro: e' cosi' che si scrive una feature senza geometria, ed e' cio' che ogni altra implementazione produce. La nostra fixture canonica ne contiene una, scritta da OGR, e il nostro reader la legge.\n\nL'API upstream non sa esprimerla. `Shape::NullShape` e' una variante senza valore e non implementa ne' `WritableShape` ne' `EsriShape`; `ShapeWriter::write_shape` pretende `S: EsriShape` e i campi del `Writer` sono privati. Non c'era quindi modo di riscrivere un file che sapevamo leggere, e il writer rifiutava la riga: un round trip che deve conservare i dati si fermava sulla riga che non ne aveva.",
   "delta_funzionale": [
     {
@@ -30,20 +30,11 @@
       "perche": "era l'unico ramo dei tredici a ignorare `record_size`: leggeva i quattro byte del tag e tornava, lasciando il resto del record nello stream. `ShapeIterator` intanto avanza `current_pos` della lunghezza **dichiarata**, cosi' i due contatori divergono. Se il file finisce li', la lettura termina con `Ok` su un record letto a meta'; se un altro record segue, la testa successiva viene letta da dentro il contenuto di questo, e otto byte qualunque diventano una lunghezza. E' cosi' che il reperto della campagna -- due record ben formati -- raggiungeva la moltiplicazione con un valore assurdo.",
       "perche_non_saltare_il_residuo": "saltarlo avrebbe riallineato i contatori accettando un file il cui contenuto e la cui lunghezza dichiarata non possono essere veri insieme. La specifica non lascia margine: il contenuto di un record nullo e' il suo tipo di quattro byte e nient'altro. Un record che ne dichiara di piu' non ha padding da tollerare, ha una testa che smentisce il proprio contenuto.",
       "compatibilita_col_delta_di_scrittura": "`write_null_shape` dichiara due parole, cioe' quattro byte, quindi il residuo di cio' che il fork stesso scrive e' zero. La lettura e la scrittura del record nullo restano l'una l'inversa dell'altra."
-    },
-    {
-      "file": "src/lib.rs",
-      "natura": "compatibilita', non funzionale: non cambia un solo comportamento",
-      "cambiamento": "`#![allow(deprecated)]` al radice del crate.",
-      "perche": "questo snapshot e' shapefile 0.6.0, che scrive la coordinata di geo-types come `geo_types::Coordinate`. Il workspace fissa geo-types 0.7.19, dove quel nome e' un alias **deprecato** di `Coord`, e la CI compila ogni crate -- dipendenze path comprese -- con `-D warnings`: trentadue avvisi di deprecazione diventano trentadue errori, e il fork non compila.",
-      "perche_non_il_rinominio": "il fork esiste per aggiungere la scrittura del record nullo, non per modernizzare upstream. Rinominare l'alias in cinque file farebbe rifare a ogni ri-vendorizzazione una modifica cosmetica; questa riga dice lo stesso fatto una volta sola.",
-      "perche_e_sicuro": "`Coordinate` **e'** `Coord`: e' un alias, non un tipo diverso, e nessun comportamento dipende da quale nome si usi. L'`allow` copre l'intero crate vendorizzato, e cio' che lo tiene onesto e' che l'albero e' congelato: `tree_sha256` nel lock impedisce che sotto quell'`allow` entri codice nuovo senza che il gate lo veda.",
-      "trovato_da": "la CI sulla revisione 6785506, il 2026-09-04. In locale non si vedeva: `cargo clippy --workspace` non tocca `vendor/`, che il workspace esclude, e il `-D warnings` della CI viene da `setup-rust-toolchain`, che lo esporta in `RUSTFLAGS`. Il passo `clippy_vendor` del checkpoint chiude la differenza."
     }
   ],
   "invarianti_del_fork": [
     "l'albero vendorizzato contiene il crate pubblicato e nient'altro. Ne restano fuori due file, ed entrambi per la stessa ragione -- non sono contenuto del crate: `.cargo_vcs_info.json`, che `cargo package` aggiunge, e `Cargo.lock`, che la 0.9.0 spedisce e che il `.gitignore` **del crate stesso** dichiara ignorato. Un file che non puo' essere versionato in un albero governato sarebbe un artefatto estraneo per costruzione, e il gate lo direbbe.",
-    "il delta e' in tre file, e il lock li dichiara: ogni altro file dell'albero e' upstream byte per byte",
+    "il delta funzionale e' in tre file e quello di packaging nel solo `Cargo.toml`, e il lock li dichiara: ogni altro file dell'albero e' upstream byte per byte",
     "`.shp`, `.shx` e `.dbf` restano paralleli: ogni record scritto ha la propria voce d'indice e il proprio record di attributi"
   ],
   "procedura_di_aggiornamento": [
@@ -62,9 +53,18 @@
       "rifiuto di una lunghezza negativa": "**ancora necessario**, ed e' l'altra meta'. `checked_mul` non la vede: `-1 * 2` non trabocca e prosegue come un `-2` dall'aspetto legittimo. E' `tmontaigu/shapefile-rs#57`, aperta.",
       "un NullShape dichiara esattamente il proprio tag": "**ancora necessario**: nella 0.9.0 il ramo e' ancora `ShapeType::NullShape => Shape::NullShape,`, senza guardare `record_size`. E' `#56`, aperta.",
       "write_null_shape / write_null_shape_and_record": "**ancora necessario**: `write_shape` pretende ancora `S: EsriShape`, e `Shape::NullShape` non lo implementa. Upstream continua a non saper scrivere un record nullo.",
-      "#![allow(deprecated)]": "**caduto.** Era li' perche' la 0.6.0 scriveva `geo_types::Coordinate`, alias deprecato di `Coord`, e la CI compila con `-D warnings`. La 0.9.0 usa `Coord`: il delta di compatibilita' non serve piu', e `packaging_delta_files` diventa vuoto."
+      "#![allow(deprecated)]": "**caduto.** Era li' perche' la 0.6.0 scriveva `geo_types::Coordinate`, alias deprecato di `Coord`, e la CI compila con `-D warnings`. La 0.9.0 usa `Coord`: il delta di compatibilita' non serve piu', e `packaging_delta_files` era diventato vuoto (dalla 4.2.0 vi entra `Cargo.toml`, per il nome di pacchetto proprio: vedi `delta_di_packaging`)."
     },
     "che_cosa_cambia_nel_grafo": "`shapefile` 0.6.0 -> 0.9.0, `dbase` 0.5.0 -> 0.8.0, ed entra `bufrw` 0.2.0. Il prodotto compila **senza adattamenti**: la superficie che usa -- `dbase::FieldName::try_from`, `dbase::Reader::from_path`, `PointZ::new`, `Multipatch::new`, `Error::InvalidShapeRecordSize` -- e' invariata attraverso i tre minor.",
     "due_file_entrati_con_la_release": "`examples/` e `Cargo.lock`. Il primo e' contenuto del crate e resta. Il secondo e' potato, e la ragione la dichiara il crate stesso: il suo `.gitignore` lo ignora, quindi in un albero governato non potrebbe essere versionato e il gate lo nominerebbe come artefatto estraneo. La 0.9.0 spedisce entrambi, e si contraddice."
-  }
+  },
+  "delta_di_packaging": [
+    {
+      "file": "Cargo.toml",
+      "che_cosa_cambia": "il nome del pacchetto diventa `plenora-fork-shapefile`; il nome della libreria resta `shapefile` (il `[lib]` esplicito c'era gia' nel manifesto normalizzato).",
+      "perche": "fino alla 4.1.1 il fork entrava come `[patch.crates-io]`, e Cargo applica una patch solo dal workspace radice: chi dipendeva da IO-tools per git o per percorso riceveva `shapefile` 0.9.0 da crates.io, senza i delta. Che la compilazione allora fallisse era una coincidenza -- i driver chiamano API che solo il fork espone --, non una garanzia. Con un nome di pacchetto proprio e una dipendenza diretta per percorso il fork viaggia con il crate che lo usa, e nessun registro puo' sostituirlo: quel nome su crates.io non esiste.",
+      "perche_la_libreria_no": "il codice dei driver, i simboli e i requisiti di profondita' del fuzz nominano il crate compilato: rinominarlo cambierebbe tutti e tre senza cambiare un comportamento.",
+      "verificata_da": "`scripts/fork_comune.problemi_di_risoluzione` (nei tre gate dei fork) e il consumatore esterno di `scripts/check_superficie_rust.py`"
+    }
+  ]
 }

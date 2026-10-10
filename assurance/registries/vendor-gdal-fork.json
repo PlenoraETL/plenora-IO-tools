@@ -7,7 +7,7 @@
   "upstream_revision": "0b06a50a7d19ddd44f77e8c91599fd2d4384b12a",
   "licenza_upstream": "MIT",
   "file_licenza": "LICENSE.txt",
-  "risoluzione": "il workspace risolve gdal 0.19.0 esclusivamente da vendor/gdal via [patch.crates-io]",
+  "risoluzione": "il workspace dipende da gdal 0.19.0 come dipendenza diretta per percorso su vendor/gdal, con il nome di pacchetto proprio plenora-fork-gdal e il nome di libreria upstream; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "perimetro_vendorizzato": {
     "conservati": [
       "manifest",
@@ -41,9 +41,9 @@
     "non_e_un_verde": "un controllo non applicabile non e' un controllo superato. Il packaging non fa parte del ciclo di vita di questo crate, e al suo posto valgono le prove sotto — che sono pertinenti, non sostitutive di comodo.",
     "prove_correnti": [
       {
-        "afferma": "il crate e' risolto per path via [patch.crates-io], non da crates.io",
+        "afferma": "il crate e' una dipendenza diretta per path con nome proprio, non risolta da crates.io ne' tramite [patch]",
         "verificata_da": "scripts/check_gdal_fork.py",
-        "come": "Cargo.lock deve risolvere un'unica dipendenza path senza `source` ne' `checksum`, e il Cargo.toml di workspace deve puntare esclusivamente al fork governato"
+        "come": "Cargo.lock e fuzz/Cargo.lock devono risolvere un'unico plenora-fork-gdal per path senza `source` ne' `checksum` e nessun pacchetto `gdal`; il Cargo.toml di workspace dichiara la dipendenza diretta e nessuna [patch]"
       },
       {
         "afferma": "il crate non viene pubblicato",
@@ -73,5 +73,15 @@
     "perche_le_patch_restano": "`georust/gdal#731` e' aperta e verde su dieci controlli, ma una PR accettata non basta: eliminare un delta richiede una release **pubblicata** che lo sostituisca. Fino ad allora le due patch si portano avanti.",
     "la_riconciliazione_necessaria": "la 0.19.0 ha ristrutturato la testa di `src/spatial_ref/srs.rs`: `c_char` arriva ora da `std::ffi` ed e' gia' importato, quindi la riga `use libc::c_char` del fork non serve piu'; resta da aggiungere `_string_array`, che upstream ha in `utils.rs` ma non importa qui. E' lo stesso punto su cui la nostra PR upstream non compilava, e per la stessa ragione: il fork lo importava e cosi' nascondeva il difetto.",
     "quanto_e_cambiato_sotto": "fra 0.17.1 e 0.19.0 i file che tocchiamo cambiano di 442 righe (`vector/layer.rs`), 139 (`spatial_ref/srs.rs`) e 0 (`spatial_ref/mod.rs`). Il delta del fork resta di 23+37+2 righe."
-  }
+  },
+  "delta_di_packaging": [
+    {
+      "file": "Cargo.toml",
+      "che_cosa_cambia": "il nome del pacchetto diventa `plenora-fork-gdal`; il nome della libreria resta `gdal` (il `[lib]` esplicito c'era gia' nel manifesto normalizzato).",
+      "perche": "fino alla 4.1.1 il fork entrava come `[patch.crates-io]`, e Cargo applica una patch solo dal workspace radice: chi dipendeva da IO-tools per git o per percorso riceveva `gdal` 0.19.0 da crates.io, senza i delta. Che la compilazione allora fallisse era una coincidenza -- i driver chiamano API che solo il fork espone --, non una garanzia. Con un nome di pacchetto proprio e una dipendenza diretta per percorso il fork viaggia con il crate che lo usa, e nessun registro puo' sostituirlo: quel nome su crates.io non esiste.",
+      "perche_la_libreria_no": "il codice dei driver, i simboli e i requisiti di profondita' del fuzz nominano il crate compilato: rinominarlo cambierebbe tutti e tre senza cambiare un comportamento.",
+      "verificata_da": "`scripts/fork_comune.problemi_di_risoluzione` (nei tre gate dei fork) e il consumatore esterno di `scripts/check_superficie_rust.py`"
+    }
+  ],
+  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/vector/layer.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato."
 }

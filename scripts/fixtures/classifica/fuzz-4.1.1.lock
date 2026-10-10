@@ -1,0 +1,18 @@
+# Estratto di fuzz/Cargo.lock alla 4.1.1 (402ac25): le crate che le sonde del
+# classificatore nominano -- parquet, che le firme del registro storico
+# attribuiscono, e libfuzzer-sys, i cui frame il classificatore salta --
+# con la sorgente con cui il fuzz le risolveva. Il lock vero non porta piu'
+# parquet da crates.io dalla 4.2.0.
+version = 4
+
+[[package]]
+name = "libfuzzer-sys"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
+
+[[package]]
+name = "parquet"
+version = "59.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff322f54b1a0f9288e614ed1f2d329b380af5476420db19f46ffb865e1163d73"

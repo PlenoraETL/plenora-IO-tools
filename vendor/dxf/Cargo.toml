@@ -1,5 +1,5 @@
 [package]
-name = "dxf"
+name = "plenora-fork-dxf"
 version = "0.6.1"
 authors = ["Brett V. Forsgren <brett.forsgren@outlook.com>"]
 build = "build/build.rs"
@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["AutoCAD", "CAD", "DXB", "DXF"]
 license = "MIT"
 edition = "2021"
+
+[lib]
+name = "dxf"
+path = "src/lib.rs"
 
 [package.metadata.docs.rs]
 targets = []
