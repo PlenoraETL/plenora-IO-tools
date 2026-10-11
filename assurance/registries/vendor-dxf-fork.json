@@ -9,6 +9,13 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "licenza_upstream": "MIT",
   "file_licenza": "LICENSE.txt",
+  "licenze": [
+    {
+      "file": "LICENSE.txt",
+      "sha256": "3ed8c81ca8fead8d8d7d79b45b3196083c79f7f7c4a5842c4ce305c4b2a9a9f7",
+      "origine": "il `.crate` di crates.io, identico byte per byte"
+    }
+  ],
   "risoluzione": "il workspace dipende da dxf 0.6.1 come dipendenza diretta per percorso su vendor/dxf, con il nome di pacchetto proprio plenora-fork-dxf e il nome di libreria upstream; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "delta_funzionale": [
     {

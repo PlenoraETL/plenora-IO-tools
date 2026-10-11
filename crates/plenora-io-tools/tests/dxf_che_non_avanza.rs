@@ -61,7 +61,7 @@ fn esegui_comando(mut comando: Command, argomenti: &[&str]) -> Esito {
         if let Some(stato) = figlio.try_wait().expect("lo stato del figlio si legge") {
             break stato;
         }
-        if inizio.elapsed() > TEMPO_MASSIMO {
+        if inizio.elapsed() >= TEMPO_MASSIMO {
             let _ = figlio.kill();
             let _ = figlio.wait();
             panic!(

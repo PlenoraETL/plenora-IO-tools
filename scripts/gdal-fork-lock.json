@@ -7,14 +7,15 @@
   "crate_sha256": "e26906e99e54000acd7f6328f85d161e6280390b9b596e06dbed0637a6e29717",
   "upstream_revision": "0b06a50a7d19ddd44f77e8c91599fd2d4384b12a",
   "vendor_path": "vendor/gdal",
-  "file_count": 63,
-  "tree_sha256": "02907950fb3f1ed774cd1fdfaa92b3066820328f762091bf4ac7b71c3a91b51b",
+  "file_count": 64,
+  "tree_sha256": "6bd1d48dd1c8ef377e0418477f3eb357dfa179ace8b9e6bc46bee4df247bdfd9",
   "functional_delta_files": [
     "src/spatial_ref/mod.rs",
     "src/spatial_ref/srs.rs",
     "src/vector/layer.rs"
   ],
   "packaging_delta_files": [
-    "Cargo.toml"
+    "Cargo.toml",
+    "LICENSE.txt"
   ]
 }

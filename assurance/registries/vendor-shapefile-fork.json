@@ -8,6 +8,13 @@
   "provenienza_della_revisione": "`.cargo_vcs_info.json` della release crates.io 0.9.0, che registra lo sha1 del commit da cui `cargo package` e' stato eseguito. Il file non entra nell'albero vendorizzato: e' un artefatto di packaging, non contenuto del crate, e lasciarlo dentro avrebbe messo nell'impronta un dato che descrive l'impronta.",
   "licenza_upstream": "MIT",
   "file_licenza": "LICENSE.md",
+  "licenze": [
+    {
+      "file": "LICENSE.md",
+      "sha256": "e0b96c91bddf2c0cfa6907d124c3401aab96de4303ad7ae2ba9a1b398be7d7cd",
+      "origine": "il `.crate` di crates.io, identico byte per byte"
+    }
+  ],
   "risoluzione": "il workspace dipende da shapefile 0.9.0 come dipendenza diretta per percorso su vendor/shapefile, con il nome di pacchetto proprio plenora-fork-shapefile e il nome di libreria upstream; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "perche_il_fork": "la specifica Shapefile ammette un record con shape type 0 -- `NullShape` -- dentro un file la cui intestazione ne dichiara un altro: e' cosi' che si scrive una feature senza geometria, ed e' cio' che ogni altra implementazione produce. La nostra fixture canonica ne contiene una, scritta da OGR, e il nostro reader la legge.\n\nL'API upstream non sa esprimerla. `Shape::NullShape` e' una variante senza valore e non implementa ne' `WritableShape` ne' `EsriShape`; `ShapeWriter::write_shape` pretende `S: EsriShape` e i campi del `Writer` sono privati. Non c'era quindi modo di riscrivere un file che sapevamo leggere, e il writer rifiutava la riga: un round trip che deve conservare i dati si fermava sulla riga che non ne aveva.",
   "delta_funzionale": [
