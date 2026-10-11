@@ -93,6 +93,7 @@ from .errors import (
     _tipo,
     carica_json,
     failure_from_envelope,
+    ricostruito,
     sottocomando,
 )
 
@@ -227,13 +228,21 @@ def scrive(argv: list[str]) -> bool:
 
 
 def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError:
-    """Lo stesso errore, con `remote_effect: unknown` se il comando scrive.
+    """L'errore, con `remote_effect: unknown` se il comando scrive.
 
     Per un comando che legge soltanto l'effetto resta `none`: il processo non
     ha toccato niente che non fosse gia' li'.
+
+    Un errore nuovo, non lo stesso modificato: lo stato di un errore dell'SDK
+    si fissa una volta (vedi `PlenoraError`), e `ricostruito` ne fa una copia
+    con l'effetto alzato. Un oggetto che non e' un errore dell'SDK -- una
+    sottoclasse del chiamante -- torna com'e', e la rete lo traduce.
     """
-    if scrive(argv) and not getattr(errore, "_non_partito", False):
-        errore._effetto_remoto = "unknown"
+    if type(errore) is not ProtocolError:
+        return errore
+    stato = object.__getattribute__(errore, "__dict__")
+    if scrive(argv) and dict.get(stato, "_non_partito") is not True:
+        return ricostruito(errore, _effetto_remoto="unknown")
     return errore
 
 
@@ -277,8 +286,7 @@ class Runner:
             # Il processo e' partito e ha finito: se il comando scrive, che
             # cosa abbia lasciato sul disco non lo dice una risposta che non si
             # legge. Vedi `ProtocolError`.
-            _con_effetto_ignoto(errore, argv)
-            raise
+            raise _con_effetto_ignoto(errore, argv) from None
         raise fallimento
 
     # --- l'esecuzione -----------------------------------------------------
@@ -326,8 +334,7 @@ class Runner:
                 f"il binario di plenora-io non si e' potuto eseguire per "
                 f"{comando(argv)}."
             )
-            errore._non_partito = True
-            raise errore from None
+            raise ricostruito(errore, _non_partito=True) from None
 
         # Da qui in avanti il processo e' partito: ogni guasto -- un timeout, un
         # errore di I/O sulle pipe, una seconda attesa che fallisce dopo il

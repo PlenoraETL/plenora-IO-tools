@@ -12,7 +12,10 @@ Qui i due contenitori stanno su `collections.abc.Sequence` e `Mapping`, con
 il dizionario) che nessun metodo pubblico rende. Non esiste un metodo che
 modifichi: `__setattr__` e `__delattr__` sollevano `InvalidArgumentError`, e
 `__init__` non c'e' (la costruzione avviene in `__new__`). Scavalcare con
-`object.__setattr__` o con il descrittore dello slot e' fuori contratto.
+`object.__setattr__` o con il descrittore dello slot, o leggere e modificare
+`_dati` direttamente, e' fuori contratto: il README dell'SDK lo dichiara fra i
+limiti («La rete non e' una barriera contro codice ostile nello stesso
+interprete»).
 
 # I costruttori normalizzano
 

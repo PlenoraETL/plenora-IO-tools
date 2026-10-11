@@ -1367,11 +1367,19 @@ prossima release è percio' una **major** (5.0.0).
 - **Gli errori dell'SDK costruiti a mano** normalizzano il messaggio
   (`str` esatta) e l'effetto remoto (vocabolario chiuso);
   `CommandFailed` vuole un `ErrorEnvelope` e un intero.
-- **Un errore dell'SDK sollevato da codice del chiamante** -- un
-  `__index__`, un `__fspath__` che solleva `InvalidArgumentError(...)` -- non
-  attraversa piu' la rete com'e': diventa `UnexpectedError`, senza il suo
-  testo. Passano intatti solo gli errori delle classi dell'SDK sollevati da
-  un file del pacchetto.
+- **La rete ricostruisce gli errori dell'SDK.** Un errore dell'SDK che
+  attraversa un metodo pubblico esce come istanza nuova della stessa classe,
+  ricostruita dallo stato fissato nel costruttore: `args` e `__notes__`
+  dell'oggetto ricevuto non escono, e il traceback comincia dalla rete. Un
+  `PlenoraError` costruito dal chiamante (anche di una classe dell'SDK, per
+  esempio sollevato da un `__index__` o da un `__fspath__`) o di una sua
+  sottoclasse diventa `UnexpectedError`, senza il suo testo.
+- **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
+  cancellare o aggiungere un attributo a un errore dell'SDK (salvo
+  `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,
+  `__notes__` e `args`) e' `InvalidArgumentError`, e cosi' un secondo
+  `__init__`: `CommandFailed.envelope` non si sostituisce. `str(errore)` non
+  legge piu' `args`. `BinaryNotFound.searched` e' una `FrozenList`.
 - **`ErrorEnvelope.retry` e `.row_diagnostics` sono `FrozenDict`**, come i
   campi oggetto degli altri modelli, non piu' `dict` ordinari: modificarli e'
   `InvalidArgumentError`. `__post_init__` di un modello gira solo dal

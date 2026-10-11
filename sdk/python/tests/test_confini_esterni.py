@@ -1927,5 +1927,199 @@ class IlSettimoGiro(unittest.TestCase):
         self.assertEqual(type(preso.exception).__name__, "ResultLookupError")
 
 
+# --- 11. ottavo giro di revisione -------------------------------------------
+
+
+def _un_esemplare_per_classe():
+    """Un'istanza costruita dall'SDK per ogni classe d'errore di `errors`."""
+    from plenora_io import errors
+
+    busta = _busta()
+    speciali = {
+        "BinaryNotFound": lambda c: c(["il `PATH`"]),
+        "ProfileError": lambda c: c("base", None),
+        "CleanupError": lambda c: c("m", remote_effect="committed"),
+        "UnexpectedError": lambda c: c("m"),
+    }
+    for nome, classe in vars(errors).items():
+        if not (type(classe) is type and issubclass(classe, PlenoraError)):
+            continue
+        if issubclass(classe, CommandFailed):
+            yield nome, classe, (lambda c=classe: c(busta, 3, ["read"]))
+        else:
+            costruisci = speciali.get(nome, lambda c: c("m"))
+            yield nome, classe, (lambda c=classe, f=costruisci: f(c))
+
+
+class LOttavoGiro(unittest.TestCase):
+    """Ottavo giro: la rete ricostruisce, e lo stato delle eccezioni e' fisso."""
+
+    @prova("messaggi.senza_dati")
+    def test_un_errore_dell_sdk_alterato_da_una_callback_non_porta_il_testo(self) -> None:
+        """Prima: la rete certificava dove l'errore era nato, non il contenuto.
+        Una callback prendeva un `ResultLookupError` dell'SDK, ne cambiava
+        `args` e lo rilanciava: il testo usciva."""
+        from plenora_io import ResultLookupError
+        from plenora_io.confine import confinato
+
+        def callback():
+            try:
+                FrozenDict({})["assente"]
+            except ResultLookupError as errore:
+                errore.args = (SEGRETO,)
+                errore.add_note(SEGRETO)
+                raise
+
+        with self.assertRaises(PlenoraError) as preso:
+            confinato(callback, "prova")()
+        errore = preso.exception
+        self.assertIs(type(errore), ResultLookupError)
+        self.assertIsInstance(errore, KeyError)
+        tradotto(self, errore, "none")
+        self.assertNotIn(SEGRETO, repr(errore))
+        self.assertNotIn(SEGRETO, repr(errore.args))
+        self.assertFalse(getattr(errore, "__notes__", None))
+        self.assertEqual(str(errore), "chiave assente dal dizionario.")
+
+    @prova("confine.rete")
+    def test_la_rete_non_dipende_dai_percorsi(self) -> None:
+        """Prima: un `_CARTELLA` diverso dal `co_filename` -- PyInstaller, un
+        percorso relativo dopo un `chdir`, il bytecode altrove -- faceva di
+        ogni errore dell'SDK un `UnexpectedError`, e `FrozenDict.get` smetteva
+        di rendere il valore predefinito."""
+        from plenora_io import ResultLookupError, confine
+
+        cartelle = (
+            os.path.join(tempfile.gettempdir(), "_MEI123456", "plenora_io"),
+            "plenora_io",
+            os.path.join("altrove", "__pycache__"),
+        )
+        for cartella in cartelle:
+            with self.subTest(cartella=cartella), \
+                    mock.patch.object(confine, "_CARTELLA", cartella, create=True):
+                self.assertEqual(FrozenDict({}).get("assente", "DEFAULT"), "DEFAULT")
+                self.assertNotIn("assente", FrozenDict({}).keys())
+                with self.assertRaises(KeyError) as preso:
+                    FrozenDict({})["assente"]
+                self.assertIs(type(preso.exception), ResultLookupError)
+                with self.assertRaises(IndexError):
+                    FrozenList([])[3]
+                with self.assertRaises(PlenoraError) as preso:
+                    Version.from_json({"component_version": 1, "cli_protocol_version": 2})
+                self.assertIs(type(preso.exception), ProtocolError)
+
+    @prova("confine.rete")
+    def test_un_file_che_finge_di_essere_dell_sdk_non_basta(self) -> None:
+        """Codice del chiamante compilato con un nome di file dentro il
+        pacchetto: prima il suo errore passava come nato nell'SDK."""
+        from plenora_io import confine
+        from plenora_io.confine import confinato
+
+        finto = os.path.join(os.path.dirname(os.path.abspath(confine.__file__)), "finto.py")
+        spazio = {"InvalidArgumentError": InvalidArgumentError, "SEGRETO": SEGRETO}
+        sorgente = "def f():\n    raise InvalidArgumentError(SEGRETO)\n"
+        exec(compile(sorgente, finto, "exec"), spazio)  # noqa: S102 - il codice del chiamante
+        with self.assertRaises(PlenoraError) as preso:
+            confinato(spazio["f"], "prova")()
+        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        tradotto(self, preso.exception, "none")
+
+    @prova("confine.rete")
+    def test_lo_stato_di_command_failed_si_fissa_una_volta(self) -> None:
+        """Prima: `errore.envelope = altra` o un secondo `__init__` cambiavano
+        `retryable` di un'eccezione gia' costruita."""
+        errore = failure_from_envelope(
+            {"error": {"code": "IO-X", "category": "io", "phase": "execute",
+                       "remote_effect": "none", "retry": {"kind": "never"},
+                       "message": "m"}}, 1, ["read"])
+        busta = errore.envelope
+        testo = str(errore)
+        altra = _busta(retry={"kind": "safe"})
+        mutazioni = (
+            ("envelope", lambda: setattr(errore, "envelope", altra)),
+            ("del envelope", lambda: delattr(errore, "envelope")),
+            ("__init__", lambda: errore.__init__(altra, 0)),
+            ("exit_code", lambda: setattr(errore, "exit_code", 0)),
+            ("command", lambda: setattr(errore, "command", "write")),
+            ("effetto", lambda: setattr(errore, "_effetto_remoto", "committed")),
+            ("messaggio", lambda: setattr(errore, "_messaggio", SEGRETO)),
+            ("__dict__", lambda: setattr(errore, "__dict__", {})),
+            ("nuovo", lambda: setattr(errore, "nuovo", 1)),
+        )
+        for nome, mutazione in mutazioni:
+            with self.subTest(via=nome):
+                with self.assertRaises(PlenoraError) as preso:
+                    mutazione()
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                self.assertNotIn(SEGRETO, str(preso.exception))
+        self.assertIs(errore.envelope, busta)
+        self.assertFalse(errore.retryable)
+        self.assertEqual(errore.exit_code, 1)
+        # Gli attributi che imposta l'interprete restano liberi; `args` non e'
+        # piu' la fonte del messaggio.
+        errore.__cause__ = None
+        errore.__context__ = None
+        errore.__suppress_context__ = True
+        errore.__traceback__ = None
+        errore.add_note("nota")
+        errore.args = ("altro",)
+        self.assertEqual(str(errore), testo)
+        self.assertEqual(errore.message, "m")
+
+    @prova("confine.rete")
+    def test_ogni_eccezione_dell_sdk_e_sigillata(self) -> None:
+        """La stessa classe su ogni eccezione di `errors`."""
+        visti = 0
+        for nome, classe, costruisci in _un_esemplare_per_classe():
+            with self.subTest(classe=nome):
+                errore = costruisci()
+                self.assertIs(type(errore), classe)
+                prima = (str(errore), errore.to_dict())
+                for mutazione in (lambda e=errore: e.__init__("m"),
+                                  lambda e=errore: setattr(e, "nuovo", 1),
+                                  lambda e=errore: setattr(e, "_messaggio", SEGRETO),
+                                  lambda e=errore: delattr(e, "_messaggio")):
+                    with self.assertRaises(PlenoraError) as preso:
+                        mutazione()
+                    self.assertIsInstance(preso.exception, InvalidArgumentError)
+                self.assertEqual((str(errore), errore.to_dict()), prima)
+                visti += 1
+        self.assertEqual(visti, 31)
+
+    @prova("confine.rete")
+    def test_gli_attributi_delle_eccezioni_sono_immutabili(self) -> None:
+        from plenora_io import BinaryNotFound, ProfileError
+
+        errore = BinaryNotFound(["il `PATH`", SEGRETO])
+        self.assertIs(type(errore.searched), FrozenList)
+        self.assertEqual(errore.searched, ["il `PATH`", "?"])
+        with self.assertRaises(PlenoraError):
+            errore.searched.append(SEGRETO)
+        with self.assertRaises(PlenoraError):
+            errore.searched = [SEGRETO]
+        profilo = ProfileError("base", "filegdb")
+        for campo in ("required", "actual"):
+            with self.subTest(campo=campo), self.assertRaises(PlenoraError):
+                setattr(profilo, campo, SEGRETO)
+        self.assertEqual((profilo.required, profilo.actual), ("base", "filegdb"))
+
+    @prova("confine.rete")
+    def test_copia_e_pickle_delle_eccezioni(self) -> None:
+        import copy as copia
+        import pickle
+
+        for nome, classe, costruisci in _un_esemplare_per_classe():
+            errore = costruisci()
+            for strada, funzione in (("copy", copia.copy), ("deepcopy", copia.deepcopy),
+                                     ("pickle", lambda x: pickle.loads(pickle.dumps(x)))):
+                with self.subTest(classe=nome, strada=strada):
+                    copiato = funzione(errore)
+                    self.assertIs(type(copiato), classe)
+                    self.assertEqual(str(copiato), str(errore))
+                    self.assertEqual(copiato.to_dict(), errore.to_dict())
+                    with self.assertRaises(PlenoraError):
+                        copiato.nuovo = 1
+
+
 if __name__ == "__main__":
     unittest.main()

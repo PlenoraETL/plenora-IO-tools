@@ -55,6 +55,8 @@ from .errors import (
     OptionalDependencyError,
     PlenoraError,
     ProtocolError,
+    classe_dell_sdk,
+    ricostruito,
 )
 
 #: La serie di pyarrow dichiarata dall'extra e provata dalla CI.
@@ -267,16 +269,26 @@ class CartellaTemporanea:
         try:
             shutil.rmtree(self._percorso)
         except OSError:
-            if valore is not None:
-                if issubclass(type(valore), PlenoraError):
-                    valore.cleanup_failed = True
-                return
-            raise CleanupError(
-                "l'operazione e' riuscita e la directory temporanea "
-                "dell'adattatore Arrow non si e' potuta cancellare: va tolta a "
-                "mano.",
-                remote_effect=self._effetto,
-            ) from None
+            fallita = True
+        else:
+            fallita = False
+        if not fallita:
+            return
+        # Fuori dall'`except`: l'`OSError`, che puo' citare il percorso, non
+        # resta nella catena di cio' che si solleva qui.
+        if valore is not None:
+            # Lo stato di un errore dell'SDK si fissa una volta: il segno va
+            # su una copia, che prende il posto dell'errore del blocco. Un
+            # oggetto che non e' un errore dell'SDK resta com'e'.
+            if classe_dell_sdk(type(valore)):
+                raise ricostruito(valore, cleanup_failed=True) from None
+            return
+        raise CleanupError(
+            "l'operazione e' riuscita e la directory temporanea "
+            "dell'adattatore Arrow non si e' potuta cancellare: va tolta a "
+            "mano.",
+            remote_effect=self._effetto,
+        ) from None
 
 
 def cartella_temporanea(

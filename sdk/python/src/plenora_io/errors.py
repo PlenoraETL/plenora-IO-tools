@@ -72,6 +72,28 @@ class PlenoraError(Exception):
     Il ritentativo e' sempre `never`: un errore dell'SDK non diventa un
     successo ripetendo la stessa chiamata, e dire il contrario sarebbe una
     promessa che nessuno ha verificato.
+
+    # Lo stato si fissa una volta, e il messaggio non sta in `args`
+
+    Il messaggio, l'effetto remoto e gli attributi di ogni sottoclasse
+    (`envelope`, `exit_code`, `command`, `searched`, `required`, `actual`...)
+    si fissano nel costruttore, che non si ripete: dopo, assegnarli o
+    cancellarli e' `InvalidArgumentError`, e lo e' anche aggiungere un
+    attributo nuovo. Prima `errore.envelope = altra` o un secondo `__init__`
+    cambiavano `retryable` di un'eccezione gia' costruita. Restano liberi solo
+    gli attributi che l'interprete e la libreria standard impostano su
+    un'eccezione: `__traceback__`, `__context__`, `__cause__`,
+    `__suppress_context__`, `__notes__` e `args` (`ATTRIBUTI_LIBERI`).
+
+    `str(errore)` e `message` leggono il messaggio fissato (`_messaggio`), non
+    `args`: chi cambia `args` cambia la tupla, non il messaggio. La rete
+    (`confine.confinato`) ricostruisce ogni errore dell'SDK che la attraversa
+    da quello stato (`ricostruito`), senza mai leggere `args`, `__notes__` o
+    `str()` dell'oggetto ricevuto: una callback che prende un errore
+    dell'SDK, ne riscrive `args` e lo rilancia non fa uscire il proprio testo.
+
+    Il sigillo e la provenienza -- se a costruire l'errore e' stato codice
+    dell'SDK -- li mette `confine` attorno a `__init__` (`_init_sigillato`).
     """
 
     #: La categoria di `error-v1` per gli errori nati nell'SDK.
@@ -79,10 +101,40 @@ class PlenoraError(Exception):
 
     def __init__(self, message: Any = "") -> None:
         # Il messaggio si normalizza qui: `str(errore)` non deve chiamare un
-        # `__str__` di chi ha costruito l'errore.
-        super().__init__(_messaggio(message))
+        # `__str__` di chi ha costruito l'errore. Si conserva fuori da `args`.
+        testo = _messaggio(message)
+        self._messaggio = testo
+        super().__init__(testo)
+
     #: La fase di `error-v1` in cui l'SDK li solleva.
     _FASE = "validate"
+
+    def __str__(self) -> str:
+        testo = dict.get(object.__getattribute__(self, "__dict__"), "_messaggio")
+        return testo if type(testo) is str else "(errore dell'SDK senza messaggio)"
+
+    def __setattr__(self, nome: str, valore: Any) -> None:
+        if _modificabile(self, nome):
+            object.__setattr__(self, nome, valore)
+            return
+        raise InvalidArgumentError(
+            f"`{type(self).__name__}` e' gia' costruito: lo stato di un errore "
+            "dell'SDK non si modifica."
+        )
+
+    def __delattr__(self, nome: str) -> None:
+        if _modificabile(self, nome):
+            object.__delattr__(self, nome)
+            return
+        raise InvalidArgumentError(
+            f"`{type(self).__name__}` e' gia' costruito: lo stato di un errore "
+            "dell'SDK non si modifica."
+        )
+
+    def __reduce__(self) -> Any:
+        # `copy` e `pickle`: dallo stato fissato, mai da `args`. La copia non
+        # e' «costruita dall'SDK» (vedi `_da_copia`).
+        return (_da_copia, (type(self), _stato(self)))
 
     @property
     def category(self) -> str:
@@ -137,6 +189,91 @@ def _messaggio(valore: Any) -> str:
     return "(messaggio non testuale)"
 
 
+#: Gli attributi di un'eccezione che l'interprete e la libreria standard
+#: impostano dopo la costruzione (`raise ... from`, `add_note`, `contextlib`,
+#: `unittest`): restano liberi anche su un errore sigillato. Nessuno di loro
+#: entra in cio' che la rete ricostruisce.
+ATTRIBUTI_LIBERI: frozenset[str] = frozenset(
+    {"__traceback__", "__context__", "__cause__", "__suppress_context__", "__notes__", "args"}
+)
+
+#: Lo stato privato che `confine` scrive attorno al costruttore: il sigillo e
+#: la provenienza.
+SIGILLO = "_sigillato"
+PROVENIENZA = "_dall_sdk"
+
+
+def _modificabile(errore: Any, nome: Any) -> bool:
+    if type(nome) is str and nome in ATTRIBUTI_LIBERI:
+        return True
+    return dict.get(object.__getattribute__(errore, "__dict__"), SIGILLO) is not True
+
+
+def _stato(errore: Any) -> dict[str, Any]:
+    """Lo stato fissato di un errore, senza `__notes__`: una copia del dizionario."""
+    stato = dict(object.__getattribute__(errore, "__dict__"))
+    stato.pop("__notes__", None)
+    return stato
+
+
+def classe_dell_sdk(tipo: type) -> bool:
+    """`tipo` e' una classe d'errore definita qui, per identita'."""
+    return any(
+        tipo is classe
+        for classe in list(globals().values())
+        if type(classe) is type and issubclass(classe, PlenoraError)
+    )
+
+
+def costruito_dall_sdk(errore: Any) -> bool:
+    """`errore` e' di una classe dell'SDK, sigillato, e costruito da codice dell'SDK."""
+    if not classe_dell_sdk(type(errore)):
+        return False
+    stato = object.__getattribute__(errore, "__dict__")
+    return dict.get(stato, SIGILLO) is True and dict.get(stato, PROVENIENZA) is True
+
+
+def ricostruito(errore: Any, **modifiche: Any) -> Any:
+    """Un'eccezione **nuova** della stessa classe esatta, dallo stato fissato.
+
+    Mai da `args`, `__notes__` o `str()` dell'oggetto ricevuto: il messaggio e'
+    `_messaggio`, scritto dal costruttore e poi immutabile. `modifiche`
+    sostituisce voci dello stato -- l'effetto remoto che `Runner` alza a
+    `unknown`, `cleanup_failed` -- senza toccare l'originale: lo stato di
+    un'eccezione si fissa una volta, e cambiarlo vuol dire farne un'altra.
+    """
+    tipo = type(errore)
+    if not classe_dell_sdk(tipo):
+        raise InvalidArgumentError("solo un errore dell'SDK si ricostruisce.")
+    stato = _stato(errore)
+    stato.update(modifiche)
+    return _da_copia(tipo, stato, provenienza=dict.get(stato, PROVENIENZA) is True)
+
+
+def _da_copia(tipo: Any, stato: Any, provenienza: bool = False) -> Any:
+    """L'eccezione di classe `tipo` con `stato`, senza passare dal costruttore.
+
+    Da `copy` e `pickle` la provenienza e' sempre falsa: lo stato viene da un
+    flusso che chiunque puo' scrivere, e una copia che attraversa la rete
+    diventa `UnexpectedError` come un errore costruito dal chiamante.
+    """
+    if type(tipo) is not type or not classe_dell_sdk(tipo) or type(stato) is not dict:
+        raise InvalidArgumentError("lo stato non e' quello di un errore dell'SDK.")
+    testo = dict.get(stato, "_messaggio")
+    if type(testo) is not str:
+        raise InvalidArgumentError("lo stato di un errore dell'SDK non ha un messaggio.")
+    nuovo = BaseException.__new__(tipo)
+    BaseException.__init__(nuovo, testo)
+    dati = object.__getattribute__(nuovo, "__dict__")
+    for nome, valore in dict.items(stato):
+        if type(nome) is not str or nome in ATTRIBUTI_LIBERI:
+            raise InvalidArgumentError("lo stato di un errore dell'SDK ha una voce non ammessa.")
+        dati[nome] = valore
+    dati[PROVENIENZA] = provenienza is True
+    dati[SIGILLO] = True
+    return nuovo
+
+
 #: I posti in cui la scoperta cerca il binario: un elenco **chiuso** di
 #: etichette fisse. `BinaryNotFound` conserva e riporta solo queste; ogni altro
 #: testo -- per esempio un costruttore chiamato a mano con dati qualunque -- e'
@@ -176,7 +313,8 @@ class BinaryNotFound(PlenoraError):
         # percorso indicato e il `PATH` sono della macchina di chi chiama, e un
         # errore non porta dati. Chi li vuole li legge dal proprio ambiente.
         voci = list.__iter__(searched) if type(searched) is list else ()
-        self.searched = [_posto(dove) for dove in voci]
+        # Una `FrozenList`: l'elenco e' stato dell'errore, e non si modifica.
+        self.searched = FrozenList([_posto(dove) for dove in voci])
         posti = "\n".join(f"  - {dove}" for dove in self.searched)
         super().__init__(
             "il binario `plenora-io` non e' stato trovato. Cercato, in ordine:\n"
@@ -363,8 +501,8 @@ class ResultLookupError(PlenoraError, KeyError, IndexError):
     _CATEGORIA = "not_found"
     _FASE = "validate"
 
-    # `KeyError` mostra il `repr` dell'argomento; qui il messaggio e' testo.
-    __str__ = Exception.__str__
+    # `KeyError` mostra il `repr` dell'argomento; qui vale `PlenoraError.__str__`,
+    # che viene prima nell'ordine di risoluzione e rende il messaggio fissato.
 
 
 @dataclass(frozen=True)
@@ -402,11 +540,18 @@ class ErrorEnvelope:
     costruita e' `InvalidArgumentError` prima di toccare un campo. Prima lo si
     poteva richiamare: rimetteva `retry` come `dict` ordinario, e una seconda
     chiamata dopo averlo cambiato riscriveva la decisione privata, anche
-    quella di un `CommandFailed` gia' costruito.
+    quella di un `CommandFailed` gia' costruito. Il `CommandFailed` che porta
+    la busta non la lascia sostituire: `errore.envelope = altra` e un secondo
+    `__init__` sono `InvalidArgumentError` (vedi `PlenoraError`).
 
     `copy`, `deepcopy`, `pickle`, `dataclasses.asdict` e `dataclasses.replace`
     funzionano: i contenitori passano dai propri costruttori (`__reduce__`), e
     `replace` costruisce una busta nuova, che quindi si rivalida.
+
+    Le decisioni private e i dati dei contenitori si raggiungono ancora con
+    `object.__setattr__` o leggendo `FrozenDict._dati`: e' fuori contratto,
+    come scritto nel README dell'SDK fra i limiti dichiarati («La rete non e'
+    una barriera contro codice ostile nello stesso interprete»).
     """
 
     code: str

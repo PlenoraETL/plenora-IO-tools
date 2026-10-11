@@ -154,14 +154,34 @@ tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
 dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
 senza testo e senza catena. I punti noti restano tradotti dove nascono, con
 l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
-nuovo senza rete. Passa com'e' solo un errore dell'SDK **sollevato dall'SDK**:
-una classe di `plenora_io.errors`, per identita', con l'istruzione `raise` in
-un file del pacchetto. Un `PlenoraError` sollevato da codice del chiamante che
-l'SDK esegue -- un `__index__`, un `__fspath__` -- porta il testo di chi l'ha
-scritto, e la rete lo traduce in `UnexpectedError` come ogni altra eccezione
-esterna. Le ricerche nei risultati (`layer`, `field`, `driver`,
+nuovo senza rete. Un errore dell'SDK non attraversa la rete com'e': la rete ne
+costruisce uno **nuovo**, della stessa classe esatta, dallo stato fissato nel
+costruttore (`errors.ricostruito`), e non legge mai `args`, `__notes__` o
+`str()` dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
+riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
+resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
+Si ricostruisce solo un errore **costruito dall'SDK**: il costruttore annota
+se chi ha chiamato la classe e' un modulo del pacchetto, per nome di modulo e
+non per percorso di file. Un `PlenoraError` costruito dal chiamante -- anche di
+una classe dell'SDK, sollevato da un `__index__` o da un `__fspath__` -- o
+derivato da una sua sottoclasse diventa `UnexpectedError`, come ogni altra
+eccezione esterna. Le ricerche nei risultati (`layer`, `field`, `driver`,
 `operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
 messaggio.
+
+**Le eccezioni hanno lo stato fissato.** Il messaggio, l'effetto remoto e gli
+attributi di ogni errore (`envelope`, `exit_code`, `command`, `searched`,
+`required`, `actual`, `cleanup_failed`) si fissano nel costruttore, che non si
+ripete: assegnarli, cancellarli o aggiungerne uno e' `InvalidArgumentError`, e
+cosi' un secondo `__init__`. `retryable` di un `CommandFailed` non cambia piu'
+dopo la costruzione. Restano liberi gli attributi che impostano l'interprete e
+la libreria standard: `__traceback__`, `__context__`, `__cause__`,
+`__suppress_context__`, `__notes__` e `args`; `str(errore)` e `message` leggono
+il messaggio fissato, non `args`. `BinaryNotFound.searched` e' una
+`FrozenList`. Dove l'SDK deve cambiare uno stato -- l'effetto che `Runner` alza
+a `unknown`, il segno `cleanup_failed` -- solleva una copia nuova. `copy`,
+`deepcopy` e `pickle` ricostruiscono dallo stato fissato; la copia non conta
+come costruita dall'SDK.
 
 I modelli -- un elenco chiuso di classi, `confine.NOMI_DEI_MODELLI`,
 riconosciute per identita' -- normalizzano i propri campi nel costruttore:
@@ -191,13 +211,31 @@ scavalca fuori contratto (sotto). In `TableRead` la tabella pyarrow entra
 nell'`hash` come costante, e nell'`==` con l'uguaglianza di pyarrow. Due chiavi che normalizzate
 coincidono sono un errore.
 
-**Fuori contratto:** scavalcare l'immutabilita' con `object.__setattr__`, con
-`__dict__` o con il descrittore dello slot dei contenitori.
-Un modello alterato cosi' non e' piu' un risultato dell'SDK; quando entra in un
-altro modello si rinormalizza, ma le garanzie di questa sezione non lo
-coprono: in particolare il suo `hash` puo' cambiare, e se contiene un valore
-che un risultato non porta e' `InvalidArgumentError`. Gli errori non conservano dati negli attributi: `CommandFailed`
-porta il solo sottocomando (`command`), da un elenco chiuso.
+Gli errori non conservano dati negli attributi: `CommandFailed` porta il solo
+sottocomando (`command`), da un elenco chiuso.
+
+**La rete non e' una barriera contro codice ostile nello stesso interprete.**
+Regola: PYTHON-SDK-1.0 §6 e la regola «errori senza dati». Ambito: le garanzie
+di questa sezione -- immutabilita' di modelli, contenitori ed eccezioni,
+`hash` stabile, ricostruzione degli errori alla rete. Valgono contro valori e
+callback del chiamante, non contro codice che lavora sotto le astrazioni di
+Python. Fuori contratto: scrivere con `object.__setattr__` o
+`object.__delattr__`, nel `__dict__`, nel descrittore dello slot o negli
+attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
+`_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
+`ErrorEnvelope`); modificare il modulo `plenora_io.errors` o un altro modulo
+del pacchetto; eseguire codice compilato o definito sotto un nome di modulo
+`plenora_io...`, che la provenienza degli errori riconosce per nome; rinominare
+o rivendere il pacchetto sotto un altro nome, che spegne quel riconoscimento.
+Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
+dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
+non porta e' `InvalidArgumentError`), un errore puo' portare testo del
+chiamante oltre la rete, e con il pacchetto rinominato ogni errore dell'SDK
+esce dalla rete come `UnexpectedError`. Quando un modello alterato entra in un
+altro modello si rinormalizza, ma le garanzie non lo coprono. Rientro: nessuno
+previsto dentro Python, che non ha un confine di memoria fra codice dello stesso
+processo; chi ha bisogno di isolamento esegue il codice non fidato in un altro
+processo.
 
 L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
 di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`; nella CI con
@@ -285,7 +323,8 @@ busta e' nata non cambia la busta, e modificare la copia e'
 `InvalidArgumentError`. Le decisioni -- `retryable`, `retry_after_ms`,
 `must_assume_remote_committed` -- si fissano alla costruzione, dopo la
 validazione, e non rileggono quei campi; `__post_init__` richiamato a mano non
-le rifissa, perche' fuori dal costruttore e' `InvalidArgumentError`.
+le rifissa, perche' fuori dal costruttore e' `InvalidArgumentError`, e
+`CommandFailed.envelope` non si sostituisce dopo la costruzione.
 `copy.deepcopy`, `pickle`, `dataclasses.asdict` e `dataclasses.replace`
 funzionano, e `replace` costruisce una busta nuova, che si rivalida.
 L'SDK accetta solo i tipi che `json.loads` produce, confrontati per

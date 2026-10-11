@@ -8,10 +8,16 @@ dove nascono -- e li' l'effetto e' preciso -- ma un elenco di punti si chiude
 solo se qualcuno li ha visti tutti, e tre giri di revisione ne hanno trovati di
 nuovi a ogni giro. La rete chiude la **classe**: ogni metodo pubblico di ogni
 tipo esportato, e ogni funzione esportata, passa da `confinato`, e
-un'eccezione che non e' un `PlenoraError` diventa `UnexpectedError`. Lo
-diventa anche un `PlenoraError` che non e' nato nell'SDK (`_nato_nell_sdk`):
-le classi sono pubbliche, e codice del chiamante che l'SDK esegue puo'
-sollevarne una con il proprio testo.
+un'eccezione che non e' un errore dell'SDK diventa `UnexpectedError`. Un
+errore dell'SDK esce ricostruito dal suo stato fissato, non com'e' arrivato
+(`_al_confine`); uno che il chiamante ha costruito, anche di una classe
+dell'SDK, e' un'eccezione esterna come le altre.
+
+La rete non e' una barriera contro codice ostile nello stesso interprete:
+chi scrive con `object.__setattr__`, nel `__dict__` o negli attributi privati,
+modifica il modulo `errors` o compila codice sotto un nome di modulo del
+pacchetto puo' aggirarla. Sono fuori contratto, e il README li elenca fra i
+limiti dichiarati.
 
 # L'effetto, conservativo
 
@@ -59,12 +65,20 @@ import functools
 from typing import Any, Callable
 
 import dataclasses
-import os
 import sys
 from datetime import timedelta
 
 from .contenitori import FrozenDict, FrozenList
-from .errors import InvalidArgumentError, PlenoraError, UnexpectedError
+from .errors import (
+    PROVENIENZA,
+    SIGILLO,
+    InvalidArgumentError,
+    PlenoraError,
+    UnexpectedError,
+    classe_dell_sdk,
+    costruito_dall_sdk,
+    ricostruito,
+)
 
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
@@ -88,49 +102,37 @@ def _effetto_dopo(avviati: list[list[str]]) -> str:
     return "unknown" if any(scrive(argv) for argv in avviati) else "none"
 
 
-#: La cartella del pacchetto: un errore sollevato da un file qui dentro e'
-#: dell'SDK.
-_CARTELLA = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
+def _al_confine(errore: Exception, avviati: list[list[str]], etichetta: str) -> PlenoraError:
+    """Che cosa esce dalla rete al posto di `errore`.
 
+    Un errore dell'SDK -- una classe di `errors` per identita', sigillato e
+    costruito da codice dell'SDK (`errors.costruito_dall_sdk`) -- esce
+    **ricostruito** dal suo stato fissato (`errors.ricostruito`): un'istanza
+    nuova della stessa classe, che non legge mai `args`, `__notes__` o `str()`
+    dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
+    riscrive `args` e lo rilancia non fa uscire il proprio testo, e
+    `ResultLookupError` resta un `KeyError` per `Mapping.get`.
 
-def _nato_nell_sdk(errore: BaseException) -> bool:
-    """`errore` e' un errore dell'SDK **sollevato dall'SDK**.
+    Ogni altra eccezione -- di Python, di una dipendenza, del chiamante, anche
+    un `PlenoraError` che il chiamante ha costruito o derivato -- diventa
+    `UnexpectedError`, senza testo e con l'effetto conservativo.
 
-    Non basta che sia un `PlenoraError`: le classi sono pubbliche, e il codice
-    del chiamante che l'SDK esegue -- un `__index__`, un `__fspath__`, un
-    `__arrow_c_stream__` -- puo' sollevare `InvalidArgumentError("dato")`, che
-    prima attraversava la rete con il suo testo. Contano due fatti, nessuno dei
-    due dichiarato dall'errore stesso: la classe e' **una** di quelle di
-    `errors`, per identita' (non una sottoclasse del chiamante), e il punto
-    piu' interno del traceback -- dove l'istruzione `raise` e' stata eseguita
-    -- sta in un file di questo pacchetto. Un `raise` senza argomenti che
-    rilancia non sposta quel punto: un errore esterno resta esterno.
+    Fino all'ottavo giro la rete guardava invece il file in cui era stato
+    eseguito il `raise`: certificava dove l'errore era nato e non che cosa
+    portasse, e il confronto dei percorsi sbagliava con PyInstaller, con un
+    nome di file relativo dopo un `chdir` o con il bytecode altrove.
     """
-    if not _classe_dell_sdk(type(errore)):
-        return False
-    passo = errore.__traceback__
-    if passo is None:
-        return False
-    while passo.tb_next is not None:
-        passo = passo.tb_next
-    file = passo.tb_frame.f_code.co_filename
-    return os.path.normcase(os.path.dirname(os.path.abspath(file))) == _CARTELLA
-
-
-def _classe_dell_sdk(tipo: type) -> bool:
-    """`tipo` e' una classe d'errore definita in `errors`, per identita'."""
-    from . import errors  # noqa: PLC0415 - errors e' gia' importato qui sopra
-
-    return any(
-        tipo is classe
-        for classe in vars(errors).values()
-        if type(classe) is type and issubclass(classe, PlenoraError)
+    if costruito_dall_sdk(errore):
+        return ricostruito(errore)
+    return UnexpectedError(
+        f"errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
+        "esterna e' stata intercettata al confine, senza il suo testo.",
+        remote_effect=_effetto_dopo(avviati),
     )
 
 
 def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable[..., Any]:
-    """`funzione`, con ogni eccezione che non e' un errore dell'SDK nato
-    nell'SDK (`_nato_nell_sdk`) tradotta in `UnexpectedError`."""
+    """`funzione`, con ogni eccezione passata da `_al_confine`."""
     if getattr(funzione, SEGNO, False):
         return funzione
     etichetta = nome or getattr(funzione, "__qualname__", "?")
@@ -143,20 +145,75 @@ def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable
         try:
             return funzione(*argomenti, **opzioni)
         except Exception as errore:  # noqa: BLE001 - e' la rete, apposta
-            if _nato_nell_sdk(errore):
-                raise
-            effetto = _effetto_dopo(elenco or [])
-            raise UnexpectedError(
-                f"errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
-                "esterna e' stata intercettata al confine, senza il suo testo.",
-                remote_effect=effetto,
-            ) from None
+            sostituto = _al_confine(errore, elenco or [], etichetta)
         finally:
             if gettone is not None:
                 _avviati.reset(gettone)
+        # Fuori dall'`except`: l'eccezione ricevuta non diventa il
+        # `__context__` di cio' che esce.
+        raise sostituto from None
 
     setattr(involucro, SEGNO, True)
     return involucro
+
+
+#: Il codice di ogni `involucro`: lo stesso oggetto per tutte le funzioni
+#: avvolte. `_init_sigillato` salta questi frame cercando chi costruisce.
+_CODICE_DELLA_RETE = confinato(lambda: None).__code__
+
+#: L'errore dell'SDK il cui costruttore piu' esterno e' in corso.
+_errore_in_costruzione: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "plenora_io_errore_in_costruzione", default=None
+)
+
+
+def _costruttore_dell_sdk(frame: Any) -> bool:
+    """Il primo frame fuori dalla rete appartiene a un modulo del pacchetto.
+
+    Si guarda il **nome del modulo** (`__name__` dei globali del frame), non il
+    file: e' lo stesso con PyInstaller, dopo un `chdir` e con il bytecode
+    altrove. Un modulo del chiamante che si chiami `plenora_io...` o un
+    pacchetto rinominato sono fuori contratto (README, «Limiti dichiarati»).
+    """
+    while frame is not None and frame.f_code is _CODICE_DELLA_RETE:
+        frame = frame.f_back
+    if frame is None:
+        return False
+    nome = dict.get(frame.f_globals, "__name__")
+    return type(nome) is str and (nome == "plenora_io" or nome.startswith("plenora_io."))
+
+
+def _init_sigillato(init: Callable[..., Any]) -> Callable[..., Any]:
+    """`__init__` di un errore dell'SDK: una volta sola, poi sigillato.
+
+    Il costruttore piu' esterno -- quello che la classe concreta chiama, non i
+    `super().__init__` che ne seguono -- annota la provenienza (chi ha
+    chiamato la classe e' codice dell'SDK?) e, finito, mette il sigillo: da
+    li' `PlenoraError.__setattr__` rifiuta ogni attributo che non sia
+    dell'interprete, e un secondo `__init__` e' `InvalidArgumentError`.
+    """
+
+    @functools.wraps(init)
+    def costruttore(self: Any, *argomenti: Any, **opzioni: Any) -> None:
+        stato = object.__getattribute__(self, "__dict__")
+        if dict.get(stato, SIGILLO) is True:
+            raise InvalidArgumentError(
+                f"`{type(self).__name__}` e' gia' costruito: un errore dell'SDK non si "
+                "reinizializza."
+            )
+        if _errore_in_costruzione.get() is self:
+            init(self, *argomenti, **opzioni)
+            return
+        dall_sdk = _costruttore_dell_sdk(sys._getframe(1))
+        gettone = _errore_in_costruzione.set(self)
+        try:
+            init(self, *argomenti, **opzioni)
+        finally:
+            _errore_in_costruzione.reset(gettone)
+        stato[PROVENIENZA] = dall_sdk
+        stato[SIGILLO] = True
+
+    return costruttore
 
 
 #: I callable che la rete non avvolge, ciascuno col suo perche'. Un elenco
@@ -450,6 +507,10 @@ def confina_classe(classe: type) -> type:
     di `object` o di `Exception` non sono codice dell'SDK.
     """
     _prepara_modello(classe)
+    if classe_dell_sdk(classe):
+        init = vars(classe).get("__init__")
+        if init is not None and not getattr(init, SEGNO, False):
+            setattr(classe, "__init__", _init_sigillato(init))
     for nome, valore in list(vars(classe).items()):
         if _privato(nome) or nome in NON_AVVOLTI:
             continue
