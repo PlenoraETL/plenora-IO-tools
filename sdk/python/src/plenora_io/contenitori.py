@@ -52,6 +52,31 @@ def _esatto(valore: Any, dove: str) -> Any:
     return esatto(valore, dove)
 
 
+def _unico_argomento(nome: str, argomenti: tuple[Any, ...], opzioni: dict[str, Any],
+                     predefinito: Any) -> Any:
+    """L'argomento del costruttore, uno solo e per posizione.
+
+    La firma e' aperta apposta: con `coppie=None` un argomento per nome
+    sconosciuto era un `TypeError` di binding dell'interprete, e il suo
+    messaggio riportava il nome -- `FrozenDict(**{chiave: 1})` metteva la
+    chiave nell'errore. Qui ogni forma sbagliata e' `InvalidArgumentError`, e
+    il messaggio non nomina niente di cio' che si e' passato.
+    """
+    if opzioni or len(argomenti) > 1:
+        raise InvalidArgumentError(f"`{nome}` vuole al piu' un argomento, per posizione.")
+    return argomenti[0] if argomenti else predefinito
+
+
+def _intero_o_niente(valore: Any, dove: str) -> int | None:
+    """`None`, o l'intero esatto: `__index__` del chiamante non gira mai."""
+    if valore is None:
+        return None
+    tipo = type(valore)
+    if tipo is bool or not issubclass(tipo, int):
+        raise InvalidArgumentError(f"{dove} e' un intero o `None`.")
+    return int.__index__(valore)
+
+
 def _immutabile_elenco(self: Any, *argomenti: Any, **opzioni: Any) -> Any:
     raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
 
@@ -83,9 +108,10 @@ class FrozenList(Sequence):
     sort = _immutabile_elenco
     reverse = _immutabile_elenco
 
-    def __new__(cls, elementi: Any = ()) -> "FrozenList":
+    def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenList":
         if cls is not FrozenList:
             raise InvalidArgumentError("`FrozenList` non si estende.")
+        elementi = _unico_argomento("FrozenList", argomenti, opzioni, ())
         tipo = type(elementi)
         if tipo is FrozenList:
             sorgente = object.__getattribute__(elementi, "_dati")
@@ -112,7 +138,19 @@ class FrozenList(Sequence):
     def __getitem__(self, indice: Any) -> Any:
         dati = object.__getattribute__(self, "_dati")
         if type(indice) is slice:
-            return FrozenList(list(dati[indice]))
+            # I tre componenti si normalizzano prima dell'uso: affettare una
+            # `tuple` con lo slice del chiamante eseguiva il loro `__index__`,
+            # e cio' che sollevava -- anche un errore dell'SDK con un dato --
+            # usciva intatto.
+            passo = _intero_o_niente(indice.step, "il passo di uno slice")
+            if passo == 0:
+                raise InvalidArgumentError("il passo di uno slice non puo' essere zero.")
+            esatto = slice(
+                _intero_o_niente(indice.start, "l'inizio di uno slice"),
+                _intero_o_niente(indice.stop, "la fine di uno slice"),
+                passo,
+            )
+            return FrozenList(list(dati[esatto]))
         if type(indice) is bool or not issubclass(type(indice), int):
             raise InvalidArgumentError("l'indice di un elenco e' un intero.")
         posizione = int.__index__(indice)
@@ -136,12 +174,21 @@ class FrozenList(Sequence):
             return False
         return any(elemento == cercato for elemento in object.__getattribute__(self, "_dati"))
 
-    def index(self, valore: Any, *argomenti: Any) -> int:
+    def index(self, valore: Any, *argomenti: Any, **opzioni: Any) -> int:
+        # `inizio` e `fine` sono interi esatti o `None` prima dell'uso, come i
+        # componenti di uno slice: `tuple.index` ne chiamava `__index__`.
+        if opzioni or len(argomenti) > 2:
+            raise InvalidArgumentError(
+                "`index()` vuole il valore e, per posizione, al piu' inizio e fine."
+            )
+        limiti = [_intero_o_niente(a, "un limite di `index()`") for a in argomenti]
         cercato = _esatto(valore, "FrozenList")
         dati = object.__getattribute__(self, "_dati")
-        if cercato not in dati:
-            raise ResultLookupError("valore assente dall'elenco.")
-        return dati.index(cercato, *argomenti)
+        inizio, fine, _ = slice(*(limiti + [None] * (2 - len(limiti)))).indices(len(dati))
+        for posizione in range(inizio, fine):
+            if dati[posizione] == cercato:
+                return posizione
+        raise ResultLookupError("valore assente dall'elenco.")
 
     def count(self, valore: Any) -> int:
         cercato = _esatto(valore, "FrozenList")
@@ -191,9 +238,10 @@ class FrozenDict(Mapping):
     setdefault = _immutabile_dizionario
     update = _immutabile_dizionario
 
-    def __new__(cls, coppie: Any = None) -> "FrozenDict":
+    def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenDict":
         if cls is not FrozenDict:
             raise InvalidArgumentError("`FrozenDict` non si estende.")
+        coppie = _unico_argomento("FrozenDict", argomenti, opzioni, None)
         tipo = type(coppie)
         if coppie is None:
             sorgente: Any = ()

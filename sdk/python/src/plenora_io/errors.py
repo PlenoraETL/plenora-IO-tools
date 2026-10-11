@@ -386,26 +386,27 @@ class ErrorEnvelope:
     # Copiati, e decisi una volta sola
 
     Ogni campo e' una **copia** di cio' che si e' passato, fatta di tipi JSON
-    esatti: `retry` e `row_diagnostics` sono dizionari ed elenchi ordinari,
-    ricostruiti valore per valore. La busta non tiene mai un oggetto del
-    chiamante, e cio' che si valida e' cio' che si conserva.
+    esatti e resa immutabile: `retry` e `row_diagnostics` sono `FrozenDict`,
+    con `FrozenList` e `FrozenDict` dentro (vedi `contenitori`), ricostruiti
+    valore per valore. La busta non tiene mai un oggetto del chiamante, cio'
+    che si valida e' cio' che si conserva, e nessun campo si modifica dopo:
+    `busta.retry["kind"] = "safe"` e' `InvalidArgumentError`, come assegnare
+    un campo.
 
     Le **decisioni** -- `retryable`, `retry_after_ms`,
     `must_assume_remote_committed` di `CommandFailed` -- non rileggono `retry`:
     usano il tipo di ritentativo, il ritardo e l'effetto remoto fissati in
     `__post_init__` dopo la validazione, in attributi privati che non sono
-    campi della dataclass. Prima la busta conservava il dizionario del
-    chiamante, e cambiarlo dopo da `{kind: never}` a `{kind: safe}` rendeva
-    `retryable` vero senza rivalidazione. Ora chi cambia `envelope.retry`
-    cambia la propria copia, non la decisione.
+    campi della dataclass. `__post_init__` gira **solo** dal costruttore
+    (`confine._solo_nel_costruttore`): richiamato a mano su una busta gia'
+    costruita e' `InvalidArgumentError` prima di toccare un campo. Prima lo si
+    poteva richiamare: rimetteva `retry` come `dict` ordinario, e una seconda
+    chiamata dopo averlo cambiato riscriveva la decisione privata, anche
+    quella di un `CommandFailed` gia' costruito.
 
-    Perche' dizionari ordinari e non `MappingProxyType`: con il proxy
-    `copy.deepcopy`, `pickle` e `dataclasses.asdict` fallivano, e
-    `dataclasses.replace` rifiutava il proxy prodotto dall'SDK stesso. Con le
-    copie ordinarie le quattro operazioni funzionano come prima, e la
-    garanzia sta dove serve: nelle decisioni, che nessuno puo' riscrivere
-    attraverso un campo pubblico. `replace` ricostruisce la busta e quindi la
-    rivalida.
+    `copy`, `deepcopy`, `pickle`, `dataclasses.asdict` e `dataclasses.replace`
+    funzionano: i contenitori passano dai propri costruttori (`__reduce__`), e
+    `replace` costruisce una busta nuova, che quindi si rivalida.
     """
 
     code: str
@@ -432,7 +433,12 @@ class ErrorEnvelope:
             raise ProtocolError(
                 f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
             )
-        object.__setattr__(self, "retry", copia_json(self.retry, "error.retry"))
+        # La copia diventa subito un `FrozenDict`: nessun contenitore mutabile
+        # entra mai in un campo, neanche fra qui e la normalizzazione del
+        # costruttore, che sui contenitori gia' immutabili e' idempotente.
+        object.__setattr__(
+            self, "retry", FrozenDict(copia_json(self.retry, "error.retry"))
+        )
         if self.row_diagnostics is not None:
             if _tipo(self.row_diagnostics) != "object":
                 raise ProtocolError(
@@ -441,7 +447,9 @@ class ErrorEnvelope:
             object.__setattr__(
                 self,
                 "row_diagnostics",
-                copia_json(self.row_diagnostics, "error.details.row_diagnostics"),
+                FrozenDict(
+                    copia_json(self.row_diagnostics, "error.details.row_diagnostics")
+                ),
             )
         _valida_busta(self)
         # Le decisioni, fissate sulla copia validata. Sono stringhe e interi
@@ -813,17 +821,17 @@ class CommandFailed(PlenoraError):
 
     @property
     def remote_effect(self) -> str:
-        # La decisione fissata alla costruzione, non il campo pubblico: chi
-        # cambia `envelope.remote_effect` cambia la propria copia.
+        # La decisione fissata alla costruzione, dopo la validazione, e non il
+        # campo pubblico: e' cio' che le altre decisioni leggono.
         return self.envelope._effetto_remoto
 
     @property
     def retry(self) -> dict[str, Any]:
         """La disposizione fissata alla costruzione, come oggetto nuovo.
 
-        Ricostruita dalle decisioni private della busta e non copiata da
-        `envelope.retry`: quel campo e' una copia che chi la tiene puo'
-        cambiare, e l'asse dell'eccezione deve dire cio' che e' stato validato.
+        Ricostruita dalle decisioni private della busta, fissate dopo la
+        validazione, e resa come `dict` nuovo a ogni lettura: chi la cambia
+        cambia la propria copia, non l'eccezione ne' la busta.
         """
         busta = self.envelope
         if busta._tipo_di_ritentativo == "after":

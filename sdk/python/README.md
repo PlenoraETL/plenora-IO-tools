@@ -154,7 +154,12 @@ tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
 dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
 senza testo e senza catena. I punti noti restano tradotti dove nascono, con
 l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
-nuovo senza rete. Le ricerche nei risultati (`layer`, `field`, `driver`,
+nuovo senza rete. Passa com'e' solo un errore dell'SDK **sollevato dall'SDK**:
+una classe di `plenora_io.errors`, per identita', con l'istruzione `raise` in
+un file del pacchetto. Un `PlenoraError` sollevato da codice del chiamante che
+l'SDK esegue -- un `__index__`, un `__fspath__` -- porta il testo di chi l'ha
+scritto, e la rete lo traduce in `UnexpectedError` come ogni altra eccezione
+esterna. Le ricerche nei risultati (`layer`, `field`, `driver`,
 `operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
 messaggio.
 
@@ -166,21 +171,32 @@ tipi base esatti, `FrozenList` al posto di `list`, `FrozenDict` al posto di
 con `__slots__` e i dati in un attributo privato: nessun metodo modifica, e
 ogni metodo di modifica di `list` e `dict` (`append`, `update`, `__setitem__`,
 `__ior__`...) risponde con `InvalidArgumentError`. I loro costruttori
-normalizzano gli elementi, e `copy`, `deepcopy` e `pickle` passano dagli
-stessi costruttori. Sono uguali a una `list` o a un `dict` con gli stessi
-elementi (l'altro operando si normalizza prima del confronto), e il loro
-`hash` e' coerente con `==`. Non sono piu' `list` e `dict`: `json.dumps`
-vuole `default=plenora_io.json_default`, oppure `plenora_io.to_plain(...)`.
-I modelli sono immutabili con lo stesso errore, non si reinizializzano, e hanno
-`==` e `hash` canonici: `repr`, `==` e `hash` non eseguono mai codice del
-chiamante, e l'`hash` non cambia dopo la costruzione. Due chiavi che
-normalizzate coincidono sono un errore.
+prendono al piu' un argomento, per posizione (ogni altra forma e'
+`InvalidArgumentError`, senza nomi nel messaggio), normalizzano gli elementi,
+e `copy`, `deepcopy` e `pickle` passano dagli stessi costruttori. Gli indici,
+i componenti di uno slice e i limiti di `FrozenList.index()` sono interi
+esatti o `None` prima dell'uso: il loro `__index__` non gira, un altro tipo o
+un passo zero sono `InvalidArgumentError`, e un valore assente
+dall'intervallo e' `ResultLookupError`. Sono uguali a una `list` o a un `dict`
+con gli stessi elementi (l'altro operando si normalizza prima del confronto),
+e il loro `hash` e' coerente con `==`. Non sono piu' `list` e `dict`:
+`json.dumps` vuole `default=plenora_io.json_default`, oppure
+`plenora_io.to_plain(...)`.
+I modelli sono immutabili con lo stesso errore, non si reinizializzano, e il
+loro `__post_init__` gira solo dal costruttore: richiamato a mano e'
+`InvalidArgumentError`, prima di toccare un campo. Hanno `==` e `hash`
+canonici: `repr`, `==` e `hash` non eseguono mai codice del chiamante, e
+l'`hash` non cambia dopo la costruzione finche' l'immutabilita' non si
+scavalca fuori contratto (sotto). In `TableRead` la tabella pyarrow entra
+nell'`hash` come costante, e nell'`==` con l'uguaglianza di pyarrow. Due chiavi che normalizzate
+coincidono sono un errore.
 
 **Fuori contratto:** scavalcare l'immutabilita' con `object.__setattr__`, con
 `__dict__` o con il descrittore dello slot dei contenitori.
 Un modello alterato cosi' non e' piu' un risultato dell'SDK; quando entra in un
 altro modello si rinormalizza, ma le garanzie di questa sezione non lo
-coprono. Gli errori non conservano dati negli attributi: `CommandFailed`
+coprono: in particolare il suo `hash` puo' cambiare, e se contiene un valore
+che un risultato non porta e' `InvalidArgumentError`. Gli errori non conservano dati negli attributi: `CommandFailed`
 porta il solo sottocomando (`command`), da un elenco chiuso.
 
 L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
@@ -263,13 +279,15 @@ permesso. `retryable` e' vero per `safe`, `after`, `requires_idempotency_key` e
 resta aperta: una sconosciuta ripiega su `CommandFailed`, perche' sceglie solo
 la classe dell'eccezione e non decide niente al posto di chi la riceve.
 
-`envelope.retry` e `envelope.row_diagnostics` sono **copie** ordinarie di cio'
-che si e' passato: cambiare dopo il dizionario da cui la busta e' nata non cambia
-la busta. Le decisioni -- `retryable`, `retry_after_ms`,
+`envelope.retry` e `envelope.row_diagnostics` sono **copie immutabili**
+(`FrozenDict`) di cio' che si e' passato: cambiare dopo il dizionario da cui la
+busta e' nata non cambia la busta, e modificare la copia e'
+`InvalidArgumentError`. Le decisioni -- `retryable`, `retry_after_ms`,
 `must_assume_remote_committed` -- si fissano alla costruzione, dopo la
-validazione, e non rileggono quei campi: chi modifica `envelope.retry` cambia la
-propria copia, non la decisione. `copy.deepcopy`, `pickle`,
-`dataclasses.asdict` e `dataclasses.replace` funzionano, e `replace` rivalida.
+validazione, e non rileggono quei campi; `__post_init__` richiamato a mano non
+le rifissa, perche' fuori dal costruttore e' `InvalidArgumentError`.
+`copy.deepcopy`, `pickle`, `dataclasses.asdict` e `dataclasses.replace`
+funzionano, e `replace` costruisce una busta nuova, che si rivalida.
 L'SDK accetta solo i tipi che `json.loads` produce, confrontati per
 **identita'**: una sottoclasse di `str` o di `dict` e' `ProtocolError`, come una
 chiave ripetuta, un `NaN` o un numero che trabocca in infinito. I modelli

@@ -1169,7 +1169,9 @@ class LeCopieNormalizzate(unittest.TestCase):
         cliente._chiama = chiama
         sorgente = PercorsoCheCambia()
         opzioni = MappaCheConta(k="v")
-        with self.assertRaises(ProtocolError):
+        # `chiama` e' codice della prova: il suo `ProtocolError` e' esterno, e
+        # la rete lo traduce (settimo giro). Qui conta che si fermi li'.
+        with self.assertRaises(PlenoraError):
             cliente.read_table(sorgente, options=opzioni, temp_dir=tempfile.mkdtemp())
         self.assertEqual(sorgente.letture, 1)
         self.assertEqual(opzioni.letture, 1)
@@ -1737,6 +1739,192 @@ class IMessaggi(unittest.TestCase):
         with self.assertRaises(PlenoraError) as preso:
             cliente.require_profile(SEGRETO)
         tradotto(self, preso.exception, "none")
+
+
+# --- 10. settimo giro di revisione ------------------------------------------
+
+
+def _busta(**campi):
+    from plenora_io import ErrorEnvelope
+
+    valori = {
+        "code": "IO-X", "category": "io", "phase": "execute", "remote_effect": "none",
+        "retry": {"kind": "never"}, "message": "m",
+    }
+    valori.update(campi)
+    return ErrorEnvelope(**valori)
+
+
+class IndiceOstile:
+    """Un `__index__` che solleva un'eccezione con un dato del chiamante."""
+
+    def __init__(self, errore):
+        self.errore = errore
+
+    def __index__(self):
+        raise self.errore
+
+
+class IntCheConta(int):
+    def __index__(self):
+        Contatore.chiamate += 1
+        return 0
+
+
+class IlSettimoGiro(unittest.TestCase):
+    """Settimo giro: `__post_init__`, costruttori dei contenitori, indici."""
+
+    @prova("confine.rete")
+    def test_post_init_non_riapre_la_mutabilita_della_busta(self) -> None:
+        """Prima: `busta.__post_init__()` rimetteva `retry` come `dict`, e una
+        seconda chiamata dopo `retry["kind"] = "safe"` riscriveva la decisione
+        privata: un `CommandFailed` gia' costruito diventava ritentabile."""
+        import dataclasses
+
+        from plenora_io import ErrorEnvelope
+
+        busta = _busta()
+        errore = failure_from_envelope(
+            {"error": {"code": "IO-X", "category": "io", "phase": "execute",
+                       "remote_effect": "none", "retry": {"kind": "never"},
+                       "message": "m"}}, 1, ["read"])
+        for oggetto in (busta, errore.envelope):
+            prima = hash(oggetto)
+            with self.assertRaises(PlenoraError) as preso:
+                oggetto.__post_init__()
+            self.assertIsInstance(preso.exception, InvalidArgumentError)
+            tradotto(self, preso.exception, "none")
+            self.assertIs(type(oggetto.retry), FrozenDict)
+            with self.assertRaises(PlenoraError):
+                oggetto.retry["kind"] = "safe"
+            with self.assertRaises(PlenoraError):
+                oggetto.__post_init__()
+            self.assertEqual(hash(oggetto), prima)
+            self.assertEqual(oggetto.retry, {"kind": "never"})
+        self.assertFalse(errore.retryable)
+        self.assertEqual(errore.retry, {"kind": "never"})
+        # Con la diagnostica riga per riga: anche quella resta immutabile.
+        diagnostica = _busta(row_diagnostics={"righe": [{"colonna": "c"}]})
+        self.assertIs(type(diagnostica.row_diagnostics), FrozenDict)
+        with self.assertRaises(PlenoraError):
+            diagnostica.__post_init__()
+        self.assertIs(type(diagnostica.row_diagnostics), FrozenDict)
+        self.assertIs(type(diagnostica.row_diagnostics["righe"]), FrozenList)
+        hash(diagnostica)
+        # `replace` ricostruisce, e quindi resta ammesso.
+        sostituita = dataclasses.replace(busta, retry={"kind": "safe"})
+        self.assertEqual(sostituita.retry, {"kind": "safe"})
+        self.assertIs(type(sostituita), ErrorEnvelope)
+
+    @prova("confine.rete")
+    def test_nessun_post_init_di_un_modello_si_richiama(self) -> None:
+        """La stessa classe su ogni modello che definisce `__post_init__`."""
+        from plenora_io.confine import MODELLI
+
+        istanze = {"ErrorEnvelope": _busta(), "Limits": Limits(max_rows=3)}
+        con_post_init = sorted(c.__name__ for c in MODELLI if "__post_init__" in vars(c))
+        self.assertEqual(con_post_init, sorted(istanze))
+        for nome, istanza in istanze.items():
+            with self.subTest(modello=nome):
+                prima = (hash(istanza), repr(istanza))
+                with self.assertRaises(PlenoraError) as preso:
+                    istanza.__post_init__()
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                self.assertEqual((hash(istanza), repr(istanza)), prima)
+
+    @prova("messaggi.senza_dati")
+    def test_i_costruttori_dei_contenitori_rifiutano_senza_dati(self) -> None:
+        """Prima: `FrozenDict(**{chiave: 1})` usciva come `TypeError` di
+        binding, con la chiave nel messaggio: `__new__` era fuori dalla rete."""
+        tipizzate = (
+            ("FrozenDict kw", lambda: FrozenDict(**{SEGRETO: 1})),
+            ("FrozenList kw", lambda: FrozenList(**{SEGRETO: 1})),
+            ("FrozenDict due", lambda: FrozenDict({}, {SEGRETO: 1})),
+            ("FrozenList due", lambda: FrozenList([], [SEGRETO])),
+            ("__new__ kw", lambda: FrozenList.__new__(FrozenList, **{SEGRETO: 1})),
+        )
+        # `__reduce__` non ha argomenti: un binding sbagliato e' della rete.
+        di_rete = (
+            ("__reduce__ kw", lambda: FrozenList([1]).__reduce__(**{SEGRETO: 1})),
+            ("__reduce__ dict", lambda: FrozenDict({}).__reduce__(SEGRETO)),
+        )
+        for nome, chiamata in tipizzate + di_rete:
+            with self.subTest(chiamata=nome):
+                with self.assertRaises(PlenoraError) as preso:
+                    chiamata()
+                tradotto(self, preso.exception, "none")
+                if (nome, chiamata) in tipizzate:
+                    self.assertIsInstance(preso.exception, InvalidArgumentError)
+
+    @prova("argomenti.sottoclassi")
+    def test_slice_e_index_normalizzano_i_componenti(self) -> None:
+        """Prima: i componenti di uno slice e gli argomenti di `index()` erano
+        passati a `tuple` com'erano, e il loro `__index__` girava: un
+        `InvalidArgumentError` con un dato del chiamante usciva intatto."""
+        elenco = FrozenList([1, 2, 3, 2])
+        for errore in (InvalidArgumentError(SEGRETO), ValueError(SEGRETO),
+                       ProtocolError(SEGRETO)):
+            ostile = IndiceOstile(errore)
+            chiamate = (
+                lambda o=ostile: elenco[o:],
+                lambda o=ostile: elenco[:o],
+                lambda o=ostile: elenco[::o],
+                lambda o=ostile: elenco.index(2, o),
+                lambda o=ostile: elenco.index(2, 0, o),
+            )
+            for posizione, chiamata in enumerate(chiamate):
+                with self.subTest(errore=type(errore).__name__, via=posizione):
+                    with self.assertRaises(PlenoraError) as preso:
+                        chiamata()
+                    self.assertIsInstance(preso.exception, InvalidArgumentError)
+                    tradotto(self, preso.exception, "none")
+        rifiutate = (
+            lambda: elenco[::0],
+            lambda: elenco[1.0:],
+            lambda: elenco[True:],
+            lambda: elenco.index(2, 0, 4, 5),
+            lambda: elenco.index(2, **{SEGRETO: 1}),
+            lambda: elenco.index(2, "0"),
+        )
+        for posizione, chiamata in enumerate(rifiutate):
+            with self.subTest(rifiutata=posizione):
+                with self.assertRaises(PlenoraError) as preso:
+                    chiamata()
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                tradotto(self, preso.exception, "none")
+        # Un valore presente ma fuori dall'intervallo e' una ricerca fallita.
+        with self.assertRaises(PlenoraError) as preso:
+            elenco.index(1, 1)
+        self.assertEqual(type(preso.exception).__name__, "ResultLookupError")
+        tradotto(self, preso.exception, "none")
+        # Una sottoclasse di `int`: il suo `__index__` non gira, vale il numero.
+        Contatore.chiamate = 0
+        self.assertEqual(elenco[IntCheConta(1):IntCheConta(3)], [2, 3])
+        self.assertEqual(elenco[::IntCheConta(2)], [1, 3])
+        self.assertEqual(elenco.index(2, IntCheConta(2)), 3)
+        self.assertEqual(elenco.index(2, None, IntCheConta(2)), 1)
+        self.assertEqual(elenco[None:None:-1], [2, 3, 2, 1])
+        self.assertEqual(elenco[-10:10], [1, 2, 3, 2])
+        self.assertEqual(Contatore.chiamate, 0)
+
+    @prova("confine.rete")
+    def test_un_errore_dell_sdk_sollevato_da_codice_esterno_si_traduce(self) -> None:
+        """Un `PlenoraError` che nasce fuori dall'SDK -- un `__index__`, un
+        `__fspath__`, un `side_effect` -- porta il testo di chi l'ha scritto:
+        la rete lo traduce come ogni altra eccezione esterna."""
+        from plenora_io.confine import confinato
+
+        def esterna():
+            raise InvalidArgumentError(SEGRETO)
+
+        with self.assertRaises(PlenoraError) as preso:
+            confinato(esterna, "prova")()
+        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        tradotto(self, preso.exception, "none")
+        # Un errore dell'SDK nato nell'SDK passa com'e'.
+        with self.assertRaises(PlenoraError) as preso:
+            FrozenList([1])[5]
+        self.assertEqual(type(preso.exception).__name__, "ResultLookupError")
 
 
 if __name__ == "__main__":

@@ -1367,3 +1367,17 @@ prossima release è percio' una **major** (5.0.0).
 - **Gli errori dell'SDK costruiti a mano** normalizzano il messaggio
   (`str` esatta) e l'effetto remoto (vocabolario chiuso);
   `CommandFailed` vuole un `ErrorEnvelope` e un intero.
+- **Un errore dell'SDK sollevato da codice del chiamante** -- un
+  `__index__`, un `__fspath__` che solleva `InvalidArgumentError(...)` -- non
+  attraversa piu' la rete com'e': diventa `UnexpectedError`, senza il suo
+  testo. Passano intatti solo gli errori delle classi dell'SDK sollevati da
+  un file del pacchetto.
+- **`ErrorEnvelope.retry` e `.row_diagnostics` sono `FrozenDict`**, come i
+  campi oggetto degli altri modelli, non piu' `dict` ordinari: modificarli e'
+  `InvalidArgumentError`. `__post_init__` di un modello gira solo dal
+  costruttore; richiamato a mano e' `InvalidArgumentError`.
+- **`FrozenList` e `FrozenDict` si costruiscono con al piu' un argomento per
+  posizione**; gli indici, i componenti di uno slice e i limiti di
+  `FrozenList.index()` sono interi o `None` (un passo zero, un `float`, un
+  `bool` sono `InvalidArgumentError`), e un valore presente solo fuori
+  dall'intervallo di `index()` e' `ResultLookupError`.

@@ -8,7 +8,10 @@ dove nascono -- e li' l'effetto e' preciso -- ma un elenco di punti si chiude
 solo se qualcuno li ha visti tutti, e tre giri di revisione ne hanno trovati di
 nuovi a ogni giro. La rete chiude la **classe**: ogni metodo pubblico di ogni
 tipo esportato, e ogni funzione esportata, passa da `confinato`, e
-un'eccezione che non e' un `PlenoraError` diventa `UnexpectedError`.
+un'eccezione che non e' un `PlenoraError` diventa `UnexpectedError`. Lo
+diventa anche un `PlenoraError` che non e' nato nell'SDK (`_nato_nell_sdk`):
+le classi sono pubbliche, e codice del chiamante che l'SDK esegue puo'
+sollevarne una con il proprio testo.
 
 # L'effetto, conservativo
 
@@ -56,6 +59,7 @@ import functools
 from typing import Any, Callable
 
 import dataclasses
+import os
 import sys
 from datetime import timedelta
 
@@ -84,8 +88,49 @@ def _effetto_dopo(avviati: list[list[str]]) -> str:
     return "unknown" if any(scrive(argv) for argv in avviati) else "none"
 
 
+#: La cartella del pacchetto: un errore sollevato da un file qui dentro e'
+#: dell'SDK.
+_CARTELLA = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _nato_nell_sdk(errore: BaseException) -> bool:
+    """`errore` e' un errore dell'SDK **sollevato dall'SDK**.
+
+    Non basta che sia un `PlenoraError`: le classi sono pubbliche, e il codice
+    del chiamante che l'SDK esegue -- un `__index__`, un `__fspath__`, un
+    `__arrow_c_stream__` -- puo' sollevare `InvalidArgumentError("dato")`, che
+    prima attraversava la rete con il suo testo. Contano due fatti, nessuno dei
+    due dichiarato dall'errore stesso: la classe e' **una** di quelle di
+    `errors`, per identita' (non una sottoclasse del chiamante), e il punto
+    piu' interno del traceback -- dove l'istruzione `raise` e' stata eseguita
+    -- sta in un file di questo pacchetto. Un `raise` senza argomenti che
+    rilancia non sposta quel punto: un errore esterno resta esterno.
+    """
+    if not _classe_dell_sdk(type(errore)):
+        return False
+    passo = errore.__traceback__
+    if passo is None:
+        return False
+    while passo.tb_next is not None:
+        passo = passo.tb_next
+    file = passo.tb_frame.f_code.co_filename
+    return os.path.normcase(os.path.dirname(os.path.abspath(file))) == _CARTELLA
+
+
+def _classe_dell_sdk(tipo: type) -> bool:
+    """`tipo` e' una classe d'errore definita in `errors`, per identita'."""
+    from . import errors  # noqa: PLC0415 - errors e' gia' importato qui sopra
+
+    return any(
+        tipo is classe
+        for classe in vars(errors).values()
+        if type(classe) is type and issubclass(classe, PlenoraError)
+    )
+
+
 def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable[..., Any]:
-    """`funzione`, con ogni eccezione non `PlenoraError` tradotta."""
+    """`funzione`, con ogni eccezione che non e' un errore dell'SDK nato
+    nell'SDK (`_nato_nell_sdk`) tradotta in `UnexpectedError`."""
     if getattr(funzione, SEGNO, False):
         return funzione
     etichetta = nome or getattr(funzione, "__qualname__", "?")
@@ -97,9 +142,9 @@ def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable
         elenco = _avviati.get()
         try:
             return funzione(*argomenti, **opzioni)
-        except PlenoraError:
-            raise
-        except Exception:  # noqa: BLE001 - e' la rete, apposta
+        except Exception as errore:  # noqa: BLE001 - e' la rete, apposta
+            if _nato_nell_sdk(errore):
+                raise
             effetto = _effetto_dopo(elenco or [])
             raise UnexpectedError(
                 f"errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
@@ -118,32 +163,25 @@ def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable
 #: **chiuso**: la prova per introspezione pretende che ogni altro callable
 #: definito da una classe esportata sia avvolto, e che questi siano esattamente
 #: i soli esclusi.
+#:
+#: `__new__` e gli agganci di `pickle` e `copy` (`__reduce__`, `__getstate__`...)
+#: non ci sono piu' (settimo giro di revisione): quando una classe dell'SDK li
+#: definisce sono codice dell'SDK come gli altri, e fuori dalla rete un
+#: argomento sbagliato -- `FrozenDict(**{chiave: 1})` -- usciva come `TypeError`
+#: di binding, con la chiave nel messaggio. Quelli ereditati da `object` non
+#: sono definiti dalle classi, e la rete non li tocca comunque.
 NON_AVVOLTI: dict[str, str] = {
-    "__new__": "costruisce l'oggetto prima di `__init__`; i modelli non lo ridefiniscono",
     "__init_subclass__": "gira alla definizione di una sottoclasse, non su un'istanza",
     "__class_getitem__": "e' la sintassi dei generici, sulla classe",
     "__subclasshook__": "e' consultato da `isinstance`, che la rete non deve cambiare",
     "__getattribute__": "avvolgerlo farebbe passare dalla rete ogni accesso, anche i suoi",
     "__getattr__": "`hasattr` e la ricerca degli attributi vogliono `AttributeError`",
-    "__reduce__": "pickle e copy: lavorano sui campi gia' normalizzati",
-    "__reduce_ex__": "pickle e copy: lavorano sui campi gia' normalizzati",
-    "__getstate__": "pickle e copy: lavorano sui campi gia' normalizzati",
-    "__setstate__": "pickle e copy: lavorano sui campi gia' normalizzati",
-    "__copy__": "copy: lavora sui campi gia' normalizzati",
-    "__deepcopy__": "copy: lavora sui campi gia' normalizzati",
 }
 
 #: Le sole classi dell'SDK che definiscono un nome di `NON_AVVOLTI`, e quale. Un
-#: elenco chiuso: la prova per introspezione fallisce se una classe ne definisce
-#: un altro, cosi' un'esclusione non si aggiunge in silenzio.
-NON_AVVOLTI_DEFINITI: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("FrozenDict", "__reduce__"),
-        ("FrozenList", "__reduce__"),
-        ("FrozenDict", "__new__"),
-        ("FrozenList", "__new__"),
-    }
-)
+#: elenco chiuso, oggi vuoto: la prova per introspezione fallisce se una classe
+#: ne definisce uno, cosi' un'esclusione non si aggiunge in silenzio.
+NON_AVVOLTI_DEFINITI: frozenset[tuple[str, str]] = frozenset()
 
 
 def _privato(nome: str) -> bool:
@@ -291,7 +329,20 @@ def _forma(valore: Any) -> Any:
         return tuple(sorted((k, _forma(v)) for k, v in valore.items()))
     if _tabella_pyarrow(valore):
         return ("pyarrow.Table",)
-    return valore
+    tipo = type(valore)
+    if (
+        valore is None or tipo is bool or tipo is str or tipo is int or tipo is float
+        or tipo is timedelta
+    ):
+        return valore
+    # Solo cio' che `_esatto` produce. Prima ogni altro valore tornava com'era,
+    # e un `dict` rimesso in un campo da un `__post_init__` richiamato a mano
+    # arrivava a `hash` come `TypeError`: ora un valore che un modello non
+    # porta e' un errore dell'SDK, e non la forma di qualcos'altro.
+    raise InvalidArgumentError(
+        "il modello contiene un valore che un risultato dell'SDK non porta: "
+        "e' stato alterato fuori contratto."
+    )
 
 
 def _hash_del_modello(self: Any) -> int:
@@ -330,19 +381,59 @@ def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
                 f"`{type(self).__name__}` e' gia' costruito: un risultato dell'SDK non si "
                 "reinizializza."
             )
-        init(self, *argomenti, **opzioni)
+        gettone = _in_costruzione.set(self)
+        try:
+            init(self, *argomenti, **opzioni)
+        finally:
+            _in_costruzione.reset(gettone)
         _normalizza(self)
 
     return costruttore
 
 
+#: Il modello il cui costruttore e' in corso, nel contesto corrente: il solo su
+#: cui `__post_init__` puo' girare.
+_in_costruzione: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "plenora_io_in_costruzione", default=None
+)
+
+
+def _solo_nel_costruttore(post_init: Callable[..., Any]) -> Callable[..., Any]:
+    """`__post_init__`, eseguibile solo dal costruttore della stessa istanza.
+
+    `__post_init__` e' un metodo pubblico per nome, e la dataclass lo chiama
+    dal costruttore; chiamarlo a mano dopo rieseguiva la normalizzazione su un
+    modello gia' costruito. Su `ErrorEnvelope` rimetteva `retry` e
+    `row_diagnostics` come `dict` ordinari, e una seconda chiamata dopo
+    `retry["kind"] = "safe"` riscriveva la decisione privata: un
+    `CommandFailed` gia' costruito diventava ritentabile. Una chiamata fuori
+    dal costruttore si rifiuta, prima di toccare qualunque campo, per ogni
+    modello che lo definisce.
+    """
+
+    @functools.wraps(post_init)
+    def guardia(self: Any, *argomenti: Any, **opzioni: Any) -> None:
+        if _in_costruzione.get() is not self:
+            raise InvalidArgumentError(
+                f"`{type(self).__name__}` e' gia' costruito: `__post_init__` gira solo "
+                "nel costruttore, e un risultato dell'SDK non si rinormalizza."
+            )
+        post_init(self, *argomenti, **opzioni)
+
+    return guardia
+
+
 def _prepara_modello(classe: type) -> None:
-    """Normalizzazione nel costruttore, `==` e `hash` canonici, immutabilita'."""
+    """Normalizzazione nel costruttore, `==` e `hash` canonici, immutabilita',
+    `__post_init__` solo dal costruttore."""
     if not e_un_modello(classe) or vars(classe).get("__plenora_modello__", False):
         return
     init = vars(classe).get("__init__")
     if init is not None and not getattr(init, SEGNO, False):
         setattr(classe, "__init__", _con_normalizzazione(init))
+    post_init = vars(classe).get("__post_init__")
+    if post_init is not None:
+        setattr(classe, "__post_init__", _solo_nel_costruttore(post_init))
     setattr(classe, "__eq__", _uguale)
     setattr(classe, "__hash__", _hash_del_modello)
     setattr(classe, "__setattr__", _immutabile)
