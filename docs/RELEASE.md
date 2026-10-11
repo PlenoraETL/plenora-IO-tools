@@ -1004,6 +1004,52 @@ certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
 lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
 dopo la terminazione forzata.
 
+### Le licenze di terze parti negli artefatti
+
+**Che cosa coprono.** Gli archivi della CLI (Linux e Windows, profili `base`
+e `filegdb`) portano in `LICENSES/`:
+
+- per ogni componente nativo (il runtime GDAL e le sue librerie, dai pacchetti
+  conda): il testo di licenza del pacchetto, come gia' prima;
+- per ogni crate Rust di terzi linkato nel binario, **dalla 4.2.0**: i propri
+  file in `LICENSES/crate-rust/<nome>-<versione>/` -- licenza, `NOTICE`,
+  copyright, cioe' l'avviso di copyright di quel crate e il `NOTICE` di un
+  crate Apache-2.0 -- accanto al testo generico per identificatore
+  (`LICENSES/crate-rust/<id>.txt`), che resta perche' un'espressione
+  `MIT OR Apache-2.0` vuole entrambi i testi. `CRATE.json` elenca per ogni
+  crate i file e il loro sha256.
+
+I file vengono dai sorgenti dei crate che cargo ha verificato col checksum di
+`Cargo.lock` (`cargo metadata`, `scripts/avvisi_crate.py`). Quindici crate del
+grafo non portano un file di licenza nel pacchetto pubblicato (fra questi
+`rstar` in sei versioni, `flatbuffers`, `gdal-sys`, `geo-traits`): per loro il
+testo e' quello del repository upstream al commit di `.cargo_vcs_info.json`,
+versionato in `assurance/licenze-crate/` con sha256 e blob git
+(`assurance/registries/avvisi-crate.json`).
+
+**I gate.** `scripts/avvisi_crate.py` (CI, job `rust` sul grafo Linux e
+`windows` sul grafo Windows, entrambi i profili) fallisce se un crate linkato
+non ha un avviso proprio, se un testo del registro non ha l'impronta registrata
+o se una voce del registro non serve piu'. `check-licenze-artefatto.py`, sul
+pacchetto costruito, fallisce se un crate di `CRATE.json` non porta i propri
+file o se un file non e' quello dichiarato.
+
+**Che cosa non coprono, e perche'.**
+
+- `pdqselect` 0.1.0 (`Apache-2.0/MIT`) non ha un testo di licenza da nessuna
+  parte: ne' nel pacchetto, ne' in un repository (non ne dichiara uno), ne'
+  negli avvisi dei sorgenti. Porta un avviso generato dal suo manifesto (nome,
+  versione, autori, licenza) accanto ai testi canonici dei due identificatori.
+  Rientro: quando esce dal grafo o pubblica un testo.
+- Il pacchetto Python dell'SDK (wheel e sdist) non contiene codice di terzi:
+  nessun binario e nessuna dipendenza impacchettata; `pyarrow`, se installato,
+  porta le proprie licenze.
+- La valutazione di `cargo-about`: fa lo stesso lavoro, ma e' un binario in piu'
+  da fissare, e per i crate senza testo nel pacchetto lo cerca in rete al
+  momento della costruzione. La costruzione dipenderebbe da un servizio esterno
+  e il testo spedito non sarebbe fissato nel repository; qui i testi mancanti
+  sono versionati e verificati.
+
 ### L'attestazione del profilo pubblico
 
 Dalla 4.1.0 l'autorizzazione ha una condizione in piu', e comporta un passo

@@ -121,11 +121,24 @@ def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
                 "licenza_file": per_id[i].get("license_file") or "",
                 "origine": origine(per_id[i]),
                 "nostro": i in nostri,
+                # La cartella del pacchetto sul disco di chi costruisce: serve a
+                # `avvisi_crate.py` per copiarne i file di licenza, e non entra
+                # in nessun documento spedito (`pubblico` la toglie).
+                "cartella": (
+                    str(pathlib.Path(per_id[i]["manifest_path"]).parent)
+                    if per_id[i].get("manifest_path")
+                    else ""
+                ),
             }
             for i in visti
         ),
         key=lambda p: (p["nome"], p["versione"]),
     )
+
+
+def pubblico(pacchetto: dict) -> dict:
+    """Il pacchetto senza i campi che descrivono la macchina di chi costruisce."""
+    return {k: v for k, v in pacchetto.items() if k != "cartella"}
 
 
 def main() -> int:
@@ -146,7 +159,7 @@ def main() -> int:
         "profilo": arg.profilo,
         "crate_linkati": len(pacchetti),
         "di_terzi": len(di_terzi),
-        "pacchetti": pacchetti,
+        "pacchetti": [pubblico(p) for p in pacchetti],
     }
     if arg.uscita:
         arg.uscita.parent.mkdir(parents=True, exist_ok=True)
