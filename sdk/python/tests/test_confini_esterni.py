@@ -2921,5 +2921,120 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
         self.assertEqual(difformi, [])
 
 
+# --- 17. quattordicesimo giro di revisione ----------------------------------
+
+
+def _testo_ostile():
+    """Una sottoclasse di `str` che sceglie che cosa `json.loads` vede: riga,
+    colonna e motivo dell'errore, o un numero oltre il limite di cifre."""
+
+    class Ostile(str):
+        def startswith(self, *argomenti):
+            raise json.JSONDecodeError("catalog.drivers[]", "x\nx", 1)
+
+        def count(self, *argomenti):
+            return 918273644
+
+        def rfind(self, *argomenti):
+            return -271828
+
+    class Enorme(str):
+        def count(self, *argomenti):
+            return 10 ** 5000
+
+    return Ostile("{"), Enorme("{")
+
+
+class LaPosizioneDellErroreJson(unittest.TestCase):
+    """Quattordicesimo giro: testo esatto prima del parser, parametri tipati
+    per chiave, posizione ricalcolata dall'SDK."""
+
+    NUMERI_OSTILI = ("918273645", "271828", "catalog.drivers[]")
+
+    def _senza_numeri_ostili(self, testo) -> None:
+        for frammento in self.NUMERI_OSTILI:
+            self.assertNotIn(frammento, testo)
+
+    @prova("errors.carica_json")
+    def test_una_sottoclasse_di_str_non_sceglie_la_posizione(self) -> None:
+        """Prima: `carica_json` passava la sottoclasse a `json.loads` e si
+        fidava di `msg`, `lineno` e `colno` dell'eccezione."""
+        from plenora_io.errors import carica_json
+
+        for testo in _testo_ostile():
+            with self.subTest(classe=type(testo).__name__):
+                with self.assertRaises(PlenoraError) as preso:
+                    carica_json(testo)
+                self.assertIs(type(preso.exception), ProtocolError)
+                self._senza_numeri_ostili(str(preso.exception))
+                self.assertIn("riga 1, colonna 2", str(preso.exception))
+
+    @prova("discovery.manifesto")
+    def test_un_path_derivato_non_sceglie_il_testo_del_manifesto(self) -> None:
+        """Prima: `leggi_manifesto` leggeva con `read_text` del `Path` del
+        chiamante, e il testo ostile portava i suoi numeri in un
+        `ManifestError` fidato."""
+        from plenora_io import ManifestError, errors
+
+        ostile, _ = _testo_ostile()
+        radice = Path(tempfile.mkdtemp())
+        (radice / "bin").mkdir()
+        (radice / "bin" / "plenora-io").write_text("")
+        (radice / "MANIFEST.json").write_text("x")
+
+        class PercorsoOstile(type(Path())):
+            def read_text(self, *argomenti, **opzioni):
+                return ostile
+
+            def read_bytes(self):
+                return b"{"
+
+        with self.assertRaises(PlenoraError) as preso:
+            discovery.leggi_manifesto(PercorsoOstile(radice / "bin" / "plenora-io"))
+        self.assertIs(type(preso.exception), ManifestError)
+        self.assertTrue(errors.costruito_dall_sdk(preso.exception))
+        self._senza_numeri_ostili(str(preso.exception))
+        self.assertIn("Expecting value, riga 1, colonna 1", str(preso.exception))
+
+    @prova("messaggi.senza_dati")
+    def test_ogni_parametro_ha_il_tipo_della_sua_chiave(self) -> None:
+        """Il vocabolario globale non e' piu' un lasciapassare: una parola
+        dell'SDK nel posto sbagliato, una stringa numerica, un intero fuori
+        intervallo sono `?`, mai un `ValueError`."""
+        import string
+
+        from plenora_io import errors
+
+        for chiave, modello in errors.MESSAGGI.items():
+            with self.subTest(chiave=chiave):
+                campi = {c for _, c, _, _ in string.Formatter().parse(modello) if c}
+                self.assertEqual(set(errors.PARAMETRI.get(chiave, {})), campi)
+        errore = errors._dallo_sdk(
+            ProtocolError, "json.non_valido",
+            motivo="catalog.drivers[]", riga=10 ** 5000, colonna=271828.125)
+        self.assertEqual(
+            str(errore), "il documento non e' JSON valido (?, riga ?, colonna ?).")
+        errore = errors._dallo_sdk(
+            ProtocolError, "protocollo.tipo_campo",
+            dove="Expecting value", campo="918273645", tipo="catalog", ammessi=("12",))
+        self.assertEqual(
+            str(errore), "?.? e' ? e non ?, come il protocollo v2 lo dichiara.")
+        errore = errors._dallo_sdk(
+            ProtocolError, "versione.campi_in_piu", campi=True)
+        self.assertIn("con ? campi", str(errore))
+
+    @prova("confine.rete")
+    def test_le_funzioni_esportate_hanno_un_etichetta_nel_vocabolario(self) -> None:
+        """Prima: `json_default(object())` diceva «errore imprevisto in `?`»."""
+        import plenora_io
+
+        with self.assertRaises(PlenoraError) as preso:
+            plenora_io.json_default(object())
+        self.assertIn("`json_default`", str(preso.exception))
+        with self.assertRaises(PlenoraError) as preso:
+            Catalog.from_json(catalogo_sano()).driver(object())
+        self.assertIn("`identificatore`", str(preso.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

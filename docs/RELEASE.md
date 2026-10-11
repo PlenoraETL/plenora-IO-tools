@@ -1384,9 +1384,20 @@ prossima release è percio' una **major** (5.0.0).
   `to_dict()`. `from_json` dei modelli legge lo schema dalla classe
   dell'SDK, non da una sottoclasse: gli `OBBLIGATORI` ridefiniti da una
   sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio.
-  I messaggi degli errori fidati vengono da un catalogo chiuso di modelli
-  (`errors.MESSAGGI`), con parametri da un vocabolario chiuso: un parametro
-  fuori vocabolario si scrive `?`. Alcuni messaggi cambiano di poco (per
+  I messaggi degli errori fidati dell'SDK vengono da un catalogo chiuso di
+  modelli (`errors.MESSAGGI`), e ogni parametro ha un tipo dichiarato per la
+  sua chiave (`errors.PARAMETRI`: un insieme chiuso specifico, o un intero in
+  un intervallo); fuori dal suo tipo si scrive `?`. Fanno eccezione, perche'
+  compongono il messaggio da se', gli errori della fabbrica strutturata
+  (`_dallo_sdk_strutturato`): `BinaryNotFound` dai posti di ricerca,
+  `ProfileError` dai profili noti, e `CommandFailed` con le sue sottoclassi,
+  il cui messaggio e' quello della busta d'errore della CLI -- il
+  `PublicMessage` del prodotto, testo curato che porta come solo testo di
+  runtime il token limitato di un'opzione rifiutata
+  (`PublicMessage::OpzioneRifiutata` in `plenora-io-model/src/error.rs`),
+  validato dalla busta prima di diventare un errore. `carica_json` copia il
+  testo in una `str` esatta prima del parser e ricalcola riga e colonna;
+  `leggi_manifesto` legge i byte da un percorso esatto. Alcuni messaggi cambiano di poco (per
   esempio `plenora-io ?` quando l'argomento non e' un sottocomando noto). Un
   metodo dell'SDK chiamato non legato su un oggetto di un'altra classe e'
   `InvalidArgumentError` prima di eseguire. Cio' che esce

@@ -90,7 +90,8 @@ def pyarrow() -> Any:
         raise _dallo_sdk(
             OptionalDependencyError, "arrow.serie",
             attesa=SERIE_PYARROW,
-            serie=maggiore or '?',
+            serie=int(maggiore) if maggiore.isascii() and maggiore.isdigit()
+            and len(maggiore) < 6 else None,
         )
     return pa
 

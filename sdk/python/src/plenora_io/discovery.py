@@ -232,6 +232,12 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     Cercato in `<radice>/MANIFEST.json` dove `<radice>` e' la directory che
     contiene `bin/`: e' dove i due costruttori lo scrivono.
     """
+    # Un `Path` esatto da una `str` esatta: `leggi_manifesto` e' pubblica, e
+    # una sottoclasse di `Path` sceglieva il testo di `read_text`, e con esso
+    # il motivo e la posizione dell'errore JSON.
+    from ._argomenti import percorso as percorso_esatto  # noqa: PLC0415
+
+    binario = Path(percorso_esatto(binario, "binary"))
     radice = binario.parent.parent
     percorso = radice / MANIFESTO
     if not _e_un_file(percorso, "il manifesto dell'artefatto"):
@@ -242,9 +248,12 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     # la propria eccezione nella catena (`from None`): il testo del sistema o
     # del parser puo' citare il contenuto, e il percorso nel messaggio basta.
     try:
-        testo = percorso.read_text(encoding="utf-8")
+        with open(str(percorso), "rb") as file:
+            dati = file.read()
     except OSError:
         raise _dallo_sdk(ManifestError, "manifesto.illeggibile") from None
+    try:
+        testo = bytes.decode(dati, "utf-8")
     except UnicodeDecodeError:
         raise _dallo_sdk(ManifestError, "manifesto.non_utf8") from None
     try:

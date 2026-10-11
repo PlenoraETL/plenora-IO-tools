@@ -84,6 +84,12 @@ from .errors import _dallo_sdk
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
 
+#: Le etichette che la rete ha dato ai callable delle classi e alle funzioni
+#: esportate, all'import: il vocabolario del parametro `etichetta` di
+#: `rete.imprevisto`. Lo riempiono soltanto `_confina_classe` e
+#: `_confina_esportati`.
+ETICHETTE: set[str] = set()
+
 #: I comandi partiti durante la chiamata pubblica piu' esterna in corso.
 _avviati: contextvars.ContextVar[list[list[str]] | None] = contextvars.ContextVar(
     "plenora_io_avviati", default=None
@@ -567,6 +573,7 @@ def _confina_classe(classe: type) -> type:
         if _privato(nome) or nome in NON_AVVOLTI:
             continue
         etichetta = f"{classe.__name__}.{nome}"
+        ETICHETTE.add(etichetta)
         if isinstance(valore, classmethod):
             setattr(classe, nome, classmethod(_confinato(valore.__func__, etichetta)))
         elif isinstance(valore, staticmethod):
@@ -596,4 +603,5 @@ def _confina_esportati(spazio: dict[str, Any], nomi: list[str]) -> None:
                 if classe.__module__.startswith("plenora_io"):
                     _confina_classe(classe)
         elif callable(valore):
+            ETICHETTE.add(nome)
             spazio[nome] = _confinato(valore, nome)

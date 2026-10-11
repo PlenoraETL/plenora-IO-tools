@@ -170,18 +170,26 @@ qualunque modo -- da una callback, da `map` o `functools.partial` in C, da
 
 **Il testo di un errore fidato.** La fabbrica non accetta testo: prende una
 chiave di un catalogo chiuso di modelli fissi (`errors.MESSAGGI`) e dei
-parametri. Ogni parametro si scrive solo se e' un intero o un decimale, o una
-parola di un vocabolario chiuso costruito dagli oggetti dell'SDK per identita'
-(nomi delle classi e dei loro attributi, campi e schemi dei modelli,
-sottocomandi, categorie, effetti, tipi di ritentativo, profili, posti di
-ricerca, i contesti elencati in `errors.PAROLE_DEI_CONTESTI`), o un composto
-puntato di quelle parole, o un altro errore fidato; ogni altro valore diventa
-`?`, e l'errore nasce comunque. Cio' che e' provato, in
+parametri, e ogni parametro ha un tipo dichiarato per la sua chiave
+(`errors.PARAMETRI`): un insieme chiuso specifico -- i nomi delle classi
+dell'SDK per un nome di classe, i campi degli schemi dei modelli per un campo,
+`MOTIVI_JSON` per il motivo di un errore JSON, i contesti del protocollo per un
+contesto, i sottocomandi per un comando -- oppure un intero esatto in un
+intervallo dichiarato. Un valore fuori dal suo tipo, una stringa numerica, un
+intero fuori intervallo diventano `?`, e l'errore nasce comunque. Ogni testo
+che arriva a un parser si copia prima in una `str` esatta, e la posizione di
+un errore JSON la ricalcola l'SDK da quel testo. Cio' che e' provato, in
 `tests/test_confini_esterni.py`:
 
 * ogni chiamata alla fabbrica nei sorgenti usa una chiave letterale del
   catalogo (inventario sull'AST), e nessun sorgente chiama direttamente una
   classe d'errore;
+* i parametri dichiarati di ogni chiave sono esattamente i segnaposto del
+  suo modello, e una parola dell'SDK nel posto di un'altra, una stringa
+  numerica o un intero oltre ogni limite si scrivono `?`;
+* una sottoclasse di `str` passata a `carica_json`, o un `Path` derivato
+  passato a `leggi_manifesto`, non scelgono ne' il motivo ne' la posizione
+  dell'errore JSON;
 * ogni chiave, con ogni parametro sostituito da dati del chiamante di ogni
   forma (testo, sottoclassi di `str`, composti, elenchi, oggetti, errori
   esterni), da' un testo che non li contiene;
@@ -280,8 +288,9 @@ attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 (`plenora_io.errors._dallo_sdk` e `_dallo_sdk_strutturato`), che e' cio' che
 rende un errore «dell'SDK» alla rete, o un'altra funzione privata che la usa
 (`_copia_json`, `_failure_from_envelope`, `_ricostruito`, `_confinato`, il
-modulo `plenora_io._argomenti`); modificare il catalogo e il vocabolario dei
-messaggi (`MESSAGGI`, `PAROLE_DEI_CONTESTI`), il modulo `plenora_io.errors` o un altro modulo del
+modulo `plenora_io._argomenti`); modificare il catalogo dei messaggi e i tipi
+dei parametri (`MESSAGGI`, `PARAMETRI` e gli insiemi che usano, `ETICHETTE`),
+il modulo `plenora_io.errors` o un altro modulo del
 pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), e un errore puo' portare testo del

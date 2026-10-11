@@ -234,10 +234,13 @@ def classe_dell_sdk(tipo: type) -> bool:
 # diverso -- un `dove`, un nome di campo letto da `dataclasses.fields`, un
 # attributo di una sottoclasse -- finiva nel messaggio di un errore fidato. La
 # classe si chiude nella fabbrica: `_dallo_sdk` non accetta testo, ma una
-# **chiave** di `MESSAGGI` e dei parametri, e ogni parametro passa da
-# `_parametro`, che lo rende solo se appartiene a un vocabolario chiuso. Fuori
-# vocabolario diventa `?`: nessun errore smette di nascere per un parametro
-# sbagliato, e nessun dato del chiamante arriva nel testo, da qualunque via.
+# **chiave** di `MESSAGGI` e dei parametri. Quattordicesimo giro: ogni
+# parametro ha un tipo dichiarato per la sua chiave (`PARAMETRI`) -- un insieme
+# chiuso specifico, o un intero esatto in un intervallo -- e si scrive solo se
+# lo rispetta; altrimenti e' `?`. Non c'e' un vocabolario globale che faccia da
+# lasciapassare, e le stringhe numeriche non sono parole. Nessun errore smette
+# di nascere per un parametro sbagliato, e nessun dato del chiamante arriva nel
+# testo, da qualunque via.
 
 #: I modelli fissi dei messaggi degli errori dell'SDK. Le chiavi sono le sole
 #: ammesse da `_dallo_sdk`; una prova sull'AST verifica che ogni chiamata ne usi
@@ -424,6 +427,7 @@ MESSAGGI: dict[str, str] = {
     "manifesto.non_oggetto_json": "MANIFEST.json non contiene un oggetto JSON.",
     # JSON e la busta d'errore
     "json.costante": "il documento contiene `{nome}`, che JSON non ha.",
+    "json.non_testo": "il documento non e' testo.",
     "json.numero_infinito": (
         "il documento contiene un numero che in doppia precisione non e' finito."
     ),
@@ -576,157 +580,6 @@ MESSAGGI: dict[str, str] = {
     "processo.busta_non_oggetto": "la busta su {flusso} e' {tipo} e non un oggetto JSON.",
 }
 
-#: Le parole che l'SDK usa come contesto o come nome d'argomento nei messaggi,
-#: oltre ai nomi dei campi e delle classi (che `_vocabolario` raccoglie dagli
-#: schemi). Un parametro composto (`catalog.drivers[]`) e' ammesso quando ogni
-#: sua parte -- separata da `.`, con `[]` in coda tolto -- e' nel vocabolario.
-PAROLE_DEI_CONTESTI: frozenset[str] = frozenset({
-    # i documenti e le loro parti
-    "busta d'errore", "risultato di --version", "MANIFEST.json", "error", "details",
-    "retry", "row_diagnostics", "catalog", "drivers", "convert", "layers", "fidelity",
-    "omesse", "reasons", "format", "inspect", "layer", "fields", "geometry",
-    "crs_resolution", "loss", "counts", "esempi", "read", "delivered", "write",
-    "input", "capabilities", "interfaces", "operations", "controls",
-    # gli argomenti dei metodi
-    "binary", "temp_dir", "options", "read_options", "write_options", "output",
-    "destination", "source", "target", "source_format", "target_format",
-    "assume_crs", "durable", "limit", "limits", "timeout", "argv", "deadline",
-    # gli argomenti delle ricerche e le chiavi di `retry`
-    "identificatore", "categoria", "kind", "delay_ms",
-    # le chiavi del manifesto sul filo
-    "nome", "versione", "piattaforma", "profilo", "canale", "non_release", "revisione",
-    # i contenitori e i flussi
-    "FrozenList", "FrozenDict", "stdout", "stderr",
-    # le costanti che JSON non ha
-    "NaN", "Infinity", "-Infinity",
-    # che cosa la scoperta esamina
-    "il pacchetto installato", "un candidato del binario", "il percorso indicato",
-    "PLENORA_IO_BIN", "il binario accanto al pacchetto", "il binario dal PATH",
-    "il manifesto dell'artefatto",
-    # i nomi dei tipi JSON, nelle due forme
-    "null", "boolean", "integer", "number", "string", "array", "object", "non JSON",
-    "un elenco", "un oggetto", "una stringa", "un intero", "un booleano",
-    # lo stato della busta, come `process._stato` lo descrive
-    "«ok»", "«error»", "fuori vocabolario (null)", "fuori vocabolario (boolean)",
-    "fuori vocabolario (integer)", "fuori vocabolario (number)",
-    "fuori vocabolario (string)", "fuori vocabolario (array)",
-    "fuori vocabolario (object)", "fuori vocabolario (non JSON)",
-})
-
-#: I motivi che `json.JSONDecodeError` scrive, per `json.non_valido`.
-MOTIVI_JSON: frozenset[str] = frozenset({
-    "Expecting value", "Expecting ',' delimiter", "Expecting ':' delimiter",
-    "Expecting property name enclosed in double quotes", "Extra data",
-    "Unterminated string starting at", "Invalid control character at",
-    "Invalid \\escape", "Invalid \\uXXXX escape", "Invalid control character",
-    "Illegal trailing comma before end of object",
-    "Illegal trailing comma before end of array",
-})
-
-_vocabolario_fissato: frozenset[str] | None = None
-
-
-def _vocabolario() -> frozenset[str]:
-    """Le parole ammesse come parametro di un messaggio: un insieme chiuso.
-
-    Si costruisce dagli oggetti dell'SDK riconosciuti per identita' -- le
-    classi d'errore di questo modulo, i modelli di `confine.MODELLI`, i
-    contenitori, `Client` e `Runner` -- e dalle costanti di questo modulo:
-    nomi delle classi e dei loro attributi, campi e schemi dei modelli,
-    sottocomandi, categorie, effetti, tipi di ritentativo, profili, posti di
-    ricerca, `PAROLE_DEI_CONTESTI`, `MOTIVI_JSON`. Mai da `cls`, da un'istanza o
-    da un argomento. Si fissa la prima volta che i modelli sono registrati.
-    """
-    global _vocabolario_fissato
-    if _vocabolario_fissato is not None:
-        return _vocabolario_fissato
-    import dataclasses  # noqa: PLC0415
-
-    from .client import Client  # noqa: PLC0415 - il client importa questo modulo
-    from .confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
-    from .process import Runner  # noqa: PLC0415 - process importa questo modulo
-
-    parole: set[str] = set(PAROLE_DEI_CONTESTI) | set(MOTIVI_JSON)
-    parole |= SOTTOCOMANDI | EFFETTI_REMOTI | TIPI_DI_RITENTATIVO
-    parole |= set(PROFILI_NOTI) | set(POSTI_DI_RICERCA) | set(CATEGORIE)
-    classi = [
-        classe for classe in list(globals().values())
-        if type(classe) is type and issubclass(classe, PlenoraError)
-    ]
-    classi += [*MODELLI, FrozenList, FrozenDict, Client, Runner]
-    for classe in classi:
-        parole.add(type.__dict__["__name__"].__get__(classe, type))
-        parole.update(nome for nome in list(vars(classe)) if type(nome) is str)
-    for modello in MODELLI:
-        parole.update(campo.name for campo in dataclasses.fields(modello))
-        for schema in ("OBBLIGATORI", "PROPRI", "OPZIONALI", "ANNULLABILI"):
-            parole.update(v for v in vars(modello).get(schema, ()) if type(v) is str)
-        for chiave, valore in dict(vars(modello).get("RINOMINATI", {})).items():
-            parole.update(v for v in (chiave, valore) if type(v) is str)
-    vocabolario = frozenset(parole)
-    if MODELLI:
-        _vocabolario_fissato = vocabolario
-    return vocabolario
-
-
-def _parola(testo: str) -> bool:
-    """`testo` e' nel vocabolario, intero o come composto puntato."""
-    vocabolario = _vocabolario()
-    if testo in vocabolario or (testo.isascii() and testo.isdigit()):
-        return True
-    parti = testo.split(".")
-    if len(parti) < 2:
-        return False
-    for parte in parti:
-        while parte.endswith("[]"):
-            parte = parte[:-2]
-        if parte not in vocabolario:
-            return False
-    return True
-
-
-def _parametro(valore: Any) -> str:
-    """Un parametro di messaggio reso testo, o `?` se fuori vocabolario.
-
-    Interi e decimali esatti si scrivono come sono; una `str` esatta solo se e'
-    nel vocabolario; una `tuple` di parole sono alternative («a o b»), una
-    `list` un elenco (`['a', 'b']`); un errore dell'SDK fidato si rende con il
-    suo messaggio, che e' a sua volta fatto di parametri ammessi. Ogni altra
-    cosa -- sottoclassi, oggetti, testo qualunque -- e' `?`.
-    """
-    tipo = type(valore)
-    if tipo is int:
-        return int.__repr__(valore)
-    if tipo is float:
-        return float.__repr__(valore)
-    if tipo is str:
-        return valore if _parola(valore) else "?"
-    if tipo is tuple:
-        return " o ".join(_parametro(v) for v in valore)
-    if tipo is list:
-        return "[" + ", ".join(f"'{_parametro(v)}'" for v in valore) + "]"
-    if costruito_dall_sdk(valore):
-        return str(valore)
-    return "?"
-
-
-def _testo(chiave: Any, parametri: dict[str, Any]) -> str:
-    """Il messaggio di `chiave`, con i parametri passati da `_parametro`."""
-    import string  # noqa: PLC0415
-
-    modello = dict.get(MESSAGGI, chiave) if type(chiave) is str else None
-    if modello is None:
-        modello = MESSAGGI["sdk.sconosciuto"]
-    pezzi = []
-    for letterale, campo, _formato, _conversione in string.Formatter().parse(modello):
-        pezzi.append(letterale)
-        if campo is not None:
-            pezzi.append(
-                _parametro(dict.get(parametri, campo)) if campo in parametri else "?"
-            )
-    return "".join(pezzi)
-
-
 #: Le classi che non prendono un messaggio ma lo compongono da un vocabolario
 #: chiuso proprio: i posti di ricerca, i profili, la busta del processo.
 _STRUTTURATE = ("BinaryNotFound", "ProfileError")
@@ -740,8 +593,8 @@ def _dallo_sdk(classe: Any, chiave: Any, /, *, remote_effect: Any = None, **para
     di una classe d'errore fa sempre un errore esterno, chiunque lo chiami.
 
     Non accetta testo: `chiave` sceglie un modello fisso di `MESSAGGI`, e i
-    `parametri` passano da `_parametro`, che li rende solo se sono nel
-    vocabolario chiuso (`?` altrimenti). Una chiave fuori catalogo da' il
+    `parametri` si scrivono solo se rispettano il tipo che `PARAMETRI`
+    dichiara per quella chiave (`?` altrimenti). Una chiave fuori catalogo da' il
     messaggio di `sdk.sconosciuto`, non un crash. Le classi che compongono il
     messaggio da se' -- `BinaryNotFound`, `ProfileError` e `CommandFailed` --
     nascono da `_dallo_sdk_strutturato`.
@@ -1279,6 +1132,358 @@ RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
 RITARDO_MASSIMO_MS = 86_400_000
 
 
+#: I contesti dei documenti del protocollo: dove `_pretendi` e i `from_json`
+#: dei modelli trovano un difetto. Un elenco chiuso di stringhe intere.
+CONTESTI_DEL_PROTOCOLLO: frozenset[str] = frozenset({
+    "risultato di --version", "catalog", "catalog.drivers[]", "catalog.drivers",
+    "format", "fidelity", "fidelity.omesse", "fidelity.reasons[]", "fidelity.reasons",
+    "layer.fields[]", "layers[].fields", "layer.geometry", "layer.geometry.crs_resolution",
+    "inspect", "inspect.layers[]", "inspect.layers", "layers", "layers.layers[]",
+    "layers.layers", "read", "read.delivered", "loss", "loss.counts[]", "loss.esempi[]",
+    "loss.counts", "loss.esempi", "convert", "convert.layers[]", "convert.layers",
+    "write", "write.input", "write.layers", "capabilities", "capabilities.interfaces[]",
+    "capabilities.operations[]", "capabilities.operations[].controls",
+    "capabilities.operations[].input",
+})
+
+#: I contenitori che `_copia_json` nomina: i contesti del protocollo, la busta
+#: d'errore e le sue parti, il manifesto.
+CONTESTI_JSON: frozenset[str] = CONTESTI_DEL_PROTOCOLLO | frozenset({
+    "busta d'errore", "error.retry", "error.details.row_diagnostics", "MANIFEST.json",
+    "error.code", "error.category", "error.phase", "error.remote_effect", "error.message",
+})
+
+#: I nomi degli argomenti che i metodi pubblici normalizzano.
+ARGOMENTI: frozenset[str] = frozenset({
+    "binary", "temp_dir", "options", "read_options", "write_options", "output",
+    "destination", "source", "target", "source_format", "target_format", "assume_crs",
+    "durable", "layer", "limit", "limits", "timeout", "argv", "format", "profile",
+    "name", "identificatore", "categoria",
+})
+
+#: Che cosa la scoperta del binario esamina.
+COSE_ESAMINATE: frozenset[str] = frozenset({
+    "il pacchetto installato", "un candidato del binario", "il percorso indicato",
+    "PLENORA_IO_BIN", "il binario accanto al pacchetto", "il binario dal PATH",
+    "il manifesto dell'artefatto",
+})
+
+#: Le chiavi del manifesto sul filo.
+CHIAVI_DEL_MANIFESTO: frozenset[str] = frozenset({
+    "nome", "versione", "piattaforma", "profilo", "canale", "non_release", "revisione",
+})
+
+#: I campi obbligatori della busta d'errore.
+CAMPI_DELLA_BUSTA: frozenset[str] = frozenset({
+    "code", "category", "phase", "remote_effect", "retry", "message",
+})
+
+#: I tipi JSON come `_tipo` li nomina, e come `models._NOMI_DEI_TIPI` li scrive.
+TIPI_JSON: frozenset[str] = frozenset({
+    "null", "boolean", "integer", "number", "string", "array", "object", "non JSON",
+})
+NOMI_DEI_TIPI_JSON: frozenset[str] = frozenset({
+    "un elenco", "un oggetto", "una stringa", "un intero", "un booleano", "null",
+})
+
+#: Lo stato della busta, come `process._stato` lo descrive.
+STATI_DELLA_BUSTA: frozenset[str] = frozenset(
+    {"«ok»", "«error»"} | {f"fuori vocabolario ({tipo})" for tipo in TIPI_JSON}
+)
+
+#: I motivi che `json.JSONDecodeError` scrive, per `json.non_valido`.
+MOTIVI_JSON: frozenset[str] = frozenset({
+    "Expecting value", "Expecting ',' delimiter", "Expecting ':' delimiter",
+    "Expecting property name enclosed in double quotes", "Extra data",
+    "Unterminated string starting at", "Invalid control character at",
+    "Invalid \\escape", "Invalid \\uXXXX escape", "Invalid control character",
+    "Illegal trailing comma before end of object",
+    "Illegal trailing comma before end of array",
+})
+
+
+class _Parola:
+    """Un parametro che e' una parola di un insieme chiuso, esatta."""
+
+    __slots__ = ("insieme",)
+
+    def __init__(self, insieme: Any) -> None:
+        self.insieme = insieme  # un frozenset, o una funzione che lo rende
+
+    def rendi(self, valore: Any) -> str:
+        if type(valore) is not str:
+            return "?"
+        insieme = self.insieme() if callable(self.insieme) else self.insieme
+        return valore if valore in insieme else "?"
+
+
+class _Intero:
+    """Un parametro intero esatto, in un intervallo dichiarato."""
+
+    __slots__ = ("minimo", "massimo")
+
+    def __init__(self, minimo: int, massimo: int) -> None:
+        self.minimo, self.massimo = minimo, massimo
+
+    def rendi(self, valore: Any) -> str:
+        if type(valore) is not int or not self.minimo <= valore <= self.massimo:
+            return "?"
+        return int.__repr__(valore)
+
+
+class _Decimale:
+    """Un parametro decimale esatto e finito, in un intervallo dichiarato."""
+
+    __slots__ = ("minimo", "massimo")
+
+    def __init__(self, minimo: float, massimo: float) -> None:
+        self.minimo, self.massimo = minimo, massimo
+
+    def rendi(self, valore: Any) -> str:
+        if type(valore) is not float or not math.isfinite(valore):
+            return "?"
+        if not self.minimo <= valore <= self.massimo:
+            return "?"
+        return float.__repr__(valore)
+
+
+class _Alternative:
+    """Una `tuple` di parametri dello stesso tipo, resa «a o b»."""
+
+    __slots__ = ("tipo",)
+
+    def __init__(self, tipo: Any) -> None:
+        self.tipo = tipo
+
+    def rendi(self, valore: Any) -> str:
+        if type(valore) is not tuple or len(valore) > 16:
+            return "?"
+        return " o ".join(self.tipo.rendi(voce) for voce in valore)
+
+
+class _Elenco:
+    """Una `list` di parametri dello stesso tipo, resa `['a', 'b']`."""
+
+    __slots__ = ("tipo",)
+
+    def __init__(self, tipo: Any) -> None:
+        self.tipo = tipo
+
+    def rendi(self, valore: Any) -> str:
+        if type(valore) is not list or len(valore) > 64:
+            return "?"
+        return "[" + ", ".join(f"'{self.tipo.rendi(voce)}'" for voce in valore) + "]"
+
+
+class _ErroreFidato:
+    """Un altro errore dell'SDK fidato: si rende con il suo messaggio."""
+
+    __slots__ = ()
+
+    def rendi(self, valore: Any) -> str:
+        return str(valore) if costruito_dall_sdk(valore) else "?"
+
+
+def _classi_dell_sdk() -> frozenset[str]:
+    """I nomi delle classi dell'SDK, per identita' degli oggetti classe."""
+    from .client import Client  # noqa: PLC0415 - il client importa questo modulo
+    from .confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
+    from .process import Runner  # noqa: PLC0415 - process importa questo modulo
+
+    classi = [
+        classe for classe in list(globals().values())
+        if type(classe) is type and issubclass(classe, PlenoraError)
+    ]
+    classi += [*MODELLI, FrozenList, FrozenDict, Client, Runner]
+    return frozenset(type.__dict__["__name__"].__get__(c, type) for c in classi)
+
+
+def _luoghi_dei_modelli() -> frozenset[str]:
+    """`Modello.campo` per ogni campo di ogni modello, e i due contenitori:
+    i luoghi che la normalizzazione nomina."""
+    import dataclasses  # noqa: PLC0415
+
+    from .confine import MODELLI  # noqa: PLC0415
+
+    luoghi = {"FrozenList", "FrozenDict"}
+    for modello in MODELLI:
+        nome = type.__dict__["__name__"].__get__(modello, type)
+        luoghi.update(f"{nome}.{campo.name}" for campo in dataclasses.fields(modello))
+    return frozenset(luoghi)
+
+
+def _argomenti_e_luoghi() -> frozenset[str]:
+    """I nomi d'argomento, i campi di `Limits` come `limits.campo` e i luoghi
+    dei modelli (una durata in un modello passa da `_argomenti.durata`)."""
+    import dataclasses  # noqa: PLC0415
+
+    from .limits import Limits  # noqa: PLC0415
+
+    nomi = set(ARGOMENTI) | {f"limits.{c.name}" for c in dataclasses.fields(Limits)}
+    return frozenset(nomi) | _luoghi_dei_modelli()
+
+
+def _campi_del_protocollo() -> frozenset[str]:
+    """I nomi dei campi dei documenti, dagli schemi dei modelli per identita'."""
+    import dataclasses  # noqa: PLC0415
+
+    from .confine import MODELLI  # noqa: PLC0415
+
+    campi: set[str] = set()
+    for modello in MODELLI:
+        campi.update(campo.name for campo in dataclasses.fields(modello))
+        for schema in ("OBBLIGATORI", "PROPRI", "OPZIONALI", "ANNULLABILI"):
+            campi.update(v for v in vars(modello).get(schema, ()) if type(v) is str)
+        for chiave, valore in dict(vars(modello).get("RINOMINATI", {})).items():
+            campi.update(v for v in (chiave, valore) if type(v) is str)
+    return frozenset(campi)
+
+
+def _etichette() -> Any:
+    """Le etichette che la rete ha dato ai metodi e alle funzioni esportate."""
+    from .confine import ETICHETTE  # noqa: PLC0415
+
+    return ETICHETTE
+
+
+_GRANDE = 1 << 62
+_CLASSE = _Parola(_classi_dell_sdk)
+_ARGOMENTO = _Parola(_argomenti_e_luoghi)
+_LUOGO = _Parola(_luoghi_dei_modelli)
+_CONTESTO = _Parola(CONTESTI_DEL_PROTOCOLLO)
+_CONTESTO_JSON = _Parola(CONTESTI_JSON)
+_CAMPO = _Parola(_campi_del_protocollo)
+_TIPO = _Parola(TIPI_JSON)
+_COMANDO = _Parola(SOTTOCOMANDI)
+_FLUSSO = _Parola(frozenset({"stdout", "stderr"}))
+_ERRORE = _ErroreFidato()
+_CONTEGGIO = _Intero(0, _GRANDE)
+_PROFONDITA = _Intero(0, 1_000_000)
+
+#: Il tipo di ogni parametro di ogni modello di `MESSAGGI`. Una prova verifica
+#: che i parametri dichiarati siano esattamente i segnaposto del modello.
+PARAMETRI: dict[str, dict[str, Any]] = {
+    "errore.stato_sigillato": {"nome": _CLASSE},
+    "errore.gia_costruito": {"nome": _CLASSE},
+    **{
+        chiave: {"nome": _ARGOMENTO}
+        for chiave in MESSAGGI
+        if chiave.startswith("arg.")
+    },
+    "arrow.serie": {"attesa": _Intero(0, 10_000), "serie": _Intero(0, 10_000)},
+    "client.non_decodifica": {"comando": _COMANDO, "modello": _CLASSE},
+    "rete.imprevisto": {"etichetta": _Parola(_etichette)},
+    "modello.oggetto_non_ammesso": {"dove": _LUOGO},
+    "modello.immutabile": {"nome": _CLASSE},
+    "modello.gia_costruito": {"nome": _CLASSE},
+    "modello.post_init": {"nome": _CLASSE},
+    "modello.chiave_non_stringa": {"dove": _LUOGO},
+    "modello.chiavi_coincidenti": {"dove": _LUOGO},
+    "modello.annidato": {"dove": _LUOGO},
+    "contenitore.argomenti": {"nome": _CLASSE},
+    "contenitore.non_si_estende": {"nome": _CLASSE},
+    "fs.non_esaminabile": {"che_cosa": _Parola(COSE_ESAMINATE)},
+    "fs.non_risolvibile": {"che_cosa": _Parola(COSE_ESAMINATE)},
+    "manifesto.non_oggetto": {"tipo": _TIPO},
+    "manifesto.mancanti": {"mancanti": _Elenco(_Parola(CHIAVI_DEL_MANIFESTO))},
+    "manifesto.tipo_campo": {
+        "campo": _Parola(CHIAVI_DEL_MANIFESTO), "tipo": _TIPO, "tipi": _Alternative(_TIPO),
+    },
+    "manifesto.da_errore": {"errore": _ERRORE},
+    "manifesto.non_json": {"errore": _ERRORE},
+    "json.costante": {"nome": _Parola(frozenset({"NaN", "Infinity", "-Infinity"}))},
+    "json.non_valido": {
+        "motivo": _Parola(MOTIVI_JSON), "riga": _Intero(1, _GRANDE),
+        "colonna": _Intero(1, _GRANDE),
+    },
+    "json.profondo": {"dove": _CONTESTO_JSON},
+    "json.chiave_non_stringa": {
+        "dove": _CONTESTO_JSON, "profondita": _PROFONDITA, "tipo": _TIPO,
+    },
+    "json.non_finito": {"dove": _CONTESTO_JSON, "profondita": _PROFONDITA},
+    "json.non_esatto": {"dove": _CONTESTO_JSON, "profondita": _PROFONDITA},
+    "busta.non_oggetto": {"tipo": _TIPO},
+    "busta.senza_error": {"tipo": _TIPO},
+    "busta.mancanti": {"mancanti": _Elenco(_Parola(CAMPI_DELLA_BUSTA))},
+    "busta.details": {"tipo": _TIPO},
+    "busta.details_row_diagnostics": {"tipo": _TIPO},
+    "busta.retry_non_oggetto": {"tipo": _TIPO},
+    "busta.row_diagnostics": {"tipo": _TIPO},
+    "busta.campo_testuale": {"campo": _Parola(CAMPI_DELLA_BUSTA), "tipo": _TIPO},
+    "busta.effetto": {"tipo": _TIPO, "ammessi": _Elenco(_Parola(EFFETTI_REMOTI))},
+    "busta.retry_kind": {"tipo": _TIPO, "ammessi": _Elenco(_Parola(TIPI_DI_RITENTATIVO))},
+    "busta.retry_chiavi": {
+        "tipo": _Parola(TIPI_DI_RITENTATIVO), "chiavi": _CONTEGGIO,
+        "attese": _Elenco(_Parola(frozenset({"kind", "delay_ms"}))),
+    },
+    "busta.ritardo": {"tipo": _TIPO, "massimo": _CONTEGGIO},
+    "busta.effetto_ignoto": {
+        "tipo": _Parola(TIPI_DI_RITENTATIVO), "ammessi": _Elenco(_Parola(TIPI_DI_RITENTATIVO)),
+    },
+    "protocollo.non_oggetto": {"dove": _CONTESTO, "tipo": _TIPO},
+    "protocollo.mancanti": {"dove": _CONTESTO, "mancanti": _Elenco(_CAMPO)},
+    "protocollo.tipo_campo": {
+        "dove": _CONTESTO, "campo": _CAMPO, "tipo": _TIPO,
+        "ammessi": _Alternative(_Parola(NOMI_DEI_TIPI_JSON)),
+    },
+    "protocollo.tipo_elemento": {
+        "dove": _CONTESTO, "campo": _CAMPO, "posizione": _CONTEGGIO, "tipo": _TIPO,
+        "ammessi": _Alternative(_Parola(NOMI_DEI_TIPI_JSON)),
+    },
+    "protocollo.non_elenco": {"dove": _CONTESTO, "tipo": _TIPO},
+    "versione.campi_in_piu": {"campi": _CONTEGGIO},
+    "processo.argomento_non_passabile": {"comando": _COMANDO},
+    "processo.non_eseguibile": {"comando": _COMANDO},
+    "processo.chiusura": {"comando": _COMANDO},
+    "processo.timeout": {"comando": _COMANDO, "secondi": _Decimale(0.0, 1e15)},
+    "processo.comunicazione": {"comando": _COMANDO},
+    "processo.non_utf8": {"comando": _COMANDO, "flusso": _FLUSSO, "byte": _CONTEGGIO},
+    "processo.stderr_successo": {"comando": _COMANDO, "caratteri": _CONTEGGIO},
+    "processo.stato_successo": {"comando": _COMANDO, "stato": _Parola(STATI_DELLA_BUSTA)},
+    "processo.senza_result": {"comando": _COMANDO},
+    "processo.stato_errore": {
+        "comando": _COMANDO, "uscita": _Intero(-(1 << 63), 1 << 63),
+        "stato": _Parola(STATI_DELLA_BUSTA),
+    },
+    "processo.stderr_errore": {"comando": _COMANDO, "caratteri": _CONTEGGIO},
+    "processo.flusso_vuoto": {
+        "comando": _COMANDO, "uscita": _Intero(-(1 << 63), 1 << 63), "flusso": _FLUSSO,
+        "altro": _FLUSSO, "caratteri": _CONTEGGIO,
+    },
+    "processo.busta_illeggibile": {
+        "comando": _COMANDO, "flusso": _FLUSSO, "errore": _ERRORE, "caratteri": _CONTEGGIO,
+    },
+    "processo.busta_non_oggetto": {"flusso": _FLUSSO, "tipo": _TIPO},
+}
+
+
+def _testo(chiave: Any, parametri: dict[str, Any]) -> str:
+    """Il messaggio di `chiave`, con ogni parametro reso dal tipo che il
+    catalogo gli dichiara (`PARAMETRI`). Un parametro senza tipo dichiarato,
+    fuori dal suo insieme o fuori intervallo, o che fa sollevare il rendering,
+    e' `?`: nessun errore smette di nascere per un parametro."""
+    import string  # noqa: PLC0415
+
+    modello = dict.get(MESSAGGI, chiave) if type(chiave) is str else None
+    if modello is None:
+        chiave, modello = "sdk.sconosciuto", MESSAGGI["sdk.sconosciuto"]
+    tipi = dict.get(PARAMETRI, chiave, {})
+    pezzi = []
+    for letterale, campo, _formato, _conversione in string.Formatter().parse(modello):
+        pezzi.append(letterale)
+        if campo is None:
+            continue
+        tipo = dict.get(tipi, campo)
+        if tipo is None or campo not in parametri:
+            pezzi.append("?")
+            continue
+        try:
+            pezzi.append(tipo.rendi(dict.get(parametri, campo)))
+        except Exception:  # noqa: BLE001 - un parametro non fa mai fallire l'errore
+            pezzi.append("?")
+    return "".join(pezzi)
+
+
 def _effetto(valore: Any) -> str:
     """Un effetto remoto del vocabolario chiuso, o `InvalidArgumentError`."""
     if type(valore) is not str or valore not in EFFETTI_REMOTI:
@@ -1386,6 +1591,19 @@ def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
     return oggetto
 
 
+def _riga_e_colonna(testo: str, posizione: Any) -> tuple[Any, Any]:
+    """Riga e colonna (da 1) di `posizione` in `testo`, una `str` esatta.
+
+    Con una posizione che non e' un intero esatto dentro il testo rende
+    `(None, None)`, che il messaggio scrive `?`.
+    """
+    if type(posizione) is not int or not 0 <= posizione <= len(testo):
+        return None, None
+    riga = str.count(testo, "\n", 0, posizione) + 1
+    colonna = posizione - str.rfind(testo, "\n", 0, posizione)
+    return riga, colonna
+
+
 def carica_json(testo: str) -> Any:
     """`json.loads` senza le sue tolleranze.
 
@@ -1402,6 +1620,13 @@ def carica_json(testo: str) -> Any:
     senza l'effetto `unknown`. Il messaggio dice posizione e motivo, mai il
     testo; `from None` taglia la catena, che porterebbe il documento in `doc`.
     """
+    # Una `str` esatta prima del parser: con una sottoclasse, `json.loads`
+    # chiama i suoi metodi (`count`, `rfind`, `startswith`...) e l'eccezione
+    # che ne esce porterebbe numeri e motivo scelti dal chiamante.
+    if type(testo) is not str:
+        if not issubclass(type(testo), str):
+            raise _dallo_sdk(ProtocolError, "json.non_testo")
+        testo = str.join("", [testo])
     try:
         return json.loads(
             testo,
@@ -1412,10 +1637,12 @@ def carica_json(testo: str) -> Any:
     except ProtocolError:
         raise
     except json.JSONDecodeError as errore:
-        # Il motivo solo se e' uno di quelli che `json` scrive (`MOTIVI_JSON`).
+        # Il motivo solo se e' uno di quelli che `json` scrive (`MOTIVI_JSON`);
+        # riga e colonna le ricalcola l'SDK dal testo esatto e dalla posizione,
+        # verificata, invece di prenderle dall'eccezione.
+        riga, colonna = _riga_e_colonna(testo, errore.pos)
         sostituto = _dallo_sdk(
-            ProtocolError, "json.non_valido",
-            motivo=errore.msg, riga=errore.lineno, colonna=errore.colno,
+            ProtocolError, "json.non_valido", motivo=errore.msg, riga=riga, colonna=colonna,
         )
     except RecursionError:
         sostituto = _dallo_sdk(ProtocolError, "json.troppo_annidato")
