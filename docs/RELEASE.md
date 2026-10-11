@@ -1476,9 +1476,13 @@ prossima release è percio' una **major** (5.0.0).
   occupati finche' il nipote non chiude. Il flusso resta del lettore finche'
   il chiamante non lo reclama e non conferma di averlo chiuso: un reclamo
   interrotto non lascia il flusso senza padrone, e la conferma della
-  chiusura si scrive solo se `close()` e' tornata. Il lettore aspetta la
-  fine del run al piu' 10 s; un'interruzione asincrona nella pulizia
-  interna puo' ritardare fino a li' il rilascio di pipe e thread. Un processo che resta vivo
+  chiusura si scrive solo se `close()` e' tornata. Il lettore scarta solo a
+  run certamente finito: la conclusione impostata o il gettone del run (un
+  oggetto tenuto solo dal frame di `run`, di cui il lettore ha un
+  `weakref`) morto; nessun tempo fisso. Il `finally` di `run` fa sempre un
+  ultimo tentativo (`kill` e un'attesa di 1 s se il processo e' vivo); un
+  Ctrl-C proprio dentro quell'ultimo tentativo puo' lasciare il figlio
+  vivo. Un processo che resta vivo
   prevale sull'errore che ha portato a chiuderlo, e la distinzione fra
   timeout e guasto della comunicazione si perde.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,

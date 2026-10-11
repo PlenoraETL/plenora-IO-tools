@@ -388,12 +388,18 @@ manca -- reclamo fallito, interrotto da un Ctrl-C mentre si prende il lock,
 lettore ancora bloccato -- il lettore scarta, libera e chiude da se'. Nessun
 passaggio di responsabilita' resta a meta': la conferma si scrive solo se
 `close()` e' tornata normalmente, e il lettore non trattiene il buffer in
-nessuna variabile propria. Il lettore aspetta la fine del run con un tempo
-limitato (10 s); allo scadere si comporta da abbandonato, cosi' nessun thread
-resta appeso. **Un'interruzione asincrona** (un Ctrl-C) che colpisce la
-pulizia interna dell'SDK -- per esempio proprio mentre il run segnala la
-propria fine -- **puo' ritardare il rilascio** della pipe e del thread
-lettore fino a quel tempo. Gli oggetti che coordinano i lettori si
+nessuna variabile propria. Il lettore non scarta mai byte che il run potrebbe
+ancora prendere: aspetta, a passi, che il run sia **certamente finito**, cioe'
+che la conclusione sia impostata **oppure** che sia morto il gettone del run,
+un oggetto creato da `run` e tenuto solo da una variabile locale del suo
+frame (il lettore ne ha un `weakref`). Se un'interruzione asincrona salta la
+segnalazione della fine, lo srotolamento del frame basta: nessun tempo fisso,
+nessun thread appeso. Il `finally` di `run`, dal thread chiamante e comunque
+si sia usciti dalla chiusura, fa un **ultimo tentativo**: se il processo e'
+ancora vivo (`poll()` e' `None`) lo uccide e lo aspetta per un tempo breve
+(1 s), senza sollevare. **Residuo dichiarato:** un'interruzione asincrona (un
+Ctrl-C) che colpisce proprio quell'ultimo tentativo **puo' lasciare il figlio
+vivo**. Gli oggetti che coordinano i lettori si
 costruiscono prima di `Popen`: dal ritorno di `Popen` all'ingresso nel blocco
 protetto non c'e' nessuna operazione. Il ciclo a passi non consuma
 CPU: un processo che dorme si aspetta con `wait` di un passo alla volta, e

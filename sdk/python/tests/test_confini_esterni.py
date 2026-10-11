@@ -3739,7 +3739,9 @@ class LaGestioneDelProcesso(unittest.TestCase):
 
         # Ventitreesimo giro: il processo non muore. `kill`, `terminate`,
         # `kill`, ciascuno con un'attesa limitata, poi non si aspetta oltre:
-        # `processo.non_terminato`, che prevale sul timeout.
+        # `processo.non_terminato`, che prevale sul timeout. Ventiseiesimo
+        # giro: il `finally` di `run` fa ancora un ultimo `kill`, perche' il
+        # processo e' vivo.
         for errore_kill in (None, OSError(SEGRETO)):
             with self.subTest(kill_che_fallisce=errore_kill is not None):
                 finto = PopenFinto([subprocess.TimeoutExpired(["x"], 1.0)],
@@ -3751,7 +3753,7 @@ class LaGestioneDelProcesso(unittest.TestCase):
                 self.assertEqual(errore.remote_effect, "unknown")
                 self.assertEqual([voce for voce in finto.registro
                                   if voce in ("kill", "terminate")],
-                                 ["kill", "terminate", "kill"])
+                                 ["kill", "terminate", "kill", "kill"])
                 self.assertEqual(finto.kill_estranei, [])
         # Un kill che solleva non si inghiotte in silenzio: un'interruzione
         # primaria porta la nota della chiusura non riuscita.
@@ -4270,7 +4272,7 @@ class IlRilascioDelleRisorse(unittest.TestCase):
         with registrati, \
                 mock.patch.object(_process, "_nuovo_evento", EventoCheSolleva, create=True), \
                 mock.patch.object(_process, "threading", finto_threading), \
-                mock.patch.object(_process, "_ATTESA_DELLA_CONCLUSIONE", 0.3, create=True):
+                mock.patch.object(_process, "_PASSO_DEL_LETTORE", 0.05):
             for _ in range(20):
                 finto = PopenFinto([(self.BUSTA, b"")])
                 finti.append(finto)
@@ -4318,6 +4320,143 @@ class IlRilascioDelleRisorse(unittest.TestCase):
             self.assertEqual(errore.remote_effect, "unknown")
         else:
             self.assertEqual(errore.remote_effect, "none")
+
+
+# --- 28. ventiseiesimo giro di revisione ------------------------------------
+
+
+class LaFineDelRun(unittest.TestCase):
+    """Ventiseiesimo giro: il lettore scarta solo a run certamente finito, e
+    il `finally` di `run` tenta sempre di terminare il figlio."""
+
+    @prova("process.communicate")
+    def test_un_lettore_non_scarta_mentre_il_run_e_vivo(self) -> None:
+        """Prima: dieci secondi dopo l'EOF di stderr il lettore scartava il
+        suo buffer, anche con il run ancora vivo: un figlio che scrive su
+        stderr, lo chiude, lavora, poi esce con zero, risultava un successo.
+        L'attesa e' ridotta, come nelle altre prove. Un `Popen` finto: su
+        Windows un figlio Python non da' l'EOF di stderr prima di uscire."""
+        import time
+
+        from plenora_io import Runner, _process
+
+        from test_confini_sdk import FlussoFinto
+
+        busta = b'{"status": "ok", "contract": "x", "result": {}}'
+
+        class FiglioCheLavora:
+            """Stderr scritto e chiuso subito; stdout ed esito dopo 0,8 s."""
+
+            def __init__(self):
+                self.pid = 4242
+                self.returncode = None
+                self.registro = []
+
+            def __call__(self, argv, **opzioni):
+                self._fine = time.monotonic() + 0.8
+                uscita = self
+
+                class Stdout:
+                    def read(self, quanti=-1):
+                        attesa = uscita._fine - time.monotonic()
+                        if attesa > 0:
+                            time.sleep(attesa)
+                        dati, uscita._stdout = uscita._stdout, b""
+                        return dati
+
+                    def close(self):
+                        pass
+
+                self._stdout = busta
+                self.stdout = Stdout()
+                self.stderr = FlussoFinto(b"diagnostica", None, None, self.registro, "stderr")
+                return self
+
+            def wait(self, timeout=None):
+                if time.monotonic() < self._fine:
+                    time.sleep(min(timeout or 0.01, 0.01))
+                    raise subprocess.TimeoutExpired(["x"], timeout)
+                self.returncode = 0
+                return 0
+
+            def poll(self):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+            terminate = kill
+
+            def send_signal(self, segnale):
+                pass
+
+        with mock.patch.object(subprocess, "Popen", FiglioCheLavora()), \
+                mock.patch.object(_process, "_PASSO_DEL_LETTORE", 0.05, create=True), \
+                self.assertRaises(PlenoraError) as preso:
+            Runner(Path("plenora-io")).run(["inspect", "s.geojson"])
+        # Stderr non e' vuoto: il successo con stderr scritto e' un errore.
+        self.assertIs(type(preso.exception), ProtocolError)
+        self.assertIn("stderr", str(preso.exception))
+
+    @prova("process.exit")
+    def test_un_interruzione_all_ingresso_della_chiusura_termina_il_figlio(self) -> None:
+        """Prima: un'interruzione all'ingresso di `_chiudi`, prima dei
+        tentativi di terminazione, lasciava il figlio vivo: il `finally` di
+        `run` impostava solo la conclusione."""
+        from plenora_io import Runner, _process
+
+        from test_confini_sdk import PopenFinto
+
+        finto = PopenFinto([KeyboardInterrupt()])
+        with mock.patch.object(subprocess, "Popen", finto), \
+                mock.patch.object(_process, "_chiudi", side_effect=KeyboardInterrupt), \
+                self.assertRaises(KeyboardInterrupt):
+            Runner(Path("plenora-io")).run(["write", "s", "o", "--to", "gpkg"])
+        self.assertIn("kill", finto.registro)
+        self.assertEqual(finto.kill_estranei, [])
+
+    @prova("process.exit")
+    def test_il_run_finito_si_riconosce_anche_senza_conclusione(self) -> None:
+        """Il lettore riconosce la fine del run anche se `conclusione.set()`
+        non arriva: il gettone del run, tenuto solo dal suo frame, muore."""
+        import threading
+        import time
+        import types
+
+        from plenora_io import _process
+
+        from test_confini_sdk import PopenFinto
+
+        vero_evento = threading.Event
+
+        class EventoCheSolleva(vero_evento):
+            def set(self):
+                if threading.current_thread() is threading.main_thread():
+                    raise KeyboardInterrupt
+                super().set()
+
+        lettori = []
+        originale = _process._Lettore
+
+        class Registrato(originale):
+            def __init__(self, *argomenti, **opzioni):
+                super().__init__(*argomenti, **opzioni)
+                lettori.append(self)
+
+        finto_threading = types.SimpleNamespace(
+            Event=EventoCheSolleva, Thread=threading.Thread, Lock=threading.Lock,
+            current_thread=threading.current_thread, main_thread=threading.main_thread)
+        finto = PopenFinto([(b'{"status": "ok", "contract": "x", "result": {}}', b"")])
+        with mock.patch.object(_process, "_Lettore", Registrato), \
+                mock.patch.object(_process, "_nuovo_evento", EventoCheSolleva), \
+                mock.patch.object(_process, "threading", finto_threading), \
+                mock.patch.object(subprocess, "Popen", finto), \
+                self.assertRaises(KeyboardInterrupt):
+            _process.Runner(Path("plenora-io")).run(["write", "s", "o", "--to", "gpkg"])
+        scadenza = time.monotonic() + 5.0
+        for lettore in lettori:
+            lettore._thread.join(max(0.0, scadenza - time.monotonic()))
+        self.assertEqual([lettore for lettore in lettori if lettore._thread.is_alive()], [])
 
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -263,9 +264,22 @@ NOTA_DELL_INTERRUZIONE = (
 _ATTESA_DELLA_CHIUSURA = 5.0
 _ATTESA_DEI_LETTORI = 5.0
 
-#: Quanto un lettore che ha finito di leggere aspetta la fine del run, prima di
-#: comportarsi da abbandonato (scarta, libera, chiude il flusso).
-_ATTESA_DELLA_CONCLUSIONE = 10.0
+#: Il passo con cui un lettore che ha finito di leggere guarda se il run e'
+#: finito: la conclusione impostata, o il gettone del run morto.
+_PASSO_DEL_LETTORE = 0.1
+
+#: L'attesa dell'ultimo tentativo di terminare il figlio, nel `finally` di
+#: `run`.
+_ATTESA_DELL_ULTIMO_TENTATIVO = 1.0
+
+
+class _GettoneDelRun:
+    """Un oggetto per run, tenuto **solo** da una variabile locale del frame
+    di `run`; i lettori ne hanno un `weakref`. Quando muore il frame si e'
+    srotolato: il run e' finito, anche se un'interruzione asincrona ha
+    saltato `conclusione.set()`."""
+
+    __slots__ = ("__weakref__",)
 
 #: Gli oggetti di coordinamento dei lettori, costruiti **prima** di `Popen`:
 #: dopo l'avvio non c'e' niente fuori dal blocco protetto. Funzioni del
@@ -308,8 +322,10 @@ class _Lettore:
     """
 
     def __init__(self, flusso: Any, guasto: threading.Event,
-                 conclusione: threading.Event) -> None:
+                 conclusione: threading.Event, gettone: Any) -> None:
         self._flusso = flusso
+        #: Un `weakref` al gettone del run, mai un riferimento forte.
+        self._gettone = gettone
         self._dati: bytearray | None = bytearray()
         self._fallito = False
         self._guasto = guasto
@@ -331,9 +347,9 @@ class _Lettore:
                 if type(blocco) is not bytes:
                     self._fallito = True
                     break
-                if self._conclusione.is_set():
-                    # Il run e' concluso e nessuno leggera' piu' questi
-                    # byte: si scartano, e il buffer si libera.
+                if self._run_finito():
+                    # Il run e' finito e nessuno leggera' piu' questi byte:
+                    # si scartano, e il buffer si libera.
                     self._dati = None
                     del blocco
                     continue
@@ -354,17 +370,23 @@ class _Lettore:
             self._letto.set()
             # Il flusso: lo chiude il chiamante, se lo ha reclamato e lo
             # conferma; altrimenti, a fine run, lo chiude il lettore. La fine
-            # del run si aspetta con un tempo limitato: se un'interruzione
-            # asincrona impedisce al `finally` di `run` di segnalarla, il
-            # lettore si comporta da abbandonato allo scadere, e nessun thread
-            # resta appeso per sempre.
-            self._conclusione.wait(_ATTESA_DELLA_CONCLUSIONE)
+            # del run e' **certa**: la conclusione impostata, oppure il
+            # gettone del run morto (il frame di `run` si e' srotolato, anche
+            # per un'interruzione che ha saltato `conclusione.set()`). Prima
+            # di allora il lettore non scarta niente: il run puo' ancora
+            # prendere i suoi byte (ventiseiesimo giro -- un'attesa fissa
+            # dall'EOF scartava lo stderr di un run ancora vivo).
+            while not self._run_finito():
+                self._conclusione.wait(_PASSO_DEL_LETTORE)
             self._dati = None
             if not self.chiuso_dal_chiamante:
                 try:
                     self._flusso.close()
                 except BaseException:  # noqa: BLE001, S110 - nessuno aspetta piu' il flusso
                     pass
+
+    def _run_finito(self) -> bool:
+        return self._conclusione.is_set() or self._gettone() is None
 
     def avvia(self) -> None:
         self._thread.start()
@@ -480,6 +502,18 @@ def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
     return esito
 
 
+def _ultimo_tentativo(processo: Any) -> None:
+    """Se il figlio e' ancora vivo: `kill` e un'attesa breve, senza sollevare
+    un `Exception`. Un'interruzione asincrona qui dentro puo' lasciarlo vivo
+    (README)."""
+    try:
+        if processo.poll() is None:
+            processo.kill()
+            processo.wait(timeout=_ATTESA_DELL_ULTIMO_TENTATIVO)
+    except Exception:  # noqa: BLE001, S110 - e' l'ultimo tentativo, dopo la chiusura
+        pass
+
+
 def _annota(eccezione: BaseException, nota: str) -> None:
     """Una nota fissa, senza dati, su un'eccezione che resta la primaria.
 
@@ -585,14 +619,23 @@ class Runner:
         # l'eccezione primaria, e dopo un successo diventano un errore.
         # Da qui al `try`, niente. La fine del run per i lettori si
         # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
+        gettone = _GettoneDelRun()
         try:
-            return self._esito(processo, argv, lettori, conclusione, guasto)
+            return self._esito(
+                processo, argv, lettori, conclusione, guasto, weakref.ref(gettone))
         finally:
-            conclusione.set()
+            try:
+                # L'ultimo tentativo, dal thread chiamante, comunque si sia
+                # usciti da `_chiudi`: un'interruzione al suo ingresso saltava
+                # la terminazione del figlio.
+                _ultimo_tentativo(processo)
+            finally:
+                gettone = None  # noqa: F841 - il frame non trattiene piu' il gettone
+                conclusione.set()
 
     def _esito(
         self, processo: Any, argv: list[str], lettori: list["_Lettore"],
-        conclusione: threading.Event, guasto: threading.Event,
+        conclusione: threading.Event, guasto: threading.Event, gettone: Any,
     ) -> FrozenDict:
         """Il resto di `run`, dentro il `finally` che conclude i lettori."""
         primaria: BaseException | None = None
@@ -600,8 +643,8 @@ class Runner:
         try:
             registra_avvio(argv)
             lettori += [
-                _Lettore(processo.stdout, guasto, conclusione),
-                _Lettore(processo.stderr, guasto, conclusione),
+                _Lettore(processo.stdout, guasto, conclusione, gettone),
+                _Lettore(processo.stderr, guasto, conclusione, gettone),
             ]
             stdout, stderr = self._attendi(processo, lettori, guasto, argv)
             testo_stdout = _testo(stdout, argv, "stdout")
