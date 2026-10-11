@@ -9,6 +9,18 @@
   "licenza_upstream": "Apache-2.0",
   "file_licenza": "LICENSE.txt",
   "file_notice": "NOTICE.txt",
+  "licenze": [
+    {
+      "file": "LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "origine": "il `.crate` di crates.io, identico byte per byte"
+    },
+    {
+      "file": "NOTICE.txt",
+      "sha256": "e5b198d7f809311723889814d99a92f808c69e89a847efa7a7b65270f5fdeae6",
+      "origine": "il `.crate` di crates.io, identico byte per byte"
+    }
+  ],
   "risoluzione": "il workspace dipende da parquet 60.0.0 come dipendenza diretta per percorso su vendor/parquet, con il nome di pacchetto proprio plenora-fork-parquet e il nome di libreria upstream `parquet`; nessuna [patch] nei manifesti di workspace, cosi' chi dipende da noi riceve il fork e non il crate di crates.io",
   "base": {
     "che_cosa": "il fork `-eof` di plenora-data-tools: `vendor/parquet-60.0.0-eof`, cioe' il pacchetto crates.io 60.0.0 piu' `patches/parquet-eof.patch` (provenienza e motivazioni in `vendor/parquet-60.0.0-eof/PROVENANCE.md` di quel repository)",

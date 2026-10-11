@@ -47,6 +47,21 @@ from fork_comune import fini_riga_divergenti, impronta, insieme_versionato  # no
 
 FORK = ("gdal", "dxf", "shapefile", "parquet")
 
+
+def voci_del_delta(delta: object) -> list:
+    """I file del delta funzionale, nelle due forme dei registri.
+
+    I registri di gdal, dxf e shapefile lo scrivono come elenco di voci con
+    `file`; quello di parquet come mappa da file a motivazione. L'audit leggeva
+    solo la prima forma, e sul registro di parquet si fermava con
+    `AttributeError` invece di riportare.
+    """
+    if isinstance(delta, dict):
+        return sorted(delta)
+    if isinstance(delta, list):
+        return [voce.get("file") if isinstance(voce, dict) else voce for voce in delta]
+    raise SystemExit("audit: `delta_funzionale` non e' ne' un elenco ne' una mappa")
+
 def normalizza_eol(dati: bytes) -> bytes:
     """I fine riga non sono un delta.
 
@@ -125,6 +140,58 @@ CRATES_IO = "https://static.crates.io/crates/{nome}/{nome}-{versione}.crate"
 #: clonato non ha una cache -- e allora il confronto con l'upstream si salta
 #: **dicendolo**, invece di dare per buono il delta dichiarato.
 CACHE = pathlib.Path("/usr/local/cargo/registry/cache")
+
+
+def rilievi_di_licenza(nome: str, registro: dict, vendor: pathlib.Path) -> list[str]:
+    """Le licenze che il fork ridistribuisce, verificate sui byte. Senza rete.
+
+    Ogni file di `licenze` nel registro deve esserci, essere **versionato** (un
+    file presente solo sul disco di chi lancia non arriva a chi riceve il
+    sorgente) e avere lo sha256 registrato, a fine riga normalizzati: il testo
+    di una licenza e' la condizione per ridistribuire, e un testo riscritto e'
+    un'altra licenza. Anche `file_licenza` e `file_notice` devono comparire fra
+    le `licenze`: dichiararli senza impronta sarebbe un'affermazione che nessuno
+    verifica, ed e' esattamente come il fork di gdal ha ridistribuito codice MIT
+    senza il suo testo fino alla 4.1.1.
+    """
+    rilievi: list[str] = []
+    licenze = registro.get("licenze")
+    if not isinstance(licenze, list) or not licenze:
+        return [f"{nome}: il registro non elenca `licenze` con la loro impronta"]
+    versionati = {
+        percorso.relative_to(vendor).as_posix() for percorso in insieme_versionato(vendor)
+    }
+    elencati = set()
+    for voce in licenze:
+        file = voce.get("file") if isinstance(voce, dict) else None
+        atteso = voce.get("sha256") if isinstance(voce, dict) else None
+        if not isinstance(file, str) or not isinstance(atteso, str):
+            rilievi.append(f"{nome}: una voce di `licenze` non ha `file` e `sha256`")
+            continue
+        elencati.add(file)
+        percorso = vendor / file
+        if not percorso.is_file():
+            rilievi.append(
+                f"{nome}: il registro dichiara «{file}» e il file non c'e': si "
+                "ridistribuisce codice altrui senza la sua licenza"
+            )
+            continue
+        if file not in versionati:
+            rilievi.append(f"{nome}: «{file}» c'e' sul disco ma non e' versionato")
+        ottenuto = hashlib.sha256(normalizza_eol(percorso.read_bytes())).hexdigest()
+        if ottenuto != atteso:
+            rilievi.append(
+                f"{nome}: il testo di «{file}» non e' quello registrato (sha256 "
+                f"{ottenuto[:12]}, il registro vuole {atteso[:12]})"
+            )
+    for chiave in ("file_licenza", "file_notice"):
+        dichiarato = registro.get(chiave)
+        if dichiarato and dichiarato not in elencati:
+            rilievi.append(
+                f"{nome}: `{chiave}` dichiara «{dichiarato}» e `licenze` non ne "
+                "registra l'impronta"
+            )
+    return rilievi
 
 
 def crate_originale(
@@ -236,9 +303,7 @@ def audita(nome: str, scarico: pathlib.Path | None) -> dict:
             "packaging": sorted(lock.get("packaging_delta_files", [])),
         },
         "licenza_upstream": registro.get("licenza_upstream"),
-        "voci_del_registro": [
-            v.get("file") for v in registro.get("delta_funzionale", [])
-        ],
+        "voci_del_registro": voci_del_delta(registro.get("delta_funzionale", [])),
     }
 
     # La licenza: quella che redistribuiamo, non quella che diciamo.
@@ -292,9 +357,16 @@ def audita(nome: str, scarico: pathlib.Path | None) -> dict:
                 testo = originale.read() if originale is not None else None
             except KeyError:
                 testo = None
-        voce["licenza"]["identica_a_upstream"] = testo is not None and normalizza_eol(
-            testo
-        ) == normalizza_eol((vendor / file_licenza).read_bytes())
+        if testo is None:
+            # Il pacchetto pubblicato non porta il file: il testo viene da un
+            # altro punto di upstream (il registro dice quale), e lo verifica
+            # l'impronta di `licenze`, non questo confronto.
+            voce["licenza"]["identica_a_upstream"] = None
+            voce["licenza"]["assente_dal_crate"] = True
+        else:
+            voce["licenza"]["identica_a_upstream"] = normalizza_eol(
+                testo
+            ) == normalizza_eol((vendor / file_licenza).read_bytes())
 
     dichiarati = set(voce["delta_dichiarato"]["funzionale"]) | set(
         voce["delta_dichiarato"]["packaging"]
@@ -302,8 +374,11 @@ def audita(nome: str, scarico: pathlib.Path | None) -> dict:
     voce["confronto_con_upstream"]["non_dichiarati"] = sorted(
         set(reale["modificati"]) - dichiarati
     )
+    # Un file aggiunto (la licenza di gdal, che il crate non porta) e' un
+    # delta anche se non e' «modificato»: non c'e' un originale con cui
+    # coincidere.
     voce["confronto_con_upstream"]["dichiarati_e_identici"] = sorted(
-        dichiarati - set(reale["modificati"])
+        dichiarati - set(reale["modificati"]) - set(reale["aggiunti"])
     )
     return voce
 
@@ -356,6 +431,17 @@ def main(argv: list[str] | None = None) -> int:
 
     rapporto = {"fork": {nome: audita(nome, opzioni.scarico) for nome in FORK}}
     rilievi: list[str] = []
+    licenze: list[str] = []
+    for nome in FORK:
+        lock = json.loads(
+            (ROOT / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8")
+        )
+        registro = json.loads(
+            (ROOT / "assurance" / "registries" / f"vendor-{nome}-fork.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        licenze += rilievi_di_licenza(nome, registro, ROOT / lock["vendor_path"])
 
     for nome, voce in rapporto["fork"].items():
         if not voce["impronta_coincide"]:
@@ -366,13 +452,8 @@ def main(argv: list[str] | None = None) -> int:
                 "diversi da quelli che git registrerebbe"
             )
         licenza = voce["licenza"]
-        if not licenza["file_presente"]:
-            rilievi.append(
-                f"{nome}: il registro dichiara «{licenza['file']}» e il file non "
-                "c'e': si ridistribuisce codice altrui senza la sua licenza"
-            )
         if licenza["dichiarata_nel_registro"] != licenza["dichiarata_nel_manifesto"]:
-            rilievi.append(
+            licenze.append(
                 f"{nome}: il registro dice «{licenza['dichiarata_nel_registro']}» e "
                 f"il manifesto «{licenza['dichiarata_nel_manifesto']}»"
             )
@@ -381,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
         if not confronto["eseguito"]:
             continue
         if licenza.get("identica_a_upstream") is False:
-            rilievi.append(
+            licenze.append(
                 f"{nome}: il testo di «{licenza['file']}» non e' quello di "
                 "upstream"
             )
@@ -397,10 +478,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"{nome}: dichiarati nel delta e identici a upstream: "
                 f"{confronto['dichiarati_e_identici']}"
             )
-        if confronto["aggiunti"]:
-            rilievi.append(
-                f"{nome}: file aggiunti rispetto a upstream: {confronto['aggiunti']}"
-            )
+        aggiunti = [
+            file
+            for file in confronto["aggiunti"]
+            if file not in voce["delta_dichiarato"]["packaging"]
+        ]
+        if aggiunti:
+            rilievi.append(f"{nome}: file aggiunti rispetto a upstream: {aggiunti}")
         if confronto["mancanti_alla_libreria"]:
             rilievi.append(
                 f"{nome}: mancano file che entrerebbero nella compilazione: "
@@ -457,7 +541,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"Cargo.toml: «{nome}» dipende da {voce['path']!r}, che non esiste"
             )
 
+    rilievi = licenze + rilievi
     rapporto["rilievi"] = rilievi
+    rapporto["rilievi_di_licenza"] = licenze
 
     for nome, voce in rapporto["fork"].items():
         confronto = voce["confronto_con_upstream"]
@@ -467,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
         stato = "presente" if licenza["file_presente"] else "ASSENTE"
         if licenza.get("identica_a_upstream") is True:
             stato = "presente e identica a upstream"
+        elif licenza.get("assente_dal_crate"):
+            stato = "presente; il crate non la porta, vale l'impronta registrata"
         elif licenza.get("identica_a_upstream") is False:
             stato = "presente ma DIVERSA da upstream"
         print(
@@ -517,10 +605,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"\nrapporto in {opzioni.rapporto}")
 
-    # L'audit **riporta**, non blocca: i gate dei fork sono quelli che fermano
-    # una corsa, e duplicarne il verdetto qui darebbe due voci alla stessa
-    # verifica. Un'uscita diversa da zero direbbe che questo documento e'
-    # un'altra difesa, e non lo e'.
+    # L'audit **riporta**, e blocca su una cosa sola: le licenze. Gli altri
+    # rilievi hanno il loro gate (i `check_*_fork.py`), e duplicarne il
+    # verdetto qui darebbe due voci alla stessa verifica. Le licenze no: nessun
+    # gate le verificava, e il fork di gdal ha ridistribuito codice MIT senza il
+    # suo testo dalla prima vendorizzazione fino alla 4.1.1, con il registro che
+    # dichiarava il contrario. Un rilievo di licenza esce con 1, e la CI lo
+    # esegue a ogni push.
+    if licenze:
+        print(f"\n{len(licenze)} rilievi di licenza: l'audit fallisce.")
+        return 1
     return 0
 
 

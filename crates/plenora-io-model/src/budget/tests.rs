@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use crate::clock::PipelineClock;
 
 /// Il ramo di ritentativo di `try_take_bounded`, **deterministicamente**.
 ///
@@ -379,8 +380,30 @@ fn cancel_pipeline_cancels_both_operation_budgets() {
 
 #[test]
 fn deadline_expiry_is_not_conflated_with_cancellation() {
-    let expired = bundle_with(PipelineLimits::default().with_duration_ms(1));
-    std::thread::sleep(Duration::from_millis(5));
+    // Orologio manuale: la scadenza e' passata perche' la prova la fa
+    // passare, non perche' una `sleep` ha dormito abbastanza.
+    let orologio = PipelineClock::manual(Instant::now());
+    let expired = PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_duration_ms(1))
+        .clock(orologio.clone())
+        .build()
+        .expect("il builder deve costruire");
+    expired
+        .context()
+        .ensure_active()
+        .expect("un istante dopo la costruzione la pipeline e' attiva");
+    orologio
+        .advance(Duration::from_micros(999))
+        .expect("avanzamento");
+    expired
+        .context()
+        .ensure_active()
+        .expect("un istante prima della scadenza la pipeline e' attiva");
+    // Allo scoccare esatto e' scaduta, come il token (`now >= deadline`):
+    // prima il residuo zero la lasciava attiva per quell'istante.
+    orologio
+        .advance(Duration::from_micros(1))
+        .expect("avanzamento");
     let error = expired
         .context()
         .ensure_active()
