@@ -163,7 +163,10 @@ class IlProcesso(unittest.TestCase):
         self.assertIsInstance(errore, CommandFailed)
         self.assertIn("`plenora-io write`", str(errore))
         self.assertNotIn(SEGRETO, str(errore))
-        self.assertEqual(errore.argv, SCRIVE, "gli argomenti restano a chi li ha passati")
+        # Solo il sottocomando, da un elenco chiuso: la riga intera porta dati
+        # di chi chiama, che li ha gia'.
+        self.assertEqual(errore.command, "write")
+        self.assertFalse(hasattr(errore, "argv"))
 
 
 @serve_pyarrow

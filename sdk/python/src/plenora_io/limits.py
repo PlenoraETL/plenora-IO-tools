@@ -37,6 +37,19 @@ from dataclasses import dataclass, fields
 from datetime import timedelta
 
 
+def _millisecondi(durata: timedelta) -> int:
+    """I millisecondi di una `timedelta` esatta, in interi.
+
+    Non da `total_seconds()`: un `float` perde i millisecondi oltre 2**53
+    microsecondi, e una durata lunga arrivava alla CLI con un altro valore. Le
+    frazioni di millisecondo si troncano, come prima.
+    """
+    giorni = timedelta.days.__get__(durata)
+    secondi = timedelta.seconds.__get__(durata)
+    micro = timedelta.microseconds.__get__(durata)
+    return (giorni * 86_400 + secondi) * 1_000 + micro // 1_000
+
+
 @dataclass(frozen=True, kw_only=True)
 class Limits:
     """I tetti di un'esecuzione, nella forma che la CLI accetta.
@@ -65,6 +78,31 @@ class Limits:
     #: nelle librerie Python quasi sempre il secondo.
     DURATA = "deadline"
 
+    def __post_init__(self) -> None:
+        # La normalizzazione sta nel costruttore, e non solo in `Client`:
+        # `to_argv()` e' pubblico, e `Limits(max_rows=1 << 64).to_argv()`
+        # rendeva un intero fuori dall'intervallo della CLI, mentre una
+        # sottoclasse di `timedelta` faceva eseguire le proprie proprieta'.
+        # Ogni campo diventa qui il tipo base esatto, entro 64 bit, e da li'
+        # nessun metodo legge un oggetto del chiamante.
+        from .argomenti import OLTRE_U64, _int_esatto, durata  # noqa: PLC0415
+        from .errors import InvalidArgumentError  # noqa: PLC0415
+
+        for campo in fields(Limits):
+            valore = object.__getattribute__(self, campo.name)
+            if valore is None:
+                continue
+            nome = f"limits.{campo.name}"
+            if campo.name == Limits.DURATA:
+                esatta = durata(valore, nome)
+                if not 0 <= _millisecondi(esatta) < OLTRE_U64:
+                    raise InvalidArgumentError(
+                        f"`{nome}` e' fuori dall'intervallo che la CLI rappresenta (64 bit)."
+                    )
+                object.__setattr__(self, campo.name, esatta)
+            else:
+                object.__setattr__(self, campo.name, _int_esatto(valore, nome))
+
     def to_argv(self) -> list[str]:
         """Gli argomenti, in ordine stabile.
 
@@ -73,20 +111,16 @@ class Limits:
         che e' cio' che rende confrontabili due esecuzioni.
         """
         argomenti: list[str] = []
-        for campo in fields(self):
-            valore = getattr(self, campo.name)
+        # Dal `__dict__` e dai campi di `Limits`, non da `getattr`: una
+        # sottoclasse puo' ridefinire un campo come proprieta'. I valori sono
+        # quelli normalizzati dal costruttore.
+        valori = object.__getattribute__(self, "__dict__")
+        for campo in fields(Limits):
+            valore = valori.get(campo.name)
             if valore is None:
                 continue
-            if campo.name == self.DURATA:
-                # In interi, non da `total_seconds()`: un `float` perde i
-                # millisecondi oltre 2**53 microsecondi, e una durata lunga
-                # sarebbe arrivata alla CLI con un altro valore. Le frazioni di
-                # millisecondo si troncano, come prima.
-                millisecondi = (
-                    (valore.days * 86_400 + valore.seconds) * 1_000
-                    + valore.microseconds // 1_000
-                )
-                argomenti += ["--deadline-ms", int.__repr__(millisecondi)]
+            if campo.name == Limits.DURATA:
+                argomenti += ["--deadline-ms", int.__repr__(_millisecondi(valore))]
             else:
                 argomenti += [f"--{campo.name.replace('_', '-')}", int.__repr__(valore)]
         return argomenti

@@ -104,9 +104,15 @@ def prova(punto: str):
 
     def decora(funzione):
         @functools.wraps(funzione)
-        def eseguita(*argomenti, **opzioni):
-            esito = funzione(*argomenti, **opzioni)
-            PROVATI.add(punto)
+        def eseguita(caso, *argomenti, **opzioni):
+            esito = funzione(caso, *argomenti, **opzioni)
+            # Un `subTest` fallito non solleva fuori dal test: il test torna
+            # normalmente e unittest registra il fallimento dopo. Si registra
+            # il punto solo se l'esito del test e' ancora un successo; se
+            # unittest non espone l'esito, non si registra (chiuso, non aperto).
+            esito_del_caso = getattr(caso, "_outcome", None)
+            if esito_del_caso is not None and getattr(esito_del_caso, "success", False):
+                PROVATI.add(punto)
             return esito
 
         return eseguita
@@ -360,13 +366,15 @@ class LaLetturaInTabella(unittest.TestCase):
     def cliente(self, consegna) -> Client:
         cliente = Client.__new__(Client)
 
-        def read(sorgente, uscita, **opzioni):
+        def chiama(argv, modello):
+            # Il comando `read` riuscito: scrive la consegna dove `--output` dice.
+            uscita = argv[argv.index("--output") + 1]
             Path(uscita).write_bytes(b"non e' IPC " + SEGRETO.encode())
             documento = validazione_sana() if consegna is None else validazione_sana(
                 delivered=consegna_sana())
-            return Validation.from_json(documento)
+            return modello.from_json(documento)
 
-        cliente.read = read
+        cliente._chiama = chiama
         return cliente
 
     @prova("client.read_table")
@@ -429,14 +437,30 @@ class ArrowRotto:
 
 NUL = f"a\x00{SEGRETO}"
 
+
+def _limiti_grezzi(**campi):
+    """Un `Limits` con campi non normalizzati, costruito senza `__init__`."""
+    from dataclasses import fields
+
+    grezzo = object.__new__(Limits)
+    valori = object.__getattribute__(grezzo, "__dict__")
+    for campo in fields(Limits):
+        valori[campo.name] = None
+    valori.update(campi)
+    return grezzo
+
+
 OSTILI = {
     "percorso": [FspathRotto(), 12, NUL, b"/dati/x", object()],
     "testo": [StrRotto(), 12, NUL, b"x", object()],
     "intero": ["1", 1.5, True, StrRotto()],
     "opzioni": [1, ["k"], MappaRotta(k="v"), {"k": StrRotto()}, {1: "v"},
                 {f"k\x00{SEGRETO}": "v"}, {"k": NUL}, {"a=b": "c"}],
-    "limiti": [1, Limits(max_rows="10"), Limits(max_rows=True),
-               Limits(deadline=5), Limits(max_rows=StrRotto())],
+    # `Limits` con campi ostili non si costruisce piu' (si normalizza nel
+    # costruttore): qui si fabbrica scavalcando `__init__`, come farebbe un
+    # `__new__` altrui, per provare che il client rinormalizza.
+    "limiti": [1, "x", _limiti_grezzi(max_rows="10"), _limiti_grezzi(max_rows=True),
+               _limiti_grezzi(deadline=5), _limiti_grezzi(max_rows=StrRotto())],
     "booleano": [BoolRotto(), "si", 1],
 }
 
@@ -907,39 +931,152 @@ def _avvolto(oggetto) -> bool:
 
 
 class LaRete(unittest.TestCase):
-    @prova("confine.rete")
-    def test_ogni_metodo_pubblico_e_avvolto(self) -> None:
-        """Per introspezione: un metodo pubblico nuovo senza rete e' rosso."""
+    @staticmethod
+    def _callable_delle_classi():
+        """Ogni callable che una classe dell'SDK definisce, senza filtri propri.
+
+        Non ripete il filtro della rete: elenca **tutto** -- metodi speciali,
+        privati, getter, setter e deleter -- e la prova confronta con le sole
+        eccezioni dichiarate, `NON_AVVOLTI` e i nomi privati (`_x`), che non
+        sono superficie pubblica.
+        """
         import plenora_io
 
-        scoperti = 0
+        visti = set()
         for nome in plenora_io.__all__:
             valore = getattr(plenora_io, nome)
-            if isinstance(valore, type):
-                if issubclass(valore, BaseException):
+            if not isinstance(valore, type):
+                continue
+            for classe in valore.__mro__:
+                if not classe.__module__.startswith("plenora_io") or classe in visti:
                     continue
-                for classe in valore.__mro__:
-                    if not classe.__module__.startswith("plenora_io"):
-                        continue
-                    for attributo, interno in vars(classe).items():
-                        if attributo.startswith("_") and attributo != "__init__":
-                            continue
-                        if isinstance(interno, (classmethod, staticmethod)):
-                            bersaglio = interno.__func__
-                        elif isinstance(interno, property):
-                            bersaglio = interno.fget
-                        elif callable(interno) and not isinstance(interno, type):
-                            bersaglio = interno
-                        else:
-                            continue
-                        with self.subTest(metodo=f"{classe.__name__}.{attributo}"):
-                            self.assertTrue(_avvolto(bersaglio))
-                            scoperti += 1
-            elif callable(valore):
+                visti.add(classe)
+                for attributo, interno in vars(classe).items():
+                    if isinstance(interno, (classmethod, staticmethod)):
+                        yield classe, attributo, "", interno.__func__
+                    elif isinstance(interno, property):
+                        for parte in ("fget", "fset", "fdel"):
+                            funzione = getattr(interno, parte)
+                            if funzione is not None:
+                                yield classe, attributo, parte, funzione
+                    elif callable(interno) and not isinstance(interno, type):
+                        yield classe, attributo, "", interno
+
+    @prova("confine.rete")
+    def test_ogni_metodo_pubblico_e_avvolto(self) -> None:
+        """Per introspezione: un callable nuovo senza rete e' rosso.
+
+        Anche i metodi speciali (`__hash__`, `__repr__`, `__eq__`...), i
+        setter e i deleter delle proprieta', le classi d'eccezione. Gli esclusi
+        sono esattamente `NON_AVVOLTI` e i nomi privati.
+        """
+        import plenora_io
+        from plenora_io.confine import NON_AVVOLTI
+
+        scoperti = 0
+        esclusi_visti = set()
+        for classe, attributo, parte, funzione in self._callable_delle_classi():
+            privato = attributo.startswith("_") and not (
+                attributo.startswith("__") and attributo.endswith("__")
+            )
+            if privato or attributo in NON_AVVOLTI:
+                esclusi_visti.add(attributo)
+                continue
+            with self.subTest(metodo=f"{classe.__name__}.{attributo}{'.' + parte if parte else ''}"):
+                self.assertTrue(_avvolto(funzione))
+                scoperti += 1
+        for nome in plenora_io.__all__:
+            valore = getattr(plenora_io, nome)
+            if callable(valore) and not isinstance(valore, type):
                 with self.subTest(funzione=nome):
                     self.assertTrue(_avvolto(valore))
                     scoperti += 1
-        self.assertGreater(scoperti, 60)
+        self.assertGreater(scoperti, 150)
+
+    @prova("confine.rete")
+    def test_nessun_metodo_pubblico_rende_un_generatore(self) -> None:
+        """Un generatore uscirebbe dalla rete prima di eseguire il corpo."""
+        import inspect
+
+        for classe, attributo, parte, funzione in self._callable_delle_classi():
+            originale = inspect.unwrap(funzione)
+            with self.subTest(metodo=f"{classe.__name__}.{attributo}"):
+                self.assertFalse(inspect.isgeneratorfunction(originale))
+                self.assertFalse(inspect.isasyncgenfunction(originale))
+                self.assertFalse(inspect.iscoroutinefunction(originale))
+
+    @prova("confine.rete")
+    def test_nessun_metodo_si_aggiunge_alle_istanze(self) -> None:
+        """I metodi aggiunti dinamicamente sfuggirebbero alla rete: non ce ne sono."""
+        import dataclasses
+
+        campioni = [
+            Catalog.from_json(catalogo_sano()),
+            Inspect.from_json(inspect_sano()),
+            Layers.from_json(layers_sano()),
+            Validation.from_json(validazione_sana()),
+            ConvertResult.from_json(conversione_sana()),
+            WriteResult.from_json(scrittura_sana()),
+            Capabilities.from_json(capacita_sane()),
+            Limits(max_rows=1),
+        ]
+
+        def visita(oggetto):
+            for valore in object.__getattribute__(oggetto, "__dict__").values():
+                self.assertFalse(callable(valore) and not dataclasses.is_dataclass(valore))
+                if dataclasses.is_dataclass(valore):
+                    visita(valore)
+                elif type(valore) is list:
+                    for elemento in valore:
+                        if dataclasses.is_dataclass(elemento):
+                            visita(elemento)
+
+        for campione in campioni:
+            with self.subTest(modello=type(campione).__name__):
+                visita(campione)
+
+    @prova("confine.rete")
+    def test_i_metodi_speciali_dei_modelli_non_escono_dalla_gerarchia(self) -> None:
+        """Prima: `hash(Version(...))` dava `TypeError` (il campo `raw` e' un
+        `dict`), e `repr` ed `==` eseguivano il codice dei valori."""
+        import copy as copia
+        import pickle
+
+        versione = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
+        uguale = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
+        self.assertEqual(hash(versione), hash(uguale))
+        self.assertEqual(versione, uguale)
+        catalogo = Catalog.from_json(catalogo_sano())
+        self.assertEqual(hash(catalogo), hash(copia.deepcopy(catalogo)))
+        self.assertEqual(pickle.loads(pickle.dumps(catalogo)), catalogo)
+        with self.assertRaises(PlenoraError) as preso:
+            versione.component_version = SEGRETO
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+        tradotto(self, preso.exception, "none")
+        with self.assertRaises(PlenoraError):
+            del versione.component_version
+
+    @prova("confine.rete")
+    def test_un_modello_costruito_a_mano_non_tiene_oggetti_del_chiamante(self) -> None:
+        Contatore.chiamate = 0
+        versione = Version(component_version=StrOstile("4.2.0"), cli_protocol_version=IntOstile(2))
+        self.assertIs(type(versione.component_version), str)
+        self.assertIs(type(versione.cli_protocol_version), int)
+        repr(versione)
+        hash(versione)
+        self.assertEqual(versione, Version(component_version="4.2.0", cli_protocol_version=2))
+        self.assertEqual(Contatore.chiamate, 0)
+
+        class Qualunque:
+            def __repr__(self):
+                raise RuntimeError(SEGRETO)
+
+        for valore in (Qualunque(), [Qualunque()], {"k": Qualunque()}, {1: "v"}):
+            with self.subTest(valore=type(valore).__name__):
+                with self.assertRaises(PlenoraError) as preso:
+                    Version(component_version="x", cli_protocol_version=2, raw={"a": valore})
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                tradotto(self, preso.exception, "none")
 
     @prova("confine.rete")
     def test_un_eccezione_non_prevista_prima_dell_avvio_e_none(self) -> None:
@@ -979,6 +1116,50 @@ class LaRete(unittest.TestCase):
         with mock.patch("plenora_io.models.copia_json", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 Catalog.from_json(catalogo_sano())
+
+
+class PercorsoCheCambia:
+    """Un `os.PathLike` che rende un valore diverso a ogni lettura."""
+
+    def __init__(self):
+        self.letture = 0
+
+    def __fspath__(self):
+        self.letture += 1
+        return f"s{self.letture}.geojson"
+
+
+class MappaCheConta(dict):
+    def __init__(self, *argomenti, **opzioni):
+        super().__init__(*argomenti, **opzioni)
+        self.letture = 0
+
+    def items(self):
+        self.letture += 1
+        return super().items()
+
+
+@serve_pyarrow
+class LeCopieNormalizzate(unittest.TestCase):
+    @prova("argomenti.sottoclassi")
+    def test_read_table_legge_ogni_argomento_una_volta_sola(self) -> None:
+        """Prima: `read_table()` normalizzava, scartava il risultato, e
+        `read()` rileggeva `__fspath__` e `items()` degli originali."""
+        cliente = Client.__new__(Client)
+        visti = []
+
+        def chiama(argv, modello):
+            visti.append(list(argv))
+            raise ProtocolError("fine della prova")
+
+        cliente._chiama = chiama
+        sorgente = PercorsoCheCambia()
+        opzioni = MappaCheConta(k="v")
+        with self.assertRaises(ProtocolError):
+            cliente.read_table(sorgente, options=opzioni, temp_dir=tempfile.mkdtemp())
+        self.assertEqual(sorgente.letture, 1)
+        self.assertEqual(opzioni.letture, 1)
+        self.assertEqual(visti[0][:2], ["read", "s1.geojson"])
 
 
 # --- 10. i punti specifici del terzo giro --------------------------------------
@@ -1112,6 +1293,60 @@ class IMessaggi(unittest.TestCase):
             with self.assertRaises(PlenoraError) as preso:
                 discovery.trova_binario(radice / "nemmeno")
         tradotto(self, preso.exception, "none")
+
+    @prova("messaggi.senza_dati")
+    def test_gli_attributi_degli_errori_non_portano_dati(self) -> None:
+        """Prima: `CommandFailed.argv` conservava la riga intera, e
+        `ProfileError.required` il valore del chiamante."""
+        busta = {
+            "status": "error",
+            "error": {"code": "X", "category": "io", "phase": "write",
+                      "remote_effect": "none", "retry": {"kind": "never"}, "message": "m"},
+        }
+        errore = failure_from_envelope(busta, 4, ["write", f"/{SEGRETO}.arrow", "o.gpkg"])
+        self.assertFalse(hasattr(errore, "argv"))
+        self.assertEqual(errore.command, "write")
+        self.assertNotIn(SEGRETO, repr(vars(errore)))
+        cliente = Client.__new__(Client)
+        cliente._manifest = None
+        with self.assertRaises(PlenoraError) as preso:
+            cliente.require_profile(SEGRETO)
+        self.assertNotIn(SEGRETO, repr(vars(preso.exception)))
+
+    @prova("messaggi.senza_dati")
+    def test_un_primo_argomento_fuori_elenco_non_compare(self) -> None:
+        """Prima: qualunque primo argomento alfanumerico era «sicuro»."""
+        finto = PopenFinto(stdout=b"non e' JSON")
+        with mock.patch.object(subprocess, "Popen", finto):
+            with self.assertRaises(PlenoraError) as preso:
+                Runner(Path("plenora-io")).run([SEGRETO.replace("-", "")])
+        self.assertNotIn(SEGRETO.replace("-", ""), str(preso.exception))
+        self.assertIn("`plenora-io ?`", str(preso.exception))
+        busta = {
+            "status": "error",
+            "error": {"code": "X", "category": "io", "phase": "write",
+                      "remote_effect": "none", "retry": {"kind": "never"}, "message": "m"},
+        }
+        errore = failure_from_envelope(busta, 4, ["SEGRETO9c1e"])
+        self.assertNotIn("SEGRETO9c1e", str(errore))
+        self.assertIsNone(errore.command)
+
+    @prova("argomenti.grandezze")
+    def test_limits_si_normalizza_nel_costruttore(self) -> None:
+        """Prima: `Limits(max_rows=1 << 64).to_argv()` rendeva un intero fuori
+        intervallo, e `to_argv` leggeva le proprieta' di una `timedelta`
+        derivata."""
+        for valore in (1 << 64, 10**1000, True, "5"):
+            with self.subTest(valore=type(valore).__name__):
+                with self.assertRaises(PlenoraError) as preso:
+                    Limits(max_rows=valore)
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                tradotto(self, preso.exception, "none")
+        Contatore.chiamate = 0
+        limiti = Limits(deadline=DurataOstile(seconds=2), max_rows=IntOstile(3))
+        self.assertEqual(limiti.to_argv(), ["--deadline-ms", "2000", "--max-rows", "3"])
+        self.assertIs(type(limiti.deadline), timedelta)
+        self.assertEqual(Contatore.chiamate, 0)
 
     @prova("messaggi.senza_dati")
     def test_require_profile_non_riporta_il_valore(self) -> None:

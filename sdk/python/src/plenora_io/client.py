@@ -377,25 +377,23 @@ class Client:
         della lettura: senza, una perdita dichiarata dal prodotto arriverebbe
         al chiamante come una tabella qualunque.
         """
-        # Gli argomenti si normalizzano prima di tutto: un argomento sbagliato
-        # non costa ne' l'import di pyarrow ne' una directory temporanea.
-        self._argomenti("read", source, assume_crs, options)
-        if layer is not None:
-            arg.intero(layer, "layer")
-        limits = arg.limiti(limits)
+        # Gli argomenti si normalizzano una volta sola, prima di tutto, e da li'
+        # si usano solo le copie: un argomento sbagliato non costa ne' l'import
+        # di pyarrow ne' una directory temporanea, e un `os.PathLike` o una
+        # `Mapping` che renderebbero un valore diverso a una seconda lettura
+        # non vengono riletti. Prima si normalizzava, si scartava il risultato
+        # e `read()` rileggeva gli originali.
+        testa = self._argomenti("read", source, assume_crs, options)
+        coda = [] if layer is None else ["--layer", arg.intero(layer, "layer")]
+        coda += arg.argv_dei_limiti(arg.limiti(limits))
         temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
         arrow.pyarrow()
         # `committed`: se la pulizia fallisce, il file che `read` ha consegnato
         # nella directory temporanea resta sul disco.
         with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
             consegna = Path(cartella) / "consegna.arrow"
-            esito = self.read(
-                source,
-                consegna,
-                layer=layer,
-                assume_crs=assume_crs,
-                options=options,
-                limits=limits,
+            esito = self._chiama(
+                [*testa, "--output", arg.percorso(consegna, "output"), *coda], Validation
             )
             # Da qui `read` ha gia' scritto: una consegna non dichiarata o un
             # file che non si legge come la busta dice sono `ProtocolError`

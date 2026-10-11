@@ -41,6 +41,7 @@ from typing import Any
 
 from .argomenti import testo
 from .errors import (
+    PROFILI_NOTI,
     BinaryNotFound,
     InvalidArgumentError,
     LocalIoError,
@@ -279,7 +280,7 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
 #: `base` e' Rust puro; `filegdb` aggiunge il runtime GDAL da cui dipende il
 #: driver FileGDB. Un terzo profilo non esiste, e un manifesto che ne
 #: dichiarasse uno sconosciuto e' un artefatto che questo SDK non sa descrivere.
-PROFILI = ("base", "filegdb")
+PROFILI = PROFILI_NOTI
 
 
 def verifica_profilo(manifesto: Manifest | None, richiesto: str) -> None:

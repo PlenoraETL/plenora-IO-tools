@@ -87,7 +87,14 @@ from typing import Any
 from .argomenti import percorso, testo
 from .argomenti import timeout as timeout_valido
 from .confine import registra_avvio
-from .errors import InvalidArgumentError, ProtocolError, _tipo, carica_json, failure_from_envelope
+from .errors import (
+    InvalidArgumentError,
+    ProtocolError,
+    _tipo,
+    carica_json,
+    failure_from_envelope,
+    sottocomando,
+)
 
 
 
@@ -169,9 +176,9 @@ def comando(argv: list[str]) -> str:
     """
     if not argv:
         return "`plenora-io`"
-    primo = argv[0]
-    nome = primo if isinstance(primo, str) and primo.replace("-", "").isalnum() else "?"
-    return f"`plenora-io {nome}`"
+    # Da un elenco chiuso: un primo argomento qualunque, anche alfanumerico,
+    # e' un dato di chi chiama.
+    return f"`plenora-io {sottocomando(argv) or '?'}`"
 
 
 def _testo(dati: bytes, argv: list[str], flusso: str) -> str:

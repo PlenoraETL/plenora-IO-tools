@@ -147,8 +147,9 @@ legati del tipo base: una sottoclasse con `__str__`, `__format__` o
 64 bit si rifiuta prima di ogni conversione. E' un cambiamento incompatibile,
 dichiarato in `docs/RELEASE.md`, «Note della prossima release».
 
-**La rete.** Ogni metodo pubblico di ogni tipo esportato, e ogni funzione
-esportata, passa da `confine.confinato`: un'eccezione che nessun punto ha
+**La rete.** Ogni callable di ogni tipo esportato -- metodi speciali,
+setter e deleter compresi, con le sole eccezioni di `confine.NON_AVVOLTI` --
+e ogni funzione esportata passano da `confine.confinato`: un'eccezione che nessun punto ha
 tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
 dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
 senza testo e senza catena. I punti noti restano tradotti dove nascono, con
@@ -156,6 +157,12 @@ l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
 nuovo senza rete. Le ricerche nei risultati (`layer`, `field`, `driver`,
 `operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
 messaggio.
+
+I modelli normalizzano i propri campi nel costruttore (tipi base esatti,
+modelli dell'SDK, nient'altro), sono immutabili con `InvalidArgumentError` e
+hanno un `hash` canonico: `repr`, `==` e `hash` non eseguono mai codice del
+chiamante. Gli errori non conservano dati negli attributi: `CommandFailed`
+porta il solo sottocomando (`command`), da un elenco chiuso.
 
 L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova
 di ciascuno, e' `PUNTI` in `tests/test_confini_esterni.py`; nella CI con

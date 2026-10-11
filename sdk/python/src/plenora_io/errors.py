@@ -32,6 +32,27 @@ from dataclasses import dataclass
 from typing import Any
 
 
+#: I sottocomandi della CLI che l'SDK chiama: un elenco **chiuso**. Un nome
+#: entra in un messaggio o in un attributo solo se e' uno di questi; ogni altro
+#: primo argomento -- anche alfanumerico, anche un `Runner.run(["SEGRETO"])` --
+#: e' un dato di chi chiama, e compare come `?`.
+SOTTOCOMANDI: frozenset[str] = frozenset(
+    {"--version", "catalog", "capabilities", "inspect", "layers", "read", "write", "convert"}
+)
+
+#: I profili che la distribuzione produce: l'elenco chiuso di `discovery.PROFILI`,
+#: qui perche' `ProfileError` lo usa per decidere che cosa conservare.
+PROFILI_NOTI: tuple[str, ...] = ("base", "filegdb")
+
+
+def sottocomando(argv: Any) -> str | None:
+    """Il sottocomando, se il primo argomento e' nell'elenco chiuso."""
+    if type(argv) not in (list, tuple) or not argv:
+        return None
+    primo = argv[0]
+    return primo if type(primo) is str and primo in SOTTOCOMANDI else None
+
+
 class PlenoraError(Exception):
     """La radice: un `except PlenoraError` prende tutto quel che l'SDK solleva.
 
@@ -157,13 +178,12 @@ class ProfileError(PlenoraError):
     _FASE = "validate"
 
     def __init__(self, required: str, actual: str | None) -> None:
-        self.required = required
-        self.actual = actual
-        # Il profilo richiesto non entra nel messaggio: e' un valore di chi
-        # chiama, e sta in `required`. Quello dell'artefatto si nomina solo se
-        # e' uno dei profili noti: il manifesto e' un file, e un valore fuori
-        # vocabolario sarebbe un dato.
-        noti = ("base", "filegdb")
+        # Gli attributi conservano un profilo solo se e' uno di quelli noti:
+        # `required` viene da chi chiama e `actual` dal manifesto, un file, e
+        # un valore fuori vocabolario sarebbe un dato. Al suo posto `None`.
+        noti = PROFILI_NOTI
+        self.required = required if type(required) is str and required in noti else None
+        self.actual = actual if type(actual) is str and actual in noti else None
         if actual is None:
             quale = "sconosciuto: nessun manifesto"
         elif actual in noti:
@@ -717,10 +737,12 @@ class CommandFailed(PlenoraError):
     ) -> None:
         self.envelope = envelope
         self.exit_code = exit_code
-        self.argv = list(argv or [])
-        # Il solo nome del sottocomando: la riga intera porta percorsi e opzioni
-        # di chi chiama, che restano in `argv` e non entrano nel messaggio.
-        nome = self.argv[0] if self.argv and self.argv[0].replace("-", "").isalnum() else "?"
+        # Il solo sottocomando, da un elenco chiuso. Fino alla 4.1.1 l'errore
+        # conservava `argv` intero -- percorsi, opzioni, valori di chi chiama
+        # -- in un attributo che finisce nei log e nei pickle. Chi ha fatto la
+        # chiamata ha gia' gli argomenti.
+        self.command = sottocomando(argv)
+        nome = self.command or "?"
         super().__init__(
             f"`plenora-io {nome}` e' uscito con {exit_code}: "
             f"[{envelope.category}/{envelope.phase}] "

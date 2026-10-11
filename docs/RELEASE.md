@@ -1293,3 +1293,16 @@ prossima release è percio' una **major** (5.0.0).
   del manifesto; `ProfileError` non riporta il profilo richiesto.
 - **`Limits(deadline=...)`** arriva alla CLI in millisecondi calcolati in
   interi: una durata oltre 2^53 microsecondi perdeva i millisecondi.
+- **`Limits` si normalizza nel costruttore.** Un campo che non e' un intero
+  entro 64 bit (o una `timedelta` entro 64 bit di millisecondi) e'
+  `InvalidArgumentError` alla costruzione, non alla chiamata.
+- **`CommandFailed.argv` non c'e' piu'.** Conservava la riga di comando intera,
+  con percorsi e opzioni del chiamante; al suo posto `CommandFailed.command`,
+  il solo sottocomando da un elenco chiuso (`None` se non e' uno di quelli che
+  l'SDK chiama). `ProfileError.required` e `.actual` valgono `None` quando il
+  profilo non e' uno di quelli noti.
+- **I modelli normalizzano i propri campi nel costruttore** e sono immutabili
+  con un errore dell'SDK: un modello costruito a mano con un oggetto che un
+  risultato non porta e' `InvalidArgumentError`; assegnare un campo e'
+  `InvalidArgumentError` invece di `dataclasses.FrozenInstanceError`. Il loro
+  `hash` si calcola dalla forma canonica dei campi: prima sollevava `TypeError`.
