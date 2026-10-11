@@ -251,6 +251,39 @@ esce da un metodo pubblico ha `__cause__` e `__context__` a `None` e
 (Version,), {})` -- puo' chiamarsi come vuole, e il messaggio usa il nome della
 prima classe dell'SDK nel suo MRO (`_confine.nome_sdk`).
 
+**Il confine delle garanzie.** Le garanzie di questa sezione -- solo
+`PlenoraError`, nessuna catena, nessun dato del chiamante in un errore fidato
+-- valgono per ogni **chiamata a un callable dell'SDK**: le funzioni di
+`__all__`, i costruttori, i metodi, le proprieta' e gli operatori delle classi
+dell'SDK, i metodi di `FrozenList` e `FrozenDict` (compresi `get`, `keys`,
+`items` e `values`, che sono dell'SDK e rendono `FrozenList`). Fuori dal
+confine, e dichiarati:
+
+* gli **scalari nativi immutabili** che l'SDK rende o porta in un attributo
+  (`str`, `int`, `float`, `bool`, `bytes`, `None`): i loro metodi sono di
+  Python, e `version.component_version.index("x")` solleva il `ValueError`
+  di Python;
+* tre valori immutabili non dell'SDK: `timedelta` (`Limits.deadline`),
+  `pathlib.Path` (`Client.binary`, `Runner.binary`) e la tabella pyarrow di
+  `TableRead.table`;
+* cio' che un'eccezione dell'SDK eredita da `BaseException` (`args`,
+  `add_note`, `with_traceback`, `__traceback__`...): e' l'API delle eccezioni
+  di Python;
+* le **copie native** che rendono i metodi di conversione, per cui esistono:
+  `to_plain` e `json_default`, `PlenoraError.to_dict()`, `Limits.to_argv()`
+  e `Limits.opzioni()` rendono `dict` e `list` nuovi a ogni chiamata, che
+  appartengono a chi li riceve.
+
+Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
+`tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella
+rete, un contenitore dell'SDK, un modello o un errore dell'SDK, o uno dei
+valori sopra. Gli schemi dei modelli (`_OBBLIGATORI`, `_PROPRI`,
+`_OPZIONALI`, `_RINOMINATI`, `_ANNULLABILI`) e `Limits._DURATA` sono privati;
+`PROFILES`, `retry`, `Catalog.available`, `Layer.attributes` e
+`LossReport.categories` sono contenitori dell'SDK. Lo verifica
+`IlConfineDegliAttributi`, che scende in ogni classe di `__all__` -- `Client`,
+`Runner` e ogni eccezione compresi -- e in un esemplare di ciascuna.
+
 **Le eccezioni hanno lo stato fissato.** Il messaggio, l'effetto remoto e gli
 attributi di ogni errore (`envelope`, `exit_code`, `command`, `searched`,
 `required`, `actual`, `cleanup_failed`) si fissano nel costruttore, che non si
@@ -311,7 +344,7 @@ rende un errore «dell'SDK» alla rete, o un'altra funzione privata che la usa
 (`_copia_json`, `_failure_from_envelope`, `_ricostruito`, `_confinato`, il
 modulo `plenora_io._argomenti`); modificare il catalogo dei messaggi e i tipi
 dei parametri (`MESSAGGI`, `PARAMETRI` e gli insiemi che usano, `ETICHETTE`),
-il modulo `plenora_io.errors` o un altro modulo del
+il modulo `plenora_io._errors` o un altro modulo del
 pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), e un errore puo' portare testo del

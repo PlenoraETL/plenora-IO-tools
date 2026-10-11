@@ -34,7 +34,7 @@ corrispondono una a una alle categorie, e un gate lo verifica.
 from importlib import metadata as _metadata
 
 from ._client import Client, TableRead
-from ._discovery import PROFILI as PROFILES
+from ._discovery import PROFILI as _PROFILI
 from ._discovery import Manifest
 from ._errors import (
     AuthenticationError,
@@ -105,6 +105,11 @@ from ._models import (
     WriteResult,
 )
 from ._process import Runner
+
+#: I profili della distribuzione, come contenitore dell'SDK: un attributo
+#: pubblico non e' mai una `tuple` o una `list` di Python (README, «Il confine
+#: delle garanzie»).
+PROFILES = FrozenList(list(_PROFILI))
 
 #: La versione dell'SDK, e la **sola** sorgente autorevole.
 #:

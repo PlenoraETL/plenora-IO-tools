@@ -2638,13 +2638,13 @@ class LoSchemaDellaClasseDellSdk(unittest.TestCase):
 
     @prova("messaggi.senza_dati")
     def test_obbligatori_di_una_sottoclasse_non_entrano_nel_messaggio(self) -> None:
-        """Prima: `from_json` leggeva `cls.OBBLIGATORI`, e i nomi mancanti
+        """Prima: `from_json` leggeva `cls._OBBLIGATORI`, e i nomi mancanti
         entravano in un `ProtocolError` fidato."""
         from plenora_io import FormatDescriptor
 
         for classe in (Catalog, FormatDescriptor, Inspect, Layers):
             with self.subTest(classe=classe.__name__):
-                Ostile = type("Ostile", (classe,), {"OBBLIGATORI": (SEGRETO,)})
+                Ostile = type("Ostile", (classe,), {"_OBBLIGATORI": (SEGRETO,)})
                 with self.assertRaises(PlenoraError) as preso:
                     Ostile.from_json({})
                 self.assertIs(type(preso.exception), ProtocolError)
@@ -3084,10 +3084,10 @@ class LaSuperficiePubblicaChiusa(unittest.TestCase):
             nome = etichetta.rsplit(".", 1)[1]
             if etichetta.count(".") > 1 or nome not in plenora_io.__all__:
                 problemi.append(f"{etichetta}: fuori da __all__")
-            if not callable(valore) or nome in NON_CHIAMATE_A_COMBINAZIONI:
+            # Anche `Client` e `Runner` (costruirli non avvia il binario) e i
+            # costruttori delle eccezioni: ogni callable della radice.
+            if not callable(valore):
                 continue
-            if isinstance(valore, type) and issubclass(valore, BaseException):
-                continue  # un errore costruito a mano e' esterno, non solleva
             try:
                 firma = inspect.signature(valore)
             except (TypeError, ValueError):
@@ -3099,6 +3099,127 @@ class LaSuperficiePubblicaChiusa(unittest.TestCase):
             for combinazione in itertools.product(valori, repeat=len(parametri)):
                 self._chiama_dentro_un_except(etichetta, valore, combinazione, problemi)
         self.assertEqual(sorted(set(problemi)), [])
+
+
+# --- 19. diciassettesimo giro di revisione ----------------------------------
+
+#: Gli scalari nativi immutabili: i loro metodi sono di Python, fuori dal
+#: confine dichiarato.
+SCALARI_NATIVI = (str, int, float, bool, bytes, type(None))
+
+#: Gli altri valori non dell'SDK che un attributo pubblico puo' portare, ciascuno
+#: col suo perche' (README, «Il confine delle garanzie»).
+VALORI_DICHIARATI = {
+    "timedelta": "una durata immutabile della libreria standard (`Limits.deadline`)",
+    "Path": "un percorso immutabile della libreria standard (`Client.binary`, `Runner.binary`)",
+    "Table": "la tabella pyarrow di `TableRead.table`, di una dipendenza",
+}
+
+
+class IlConfineDegliAttributi(unittest.TestCase):
+    """Diciassettesimo giro: ogni attributo pubblico e' un callable dell'SDK
+    confinato, un contenitore dell'SDK, un modello o un errore dell'SDK, uno
+    scalare nativo immutabile, o uno dei `VALORI_DICHIARATI`."""
+
+    def _ammesso(self, valore) -> bool:
+        from datetime import timedelta
+
+        from plenora_io import _confine as confine
+        from plenora_io import _errors as errors
+
+        tipo = type(valore)
+        if tipo in SCALARI_NATIVI or tipo in (FrozenList, FrozenDict, timedelta):
+            return True
+        if tipo is type(Path()) or (pa is not None and tipo is pa.Table):
+            return True
+        if confine.e_un_modello(tipo) or errors.classe_dell_sdk(tipo):
+            return True
+        if callable(valore):
+            funzione = getattr(valore, "__func__", valore)
+            return bool(getattr(funzione, "__plenora_confine__", False)) or isinstance(
+                valore, type) and valore.__module__.startswith("plenora_io")
+        return False
+
+    def _esemplari(self):
+        from plenora_io import Runner
+
+        esemplari = dict(_esemplari_dei_modelli())
+        cliente = Client.__new__(Client)
+        object.__setattr__(cliente, "_runner", Runner(Path("plenora-io")))
+        object.__setattr__(cliente, "_manifest", None)
+        esemplari[Client] = cliente
+        esemplari[Runner] = Runner(Path("plenora-io"), timeout=3.0)
+        return esemplari
+
+    @prova("confine.rete")
+    def test_ogni_attributo_pubblico_e_dentro_il_confine(self) -> None:
+        """Prima: `ConvertResult.RINOMINATI["SEGRETO"]` dava un `KeyError`
+        con il contesto del chiamante, e `Catalog.OBBLIGATORI.index("x")` un
+        `ValueError`: gli schemi erano `dict` e `tuple` pubblici. Ora sono
+        privati, `PROFILES` e `retry` sono contenitori dell'SDK."""
+        import inspect
+
+        import plenora_io
+
+        problemi: list[str] = []
+        esemplari = self._esemplari()
+        for nome in plenora_io.__all__:
+            valore = getattr(plenora_io, nome)
+            if not self._ammesso(valore):
+                problemi.append(f"plenora_io.{nome}: {type(valore).__name__}")
+            if not isinstance(valore, type):
+                continue
+            # Gli attributi di classe, da ogni classe dell'SDK nell'MRO.
+            for base in valore.__mro__:
+                if not base.__module__.startswith("plenora_io"):
+                    continue
+                for attributo, interno in vars(base).items():
+                    if attributo.startswith("_"):
+                        continue
+                    if isinstance(interno, (property, classmethod, staticmethod)):
+                        continue
+                    if not self._ammesso(interno):
+                        problemi.append(f"{nome}.{attributo}: {type(interno).__name__}")
+            # Gli attributi d'istanza e le proprieta', su un esemplare.
+            istanza = esemplari.get(valore)
+            if istanza is None and issubclass(valore, PlenoraError):
+                for _, classe, costruisci in _un_esemplare_per_classe():
+                    if classe is valore:
+                        istanza = costruisci()
+            if istanza is None:
+                continue
+            for attributo in dir(istanza):
+                if attributo.startswith("_"):
+                    continue
+                # Cio' che l'istanza eredita da `BaseException` o da `object`
+                # (`args`, `add_note`, `with_traceback`) e' l'API delle
+                # eccezioni di Python: fuori dal confine, dichiarato nel README.
+                definita = next(
+                    (base for base in type(istanza).__mro__ if attributo in vars(base)), None)
+                if definita is not None and definita.__module__ == "builtins" and not (
+                        attributo in vars(istanza) if hasattr(istanza, "__dict__") else False):
+                    continue
+                try:
+                    letto = getattr(istanza, attributo)
+                except PlenoraError:
+                    continue
+                if inspect.ismethod(letto) and not getattr(
+                        letto.__func__, "__plenora_confine__", False):
+                    problemi.append(f"{nome}().{attributo}: metodo fuori dalla rete")
+                elif not self._ammesso(letto):
+                    problemi.append(f"{nome}().{attributo}: {type(letto).__name__}")
+        self.assertEqual(sorted(set(problemi)), [])
+
+    @prova("messaggi.senza_dati")
+    def test_gli_schemi_dei_modelli_non_sono_pubblici(self) -> None:
+        """Gli scenari di Codex: nessun `dict` o `tuple` pubblico da cui una
+        ricerca sollevi un'eccezione di Python."""
+        from plenora_io import ConvertResult
+
+        for classe, attributo in ((ConvertResult, "RINOMINATI"), (Catalog, "OBBLIGATORI"),
+                                  (Limits, "DURATA")):
+            with self.subTest(attributo=attributo):
+                self.assertFalse(hasattr(classe, attributo))
 
 
 if __name__ == "__main__":

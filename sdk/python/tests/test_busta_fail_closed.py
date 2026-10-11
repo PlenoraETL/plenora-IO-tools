@@ -253,7 +253,7 @@ class IModelliControllanoITipi(unittest.TestCase):
         sano = {"code": "c", "detail": "d"}
         self.assertIsNone(FidelityReason.from_json(sano).field_index)
         FidelityReason.from_json({**sano, "field_index": 0, "layer_index": 0})
-        for campo in FidelityReason.OPZIONALI:
+        for campo in FidelityReason._OPZIONALI:
             with self.subTest(campo=campo):
                 with self.assertRaises(ProtocolError):
                     FidelityReason.from_json({**sano, campo: None})

@@ -314,6 +314,30 @@ class FrozenDict(Mapping):
             return False
         return str.join("", [chiave]) in object.__getattribute__(self, "_dati")
 
+    # `get`, `keys`, `items` e `values` erano i metodi misti di `Mapping`:
+    # codice della libreria standard, fuori dalla rete, che rendeva viste di
+    # Python (diciassettesimo giro). Ora sono dell'SDK, e rendono contenitori
+    # dell'SDK: le chiavi e i valori come `FrozenList`, le coppie come
+    # `FrozenList` di due elementi.
+
+    def get(self, chiave: Any, predefinito: Any = None) -> Any:
+        if not issubclass(type(chiave), str):
+            return predefinito
+        dati = object.__getattribute__(self, "_dati")
+        esatta = str.join("", [chiave])
+        return dati[esatta] if esatta in dati else predefinito
+
+    def keys(self) -> "FrozenList":
+        return FrozenList(list(object.__getattribute__(self, "_dati")))
+
+    def values(self) -> "FrozenList":
+        return FrozenList(list(object.__getattribute__(self, "_dati").values()))
+
+    def items(self) -> "FrozenList":
+        return FrozenList(
+            [[chiave, valore] for chiave, valore in object.__getattribute__(self, "_dati").items()]
+        )
+
     def __eq__(self, altro: Any) -> bool:
         tipo = type(altro)
         if tipo is not FrozenDict and tipo is not dict:

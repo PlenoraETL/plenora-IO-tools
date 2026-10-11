@@ -149,7 +149,7 @@ class PlenoraError(Exception):
     @property
     def retry(self) -> dict[str, Any]:
         """La disposizione al ritentativo, come oggetto `{kind}` nuovo a ogni lettura."""
-        return {"kind": "never"}
+        return FrozenDict({"kind": "never"})
 
     @property
     def message(self) -> str:
@@ -167,7 +167,7 @@ class PlenoraError(Exception):
             "category": self.category,
             "phase": self.phase,
             "remote_effect": self.remote_effect,
-            "retry": self.retry,
+            "retry": dict(self.retry),
             "message": self.message,
         }
         if self.code is not None:
@@ -1316,9 +1316,9 @@ def _campi_del_protocollo() -> frozenset[str]:
     campi: set[str] = set()
     for modello in MODELLI:
         campi.update(campo.name for campo in dataclasses.fields(modello))
-        for schema in ("OBBLIGATORI", "PROPRI", "OPZIONALI", "ANNULLABILI"):
+        for schema in ("_OBBLIGATORI", "_PROPRI", "_OPZIONALI", "_ANNULLABILI"):
             campi.update(v for v in vars(modello).get(schema, ()) if type(v) is str)
-        for chiave, valore in dict(vars(modello).get("RINOMINATI", {})).items():
+        for chiave, valore in dict(vars(modello).get("_RINOMINATI", {})).items():
             campi.update(v for v in (chiave, valore) if type(v) is str)
     return frozenset(campi)
 
@@ -1760,8 +1760,8 @@ class CommandFailed(PlenoraError):
         """
         busta = self.envelope
         if busta._tipo_di_ritentativo == "after":
-            return {"kind": "after", "delay_ms": busta._ritardo_ms}
-        return {"kind": busta._tipo_di_ritentativo}
+            return FrozenDict({"kind": "after", "delay_ms": busta._ritardo_ms})
+        return FrozenDict({"kind": busta._tipo_di_ritentativo})
 
     @property
     def message(self) -> str:

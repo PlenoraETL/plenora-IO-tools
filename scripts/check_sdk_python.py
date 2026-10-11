@@ -33,7 +33,7 @@ sparisse da questo elenco tornerebbe a essere pretesa.
 # Perche' legge il sorgente e non importa i moduli
 
 Importare l'SDK vorrebbe dire eseguirlo, e un gate che esegue cio' che verifica
-gli concede di prepararsi. Qui si legge l'AST: le tuple `OBBLIGATORI` e la mappa
+gli concede di prepararsi. Qui si legge l'AST: le tuple `_OBBLIGATORI` e la mappa
 delle categorie sono letterali, e un letterale si legge senza chiedere il
 permesso a nessuno.
 """
@@ -153,7 +153,7 @@ POSTI: dict[str, tuple[str, str]] = {
 OPZIONALI_PER_ELEMENTO: dict[str, str] = {
     ".result.operations[].attributes": (
         "CAPABILITY-DISCOVERY-2.0 lo rende facoltativo per operazione, e oggi "
-        "solo `io.read` lo porta; il modello lo dichiara in `OPZIONALI`."
+        "solo `io.read` lo porta; il modello lo dichiara in `_OPZIONALI`."
     ),
 }
 
@@ -322,7 +322,7 @@ def categorie_dell_sdk() -> dict[str, str]:
                 )
             fuori[chiave.value] = valore.id
         return fuori
-    raise SystemExit("`CATEGORIE` non si trova in errors.py.")
+    raise SystemExit("`CATEGORIE` non si trova in _errors.py.")
 
 
 
@@ -356,15 +356,15 @@ def tetti_dell_sdk() -> set[str]:
                 campi.append(corpo.target.id)
             elif isinstance(corpo, ast.Assign):
                 nomi = [t.id for t in corpo.targets if isinstance(t, ast.Name)]
-                if "DURATA" in nomi and isinstance(corpo.value, ast.Constant):
+                if "_DURATA" in nomi and isinstance(corpo.value, ast.Constant):
                     durata = corpo.value.value
         if durata is None:
-            raise SystemExit("`Limits.DURATA` non e' una costante letterale.")
+            raise SystemExit("`Limits._DURATA` non e' una costante letterale.")
         return {
             "--deadline-ms" if campo == durata else f"--{campo.replace('_', '-')}"
             for campo in campi
         }
-    raise SystemExit("`Limits` non si trova in limits.py.")
+    raise SystemExit("`Limits` non si trova in _limits.py.")
 
 
 def _sdk_importato():
@@ -390,7 +390,7 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
     Un'annotazione piu' stretta del protocollo rifiuterebbe buste corrette; una
     piu' larga lascerebbe passare cio' che il protocollo esclude. Il confronto
     e' per uguaglianza, campo per campo, e per gli elenchi anche sugli elementi.
-    I campi `OPZIONALI` si confrontano senza `null`: la loro assenza si scrive
+    I campi `_OPZIONALI` si confrontano senza `null`: la loro assenza si scrive
     omettendoli, e `None` in Python e' l'assenza, non un valore del wire.
     """
     _, modelli = _sdk_importato()
@@ -401,15 +401,15 @@ def tipi_contro_il_protocollo(manifesto: dict[str, Any]) -> list[str]:
         struttura = manifesto["envelopes"][busta]["struttura"]
         base = EREDITA.get(nome)
         obbligatori = (
-            tuple(getattr(modelli, base).OBBLIGATORI) + tuple(classe.PROPRI)
+            tuple(getattr(modelli, base)._OBBLIGATORI) + tuple(classe._PROPRI)
             if base
-            else tuple(classe.OBBLIGATORI)
+            else tuple(classe._OBBLIGATORI)
         )
-        opzionali = tuple(getattr(classe, "OPZIONALI", ()))
+        opzionali = tuple(getattr(classe, "_OPZIONALI", ()))
         # Gli opzionali che quando ci sono possono valere `null`: il modello li
-        # dichiara in `ANNULLABILI`, e per loro il `null` e' un valore del wire.
-        annullabili = tuple(getattr(classe, "ANNULLABILI", ()))
-        rinominati_qui = getattr(classe, "RINOMINATI", {})
+        # dichiara in `_ANNULLABILI`, e per loro il `null` e' un valore del wire.
+        annullabili = tuple(getattr(classe, "_ANNULLABILI", ()))
+        rinominati_qui = getattr(classe, "_RINOMINATI", {})
         for campo in obbligatori + opzionali:
             annotazione = suggerimenti[rinominati_qui.get(campo, campo)]
             percorso = f"{prefisso}.{campo}"
@@ -470,7 +470,7 @@ def vocabolari_della_busta() -> list[str]:
 
 
 def rinominati(nome: str) -> dict[str, str]:
-    """`<Classe>.RINOMINATI`: i campi del wire che in Python prendono altro nome.
+    """`<Classe>._RINOMINATI`: i campi del wire che in Python prendono altro nome.
 
     `from` e' una parola chiave e non puo' essere un attributo. La deviazione
     e' **dichiarata** invece che dedotta: un gate che indovinasse quale campo
@@ -483,10 +483,10 @@ def rinominati(nome: str) -> dict[str, str]:
         for corpo in nodo.body:
             if not isinstance(corpo, ast.Assign):
                 continue
-            if "RINOMINATI" not in [t.id for t in corpo.targets if isinstance(t, ast.Name)]:
+            if "_RINOMINATI" not in [t.id for t in corpo.targets if isinstance(t, ast.Name)]:
                 continue
             if not isinstance(corpo.value, ast.Dict):
-                raise SystemExit(f"{nome}.RINOMINATI non e' un dizionario letterale.")
+                raise SystemExit(f"{nome}._RINOMINATI non e' un dizionario letterale.")
             return {
                 chiave.value: valore.value
                 for chiave, valore in zip(corpo.value.keys, corpo.value.values)
@@ -497,14 +497,14 @@ def rinominati(nome: str) -> dict[str, str]:
 
 def main() -> int:
     manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
-    obbligatori = tuple_dichiarate(MODELLI, "OBBLIGATORI")
-    opzionali = tuple_dichiarate(MODELLI, "OPZIONALI")
-    propri = tuple_dichiarate(MODELLI, "PROPRI")
+    obbligatori = tuple_dichiarate(MODELLI, "_OBBLIGATORI")
+    opzionali = tuple_dichiarate(MODELLI, "_OPZIONALI")
+    propri = tuple_dichiarate(MODELLI, "_PROPRI")
     problemi: list[str] = []
 
     for nome, (busta, prefisso) in POSTI.items():
         if nome not in obbligatori and nome not in propri:
-            problemi.append(f"il modello «{nome}» non dichiara `OBBLIGATORI`.")
+            problemi.append(f"il modello «{nome}» non dichiara `_OBBLIGATORI`.")
             continue
         campi = list(obbligatori.get(nome, []))
         base = EREDITA.get(nome)
@@ -536,7 +536,7 @@ def main() -> int:
             if f'"{del_wire}"' not in sorgente_modelli:
                 problemi.append(
                     f"{nome}: il campo del wire «{del_wire}» non compare in "
-                    "`models.py`: se e' rinominato, va comunque letto da li'."
+                    "`_models.py`: se e' rinominato, va comunque letto da li'."
                 )
 
     # Il risultato di `--version` ha uno schema **chiuso**, e il modello lo
@@ -550,7 +550,7 @@ def main() -> int:
             if f'"{campo}"' not in sorgente:
                 problemi.append(
                     f"la busta «{nome}» dichiara «{campo}» a schema chiuso e "
-                    "`models.py` non lo nomina."
+                    "`_models.py` non lo nomina."
                 )
 
     catalogo = manifesto["envelopes"]["catalog"]["struttura"]

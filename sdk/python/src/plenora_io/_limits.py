@@ -76,7 +76,7 @@ class Limits:
     #: `deadline` e' un `timedelta` perche' e' un tempo, e un intero nudo
     #: lascerebbe indovinare l'unita' -- che nella CLI e' il millisecondo, e
     #: nelle librerie Python quasi sempre il secondo.
-    DURATA = "deadline"
+    _DURATA = "deadline"
 
     def __post_init__(self) -> None:
         # La normalizzazione sta nel costruttore, e non solo in `Client`:
@@ -93,7 +93,7 @@ class Limits:
             if valore is None:
                 continue
             nome = f"limits.{campo.name}"
-            if campo.name == Limits.DURATA:
+            if campo.name == Limits._DURATA:
                 esatta = durata(valore, nome)
                 if not 0 <= _millisecondi(esatta) < OLTRE_U64:
                     raise _dallo_sdk(InvalidArgumentError, "arg.fuori_64", nome=nome)
@@ -117,7 +117,7 @@ class Limits:
             valore = valori.get(campo.name)
             if valore is None:
                 continue
-            if campo.name == Limits.DURATA:
+            if campo.name == Limits._DURATA:
                 argomenti += ["--deadline-ms", int.__repr__(_millisecondi(valore))]
             else:
                 argomenti += [f"--{campo.name.replace('_', '-')}", int.__repr__(valore)]
@@ -134,7 +134,7 @@ class Limits:
         """
         fuori = []
         for campo in fields(cls):
-            if campo.name == cls.DURATA:
+            if campo.name == cls._DURATA:
                 fuori.append("--deadline-ms")
             else:
                 fuori.append(f"--{campo.name.replace('_', '-')}")

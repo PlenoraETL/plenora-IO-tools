@@ -109,7 +109,7 @@ class LaBustaDiConvert(unittest.TestCase):
         """
         esito = ConvertResult.from_json(conversione_sana())
         self.assertEqual(esito.raw["from"], esito.from_)
-        self.assertEqual(set(ConvertResult.RINOMINATI), {"from"})
+        self.assertEqual(set(ConvertResult._RINOMINATI), {"from"})
         self.assertFalse(hasattr(esito, "from"))
 
     def test_pubblicata_non_e_sinonimo_di_riuscita(self) -> None:
@@ -130,7 +130,7 @@ class LaBustaDiConvert(unittest.TestCase):
         self.assertFalse(ConvertResult.from_json(conversione_sana()).lossless)
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in ConvertResult.OBBLIGATORI:
+        for campo in ConvertResult._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = conversione_sana()
                 del documento[campo]

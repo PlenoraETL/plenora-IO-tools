@@ -185,7 +185,7 @@ def limiti(valore: Any, nome: str = "limits") -> Limits | None:
             ) from None
         if interno is None:
             campi[campo.name] = None
-        elif campo.name == Limits.DURATA:
+        elif campo.name == Limits._DURATA:
             campi[campo.name] = durata(interno, f"{nome}.{campo.name}")
         else:
             campi[campo.name] = _int_esatto(interno, f"{nome}.{campo.name}")

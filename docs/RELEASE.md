@@ -1382,7 +1382,7 @@ prossima release è percio' una **major** (5.0.0).
   diventano privati (`_copia_json`, `_confinato`..., `plenora_io._argomenti`).
   `str()` di `CommandFailed` si compone dalla busta fissata, come `message` e
   `to_dict()`. `from_json` dei modelli legge lo schema dalla classe
-  dell'SDK, non da una sottoclasse: gli `OBBLIGATORI` ridefiniti da una
+  dell'SDK, non da una sottoclasse: gli `_OBBLIGATORI` ridefiniti da una
   sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio.
   I messaggi degli errori fidati dell'SDK vengono da un catalogo chiuso di
   modelli (`errors.MESSAGGI`), e ogni parametro ha un tipo dichiarato per la
@@ -1426,6 +1426,15 @@ prossima release è percio' una **major** (5.0.0).
   `arrow.cartella_temporanea`, `arrow.CartellaTemporanea`, `arrow.scrivi_ipc`,
   `arrow.leggi_ipc`, `confine.registra_avvio`, `confine.nome_sdk`. E' un
   cambiamento incompatibile della 5.0.0.
+- **Nessun attributo pubblico e' un contenitore di Python.** Gli schemi dei
+  modelli diventano privati (`OBBLIGATORI`, `PROPRI`, `OPZIONALI`,
+  `RINOMINATI`, `ANNULLABILI` -> `_OBBLIGATORI`...), come `Limits.DURATA`
+  (`_DURATA`). `PROFILES`, `retry` degli errori, `Catalog.available`,
+  `Layer.attributes` e `LossReport.categories` sono `FrozenList` o
+  `FrozenDict` invece di `tuple`, `list` e `dict`. `FrozenDict.get`, `keys`,
+  `items` e `values` sono dell'SDK e rendono `FrozenList` (le coppie come
+  `FrozenList` di due elementi) invece delle viste di `Mapping`.
+  `to_dict()` resta un `dict` nativo, con `retry` come `dict`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,

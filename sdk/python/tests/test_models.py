@@ -34,7 +34,7 @@ from _repository import CONTRATTO, serve_il_repository
 
 
 def driver_sano(**modifiche):
-    documento = {campo: "x" for campo in Driver.OBBLIGATORI}
+    documento = {campo: "x" for campo in Driver._OBBLIGATORI}
     documento.update(
         {
             "id": "geojson",
@@ -115,7 +115,7 @@ class IlCatalogo(unittest.TestCase):
         self.assertEqual([d.id for d in catalogo.available], ["geojson"])
 
     def test_un_campo_di_primo_livello_mancante_e_un_errore(self) -> None:
-        for campo in Catalog.OBBLIGATORI:
+        for campo in Catalog._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = catalogo_sano()
                 del documento[campo]
@@ -123,7 +123,7 @@ class IlCatalogo(unittest.TestCase):
                     Catalog.from_json(documento)
 
     def test_un_campo_di_driver_mancante_e_un_errore(self) -> None:
-        for campo in Driver.OBBLIGATORI:
+        for campo in Driver._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = driver_sano()
                 del documento[campo]
@@ -213,7 +213,7 @@ def strato_sano(**modifiche):
 
 
 def descrittore_sano(**modifiche):
-    documento = {campo: "x" for campo in FormatDescriptor.OBBLIGATORI}
+    documento = {campo: "x" for campo in FormatDescriptor._OBBLIGATORI}
     documento.update(
         {
             "id": "geojson",
@@ -282,7 +282,7 @@ class LaSezioneDiFedelta(unittest.TestCase):
     def test_le_quattro_omissioni_restano_separate(self) -> None:
         """Portano a decisioni diverse: chi ha perso categorie non conosce tutti
         i tipi di perdita, chi ha perso esempi li conosce e non ne ha campioni."""
-        for causa in Omissions.OBBLIGATORI:
+        for causa in Omissions._OBBLIGATORI:
             with self.subTest(causa=causa):
                 omesse = dict(fedelta_sana()["omesse"])
                 omesse[causa] = 3
@@ -304,7 +304,7 @@ class LaSezioneDiFedelta(unittest.TestCase):
         self.assertEqual((precisa.field_index, precisa.layer_index), (2, 0))
 
     def test_un_campo_mancante_e_un_errore(self) -> None:
-        for campo in Fidelity.OBBLIGATORI:
+        for campo in Fidelity._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = fedelta_sana()
                 del documento[campo]
@@ -346,7 +346,7 @@ class LaBustaDiInspect(unittest.TestCase):
         self.assertNotIn("altro-cercato", str(preso.exception))
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Inspect.OBBLIGATORI:
+        for campo in Inspect._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = inspect_sano()
                 del documento[campo]
@@ -393,7 +393,7 @@ class LaBustaDiLayers(unittest.TestCase):
         )
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Layers.OBBLIGATORI:
+        for campo in Layers._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = layers_sano()
                 del documento[campo]
@@ -475,7 +475,7 @@ class LaBustaDiValidate(unittest.TestCase):
         self.assertNotIn("rows", esito.raw)
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Validation.OBBLIGATORI:
+        for campo in Validation._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = validazione_sana()
                 del documento[campo]
@@ -514,7 +514,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         senza gli script di questo repository.
         """
         attesi = {c for c, sempre in self.struttura(".result.drivers[]").items() if sempre}
-        self.assertEqual(set(FormatDescriptor.OBBLIGATORI) | set(Driver.PROPRI), attesi)
+        self.assertEqual(set(FormatDescriptor._OBBLIGATORI) | set(Driver._PROPRI), attesi)
 
     @serve_il_repository
     def test_il_descrittore_di_inspect_e_quello_del_catalogo(self) -> None:
@@ -539,15 +539,15 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
 
         del_catalogo = immediati("catalog", ".result.drivers[]")
         di_inspect = immediati("inspect", ".result.format")
-        self.assertEqual(del_catalogo - di_inspect, set(Driver.PROPRI))
-        self.assertEqual(di_inspect, set(FormatDescriptor.OBBLIGATORI))
+        self.assertEqual(del_catalogo - di_inspect, set(Driver._PROPRI))
+        self.assertEqual(di_inspect, set(FormatDescriptor._OBBLIGATORI))
 
     @serve_il_repository
     def test_il_catalogo_espone_i_campi_che_il_protocollo_dichiara(self) -> None:
         # `.result`: e' li' che il protocollo mette i dati dell'operazione, e
         # il modello descrive il risultato, non la busta che lo trasporta.
         attesi = {c for c, sempre in self.struttura(".result").items() if sempre}
-        self.assertEqual(set(Catalog.OBBLIGATORI), attesi)
+        self.assertEqual(set(Catalog._OBBLIGATORI), attesi)
 
 
 if __name__ == "__main__":

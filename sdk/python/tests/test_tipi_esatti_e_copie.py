@@ -302,7 +302,7 @@ class SoloTipiJsonEsatti(unittest.TestCase):
 
 
 def descrittore() -> dict:
-    documento = {campo: "x" for campo in FormatDescriptor.OBBLIGATORI}
+    documento = {campo: "x" for campo in FormatDescriptor._OBBLIGATORI}
     documento.update(
         {
             "multi_layer": False,
