@@ -263,6 +263,15 @@ NOTA_DELL_INTERRUZIONE = (
 _ATTESA_DELLA_CHIUSURA = 5.0
 _ATTESA_DEI_LETTORI = 5.0
 
+#: Quanto un lettore che ha finito di leggere aspetta la fine del run, prima di
+#: comportarsi da abbandonato (scarta, libera, chiude il flusso).
+_ATTESA_DELLA_CONCLUSIONE = 10.0
+
+#: Gli oggetti di coordinamento dei lettori, costruiti **prima** di `Popen`:
+#: dopo l'avvio non c'e' niente fuori dal blocco protetto. Funzioni del
+#: modulo perche' le prove le possano sostituire.
+_nuovo_evento = threading.Event
+
 #: Il passo dell'attesa del processo: il thread chiamante aspetta a passi
 #: brevi, e fra un passo e l'altro guarda i lettori e la scadenza.
 _PASSO = 0.05
@@ -326,11 +335,14 @@ class _Lettore:
                     # Il run e' concluso e nessuno leggera' piu' questi
                     # byte: si scartano, e il buffer si libera.
                     self._dati = None
+                    del blocco
                     continue
+                # Il buffer si legge dall'attributo ogni volta, sotto lock, e
+                # nessuna variabile locale lo trattiene: abbandonato, si libera
+                # anche mentre la lettura successiva e' bloccata.
                 with self._stato:
-                    dati = self._dati
-                    if dati is not None:
-                        dati.extend(blocco)
+                    if self._dati is not None:
+                        self._dati.extend(blocco)
                 del blocco
         except BaseException:  # noqa: BLE001 - un lettore non stampa e non solleva
             self._fallito = True
@@ -341,8 +353,12 @@ class _Lettore:
                 self._finito = True
             self._letto.set()
             # Il flusso: lo chiude il chiamante, se lo ha reclamato e lo
-            # conferma; altrimenti, a fine run, lo chiude il lettore.
-            self._conclusione.wait()
+            # conferma; altrimenti, a fine run, lo chiude il lettore. La fine
+            # del run si aspetta con un tempo limitato: se un'interruzione
+            # asincrona impedisce al `finally` di `run` di segnalarla, il
+            # lettore si comporta da abbandonato allo scadere, e nessun thread
+            # resta appeso per sempre.
+            self._conclusione.wait(_ATTESA_DELLA_CONCLUSIONE)
             self._dati = None
             if not self.chiuso_dal_chiamante:
                 try:
@@ -450,10 +466,16 @@ def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
             lettore._dati = None
             esito.riuscita = False
             continue
-        passo(flusso.close)
-        if lettore is not None:
-            # La conferma, dopo che `close()` e' tornata: senza, il lettore
-            # chiude da se' (una seconda chiusura non fa niente).
+        chiuso: list[bool] = []
+
+        def chiudi_e_annota(flusso: Any = flusso, chiuso: list[bool] = chiuso) -> None:
+            flusso.close()
+            chiuso.append(True)  # solo se `close()` e' tornata normalmente
+
+        passo(chiudi_e_annota)
+        if lettore is not None and chiuso:
+            # La conferma: senza, il lettore chiude da se' (una seconda
+            # chiusura non fa niente).
             lettore.chiuso_dal_chiamante = True
     return esito
 
@@ -543,6 +565,11 @@ class Runner:
         confine (diciottesimo giro). I modelli lo leggono con `from_json`.
         """
         argv = _argv_esatto(argv)
+        # Prima di `Popen`, tutto cio' che serve a coordinare i lettori: una
+        # costruzione che fallisce qui non lascia un processo senza pulizia.
+        lettori: list[_Lettore] = []
+        conclusione = _nuovo_evento()
+        guasto = _nuovo_evento()
         processo = self._avvia(argv)
         # Il confine: `Popen` ha reso il processo. Da qui **tutto** passa da
         # un solo gestore, e la chiusura del processo gira su ogni uscita.
@@ -556,25 +583,22 @@ class Runner:
         # (`_Lettore`), l'attesa ha un tempo esplicito, e la chiusura
         # (`_chiudi`) non solleva mai: i suoi guasti non sostituiscono
         # l'eccezione primaria, e dopo un successo diventano un errore.
-        lettori: list[_Lettore] = []
-        # La fine del run per i lettori: impostata nel `finally` qui sotto,
-        # dopo la chiusura. `Event.set` non aspetta nessuno.
-        conclusione = threading.Event()
+        # Da qui al `try`, niente. La fine del run per i lettori si
+        # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
         try:
-            return self._esito(processo, argv, lettori, conclusione)
+            return self._esito(processo, argv, lettori, conclusione, guasto)
         finally:
             conclusione.set()
 
     def _esito(
         self, processo: Any, argv: list[str], lettori: list["_Lettore"],
-        conclusione: threading.Event,
+        conclusione: threading.Event, guasto: threading.Event,
     ) -> FrozenDict:
         """Il resto di `run`, dentro il `finally` che conclude i lettori."""
         primaria: BaseException | None = None
         risultato: Any = None
         try:
             registra_avvio(argv)
-            guasto = threading.Event()
             lettori += [
                 _Lettore(processo.stdout, guasto, conclusione),
                 _Lettore(processo.stderr, guasto, conclusione),

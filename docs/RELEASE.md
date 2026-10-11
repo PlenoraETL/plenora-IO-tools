@@ -1475,7 +1475,10 @@ prossima release è percio' una **major** (5.0.0).
   scarta cio' che legge e libera il buffer: pipe e thread lettore restano
   occupati finche' il nipote non chiude. Il flusso resta del lettore finche'
   il chiamante non lo reclama e non conferma di averlo chiuso: un reclamo
-  interrotto non lascia il flusso senza padrone. Un processo che resta vivo
+  interrotto non lascia il flusso senza padrone, e la conferma della
+  chiusura si scrive solo se `close()` e' tornata. Il lettore aspetta la
+  fine del run al piu' 10 s; un'interruzione asincrona nella pulizia
+  interna puo' ritardare fino a li' il rilascio di pipe e thread. Un processo che resta vivo
   prevale sull'errore che ha portato a chiuderlo, e la distinzione fra
   timeout e guasto della comunicazione si perde.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,

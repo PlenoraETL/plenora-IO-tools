@@ -386,7 +386,16 @@ non lo reclama con successo e non conferma di averlo chiuso: a fine run un
 `threading.Event` dice al lettore che il run e' concluso, e se la conferma
 manca -- reclamo fallito, interrotto da un Ctrl-C mentre si prende il lock,
 lettore ancora bloccato -- il lettore scarta, libera e chiude da se'. Nessun
-passaggio di responsabilita' resta a meta'. Il ciclo a passi non consuma
+passaggio di responsabilita' resta a meta': la conferma si scrive solo se
+`close()` e' tornata normalmente, e il lettore non trattiene il buffer in
+nessuna variabile propria. Il lettore aspetta la fine del run con un tempo
+limitato (10 s); allo scadere si comporta da abbandonato, cosi' nessun thread
+resta appeso. **Un'interruzione asincrona** (un Ctrl-C) che colpisce la
+pulizia interna dell'SDK -- per esempio proprio mentre il run segnala la
+propria fine -- **puo' ritardare il rilascio** della pipe e del thread
+lettore fino a quel tempo. Gli oggetti che coordinano i lettori si
+costruiscono prima di `Popen`: dal ritorno di `Popen` all'ingresso nel blocco
+protetto non c'e' nessuna operazione. Il ciclo a passi non consuma
 CPU: un processo che dorme si aspetta con `wait` di un passo alla volta, e
 una prova conta le attese. **Risorsa che puo' restare occupata:** quella
 pipe e il suo thread lettore (un thread daemon) restano aperti finche' il

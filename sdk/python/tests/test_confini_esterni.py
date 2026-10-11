@@ -4124,5 +4124,201 @@ class IlCicloAPassi(unittest.TestCase):
         self.assertLess(len(del_ciclo), 10 * sonno / _process._PASSO)
 
 
+# --- 27. venticinquesimo giro di revisione ----------------------------------
+
+
+class FlussoCheTrattiene:
+    """Una pipe che rende subito 1 MiB, poi resta bloccata finche' la prova
+    non la libera."""
+
+    def __init__(self):
+        import threading
+
+        self.libera = threading.Event()
+        self._primo = b"x" * (1 << 20)
+
+    def read(self, quanti=-1):
+        if self._primo is not None:
+            primo, self._primo = self._primo, None
+            return primo
+        self.libera.wait(30)
+        return b""
+
+    def close(self):
+        pass
+
+
+class Tracciabile(bytearray):
+    """Un `bytearray` che accetta un `weakref`: la prova vede se e' trattenuto."""
+
+
+class IlRilascioDelleRisorse(unittest.TestCase):
+    """Venticinquesimo giro: conferma vera, nessun riferimento trattenuto,
+    nessun lettore appeso, niente dopo `Popen` fuori dalla protezione."""
+
+    SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
+    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+
+    def _lettori_registrati(self):
+        from plenora_io import _process
+
+        lettori = []
+        originale = _process._Lettore
+
+        class Registrato(originale):
+            def __init__(self, *argomenti, **opzioni):
+                super().__init__(*argomenti, **opzioni)
+                lettori.append(self)
+
+        return lettori, mock.patch.object(_process, "_Lettore", Registrato)
+
+    def _esegui(self, finto, argv=None):
+        from plenora_io import Runner
+
+        with mock.patch.object(subprocess, "Popen", finto), \
+                self.assertRaises(BaseException) as preso:
+            Runner(Path("plenora-io")).run(argv or self.SCRIVE)
+        return preso.exception
+
+    @prova("process.exit")
+    def test_la_conferma_solo_se_close_torna(self) -> None:
+        """Prima: `passo(flusso.close)` inghiottiva un'interruzione, e la
+        conferma della chiusura si scriveva comunque."""
+        from test_confini_sdk import PopenFinto
+
+        lettori, registrati = self._lettori_registrati()
+        finto = PopenFinto([(self.BUSTA, b"")], errore_chiusura=KeyboardInterrupt())
+        with registrati:
+            errore = self._esegui(finto)
+        self.assertIs(type(errore), KeyboardInterrupt)
+        self.assertFalse(lettori[0].chiuso_dal_chiamante)
+        lettori[0]._thread.join(10)
+        # Senza conferma il lettore chiude da se': due chiusure.
+        self.assertEqual(finto.registro.count("close stdout"), 2)
+
+    @prova("process.communicate")
+    def test_il_buffer_abbandonato_non_e_trattenuto(self) -> None:
+        """Prima: la variabile locale `dati` del lettore tratteneva il buffer
+        abbandonato mentre la lettura successiva era bloccata."""
+        import gc
+        import weakref
+
+        from plenora_io import _process
+
+        from test_confini_sdk import PopenFinto
+
+        finto = PopenFinto([(b"", b"")])
+        lettori = []
+        flussi = []
+        riferimenti = []
+        originale_init = _process._Lettore.__init__
+
+        def con_buffer_tracciabile(lettore, *argomenti, **opzioni):
+            originale_init(lettore, *argomenti, **opzioni)
+            lettori.append(lettore)
+            lettore._dati = Tracciabile()
+            riferimenti.append(weakref.ref(lettore._dati))
+
+        def chiamata(argv, **opzioni):
+            processo = finto(argv, **opzioni)
+            flusso = FlussoCheTrattiene()
+            flussi.append(flusso)
+            processo.stdout = flusso
+            return processo
+
+        try:
+            with mock.patch.object(_process._Lettore, "__init__", con_buffer_tracciabile), \
+                    mock.patch.object(_process, "_ATTESA_DEI_LETTORI", 0.2):
+                self._esegui(chiamata)
+            gc.collect()
+            # Il lettore e' ancora bloccato nella seconda lettura, e il suo
+            # MiB non e' piu' raggiungibile.
+            self.assertTrue(lettori[0]._thread.is_alive())
+            self.assertIsNone(riferimenti[0]())
+        finally:
+            for flusso in flussi:
+                flusso.libera.set()
+
+    @prova("process.exit")
+    def test_nessun_lettore_resta_appeso_se_la_conclusione_non_arriva(self) -> None:
+        """Prima: i lettori aspettavano la fine del run senza limite, e
+        un'interruzione prima di `conclusione.set()` li lasciava appesi: 40
+        lettori vivi su 20 run."""
+        import threading
+        import time
+
+        from plenora_io import _process
+
+        from test_confini_sdk import PopenFinto
+
+        vero_evento = threading.Event
+
+        class EventoCheSolleva(vero_evento):
+            def set(self):
+                if threading.current_thread() is threading.main_thread():
+                    raise KeyboardInterrupt
+                super().set()
+
+        lettori, registrati = self._lettori_registrati()
+        finti = []
+        import types
+
+        # Solo dentro `_process`: il modulo `threading` vero non si tocca.
+        finto_threading = types.SimpleNamespace(
+            Event=EventoCheSolleva, Thread=threading.Thread, Lock=threading.Lock,
+            current_thread=threading.current_thread, main_thread=threading.main_thread)
+        with registrati, \
+                mock.patch.object(_process, "_nuovo_evento", EventoCheSolleva, create=True), \
+                mock.patch.object(_process, "threading", finto_threading), \
+                mock.patch.object(_process, "_ATTESA_DELLA_CONCLUSIONE", 0.3, create=True):
+            for _ in range(20):
+                finto = PopenFinto([(self.BUSTA, b"")])
+                finti.append(finto)
+                self._esegui(finto)
+        self.assertEqual(len(lettori), 40)
+        scadenza = time.monotonic() + 5.0
+        for lettore in lettori:
+            lettore._thread.join(max(0.0, scadenza - time.monotonic()))
+        self.assertEqual([lettore for lettore in lettori if lettore._thread.is_alive()], [])
+        for finto in finti:
+            self.assertIn("close stdout", finto.registro)
+
+    @prova("process.Popen")
+    def test_niente_fuori_dalla_protezione_dopo_popen(self) -> None:
+        """Prima: gli `Event` di coordinamento si costruivano dopo `Popen` e
+        fuori dal blocco protetto: un `MemoryError` lasciava il processo
+        partito senza pulizia e con effetto `none`."""
+        import threading
+        import types
+
+        from plenora_io import _process
+
+        from test_confini_sdk import PopenFinto
+
+        def esaurita(*argomenti, **opzioni):
+            raise MemoryError
+
+        finto = PopenFinto([(self.BUSTA, b"")])
+        partenze = []
+
+        def chiamata(argv, **opzioni):
+            partenze.append(argv)
+            return finto(argv, **opzioni)
+
+        finto_threading = types.SimpleNamespace(
+            Event=esaurita, Thread=threading.Thread, Lock=threading.Lock,
+            current_thread=threading.current_thread, main_thread=threading.main_thread)
+        with mock.patch.object(_process, "_nuovo_evento", esaurita, create=True), \
+                mock.patch.object(_process, "threading", finto_threading):
+            errore = self._esegui(chiamata)
+        self.assertIsInstance(errore, PlenoraError)
+        if partenze:
+            # Se il processo e' partito, e' stato chiuso, e l'effetto e' ignoto.
+            self.assertIn("kill", finto.registro)
+            self.assertEqual(errore.remote_effect, "unknown")
+        else:
+            self.assertEqual(errore.remote_effect, "none")
+
+
 if __name__ == "__main__":
     unittest.main()
