@@ -365,12 +365,25 @@ class FrozenDict(Mapping):
 
 
 def to_plain(valore: Any) -> Any:
-    """Il valore con `FrozenList` e `FrozenDict` resi `list` e `dict` ordinari."""
+    """Una copia profonda nuova, con `FrozenList` e `FrozenDict` resi `list` e
+    `dict` ordinari.
+
+    Copia anche i contenitori gia' nativi -- `list`, `tuple` (resa `list`) e
+    `dict`, letti con i metodi dei tipi base -- cosi' che il valore reso non
+    condivida niente con quello ricevuto: prima un ingresso nativo tornava
+    identico. Le foglie restano quelle che sono.
+    """
     tipo = type(valore)
     if tipo is FrozenList:
-        return [to_plain(v) for v in valore]
+        return [to_plain(v) for v in object.__getattribute__(valore, "_dati")]
     if tipo is FrozenDict:
         return {k: to_plain(v) for k, v in object.__getattribute__(valore, "_dati").items()}
+    if issubclass(tipo, list):
+        return [to_plain(v) for v in list.__iter__(valore)]
+    if issubclass(tipo, tuple):
+        return [to_plain(v) for v in tuple.__iter__(valore)]
+    if issubclass(tipo, dict):
+        return {k: to_plain(v) for k, v in dict.items(valore)}
     return valore
 
 

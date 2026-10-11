@@ -256,8 +256,8 @@ prima classe dell'SDK nel suo MRO (`_confine.nome_sdk`).
 -- valgono per ogni **chiamata a un callable dell'SDK**: le funzioni di
 `__all__`, i costruttori, i metodi, le proprieta' e gli operatori delle classi
 dell'SDK, i metodi di `FrozenList` e `FrozenDict` (compresi `get`, `keys`,
-`items` e `values`, che sono dell'SDK e rendono `FrozenList`). Fuori dal
-confine, e dichiarati:
+`items` e `values`, che sono dell'SDK; `keys`, `items` e `values` rendono
+`FrozenList`). Fuori dal confine, e dichiarati:
 
 * gli **scalari nativi immutabili** che l'SDK rende o porta in un attributo
   (`str`, `int`, `float`, `bool`, `bytes`, `None`): i loro metodi sono di
@@ -272,7 +272,21 @@ confine, e dichiarati:
 * le **copie native** che rendono i metodi di conversione, per cui esistono:
   `to_plain` e `json_default`, `PlenoraError.to_dict()`, `Limits.to_argv()`
   e `Limits.opzioni()` rendono `dict` e `list` nuovi a ogni chiamata, che
-  appartengono a chi li riceve.
+  appartengono a chi li riceve; `to_plain` copia in profondita' anche un
+  ingresso gia' nativo;
+* `FrozenDict.get(chiave, predefinito)` rende il **predefinito fornito dal
+  chiamante, identico**, quando la chiave non c'e': e' suo, non porta dati
+  dell'SDK, e normalizzarlo romperebbe `get(...) is predefinito`;
+* i metodi del **protocollo di serializzazione** -- `__reduce__`,
+  `__reduce_ex__`, `__getstate__`, `__copy__`, `__deepcopy__` -- rendono le
+  `tuple`, i `dict` e le `list` che `pickle` e `copy` consumano: i loro
+  valori restituiti sono fuori dal confine, ma la rete li copre come ogni
+  altro metodo (solo `PlenoraError`, nessuna catena).
+
+Tutti gli altri valori restituiti stanno dentro il confine: `Runner.run`
+rende un `FrozenDict` congelato in profondita', e `IValoriRestituiti` lo
+verifica con un `Popen` finto, insieme ai valori resi dai metodi dei
+contenitori.
 
 Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
 `tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella

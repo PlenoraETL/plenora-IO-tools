@@ -97,6 +97,7 @@ from ._errors import (
     sottocomando,
 )
 from ._errors import _dallo_sdk
+from ._contenitori import FrozenDict
 
 
 
@@ -269,13 +270,20 @@ class Runner:
     def binary(self) -> Path:
         return self._binary
 
-    def run(self, argv: list[str]) -> dict[str, Any]:
-        """La busta di successo, o `CommandFailed` con quella d'errore."""
+    def run(self, argv: list[str]) -> FrozenDict:
+        """Il risultato della busta di successo, o `CommandFailed` con quella
+        d'errore.
+
+        Un `FrozenDict`, congelato in profondita' (`FrozenList` per gli
+        elenchi), come ogni altra risposta dell'SDK: prima era il `dict`
+        decodificato, con le sue `list`, un valore restituito fuori dal
+        confine (diciottesimo giro). I modelli lo leggono con `from_json`.
+        """
         argv = _argv_esatto(argv)
         try:
             completed = self._execute(argv)
             if completed.exit_code == 0:
-                return self._success(completed)
+                return FrozenDict(self._success(completed))
             documento = self._failure(completed)
             fallimento = _failure_from_envelope(documento, completed.exit_code, argv)
         except ProtocolError as errore:

@@ -3222,5 +3222,103 @@ class IlConfineDegliAttributi(unittest.TestCase):
                 self.assertFalse(hasattr(classe, attributo))
 
 
+# --- 20. diciottesimo giro di revisione -------------------------------------
+
+
+class IValoriRestituiti(unittest.TestCase):
+    """Diciottesimo giro: i valori che le chiamate rendono, non solo gli
+    attributi, stanno dentro il confine dichiarato."""
+
+    def _dentro_il_confine(self, valore, dove, problemi) -> None:
+        """Ricorsivo: un contenitore dell'SDK con dentro solo valori ammessi."""
+        tipo = type(valore)
+        if tipo is FrozenList:
+            for interno in valore:
+                self._dentro_il_confine(interno, dove, problemi)
+        elif tipo is FrozenDict:
+            for interno in FrozenDict.values(valore):
+                self._dentro_il_confine(interno, dove, problemi)
+        elif not IlConfineDegliAttributi._ammesso(self, valore):
+            problemi.append(f"{dove}: {tipo.__name__}")
+
+    @prova("confine.rete")
+    def test_runner_run_rende_una_struttura_congelata(self) -> None:
+        """Prima: sul successo `Runner.run` rendeva il `dict` decodificato, con
+        le sue `list`: un valore restituito fuori dal confine, modificabile."""
+        from plenora_io import Runner
+
+        from test_confini_sdk import PopenFinto
+
+        busta = {"status": "ok", "contract": "x", "result": {
+            "elenco": [1, [2, {"k": "v"}]], "oggetto": {"a": [True, None]}}}
+        finto = PopenFinto([(json.dumps(busta).encode(), b"")])
+        with mock.patch.object(subprocess, "Popen", finto):
+            risultato = Runner(Path("plenora-io")).run(["inspect", "x.geojson"])
+        problemi: list[str] = []
+        self.assertIs(type(risultato), FrozenDict)
+        self._dentro_il_confine(risultato, "Runner.run", problemi)
+        self.assertEqual(problemi, [])
+        self.assertEqual(risultato, busta["result"])
+        with self.assertRaises(InvalidArgumentError):
+            risultato["elenco"].append(3)
+
+    @prova("confine.rete")
+    def test_i_metodi_dei_contenitori_rendono_valori_del_confine(self) -> None:
+        """Ogni metodo pubblico di `FrozenList` e `FrozenDict` rende un valore
+        ammesso -- salvo `get`, che rende il predefinito del chiamante, identico
+        (README, «Il confine delle garanzie»)."""
+        elenco = FrozenList([1, [2], {"a": 3}, 2])
+        dizionario = FrozenDict({"k": [1], "j": {"x": 2}})
+        chiamate = {
+            "FrozenList[1:]": lambda: elenco[1:],
+            "FrozenList[1]": lambda: elenco[1],
+            "FrozenList.index": lambda: elenco.index(2),
+            "FrozenList.count": lambda: elenco.count(2),
+            "FrozenList.__len__": lambda: len(elenco),
+            "FrozenList.__contains__": lambda: 2 in elenco,
+            "FrozenList.__eq__": lambda: elenco == [1],
+            "FrozenList.__hash__": lambda: hash(elenco),
+            "FrozenList.__repr__": lambda: repr(elenco),
+            "FrozenDict[k]": lambda: dizionario["k"],
+            "FrozenDict.get": lambda: dizionario.get("k"),
+            "FrozenDict.get assente": lambda: dizionario.get("z"),
+            "FrozenDict.keys": dizionario.keys,
+            "FrozenDict.values": dizionario.values,
+            "FrozenDict.items": dizionario.items,
+            "FrozenDict.__len__": lambda: len(dizionario),
+            "FrozenDict.__contains__": lambda: "k" in dizionario,
+            "FrozenDict.__eq__": lambda: dizionario == {},
+            "FrozenDict.__hash__": lambda: hash(dizionario),
+            "FrozenDict.__repr__": lambda: repr(dizionario),
+        }
+        problemi: list[str] = []
+        for nome, chiamata in chiamate.items():
+            self._dentro_il_confine(chiamata(), nome, problemi)
+        self.assertEqual(problemi, [])
+        # `get` rende il predefinito del chiamante, identico: e' suo, e
+        # normalizzarlo romperebbe `is predefinito`.
+        predefinito = object()
+        self.assertIs(dizionario.get("assente", predefinito), predefinito)
+        self.assertIs(dizionario.get(StrOstile("assente"), predefinito), predefinito)
+
+    @prova("argomenti.sottoclassi")
+    def test_to_plain_rende_sempre_una_copia_nuova(self) -> None:
+        """Prima: `to_plain(x)` rendeva `x` stesso se era gia' nativo."""
+        from plenora_io import to_plain
+
+        nativo = [1, [2, {"k": [3]}], (4, 5)]
+        copia = to_plain(nativo)
+        self.assertEqual(copia, [1, [2, {"k": [3]}], [4, 5]])
+        self.assertIsNot(copia, nativo)
+        self.assertIsNot(copia[1], nativo[1])
+        self.assertIsNot(copia[1][1], nativo[1][1])
+        self.assertIsNot(copia[1][1]["k"], nativo[1][1]["k"])
+        dizionario = {"a": {"b": []}}
+        self.assertIsNot(to_plain(dizionario)["a"], dizionario["a"])
+        congelato = FrozenDict({"a": [1, {"b": 2}]})
+        self.assertEqual(to_plain(congelato), {"a": [1, {"b": 2}]})
+        self.assertIs(type(to_plain(congelato)["a"]), list)
+
+
 if __name__ == "__main__":
     unittest.main()

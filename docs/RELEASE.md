@@ -1432,9 +1432,16 @@ prossima release è percio' una **major** (5.0.0).
   (`_DURATA`). `PROFILES`, `retry` degli errori, `Catalog.available`,
   `Layer.attributes` e `LossReport.categories` sono `FrozenList` o
   `FrozenDict` invece di `tuple`, `list` e `dict`. `FrozenDict.get`, `keys`,
-  `items` e `values` sono dell'SDK e rendono `FrozenList` (le coppie come
-  `FrozenList` di due elementi) invece delle viste di `Mapping`.
+  `items` e `values` sono dell'SDK; `keys`, `items` e `values` rendono
+  `FrozenList` (le coppie come `FrozenList` di due elementi) invece delle
+  viste di `Mapping`, e `get` rende il predefinito del chiamante identico.
   `to_dict()` resta un `dict` nativo, con `retry` come `dict`.
+- **`Runner.run` rende un `FrozenDict`**, congelato in profondita', invece
+  del `dict` decodificato con le sue `list`: si legge e si confronta con un
+  `dict` come prima, ma non si modifica, e `json.dumps` vuole
+  `default=plenora_io.json_default` o `plenora_io.to_plain(...)`.
+  `to_plain` rende ora sempre una copia nuova, anche di un ingresso gia'
+  nativo.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,
