@@ -34,7 +34,8 @@ from . import _arrow as arrow
 from ._confine import nome_sdk
 from ._discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
 from ._errors import ProtocolError, _copia_json
-from ._errors import _dallo_sdk, sottocomando
+from ._errors import _dallo_sdk
+from ._contenitori import _memo, _protocollo
 from ._limits import Limits
 from ._models import (
     Capabilities,
@@ -46,7 +47,7 @@ from ._models import (
     Version,
     WriteResult,
 )
-from ._process import Runner, _con_effetto_ignoto
+from ._process import Runner, _dopo_l_avvio
 
 #: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
 #:
@@ -128,6 +129,12 @@ class TableRead:
     result: Validation
 
 
+
+def _ricrea_client(binario: Any, timeout: Any) -> "Client":
+    """Un `Client` ricostruito dai soli parametri del costruttore."""
+    return Client(binario, timeout=timeout)
+
+
 class Client:
     """L'ingresso dell'SDK.
 
@@ -146,6 +153,30 @@ class Client:
         percorso = trova_binario(binary)
         self._runner = Runner(percorso, timeout=timeout)
         self._manifest = leggi_manifesto(percorso)
+
+    # Il protocollo di serializzazione: lo stato sono i soli parametri del
+    # costruttore -- il binario e il timeout -- e si ricostruisce chiamandolo,
+    # che ritrova il binario e rilegge il manifesto (ventesimo giro).
+
+    def __getstate__(self) -> dict[str, Any]:
+        runner = object.__getattribute__(self, "_runner")
+        return {"binary": str(runner.binary), "timeout": runner._timeout}
+
+    def __reduce__(self) -> Any:
+        stato = self.__getstate__()
+        return (_ricrea_client, (stato["binary"], stato["timeout"]))
+
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __copy__(self) -> "Client":
+        stato = self.__getstate__()
+        return _ricrea_client(stato["binary"], stato["timeout"])
+
+    def __deepcopy__(self, memo: Any = None) -> "Client":
+        _memo(memo)
+        return self.__copy__()
 
     @property
     def binary(self) -> Path:
@@ -413,13 +444,9 @@ class Client:
                     raise _dallo_sdk(ProtocolError, "client.consegna_non_dichiarata")
                 tabella = arrow.leggi_ipc(consegna, esito.delivered.content_type)
                 letto = TableRead(table=tabella, result=esito)
-            except ProtocolError as errore:
-                raise _con_effetto_ignoto(errore, ["read", "--output"]) from None
-            except Exception:  # noqa: BLE001 - dopo la scrittura, tutto e' protocollo
-                raise _con_effetto_ignoto(
-                    _dallo_sdk(ProtocolError, "client.consegna_illeggibile"),
-                    ["read", "--output"],
-                ) from None
+            except Exception as errore:  # noqa: BLE001 - dopo la scrittura, tutto e' protocollo
+                raise _dopo_l_avvio(
+                    errore, ["read", "--output"], "client.consegna_illeggibile") from None
         return letto
 
 
@@ -630,17 +657,9 @@ class Client:
         """
         try:
             return modello.from_json(risultato)
-        except ProtocolError as errore:
-            raise _con_effetto_ignoto(errore, argv) from None
-        except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-            raise _con_effetto_ignoto(
-                _dallo_sdk(
-                    ProtocolError, "client.non_decodifica",
-                    comando=sottocomando(argv) or '?',
-                    modello=nome_sdk(modello),
-                ),
-                argv,
-            ) from None
+        except Exception as errore:  # noqa: BLE001 - il confine traduce tutto, apposta
+            raise _dopo_l_avvio(
+                errore, argv, "client.non_decodifica", modello=nome_sdk(modello)) from None
 
     # --- la riga di argomenti ---------------------------------------------
 

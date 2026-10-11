@@ -283,7 +283,12 @@ dell'SDK, i metodi di `FrozenList` e `FrozenDict` (compresi `get`, `keys`,
   valori restituiti sono fuori dal confine. Sono pero' definiti dall'SDK in
   ogni sua classe -- non ereditati da `object` -- e passano dalla rete: un
   protocollo che non e' un intero esatto non negativo, un `memo` che non e'
-  un `dict` o un argomento in piu' sono `PlenoraError`, senza catena;
+  un `dict` o un argomento in piu' sono `PlenoraError`, senza catena. Lo
+  stato che serializzano e' esplicito: per un modello i soli campi dello
+  schema dell'SDK, ricostruiti chiamando il costruttore (che rivalida); per
+  `Client` e `Runner` i soli parametri del costruttore (il binario e il
+  timeout), e la ricostruzione chiama il costruttore -- `Client` ritrova il
+  binario e rilegge il manifesto;
 * gli **iteratori** che rendono `iter()` e `reversed()` di un contenitore
   sono oggetti di Python, e producono valori dentro il confine; `NotImplemented`
   che `__eq__` e `__ne__` rendono per un altro tipo e' il protocollo dei
@@ -305,7 +310,33 @@ congelamento della risposta, la busta d'errore, il modello, la lettura della
 consegna di `read_table` -- e' un `ProtocolError` con `remote_effect:
 unknown` per `write`, `convert` e `read` con destinazione, mai `none`
 (`DopoLAvvio` inietta un guasto in ciascun punto, per ogni comando che
-scrive). Il ritentativo resta `never`, come per ogni errore dell'SDK.
+scrive). Il confine e' il punto esatto in cui `Popen` ha reso il processo:
+da li' `registra_avvio`, la comunicazione, la decodifica dei flussi,
+`Completed`, il JSON, il congelamento, la busta d'errore, la chiusura e il
+timeout passano da un solo gestore (`_process._dopo_l_avvio`), che conserva
+un `ProtocolError` dell'SDK e traduce ogni altro guasto -- anche un errore
+dell'SDK gia' fidato di un'altra classe, o un `MemoryError` -- in un
+`ProtocolError` nuovo, e per un comando che scrive porta l'effetto a
+`unknown` (`IlConfineDellAvvio`, `DopoLAvvio`).
+
+Il ritentativo resta `never`, come per ogni errore dell'SDK, anche con
+`unknown`. E' una scelta, e conforme: ERRORS-1.0 ammette `unknown` con
+`never`, `quarantine` o `requires_recovery` (ERR-006), e ERR-016 dice che un
+effetto ignoto «normally» chiede `requires_recovery`, senza imporlo. ERR-014
+(SHOULD) chiede di dire come ci si riprende: l'SDK non sa come verificare lo
+stato di una destinazione scritta da un altro processo, e
+`requires_recovery` prometterebbe un ripristino che l'SDK non offre. Chi
+riceve `unknown` verifica la destinazione prima di decidere; il
+ritentativo cieco e' escluso.
+
+**Le interruzioni restano interruzioni.** `KeyboardInterrupt`, `SystemExit` e
+le altre `BaseException` che non sono `Exception` attraversano l'SDK senza
+diventare un `PlenoraError`: un Ctrl-C deve fermare chi chiama. Prima di
+rilanciarle, se il processo e' partito, l'SDK lo chiude (lo termina e ne
+raccoglie i flussi); per un comando che scrive vi aggiunge una nota fissa,
+senza dati (`add_note`, o `__notes__` su Python 3.10), che dice che l'effetto
+remoto va considerato `unknown`: una scrittura interrotta puo' aver lasciato
+una destinazione parziale.
 
 Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
 `tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella

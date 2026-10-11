@@ -1447,7 +1447,18 @@ prossima release è percio' una **major** (5.0.0).
   (`__reduce__`, `__reduce_ex__`, `__getstate__`, `__copy__`,
   `__deepcopy__`) e' definito dall'SDK in ogni sua classe e valida gli
   argomenti; `copy.copy` di `FrozenList` e `FrozenDict` non ricostruisce gli
-  elementi.
+  elementi. Lo stato serializzato di un modello sono i soli campi dello
+  schema, e la copia o il `pickle` lo ricostruiscono dal costruttore; quello
+  di `Client` e `Runner` sono il binario e il timeout, e la ricostruzione
+  chiama il costruttore (per `Client`: ritrova il binario, rilegge il
+  manifesto). I modelli hanno un `__ne__` proprio.
+- **Dopo l'avvio di un processo, un solo gestore.** Ogni guasto dopo il
+  ritorno di `Popen` -- anche in `registra_avvio`, nella decodifica dei
+  flussi o in `Completed` -- e' `ProtocolError` (non piu' `UnexpectedError`),
+  con effetto `unknown` per un comando che scrive. `KeyboardInterrupt` e
+  `SystemExit` restano tali: l'SDK chiude il processo figlio prima di
+  rilanciarle e, per un comando che scrive, vi aggiunge una nota fissa che
+  dice che l'effetto remoto va considerato `unknown`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,

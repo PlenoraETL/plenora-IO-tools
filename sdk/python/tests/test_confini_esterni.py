@@ -1112,7 +1112,9 @@ class LaRete(unittest.TestCase):
             with self.assertRaises(PlenoraError) as preso:
                 cliente.write("s.arrow", "o.gpkg", format="gpkg")
         self.assertEqual(finto.partenze, 1)
-        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        # Ventesimo giro: dopo l'avvio un solo gestore, che rende
+        # `ProtocolError` (non `UnexpectedError`) con effetto `unknown`.
+        self.assertEqual(type(preso.exception).__name__, "ProtocolError")
         tradotto(self, preso.exception, "unknown")
 
     @prova("confine.rete")
@@ -2899,6 +2901,16 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
                     dove = f"{file.name}:{nodo.lineno}"
                     if nodo.func.id == "_dallo_sdk":
                         chiave = nodo.args[1] if len(nodo.args) > 1 else None
+                        letterale = (isinstance(chiave, ast.Constant)
+                                     and chiave.value in errors.MESSAGGI)
+                        # Il gestore unico riceve la chiave come parametro, e
+                        # chi lo chiama la passa letterale (sotto).
+                        delegata = (isinstance(chiave, ast.Name) and chiave.id == "chiave"
+                                    and funzione.name == "_dopo_l_avvio")
+                        if not (letterale or delegata):
+                            difformi.append(dove)
+                    elif nodo.func.id == "_dopo_l_avvio" and len(nodo.args) > 2:
+                        chiave = nodo.args[2]
                         if not (isinstance(chiave, ast.Constant)
                                 and chiave.value in errors.MESSAGGI):
                             difformi.append(dove)
@@ -3412,7 +3424,7 @@ class DopoLAvvio(unittest.TestCase):
                 for nome, effetto in (("fidato", fidato), ("esterno", RuntimeError(SEGRETO))):
                     with self.subTest(comando=argv[0], punto=bersaglio, guasto=nome):
                         errore = self._esegui(argv, stdout, codice, **{bersaglio: effetto})
-                        self.assertIn(type(errore).__name__, ("ProtocolError", "UnexpectedError"))
+                        self.assertIs(type(errore), ProtocolError)
                         self.assertEqual(errore.remote_effect, "unknown")
                         self.assertNotIn(SEGRETO, str(errore))
 
@@ -3537,6 +3549,144 @@ class LeVisiteDelCongelamento(unittest.TestCase):
         with mock.patch.object(confine, "_esatto", contata):
             FrozenDict({"gia": congelato})
         self.assertEqual(visite, 1)
+
+
+# --- 22. ventesimo giro di revisione ----------------------------------------
+
+
+class PopenCheContaLaChiusura:
+    """Un `Popen` finto che registra `kill` e solleva da `communicate`."""
+
+    def __init__(self, guasto):
+        self.guasto = guasto
+        self.uccisi = 0
+        self.returncode = None
+        self.pid = 4242
+
+    def __call__(self, argv, **opzioni):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *eccezione):
+        return False
+
+    def communicate(self, timeout=None):
+        if self.guasto is not None:
+            guasto, self.guasto = self.guasto, None
+            raise guasto
+        return b"", b""
+
+    def kill(self):
+        self.uccisi += 1
+        self.returncode = -9
+
+    def poll(self):
+        return self.returncode
+
+    def send_signal(self, segnale):
+        pass
+
+
+class IlConfineDellAvvio(unittest.TestCase):
+    """Ventesimo giro: dal punto in cui `Popen` ha reso il processo, un solo
+    gestore; le interruzioni passano dopo la chiusura del figlio."""
+
+    def _esegui(self, argv, iniezioni):
+        from plenora_io import Runner
+
+        from test_confini_sdk import PopenFinto
+
+        busta = b'{"status": "ok", "contract": "x", "result": {}}'
+        finto = PopenFinto([(busta, b"")])
+        with mock.patch.object(subprocess, "Popen", finto), contextlib.ExitStack() as pila:
+            for bersaglio, effetto in iniezioni.items():
+                pila.enter_context(mock.patch(bersaglio, side_effect=effetto))
+            with self.assertRaises(PlenoraError) as preso:
+                Runner(Path("plenora-io")).run(argv)
+        return preso.exception
+
+    @prova("process.decode")
+    def test_ogni_punto_dal_ritorno_di_popen_e_unknown(self) -> None:
+        """Prima: `registra_avvio`, la decodifica dei flussi e `Completed`
+        stavano fuori dal gestore: un `MemoryError` dava `UnexpectedError`, e
+        un errore dell'SDK gia' fidato usciva con effetto `none`."""
+        from plenora_io import _errors as errors
+
+        def fidato(*argomenti, **opzioni):
+            raise errors._dallo_sdk(InvalidArgumentError, "modello.annidato", dove="FrozenList")
+
+        punti = ("plenora_io._process.registra_avvio", "plenora_io._process._testo",
+                 "plenora_io._process.Completed", "plenora_io._process.carica_json",
+                 "plenora_io._process.FrozenDict")
+        for argv in COMANDI_CHE_SCRIVONO:
+            for punto in punti:
+                for nome, effetto in (("fidato", fidato), ("memoria", MemoryError()),
+                                      ("esterno", RuntimeError(SEGRETO))):
+                    with self.subTest(comando=argv[0], punto=punto, guasto=nome):
+                        errore = self._esegui(argv, {punto: effetto})
+                        self.assertNotEqual(type(errore).__name__, "UnexpectedError")
+                        self.assertEqual(errore.remote_effect, "unknown")
+                        self.assertNotIn(SEGRETO, str(errore))
+        # Un comando che legge soltanto resta `none`.
+        errore = self._esegui(["inspect", "s.geojson"],
+                              {"plenora_io._process._testo": MemoryError()})
+        self.assertIs(type(errore), ProtocolError)
+        self.assertEqual(errore.remote_effect, "none")
+
+    @prova("process.communicate")
+    def test_un_interruzione_chiude_il_processo_e_resta_un_interruzione(self) -> None:
+        from plenora_io import Runner
+
+        for crea in (KeyboardInterrupt, lambda: SystemExit(3)):
+            for argv, scrive in ((COMANDI_CHE_SCRIVONO[0], True), (["inspect", "s"], False)):
+                guasto = crea()
+                with self.subTest(guasto=type(guasto).__name__, comando=argv[0]):
+                    finto = PopenCheContaLaChiusura(guasto)
+                    with mock.patch.object(subprocess, "Popen", finto):
+                        with self.assertRaises(type(guasto)) as preso:
+                            Runner(Path("plenora-io")).run(argv)
+                    self.assertGreaterEqual(finto.uccisi, 1)
+                    note = getattr(preso.exception, "__notes__", [])
+                    if scrive:
+                        self.assertTrue(any("unknown" in nota for nota in note))
+                    else:
+                        self.assertFalse(note)
+
+    @prova("confine.rete")
+    def test_lo_stato_serializzato_e_esplicito(self) -> None:
+        """Prima: lo stato di `Client` e `Runner` era l'intero `__dict__`
+        (`_runner`, `_manifest`, `_binary`, `_timeout`), e quello dei modelli
+        anche cio' che non e' un campo dello schema."""
+        import dataclasses
+        import pickle
+
+        from plenora_io import Runner
+
+        runner = Runner(Path("plenora-io"), timeout=4.0)
+        self.assertEqual(set(runner.__getstate__()), {"binary", "timeout"})
+        tornato = pickle.loads(pickle.dumps(runner))
+        self.assertEqual((tornato.binary, tornato.sigint_forwarding_available),
+                         (runner.binary, runner.sigint_forwarding_available))
+        busta = _busta()
+        self.assertEqual(set(busta.__getstate__()),
+                         {campo.name for campo in dataclasses.fields(busta)})
+        tornata = pickle.loads(pickle.dumps(busta))
+        self.assertEqual(tornata, busta)
+        self.assertEqual(tornata._tipo_di_ritentativo, "never")
+
+    @prova("confine.rete")
+    def test_i_modelli_hanno_un_ne_dell_sdk(self) -> None:
+        from plenora_io import _confine as confine
+
+        for modello in confine.MODELLI:
+            with self.subTest(modello=modello.__name__):
+                self.assertIn("__ne__", vars(modello))
+                self.assertTrue(getattr(vars(modello)["__ne__"], confine.SEGNO, False))
+        versione = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
+        self.assertFalse(versione != versione)
+        self.assertIs(versione.__ne__(5), NotImplemented)
 
 
 if __name__ == "__main__":

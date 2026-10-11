@@ -523,6 +523,7 @@ def _prepara_modello(classe: type) -> None:
     if post_init is not None:
         setattr(classe, "__post_init__", _solo_nel_costruttore(post_init))
     setattr(classe, "__eq__", _uguale)
+    setattr(classe, "__ne__", _diverso)
     setattr(classe, "__hash__", _hash_del_modello)
     setattr(classe, "__setattr__", _immutabile)
     setattr(classe, "__delattr__", _immutabile)
@@ -554,11 +555,23 @@ def _con_self(funzione: Callable[..., Any], classe: type) -> Callable[..., Any]:
     return controllato
 
 
-def _riduci(self: Any) -> Any:
-    """`__reduce__` di un oggetto dell'SDK con `__dict__`: classe e stato."""
-    import copyreg  # noqa: PLC0415
+def _stato_del_modello(self: Any) -> dict[str, Any]:
+    """I soli campi dello schema dell'SDK: lo stato che si serializza."""
+    valori = object.__getattribute__(self, "__dict__")
+    return {campo.name: valori[campo.name] for campo in _campi(type(self))
+            if campo.name in valori}
 
-    return (copyreg.__newobj__, (type(self),), dict(object.__getattribute__(self, "__dict__")))
+
+def _ricrea_modello(classe: Any, stato: Any) -> Any:
+    """Il modello ricostruito dal costruttore, che rinormalizza e rivalida:
+    le decisioni private (per esempio di `ErrorEnvelope`) si ricalcolano."""
+    if _classe_del_modello(classe) is None or type(stato) is not dict:
+        raise _dallo_sdk(InvalidArgumentError, "copia.stato_estraneo")
+    return classe(**stato)
+
+
+def _riduci(self: Any) -> Any:
+    return (_ricrea_modello, (type(self), _stato_del_modello(self)))
 
 
 def _riduci_ex(self: Any, protocollo: Any) -> Any:
@@ -569,14 +582,11 @@ def _riduci_ex(self: Any, protocollo: Any) -> Any:
 
 
 def _stato_serializzabile(self: Any) -> Any:
-    return dict(object.__getattribute__(self, "__dict__"))
+    return _stato_del_modello(self)
 
 
 def _copia(self: Any) -> Any:
-    nuovo = object.__new__(type(self))
-    object.__getattribute__(nuovo, "__dict__").update(
-        object.__getattribute__(self, "__dict__"))
-    return nuovo
+    return _ricrea_modello(type(self), _stato_del_modello(self))
 
 
 def _copia_profonda(self: Any, memo: Any = None) -> Any:
@@ -585,19 +595,18 @@ def _copia_profonda(self: Any, memo: Any = None) -> Any:
     from ._contenitori import _memo  # noqa: PLC0415
 
     memo = {} if _memo(memo) is None else memo
-    nuovo = object.__new__(type(self))
+    stato = {nome: copy.deepcopy(valore, memo)
+             for nome, valore in _stato_del_modello(self).items()}
+    nuovo = _ricrea_modello(type(self), stato)
     memo[id(self)] = nuovo
-    stato = object.__getattribute__(nuovo, "__dict__")
-    for nome, valore in list(object.__getattribute__(self, "__dict__").items()):
-        stato[nome] = copy.deepcopy(valore, memo)
     return nuovo
 
 
-#: Il protocollo di serializzazione per le classi dell'SDK che non lo
-#: definiscono (modelli, `Client`, `Runner`): ereditato da `object` lasciava
-#: uscire `TypeError` per un argomento sbagliato, fuori dalla rete
-#: (diciannovesimo giro). `FrozenList`, `FrozenDict` e gli errori hanno il
-#: proprio.
+#: Il protocollo di serializzazione dei modelli: lo stato sono i soli campi
+#: dello schema dell'SDK, e si ricostruisce chiamando il costruttore
+#: (ventesimo giro; prima era l'intero `__dict__`, comprese le decisioni
+#: private). `FrozenList`, `FrozenDict`, gli errori, `Client` e `Runner` hanno
+#: il proprio.
 _SERIALIZZATORI: dict[str, Callable[..., Any]] = {
     "__reduce__": _riduci,
     "__reduce_ex__": _riduci_ex,
@@ -607,8 +616,15 @@ _SERIALIZZATORI: dict[str, Callable[..., Any]] = {
 }
 
 
+def _diverso(self: Any, altro: Any) -> Any:
+    """`!=` fra modelli, dallo stesso `==` canonico (ventesimo giro: prima era
+    `object.__ne__`, ereditato)."""
+    uguale = _uguale(self, altro)
+    return uguale if uguale is NotImplemented else not uguale
+
+
 def _con_serializzatori(classe: type) -> None:
-    if classe is FrozenList or classe is FrozenDict or classe_dell_sdk(classe):
+    if not e_un_modello(classe):
         return
     for nome, funzione in _SERIALIZZATORI.items():
         definito = any(

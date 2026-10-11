@@ -94,10 +94,11 @@ from ._errors import (
     carica_json,
     _failure_from_envelope,
     _ricostruito,
+    costruito_dall_sdk,
     sottocomando,
 )
 from ._errors import _dallo_sdk
-from ._contenitori import FrozenDict
+from ._contenitori import FrozenDict, _memo, _protocollo
 
 
 
@@ -188,14 +189,9 @@ def _testo(dati: bytes, argv: list[str], flusso: str) -> str:
     try:
         return dati.decode("utf-8")
     except UnicodeDecodeError:
-        raise _con_effetto_ignoto(
-            _dallo_sdk(
-                ProtocolError, "processo.non_utf8",
-                comando=_nome_del_comando(argv),
-                flusso=flusso,
-                byte=len(dati),
-            ),
-            argv,
+        raise _dallo_sdk(
+            ProtocolError, "processo.non_utf8",
+            comando=_nome_del_comando(argv), flusso=flusso, byte=len(dati),
         ) from None
 
 
@@ -224,36 +220,64 @@ def scrive(argv: list[str]) -> bool:
     )
 
 
-def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError:
-    """L'errore, con `remote_effect: unknown` se il comando scrive.
+def _dopo_l_avvio(
+    errore: BaseException, argv: list[str], chiave: str = "processo.risposta_illeggibile",
+    **parametri: Any,
+) -> ProtocolError:
+    """Il gestore unico dei guasti dopo che il processo e' partito.
 
-    Per un comando che legge soltanto l'effetto resta `none`: il processo non
-    ha toccato niente che non fosse gia' li'.
+    Un `ProtocolError` dell'SDK resta se stesso; ogni altro guasto -- un errore
+    dell'SDK gia' fidato di un'altra classe, un'eccezione di Python o di una
+    dipendenza, un `MemoryError` -- diventa un `ProtocolError` nuovo (`chiave`),
+    che non porta niente dell'eccezione ricevuta. Per un comando che scrive
+    l'effetto e' `unknown`, mai `none`: che cosa sia rimasto sul disco non lo
+    dice una risposta che non si legge. Per un comando che legge soltanto
+    resta `none`. Il ritentativo resta `never` (README).
 
-    Un errore nuovo, non lo stesso modificato: lo stato di un errore dell'SDK
-    si fissa una volta (vedi `PlenoraError`), e `ricostruito` ne fa una copia
-    con l'effetto alzato. Un oggetto che non e' un errore dell'SDK -- una
-    sottoclasse del chiamante -- torna com'e', e la rete lo traduce.
+    Ventesimo giro: prima `registra_avvio`, la decodifica dei flussi e
+    `Completed` stavano fuori dal gestore, e un errore dell'SDK gia' fidato
+    usciva con effetto `none`.
     """
-    if type(errore) is not ProtocolError:
-        return errore
-    stato = object.__getattribute__(errore, "__dict__")
+    if type(errore) is ProtocolError and costruito_dall_sdk(errore):
+        risultato = errore
+    else:
+        risultato = _dallo_sdk(
+            ProtocolError, chiave, comando=_nome_del_comando(argv), **parametri)
+    stato = object.__getattribute__(risultato, "__dict__")
     if scrive(argv) and dict.get(stato, "_non_partito") is not True:
-        return _ricostruito(errore, _effetto_remoto="unknown")
-    return errore
+        return _ricostruito(risultato, _effetto_remoto="unknown")
+    return risultato
 
 
-def _dopo_l_avvio(errore: Exception, argv: list[str]) -> ProtocolError:
-    """Un guasto dopo l'avvio come errore di protocollo, `unknown` se il
-    comando scrive: lo stesso `ProtocolError` se lo e' gia', altrimenti uno
-    nuovo che non porta niente dell'eccezione ricevuta."""
-    if type(errore) is ProtocolError:
-        return _con_effetto_ignoto(errore, argv)
-    return _con_effetto_ignoto(
-        _dallo_sdk(ProtocolError, "processo.risposta_illeggibile",
-                   comando=_nome_del_comando(argv)),
-        argv,
-    )
+#: La nota, fissa e senza dati, che un'interruzione porta quando ferma un
+#: comando che scrive dopo l'avvio.
+NOTA_DELL_INTERRUZIONE = (
+    "plenora-io: un comando che scrive e' stato interrotto dopo l'avvio; il "
+    "processo e' stato chiuso, e l'effetto remoto va considerato unknown."
+)
+
+
+def _annota_interruzione(interruzione: BaseException) -> None:
+    """La nota su un'interruzione dopo l'avvio di un comando che scrive.
+
+    `add_note` da Python 3.11; prima, `__notes__` scritto a mano, che e' lo
+    stesso attributo. Una nota che non si scrive non cambia l'interruzione.
+    """
+    try:
+        aggiungi = getattr(BaseException, "add_note", None)
+        if aggiungi is not None:
+            aggiungi(interruzione, NOTA_DELL_INTERRUZIONE)
+        else:
+            precedenti = getattr(interruzione, "__notes__", None)
+            note = list(precedenti) if type(precedenti) is list else []
+            interruzione.__notes__ = [*note, NOTA_DELL_INTERRUZIONE]
+    except Exception:  # noqa: BLE001, S110 - la nota non sostituisce l'interruzione
+        pass
+
+
+def _ricrea_runner(binario: Any, timeout: Any) -> "Runner":
+    """Un `Runner` ricostruito dai soli parametri del costruttore."""
+    return Runner(Path(binario), timeout=timeout)
 
 
 def _argv_esatto(argv: Any) -> list[str]:
@@ -283,6 +307,26 @@ class Runner:
     def binary(self) -> Path:
         return self._binary
 
+    # Il protocollo di serializzazione: lo stato sono i soli parametri del
+    # costruttore, e si ricostruisce chiamandolo (ventesimo giro).
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {"binary": str(self._binary), "timeout": self._timeout}
+
+    def __reduce__(self) -> Any:
+        return (_ricrea_runner, (str(self._binary), self._timeout))
+
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __copy__(self) -> "Runner":
+        return _ricrea_runner(str(self._binary), self._timeout)
+
+    def __deepcopy__(self, memo: Any = None) -> "Runner":
+        _memo(memo)
+        return _ricrea_runner(str(self._binary), self._timeout)
+
     def run(self, argv: list[str]) -> FrozenDict:
         """Il risultato della busta di successo, o `CommandFailed` con quella
         d'errore.
@@ -293,25 +337,43 @@ class Runner:
         confine (diciottesimo giro). I modelli lo leggono con `from_json`.
         """
         argv = _argv_esatto(argv)
+        processo = self._avvia(argv)
+        # Il confine: `Popen` ha reso il processo. Da qui **tutto** --
+        # `registra_avvio`, la comunicazione, la decodifica dei flussi,
+        # `Completed`, il JSON, il congelamento, la busta d'errore, la
+        # chiusura, il timeout -- passa da un solo gestore (`_dopo_l_avvio`).
+        # Un'interruzione (`KeyboardInterrupt`, `SystemExit`) resta tale: si
+        # chiude il figlio, si annota l'effetto ignoto se il comando scrive, e
+        # la si rilancia.
+        concluso = False
+        sostituto: ProtocolError | None = None
         try:
-            completed = self._execute(argv)
-        except ProtocolError as errore:
-            raise _con_effetto_ignoto(errore, argv) from None
-        # Da qui il processo e' partito e ha finito: se il comando scrive, che
-        # cosa abbia lasciato sul disco non lo dice una risposta che non si
-        # legge. **Ogni** guasto da qui in poi -- decodifica, JSON,
-        # congelamento della risposta, busta d'errore -- e' un errore di
-        # protocollo con effetto `unknown` per un comando che scrive. Prima il
-        # gestore guardava solo `ProtocolError`, e un congelamento fallito
-        # (`InvalidArgumentError` su una risposta troppo profonda) usciva con
-        # effetto `none` dopo una scrittura (diciannovesimo giro).
-        try:
+            registra_avvio(argv)
+            stdout, stderr = self._comunica(processo, argv)
+            concluso = True
+            completed = Completed(
+                argv=list(argv),
+                exit_code=processo.returncode,
+                stdout=_testo(stdout, argv, "stdout"),
+                stderr=_testo(stderr, argv, "stderr"),
+            )
             if completed.exit_code == 0:
                 return FrozenDict(self._success(completed))
             documento = self._failure(completed)
             fallimento = _failure_from_envelope(documento, completed.exit_code, argv)
         except Exception as errore:  # noqa: BLE001 - dopo l'avvio, tutto e' protocollo
-            raise _dopo_l_avvio(errore, argv) from None
+            sostituto = _dopo_l_avvio(errore, argv)
+        except BaseException as interruzione:
+            self._chiudi(processo)
+            concluso = True
+            if scrive(argv):
+                _annota_interruzione(interruzione)
+            raise
+        finally:
+            if not concluso:
+                self._chiudi(processo)
+        if sostituto is not None:
+            raise sostituto from None
         raise fallimento
 
     # --- l'esecuzione -----------------------------------------------------
@@ -326,7 +388,7 @@ class Runner:
         """
         return sigint_inoltrabile()
 
-    def _execute(self, argv: list[str]) -> Completed:
+    def _avvia(self, argv: list[str]) -> Any:
         # `Popen` e non `run`: senza il pid non c'e' niente a cui inoltrare il
         # segnale, e l'inoltro e' il modo in cui un Ctrl-C diventa una
         # cancellazione cooperativa invece di un file mezzo scritto.
@@ -361,29 +423,7 @@ class Runner:
             )
             raise _ricostruito(errore, _non_partito=True) from None
 
-        # Da qui in avanti il processo e' partito: ogni guasto -- un timeout, un
-        # errore di I/O sulle pipe, una seconda attesa che fallisce dopo il
-        # kill, la chiusura del context manager di `Popen` (che chiude le pipe
-        # e attende) -- lascia un esito che non si conosce, e per un comando
-        # che scrive l'effetto e' `unknown` (vedi `_con_effetto_ignoto`).
-        registra_avvio(argv)
-        try:
-            stdout, stderr = self._comunica(processo, argv)
-        except ProtocolError:
-            raise
-        except Exception:  # noqa: BLE001 - l'uscita dal `with` di `Popen`
-            self._chiudi(processo)
-            raise _con_effetto_ignoto(_dallo_sdk(
-                ProtocolError, "processo.chiusura",
-                comando=_nome_del_comando(argv),
-            ), argv) from None
-
-        return Completed(
-            argv=list(argv),
-            exit_code=processo.returncode,
-            stdout=_testo(stdout, argv, "stdout"),
-            stderr=_testo(stderr, argv, "stderr"),
-        )
+        return processo
 
     def _comunica(self, processo: Any, argv: list[str]) -> tuple[bytes, bytes]:
         """I due flussi del processo, letti fino alla fine dentro il suo `with`."""
@@ -396,16 +436,14 @@ class Runner:
                 # significherebbe restituire il controllo a chi chiama con un
                 # binario che continua a scrivere sulla destinazione.
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(_dallo_sdk(
-                    ProtocolError, "processo.timeout",
-                    comando=_nome_del_comando(argv),
-                ), argv) from None
+                raise _dallo_sdk(
+                    ProtocolError, "processo.timeout", comando=_nome_del_comando(argv),
+                ) from None
             except (OSError, ValueError):
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(_dallo_sdk(
-                    ProtocolError, "processo.comunicazione",
-                    comando=_nome_del_comando(argv),
-                ), argv) from None
+                raise _dallo_sdk(
+                    ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
+                ) from None
         return stdout, stderr
 
     @staticmethod
