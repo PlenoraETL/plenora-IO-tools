@@ -46,12 +46,12 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from .errors import InvalidArgumentError, ResultLookupError
-from .errors import _dallo_sdk
+from ._errors import InvalidArgumentError, ResultLookupError
+from ._errors import _dallo_sdk
 
 
 def _esatto(valore: Any, dove: str) -> Any:
-    from .confine import _esatto as esatto  # noqa: PLC0415 - confine importa questo modulo
+    from ._confine import _esatto as esatto  # noqa: PLC0415 - confine importa questo modulo
 
     return esatto(valore, dove)
 

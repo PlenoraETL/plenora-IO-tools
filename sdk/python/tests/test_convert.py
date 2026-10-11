@@ -26,7 +26,7 @@ from plenora_io import (
     LossReport,
     ProtocolError,
 )
-from plenora_io.discovery import NOME, VARIABILE
+from plenora_io._discovery import NOME, VARIABILE
 
 from _repository import CANONICHE, RADICE, serve_le_fixture
 

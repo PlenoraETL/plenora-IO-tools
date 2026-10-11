@@ -201,7 +201,7 @@ PROVENIENZA = "_dall_sdk"
 def _sigillato(errore: Any) -> "InvalidArgumentError":
     # Il nome della classe dell'SDK, non `type(errore).__name__`: una
     # sottoclasse del chiamante puo' chiamarsi come vuole.
-    from .confine import nome_sdk  # noqa: PLC0415 - confine importa questo modulo
+    from ._confine import nome_sdk  # noqa: PLC0415 - confine importa questo modulo
 
     return _dallo_sdk(InvalidArgumentError, "errore.stato_sigillato", nome=nome_sdk(type(errore)))
 
@@ -1270,9 +1270,9 @@ class _ErroreFidato:
 
 def _classi_dell_sdk() -> frozenset[str]:
     """I nomi delle classi dell'SDK, per identita' degli oggetti classe."""
-    from .client import Client  # noqa: PLC0415 - il client importa questo modulo
-    from .confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
-    from .process import Runner  # noqa: PLC0415 - process importa questo modulo
+    from ._client import Client  # noqa: PLC0415 - il client importa questo modulo
+    from ._confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
+    from ._process import Runner  # noqa: PLC0415 - process importa questo modulo
 
     classi = [
         classe for classe in list(globals().values())
@@ -1287,7 +1287,7 @@ def _luoghi_dei_modelli() -> frozenset[str]:
     i luoghi che la normalizzazione nomina."""
     import dataclasses  # noqa: PLC0415
 
-    from .confine import MODELLI  # noqa: PLC0415
+    from ._confine import MODELLI  # noqa: PLC0415
 
     luoghi = {"FrozenList", "FrozenDict"}
     for modello in MODELLI:
@@ -1301,7 +1301,7 @@ def _argomenti_e_luoghi() -> frozenset[str]:
     dei modelli (una durata in un modello passa da `_argomenti.durata`)."""
     import dataclasses  # noqa: PLC0415
 
-    from .limits import Limits  # noqa: PLC0415
+    from ._limits import Limits  # noqa: PLC0415
 
     nomi = set(ARGOMENTI) | {f"limits.{c.name}" for c in dataclasses.fields(Limits)}
     return frozenset(nomi) | _luoghi_dei_modelli()
@@ -1311,7 +1311,7 @@ def _campi_del_protocollo() -> frozenset[str]:
     """I nomi dei campi dei documenti, dagli schemi dei modelli per identita'."""
     import dataclasses  # noqa: PLC0415
 
-    from .confine import MODELLI  # noqa: PLC0415
+    from ._confine import MODELLI  # noqa: PLC0415
 
     campi: set[str] = set()
     for modello in MODELLI:
@@ -1325,7 +1325,7 @@ def _campi_del_protocollo() -> frozenset[str]:
 
 def _etichette() -> Any:
     """Le etichette che la rete ha dato ai metodi e alle funzioni esportate."""
-    from .confine import ETICHETTE  # noqa: PLC0415
+    from ._confine import ETICHETTE  # noqa: PLC0415
 
     return ETICHETTE
 
@@ -2005,4 +2005,4 @@ def _failure_from_envelope(
 
 # In fondo: `contenitori` importa `InvalidArgumentError` da qui, e `_tipo` deve
 # riconoscere i due contenitori per identita'.
-from .contenitori import FrozenDict, FrozenList  # noqa: E402
+from ._contenitori import FrozenDict, FrozenList  # noqa: E402

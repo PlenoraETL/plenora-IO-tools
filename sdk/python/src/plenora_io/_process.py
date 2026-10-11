@@ -86,8 +86,8 @@ from typing import Any
 
 from ._argomenti import percorso, testo
 from ._argomenti import timeout as timeout_valido
-from .confine import registra_avvio
-from .errors import (
+from ._confine import registra_avvio
+from ._errors import (
     InvalidArgumentError,
     ProtocolError,
     _tipo,
@@ -96,7 +96,7 @@ from .errors import (
     _ricostruito,
     sottocomando,
 )
-from .errors import _dallo_sdk
+from ._errors import _dallo_sdk
 
 
 

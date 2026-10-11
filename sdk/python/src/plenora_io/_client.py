@@ -30,13 +30,13 @@ from pathlib import Path
 from typing import Any
 
 from . import _argomenti as arg
-from . import arrow
-from .confine import nome_sdk
-from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
-from .errors import ProtocolError, _copia_json
-from .errors import _dallo_sdk, sottocomando
-from .limits import Limits
-from .models import (
+from . import _arrow as arrow
+from ._confine import nome_sdk
+from ._discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
+from ._errors import ProtocolError, _copia_json
+from ._errors import _dallo_sdk, sottocomando
+from ._limits import Limits
+from ._models import (
     Capabilities,
     Catalog,
     ConvertResult,
@@ -46,7 +46,7 @@ from .models import (
     Version,
     WriteResult,
 )
-from .process import Runner, _con_effetto_ignoto
+from ._process import Runner, _con_effetto_ignoto
 
 #: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
 #:

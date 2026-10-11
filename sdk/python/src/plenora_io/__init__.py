@@ -33,10 +33,10 @@ corrispondono una a una alle categorie, e un gate lo verifica.
 
 from importlib import metadata as _metadata
 
-from .client import Client, TableRead
-from .discovery import PROFILI as PROFILES
-from .discovery import Manifest
-from .errors import (
+from ._client import Client, TableRead
+from ._discovery import PROFILI as PROFILES
+from ._discovery import Manifest
+from ._errors import (
     AuthenticationError,
     AuthorizationError,
     BinaryNotFound,
@@ -70,11 +70,11 @@ from .errors import (
     ResultLookupError,
     UnexpectedError,
 )
-from .errors import _dallo_sdk
-from . import confine as _confine
-from .contenitori import FrozenDict, FrozenList, json_default, to_plain
-from .limits import Limits
-from .models import (
+from ._errors import _dallo_sdk
+from . import _confine as _confine
+from ._contenitori import FrozenDict, FrozenList, json_default, to_plain
+from ._limits import Limits
+from ._models import (
     Capabilities,
     CapabilityInterface,
     CapabilityOperation,
@@ -104,7 +104,7 @@ from .models import (
     WriteInput,
     WriteResult,
 )
-from .process import Runner
+from ._process import Runner
 
 #: La versione dell'SDK, e la **sola** sorgente autorevole.
 #:

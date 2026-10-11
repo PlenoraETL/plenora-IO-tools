@@ -44,7 +44,7 @@ dai metadati installati (`importlib.metadata.version("plenora-io")`). Quella
 del binario la dice `Client.version()`.
 
 Ogni metodo del dominio corrisponde a un'operazione del catalogo
-(`plenora_io.client.OPERAZIONI`): `catalog`, `inspect`, `layers`, `convert`
+(`plenora_io._client.OPERAZIONI`): `catalog`, `inspect`, `layers`, `convert`
 alle omonime; `validate`, `read` e `read_table` a `io.read`; `write` a
 `io.write`. Una sonda confronta la mappa con i metodi pubblici e con il
 documento del binario vero.
@@ -148,15 +148,15 @@ legati del tipo base: una sottoclasse con `__str__`, `__format__` o
 dichiarato in `docs/RELEASE.md`, «Note della prossima release».
 
 **La rete.** Ogni callable di ogni tipo esportato -- metodi speciali,
-setter e deleter compresi, con le sole eccezioni di `confine.NON_AVVOLTI` --
-e ogni funzione esportata passano da `confine._confinato`: un'eccezione che nessun punto ha
+setter e deleter compresi, con le sole eccezioni di `_confine.NON_AVVOLTI` --
+e ogni funzione esportata passano da `_confine._confinato`: un'eccezione che nessun punto ha
 tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
 dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
 senza testo e senza catena. I punti noti restano tradotti dove nascono, con
 l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
 nuovo senza rete. Un errore dell'SDK non attraversa la rete com'e': la rete ne
 costruisce uno **nuovo**, della stessa classe esatta, dallo stato fissato nel
-costruttore (`errors._ricostruito`), e non legge mai `args`, `__notes__` o
+costruttore (`_errors._ricostruito`), e non legge mai `args`, `__notes__` o
 `str()` dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
@@ -167,9 +167,9 @@ Il costruttore pubblico, chiamato in qualunque modo -- da una callback, da
 **esterno**, che la rete rende `UnexpectedError`, come un errore di una
 sottoclasse del chiamante. Le due fabbriche danno garanzie diverse sul testo:
 
-* la **fabbrica a catalogo** (`errors._dallo_sdk`) costruisce ogni altro
+* la **fabbrica a catalogo** (`_errors._dallo_sdk`) costruisce ogni altro
   errore dell'SDK, con un messaggio del catalogo e parametri tipati (sotto);
-* la **fabbrica strutturata** (`errors._dallo_sdk_strutturato`) costruisce i
+* la **fabbrica strutturata** (`_errors._dallo_sdk_strutturato`) costruisce i
   tre tipi che compongono il messaggio da se': `BinaryNotFound` dai posti di
   ricerca, un elenco chiuso; `ProfileError` dai profili noti; `CommandFailed`
   e le sue sottoclassi dalla **busta d'errore della CLI**. Di quella busta
@@ -181,9 +181,9 @@ sottoclasse del chiamante. Le due fabbriche danno garanzie diverse sul testo:
 
 **Il testo di un errore della fabbrica a catalogo.** La fabbrica non
 accetta testo: prende una
-chiave di un catalogo chiuso di modelli fissi (`errors.MESSAGGI`) e dei
+chiave di un catalogo chiuso di modelli fissi (`_errors.MESSAGGI`) e dei
 parametri, e ogni parametro ha un tipo dichiarato per la sua chiave
-(`errors.PARAMETRI`): un insieme chiuso specifico -- i nomi delle classi
+(`_errors.PARAMETRI`): un insieme chiuso specifico -- i nomi delle classi
 dell'SDK per un nome di classe, i campi degli schemi dei modelli per un campo,
 `MOTIVI_JSON` per il motivo di un errore JSON, i contesti del protocollo per un
 contesto, i sottocomandi per un comando -- oppure un intero esatto in un
@@ -205,23 +205,32 @@ un errore JSON la ricalcola l'SDK da quel testo. Cio' che e' provato, in
 * ogni chiave, con ogni parametro sostituito da dati del chiamante di ogni
   forma (testo, sottoclassi di `str`, composti, elenchi, oggetti, errori
   esterni), da' un testo che non li contiene;
-* ogni funzione e classe pubblica dei moduli fuori da `__all__`
-  (`INVENTARIO_PUBBLICO`, chiuso) e ogni metodo, `__init__`, classmethod,
-  staticmethod e proprieta' delle classi di `__all__` -- anche su una
-  sottoclasse con ogni attributo di classe ridefinito, e `__init__` anche non
-  legato su un oggetto estraneo -- chiamati con combinazioni di argomenti
-  ostili (fino a tre, posizionali e keyword-only) non danno un errore fidato
-  con quei dati, ne' un'eccezione che non sia un `PlenoraError`. `Client` e
-  `Runner` avviano il binario e hanno prove proprie.
+* la superficie pubblica e' chiusa (`LaSuperficiePubblicaChiusa`): ogni
+  nome senza `_` di ogni modulo senza `_` del pacchetto -- cioe' solo la
+  radice, perche' i moduli sono privati -- sta in `__all__`; ogni funzione e
+  ogni classe di `__all__`, chiamata con combinazioni di argomenti ostili
+  dentro un `except` del chiamante, da' soltanto `PlenoraError`, senza
+  `__context__` ne' `__cause__`;
+* ogni metodo, `__init__`, classmethod, staticmethod e proprieta' delle
+  classi di `__all__` -- anche su una sottoclasse con ogni attributo di
+  classe ridefinito, e `__init__` anche non legato su un oggetto estraneo --
+  chiamati con combinazioni di argomenti ostili (fino a tre, posizionali e
+  keyword-only) dentro un `except` del chiamante non danno un errore fidato
+  con quei dati, ne' un'eccezione che non sia un `PlenoraError`, ne' un
+  errore con `__context__` o `__cause__`. `Client` e `Runner` avviano il
+  binario e hanno prove proprie (i loro argomenti sono provati da
+  `GliArgomenti` e da `test_confini_sdk`).
 
 Ogni metodo avvolto rifiuta, con un messaggio fisso, un primo argomento che
 non ha la propria classe nell'MRO; lo schema e i campi di un modello si
 leggono dalla classe dell'SDK riconosciuta per identita', mai da `cls` o da
-una sottoclasse. Le funzioni che prima davano un errore fidato con un testo
-del chiamante sono private (`errors._copia_json`, `_failure_from_envelope`,
-`_ricostruito`, `confine._confinato`, il modulo `plenora_io._argomenti`);
-`errors.failure_from_envelope` pubblica da' un errore esterno, ed
-`errors.ricostruito` copia senza sostituzioni. `str(errore)`, `message` e
+una sottoclasse. **I moduli dell'SDK sono privati** (`plenora_io._errors`,
+`_confine`, `_models`, `_client`, `_process`, `_discovery`, `_arrow`,
+`_contenitori`, `_limits`, `_argomenti`): la superficie pubblica e' la radice
+del pacchetto, con il suo `__all__`, e ogni nome che vi sta passa dalla
+rete. Le funzioni di quei moduli -- la fabbrica, la ricostruzione,
+`carica_json`, la scoperta del binario, gli aiuti del processo e
+dell'adattatore Arrow -- non sono API. `str(errore)`, `message` e
 `to_dict()` vengono dallo stesso stato: per `CommandFailed` `str()` contiene
 `message` preceduto da sottocomando, uscita, categoria, fase e codice, che
 vengono dalla busta del processo; per gli altri errori coincidono.
@@ -240,7 +249,7 @@ esce da un metodo pubblico ha `__cause__` e `__context__` a `None` e
 `__suppress_context__` vero. I messaggi nominano le classi dell'SDK, mai
 `type(oggetto).__name__`: una sottoclasse del chiamante -- `type("nome",
 (Version,), {})` -- puo' chiamarsi come vuole, e il messaggio usa il nome della
-prima classe dell'SDK nel suo MRO (`confine.nome_sdk`).
+prima classe dell'SDK nel suo MRO (`_confine.nome_sdk`).
 
 **Le eccezioni hanno lo stato fissato.** Il messaggio, l'effetto remoto e gli
 attributi di ogni errore (`envelope`, `exit_code`, `command`, `searched`,
@@ -256,7 +265,7 @@ a `unknown`, il segno `cleanup_failed` -- solleva una copia nuova. `copy`,
 `deepcopy` e `pickle` ricostruiscono dallo stato fissato; la copia non conta
 come costruita dall'SDK.
 
-I modelli -- un elenco chiuso di classi, `confine.NOMI_DEI_MODELLI`,
+I modelli -- un elenco chiuso di classi, `_confine.NOMI_DEI_MODELLI`,
 riconosciute per identita' -- normalizzano i propri campi nel costruttore:
 tipi base esatti, `FrozenList` al posto di `list`, `FrozenDict` al posto di
 `dict`, modelli dell'SDK rinormalizzati, nient'altro. `FrozenList` e
@@ -297,7 +306,7 @@ Python. Fuori contratto: scrivere con `object.__setattr__` o
 attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 `_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
 `ErrorEnvelope`); chiamare la fabbrica privata degli errori
-(`plenora_io.errors._dallo_sdk` e `_dallo_sdk_strutturato`), che e' cio' che
+(`plenora_io._errors._dallo_sdk` e `_dallo_sdk_strutturato`), che e' cio' che
 rende un errore «dell'SDK» alla rete, o un'altra funzione privata che la usa
 (`_copia_json`, `_failure_from_envelope`, `_ricostruito`, `_confinato`, il
 modulo `plenora_io._argomenti`); modificare il catalogo dei messaggi e i tipi

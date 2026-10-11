@@ -68,8 +68,8 @@ import dataclasses
 import sys
 from datetime import timedelta
 
-from .contenitori import FrozenDict, FrozenList
-from .errors import (
+from ._contenitori import FrozenDict, FrozenList
+from ._errors import (
     PROVENIENZA,
     SIGILLO,
     InvalidArgumentError,
@@ -79,7 +79,7 @@ from .errors import (
     costruito_dall_sdk,
     ricostruito,
 )
-from .errors import _dallo_sdk
+from ._errors import _dallo_sdk
 
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
@@ -104,7 +104,7 @@ def registra_avvio(argv: list[str]) -> None:
 
 
 def _effetto_dopo(avviati: list[list[str]]) -> str:
-    from .process import scrive  # noqa: PLC0415 - process importa questo modulo
+    from ._process import scrive  # noqa: PLC0415 - process importa questo modulo
 
     return "unknown" if any(scrive(argv) for argv in avviati) else "none"
 
@@ -574,6 +574,19 @@ def _confina_classe(classe: type) -> type:
             continue
         etichetta = f"{classe.__name__}.{nome}"
         ETICHETTE.add(etichetta)
+        # Una classe si incontra piu' volte (una per ogni nome esportato che
+        # la ha nell'MRO). Cio' che e' gia' avvolto non si riavvolge: prima
+        # `_con_self` avvolgeva la rete una seconda volta, ne copiava il segno
+        # con `functools.wraps`, e `_confinato` lo lasciava fuori dalla rete
+        # -- il controllo del `self` sollevava senza traduzione ne' catena
+        # azzerata (sedicesimo giro).
+        interne = (
+            [valore.__func__] if isinstance(valore, (classmethod, staticmethod))
+            else [valore.fget, valore.fset, valore.fdel] if isinstance(valore, property)
+            else [valore]
+        )
+        if any(getattr(interna, SEGNO, False) for interna in interne if interna is not None):
+            continue
         if isinstance(valore, classmethod):
             setattr(classe, nome, classmethod(_confinato(valore.__func__, etichetta)))
         elif isinstance(valore, staticmethod):

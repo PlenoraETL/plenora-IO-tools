@@ -41,8 +41,8 @@ from plenora_io import (
     PlenoraError,
     ProtocolError,
 )
-from plenora_io.client import OPERAZIONI
-from plenora_io.discovery import NOME, VARIABILE
+from plenora_io._client import OPERAZIONI
+from plenora_io._discovery import NOME, VARIABILE
 
 from _repository import CANONICHE, RADICE, serve_le_fixture
 from test_client import finto
@@ -245,7 +245,7 @@ class GliAssiStannoSuOgniEccezione(unittest.TestCase):
                 "message": "riprova",
             },
         }
-        errore = plenora_io.errors.failure_from_envelope(busta, 5, ["catalog"])
+        errore = plenora_io._errors.failure_from_envelope(busta, 5, ["catalog"])
         self.assi_validi(errore)
         self.assertEqual(
             errore.to_dict(),
@@ -345,7 +345,7 @@ class SenzaPyarrow(unittest.TestCase):
         finta = mock.MagicMock(__version__="26.0.0")
         with mock.patch.dict(sys.modules, {"pyarrow": finta, "pyarrow.ipc": finta.ipc}):
             with self.assertRaises(OptionalDependencyError) as preso:
-                plenora_io.arrow.pyarrow()
+                plenora_io._arrow.pyarrow()
         self.assertIn("25.x", str(preso.exception))
 
 
@@ -412,7 +412,7 @@ class LAdattatoreContrUnFinto(unittest.TestCase):
         guasto = self.tmp / "guasto.arrow"
         guasto.write_bytes(b"non e' Arrow")
         with self.assertRaises(ProtocolError) as preso:
-            plenora_io.arrow.leggi_ipc(guasto, "application/vnd.apache.arrow.file")
+            plenora_io._arrow.leggi_ipc(guasto, "application/vnd.apache.arrow.file")
         # Nessuna catena: il testo di pyarrow puo' citare valori del file, e
         # `__cause__` lo porterebbe nel traceback. `from None` lo sopprime.
         self.assertIsNone(preso.exception.__cause__)

@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from ._argomenti import percorso
-from .errors import (
+from ._errors import (
     CleanupError,
     InvalidArgumentError,
     LocalIoError,
@@ -58,7 +58,7 @@ from .errors import (
     classe_dell_sdk,
     _ricostruito,
 )
-from .errors import _dallo_sdk
+from ._errors import _dallo_sdk
 
 #: La serie di pyarrow dichiarata dall'extra e provata dalla CI.
 SERIE_PYARROW = 25

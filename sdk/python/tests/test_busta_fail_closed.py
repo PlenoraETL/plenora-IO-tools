@@ -23,9 +23,9 @@ from plenora_io import (
     LayerSummary,
     ProtocolError,
 )
-from plenora_io import errors
-from plenora_io.errors import failure_from_envelope
-from plenora_io.models import FidelityReason, LossReport
+from plenora_io import _errors as errors
+from plenora_io._errors import failure_from_envelope
+from plenora_io._models import FidelityReason, LossReport
 
 
 def errore_sano(**campi):

@@ -18,8 +18,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from plenora_io import CommandFailed, NotFoundError, ProtocolError
-from plenora_io.discovery import NOME
-from plenora_io.process import Runner
+from plenora_io._discovery import NOME
+from plenora_io._process import Runner
 
 BUSTA_ERRORE = (
     '{"status": "error", "protocol_version": 1, '
@@ -277,7 +277,7 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         return preso.exception
 
     def test_ogni_categoria_ha_la_propria_classe(self) -> None:
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for categoria, classe in errors.CATEGORIE.items():
             with self.subTest(categoria=categoria):

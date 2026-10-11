@@ -36,9 +36,9 @@ from plenora_io import (
     PlenoraError,
     ProtocolError,
 )
-from plenora_io import arrow as adattatore
-from plenora_io.errors import ErrorEnvelope, failure_from_envelope
-from plenora_io.process import Runner
+from plenora_io import _arrow as adattatore
+from plenora_io._errors import ErrorEnvelope, failure_from_envelope
+from plenora_io._process import Runner
 
 from test_contratto_sdk import capacita_sane, pa, serve_pyarrow
 
@@ -137,7 +137,7 @@ class IlProcesso(unittest.TestCase):
         decimale scelto dal chiamante («0.12345678901234566s»), un dato in un
         errore fidato; e un valore grande diventava «?s». Ora il messaggio non
         porta il valore, e nessun modello del catalogo prende un decimale."""
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for scelto in (0.12345678901234567, 1e16, 7.0):
             with self.subTest(timeout=scelto):
@@ -301,7 +301,7 @@ class LeCapacita(unittest.TestCase):
     def test_il_documento_del_binario_non_si_tocca(self) -> None:
         documento = capacita_sane()
         prima = repr(documento)
-        plenora_io.client.con_superficie_python(documento)
+        plenora_io._client.con_superficie_python(documento)
         self.assertEqual(repr(documento), prima)
 
 

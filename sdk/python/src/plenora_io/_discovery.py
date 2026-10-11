@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from ._argomenti import testo
-from .errors import (
+from ._errors import (
     PROFILI_NOTI,
     BinaryNotFound,
     InvalidArgumentError,
@@ -52,7 +52,7 @@ from .errors import (
     carica_json,
     _copia_json,
 )
-from .errors import _dallo_sdk, _dallo_sdk_strutturato
+from ._errors import _dallo_sdk, _dallo_sdk_strutturato
 
 #: Il nome dell'eseguibile, senza estensione: `shutil.which` aggiunge da se'
 #: quelle che la piattaforma usa.

@@ -51,9 +51,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 SDK = ROOT / "sdk" / "python" / "src" / "plenora_io"
-MODELLI = SDK / "models.py"
-TETTI = SDK / "limits.py"
-ERRORI = SDK / "errors.py"
+MODELLI = SDK / "_models.py"
+TETTI = SDK / "_limits.py"
+ERRORI = SDK / "_errors.py"
 CATEGORIE_RUST = ROOT / "crates" / "plenora-io-model" / "src" / "error.rs"
 # `lib.rs`: i tetti che la CLI ammette si leggono dal parser, che sta nella
 # libreria insieme alle operazioni. `main.rs` e' il binding di processo.
@@ -377,7 +377,7 @@ def _sdk_importato():
     """
     sys.path.insert(0, str(SDK.parent))
     try:
-        from plenora_io import errors, models  # noqa: PLC0415
+        from plenora_io import _errors as errors, _models as models  # noqa: PLC0415
     finally:
         sys.path.pop(0)
     return errors, models

@@ -45,9 +45,9 @@ from dataclasses import fields
 from datetime import timedelta
 from typing import Any
 
-from .errors import InvalidArgumentError
-from .errors import _dallo_sdk
-from .limits import Limits
+from ._errors import InvalidArgumentError
+from ._errors import _dallo_sdk
+from ._limits import Limits
 
 #: Il massimo, escluso, di un intero che arriva alla CLI: i suoi numeri sono
 #: `u64`.

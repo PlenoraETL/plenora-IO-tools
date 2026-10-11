@@ -1406,6 +1406,26 @@ prossima release è percio' una **major** (5.0.0).
   `InvalidArgumentError` prima di eseguire. Cio' che esce
   da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
   il chiamante usa l'SDK dentro un proprio `except`.
+- **I moduli dell'SDK diventano privati.** `plenora_io.errors`,
+  `plenora_io.models`, `plenora_io.client`, `plenora_io.process`,
+  `plenora_io.discovery`, `plenora_io.arrow`, `plenora_io.confine`,
+  `plenora_io.contenitori` e `plenora_io.limits` si chiamano ora
+  `plenora_io._errors`, `_models`, `_client`, `_process`, `_discovery`,
+  `_arrow`, `_confine`, `_contenitori` e `_limits` (e `argomenti` era gia'
+  `_argomenti`). La superficie pubblica e' la radice: `from plenora_io import
+  ...` dei nomi di `__all__` non cambia, e ogni funzione e classe di
+  `__all__` passa dalla rete. Non sono piu' raggiungibili senza nomi privati,
+  fra gli altri: `errors.failure_from_envelope`, `errors.ricostruito`,
+  `errors.carica_json`, `errors.sottocomando`, `errors.classe_dell_sdk`,
+  `errors.costruito_dall_sdk`, `client.con_superficie_python`,
+  `client.OPERAZIONI`, `contenitori.json_default` e `contenitori.to_plain`
+  nella loro forma non avvolta (restano esportate dalla radice),
+  `discovery.trova_binario`, `discovery.leggi_manifesto`,
+  `discovery.verifica_profilo`, `models.tipi_json`, `process.comando`,
+  `process.scrive`, `process.sigint_inoltrabile`, `process.Completed`,
+  `arrow.cartella_temporanea`, `arrow.CartellaTemporanea`, `arrow.scrivi_ipc`,
+  `arrow.leggi_ipc`, `confine.registra_avvio`, `confine.nome_sdk`. E' un
+  cambiamento incompatibile della 5.0.0.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,

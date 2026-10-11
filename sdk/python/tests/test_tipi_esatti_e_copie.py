@@ -27,9 +27,9 @@ from tempfile import TemporaryDirectory
 
 from plenora_io import InvalidArgumentError
 from plenora_io import ErrorEnvelope, Field, ManifestError, ProtocolError
-from plenora_io.discovery import Manifest, leggi_manifesto
-from plenora_io.errors import carica_json, failure_from_envelope
-from plenora_io.models import FormatDescriptor
+from plenora_io._discovery import Manifest, leggi_manifesto
+from plenora_io._errors import carica_json, failure_from_envelope
+from plenora_io._models import FormatDescriptor
 
 
 class StrBugiarda(str):

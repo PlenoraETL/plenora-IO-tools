@@ -40,8 +40,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ._argomenti import testo
-from .errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
-from .errors import _dallo_sdk
+from ._errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
+from ._errors import _dallo_sdk
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -118,7 +118,7 @@ def _schema(classe: Any) -> Any:
     (dodicesimo giro). Gli attributi di una sottoclasse non entrano mai in un
     messaggio.
     """
-    from .confine import MODELLI  # noqa: PLC0415 - confine importa i modelli
+    from ._confine import MODELLI  # noqa: PLC0415 - confine importa i modelli
 
     try:
         ordine = type.__dict__["__mro__"].__get__(classe, type)

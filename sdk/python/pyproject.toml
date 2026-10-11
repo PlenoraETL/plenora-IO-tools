@@ -70,7 +70,7 @@ classifiers = [
 license = { text = "Proprietary" }
 
 # L'adattatore Arrow, **facoltativo**: `Client.read_table()` e `Client.write()`
-# da un oggetto Arrow (`plenora_io/arrow.py`). Chi lavora per percorsi non lo
+# da un oggetto Arrow (`plenora_io/_arrow.py`). Chi lavora per percorsi non lo
 # installa e non lo paga.
 #
 # La serie e' `>=25,<26`, la stessa che plenora-data-tools dichiara come

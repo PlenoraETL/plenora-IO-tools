@@ -14,7 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from plenora_io import BinaryNotFound, ManifestError, ProfileError
-from plenora_io.discovery import (
+from plenora_io._discovery import (
     MANIFESTO,
     NOME,
     VARIABILE,

@@ -53,10 +53,10 @@ from plenora_io import (
     Version,
     WriteResult,
 )
-from plenora_io import arrow as adattatore
-from plenora_io import discovery
-from plenora_io.errors import _copia_json, failure_from_envelope
-from plenora_io.process import Runner
+from plenora_io import _arrow as adattatore
+from plenora_io import _discovery as discovery
+from plenora_io._errors import _copia_json, failure_from_envelope
+from plenora_io._process import Runner
 
 from test_contratto_sdk import capacita_sane, pa, scrittura_sana, serve_pyarrow
 from test_convert import conversione_sana
@@ -543,7 +543,7 @@ class GliArgomenti(unittest.TestCase):
         for ostile in ("5", True, float("nan"), -1, StrRotto()):
             with self.subTest(valore=repr(ostile) if not isinstance(ostile, StrRotto) else "StrRotto"):
                 with mock.patch.object(discovery, "trova_binario", lambda b: Path("plenora-io")), \
-                        mock.patch("plenora_io.client.leggi_manifesto", lambda p: None):
+                        mock.patch("plenora_io._client.leggi_manifesto", lambda p: None):
                     with self.assertRaises(PlenoraError) as preso:
                         Client(timeout=ostile)
                 tradotto(self, preso.exception, "none")
@@ -927,7 +927,7 @@ class LaNormalizzazione(unittest.TestCase):
 
 
 def _avvolto(oggetto) -> bool:
-    from plenora_io.confine import SEGNO
+    from plenora_io._confine import SEGNO
 
     return bool(getattr(oggetto, SEGNO, False))
 
@@ -973,7 +973,7 @@ class LaRete(unittest.TestCase):
         sono esattamente `NON_AVVOLTI` e i nomi privati.
         """
         import plenora_io
-        from plenora_io.confine import NON_AVVOLTI, NON_AVVOLTI_DEFINITI
+        from plenora_io._confine import NON_AVVOLTI, NON_AVVOLTI_DEFINITI
 
         scoperti = 0
         esclusi_visti = set()
@@ -1094,7 +1094,7 @@ class LaRete(unittest.TestCase):
 
     @prova("confine.rete")
     def test_un_eccezione_non_prevista_prima_dell_avvio_e_none(self) -> None:
-        with mock.patch("plenora_io.models._copia_json", side_effect=RuntimeError(SEGRETO)):
+        with mock.patch("plenora_io._models._copia_json", side_effect=RuntimeError(SEGRETO)):
             with self.assertRaises(PlenoraError) as preso:
                 Catalog.from_json(catalogo_sano())
         self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
@@ -1107,7 +1107,7 @@ class LaRete(unittest.TestCase):
         cliente._runner = Runner(Path("plenora-io"))
         finto = PopenFinto(stdout=b"{}")
         with mock.patch.object(subprocess, "Popen", finto), \
-                mock.patch("plenora_io.process._testo", side_effect=RuntimeError(SEGRETO)):
+                mock.patch("plenora_io._process._testo", side_effect=RuntimeError(SEGRETO)):
             with self.assertRaises(PlenoraError) as preso:
                 cliente.write("s.arrow", "o.gpkg", format="gpkg")
         self.assertEqual(finto.partenze, 1)
@@ -1120,14 +1120,14 @@ class LaRete(unittest.TestCase):
         cliente._runner = Runner(Path("plenora-io"))
         finto = PopenFinto(stdout=b"{}")
         with mock.patch.object(subprocess, "Popen", finto), \
-                mock.patch("plenora_io.process._testo", side_effect=RuntimeError(SEGRETO)):
+                mock.patch("plenora_io._process._testo", side_effect=RuntimeError(SEGRETO)):
             with self.assertRaises(PlenoraError) as preso:
                 cliente.inspect("s.geojson")
         tradotto(self, preso.exception, "none")
 
     @prova("confine.rete")
     def test_keyboardinterrupt_passa(self) -> None:
-        with mock.patch("plenora_io.models._copia_json", side_effect=KeyboardInterrupt):
+        with mock.patch("plenora_io._models._copia_json", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 Catalog.from_json(catalogo_sano())
 
@@ -1320,8 +1320,8 @@ class LImmutabilita(unittest.TestCase):
         import types
 
         import plenora_io
-        from plenora_io import confine
-        from plenora_io.process import Completed
+        from plenora_io import _confine as confine
+        from plenora_io._process import Completed
 
         esportate = {
             nome for nome in plenora_io.__all__
@@ -1819,7 +1819,7 @@ class IlSettimoGiro(unittest.TestCase):
     @prova("confine.rete")
     def test_nessun_post_init_di_un_modello_si_richiama(self) -> None:
         """La stessa classe su ogni modello che definisce `__post_init__`."""
-        from plenora_io.confine import MODELLI
+        from plenora_io._confine import MODELLI
 
         istanze = {"ErrorEnvelope": _busta(), "Limits": Limits(max_rows=3)}
         con_post_init = sorted(c.__name__ for c in MODELLI if "__post_init__" in vars(c))
@@ -1912,7 +1912,7 @@ class IlSettimoGiro(unittest.TestCase):
         """Un `PlenoraError` che nasce fuori dall'SDK -- un `__index__`, un
         `__fspath__`, un `side_effect` -- porta il testo di chi l'ha scritto:
         la rete lo traduce come ogni altra eccezione esterna."""
-        from plenora_io.confine import _confinato
+        from plenora_io._confine import _confinato
 
         def esterna():
             raise InvalidArgumentError(SEGRETO)
@@ -1932,7 +1932,7 @@ class IlSettimoGiro(unittest.TestCase):
 
 def _un_esemplare_per_classe():
     """Un'istanza costruita dall'SDK per ogni classe d'errore di `errors`."""
-    from plenora_io import errors
+    from plenora_io import _errors as errors
 
     busta = _busta()
     speciali = {
@@ -1960,7 +1960,7 @@ class LOttavoGiro(unittest.TestCase):
         Una callback prendeva un `ResultLookupError` dell'SDK, ne cambiava
         `args` e lo rilanciava: il testo usciva."""
         from plenora_io import ResultLookupError
-        from plenora_io.confine import _confinato
+        from plenora_io._confine import _confinato
 
         def callback():
             try:
@@ -1987,7 +1987,7 @@ class LOttavoGiro(unittest.TestCase):
         percorso relativo dopo un `chdir`, il bytecode altrove -- faceva di
         ogni errore dell'SDK un `UnexpectedError`, e `FrozenDict.get` smetteva
         di rendere il valore predefinito."""
-        from plenora_io import ResultLookupError, confine
+        from plenora_io import ResultLookupError, _confine as confine
 
         cartelle = (
             os.path.join(tempfile.gettempdir(), "_MEI123456", "plenora_io"),
@@ -2012,8 +2012,8 @@ class LOttavoGiro(unittest.TestCase):
     def test_un_file_che_finge_di_essere_dell_sdk_non_basta(self) -> None:
         """Codice del chiamante compilato con un nome di file dentro il
         pacchetto: prima il suo errore passava come nato nell'SDK."""
-        from plenora_io import confine
-        from plenora_io.confine import _confinato
+        from plenora_io import _confine as confine
+        from plenora_io._confine import _confinato
 
         finto = os.path.join(os.path.dirname(os.path.abspath(confine.__file__)), "finto.py")
         spazio = {"InvalidArgumentError": InvalidArgumentError, "SEGRETO": SEGRETO}
@@ -2194,7 +2194,7 @@ class IlNonoGiro(unittest.TestCase):
         try:
             raise ValueError(SEGRETO)
         except ValueError:
-            with mock.patch("plenora_io.models._copia_json", side_effect=RuntimeError("x")),                     self.assertRaises(PlenoraError) as preso:
+            with mock.patch("plenora_io._models._copia_json", side_effect=RuntimeError("x")),                     self.assertRaises(PlenoraError) as preso:
                 Catalog.from_json(catalogo_sano())
         self.assertIsNone(preso.exception.__context__)
 
@@ -2203,7 +2203,7 @@ class IlNonoGiro(unittest.TestCase):
         """Prima: `eval` senza globali propri eredita quelli del frame che lo
         chiama -- la rete, o un modulo dell'SDK -- e l'errore che costruisce
         passava per costruito dall'SDK, con il suo testo."""
-        from plenora_io.confine import _confinato
+        from plenora_io._confine import _confinato
 
         sorgente = (
             "(_ for _ in ()).throw("
@@ -2271,7 +2271,7 @@ class LaProvenienzaEsplicita(unittest.TestCase):
     def test_un_errore_costruito_da_una_callback_non_e_dell_sdk(self) -> None:
         """Prima: il frame osservato era quello dell'SDK che eseguiva la
         callback, e un errore costruito da `map` in C contava come dell'SDK."""
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for nome, errore in self._costruiti_durante_una_chiamata_dell_sdk().items():
             with self.subTest(via=nome):
@@ -2290,7 +2290,7 @@ class LaProvenienzaEsplicita(unittest.TestCase):
 
     @prova("confine.rete")
     def test_il_costruttore_pubblico_fa_sempre_un_errore_esterno(self) -> None:
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for nome, classe, costruisci in _un_esemplare_per_classe():
             with self.subTest(classe=nome):
@@ -2306,7 +2306,7 @@ class LaProvenienzaEsplicita(unittest.TestCase):
         `UnexpectedError` al posto della classe giusta."""
         import ast
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         nomi = {
             nome for nome, classe in vars(errors).items()
@@ -2342,30 +2342,9 @@ class LaProvenienzaEsplicita(unittest.TestCase):
 #: funzione pubblica nuova e' rossa finche' non entra qui, e la prova la
 #: esercita con argomenti che portano `SEGRETO`.
 INVENTARIO_PUBBLICO: dict[str, str] = {
-    "arrow.pyarrow": "nessun argomento; messaggi fissi",
-    "arrow.e_un_percorso": "rende un bool",
-    "arrow.scrivi_ipc": "messaggi fissi; il percorso non entra nel testo",
-    "arrow.leggi_ipc": "messaggi fissi; percorso e content type non entrano nel testo",
-    "arrow.cartella_temporanea": "costruisce `CartellaTemporanea`",
-    "arrow.CartellaTemporanea": "effetto dal vocabolario chiuso; messaggi fissi",
-    "client.con_superficie_python": "decoratore dei metodi del client",
-    "confine.registra_avvio": "non solleva errori dell'SDK",
-    "confine.nome_sdk": "rende il nome di una classe dell'SDK, o `?`",
-    "confine.e_un_modello": "rende un bool",
-    "discovery.trova_binario": "posti dall'elenco chiuso; messaggi fissi",
-    "discovery.leggi_manifesto": "messaggi fissi",
-    "discovery.verifica_profilo": "profili dall'elenco chiuso",
-    "errors.sottocomando": "rende un sottocomando dall'elenco chiuso, o None",
-    "errors.classe_dell_sdk": "rende un bool",
-    "errors.costruito_dall_sdk": "rende un bool",
-    "errors.ricostruito": "copia lo stato dell'errore ricevuto, senza sostituzioni",
-    "errors.carica_json": "il messaggio dice posizione e motivo, mai il testo",
-    "errors.failure_from_envelope": "rende un errore esterno: la busta e' del chiamante",
-    "models.tipi_json": "non solleva errori dell'SDK",
-    "process.sigint_inoltrabile": "rende un bool",
-    "process.comando": "rende un sottocomando dall'elenco chiuso",
-    "process.scrive": "rende un bool",
-    "process.Completed": "un esito del processo, senza errori",
+    # Vuoto dal sedicesimo giro: i moduli dell'SDK sono privati (`_errors`,
+    # `_confine`...), e la superficie pubblica e' la radice del pacchetto con
+    # il suo `__all__` (`LaSuperficiePubblicaChiusa`).
 }
 
 
@@ -2413,7 +2392,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
     un errore fidato con dati del chiamante."""
 
     def _nessun_dato_se_fidato(self, errore, dove) -> None:
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         if not isinstance(errore, PlenoraError) or not errors.costruito_dall_sdk(errore):
             return
@@ -2424,7 +2403,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
     def test_failure_from_envelope_pubblica_fa_errori_esterni(self) -> None:
         """Prima: la busta del chiamante diventava un `IoError` fidato, e la
         rete lo faceva uscire con il suo messaggio."""
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         busta = {"error": {"code": "IO-X", "category": "io", "phase": "execute",
                            "remote_effect": "none", "retry": {"kind": "never"},
@@ -2446,7 +2425,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
     def test_ricostruito_pubblico_non_sostituisce_lo_stato(self) -> None:
         """Prima: `ricostruito(originale, envelope=busta)` conservava la
         fiducia e sostituiva lo stato, decisioni comprese."""
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         fidato = errors._dallo_sdk(InvalidArgumentError, "elenco.immutabile")
         busta = _busta(message=SEGRETO, retry={"kind": "safe"})
@@ -2462,7 +2441,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
         self.assertEqual(str(copia), str(fidato))
 
     def test_la_ricostruzione_privata_accetta_solo_lo_stato_dell_sdk(self) -> None:
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         fidato = errors._dallo_sdk_strutturato(CommandFailed, _busta(), 1, ["read"])
         for voce in ("envelope", "_messaggio", "exit_code", "command", "_dall_sdk"):
@@ -2473,7 +2452,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
     def test_str_message_e_to_dict_vengono_dallo_stesso_stato(self) -> None:
         import copy as copia
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for nome, classe, costruisci in _un_esemplare_per_classe():
             originale = costruisci()
@@ -2529,8 +2508,8 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
                                     pass
                         except PlenoraError as errore:
                             self._nessun_dato_se_fidato(errore, nome)
-                        except Exception:  # noqa: BLE001, S112 - non e' un errore dell'SDK
-                            continue
+                        except Exception as errore:  # noqa: BLE001 - e' un fallimento
+                            self.fail(f"{nome}: {type(errore).__name__} fuori dalla gerarchia")
                         else:
                             self._nessun_dato_se_fidato(risultato, nome)
         finally:
@@ -2611,7 +2590,7 @@ def _esemplari_dei_modelli():
 
     for radice in radici:
         visita(radice)
-    from plenora_io import Delivered, Manifest, errors
+    from plenora_io import Delivered, Manifest, _errors as errors
 
     from test_discovery import MANIFESTO_SANO
 
@@ -2693,16 +2672,23 @@ class LoSchemaDellaClasseDellSdk(unittest.TestCase):
         estranee: list[str] = []
 
         def chiama(etichetta, funzione, posizionali, nominali):
+            # Dentro un `except` del chiamante: cio' che esce non porta la sua
+            # eccezione come contesto.
             nonlocal chiamate
             chiamate += 1
             try:
-                risultato = funzione(*posizionali, **nominali)
-            except PlenoraError as errore:
-                self._nessun_dato_se_fidato(errore, etichetta)
-            except Exception as errore:  # noqa: BLE001 - si contano, e sono rosse
-                estranee.append(f"{etichetta}: {type(errore).__name__}")
-            else:
-                self._nessun_dato_se_fidato(risultato, etichetta)
+                raise ValueError(SEGRETO)
+            except ValueError:
+                try:
+                    risultato = funzione(*posizionali, **nominali)
+                except PlenoraError as errore:
+                    self._nessun_dato_se_fidato(errore, etichetta)
+                    if errore.__context__ is not None or errore.__cause__ is not None:
+                        estranee.append(f"{etichetta}: catena")
+                except Exception as errore:  # noqa: BLE001 - si contano, e sono rosse
+                    estranee.append(f"{etichetta}: {type(errore).__name__}")
+                else:
+                    self._nessun_dato_se_fidato(risultato, etichetta)
 
         def combinazioni(funzione, salta=0):
             try:
@@ -2802,7 +2788,7 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
     def test_un_costruttore_chiamato_su_un_oggetto_estraneo_si_rifiuta(self) -> None:
         """Prima: `Catalog.__init__(Estraneo(), ...)` girava, e `_normalizza`
         metteva il nome del campo del chiamante in un errore fidato."""
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         Estraneo = _estraneo()
         with self.assertRaises(PlenoraError) as preso:
@@ -2821,7 +2807,7 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
         campo come proprieta' e i campi della dataclass."""
         import dataclasses
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         Estraneo = _estraneo()
         campo = dataclasses.field()
@@ -2852,7 +2838,7 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
         nasce comunque (`?` al posto del parametro)."""
         import string
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         class StrSegreta(str):
             pass
@@ -2892,7 +2878,7 @@ class IlCatalogoDeiMessaggi(unittest.TestCase):
         la classe della busta."""
         import ast
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         cartella = Path(errors.__file__).parent
         difformi = []
@@ -2959,7 +2945,7 @@ class LaPosizioneDellErroreJson(unittest.TestCase):
     def test_una_sottoclasse_di_str_non_sceglie_la_posizione(self) -> None:
         """Prima: `carica_json` passava la sottoclasse a `json.loads` e si
         fidava di `msg`, `lineno` e `colno` dell'eccezione."""
-        from plenora_io.errors import carica_json
+        from plenora_io._errors import carica_json
 
         for testo in _testo_ostile():
             with self.subTest(classe=type(testo).__name__):
@@ -2974,7 +2960,7 @@ class LaPosizioneDellErroreJson(unittest.TestCase):
         """Prima: `leggi_manifesto` leggeva con `read_text` del `Path` del
         chiamante, e il testo ostile portava i suoi numeri in un
         `ManifestError` fidato."""
-        from plenora_io import ManifestError, errors
+        from plenora_io import ManifestError, _errors as errors
 
         ostile, _ = _testo_ostile()
         radice = Path(tempfile.mkdtemp())
@@ -3003,7 +2989,7 @@ class LaPosizioneDellErroreJson(unittest.TestCase):
         intervallo sono `?`, mai un `ValueError`."""
         import string
 
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for chiave, modello in errors.MESSAGGI.items():
             with self.subTest(chiave=chiave):
@@ -3034,6 +3020,85 @@ class LaPosizioneDellErroreJson(unittest.TestCase):
         with self.assertRaises(PlenoraError) as preso:
             Catalog.from_json(catalogo_sano()).driver(object())
         self.assertIn("`identificatore`", str(preso.exception))
+
+
+# --- 18. sedicesimo giro di revisione ---------------------------------------
+
+
+def _superficie_pubblica():
+    """Ogni nome senza `_` di ogni modulo senza `_` del pacchetto, radice
+    compresa: `(etichetta, valore)`."""
+    import importlib
+    import pkgutil
+
+    import plenora_io
+
+    moduli = [("plenora_io", plenora_io)]
+    for modulo in pkgutil.iter_modules(plenora_io.__path__):
+        if not modulo.name.startswith("_"):
+            nome = f"plenora_io.{modulo.name}"
+            moduli.append((nome, importlib.import_module(nome)))
+    for nome_modulo, modulo in moduli:
+        for nome, valore in list(vars(modulo).items()):
+            if not nome.startswith("_"):
+                yield f"{nome_modulo}.{nome}", valore
+
+
+class LaSuperficiePubblicaChiusa(unittest.TestCase):
+    """Sedicesimo giro: la superficie pubblica e' la radice e `__all__`."""
+
+    def _chiama_dentro_un_except(self, etichetta, funzione, argomenti, problemi):
+        """Chiama dentro un `except ValueError(SEGRETO)` del chiamante: cio'
+        che esce e' un `PlenoraError`, senza contesto ne' causa."""
+        from plenora_io import _errors as errors
+
+        try:
+            raise ValueError(SEGRETO)
+        except ValueError:
+            try:
+                funzione(*argomenti)
+            except PlenoraError as errore:
+                if errore.__context__ is not None or errore.__cause__ is not None:
+                    problemi.append(f"{etichetta}: catena")
+                if errors.costruito_dall_sdk(errore) and SEGRETO in str(errore):
+                    problemi.append(f"{etichetta}: dato nel messaggio")
+            except Exception as errore:  # noqa: BLE001 - e' il fallimento cercato
+                problemi.append(f"{etichetta}: {type(errore).__name__}")
+
+    @prova("confine.rete")
+    def test_la_superficie_pubblica_e_chiusa(self) -> None:
+        """Prima: `client.con_superficie_python(7)` dava `AttributeError`,
+        `contenitori.json_default(object())` `TypeError`, e
+        `errors.ricostruito(None)` o `errors.carica_json("{")` dentro un
+        `except` del chiamante conservavano il suo `ValueError` come
+        `__context__`. Ora i moduli sono privati, e ogni nome pubblico della
+        radice sta in `__all__`, e se si chiama passa dalla rete."""
+        import inspect
+        import itertools
+
+        import plenora_io
+
+        problemi: list[str] = []
+        valori = (SEGRETO, None, 7, object(), [SEGRETO], {SEGRETO: 1}, "{")
+        for etichetta, valore in _superficie_pubblica():
+            nome = etichetta.rsplit(".", 1)[1]
+            if etichetta.count(".") > 1 or nome not in plenora_io.__all__:
+                problemi.append(f"{etichetta}: fuori da __all__")
+            if not callable(valore) or nome in NON_CHIAMATE_A_COMBINAZIONI:
+                continue
+            if isinstance(valore, type) and issubclass(valore, BaseException):
+                continue  # un errore costruito a mano e' esterno, non solleva
+            try:
+                firma = inspect.signature(valore)
+            except (TypeError, ValueError):
+                continue
+            parametri = [
+                p for p in firma.parameters.values()
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ][:2]
+            for combinazione in itertools.product(valori, repeat=len(parametri)):
+                self._chiama_dentro_un_except(etichetta, valore, combinazione, problemi)
+        self.assertEqual(sorted(set(problemi)), [])
 
 
 if __name__ == "__main__":
