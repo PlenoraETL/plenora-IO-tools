@@ -14,6 +14,7 @@ pub use arrow_schema;
 /// percorso, cosi' un import dice sempre quale dei due sta usando.
 pub mod budget;
 pub mod cancellation;
+pub mod clock;
 pub mod contract;
 pub mod crs;
 pub mod diagnostics;
@@ -27,6 +28,7 @@ pub mod wkb;
 mod wkb_lossless;
 
 pub use cancellation::{CancellationReason, CancellationToken};
+pub use clock::PipelineClock;
 pub use diagnostics::{
     KnownOrUnknownCount, RowDiagnosticColumn, RowDiagnosticExample, RowDiagnosticKey,
     RowDiagnosticKeyState, RowDiagnosticKeyValue, RowDiagnosticScope, RowDiagnosticWriteOutcome,
