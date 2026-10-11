@@ -47,6 +47,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from .errors import InvalidArgumentError, ResultLookupError
+from .errors import _dallo_sdk
 
 
 def _esatto(valore: Any, dove: str) -> Any:
@@ -66,7 +67,7 @@ def _unico_argomento(nome: str, argomenti: tuple[Any, ...], opzioni: dict[str, A
     il messaggio non nomina niente di cio' che si e' passato.
     """
     if opzioni or len(argomenti) > 1:
-        raise InvalidArgumentError(f"`{nome}` vuole al piu' un argomento, per posizione.")
+        raise _dallo_sdk(InvalidArgumentError, f"`{nome}` vuole al piu' un argomento, per posizione.")
     return argomenti[0] if argomenti else predefinito
 
 
@@ -76,16 +77,16 @@ def _intero_o_niente(valore: Any, dove: str) -> int | None:
         return None
     tipo = type(valore)
     if tipo is bool or not issubclass(tipo, int):
-        raise InvalidArgumentError(f"{dove} e' un intero o `None`.")
+        raise _dallo_sdk(InvalidArgumentError, f"{dove} e' un intero o `None`.")
     return int.__index__(valore)
 
 
 def _immutabile_elenco(self: Any, *argomenti: Any, **opzioni: Any) -> Any:
-    raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
+    raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
 
 
 def _immutabile_dizionario(self: Any, *argomenti: Any, **opzioni: Any) -> Any:
-    raise InvalidArgumentError("un dizionario di un risultato dell'SDK e' immutabile.")
+    raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
 
 
 class FrozenList(Sequence):
@@ -113,7 +114,7 @@ class FrozenList(Sequence):
 
     def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenList":
         if cls is not FrozenList:
-            raise InvalidArgumentError("`FrozenList` non si estende.")
+            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` non si estende.")
         elementi = _unico_argomento("FrozenList", argomenti, opzioni, ())
         tipo = type(elementi)
         if tipo is FrozenList:
@@ -123,20 +124,20 @@ class FrozenList(Sequence):
         elif issubclass(tipo, tuple):
             sorgente = tuple.__iter__(elementi)
         else:
-            raise InvalidArgumentError("`FrozenList` vuole un elenco.")
+            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` vuole un elenco.")
         try:
             dati = tuple(_esatto(v, "FrozenList") for v in sorgente)
         except RecursionError:
-            raise InvalidArgumentError("`FrozenList` e' annidato troppo a fondo.") from None
+            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` e' annidato troppo a fondo.") from None
         istanza = object.__new__(cls)
         object.__setattr__(istanza, "_dati", dati)
         return istanza
 
     def __setattr__(self, nome: str, valore: Any) -> None:
-        raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
 
     def __delattr__(self, nome: str) -> None:
-        raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
 
     def __getitem__(self, indice: Any) -> Any:
         dati = object.__getattribute__(self, "_dati")
@@ -147,7 +148,7 @@ class FrozenList(Sequence):
             # usciva intatto.
             passo = _intero_o_niente(indice.step, "il passo di uno slice")
             if passo == 0:
-                raise InvalidArgumentError("il passo di uno slice non puo' essere zero.")
+                raise _dallo_sdk(InvalidArgumentError, "il passo di uno slice non puo' essere zero.")
             esatto = slice(
                 _intero_o_niente(indice.start, "l'inizio di uno slice"),
                 _intero_o_niente(indice.stop, "la fine di uno slice"),
@@ -155,11 +156,11 @@ class FrozenList(Sequence):
             )
             return FrozenList(list(dati[esatto]))
         if type(indice) is bool or not issubclass(type(indice), int):
-            raise InvalidArgumentError("l'indice di un elenco e' un intero.")
+            raise _dallo_sdk(InvalidArgumentError, "l'indice di un elenco e' un intero.")
         posizione = int.__index__(indice)
         if not -len(dati) <= posizione < len(dati):
             # Anche un `IndexError`: il protocollo di `Sequence` lo riconosce.
-            raise ResultLookupError("indice oltre l'elenco.")
+            raise _dallo_sdk(ResultLookupError, "indice oltre l'elenco.")
         return dati[posizione]
 
     def __len__(self) -> int:
@@ -181,7 +182,7 @@ class FrozenList(Sequence):
         # `inizio` e `fine` sono interi esatti o `None` prima dell'uso, come i
         # componenti di uno slice: `tuple.index` ne chiamava `__index__`.
         if opzioni or len(argomenti) > 2:
-            raise InvalidArgumentError(
+            raise _dallo_sdk(InvalidArgumentError,
                 "`index()` vuole il valore e, per posizione, al piu' inizio e fine."
             )
         limiti = [_intero_o_niente(a, "un limite di `index()`") for a in argomenti]
@@ -191,7 +192,7 @@ class FrozenList(Sequence):
         for posizione in range(inizio, fine):
             if dati[posizione] == cercato:
                 return posizione
-        raise ResultLookupError("valore assente dall'elenco.")
+        raise _dallo_sdk(ResultLookupError, "valore assente dall'elenco.")
 
     def count(self, valore: Any) -> int:
         cercato = _esatto(valore, "FrozenList")
@@ -243,7 +244,7 @@ class FrozenDict(Mapping):
 
     def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenDict":
         if cls is not FrozenDict:
-            raise InvalidArgumentError("`FrozenDict` non si estende.")
+            raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` non si estende.")
         coppie = _unico_argomento("FrozenDict", argomenti, opzioni, None)
         tipo = type(coppie)
         if coppie is None:
@@ -253,39 +254,39 @@ class FrozenDict(Mapping):
         elif issubclass(tipo, dict):
             sorgente = dict.items(coppie)
         else:
-            raise InvalidArgumentError("`FrozenDict` vuole un dizionario.")
+            raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` vuole un dizionario.")
         dati: dict[str, Any] = {}
         for chiave, valore in sorgente:
             if not issubclass(type(chiave), str):
-                raise InvalidArgumentError("`FrozenDict` ha una chiave che non e' una stringa.")
+                raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` ha una chiave che non e' una stringa.")
             esatta = str.join("", [chiave])
             if esatta in dati:
-                raise InvalidArgumentError(
+                raise _dallo_sdk(InvalidArgumentError,
                     "`FrozenDict` ha due chiavi che normalizzate coincidono."
                 )
             try:
                 dati[esatta] = _esatto(valore, "FrozenDict")
             except RecursionError:
-                raise InvalidArgumentError("`FrozenDict` e' annidato troppo a fondo.") from None
+                raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` e' annidato troppo a fondo.") from None
         istanza = object.__new__(cls)
         object.__setattr__(istanza, "_dati", dati)
         return istanza
 
     def __setattr__(self, nome: str, valore: Any) -> None:
-        raise InvalidArgumentError("un dizionario di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
 
     def __delattr__(self, nome: str) -> None:
-        raise InvalidArgumentError("un dizionario di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
 
     def __getitem__(self, chiave: Any) -> Any:
         # `ResultLookupError` e' anche un `KeyError`: `get()` e `in` di
         # `Mapping` lo riconoscono. Il messaggio non nomina la chiave.
         if not issubclass(type(chiave), str):
-            raise ResultLookupError("chiave non testuale.")
+            raise _dallo_sdk(ResultLookupError, "chiave non testuale.")
         dati = object.__getattribute__(self, "_dati")
         esatta = str.join("", [chiave])
         if esatta not in dati:
-            raise ResultLookupError("chiave assente dal dizionario.")
+            raise _dallo_sdk(ResultLookupError, "chiave assente dal dizionario.")
         return dati[esatta]
 
     def __len__(self) -> int:

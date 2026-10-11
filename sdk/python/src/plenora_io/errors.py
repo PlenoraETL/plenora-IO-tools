@@ -92,8 +92,9 @@ class PlenoraError(Exception):
     `str()` dell'oggetto ricevuto: una callback che prende un errore
     dell'SDK, ne riscrive `args` e lo rilancia non fa uscire il proprio testo.
 
-    Il sigillo e la provenienza -- se a costruire l'errore e' stato codice
-    dell'SDK -- li mette `confine` attorno a `__init__` (`_init_sigillato`).
+    Il sigillo lo mette `confine` attorno a `__init__` (`_init_sigillato`).
+    La provenienza -- l'errore e' dell'SDK -- la marca soltanto la fabbrica
+    privata `_dallo_sdk`: il costruttore pubblico fa sempre un errore esterno.
     """
 
     #: La categoria di `error-v1` per gli errori nati nell'SDK.
@@ -202,7 +203,7 @@ def _sigillato(errore: Any) -> "InvalidArgumentError":
     # sottoclasse del chiamante puo' chiamarsi come vuole.
     from .confine import nome_sdk  # noqa: PLC0415 - confine importa questo modulo
 
-    return InvalidArgumentError(
+    return _dallo_sdk(InvalidArgumentError,
         f"`{nome_sdk(type(errore))}` e' gia' costruito: lo stato di un errore "
         "dell'SDK non si modifica."
     )
@@ -230,8 +231,29 @@ def classe_dell_sdk(tipo: type) -> bool:
     )
 
 
+def _dallo_sdk(classe: Any, *argomenti: Any, **opzioni: Any) -> Any:
+    """La fabbrica privata degli errori dell'SDK: costruisce e marca la provenienza.
+
+    E' l'**unica** via per cui un errore conta come dell'SDK, e la rete lo
+    ricostruisce invece di renderlo `UnexpectedError`. Il costruttore pubblico
+    di una classe d'errore fa sempre un errore esterno, chiunque lo chiami:
+    la provenienza e' una capacita' esplicita, non dedotta dai frame. Ogni
+    errore che l'SDK solleva passa da qui; una prova d'inventario
+    (`test_confini_esterni.LaProvenienzaEsplicita`) rifiuta una chiamata
+    diretta a una classe d'errore nei sorgenti del pacchetto.
+
+    Chiamarla da fuori e' usare un nome privato: fuori contratto (README,
+    «Limiti dichiarati»).
+    """
+    if not classe_dell_sdk(classe):
+        raise _dallo_sdk(InvalidArgumentError, "solo un errore dell'SDK nasce dalla fabbrica.")
+    errore = classe(*argomenti, **opzioni)
+    object.__getattribute__(errore, "__dict__")[PROVENIENZA] = True
+    return errore
+
+
 def costruito_dall_sdk(errore: Any) -> bool:
-    """`errore` e' di una classe dell'SDK, sigillato, e costruito da codice dell'SDK."""
+    """`errore` e' di una classe dell'SDK, sigillato, e nato da `_dallo_sdk`."""
     if not classe_dell_sdk(type(errore)):
         return False
     stato = object.__getattribute__(errore, "__dict__")
@@ -249,7 +271,7 @@ def ricostruito(errore: Any, **modifiche: Any) -> Any:
     """
     tipo = type(errore)
     if not classe_dell_sdk(tipo):
-        raise InvalidArgumentError("solo un errore dell'SDK si ricostruisce.")
+        raise _dallo_sdk(InvalidArgumentError, "solo un errore dell'SDK si ricostruisce.")
     stato = _stato(errore)
     stato.update(modifiche)
     return _da_copia(tipo, stato, provenienza=dict.get(stato, PROVENIENZA) is True)
@@ -263,16 +285,16 @@ def _da_copia(tipo: Any, stato: Any, provenienza: bool = False) -> Any:
     diventa `UnexpectedError` come un errore costruito dal chiamante.
     """
     if type(tipo) is not type or not classe_dell_sdk(tipo) or type(stato) is not dict:
-        raise InvalidArgumentError("lo stato non e' quello di un errore dell'SDK.")
+        raise _dallo_sdk(InvalidArgumentError, "lo stato non e' quello di un errore dell'SDK.")
     testo = dict.get(stato, "_messaggio")
     if type(testo) is not str:
-        raise InvalidArgumentError("lo stato di un errore dell'SDK non ha un messaggio.")
+        raise _dallo_sdk(InvalidArgumentError, "lo stato di un errore dell'SDK non ha un messaggio.")
     nuovo = BaseException.__new__(tipo)
     BaseException.__init__(nuovo, testo)
     dati = object.__getattribute__(nuovo, "__dict__")
     for nome, valore in dict.items(stato):
         if type(nome) is not str or nome in ATTRIBUTI_LIBERI:
-            raise InvalidArgumentError("lo stato di un errore dell'SDK ha una voce non ammessa.")
+            raise _dallo_sdk(InvalidArgumentError, "lo stato di un errore dell'SDK ha una voce non ammessa.")
         dati[nome] = valore
     dati[PROVENIENZA] = provenienza is True
     dati[SIGILLO] = True
@@ -580,7 +602,7 @@ class ErrorEnvelope:
                 self, campo, copia_json(getattr(self, campo), f"error.{campo}")
             )
         if _tipo(self.retry) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
             )
         # La copia diventa subito un `FrozenDict`: nessun contenitore mutabile
@@ -591,7 +613,7 @@ class ErrorEnvelope:
         )
         if self.row_diagnostics is not None:
             if _tipo(self.row_diagnostics) != "object":
-                raise ProtocolError(
+                raise _dallo_sdk(ProtocolError,
                     f"`row_diagnostics` e' {_tipo(self.row_diagnostics)} e non un oggetto."
                 )
             object.__setattr__(
@@ -613,7 +635,7 @@ class ErrorEnvelope:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
         if _tipo(documento) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
             )
         # Tutto il documento, non solo i campi che si leggono: una chiave che
@@ -622,7 +644,7 @@ class ErrorEnvelope:
         documento = copia_json(documento, "busta d'errore")
         errore = documento.get("error")
         if _tipo(errore) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"la busta d'errore non porta l'oggetto `error` (e' {_tipo(errore)})."
             )
         mancanti = [
@@ -631,7 +653,7 @@ class ErrorEnvelope:
             if campo not in errore
         ]
         if mancanti:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"busta d'errore senza i campi obbligatori {mancanti}. "
                 "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
             )
@@ -640,13 +662,13 @@ class ErrorEnvelope:
         # silenzio mentre una stringa sollevava `AttributeError` -- due esiti
         # diversi per lo stesso difetto, nessuno dei due nominato.
         if "details" in errore and _tipo(errore["details"]) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"`error.details` e' {_tipo(errore['details'])} e non un oggetto: "
                 "lo schema `plenora-error-v1` lo dichiara oggetto quando c'e'."
             )
         dettagli = errore.get("details", {})
         if "row_diagnostics" in dettagli and _tipo(dettagli["row_diagnostics"]) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 "`error.details.row_diagnostics` e' "
                 f"{_tipo(dettagli['row_diagnostics'])} e non un oggetto."
             )
@@ -721,7 +743,7 @@ RITARDO_MASSIMO_MS = 86_400_000
 def _effetto(valore: Any) -> str:
     """Un effetto remoto del vocabolario chiuso, o `InvalidArgumentError`."""
     if type(valore) is not str or valore not in EFFETTI_REMOTI:
-        raise InvalidArgumentError("`remote_effect` non e' un effetto di `plenora-error-v1`.")
+        raise _dallo_sdk(InvalidArgumentError, "`remote_effect` non e' un effetto di `plenora-error-v1`.")
     return valore
 
 
@@ -777,7 +799,7 @@ def copia_json(valore: Any, dove: str) -> Any:
     try:
         return _copia_json(valore, dove, 0)
     except RecursionError:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare."
         ) from None
 
@@ -788,7 +810,7 @@ def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
         copia = {}
         for chiave, interno in valore.items():
             if _tipo(chiave) != "string":
-                raise ProtocolError(
+                raise _dallo_sdk(ProtocolError,
                     f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
                     f"{_tipo(chiave)} e non una stringa."
                 )
@@ -797,12 +819,12 @@ def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
     if tipo == "array":
         return [_copia_json(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
             "che JSON non ha."
         )
     if tipo == "non JSON":
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`{dove}` ha, a profondita' {_profondita}, un valore che non e' "
             "un tipo JSON esatto."
         )
@@ -810,7 +832,7 @@ def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
 
 
 def _rifiuta_costante(nome: str) -> Any:
-    raise ProtocolError(f"il documento contiene `{nome}`, che JSON non ha.")
+    raise _dallo_sdk(ProtocolError, f"il documento contiene `{nome}`, che JSON non ha.")
 
 
 def _float_finito(testo: str) -> float:
@@ -818,7 +840,7 @@ def _float_finito(testo: str) -> float:
     if not math.isfinite(numero):
         # `1e400` non e' una costante: e' un numero che in doppia precisione
         # trabocca in infinito, e `parse_constant` non lo vede.
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             "il documento contiene un numero che in doppia precisione non e' finito."
         )
     return numero
@@ -828,7 +850,7 @@ def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
     oggetto: dict[str, Any] = {}
     for chiave, valore in coppie:
         if chiave in oggetto:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 "il documento ripete una chiave nello stesso oggetto: "
                 "`json.loads` terrebbe in silenzio l'ultima."
             )
@@ -867,7 +889,7 @@ def carica_json(testo: str) -> Any:
         motivo = "annidamento oltre la profondita' che il parser regge"
     except ValueError:
         motivo = "un valore che il parser non converte, come un intero oltre il limite di cifre"
-    raise ProtocolError(f"il documento non e' JSON valido ({motivo}).") from None
+    raise _dallo_sdk(ProtocolError, f"il documento non e' JSON valido ({motivo}).") from None
 
 
 def _valida_busta(busta: "ErrorEnvelope") -> None:
@@ -879,13 +901,13 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
     for campo in ("code", "category", "phase", "message"):
         valore = getattr(busta, campo)
         if _tipo(valore) != "string" or not valore:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"`error.{campo}` e' {_tipo(valore)} e non una stringa non vuota."
             )
 
     effetto = busta.remote_effect
     if _tipo(effetto) != "string" or effetto not in EFFETTI_REMOTI:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`error.remote_effect` ({_tipo(effetto)}) non e' nel vocabolario "
             f"chiuso di `plenora-error-v1`: {sorted(EFFETTI_REMOTI)}. Senza "
             "sapere che cosa e' successo dall'altra parte nessuna risposta su "
@@ -896,26 +918,26 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
     retry = busta.retry
     tipo = retry.get("kind")
     if _tipo(tipo) != "string" or tipo not in TIPI_DI_RITENTATIVO:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`error.retry.kind` ({_tipo(tipo)}) non e' nel vocabolario chiuso "
             f"di `plenora-error-v1`: {sorted(TIPI_DI_RITENTATIVO)}."
         )
     attese = {"kind", "delay_ms"} if tipo == "after" else {"kind"}
     if set(retry) != attese:
         # Le chiavi in piu' non si nominano: vengono dal documento.
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`error.retry` di tipo «{tipo}» ha {len(retry)} chiavi e non "
             f"esattamente {sorted(attese)}, come lo schema pretende."
         )
     if tipo == "after":
         ritardo = retry["delay_ms"]
         if _tipo(ritardo) != "integer" or not 0 <= ritardo <= RITARDO_MASSIMO_MS:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"`error.retry.delay_ms` ({_tipo(ritardo)}) non e' un intero fra "
                 f"0 e {RITARDO_MASSIMO_MS}."
             )
     if effetto == "unknown" and tipo not in RITENTATIVI_CON_EFFETTO_IGNOTO:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"`error.remote_effect` e' «unknown» e `error.retry.kind` e' "
             f"«{tipo}»: lo schema ammette soltanto "
             f"{sorted(RITENTATIVI_CON_EFFETTO_IGNOTO)}, perche' un ritentativo "
@@ -942,9 +964,9 @@ class CommandFailed(PlenoraError):
         argv: list[str] | None = None,
     ) -> None:
         if type(envelope) is not ErrorEnvelope:
-            raise InvalidArgumentError("`envelope` non e' un `ErrorEnvelope`.")
+            raise _dallo_sdk(InvalidArgumentError, "`envelope` non e' un `ErrorEnvelope`.")
         if type(exit_code) is bool or not issubclass(type(exit_code), int):
-            raise InvalidArgumentError("`exit_code` non e' un intero.")
+            raise _dallo_sdk(InvalidArgumentError, "`exit_code` non e' un intero.")
         self.envelope = envelope
         self.exit_code = int.__pos__(exit_code)
         # Il solo sottocomando, da un elenco chiuso. Fino alla 4.1.1 l'errore
@@ -1197,7 +1219,7 @@ def failure_from_envelope(
     """
     envelope = ErrorEnvelope.from_json(documento)
     classe = CATEGORIE.get(envelope.category, CommandFailed)
-    return classe(envelope, exit_code, argv)
+    return _dallo_sdk(classe, envelope, exit_code, argv)
 
 
 # In fondo: `contenitori` importa `InvalidArgumentError` da qui, e `_tipo` deve

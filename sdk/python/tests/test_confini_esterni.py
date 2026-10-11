@@ -2224,5 +2224,114 @@ class IlNonoGiro(unittest.TestCase):
         tradotto(self, preso.exception, "none")
 
 
+# --- 13. decimo giro di revisione -------------------------------------------
+
+
+class LaProvenienzaEsplicita(unittest.TestCase):
+    """Decimo giro: un errore e' dell'SDK solo se l'SDK l'ha costruito con la
+    sua fabbrica privata; il costruttore pubblico, chiamato in qualunque modo,
+    fa un errore esterno."""
+
+    def _costruiti_durante_una_chiamata_dell_sdk(self):
+        """Errori costruiti mentre l'SDK esegue `os.fspath` sul binario, per
+        quattro vie: `map` e `partial` in C, `eval`, una lambda, un metodo."""
+        salvati = []
+        sorgente = "__import__('plenora_io').InvalidArgumentError('" + SEGRETO + "')"
+
+        class InC:
+            __fspath__ = functools.partial(
+                next, map(salvati.append, map(InvalidArgumentError, [SEGRETO])))
+
+        class ConEval:
+            __fspath__ = functools.partial(eval, "_s.append(" + sorgente + ")", None)
+
+        class ConLambda:
+            __fspath__ = lambda self: salvati.append(InvalidArgumentError(SEGRETO))  # noqa: E731
+
+        class ConMetodo:
+            def __fspath__(self):
+                salvati.append(InvalidArgumentError(SEGRETO))
+
+        vie = {"map e partial": InC, "eval": ConEval, "lambda": ConLambda, "metodo": ConMetodo}
+        trovati = {}
+        for nome, classe in vie.items():
+            prima = len(salvati)
+            oggetto = classe()
+            if classe is ConEval:
+                # `eval` con `locals` = l'oggetto: il nome `_s` e' l'elenco.
+                oggetto = type("ConEvalLocale", (dict,), {"__fspath__": ConEval.__fspath__})(
+                    _s=salvati)
+            with self.assertRaises(PlenoraError):
+                Client(binary=oggetto)
+            self.assertEqual(len(salvati), prima + 1, nome)
+            trovati[nome] = salvati[-1]
+        return trovati
+
+    @prova("messaggi.senza_dati")
+    def test_un_errore_costruito_da_una_callback_non_e_dell_sdk(self) -> None:
+        """Prima: il frame osservato era quello dell'SDK che eseguiva la
+        callback, e un errore costruito da `map` in C contava come dell'SDK."""
+        from plenora_io import errors
+
+        for nome, errore in self._costruiti_durante_una_chiamata_dell_sdk().items():
+            with self.subTest(via=nome):
+                self.assertIs(type(errore), InvalidArgumentError)
+                self.assertFalse(errors.costruito_dall_sdk(errore))
+
+                class Versione(Version):
+                    def __getattribute__(self, nome, _errore=errore):
+                        raise _errore
+
+                versione = object.__new__(Versione)
+                with self.assertRaises(PlenoraError) as preso:
+                    repr(versione)
+                self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+                tradotto(self, preso.exception, "none")
+
+    @prova("confine.rete")
+    def test_il_costruttore_pubblico_fa_sempre_un_errore_esterno(self) -> None:
+        from plenora_io import errors
+
+        for nome, classe, costruisci in _un_esemplare_per_classe():
+            with self.subTest(classe=nome):
+                self.assertFalse(errors.costruito_dall_sdk(costruisci()))
+        # La fabbrica privata, invece, marca la provenienza.
+        self.assertTrue(errors.costruito_dall_sdk(
+            errors._dallo_sdk(InvalidArgumentError, "m")))
+
+    def test_ogni_errore_dell_sdk_nasce_dalla_fabbrica(self) -> None:
+        """Inventario statico: nei sorgenti dell'SDK nessuna chiamata diretta a
+        una classe d'errore, fuori dalla fabbrica `_dallo_sdk`. Una chiamata
+        diretta farebbe un errore esterno, che la rete renderebbe
+        `UnexpectedError` al posto della classe giusta."""
+        import ast
+
+        from plenora_io import errors
+
+        nomi = {
+            nome for nome, classe in vars(errors).items()
+            if type(classe) is type and issubclass(classe, PlenoraError)
+        }
+        cartella = Path(errors.__file__).parent
+        dirette = []
+        for file in sorted(cartella.glob("*.py")):
+            albero = ast.parse(file.read_text(encoding="utf-8"))
+            for nodo in ast.walk(albero):
+                if not isinstance(nodo, ast.Call):
+                    continue
+                funzione = nodo.func
+                nome = (funzione.id if isinstance(funzione, ast.Name)
+                        else funzione.attr if isinstance(funzione, ast.Attribute) else None)
+                if nome in nomi:
+                    dirette.append(f"{file.name}:{nodo.lineno}")
+        self.assertEqual(dirette, [])
+        # Le chiamate dinamiche (`classe(...)`) non le vede l'AST: l'unica e'
+        # in `failure_from_envelope`, e deve passare dalla fabbrica.
+        busta = {"error": {"code": "IO-X", "category": "io", "phase": "execute",
+                           "remote_effect": "none", "retry": {"kind": "never"},
+                           "message": "m"}}
+        self.assertTrue(errors.costruito_dall_sdk(failure_from_envelope(busta, 1, ["read"])))
+
+
 if __name__ == "__main__":
     unittest.main()

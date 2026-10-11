@@ -41,6 +41,7 @@ from typing import Any
 
 from .argomenti import testo
 from .errors import ProtocolError, ResultLookupError, _tipo, copia_json
+from .errors import _dallo_sdk
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -128,11 +129,11 @@ def _pretendi(
     `errors.py` per la ragione.
     """
     if _tipo(documento) != "object":
-        raise ProtocolError(f"{dove}: e' {_tipo(documento)} e non un oggetto.")
+        raise _dallo_sdk(ProtocolError, f"{dove}: e' {_tipo(documento)} e non un oggetto.")
     documento = copia_json(documento, dove)
     mancanti = [campo for campo in campi if campo not in documento]
     if mancanti:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             f"{dove}: mancano i campi {mancanti}, che il protocollo v2 dichiara "
             "sempre presenti. Il binario e' piu' vecchio dell'SDK, o il "
             "documento non e' quello che dice di essere."
@@ -152,7 +153,7 @@ def _pretendi(
             ammessi = ammessi - {"null"}
         valore = documento[campo]
         if _tipo(valore) not in ammessi:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{dove}.{campo} e' {_tipo(valore)} e non {_nomi(ammessi)}, "
                 "come il protocollo v2 lo dichiara."
             )
@@ -160,7 +161,7 @@ def _pretendi(
         if _tipo(valore) == "array" and elementi is not None:
             for posizione, voce in enumerate(valore):
                 if _tipo(voce) not in elementi:
-                    raise ProtocolError(
+                    raise _dallo_sdk(ProtocolError,
                         f"{dove}.{campo}[{posizione}] e' {_tipo(voce)} e non "
                         f"{_nomi(elementi)}, come il protocollo v2 lo dichiara."
                     )
@@ -202,7 +203,7 @@ class Version:
         in_piu = len(set(documento) - set(attesi))
         if in_piu:
             # Quante, non quali: i nomi vengono dal documento.
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"risultato di --version con {in_piu} campi in piu'. Il suo "
                 "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
             )
@@ -366,7 +367,7 @@ class Catalog:
         documento = _pretendi(documento, cls.OBBLIGATORI, "catalog", cls)
         elenco = documento["drivers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"catalog.drivers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
@@ -386,7 +387,7 @@ class Catalog:
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
-        raise ResultLookupError("nessun driver con l'id richiesto nel catalogo.")
+        raise _dallo_sdk(ResultLookupError, "nessun driver con l'id richiesto nel catalogo.")
 
     @property
     def available(self) -> list[Driver]:
@@ -489,7 +490,7 @@ class Fidelity:
         documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity", cls)
         ragioni = documento["reasons"]
         if _tipo(ragioni) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"fidelity.reasons e' {_tipo(ragioni)} e non un elenco."
             )
         return cls(
@@ -623,7 +624,7 @@ class Layer:
         documento = _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]", cls)
         colonne = documento["fields"]
         if _tipo(colonne) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"layers[].fields e' {_tipo(colonne)} e non un elenco."
             )
         return cls(
@@ -644,7 +645,7 @@ class Layer:
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
-        raise ResultLookupError("nessun campo con il nome richiesto nel layer.")
+        raise _dallo_sdk(ResultLookupError, "nessun campo con il nome richiesto nel layer.")
 
     @property
     def attributes(self) -> list[Field]:
@@ -699,7 +700,7 @@ class Inspect:
         documento = _pretendi(documento, cls.OBBLIGATORI, "inspect", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"inspect.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
@@ -715,7 +716,7 @@ class Inspect:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
+        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -740,7 +741,7 @@ class Layers:
         documento = _pretendi(documento, cls.OBBLIGATORI, "layers", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"layers.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
@@ -755,7 +756,7 @@ class Layers:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise ResultLookupError("nessun layer con il nome richiesto nel file.")
+        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nel file.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -947,7 +948,7 @@ class LossReport:
         documento = _pretendi(documento, cls.OBBLIGATORI, "loss", cls)
         for campo in ("counts", "esempi"):
             if _tipo(documento[campo]) != "array":
-                raise ProtocolError(
+                raise _dallo_sdk(ProtocolError,
                     f"loss.{campo} e' {_tipo(documento[campo])} e non "
                     "un elenco."
                 )
@@ -1061,7 +1062,7 @@ class ConvertResult:
         documento = _pretendi(documento, cls.OBBLIGATORI, "convert", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"convert.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
@@ -1099,7 +1100,7 @@ class ConvertResult:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise ResultLookupError("nessun layer con il nome richiesto nella conversione.")
+        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nella conversione.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1181,7 +1182,7 @@ class WriteResult:
         documento = _pretendi(documento, cls.OBBLIGATORI, "write", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"write.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
@@ -1359,7 +1360,7 @@ class Capabilities:
     def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
         documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities", cls)
         if documento["schema_version"] != 2:
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 "capabilities.schema_version non e' 2: l'SDK legge "
                 "`plenora-capabilities-v2` e non indovina un'altra forma."
             )
@@ -1382,4 +1383,4 @@ class Capabilities:
         for operazione in self.operations:
             if operazione.id == identificatore:
                 return operazione
-        raise ResultLookupError("nessuna operazione con l'id richiesto.")
+        raise _dallo_sdk(ResultLookupError, "nessuna operazione con l'id richiesto.")

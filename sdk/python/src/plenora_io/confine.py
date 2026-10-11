@@ -15,8 +15,8 @@ dell'SDK, e' un'eccezione esterna come le altre.
 
 La rete non e' una barriera contro codice ostile nello stesso interprete:
 chi scrive con `object.__setattr__`, nel `__dict__` o negli attributi privati,
-modifica il modulo `errors` o le funzioni del pacchetto, o inserisce moduli
-`plenora_io...` in `sys.modules`, puo' aggirarla. Sono fuori contratto, e il README li elenca fra i
+chiama la fabbrica privata `errors._dallo_sdk` o modifica i moduli del
+pacchetto puo' aggirarla. Sono fuori contratto, e il README li elenca fra i
 limiti dichiarati.
 
 # L'effetto, conservativo
@@ -66,7 +66,6 @@ from typing import Any, Callable
 
 import dataclasses
 import sys
-import types
 from datetime import timedelta
 
 from .contenitori import FrozenDict, FrozenList
@@ -80,6 +79,7 @@ from .errors import (
     costruito_dall_sdk,
     ricostruito,
 )
+from .errors import _dallo_sdk
 
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
@@ -125,7 +125,7 @@ def _al_confine(errore: Exception, avviati: list[list[str]], etichetta: str) -> 
     """
     if costruito_dall_sdk(errore):
         return ricostruito(errore)
-    return UnexpectedError(
+    return _dallo_sdk(UnexpectedError,
         f"errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
         "esterna e' stata intercettata al confine, senza il suo testo.",
         remote_effect=_effetto_dopo(avviati),
@@ -165,108 +165,10 @@ def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable
     return involucro
 
 
-#: Il codice di ogni `involucro`: lo stesso oggetto per tutte le funzioni
-#: avvolte. `_init_sigillato` salta questi frame cercando chi costruisce.
-_CODICE_DELLA_RETE = confinato(lambda: None).__code__
-
 #: L'errore dell'SDK il cui costruttore piu' esterno e' in corso.
 _errore_in_costruzione: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "plenora_io_errore_in_costruzione", default=None
 )
-
-
-#: Gli oggetti codice delle funzioni dell'SDK, per `id`, e i moduli gia'
-#: visitati. Si riempie alla prima richiesta e di nuovo quando un modulo del
-#: pacchetto si aggiunge dopo (gli import pigri di `process`, `argomenti`...).
-_codici_dell_sdk: dict[int, Any] = {}
-_moduli_visitati: set[str] = set()
-
-
-def _del_pacchetto(nome: Any) -> bool:
-    return type(nome) is str and (nome == "plenora_io" or nome.startswith("plenora_io."))
-
-
-def _raccogli_codice(codice: Any) -> None:
-    if type(codice) is not types.CodeType or id(codice) in _codici_dell_sdk:
-        return
-    _codici_dell_sdk[id(codice)] = codice
-    # Funzioni annidate, lambda, comprensioni ed espressioni generatrici.
-    for costante in codice.co_consts:
-        _raccogli_codice(costante)
-
-
-def _raccogli(oggetto: Any, modulo: str, viste: set[int]) -> None:
-    if id(oggetto) in viste:
-        return
-    viste.add(id(oggetto))
-    tipo = type(oggetto)
-    if tipo is staticmethod or tipo is classmethod:
-        _raccogli(oggetto.__func__, modulo, viste)
-    elif tipo is property:
-        for parte in (oggetto.fget, oggetto.fset, oggetto.fdel):
-            if parte is not None:
-                _raccogli(parte, modulo, viste)
-    elif tipo is types.FunctionType:
-        _raccogli_codice(oggetto.__code__)
-        # Gli involucri (`confinato`, `_init_sigillato`...) chiudono sulla
-        # funzione che avvolgono.
-        for cella in oggetto.__closure__ or ():
-            try:
-                contenuto = cella.cell_contents
-            except ValueError:
-                continue
-            if type(contenuto) is types.FunctionType:
-                _raccogli(contenuto, modulo, viste)
-        avvolta = dict.get(oggetto.__dict__, "__wrapped__")
-        if avvolta is not None:
-            _raccogli(avvolta, modulo, viste)
-    elif isinstance(oggetto, type) and vars(oggetto).get("__module__") == modulo:
-        for interno in list(vars(oggetto).values()):
-            _raccogli(interno, modulo, viste)
-
-
-def _codice_dell_sdk(codice: Any) -> bool:
-    """`codice` e' l'oggetto codice di una funzione definita in un modulo del pacchetto.
-
-    Per **identita'** dell'oggetto codice, raccolto dalle funzioni, dai metodi
-    e dalle loro funzioni annidate. Non bastano ne' il file (sbagliava con
-    PyInstaller, dopo un `chdir`, con il bytecode altrove) ne' il nome del
-    modulo nei globali del frame: un `eval` o un `exec` senza globali propri
-    -- per esempio un `functools.partial(eval, ...)` messo come `__fspath__` --
-    eredita i globali del modulo dell'SDK che lo chiama, ma il suo codice non
-    e' fra quelli raccolti.
-    """
-    if dict.get(_codici_dell_sdk, id(codice)) is codice:
-        return True
-    moduli = [
-        (nome, modulo) for nome, modulo in list(sys.modules.items())
-        if _del_pacchetto(nome) and nome not in _moduli_visitati
-    ]
-    if not moduli:
-        return False
-    viste: set[int] = set()
-    for nome, modulo in moduli:
-        for valore in list(vars(modulo).values()):
-            funzione = type(valore) is types.FunctionType and valore.__module__ == nome
-            classe = isinstance(valore, type) and vars(valore).get("__module__") == nome
-            if funzione or classe:
-                _raccogli(valore, nome, viste)
-        # Solo a visita finita: un modulo visitato a meta' si rivisita.
-        _moduli_visitati.add(nome)
-    return dict.get(_codici_dell_sdk, id(codice)) is codice
-
-
-def _costruttore_dell_sdk(frame: Any) -> bool:
-    """Il primo frame fuori dalla rete esegue codice del pacchetto.
-
-    Si saltano i frame della rete e si guarda l'oggetto codice del frame che
-    ha chiamato la classe (`_codice_dell_sdk`). Modificare le funzioni del
-    pacchetto o inserire moduli `plenora_io...` in `sys.modules` e' fuori
-    contratto (README, «Limiti dichiarati»).
-    """
-    while frame is not None and frame.f_code is _CODICE_DELLA_RETE:
-        frame = frame.f_back
-    return frame is not None and _codice_dell_sdk(frame.f_code)
 
 
 def nome_sdk(tipo: Any) -> str:
@@ -292,30 +194,36 @@ def _init_sigillato(init: Callable[..., Any]) -> Callable[..., Any]:
     """`__init__` di un errore dell'SDK: una volta sola, poi sigillato.
 
     Il costruttore piu' esterno -- quello che la classe concreta chiama, non i
-    `super().__init__` che ne seguono -- annota la provenienza (chi ha
-    chiamato la classe e' codice dell'SDK?) e, finito, mette il sigillo: da
-    li' `PlenoraError.__setattr__` rifiuta ogni attributo che non sia
+    `super().__init__` che ne seguono -- finito, mette il sigillo: da li'
+    `PlenoraError.__setattr__` rifiuta ogni attributo che non sia
     dell'interprete, e un secondo `__init__` e' `InvalidArgumentError`.
+
+    La provenienza e' sempre **esterna**: il costruttore pubblico, chiamato in
+    qualunque modo -- da una callback, da `map` o `functools.partial` in C, da
+    `eval` -- non sa chi lo chiama, e non prova a indovinarlo dai frame (fino
+    al decimo giro lo faceva, e un callable in C non aggiunge un frame: si
+    vedeva quello dell'SDK che eseguiva la callback). Un errore e' dell'SDK
+    solo se nasce da `errors._dallo_sdk`, la fabbrica privata che lo marca
+    dopo averlo costruito.
     """
 
     @functools.wraps(init)
     def costruttore(self: Any, *argomenti: Any, **opzioni: Any) -> None:
         stato = object.__getattribute__(self, "__dict__")
         if dict.get(stato, SIGILLO) is True:
-            raise InvalidArgumentError(
+            raise _dallo_sdk(InvalidArgumentError,
                 f"`{nome_sdk(type(self))}` e' gia' costruito: un errore dell'SDK non si "
                 "reinizializza."
             )
         if _errore_in_costruzione.get() is self:
             init(self, *argomenti, **opzioni)
             return
-        dall_sdk = _costruttore_dell_sdk(sys._getframe(1))
         gettone = _errore_in_costruzione.set(self)
         try:
             init(self, *argomenti, **opzioni)
         finally:
             _errore_in_costruzione.reset(gettone)
-        stato[PROVENIENZA] = dall_sdk
+        stato[PROVENIENZA] = False
         stato[SIGILLO] = True
 
     return costruttore
@@ -399,7 +307,7 @@ def _tabella_pyarrow(valore: Any) -> bool:
 
 def _chiave(valore: Any, dove: str) -> str:
     if not issubclass(type(valore), str):
-        raise InvalidArgumentError(f"`{dove}` ha una chiave che non e' una stringa.")
+        raise _dallo_sdk(InvalidArgumentError, f"`{dove}` ha una chiave che non e' una stringa.")
     return str.join("", [valore])
 
 
@@ -427,7 +335,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
                 # Due chiavi distinte -- per esempio due sottoclassi di `str`
                 # con lo stesso contenuto -- che diventano la stessa: una
                 # avrebbe coperto l'altra in silenzio.
-                raise InvalidArgumentError(
+                raise _dallo_sdk(InvalidArgumentError,
                     f"`{dove}` ha due chiavi che normalizzate coincidono."
                 )
             copia[esatta] = _esatto(interno, dove)
@@ -450,7 +358,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
         return valore
     if tabella_ammessa and _tabella_pyarrow(valore):
         return valore
-    raise InvalidArgumentError(
+    raise _dallo_sdk(InvalidArgumentError,
         f"`{dove}` contiene un oggetto di un tipo che un risultato dell'SDK non porta."
     )
 
@@ -468,7 +376,7 @@ def _normalizza(istanza: Any) -> None:
                 valori[campo.name], dove, (nome_classe, campo.name) in CAMPI_CON_TABELLA
             )
         except RecursionError:
-            raise InvalidArgumentError(f"`{dove}` e' annidato troppo a fondo.") from None
+            raise _dallo_sdk(InvalidArgumentError, f"`{dove}` e' annidato troppo a fondo.") from None
         object.__setattr__(istanza, campo.name, esatto)
 
 
@@ -501,7 +409,7 @@ def _forma(valore: Any) -> Any:
     # e un `dict` rimesso in un campo da un `__post_init__` richiamato a mano
     # arrivava a `hash` come `TypeError`: ora un valore che un modello non
     # porta e' un errore dell'SDK, e non la forma di qualcos'altro.
-    raise InvalidArgumentError(
+    raise _dallo_sdk(InvalidArgumentError,
         "il modello contiene un valore che un risultato dell'SDK non porta: "
         "e' stato alterato fuori contratto."
     )
@@ -528,7 +436,7 @@ def _uguale(self: Any, altro: Any) -> Any:
 
 
 def _immutabile(self: Any, *argomenti: Any) -> None:
-    raise InvalidArgumentError(
+    raise _dallo_sdk(InvalidArgumentError,
         f"`{nome_sdk(type(self))}` e' immutabile: un risultato dell'SDK non si modifica."
     )
 
@@ -539,7 +447,7 @@ def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
         # Una seconda chiamata a `__init__` su un modello gia' costruito lo
         # reinizializzerebbe: e' una modifica, e si rifiuta.
         if object.__getattribute__(self, "__dict__"):
-            raise InvalidArgumentError(
+            raise _dallo_sdk(InvalidArgumentError,
                 f"`{nome_sdk(type(self))}` e' gia' costruito: un risultato dell'SDK non si "
                 "reinizializza."
             )
@@ -576,7 +484,7 @@ def _solo_nel_costruttore(post_init: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(post_init)
     def guardia(self: Any, *argomenti: Any, **opzioni: Any) -> None:
         if _in_costruzione.get() is not self:
-            raise InvalidArgumentError(
+            raise _dallo_sdk(InvalidArgumentError,
                 f"`{nome_sdk(type(self))}` e' gia' costruito: `__post_init__` gira solo "
                 "nel costruttore, e un risultato dell'SDK non si rinormalizza."
             )

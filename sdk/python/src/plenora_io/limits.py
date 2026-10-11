@@ -86,7 +86,7 @@ class Limits:
         # Ogni campo diventa qui il tipo base esatto, entro 64 bit, e da li'
         # nessun metodo legge un oggetto del chiamante.
         from .argomenti import OLTRE_U64, _int_esatto, durata  # noqa: PLC0415
-        from .errors import InvalidArgumentError  # noqa: PLC0415
+        from .errors import InvalidArgumentError, _dallo_sdk  # noqa: PLC0415
 
         for campo in fields(Limits):
             valore = object.__getattribute__(self, campo.name)
@@ -96,7 +96,7 @@ class Limits:
             if campo.name == Limits.DURATA:
                 esatta = durata(valore, nome)
                 if not 0 <= _millisecondi(esatta) < OLTRE_U64:
-                    raise InvalidArgumentError(
+                    raise _dallo_sdk(InvalidArgumentError,
                         f"`{nome}` e' fuori dall'intervallo che la CLI rappresenta (64 bit)."
                     )
                 object.__setattr__(self, campo.name, esatta)

@@ -160,15 +160,18 @@ costruttore (`errors.ricostruito`), e non legge mai `args`, `__notes__` o
 `str()` dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
-Si ricostruisce solo un errore **costruito dall'SDK**: il costruttore annota
-se il frame che ha chiamato la classe esegue codice del pacchetto, per
-identita' dell'oggetto codice raccolto dalle funzioni dei moduli `plenora_io`
--- non per percorso di file, ne' per nome di modulo. Un `PlenoraError`
-costruito dal chiamante -- anche di una classe dell'SDK, sollevato da un
-`__index__`, da un `__fspath__`, o da un `eval` senza globali propri che
-eredita quelli di un modulo dell'SDK (`functools.partial(eval, ...)` come
-`__fspath__`) -- o derivato da una sua sottoclasse diventa `UnexpectedError`,
-come ogni altra eccezione esterna. Le ricerche nei risultati (`layer`,
+Si ricostruisce solo un errore **nato nell'SDK**, e la provenienza e' una
+capacita' esplicita, non una deduzione: un errore conta come dell'SDK solo se
+l'SDK l'ha costruito con la propria fabbrica privata (`errors._dallo_sdk`), e
+ogni errore che l'SDK solleva passa da li' (una prova d'inventario sull'AST
+dei sorgenti rifiuta una chiamata diretta a una classe d'errore). Il
+costruttore pubblico, chiamato in qualunque modo -- da una callback, da un
+`__index__` o da un `__fspath__`, da `map` o `functools.partial` in C, da
+`eval`, da una lambda -- fa sempre un errore **esterno**, e un errore esterno
+o di una sottoclasse del chiamante diventa `UnexpectedError`, come ogni altra
+eccezione esterna. Fino al decimo giro la provenienza si deduceva dai frame,
+e un callable in C che costruisce l'errore non aggiunge un frame: si vedeva
+quello dell'SDK che eseguiva la callback. Le ricerche nei risultati (`layer`,
 `field`, `driver`, `operation`) sollevano `ResultLookupError`, anche
 `KeyError`, senza nomi nel messaggio.
 
@@ -238,16 +241,13 @@ Python. Fuori contratto: scrivere con `object.__setattr__` o
 `object.__delattr__`, nel `__dict__`, nel descrittore dello slot o negli
 attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 `_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
-`ErrorEnvelope`); modificare il modulo `plenora_io.errors` o un altro modulo
-del pacchetto, anche sostituendo il `__code__` di una sua funzione o
-inserendo in `sys.modules` un modulo `plenora_io...` del chiamante, perche' la
-provenienza degli errori raccoglie il codice delle funzioni di quei moduli;
-rinominare o rivendere il pacchetto sotto un altro nome, che spegne quel
-riconoscimento. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
+`ErrorEnvelope`); chiamare la fabbrica privata degli errori
+(`plenora_io.errors._dallo_sdk`), che e' cio' che rende un errore «dell'SDK»
+alla rete; modificare il modulo `plenora_io.errors` o un altro modulo del
+pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
-non porta e' `InvalidArgumentError`), un errore puo' portare testo del
-chiamante oltre la rete, e con il pacchetto rinominato ogni errore dell'SDK
-esce dalla rete come `UnexpectedError`. Quando un modello alterato entra in un
+non porta e' `InvalidArgumentError`), e un errore puo' portare testo del
+chiamante oltre la rete. Quando un modello alterato entra in un
 altro modello si rinormalizza, ma le garanzie non lo coprono. Rientro: nessuno
 previsto dentro Python, che non ha un confine di memoria fra codice dello stesso
 processo; chi ha bisogno di isolamento esegue il codice non fidato in un altro

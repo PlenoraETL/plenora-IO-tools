@@ -1371,9 +1371,11 @@ prossima release è percio' una **major** (5.0.0).
   attraversa un metodo pubblico esce come istanza nuova della stessa classe,
   ricostruita dallo stato fissato nel costruttore: `args` e `__notes__`
   dell'oggetto ricevuto non escono, e il traceback comincia dalla rete. Un
-  `PlenoraError` costruito dal chiamante (anche di una classe dell'SDK, per
-  esempio sollevato da un `__index__` o da un `__fspath__`) o di una sua
-  sottoclasse diventa `UnexpectedError`, senza il suo testo. Cio' che esce
+  `PlenoraError` costruito con il costruttore pubblico -- dal chiamante,
+  da una callback, da `map` o `functools.partial`, da `eval` -- o di una
+  sottoclasse del chiamante diventa `UnexpectedError`, senza il suo testo:
+  un errore conta come dell'SDK solo se nasce dalla fabbrica privata
+  dell'SDK. Cio' che esce
   da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
   il chiamante usa l'SDK dentro un proprio `except`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,

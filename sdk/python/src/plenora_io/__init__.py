@@ -70,6 +70,7 @@ from .errors import (
     ResultLookupError,
     UnexpectedError,
 )
+from .errors import _dallo_sdk
 from . import confine as _confine
 from .contenitori import FrozenDict, FrozenList, json_default, to_plain
 from .limits import Limits
@@ -145,12 +146,12 @@ def version() -> str:
     try:
         letta = _metadata.version(DISTRIBUTION)
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise PackageMetadataError(
+        raise _dallo_sdk(PackageMetadataError,
             "i metadati del pacchetto `plenora-io` non si leggono: il pacchetto "
             "non e' installato in questo ambiente."
         ) from None
     if type(letta) is not str:
-        raise PackageMetadataError("i metadati del pacchetto non portano una versione.")
+        raise _dallo_sdk(PackageMetadataError, "i metadati del pacchetto non portano una versione.")
     return letta
 
 __all__ = [

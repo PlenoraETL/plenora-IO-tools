@@ -58,6 +58,7 @@ from .errors import (
     classe_dell_sdk,
     ricostruito,
 )
+from .errors import _dallo_sdk
 
 #: La serie di pyarrow dichiarata dall'extra e provata dalla CI.
 SERIE_PYARROW = 25
@@ -84,12 +85,12 @@ def pyarrow() -> Any:
             else ""
         )
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise OptionalDependencyError(
+        raise _dallo_sdk(OptionalDependencyError,
             "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
             "si importa: installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
         ) from None
     if maggiore != str(SERIE_PYARROW):
-        raise OptionalDependencyError(
+        raise _dallo_sdk(OptionalDependencyError,
             f"l'adattatore Arrow e' provato con pyarrow {SERIE_PYARROW}.x e "
             f"l'ambiente ne ha un'altra serie ({maggiore or 'sconosciuta'}.x): "
             "installa l'extra `plenora-io[pyarrow]`."
@@ -117,7 +118,7 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     copiare i buffer.
     """
     pa = pyarrow()
-    non_arrow = InvalidArgumentError(
+    non_arrow = _dallo_sdk(InvalidArgumentError,
         "la sorgente non e' un percorso e non espone `__arrow_c_stream__`: "
         "write() accetta un file Arrow IPC o un oggetto Arrow "
         "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
@@ -156,11 +157,11 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
         lettore = pa.RecordBatchReader.from_stream(dati)
         schema = lettore.schema
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise InvalidArgumentError(illeggibile) from None
+        raise _dallo_sdk(InvalidArgumentError, illeggibile) from None
     try:
         uscita = pa.OSFile(str(destinazione), "wb")
     except Exception:  # noqa: BLE001
-        raise LocalIoError(non_scrivibile) from None
+        raise _dallo_sdk(LocalIoError, non_scrivibile) from None
     # Le chiusure stanno **dentro** la traduzione, e non in un `with`: chiudere
     # lo scrittore scrive il footer, e su un disco pieno fallisce. Con `with
     # uscita, scrittore` quell'errore usciva come eccezione di pyarrow o del
@@ -177,11 +178,11 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
             except StopIteration:
                 break
             except Exception:  # noqa: BLE001
-                errore = InvalidArgumentError(illeggibile)
+                errore = _dallo_sdk(InvalidArgumentError, illeggibile)
                 break
             scrittore.write_batch(batch)
     except Exception:  # noqa: BLE001
-        errore = LocalIoError(non_scrivibile)
+        errore = _dallo_sdk(LocalIoError, non_scrivibile)
     for chiusura in (scrittore, uscita):
         if chiusura is None:
             continue
@@ -189,7 +190,7 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
             chiusura.close()
         except Exception:  # noqa: BLE001
             if errore is None:
-                errore = LocalIoError(non_scrivibile)
+                errore = _dallo_sdk(LocalIoError, non_scrivibile)
     if errore is not None:
         raise errore from None
     return destinazione
@@ -209,7 +210,7 @@ def leggi_ipc(percorso: Path, content_type: str) -> Any:
     elif content_type == "application/vnd.apache.arrow.stream":
         apri = pa.ipc.open_stream
     else:
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             "la consegna dichiara un content type che non e' una delle due "
             "serializzazioni Arrow IPC: l'adattatore non indovina come leggerla."
         )
@@ -218,7 +219,7 @@ def leggi_ipc(percorso: Path, content_type: str) -> Any:
             return apri(sorgente).read_all()
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         # `from None`: il testo di pyarrow puo' citare valori del file.
-        raise ProtocolError(
+        raise _dallo_sdk(ProtocolError,
             "il file che `read` dichiara di aver consegnato non si legge come "
             "Arrow IPC nella serializzazione dichiarata."
         ) from None
@@ -257,7 +258,7 @@ class CartellaTemporanea:
         except (OSError, ValueError):
             # `ValueError` comprende `UnicodeEncodeError`: un percorso che il
             # filesystem non sa codificare.
-            raise LocalIoError(
+            raise _dallo_sdk(LocalIoError,
                 "la directory temporanea dell'adattatore Arrow non si e' potuta "
                 "creare: `temp_dir` non esiste o non si puo' scrivere."
             ) from None
@@ -283,7 +284,7 @@ class CartellaTemporanea:
             if classe_dell_sdk(type(valore)):
                 raise ricostruito(valore, cleanup_failed=True) from None
             return
-        raise CleanupError(
+        raise _dallo_sdk(CleanupError,
             "l'operazione e' riuscita e la directory temporanea "
             "dell'adattatore Arrow non si e' potuta cancellare: va tolta a "
             "mano.",

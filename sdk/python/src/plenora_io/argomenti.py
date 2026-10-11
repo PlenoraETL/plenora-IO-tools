@@ -46,6 +46,7 @@ from datetime import timedelta
 from typing import Any
 
 from .errors import InvalidArgumentError
+from .errors import _dallo_sdk
 from .limits import Limits
 
 #: Il massimo, escluso, di un intero che arriva alla CLI: i suoi numeri sono
@@ -54,7 +55,7 @@ OLTRE_U64 = 1 << 64
 
 
 def _rifiuta(nome: str, che_cosa: str) -> InvalidArgumentError:
-    return InvalidArgumentError(f"`{nome}` {che_cosa}.")
+    return _dallo_sdk(InvalidArgumentError, f"`{nome}` {che_cosa}.")
 
 
 def _str_esatta(valore: Any, nome: str) -> str:

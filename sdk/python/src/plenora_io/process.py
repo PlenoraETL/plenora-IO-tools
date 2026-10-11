@@ -96,6 +96,7 @@ from .errors import (
     ricostruito,
     sottocomando,
 )
+from .errors import _dallo_sdk
 
 
 
@@ -194,7 +195,7 @@ def _testo(dati: bytes, argv: list[str], flusso: str) -> str:
         return dati.decode("utf-8")
     except UnicodeDecodeError:
         raise _con_effetto_ignoto(
-            ProtocolError(
+            _dallo_sdk(ProtocolError,
                 f"{comando(argv)} ha scritto su {flusso} byte che non sono "
                 f"UTF-8 ({len(dati)} byte, contenuto non riportato)."
             ),
@@ -253,7 +254,7 @@ def _argv_esatto(argv: Any) -> list[str]:
     come gli argomenti dei metodi del client.
     """
     if type(argv) is not list and type(argv) is not tuple:
-        raise InvalidArgumentError("`argv` non e' una lista di stringhe.")
+        raise _dallo_sdk(InvalidArgumentError, "`argv` non e' una lista di stringhe.")
     return [testo(elemento, "argv") for elemento in argv]
 
 
@@ -322,7 +323,7 @@ class Runner:
             # il confine per chi usa `Runner` direttamente. Niente e' partito,
             # quindi l'effetto e' `none`, e il testo dell'eccezione -- che
             # puo' citare l'argomento -- resta fuori.
-            raise InvalidArgumentError(
+            raise _dallo_sdk(InvalidArgumentError,
                 f"un argomento di {comando(argv)} non si puo' passare a un "
                 "processo: contiene un carattere NUL o non e' testo."
             ) from None
@@ -330,7 +331,7 @@ class Runner:
             # Il processo non e' partito: niente puo' essere stato scritto, e
             # l'effetto resta `none`. Il testo dell'errore del sistema non
             # entra nel messaggio.
-            errore = ProtocolError(
+            errore = _dallo_sdk(ProtocolError,
                 f"il binario di plenora-io non si e' potuto eseguire per "
                 f"{comando(argv)}."
             )
@@ -348,7 +349,7 @@ class Runner:
             raise
         except Exception:  # noqa: BLE001 - l'uscita dal `with` di `Popen`
             self._chiudi(processo)
-            raise _con_effetto_ignoto(ProtocolError(
+            raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
                 f"la chiusura del processo di {comando(argv)} non e' riuscita: "
                 "l'esito non si conosce."
             ), argv) from None
@@ -371,7 +372,7 @@ class Runner:
                 # significherebbe restituire il controllo a chi chiama con un
                 # binario che continua a scrivere sulla destinazione.
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(ProtocolError(
+                raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
                     f"{comando(argv)} non ha risposto entro {self._timeout}s ed "
                     "e' stato terminato. Il timeout lo sceglie chi chiama, e "
                     "questo errore non dice che il comando sia fallito: dice "
@@ -380,7 +381,7 @@ class Runner:
                 ), argv) from None
             except (OSError, ValueError):
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(ProtocolError(
+                raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
                     f"la comunicazione con {comando(argv)} e' fallita mentre il "
                     "processo era in corso: l'esito non si conosce."
                 ), argv) from None
@@ -412,7 +413,7 @@ class Runner:
             # Il v2 tace su stderr quando riesce. Non e' pignoleria: e' la sola
             # affermazione che rende quel flusso utilizzabile da chi compone la
             # CLI in una pipeline, e tollerarne la violazione la toglierebbe.
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' riuscito e ha "
                 "scritto su stderr, dove il protocollo v2 non mette niente in "
                 "caso di successo. L'SDK parla v2: un altro protocollo si "
@@ -424,7 +425,7 @@ class Runner:
             # Un'uscita a zero con una busta che non si dichiara riuscita: il
             # protocollo non lo prevede, e leggerla come successo darebbe per
             # buono un documento che il prodotto non ha dichiarato tale.
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' uscito con zero e "
                 f"ha scritto su stdout una busta di stato {_stato(stato)}: il "
                 "protocollo non prevede questa combinazione."
@@ -440,7 +441,7 @@ class Runner:
         # chiama.
         risultato = documento.get("result")
         if _tipo(risultato) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' riuscito ma la sua "
                 "busta non porta un oggetto `result`: il protocollo mette li' i "
                 "dati dell'operazione, e senza non c'e' un risultato da "
@@ -457,7 +458,7 @@ class Runner:
         # della busta gli dice quale dei due ha in mano.
         documento = self._decode(completed, "stdout")
         if documento.get("status") != "error":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' uscito con "
                 f"{completed.exit_code} e ha scritto su stdout una busta di "
                 f"stato {_stato(documento.get('status'))}: un'uscita diversa da zero "
@@ -467,7 +468,7 @@ class Runner:
             # Vale anche sul percorso d'errore, e non solo su quello riuscito:
             # una diagnostica scritta accanto alla busta e' esattamente cio'
             # che rende il flusso inutilizzabile per chi lo analizza.
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' fallito e ha "
                 "scritto su stderr, dove il protocollo non mette niente. "
                 f"stderr: {_quanto(completed.stderr)}."
@@ -479,7 +480,7 @@ class Runner:
         testo = completed.stream(stream)
         if not testo.strip():
             altro = "stderr" if stream == "stdout" else "stdout"
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"{comando(completed.argv)} e' uscito con "
                 f"{completed.exit_code} e non ha scritto niente su {stream}, "
                 f"dove il protocollo mette la busta. "
@@ -492,12 +493,12 @@ class Runner:
             # annidamento, interi oltre il limite di cifre -- e qui gli si
             # aggiunge da dove viene. `from None`: la catena non serve a chi
             # legge, e il messaggio di `carica_json` non porta il testo.
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"cio' che {comando(completed.argv)} ha scritto su {stream} "
                 f"non si legge: {errore}; {_quanto(testo)}."
             ) from None
         if _tipo(documento) != "object":
-            raise ProtocolError(
+            raise _dallo_sdk(ProtocolError,
                 f"la busta su {stream} e' {_tipo(documento)} e non un "
                 "oggetto JSON."
             )
