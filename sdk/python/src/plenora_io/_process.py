@@ -277,7 +277,12 @@ class _GettoneDelRun:
     """Un oggetto per run, tenuto **solo** da una variabile locale del frame
     di `run`; i lettori ne hanno un `weakref`. Quando muore il frame si e'
     srotolato: il run e' finito, anche se un'interruzione asincrona ha
-    saltato `conclusione.set()`."""
+    saltato `conclusione.set()`.
+
+    Limite dichiarato (README, `docs/RELEASE.md`): un'eccezione conservata
+    con il suo traceback trattiene il frame, e con lui il gettone e i
+    lettori, finche' vive; senza conteggio dei riferimenti (PyPy) la morte
+    del gettone puo' essere differita fino al garbage collector."""
 
     __slots__ = ("__weakref__",)
 
@@ -599,11 +604,16 @@ class Runner:
         confine (diciottesimo giro). I modelli lo leggono con `from_json`.
         """
         argv = _argv_esatto(argv)
-        # Prima di `Popen`, tutto cio' che serve a coordinare i lettori: una
-        # costruzione che fallisce qui non lascia un processo senza pulizia.
+        # Prima di `Popen`, **tutti** gli oggetti del run: una costruzione
+        # che fallisce qui non lascia un processo senza pulizia (ventisettesimo
+        # giro: il gettone e il suo `weakref` stavano fra `Popen` e il `try`).
+        # Fra `_avvia` e il `try` non c'e' nessuna istruzione, e una prova
+        # d'inventario sull'AST lo tiene fermo.
         lettori: list[_Lettore] = []
         conclusione = _nuovo_evento()
         guasto = _nuovo_evento()
+        gettone = _GettoneDelRun()
+        riferimento = weakref.ref(gettone)
         processo = self._avvia(argv)
         # Il confine: `Popen` ha reso il processo. Da qui **tutto** passa da
         # un solo gestore, e la chiusura del processo gira su ogni uscita.
@@ -619,10 +629,8 @@ class Runner:
         # l'eccezione primaria, e dopo un successo diventano un errore.
         # Da qui al `try`, niente. La fine del run per i lettori si
         # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
-        gettone = _GettoneDelRun()
         try:
-            return self._esito(
-                processo, argv, lettori, conclusione, guasto, weakref.ref(gettone))
+            return self._esito(processo, argv, lettori, conclusione, guasto, riferimento)
         finally:
             try:
                 # L'ultimo tentativo, dal thread chiamante, comunque si sia

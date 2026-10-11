@@ -393,14 +393,22 @@ ancora prendere: aspetta, a passi, che il run sia **certamente finito**, cioe'
 che la conclusione sia impostata **oppure** che sia morto il gettone del run,
 un oggetto creato da `run` e tenuto solo da una variabile locale del suo
 frame (il lettore ne ha un `weakref`). Se un'interruzione asincrona salta la
-segnalazione della fine, lo srotolamento del frame basta: nessun tempo fisso,
-nessun thread appeso. Il `finally` di `run`, dal thread chiamante e comunque
+segnalazione della fine, la morte del gettone basta: nessun tempo fisso.
+**Limiti dichiarati del gettone:** il gettone muore solo quando nessuno
+trattiene piu' il frame di `run`. Se un'interruzione arriva prima che il
+`finally` di `run` lo rilasci e imposti la conclusione, e il chiamante
+conserva l'eccezione con il suo traceback (o la conservano `logging`, un
+debugger, `sys.last_exc`), il frame resta vivo, e con lui il gettone: i
+lettori restano vivi, con il loro flusso e il buffer, **finche' quell'eccezione
+vive**. Su implementazioni senza conteggio dei riferimenti (PyPy) la morte
+del gettone, e quindi il rilascio, puo' essere **differita** fino al
+passaggio del garbage collector. Il `finally` di `run`, dal thread chiamante e comunque
 si sia usciti dalla chiusura, fa un **ultimo tentativo**: se il processo e'
 ancora vivo (`poll()` e' `None`) lo uccide e lo aspetta per un tempo breve
 (1 s), senza sollevare. **Residuo dichiarato:** un'interruzione asincrona (un
 Ctrl-C) che colpisce proprio quell'ultimo tentativo **puo' lasciare il figlio
-vivo**. Gli oggetti che coordinano i lettori si
-costruiscono prima di `Popen`: dal ritorno di `Popen` all'ingresso nel blocco
+vivo**. Tutti gli oggetti del run -- liste, `Event`, gettone e il suo
+`weakref` -- si costruiscono prima di `Popen`: dal ritorno di `Popen` all'ingresso nel blocco
 protetto non c'e' nessuna operazione. Il ciclo a passi non consuma
 CPU: un processo che dorme si aspetta con `wait` di un passo alla volta, e
 una prova conta le attese. **Risorsa che puo' restare occupata:** quella

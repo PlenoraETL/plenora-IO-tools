@@ -4390,7 +4390,13 @@ class LaFineDelRun(unittest.TestCase):
             def send_signal(self, segnale):
                 pass
 
+        # La soglia del vecchio meccanismo (scarto a tempo fisso dall'EOF)
+        # si inietta piccola, 0,2 s, contro 0,8 s di lavoro: sul codice
+        # vecchio (8190443) lo stderr si scarta e il run risulta un successo.
+        # Sul codice nuovo la costante non esiste piu' e non conta: lo scarto
+        # aspetta la fine certa del run.
         with mock.patch.object(subprocess, "Popen", FiglioCheLavora()), \
+                mock.patch.object(_process, "_ATTESA_DELLA_CONCLUSIONE", 0.2, create=True), \
                 mock.patch.object(_process, "_PASSO_DEL_LETTORE", 0.05, create=True), \
                 self.assertRaises(PlenoraError) as preso:
             Runner(Path("plenora-io")).run(["inspect", "s.geojson"])
@@ -4457,6 +4463,88 @@ class LaFineDelRun(unittest.TestCase):
         for lettore in lettori:
             lettore._thread.join(max(0.0, scadenza - time.monotonic()))
         self.assertEqual([lettore for lettore in lettori if lettore._thread.is_alive()], [])
+
+
+# --- 29. ventisettesimo giro di revisione -----------------------------------
+
+
+class GliOggettiDelRunPrimaDellAvvio(unittest.TestCase):
+    """Ventisettesimo giro: tutti gli oggetti del run -- liste, `Event`,
+    gettone, `weakref` -- si costruiscono prima di `_avvia`, e fra `_avvia`
+    e il `try` non c'e' nessuna istruzione."""
+
+    SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
+    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+
+    @prova("process.Popen")
+    def test_nessuna_istruzione_fra_l_avvio_e_il_try(self) -> None:
+        """Inventario statico: in `Runner.run` l'istruzione che chiama
+        `_avvia` e' seguita direttamente dal `try`. Prima il gettone e il suo
+        `weakref` si costruivano li' in mezzo."""
+        import ast
+
+        import plenora_io
+
+        sorgente = Path(plenora_io.__file__).with_name("_process.py")
+        albero = ast.parse(sorgente.read_text(encoding="utf-8"))
+        corpi = [
+            funzione.body
+            for classe in ast.walk(albero) if isinstance(classe, ast.ClassDef)
+            for funzione in classe.body
+            if isinstance(funzione, ast.FunctionDef) and funzione.name == "run"
+        ]
+        self.assertEqual(len(corpi), 1)
+        corpo = corpi[0]
+
+        def chiama_l_avvio(istruzione):
+            return any(isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
+                       and nodo.func.attr == "_avvia" for nodo in ast.walk(istruzione))
+
+        posizioni = [i for i, istruzione in enumerate(corpo) if chiama_l_avvio(istruzione)]
+        self.assertEqual(len(posizioni), 1, "una sola chiamata a _avvia, al livello di run")
+        indice = posizioni[0]
+        self.assertLess(indice + 1, len(corpo))
+        self.assertIsInstance(corpo[indice + 1], ast.Try,
+                              "fra _avvia e il try non ci devono essere istruzioni")
+        # E nessuna chiamata a `_avvia` dentro altre istruzioni di `run`.
+        self.assertFalse(any(chiama_l_avvio(istruzione)
+                             for istruzione in corpo[indice + 1:]))
+
+    @prova("process.Popen")
+    def test_una_costruzione_che_fallisce_non_lascia_un_processo(self) -> None:
+        """Prima: un `MemoryError` nella costruzione del gettone o del suo
+        `weakref` arrivava dopo `Popen` e fuori dal `try`: il figlio restava
+        vivo, le pipe aperte, e l'effetto era `none`. Ora entrambe le
+        costruzioni precedono `Popen`: il processo non parte."""
+        import types
+
+        from plenora_io import Runner, _process
+
+        from test_confini_sdk import PopenFinto
+
+        def esaurita(*argomenti, **opzioni):
+            raise MemoryError
+
+        guasti = {
+            "gettone": mock.patch.object(_process, "_GettoneDelRun", esaurita),
+            "weakref": mock.patch.object(
+                _process, "weakref", types.SimpleNamespace(ref=esaurita)),
+        }
+        for nome, guasto in guasti.items():
+            with self.subTest(allocazione=nome):
+                finto = PopenFinto([(self.BUSTA, b"")])
+                partenze = []
+
+                def chiamata(argv, **opzioni):
+                    partenze.append(argv)
+                    return finto(argv, **opzioni)
+
+                with guasto, mock.patch.object(subprocess, "Popen", chiamata), \
+                        self.assertRaises(BaseException) as preso:
+                    Runner(Path("plenora-io")).run(self.SCRIVE)
+                self.assertEqual(partenze, [], "il processo non deve partire")
+                self.assertIsInstance(preso.exception, PlenoraError)
+                self.assertEqual(preso.exception.remote_effect, "none")
 
 
 if __name__ == "__main__":

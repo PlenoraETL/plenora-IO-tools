@@ -1479,7 +1479,12 @@ prossima release è percio' una **major** (5.0.0).
   chiusura si scrive solo se `close()` e' tornata. Il lettore scarta solo a
   run certamente finito: la conclusione impostata o il gettone del run (un
   oggetto tenuto solo dal frame di `run`, di cui il lettore ha un
-  `weakref`) morto; nessun tempo fisso. Il `finally` di `run` fa sempre un
+  `weakref`) morto; nessun tempo fisso. Un'eccezione che interrompe `run`
+  prima di quel rilascio, se conservata con il traceback dal chiamante (o da
+  `logging` o da un debugger), tiene vivi gettone e lettori finche' vive; su
+  PyPy il rilascio via `weakref` puo' essere differito. Tutti gli oggetti
+  del run si costruiscono prima di `Popen`, e fra `Popen` e il blocco
+  protetto non c'e' nessuna istruzione (prova d'inventario sull'AST). Il `finally` di `run` fa sempre un
   ultimo tentativo (`kill` e un'attesa di 1 s se il processo e' vivo); un
   Ctrl-C proprio dentro quell'ultimo tentativo puo' lasciare il figlio
   vivo. Un processo che resta vivo
