@@ -254,6 +254,15 @@ jobs:
         run: |
           python3 -m unittest scripts.test_audit_fork_licenze
           python3 scripts/audit-fork.py --scarico "$RUNNER_TEMP/crate-upstream"
+      # Gli avvisi di licenza crate per crate: ogni crate di terzi linkato nel
+      # binario, nei due profili, porta il proprio (il file del pacchetto, o un
+      # testo verificato del registro). Il testo generico per identificatore non
+      # porta l'avviso di copyright ne' il NOTICE di un crate. Il grafo e'
+      # quello del target Linux; il job Windows ripete la verifica sul suo.
+      - name: Gli avvisi di licenza dei crate
+        run: |
+          python3 -m unittest scripts.test_avvisi_crate scripts.test_licenze
+          python3 scripts/avvisi_crate.py
       # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
       # come prova dell'invariante `errori.static-non-promuovibile`: qui serve
       # la sua sonda, che e' l'unica cosa che verifica il gate invece del
@@ -474,6 +483,8 @@ jobs:
           }
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
+      - name: Gli avvisi di licenza dei crate, sul grafo Windows
+        run: python scripts/avvisi_crate.py
       - run: cargo test --workspace --all-targets --locked
 
   gdal-linux-matrix:
