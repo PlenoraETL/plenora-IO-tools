@@ -85,7 +85,7 @@ class Limits:
         # sottoclasse di `timedelta` faceva eseguire le proprie proprieta'.
         # Ogni campo diventa qui il tipo base esatto, entro 64 bit, e da li'
         # nessun metodo legge un oggetto del chiamante.
-        from .argomenti import OLTRE_U64, _int_esatto, durata  # noqa: PLC0415
+        from ._argomenti import OLTRE_U64, _int_esatto, durata  # noqa: PLC0415
         from .errors import InvalidArgumentError, _dallo_sdk  # noqa: PLC0415
 
         for campo in fields(Limits):

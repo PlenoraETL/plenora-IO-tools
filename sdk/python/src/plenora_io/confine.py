@@ -7,7 +7,7 @@ cinque assi. I punti in cui un'eccezione esterna puo' nascere sono tradotti
 dove nascono -- e li' l'effetto e' preciso -- ma un elenco di punti si chiude
 solo se qualcuno li ha visti tutti, e tre giri di revisione ne hanno trovati di
 nuovi a ogni giro. La rete chiude la **classe**: ogni metodo pubblico di ogni
-tipo esportato, e ogni funzione esportata, passa da `confinato`, e
+tipo esportato, e ogni funzione esportata, passa da `_confinato`, e
 un'eccezione che non e' un errore dell'SDK diventa `UnexpectedError`. Un
 errore dell'SDK esce ricostruito dal suo stato fissato, non com'e' arrivato
 (`_al_confine`); uno che il chiamante ha costruito, anche di una classe
@@ -108,7 +108,7 @@ def _al_confine(errore: Exception, avviati: list[list[str]], etichetta: str) -> 
 
     Un errore dell'SDK -- una classe di `errors` per identita', sigillato e
     costruito da codice dell'SDK (`errors.costruito_dall_sdk`) -- esce
-    **ricostruito** dal suo stato fissato (`errors.ricostruito`): un'istanza
+    **ricostruito** dal suo stato fissato (`errors._ricostruito`): un'istanza
     nuova della stessa classe, che non legge mai `args`, `__notes__` o `str()`
     dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
     riscrive `args` e lo rilancia non fa uscire il proprio testo, e
@@ -132,7 +132,7 @@ def _al_confine(errore: Exception, avviati: list[list[str]], etichetta: str) -> 
     )
 
 
-def confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable[..., Any]:
+def _confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callable[..., Any]:
     """`funzione`, con ogni eccezione passata da `_al_confine`."""
     if getattr(funzione, SEGNO, False):
         return funzione
@@ -263,7 +263,7 @@ def _privato(nome: str) -> bool:
 #: modello si riconosceva dal prefisso del modulo (`plenora_io...`), e passava
 #: anche una dataclass interna come `process.Completed`, o una del chiamante in
 #: un modulo `plenora_io_plugin`. Ora vale l'identita' della classe, fissata da
-#: `registra_modelli` all'import, e una prova confronta l'elenco con le
+#: `_registra_modelli` all'import, e una prova confronta l'elenco con le
 #: dataclass esportate.
 NOMI_DEI_MODELLI: tuple[str, ...] = (
     "Capabilities", "CapabilityInterface", "CapabilityOperation", "Catalog",
@@ -275,7 +275,7 @@ NOMI_DEI_MODELLI: tuple[str, ...] = (
     "WriteResult",
 )
 
-#: Le classi di `NOMI_DEI_MODELLI`, riempito da `registra_modelli`. Un elenco e
+#: Le classi di `NOMI_DEI_MODELLI`, riempito da `_registra_modelli`. Un elenco e
 #: non un insieme, e lo si scorre con `is`: l'appartenenza a un `set` o a una
 #: `tuple` passa per `__eq__` e `__hash__`, che la metaclasse di una classe del
 #: chiamante puo' ridefinire.
@@ -291,7 +291,7 @@ def e_un_modello(tipo: type) -> bool:
 CAMPI_CON_TABELLA: frozenset[tuple[str, str]] = frozenset({("TableRead", "table")})
 
 
-def registra_modelli(spazio: dict[str, Any]) -> None:
+def _registra_modelli(spazio: dict[str, Any]) -> None:
     """Le classi dei modelli, prese per nome dallo spazio di `__init__`."""
     for nome in NOMI_DEI_MODELLI:
         classe = spazio[nome]
@@ -347,7 +347,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
     if issubclass(tipo, float):
         return float.__pos__(valore)
     if issubclass(tipo, timedelta):
-        from .argomenti import durata  # noqa: PLC0415 - argomenti importa i modelli
+        from ._argomenti import durata  # noqa: PLC0415 - _argomenti importa i modelli
 
         return durata(valore, dove)
     if e_un_modello(tipo):
@@ -511,7 +511,7 @@ def _prepara_modello(classe: type) -> None:
     setattr(classe, "__plenora_modello__", True)
 
 
-def confina_classe(classe: type) -> type:
+def _confina_classe(classe: type) -> type:
     """Avvolge ogni callable che la classe definisce, salvo `NON_AVVOLTI`.
 
     Metodi, metodi di classe, statici, proprieta' (getter, setter, deleter) e
@@ -529,32 +529,32 @@ def confina_classe(classe: type) -> type:
             continue
         etichetta = f"{classe.__name__}.{nome}"
         if isinstance(valore, classmethod):
-            setattr(classe, nome, classmethod(confinato(valore.__func__, etichetta)))
+            setattr(classe, nome, classmethod(_confinato(valore.__func__, etichetta)))
         elif isinstance(valore, staticmethod):
-            setattr(classe, nome, staticmethod(confinato(valore.__func__, etichetta)))
+            setattr(classe, nome, staticmethod(_confinato(valore.__func__, etichetta)))
         elif isinstance(valore, property):
             setattr(
                 classe,
                 nome,
                 property(
-                    confinato(valore.fget, etichetta) if valore.fget else None,
-                    confinato(valore.fset, etichetta) if valore.fset else None,
-                    confinato(valore.fdel, etichetta) if valore.fdel else None,
+                    _confinato(valore.fget, etichetta) if valore.fget else None,
+                    _confinato(valore.fset, etichetta) if valore.fset else None,
+                    _confinato(valore.fdel, etichetta) if valore.fdel else None,
                     valore.__doc__,
                 ),
             )
         elif callable(valore) and not isinstance(valore, type):
-            setattr(classe, nome, confinato(valore, etichetta))
+            setattr(classe, nome, _confinato(valore, etichetta))
     return classe
 
 
-def confina_esportati(spazio: dict[str, Any], nomi: list[str]) -> None:
+def _confina_esportati(spazio: dict[str, Any], nomi: list[str]) -> None:
     """Avvolge ogni classe, eccezioni comprese, e ogni funzione esportata da `nomi`."""
     for nome in nomi:
         valore = spazio[nome]
         if isinstance(valore, type):
             for classe in valore.__mro__:
                 if classe.__module__.startswith("plenora_io"):
-                    confina_classe(classe)
+                    _confina_classe(classe)
         elif callable(valore):
-            spazio[nome] = confinato(valore, nome)
+            spazio[nome] = _confinato(valore, nome)

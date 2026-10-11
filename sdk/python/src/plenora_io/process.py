@@ -84,16 +84,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .argomenti import percorso, testo
-from .argomenti import timeout as timeout_valido
+from ._argomenti import percorso, testo
+from ._argomenti import timeout as timeout_valido
 from .confine import registra_avvio
 from .errors import (
     InvalidArgumentError,
     ProtocolError,
     _tipo,
     carica_json,
-    failure_from_envelope,
-    ricostruito,
+    _failure_from_envelope,
+    _ricostruito,
     sottocomando,
 )
 from .errors import _dallo_sdk
@@ -243,7 +243,7 @@ def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError
         return errore
     stato = object.__getattribute__(errore, "__dict__")
     if scrive(argv) and dict.get(stato, "_non_partito") is not True:
-        return ricostruito(errore, _effetto_remoto="unknown")
+        return _ricostruito(errore, _effetto_remoto="unknown")
     return errore
 
 
@@ -282,7 +282,7 @@ class Runner:
             if completed.exit_code == 0:
                 return self._success(completed)
             documento = self._failure(completed)
-            fallimento = failure_from_envelope(documento, completed.exit_code, argv)
+            fallimento = _failure_from_envelope(documento, completed.exit_code, argv)
         except ProtocolError as errore:
             # Il processo e' partito e ha finito: se il comando scrive, che
             # cosa abbia lasciato sul disco non lo dice una risposta che non si
@@ -335,7 +335,7 @@ class Runner:
                 f"il binario di plenora-io non si e' potuto eseguire per "
                 f"{comando(argv)}."
             )
-            raise ricostruito(errore, _non_partito=True) from None
+            raise _ricostruito(errore, _non_partito=True) from None
 
         # Da qui in avanti il processo e' partito: ogni guasto -- un timeout, un
         # errore di I/O sulle pipe, una seconda attesa che fallisce dopo il

@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .argomenti import testo
+from ._argomenti import testo
 from .errors import (
     PROFILI_NOTI,
     BinaryNotFound,
@@ -50,7 +50,7 @@ from .errors import (
     ProtocolError,
     _tipo,
     carica_json,
-    copia_json,
+    _copia_json,
 )
 from .errors import _dallo_sdk
 
@@ -119,7 +119,7 @@ def _percorso_indicato(esplicito: Any) -> Path:
     lettura di `__fspath__`, senza NUL, senza surrogati -- prima di diventare
     un `Path`: niente del chiamante si formatta o si confronta prima.
     """
-    from .argomenti import percorso as percorso_esatto  # noqa: PLC0415
+    from ._argomenti import percorso as percorso_esatto  # noqa: PLC0415
 
     return Path(percorso_esatto(esplicito, "binary"))
 
@@ -218,7 +218,7 @@ class Manifest:
                     f"{' o '.join(tipi)}."
                 )
         try:
-            documento = copia_json(documento, "MANIFEST.json")
+            documento = _copia_json(documento, "MANIFEST.json")
         except ProtocolError as errore:
             raise _dallo_sdk(ManifestError, str(errore)) from None
         return cls(

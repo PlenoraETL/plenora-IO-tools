@@ -149,14 +149,14 @@ dichiarato in `docs/RELEASE.md`, «Note della prossima release».
 
 **La rete.** Ogni callable di ogni tipo esportato -- metodi speciali,
 setter e deleter compresi, con le sole eccezioni di `confine.NON_AVVOLTI` --
-e ogni funzione esportata passano da `confine.confinato`: un'eccezione che nessun punto ha
+e ogni funzione esportata passano da `confine._confinato`: un'eccezione che nessun punto ha
 tradotto diventa `UnexpectedError` (`internal`), con effetto `none` prima
 dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive,
 senza testo e senza catena. I punti noti restano tradotti dove nascono, con
 l'effetto preciso; una prova per introspezione fa fallire un metodo pubblico
 nuovo senza rete. Un errore dell'SDK non attraversa la rete com'e': la rete ne
 costruisce uno **nuovo**, della stessa classe esatta, dallo stato fissato nel
-costruttore (`errors.ricostruito`), e non legge mai `args`, `__notes__` o
+costruttore (`errors._ricostruito`), e non legge mai `args`, `__notes__` o
 `str()` dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
@@ -171,7 +171,29 @@ costruttore pubblico, chiamato in qualunque modo -- da una callback, da un
 o di una sottoclasse del chiamante diventa `UnexpectedError`, come ogni altra
 eccezione esterna. Fino al decimo giro la provenienza si deduceva dai frame,
 e un callable in C che costruisce l'errore non aggiunge un frame: si vedeva
-quello dell'SDK che eseguiva la callback. Le ricerche nei risultati (`layer`,
+quello dell'SDK che eseguiva la callback.
+
+**Nessuna via pubblica alla fiducia.** Nessuna funzione raggiungibile senza
+nomi privati da' un errore fidato con dati del chiamante. Le funzioni che
+conferiscono fiducia con un testo scelto da chi le chiama sono private:
+`errors._copia_json` (il nome del contenitore entra nel messaggio),
+`errors._failure_from_envelope` (la busta del processo), `errors._ricostruito`
+(con le sole sostituzioni dell'SDK: effetto remoto, `_non_partito`,
+`cleanup_failed`), `confine._confinato` e le altre funzioni che danno
+un'etichetta ai messaggi della rete, e l'intero modulo degli argomenti
+(`plenora_io._argomenti`), le cui funzioni nominano l'argomento nel messaggio.
+Restano pubbliche `errors.failure_from_envelope`, che da' un errore
+**esterno** (la busta e' del chiamante), ed `errors.ricostruito`, che copia
+lo stato dell'errore ricevuto senza sostituzioni e ne conserva la
+provenienza. Una prova d'inventario (`INVENTARIO_PUBBLICO` in
+`tests/test_confini_esterni.py`) elenca ogni funzione e classe pubblica dei
+moduli dell'SDK fuori da `__all__`, fallisce se ne compare una nuova, e la
+chiama con ogni combinazione di argomenti che portano un dato riconoscibile:
+un errore fidato che lo contenga e' rosso. `str(errore)`, `message` e
+`to_dict()` vengono dallo stesso stato: per `CommandFailed` il testo si
+compone dalla busta, dall'uscita e dal sottocomando fissati.
+
+Le ricerche nei risultati (`layer`,
 `field`, `driver`, `operation`) sollevano `ResultLookupError`, anche
 `KeyError`, senza nomi nel messaggio.
 
@@ -243,7 +265,9 @@ attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 `_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
 `ErrorEnvelope`); chiamare la fabbrica privata degli errori
 (`plenora_io.errors._dallo_sdk`), che e' cio' che rende un errore «dell'SDK»
-alla rete; modificare il modulo `plenora_io.errors` o un altro modulo del
+alla rete, o un'altra funzione privata che la usa (`_copia_json`,
+`_failure_from_envelope`, `_ricostruito`, `_confinato`, il modulo
+`plenora_io._argomenti`); modificare il modulo `plenora_io.errors` o un altro modulo del
 pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), e un errore puo' portare testo del

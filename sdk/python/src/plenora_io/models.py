@@ -39,8 +39,8 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
-from .argomenti import testo
-from .errors import ProtocolError, ResultLookupError, _tipo, copia_json
+from ._argomenti import testo
+from .errors import ProtocolError, ResultLookupError, _copia_json, _tipo
 from .errors import _dallo_sdk
 
 
@@ -130,7 +130,7 @@ def _pretendi(
     """
     if _tipo(documento) != "object":
         raise _dallo_sdk(ProtocolError, f"{dove}: e' {_tipo(documento)} e non un oggetto.")
-    documento = copia_json(documento, dove)
+    documento = _copia_json(documento, dove)
     mancanti = [campo for campo in campi if campo not in documento]
     if mancanti:
         raise _dallo_sdk(ProtocolError,

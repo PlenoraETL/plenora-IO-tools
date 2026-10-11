@@ -29,11 +29,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import argomenti as arg
+from . import _argomenti as arg
 from . import arrow
 from .confine import nome_sdk
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
-from .errors import ProtocolError, copia_json
+from .errors import ProtocolError, _copia_json
 from .errors import _dallo_sdk
 from .limits import Limits
 from .models import (
@@ -93,13 +93,13 @@ def con_superficie_python(documento: dict[str, Any]) -> dict[str, Any]:
 
     Si chiama **dopo** `Capabilities.from_json` sul documento del binario, che
     ne verifica la forma: prima, un `"operations": 1` o un `"id": []` davano
-    `TypeError` qui dentro, fuori dalla gerarchia. La copia e' `copia_json`, che
+    `TypeError` qui dentro, fuori dalla gerarchia. La copia e' `_copia_json`, che
     traduce anche un annidamento troppo profondo; `deepcopy` non lo faceva.
     """
-    copia = copia_json(documento, "capabilities")
+    copia = _copia_json(documento, "capabilities")
     mappate = set(OPERAZIONI.values())
     interfacce = copia.get("interfaces")
-    # Il documento e' una copia di `copia_json`: tipi esatti, e si guardano per
+    # Il documento e' una copia di `_copia_json`: tipi esatti, e si guardano per
     # identita'.
     if type(interfacce) is list and not any(
         type(voce) is dict and voce.get("kind") == "python_sdk" for voce in interfacce

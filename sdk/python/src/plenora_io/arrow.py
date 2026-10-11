@@ -47,7 +47,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .argomenti import percorso
+from ._argomenti import percorso
 from .errors import (
     CleanupError,
     InvalidArgumentError,
@@ -56,7 +56,7 @@ from .errors import (
     PlenoraError,
     ProtocolError,
     classe_dell_sdk,
-    ricostruito,
+    _ricostruito,
 )
 from .errors import _dallo_sdk
 
@@ -282,7 +282,7 @@ class CartellaTemporanea:
             # su una copia, che prende il posto dell'errore del blocco. Un
             # oggetto che non e' un errore dell'SDK resta com'e'.
             if classe_dell_sdk(type(valore)):
-                raise ricostruito(valore, cleanup_failed=True) from None
+                raise _ricostruito(valore, cleanup_failed=True) from None
             return
         raise _dallo_sdk(CleanupError,
             "l'operazione e' riuscita e la directory temporanea "

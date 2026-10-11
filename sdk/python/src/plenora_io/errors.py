@@ -87,7 +87,7 @@ class PlenoraError(Exception):
 
     `str(errore)` e `message` leggono il messaggio fissato (`_messaggio`), non
     `args`: chi cambia `args` cambia la tupla, non il messaggio. La rete
-    (`confine.confinato`) ricostruisce ogni errore dell'SDK che la attraversa
+    (`confine._confinato`) ricostruisce ogni errore dell'SDK che la attraversa
     da quello stato (`ricostruito`), senza mai leggere `args`, `__notes__` o
     `str()` dell'oggetto ricevuto: una callback che prende un errore
     dell'SDK, ne riscrive `args` e lo rilancia non fa uscire il proprio testo.
@@ -260,20 +260,50 @@ def costruito_dall_sdk(errore: Any) -> bool:
     return dict.get(stato, SIGILLO) is True and dict.get(stato, PROVENIENZA) is True
 
 
-def ricostruito(errore: Any, **modifiche: Any) -> Any:
+def ricostruito(errore: Any, *argomenti: Any, **modifiche: Any) -> Any:
     """Un'eccezione **nuova** della stessa classe esatta, dallo stato fissato.
 
     Mai da `args`, `__notes__` o `str()` dell'oggetto ricevuto: il messaggio e'
-    `_messaggio`, scritto dal costruttore e poi immutabile. `modifiche`
-    sostituisce voci dello stato -- l'effetto remoto che `Runner` alza a
-    `unknown`, `cleanup_failed` -- senza toccare l'originale: lo stato di
-    un'eccezione si fissa una volta, e cambiarlo vuol dire farne un'altra.
+    `_messaggio`, scritto dal costruttore e poi immutabile. La provenienza
+    resta quella dell'originale, e lo stato non si sostituisce: la versione
+    pubblica non accetta modifiche, perche' una sostituzione su un errore
+    fidato -- `envelope=` di una busta del chiamante -- dava un errore fidato
+    con i dati di chi chiama (undicesimo giro). Le sostituzioni che servono
+    all'SDK passano da `_ricostruito`, privata.
     """
+    if argomenti or modifiche:
+        raise _dallo_sdk(
+            InvalidArgumentError, "`ricostruito` pubblica non sostituisce lo stato di un errore."
+        )
+    return _ricostruito(errore)
+
+
+#: Le sole voci dello stato che l'SDK sostituisce ricostruendo un errore, e
+#: il valore che ciascuna ammette. `envelope`, `exit_code`, `command`, il
+#: messaggio e la provenienza non si sostituiscono mai.
+_SOSTITUIBILI: dict[str, Any] = {
+    "_effetto_remoto": lambda valore: _effetto(valore),
+    "_non_partito": lambda valore: valore is True,
+    "cleanup_failed": lambda valore: valore is True,
+}
+
+
+def _ricostruito(errore: Any, **modifiche: Any) -> Any:
+    """`ricostruito`, con le sostituzioni dell'SDK: l'effetto remoto che
+    `Runner` alza a `unknown`, `_non_partito`, `cleanup_failed`. Ogni altra
+    voce e' `InvalidArgumentError`: lo stato di un'eccezione si fissa una
+    volta, e cambiarlo vuol dire farne un'altra, mai con dati nuovi."""
     tipo = type(errore)
     if not classe_dell_sdk(tipo):
         raise _dallo_sdk(InvalidArgumentError, "solo un errore dell'SDK si ricostruisce.")
     stato = _stato(errore)
-    stato.update(modifiche)
+    for nome, valore in modifiche.items():
+        verifica = dict.get(_SOSTITUIBILI, nome) if type(nome) is str else None
+        if verifica is None or verifica(valore) is False:
+            raise _dallo_sdk(
+                InvalidArgumentError, "una voce dello stato di un errore non si sostituisce."
+            )
+        stato[nome] = valore
     return _da_copia(tipo, stato, provenienza=dict.get(stato, PROVENIENZA) is True)
 
 
@@ -487,7 +517,7 @@ class OptionalDependencyError(PlenoraError):
 class UnexpectedError(PlenoraError):
     """Un'eccezione che nessun punto dell'SDK ha tradotto, presa dalla rete.
 
-    Ogni metodo pubblico passa da `confine.confinato`: un'eccezione che non e'
+    Ogni metodo pubblico passa da `confine._confinato`: un'eccezione che non e'
     un `PlenoraError` -- di Python, di una dipendenza, di codice del chiamante
     -- diventa questa, senza messaggio originale e senza catena. I punti noti
     restano tradotti dove nascono, con l'effetto preciso; questa e' la rete
@@ -599,7 +629,7 @@ class ErrorEnvelope:
         # Prima si copia, poi si valida la copia, poi si conserva la copia.
         for campo in ("code", "category", "phase", "remote_effect", "message"):
             object.__setattr__(
-                self, campo, copia_json(getattr(self, campo), f"error.{campo}")
+                self, campo, _copia_json(getattr(self, campo), f"error.{campo}")
             )
         if _tipo(self.retry) != "object":
             raise _dallo_sdk(ProtocolError,
@@ -609,7 +639,7 @@ class ErrorEnvelope:
         # entra mai in un campo, neanche fra qui e la normalizzazione del
         # costruttore, che sui contenitori gia' immutabili e' idempotente.
         object.__setattr__(
-            self, "retry", FrozenDict(copia_json(self.retry, "error.retry"))
+            self, "retry", FrozenDict(_copia_json(self.retry, "error.retry"))
         )
         if self.row_diagnostics is not None:
             if _tipo(self.row_diagnostics) != "object":
@@ -620,7 +650,7 @@ class ErrorEnvelope:
                 self,
                 "row_diagnostics",
                 FrozenDict(
-                    copia_json(self.row_diagnostics, "error.details.row_diagnostics")
+                    _copia_json(self.row_diagnostics, "error.details.row_diagnostics")
                 ),
             )
         _valida_busta(self)
@@ -641,7 +671,7 @@ class ErrorEnvelope:
         # Tutto il documento, non solo i campi che si leggono: una chiave che
         # non e' una `str` esatta o un valore che non e' JSON in un ramo
         # ignorato restano un documento che il wire non produce.
-        documento = copia_json(documento, "busta d'errore")
+        documento = _copia_json(documento, "busta d'errore")
         errore = documento.get("error")
         if _tipo(errore) != "object":
             raise _dallo_sdk(ProtocolError,
@@ -779,7 +809,7 @@ def _tipo(valore: Any) -> str:
     return "non JSON"
 
 
-def copia_json(valore: Any, dove: str) -> Any:
+def _copia_json(valore: Any, dove: str) -> Any:
     """Una copia profonda di un valore JSON, ricostruita con i soli tipi esatti.
 
     Ogni oggetto ed elenco e' nuovo; le foglie sono di tipo **identico** a
@@ -797,14 +827,14 @@ def copia_json(valore: Any, dove: str) -> Any:
     diventa `ProtocolError`, invece di attraversare il confine.
     """
     try:
-        return _copia_json(valore, dove, 0)
+        return _copia_ricorsiva(valore, dove, 0)
     except RecursionError:
         raise _dallo_sdk(ProtocolError,
             f"`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare."
         ) from None
 
 
-def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
+def _copia_ricorsiva(valore: Any, dove: str, _profondita: int) -> Any:
     tipo = _tipo(valore)
     if tipo == "object":
         copia = {}
@@ -814,10 +844,10 @@ def _copia_json(valore: Any, dove: str, _profondita: int) -> Any:
                     f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
                     f"{_tipo(chiave)} e non una stringa."
                 )
-            copia[chiave] = _copia_json(interno, dove, _profondita + 1)
+            copia[chiave] = _copia_ricorsiva(interno, dove, _profondita + 1)
         return copia
     if tipo == "array":
-        return [_copia_json(interno, dove, _profondita + 1) for interno in valore]
+        return [_copia_ricorsiva(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
         raise _dallo_sdk(ProtocolError,
             f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
@@ -974,11 +1004,15 @@ class CommandFailed(PlenoraError):
         # -- in un attributo che finisce nei log e nei pickle. Chi ha fatto la
         # chiamata ha gia' gli argomenti.
         self.command = sottocomando(argv)
-        nome = self.command or "?"
-        super().__init__(
-            f"`plenora-io {nome}` e' uscito con {self.exit_code}: "
-            f"[{envelope.category}/{envelope.phase}] "
-            f"{envelope.code}: {envelope.message}"
+        super().__init__(_testo_del_fallimento(envelope, self.exit_code, self.command))
+
+    def __str__(self) -> str:
+        # Dallo stesso stato di `message` e `to_dict()`: la busta, l'uscita e
+        # il sottocomando fissati, non un testo conservato a parte che una
+        # ricostruzione potesse far divergere.
+        stato = object.__getattribute__(self, "__dict__")
+        return _testo_del_fallimento(
+            dict.get(stato, "envelope"), dict.get(stato, "exit_code"), dict.get(stato, "command")
         )
 
     # I cinque assi vengono dalla busta, non dai default della radice.
@@ -1206,6 +1240,22 @@ CATEGORIE: dict[str, type[CommandFailed]] = {
 }
 
 
+def _testo_del_fallimento(envelope: Any, exit_code: Any, command: Any) -> str:
+    if type(envelope) is not ErrorEnvelope or type(exit_code) is not int:
+        return "(errore dell'SDK senza messaggio)"
+    nome = command if type(command) is str else "?"
+    return (
+        f"`plenora-io {nome}` e' uscito con {exit_code}: "
+        f"[{envelope.category}/{envelope.phase}] "
+        f"{envelope.code}: {envelope.message}"
+    )
+
+
+def _classe_della_busta(documento: Any) -> tuple[type[CommandFailed], ErrorEnvelope]:
+    envelope = ErrorEnvelope.from_json(documento)
+    return CATEGORIE.get(envelope.category, CommandFailed), envelope
+
+
 def failure_from_envelope(
     documento: dict[str, Any], exit_code: int, argv: list[str]
 ) -> CommandFailed:
@@ -1216,9 +1266,21 @@ def failure_from_envelope(
     chiuso, e un SDK che si rifiutasse di leggere la busta trasformerebbe
     un'estensione in un guasto. Si ripiega su `CommandFailed`, che porta la
     categoria intatta: chi la conosce la legge da `envelope.category`.
+
+    Pubblica, e quindi **esterna**: la busta e' di chi chiama, e l'errore che
+    ne nasce non e' dell'SDK. Attraverso la rete diventa `UnexpectedError`.
+    L'SDK, per le buste che legge dal processo, usa `_failure_from_envelope`.
     """
-    envelope = ErrorEnvelope.from_json(documento)
-    classe = CATEGORIE.get(envelope.category, CommandFailed)
+    classe, envelope = _classe_della_busta(documento)
+    # Chiamata dinamica, apposta senza la fabbrica: l'errore e' esterno.
+    return classe(envelope, exit_code, argv)
+
+
+def _failure_from_envelope(
+    documento: dict[str, Any], exit_code: int, argv: list[str]
+) -> CommandFailed:
+    """`failure_from_envelope` per la busta che il processo ha scritto: fidato."""
+    classe, envelope = _classe_della_busta(documento)
     return _dallo_sdk(classe, envelope, exit_code, argv)
 
 

@@ -232,8 +232,8 @@ __all__ = [
 ]
 
 # La rete (vedi `confine.py`): ogni classe e ogni funzione esportata, salvo le
-# eccezioni, passa da `confinato`. Qui e non classe per classe, perche' l'elenco
+# eccezioni, passa da `_confinato`. Qui e non classe per classe, perche' l'elenco
 # delle cose pubbliche e' `__all__`, e una prova lo confronta con cio' che e'
 # avvolto: un nome nuovo esportato senza rete non puo' sfuggire.
-_confine.registra_modelli(globals())
-_confine.confina_esportati(globals(), __all__)
+_confine._registra_modelli(globals())
+_confine._confina_esportati(globals(), __all__)

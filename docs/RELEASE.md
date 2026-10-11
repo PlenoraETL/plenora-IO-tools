@@ -1375,7 +1375,13 @@ prossima release è percio' una **major** (5.0.0).
   da una callback, da `map` o `functools.partial`, da `eval` -- o di una
   sottoclasse del chiamante diventa `UnexpectedError`, senza il suo testo:
   un errore conta come dell'SDK solo se nasce dalla fabbrica privata
-  dell'SDK. Cio' che esce
+  dell'SDK. `errors.failure_from_envelope` da' ora un errore esterno (la
+  busta e' di chi chiama), `errors.ricostruito` non accetta sostituzioni di
+  stato, e `errors.copia_json`, `confine.confinato`, `confina_classe`,
+  `confina_esportati`, `registra_modelli` e il modulo `plenora_io.argomenti`
+  diventano privati (`_copia_json`, `_confinato`..., `plenora_io._argomenti`).
+  `str()` di `CommandFailed` si compone dalla busta fissata, come `message` e
+  `to_dict()`. Cio' che esce
   da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
   il chiamante usa l'SDK dentro un proprio `except`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
