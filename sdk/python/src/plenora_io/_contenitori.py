@@ -56,6 +56,34 @@ def _esatto(valore: Any, dove: str) -> Any:
     return esatto(valore, dove)
 
 
+def _elenco_congelato(dati: tuple[Any, ...]) -> "FrozenList":
+    """Una `FrozenList` da elementi gia' normalizzati, senza rivisitarli."""
+    istanza = object.__new__(FrozenList)
+    object.__setattr__(istanza, "_dati", dati)
+    return istanza
+
+
+def _dizionario_congelato(dati: dict[str, Any]) -> "FrozenDict":
+    """Un `FrozenDict` da coppie gia' normalizzate, senza rivisitarle."""
+    istanza = object.__new__(FrozenDict)
+    object.__setattr__(istanza, "_dati", dati)
+    return istanza
+
+
+def _protocollo(valore: Any) -> int:
+    """Il protocollo di `__reduce_ex__`: un intero esatto non negativo."""
+    if type(valore) is not int or valore < 0:
+        raise _dallo_sdk(InvalidArgumentError, "serializzazione.protocollo")
+    return valore
+
+
+def _memo(valore: Any) -> Any:
+    """Il `memo` di `__deepcopy__`: un `dict` esatto, o `None`."""
+    if valore is not None and type(valore) is not dict:
+        raise _dallo_sdk(InvalidArgumentError, "serializzazione.memo")
+    return valore
+
+
 def _unico_argomento(nome: str, argomenti: tuple[Any, ...], opzioni: dict[str, Any],
                      predefinito: Any) -> Any:
     """L'argomento del costruttore, uno solo e per posizione.
@@ -230,6 +258,27 @@ class FrozenList(Sequence):
     def __reduce__(self) -> Any:
         return (FrozenList, (list(object.__getattribute__(self, "_dati")),))
 
+    # Il protocollo di serializzazione e' dell'SDK, nella rete: ereditato da
+    # `object` lasciava uscire `TypeError` per un argomento sbagliato, e un
+    # `__index__` ostile la propria eccezione (diciannovesimo giro).
+
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __getstate__(self) -> None:
+        return None
+
+    def __copy__(self) -> "FrozenList":
+        return _elenco_congelato(object.__getattribute__(self, "_dati"))
+
+    def __deepcopy__(self, memo: Any = None) -> "FrozenList":
+        _memo(memo)
+        return FrozenList(to_plain(self))
+
+    def __reversed__(self) -> Iterator[Any]:
+        return reversed(object.__getattribute__(self, "_dati"))
+
 
 class FrozenDict(Mapping):
     """Un dizionario immutabile, con chiavi `str` e valori normalizzati.
@@ -362,6 +411,20 @@ class FrozenDict(Mapping):
 
     def __reduce__(self) -> Any:
         return (FrozenDict, (dict(object.__getattribute__(self, "_dati")),))
+
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __getstate__(self) -> None:
+        return None
+
+    def __copy__(self) -> "FrozenDict":
+        return _dizionario_congelato(dict(object.__getattribute__(self, "_dati")))
+
+    def __deepcopy__(self, memo: Any = None) -> "FrozenDict":
+        _memo(memo)
+        return FrozenDict(to_plain(self))
 
 
 def to_plain(valore: Any) -> Any:

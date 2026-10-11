@@ -243,6 +243,19 @@ def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError
     return errore
 
 
+def _dopo_l_avvio(errore: Exception, argv: list[str]) -> ProtocolError:
+    """Un guasto dopo l'avvio come errore di protocollo, `unknown` se il
+    comando scrive: lo stesso `ProtocolError` se lo e' gia', altrimenti uno
+    nuovo che non porta niente dell'eccezione ricevuta."""
+    if type(errore) is ProtocolError:
+        return _con_effetto_ignoto(errore, argv)
+    return _con_effetto_ignoto(
+        _dallo_sdk(ProtocolError, "processo.risposta_illeggibile",
+                   comando=_nome_del_comando(argv)),
+        argv,
+    )
+
+
 def _argv_esatto(argv: Any) -> list[str]:
     """Una lista nuova di `str` esatte.
 
@@ -282,15 +295,23 @@ class Runner:
         argv = _argv_esatto(argv)
         try:
             completed = self._execute(argv)
+        except ProtocolError as errore:
+            raise _con_effetto_ignoto(errore, argv) from None
+        # Da qui il processo e' partito e ha finito: se il comando scrive, che
+        # cosa abbia lasciato sul disco non lo dice una risposta che non si
+        # legge. **Ogni** guasto da qui in poi -- decodifica, JSON,
+        # congelamento della risposta, busta d'errore -- e' un errore di
+        # protocollo con effetto `unknown` per un comando che scrive. Prima il
+        # gestore guardava solo `ProtocolError`, e un congelamento fallito
+        # (`InvalidArgumentError` su una risposta troppo profonda) usciva con
+        # effetto `none` dopo una scrittura (diciannovesimo giro).
+        try:
             if completed.exit_code == 0:
                 return FrozenDict(self._success(completed))
             documento = self._failure(completed)
             fallimento = _failure_from_envelope(documento, completed.exit_code, argv)
-        except ProtocolError as errore:
-            # Il processo e' partito e ha finito: se il comando scrive, che
-            # cosa abbia lasciato sul disco non lo dice una risposta che non si
-            # legge. Vedi `ProtocolError`.
-            raise _con_effetto_ignoto(errore, argv) from None
+        except Exception as errore:  # noqa: BLE001 - dopo l'avvio, tutto e' protocollo
+            raise _dopo_l_avvio(errore, argv) from None
         raise fallimento
 
     # --- l'esecuzione -----------------------------------------------------

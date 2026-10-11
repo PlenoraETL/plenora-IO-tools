@@ -19,6 +19,7 @@ una riga per ciascuno, e una prova che lo esercita.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import functools
 import json
@@ -1351,18 +1352,23 @@ class LImmutabilita(unittest.TestCase):
 
     @prova("confine.rete")
     def test_un_modello_annidato_si_rinormalizza(self) -> None:
-        """Un modello dell'SDK dentro un altro si rinormalizza comunque: lo
-        stato che un'alterazione fuori contratto gli ha dato non passa."""
+        """Un modello dell'SDK che e' un campo di un altro si rinormalizza
+        comunque: lo stato che un'alterazione fuori contratto gli ha dato non
+        passa. Dentro un contenitore gia' congelato invece non si rivisita
+        (diciannovesimo giro, una visita per nodo): e' fuori contratto, e il
+        README lo dichiara."""
         import dataclasses
 
         from plenora_io import FrozenList
 
-        catalogo = Catalog.from_json(catalogo_sano())
-        driver = catalogo.drivers[0]
-        object.__setattr__(driver, "raw", {"x": [1]})  # fuori contratto, apposta
-        self.assertIs(type(driver.raw), dict)
-        dataclasses.replace(catalogo)
-        self.assertIs(type(driver.raw["x"]), FrozenList)
+        from test_convert import conversione_sana
+
+        conversione = ConvertResult.from_json(conversione_sana())
+        fedelta = conversione.read_fidelity
+        object.__setattr__(fedelta, "reasons", [])  # fuori contratto, apposta
+        self.assertIs(type(fedelta.reasons), list)
+        dataclasses.replace(conversione)
+        self.assertIs(type(fedelta.reasons), FrozenList)
 
     @prova("confine.rete")
     def test_due_chiavi_che_normalizzate_coincidono_sono_un_errore(self) -> None:
@@ -3291,10 +3297,21 @@ class IValoriRestituiti(unittest.TestCase):
             "FrozenDict.__hash__": lambda: hash(dizionario),
             "FrozenDict.__repr__": lambda: repr(dizionario),
         }
+        chiamate.update({
+            "FrozenList.__ne__": lambda: elenco != [1],
+            "FrozenDict.__ne__": lambda: dizionario != {},
+            # Gli iteratori sono di Python (README): si verifica cio' che producono.
+            "FrozenList.__iter__": lambda: FrozenList(list(iter(elenco))),
+            "FrozenList.__reversed__": lambda: FrozenList(list(reversed(elenco))),
+            "FrozenDict.__iter__": lambda: FrozenList(list(iter(dizionario))),
+        })
         problemi: list[str] = []
         for nome, chiamata in chiamate.items():
             self._dentro_il_confine(chiamata(), nome, problemi)
         self.assertEqual(problemi, [])
+        # `NotImplemented` per un altro tipo e' il protocollo dei confronti.
+        self.assertIs(elenco.__eq__(5), NotImplemented)
+        self.assertIs(dizionario.__ne__(5), NotImplemented)
         # `get` rende il predefinito del chiamante, identico: e' suo, e
         # normalizzarlo romperebbe `is predefinito`.
         predefinito = object()
@@ -3318,6 +3335,208 @@ class IValoriRestituiti(unittest.TestCase):
         congelato = FrozenDict({"a": [1, {"b": 2}]})
         self.assertEqual(to_plain(congelato), {"a": [1, {"b": 2}]})
         self.assertIs(type(to_plain(congelato)["a"]), list)
+
+
+# --- 21. diciannovesimo giro di revisione -----------------------------------
+
+#: I sottocomandi che scrivono, con una riga di comando per ciascuno.
+COMANDI_CHE_SCRIVONO = (
+    ["write", "s.arrow", "o.gpkg", "--to", "gpkg"],
+    ["convert", "s.geojson", "o.gpkg", "--to", "gpkg"],
+    ["read", "s.geojson", "--output", "o.arrow"],
+)
+
+
+def _profonda(livelli: int) -> bytes:
+    """Una busta di successo con un risultato annidato `livelli` volte."""
+    return ('{"status": "ok", "contract": "x", "result": {"a": '
+            + "[" * livelli + "]" * livelli + "}}").encode()
+
+
+class DopoLAvvio(unittest.TestCase):
+    """Diciannovesimo giro: ogni guasto dopo l'avvio di un comando che scrive
+    e' `ProtocolError` con effetto `unknown`, mai `none`."""
+
+    def _esegui(self, argv, stdout, codice=0, **iniezioni):
+        from plenora_io import Runner
+
+        from test_confini_sdk import PopenFinto
+
+        finto = PopenFinto([(stdout, b"")], codice=codice)
+        with mock.patch.object(subprocess, "Popen", finto):
+            with contextlib.ExitStack() as pila:
+                for bersaglio, effetto in iniezioni.items():
+                    pila.enter_context(mock.patch(bersaglio, side_effect=effetto))
+                with self.assertRaises(PlenoraError) as preso:
+                    Runner(Path("plenora-io")).run(argv)
+        return preso.exception
+
+    @prova("process.decode")
+    def test_una_risposta_troppo_profonda_dopo_una_scrittura_e_unknown(self) -> None:
+        """Prima: il congelamento della risposta sollevava `InvalidArgumentError`
+        con effetto `none`, dopo che `write` aveva gia' scritto. Novecento
+        livelli: il parser JSON li regge, il congelamento ricorsivo no."""
+        for argv in COMANDI_CHE_SCRIVONO:
+            with self.subTest(comando=argv[0]):
+                errore = self._esegui(argv, _profonda(900))
+                self.assertIs(type(errore), ProtocolError)
+                self.assertEqual(errore.remote_effect, "unknown")
+                self.assertIsNone(errore.__context__)
+        # Un comando che legge soltanto resta `none`.
+        errore = self._esegui(["inspect", "s.geojson"], _profonda(900))
+        self.assertIs(type(errore), ProtocolError)
+        self.assertEqual(errore.remote_effect, "none")
+
+    @prova("process.decode")
+    def test_ogni_punto_dopo_l_avvio_e_unknown(self) -> None:
+        """Un'eccezione iniettata in ciascun punto dopo l'avvio -- decodifica
+        JSON, congelamento, busta d'errore -- per ogni comando che scrive, sia
+        un errore dell'SDK sia un'eccezione esterna."""
+        from plenora_io import _errors as errors
+
+        def fidato(*argomenti, **opzioni):
+            raise errors._dallo_sdk(InvalidArgumentError, "modello.annidato", dove="FrozenList")
+
+        busta_ok = b'{"status": "ok", "contract": "x", "result": {}}'
+        busta_ko = json.dumps({"status": "error", "error": {
+            "code": "IO-X", "category": "io", "phase": "execute", "remote_effect": "none",
+            "retry": {"kind": "never"}, "message": "m"}}).encode()
+        punti = (
+            ("plenora_io._process.carica_json", busta_ok, 0),
+            ("plenora_io._process.FrozenDict", busta_ok, 0),
+            ("plenora_io._process.carica_json", busta_ko, 2),
+            ("plenora_io._process._failure_from_envelope", busta_ko, 2),
+        )
+        for argv in COMANDI_CHE_SCRIVONO:
+            for bersaglio, stdout, codice in punti:
+                for nome, effetto in (("fidato", fidato), ("esterno", RuntimeError(SEGRETO))):
+                    with self.subTest(comando=argv[0], punto=bersaglio, guasto=nome):
+                        errore = self._esegui(argv, stdout, codice, **{bersaglio: effetto})
+                        self.assertIn(type(errore).__name__, ("ProtocolError", "UnexpectedError"))
+                        self.assertEqual(errore.remote_effect, "unknown")
+                        self.assertNotIn(SEGRETO, str(errore))
+
+    @prova("client.read_table")
+    def test_dopo_la_lettura_consegnata_ogni_guasto_e_unknown(self) -> None:
+        """`read_table`: un guasto nel leggere la consegna o nel costruire il
+        risultato, dopo che `read` ha scritto, e' `unknown`."""
+        from plenora_io import _errors as errors
+
+        def fidato(*argomenti, **opzioni):
+            raise errors._dallo_sdk(InvalidArgumentError, "modello.annidato", dove="FrozenList")
+
+        cliente = Client.__new__(Client)
+        esito = Validation.from_json(validazione_sana(delivered=consegna_sana()))
+        cliente._chiama = lambda argv, modello: esito
+        for bersaglio in ("plenora_io._arrow.leggi_ipc", "plenora_io._client.TableRead"):
+            for nome, effetto in (("fidato", fidato), ("esterno", RuntimeError(SEGRETO))):
+                with self.subTest(punto=bersaglio, guasto=nome), \
+                        mock.patch("plenora_io._arrow.pyarrow"), \
+                        mock.patch("plenora_io._arrow.leggi_ipc", return_value=None), \
+                        mock.patch(bersaglio, side_effect=effetto), \
+                        self.assertRaises(PlenoraError) as preso:
+                    cliente.read_table("s.geojson", temp_dir=tempfile.mkdtemp())
+                self.assertEqual(preso.exception.remote_effect, "unknown")
+
+
+class ISerializzatori(unittest.TestCase):
+    """Diciannovesimo giro: i metodi del protocollo di serializzazione sono
+    dell'SDK, nella rete, e validano gli argomenti."""
+
+    def _istanze(self):
+        from plenora_io import Runner
+
+        return (FrozenList([1]), FrozenDict({}),
+                Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2}),
+                Runner(Path("plenora-io")), InvalidArgumentError("m"))
+
+    @prova("confine.rete")
+    def test_argomenti_sbagliati_ai_serializzatori(self) -> None:
+        """Prima: `FrozenDict({}).__reduce_ex__("x")` e
+        `FrozenList([1]).__getstate__(1)` lasciavano uscire `TypeError`, e un
+        `__index__` ostile un `ValueError` con il suo testo."""
+
+        class Ostile:
+            def __index__(self):
+                raise ValueError(SEGRETO)
+
+        for istanza in self._istanze():
+            chiamate = (
+                ("__reduce_ex__ str", lambda i=istanza: i.__reduce_ex__("x")),
+                ("__reduce_ex__ ostile", lambda i=istanza: i.__reduce_ex__(Ostile())),
+                ("__reduce_ex__ bool", lambda i=istanza: i.__reduce_ex__(True)),
+                ("__getstate__ arg", lambda i=istanza: i.__getstate__(1)),
+                ("__reduce__ arg", lambda i=istanza: i.__reduce__(1)),
+                ("__deepcopy__ memo", lambda i=istanza: i.__deepcopy__(SEGRETO)),
+            )
+            for nome, chiamata in chiamate:
+                with self.subTest(classe=type(istanza).__name__, via=nome):
+                    try:
+                        raise ValueError(SEGRETO)
+                    except ValueError:
+                        with self.assertRaises(PlenoraError) as preso:
+                            chiamata()
+                    tradotto(self, preso.exception, "none")
+                    self.assertIsNone(preso.exception.__context__)
+
+    @prova("confine.rete")
+    def test_copia_e_pickle_passano_dai_serializzatori_dell_sdk(self) -> None:
+        import copy as copia
+        import pickle
+
+        from plenora_io import _confine as confine
+
+        for istanza in self._istanze():
+            for nome in ("__reduce__", "__reduce_ex__", "__getstate__", "__copy__",
+                         "__deepcopy__"):
+                with self.subTest(classe=type(istanza).__name__, metodo=nome):
+                    metodo = getattr(type(istanza), nome)
+                    self.assertTrue(getattr(metodo, confine.SEGNO, False))
+            for strada in (copia.copy, copia.deepcopy,
+                           lambda x: pickle.loads(pickle.dumps(x))):
+                with self.subTest(classe=type(istanza).__name__, strada=strada):
+                    copiato = strada(istanza)
+                    self.assertIs(type(copiato), type(istanza))
+                    if isinstance(istanza, (FrozenList, FrozenDict, Version)):
+                        self.assertEqual(copiato, istanza)
+                    elif not isinstance(istanza, BaseException):
+                        self.assertEqual(copiato.binary, istanza.binary)
+
+
+class LeVisiteDelCongelamento(unittest.TestCase):
+    """Diciannovesimo giro: congelare un documento visita ogni nodo una volta
+    sola. La prova conta le visite, non il tempo."""
+
+    def test_ogni_nodo_si_visita_una_volta(self) -> None:
+        from plenora_io import _confine as confine
+
+        documento = {"a": [[i, {"k": [i, None]}] for i in range(5_000)], "b": {"c": [1]}}
+
+        def nodi(valore):
+            if isinstance(valore, list):
+                return 1 + sum(nodi(v) for v in valore)
+            if isinstance(valore, dict):
+                return 1 + sum(nodi(v) for v in valore.values())
+            return 1
+
+        attesi = sum(nodi(v) for v in documento.values())
+        visite = 0
+        originale = confine._esatto
+
+        def contata(*argomenti, **opzioni):
+            nonlocal visite
+            visite += 1
+            return originale(*argomenti, **opzioni)
+
+        with mock.patch.object(confine, "_esatto", contata):
+            congelato = FrozenDict(documento)
+        self.assertEqual(congelato, documento)
+        self.assertEqual(visite, attesi)
+        # E un sottoalbero gia' congelato non si ricongela.
+        visite = 0
+        with mock.patch.object(confine, "_esatto", contata):
+            FrozenDict({"gia": congelato})
+        self.assertEqual(visite, 1)
 
 
 if __name__ == "__main__":

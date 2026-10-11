@@ -1261,7 +1261,9 @@ class CapabilityInterface:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
-        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "capabilities.interfaces[]", cls)
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.interfaces[]", cls
+        )
         return cls(
             **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),

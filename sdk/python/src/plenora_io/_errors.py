@@ -131,6 +131,24 @@ class PlenoraError(Exception):
         # e' «costruita dall'SDK» (vedi `_da_copia`).
         return (_da_copia, (type(self), _stato(self)))
 
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        from ._contenitori import _protocollo  # noqa: PLC0415
+
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __getstate__(self) -> Any:
+        return _stato(self)
+
+    def __copy__(self) -> Any:
+        return _da_copia(type(self), _stato(self))
+
+    def __deepcopy__(self, memo: Any = None) -> Any:
+        from ._contenitori import _memo  # noqa: PLC0415
+
+        _memo(memo)
+        return _da_copia(type(self), _stato(self))
+
     @property
     def category(self) -> str:
         """La categoria di `plenora-error-v1`."""
@@ -578,6 +596,16 @@ MESSAGGI: dict[str, str] = {
         "{errore}; {caratteri} caratteri, contenuto non riportato."
     ),
     "processo.busta_non_oggetto": "la busta su {flusso} e' {tipo} e non un oggetto JSON.",
+    "processo.risposta_illeggibile": (
+        "la risposta di `plenora-io {comando}` non si e' potuta leggere come un "
+        "documento dell'SDK: l'esito non si conosce."
+    ),
+    "client.consegna_illeggibile": (
+        "la consegna di `read` non si e' potuta leggere come tabella: l'esito "
+        "non si conosce."
+    ),
+    "serializzazione.protocollo": "il protocollo di `pickle` e' un intero non negativo.",
+    "serializzazione.memo": "il `memo` di `deepcopy` e' un dizionario.",
 }
 
 #: Le classi che non prendono un messaggio ma lo compongono da un vocabolario
@@ -1440,6 +1468,7 @@ PARAMETRI: dict[str, dict[str, Any]] = {
         "comando": _COMANDO, "flusso": _FLUSSO, "errore": _ERRORE, "caratteri": _CONTEGGIO,
     },
     "processo.busta_non_oggetto": {"flusso": _FLUSSO, "tipo": _TIPO},
+    "processo.risposta_illeggibile": {"comando": _COMANDO},
 }
 
 

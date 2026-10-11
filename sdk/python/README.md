@@ -280,13 +280,32 @@ dell'SDK, i metodi di `FrozenList` e `FrozenDict` (compresi `get`, `keys`,
 * i metodi del **protocollo di serializzazione** -- `__reduce__`,
   `__reduce_ex__`, `__getstate__`, `__copy__`, `__deepcopy__` -- rendono le
   `tuple`, i `dict` e le `list` che `pickle` e `copy` consumano: i loro
-  valori restituiti sono fuori dal confine, ma la rete li copre come ogni
-  altro metodo (solo `PlenoraError`, nessuna catena).
+  valori restituiti sono fuori dal confine. Sono pero' definiti dall'SDK in
+  ogni sua classe -- non ereditati da `object` -- e passano dalla rete: un
+  protocollo che non e' un intero esatto non negativo, un `memo` che non e'
+  un `dict` o un argomento in piu' sono `PlenoraError`, senza catena;
+* gli **iteratori** che rendono `iter()` e `reversed()` di un contenitore
+  sono oggetti di Python, e producono valori dentro il confine; `NotImplemented`
+  che `__eq__` e `__ne__` rendono per un altro tipo e' il protocollo dei
+  confronti;
+* cio' che ogni classe eredita da `object` senza ridefinirlo (`__format__`,
+  `__sizeof__`, `__dir__`, `__init_subclass__`, `__subclasshook__`...) e' di
+  Python, come l'API di `BaseException` per gli errori.
 
 Tutti gli altri valori restituiti stanno dentro il confine: `Runner.run`
 rende un `FrozenDict` congelato in profondita', e `IValoriRestituiti` lo
 verifica con un `Popen` finto, insieme ai valori resi dai metodi dei
-contenitori.
+contenitori e dai loro iteratori. Congelare una risposta visita ogni nodo una
+volta sola, e un sottoalbero gia' congelato non si rivisita
+(`LeVisiteDelCongelamento` conta le visite).
+
+**Dopo l'avvio di un comando che scrive, l'effetto e' `unknown`.** Ogni guasto
+dopo che il processo e' partito -- la decodifica dei flussi, il JSON, il
+congelamento della risposta, la busta d'errore, il modello, la lettura della
+consegna di `read_table` -- e' un `ProtocolError` con `remote_effect:
+unknown` per `write`, `convert` e `read` con destinazione, mai `none`
+(`DopoLAvvio` inietta un guasto in ciascun punto, per ogni comando che
+scrive). Il ritentativo resta `never`, come per ogni errore dell'SDK.
 
 Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
 `tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella
@@ -362,8 +381,10 @@ il modulo `plenora_io._errors` o un altro modulo del
 pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), e un errore puo' portare testo del
-chiamante oltre la rete. Quando un modello alterato entra in un
-altro modello si rinormalizza, ma le garanzie non lo coprono. Rientro: nessuno
+chiamante oltre la rete. Quando un modello alterato entra come campo in un
+altro modello si rinormalizza; dentro un `FrozenList` o un `FrozenDict` gia'
+congelato no, perche' un contenitore congelato non si rivisita. In nessun
+caso le garanzie lo coprono. Rientro: nessuno
 previsto dentro Python, che non ha un confine di memoria fra codice dello stesso
 processo; chi ha bisogno di isolamento esegue il codice non fidato in un altro
 processo.

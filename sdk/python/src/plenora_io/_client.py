@@ -405,13 +405,22 @@ class Client:
             # c'e' stato, e che cosa contenga non lo dice una risposta che non
             # torna. Resta `unknown` anche se la pulizia fallisce: la
             # cartella la segna con `cleanup_failed`, e non tocca l'effetto.
+            # Ogni guasto, non solo `ProtocolError`: leggere la consegna o
+            # costruire il risultato dopo che `read` ha scritto lascia un esito
+            # che non si conosce (diciannovesimo giro).
             try:
                 if esito.delivered is None:
                     raise _dallo_sdk(ProtocolError, "client.consegna_non_dichiarata")
                 tabella = arrow.leggi_ipc(consegna, esito.delivered.content_type)
+                letto = TableRead(table=tabella, result=esito)
             except ProtocolError as errore:
                 raise _con_effetto_ignoto(errore, ["read", "--output"]) from None
-        return TableRead(table=tabella, result=esito)
+            except Exception:  # noqa: BLE001 - dopo la scrittura, tutto e' protocollo
+                raise _con_effetto_ignoto(
+                    _dallo_sdk(ProtocolError, "client.consegna_illeggibile"),
+                    ["read", "--output"],
+                ) from None
+        return letto
 
 
     def write(

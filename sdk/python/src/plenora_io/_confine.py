@@ -68,7 +68,7 @@ import dataclasses
 import sys
 from datetime import timedelta
 
-from ._contenitori import FrozenDict, FrozenList
+from ._contenitori import FrozenDict, FrozenList, _dizionario_congelato, _elenco_congelato
 from ._errors import (
     PROVENIENZA,
     SIGILLO,
@@ -324,15 +324,13 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
     tipo = type(valore)
     if valore is None or tipo is bool or tipo is str or tipo is int or tipo is float:
         return valore
-    if tipo is FrozenList:
-        # Si ricostruisce: il costruttore rinormalizza gli elementi, e un
-        # modello annidato alterato fuori contratto non passa com'e'.
-        return FrozenList(valore)
-    if tipo is FrozenDict:
-        return FrozenDict(valore)
+    if tipo is FrozenList or tipo is FrozenDict:
+        # Gia' congelato: non si ricongela (diciannovesimo giro, una visita per
+        # nodo). Un contenitore alterato fuori contratto non e' coperto.
+        return valore
     if issubclass(tipo, (list, tuple)):
         base = list if issubclass(tipo, list) else tuple
-        return FrozenList([_esatto(v, dove) for v in base.__iter__(valore)])
+        return _elenco_congelato(tuple(_esatto(v, dove) for v in base.__iter__(valore)))
     if issubclass(tipo, dict):
         copia: dict[str, Any] = {}
         for chiave, interno in dict.items(valore):
@@ -343,7 +341,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
                 # avrebbe coperto l'altra in silenzio.
                 raise _dallo_sdk(InvalidArgumentError, "modello.chiavi_coincidenti", dove=dove)
             copia[esatta] = _esatto(interno, dove)
-        return FrozenDict(copia)
+        return _dizionario_congelato(copia)
     if issubclass(tipo, str):
         return str.join("", [valore])
     if issubclass(tipo, int):
@@ -556,6 +554,71 @@ def _con_self(funzione: Callable[..., Any], classe: type) -> Callable[..., Any]:
     return controllato
 
 
+def _riduci(self: Any) -> Any:
+    """`__reduce__` di un oggetto dell'SDK con `__dict__`: classe e stato."""
+    import copyreg  # noqa: PLC0415
+
+    return (copyreg.__newobj__, (type(self),), dict(object.__getattribute__(self, "__dict__")))
+
+
+def _riduci_ex(self: Any, protocollo: Any) -> Any:
+    from ._contenitori import _protocollo  # noqa: PLC0415
+
+    _protocollo(protocollo)
+    return _riduci(self)
+
+
+def _stato_serializzabile(self: Any) -> Any:
+    return dict(object.__getattribute__(self, "__dict__"))
+
+
+def _copia(self: Any) -> Any:
+    nuovo = object.__new__(type(self))
+    object.__getattribute__(nuovo, "__dict__").update(
+        object.__getattribute__(self, "__dict__"))
+    return nuovo
+
+
+def _copia_profonda(self: Any, memo: Any = None) -> Any:
+    import copy  # noqa: PLC0415
+
+    from ._contenitori import _memo  # noqa: PLC0415
+
+    memo = {} if _memo(memo) is None else memo
+    nuovo = object.__new__(type(self))
+    memo[id(self)] = nuovo
+    stato = object.__getattribute__(nuovo, "__dict__")
+    for nome, valore in list(object.__getattribute__(self, "__dict__").items()):
+        stato[nome] = copy.deepcopy(valore, memo)
+    return nuovo
+
+
+#: Il protocollo di serializzazione per le classi dell'SDK che non lo
+#: definiscono (modelli, `Client`, `Runner`): ereditato da `object` lasciava
+#: uscire `TypeError` per un argomento sbagliato, fuori dalla rete
+#: (diciannovesimo giro). `FrozenList`, `FrozenDict` e gli errori hanno il
+#: proprio.
+_SERIALIZZATORI: dict[str, Callable[..., Any]] = {
+    "__reduce__": _riduci,
+    "__reduce_ex__": _riduci_ex,
+    "__getstate__": _stato_serializzabile,
+    "__copy__": _copia,
+    "__deepcopy__": _copia_profonda,
+}
+
+
+def _con_serializzatori(classe: type) -> None:
+    if classe is FrozenList or classe is FrozenDict or classe_dell_sdk(classe):
+        return
+    for nome, funzione in _SERIALIZZATORI.items():
+        definito = any(
+            nome in vars(base) for base in classe.__mro__
+            if base is not object and base.__module__.startswith("plenora_io")
+        )
+        if not definito:
+            setattr(classe, nome, funzione)
+
+
 def _confina_classe(classe: type) -> type:
     """Avvolge ogni callable che la classe definisce, salvo `NON_AVVOLTI`.
 
@@ -565,6 +628,7 @@ def _confina_classe(classe: type) -> type:
     di `object` o di `Exception` non sono codice dell'SDK.
     """
     _prepara_modello(classe)
+    _con_serializzatori(classe)
     if classe_dell_sdk(classe):
         init = vars(classe).get("__init__")
         if init is not None and not getattr(init, SEGNO, False):

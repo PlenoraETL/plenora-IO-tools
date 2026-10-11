@@ -1441,7 +1441,13 @@ prossima release è percio' una **major** (5.0.0).
   `dict` come prima, ma non si modifica, e `json.dumps` vuole
   `default=plenora_io.json_default` o `plenora_io.to_plain(...)`.
   `to_plain` rende ora sempre una copia nuova, anche di un ingresso gia'
-  nativo.
+  nativo. Ogni guasto dopo l'avvio di un comando che scrive -- anche il
+  congelamento della risposta o la lettura della consegna -- e'
+  `ProtocolError` con effetto `unknown`. Il protocollo di serializzazione
+  (`__reduce__`, `__reduce_ex__`, `__getstate__`, `__copy__`,
+  `__deepcopy__`) e' definito dall'SDK in ogni sua classe e valida gli
+  argomenti; `copy.copy` di `FrozenList` e `FrozenDict` non ricostruisce gli
+  elementi.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,
