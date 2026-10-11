@@ -93,8 +93,9 @@ _NOMI_DEI_TIPI = {
 }
 
 
-def _nomi(tipi: frozenset[str]) -> str:
-    return " o ".join(_NOMI_DEI_TIPI[tipo] for tipo in sorted(tipi))
+def _alternative(tipi: frozenset[str]) -> tuple[str, ...]:
+    """I nomi dei tipi, come alternative di un parametro di messaggio («a o b»)."""
+    return tuple(_NOMI_DEI_TIPI[tipo] for tipo in sorted(tipi))
 
 
 def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
@@ -127,7 +128,7 @@ def _schema(classe: Any) -> Any:
         for modello in MODELLI:
             if base is modello:
                 return modello
-    raise _dallo_sdk(InvalidArgumentError, "il modello non deriva da una classe dell'SDK.")
+    raise _dallo_sdk(InvalidArgumentError, "modello.non_sdk")
 
 
 def _pretendi(
@@ -152,15 +153,11 @@ def _pretendi(
     `errors.py` per la ragione.
     """
     if _tipo(documento) != "object":
-        raise _dallo_sdk(ProtocolError, f"{dove}: e' {_tipo(documento)} e non un oggetto.")
+        raise _dallo_sdk(ProtocolError, "protocollo.non_oggetto", dove=dove, tipo=_tipo(documento))
     documento = _copia_json(documento, dove)
     mancanti = [campo for campo in campi if campo not in documento]
     if mancanti:
-        raise _dallo_sdk(ProtocolError,
-            f"{dove}: mancano i campi {mancanti}, che il protocollo v2 dichiara "
-            "sempre presenti. Il binario e' piu' vecchio dell'SDK, o il "
-            "documento non e' quello che dice di essere."
-        )
+        raise _dallo_sdk(ProtocolError, "protocollo.mancanti", dove=dove, mancanti=mancanti)
     if modello is None:
         return documento
     # Lo schema della classe dell'SDK, non quello di `cls` (vedi `_schema`).
@@ -178,17 +175,24 @@ def _pretendi(
             ammessi = ammessi - {"null"}
         valore = documento[campo]
         if _tipo(valore) not in ammessi:
-            raise _dallo_sdk(ProtocolError,
-                f"{dove}.{campo} e' {_tipo(valore)} e non {_nomi(ammessi)}, "
-                "come il protocollo v2 lo dichiara."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.tipo_campo",
+                dove=dove,
+                campo=campo,
+                tipo=_tipo(valore),
+                ammessi=_alternative(ammessi),
             )
         elementi = _tipi_degli_elementi(annotazione)
         if _tipo(valore) == "array" and elementi is not None:
             for posizione, voce in enumerate(valore):
                 if _tipo(voce) not in elementi:
-                    raise _dallo_sdk(ProtocolError,
-                        f"{dove}.{campo}[{posizione}] e' {_tipo(voce)} e non "
-                        f"{_nomi(elementi)}, come il protocollo v2 lo dichiara."
+                    raise _dallo_sdk(
+                        ProtocolError, "protocollo.tipo_elemento",
+                        dove=dove,
+                        campo=campo,
+                        posizione=posizione,
+                        tipo=_tipo(voce),
+                        ammessi=_alternative(elementi),
                     )
     return documento
 
@@ -228,10 +232,7 @@ class Version:
         in_piu = len(set(documento) - set(attesi))
         if in_piu:
             # Quante, non quali: i nomi vengono dal documento.
-            raise _dallo_sdk(ProtocolError,
-                f"risultato di --version con {in_piu} campi in piu'. Il suo "
-                "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
-            )
+            raise _dallo_sdk(ProtocolError, "versione.campi_in_piu", campi=in_piu)
         return cls(
             component_version=documento["component_version"],
             cli_protocol_version=documento["cli_protocol_version"],
@@ -392,8 +393,10 @@ class Catalog:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "catalog", cls)
         elenco = documento["drivers"]
         if _tipo(elenco) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"catalog.drivers e' {_tipo(elenco)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='catalog.drivers',
+                tipo=_tipo(elenco),
             )
         return cls(
             determinism=documento["determinism"],
@@ -412,7 +415,7 @@ class Catalog:
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
-        raise _dallo_sdk(ResultLookupError, "nessun driver con l'id richiesto nel catalogo.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.driver")
 
     @property
     def available(self) -> list[Driver]:
@@ -515,8 +518,10 @@ class Fidelity:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "fidelity", cls)
         ragioni = documento["reasons"]
         if _tipo(ragioni) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"fidelity.reasons e' {_tipo(ragioni)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='fidelity.reasons',
+                tipo=_tipo(ragioni),
             )
         return cls(
             level=documento["level"],
@@ -649,8 +654,10 @@ class Layer:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "inspect.layers[]", cls)
         colonne = documento["fields"]
         if _tipo(colonne) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"layers[].fields e' {_tipo(colonne)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers[].fields',
+                tipo=_tipo(colonne),
             )
         return cls(
             id=documento["id"],
@@ -670,7 +677,7 @@ class Layer:
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
-        raise _dallo_sdk(ResultLookupError, "nessun campo con il nome richiesto nel layer.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.campo")
 
     @property
     def attributes(self) -> list[Field]:
@@ -725,8 +732,10 @@ class Inspect:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "inspect", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"inspect.layers e' {_tipo(elenco)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='inspect.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=FormatDescriptor.from_json(documento["format"]),
@@ -741,7 +750,7 @@ class Inspect:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nel file.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -766,8 +775,10 @@ class Layers:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "layers", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"layers.layers e' {_tipo(elenco)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=documento["format"],
@@ -781,7 +792,7 @@ class Layers:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nel file.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -973,9 +984,10 @@ class LossReport:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "loss", cls)
         for campo in ("counts", "esempi"):
             if _tipo(documento[campo]) != "array":
-                raise _dallo_sdk(ProtocolError,
-                    f"loss.{campo} e' {_tipo(documento[campo])} e non "
-                    "un elenco."
+                raise _dallo_sdk(
+                    ProtocolError, "protocollo.non_elenco",
+                    dove=f'loss.{campo}',
+                    tipo=_tipo(documento[campo]),
                 )
         return cls(
             lossless=documento["lossless"],
@@ -1087,8 +1099,10 @@ class ConvertResult:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "convert", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"convert.layers e' {_tipo(elenco)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='convert.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             from_=documento["from"],
@@ -1125,7 +1139,7 @@ class ConvertResult:
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        raise _dallo_sdk(ResultLookupError, "nessun layer con il nome richiesto nella conversione.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer_conversione")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1207,8 +1221,10 @@ class WriteResult:
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "write", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise _dallo_sdk(ProtocolError,
-                f"write.layers e' {_tipo(elenco)} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='write.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=documento["format"],
@@ -1385,10 +1401,7 @@ class Capabilities:
     def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
         documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "capabilities", cls)
         if documento["schema_version"] != 2:
-            raise _dallo_sdk(ProtocolError,
-                "capabilities.schema_version non e' 2: l'SDK legge "
-                "`plenora-capabilities-v2` e non indovina un'altra forma."
-            )
+            raise _dallo_sdk(ProtocolError, "capabilities.schema")
         return cls(
             schema_version=documento["schema_version"],
             component=documento["component"],
@@ -1408,4 +1421,4 @@ class Capabilities:
         for operazione in self.operations:
             if operazione.id == identificatore:
                 return operazione
-        raise _dallo_sdk(ResultLookupError, "nessuna operazione con l'id richiesto.")
+        raise _dallo_sdk(ResultLookupError, "ricerca.operazione")

@@ -34,7 +34,7 @@ from . import arrow
 from .confine import nome_sdk
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
 from .errors import ProtocolError, _copia_json
-from .errors import _dallo_sdk
+from .errors import _dallo_sdk, sottocomando
 from .limits import Limits
 from .models import (
     Capabilities,
@@ -407,10 +407,7 @@ class Client:
             # cartella la segna con `cleanup_failed`, e non tocca l'effetto.
             try:
                 if esito.delivered is None:
-                    raise _dallo_sdk(ProtocolError,
-                        "`read` con una destinazione e' riuscito senza dichiarare "
-                        "la consegna: non si sa che cosa leggere."
-                    )
+                    raise _dallo_sdk(ProtocolError, "client.consegna_non_dichiarata")
                 tabella = arrow.leggi_ipc(consegna, esito.delivered.content_type)
             except ProtocolError as errore:
                 raise _con_effetto_ignoto(errore, ["read", "--output"]) from None
@@ -628,9 +625,10 @@ class Client:
             raise _con_effetto_ignoto(errore, argv) from None
         except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
             raise _con_effetto_ignoto(
-                _dallo_sdk(ProtocolError,
-                    f"il risultato di `plenora-io {argv[0]}` non si decodifica nel "
-                    f"modello {nome_sdk(modello)}."
+                _dallo_sdk(
+                    ProtocolError, "client.non_decodifica",
+                    comando=sottocomando(argv) or '?',
+                    modello=nome_sdk(modello),
                 ),
                 argv,
             ) from None

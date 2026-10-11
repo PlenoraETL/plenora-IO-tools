@@ -2297,7 +2297,7 @@ class LaProvenienzaEsplicita(unittest.TestCase):
                 self.assertFalse(errors.costruito_dall_sdk(costruisci()))
         # La fabbrica privata, invece, marca la provenienza.
         self.assertTrue(errors.costruito_dall_sdk(
-            errors._dallo_sdk(InvalidArgumentError, "m")))
+            errors._dallo_sdk(InvalidArgumentError, "elenco.immutabile")))
 
     def test_ogni_errore_dell_sdk_nasce_dalla_fabbrica(self) -> None:
         """Inventario statico: nei sorgenti dell'SDK nessuna chiamata diretta a
@@ -2448,7 +2448,7 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
         fiducia e sostituiva lo stato, decisioni comprese."""
         from plenora_io import errors
 
-        fidato = errors._dallo_sdk(InvalidArgumentError, "m")
+        fidato = errors._dallo_sdk(InvalidArgumentError, "elenco.immutabile")
         busta = _busta(message=SEGRETO, retry={"kind": "safe"})
         try:
             copia = errors.ricostruito(fidato, envelope=busta)
@@ -2459,13 +2459,12 @@ class LaFiduciaSenzaVieIndirette(unittest.TestCase):
             self.assertFalse(errors.costruito_dall_sdk(copia))
         copia = errors.ricostruito(fidato)
         self.assertTrue(errors.costruito_dall_sdk(copia))
-        self.assertEqual(str(copia), "m")
+        self.assertEqual(str(copia), str(fidato))
 
     def test_la_ricostruzione_privata_accetta_solo_lo_stato_dell_sdk(self) -> None:
         from plenora_io import errors
 
-        fidato = errors._dallo_sdk(
-            CommandFailed, _busta(), 1, ["read"])
+        fidato = errors._dallo_sdk_strutturato(CommandFailed, _busta(), 1, ["read"])
         for voce in ("envelope", "_messaggio", "exit_code", "command", "_dall_sdk"):
             with self.subTest(voce=voce), self.assertRaises(InvalidArgumentError):
                 errors._ricostruito(fidato, **{voce: SEGRETO})
@@ -2620,6 +2619,11 @@ def _esemplari_dei_modelli():
     trovati[Manifest] = Manifest.from_json(MANIFESTO_SANO)
     trovati[FrozenList] = FrozenList([1, [2], {"k": 3}])
     trovati[FrozenDict] = FrozenDict({"k": [1], "j": {"x": 2}})
+    if pa is not None:
+        from plenora_io import TableRead
+
+        trovati[TableRead] = TableRead(
+            table=pa.table({"x": [1, 2]}), result=Validation.from_json(validazione_sana()))
     # Gli errori, fidati: nati dalla fabbrica dell'SDK.
     for nome, classe, costruisci in _un_esemplare_per_classe():
         esemplare = costruisci()
@@ -2669,11 +2673,14 @@ class LoSchemaDellaClasseDellSdk(unittest.TestCase):
 
     @prova("messaggi.senza_dati")
     def test_l_inventario_copre_i_metodi_delle_classi_esportate(self) -> None:
-        """Ogni metodo pubblico, classmethod e staticmethod delle classi di
-        `__all__` -- sulla classe e su una sottoclasse con ogni attributo di
-        classe ridefinito a `SEGRETO` -- chiamato con ogni combinazione di
-        argomenti che portano `SEGRETO` (fino a due) non da' un errore fidato
-        che lo contenga."""
+        """Ogni metodo pubblico, `__init__`, classmethod, staticmethod e
+        proprieta' delle classi di `__all__` -- sulla classe e su una
+        sottoclasse con ogni attributo di classe ridefinito a `SEGRETO` --
+        chiamato con ogni combinazione di argomenti che portano `SEGRETO` (fino
+        a tre, posizionali e keyword-only) non da' un errore fidato che lo
+        contenga. `__init__` si chiama anche non legato, su un oggetto
+        estraneo. Un'eccezione che non e' un `PlenoraError` e' un fallimento:
+        un metodo pubblico passa dalla rete."""
         import inspect
         import itertools
 
@@ -2681,7 +2688,38 @@ class LoSchemaDellaClasseDellSdk(unittest.TestCase):
 
         valori = _valori_con_segreto()
         esemplari = _esemplari_dei_modelli()
+        Estraneo = _estraneo()
         chiamate = 0
+        estranee: list[str] = []
+
+        def chiama(etichetta, funzione, posizionali, nominali):
+            nonlocal chiamate
+            chiamate += 1
+            try:
+                risultato = funzione(*posizionali, **nominali)
+            except PlenoraError as errore:
+                self._nessun_dato_se_fidato(errore, etichetta)
+            except Exception as errore:  # noqa: BLE001 - si contano, e sono rosse
+                estranee.append(f"{etichetta}: {type(errore).__name__}")
+            else:
+                self._nessun_dato_se_fidato(risultato, etichetta)
+
+        def combinazioni(funzione, salta=0):
+            try:
+                firma = inspect.signature(funzione)
+            except (TypeError, ValueError):
+                return
+            parametri = [
+                p for p in list(firma.parameters.values())[salta:]
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+            ][:3]
+            for valori_scelti in itertools.product(valori, repeat=len(parametri)):
+                posizionali = [v for p, v in zip(parametri, valori_scelti)
+                               if p.kind != p.KEYWORD_ONLY]
+                nominali = {p.name: v for p, v in zip(parametri, valori_scelti)
+                            if p.kind == p.KEYWORD_ONLY}
+                yield posizionali, nominali
+
         for nome in plenora_io.__all__:
             classe = getattr(plenora_io, nome)
             if not isinstance(classe, type) or nome in NON_CHIAMATE_A_COMBINAZIONI:
@@ -2693,46 +2731,194 @@ class LoSchemaDellaClasseDellSdk(unittest.TestCase):
                 istanza = None
                 if classe in esemplari:
                     istanza = _istanza_come(bersaglio, esemplari[classe])
+                # `__init__` non legato: su un oggetto estraneo e sull'istanza.
+                for primo in (Estraneo(), istanza):
+                    if primo is None:
+                        continue
+                    for posizionali, nominali in combinazioni(bersaglio.__init__, salta=1):
+                        chiama(f"{nome}.__init__", bersaglio.__init__,
+                               [primo, *posizionali], nominali)
                 for base in classe.__mro__:
                     if not base.__module__.startswith("plenora_io"):
                         continue
                     for attributo, valore in vars(base).items():
                         if attributo.startswith("_"):
                             continue
+                        etichetta = f"{nome}.{attributo}"
                         if isinstance(valore, (classmethod, staticmethod)):
                             funzione = getattr(bersaglio, attributo)
                         elif inspect.isfunction(valore) and istanza is not None:
                             funzione = getattr(istanza, attributo)
                         elif isinstance(valore, property) and istanza is not None:
-                            chiamate += 1
-                            try:
-                                getattr(istanza, attributo)
-                            except PlenoraError as errore:
-                                self._nessun_dato_se_fidato(errore, f"{nome}.{attributo}")
+                            chiama(etichetta, getattr, [istanza, attributo], {})
                             continue
                         else:
                             continue
-                        try:
-                            firma = inspect.signature(funzione)
-                        except (TypeError, ValueError):
-                            continue
-                        parametri = [
-                            p for p in firma.parameters.values()
-                            if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
-                        ][:2]
-                        for combinazione in itertools.product(valori, repeat=len(parametri)):
-                            chiamate += 1
-                            with self.subTest(metodo=f"{nome}.{attributo}",
-                                              sottoclasse=bersaglio is ostile):
-                                try:
-                                    risultato = funzione(*combinazione)
-                                except PlenoraError as errore:
-                                    self._nessun_dato_se_fidato(errore, f"{nome}.{attributo}")
-                                except Exception:  # noqa: BLE001, S112 - non e' dell'SDK
-                                    continue
-                                else:
-                                    self._nessun_dato_se_fidato(risultato, f"{nome}.{attributo}")
-        self.assertGreater(chiamate, 1000)
+                        for posizionali, nominali in combinazioni(funzione):
+                            chiama(etichetta, funzione, posizionali, nominali)
+        self.assertEqual(estranee, [])
+        self.assertGreater(chiamate, 5000)
+
+
+# --- 16. tredicesimo giro di revisione --------------------------------------
+
+#: Un dato del chiamante che puo' essere un identificatore Python: il nome di
+#: un campo o di un attributo.
+SEGRETO_NOME = "SEGRETOcampo9c1e"
+
+
+def _estraneo():
+    """Lo scenario di Codex: una dataclass del chiamante con un campo il cui
+    nome e' un dato, e una proprieta' `drivers` che scrive in quel campo."""
+    import dataclasses
+
+    spazio = {}
+    exec(  # noqa: S102 - la dataclass del chiamante, con un nome di campo dato
+        "import dataclasses\n"
+        "@dataclasses.dataclass(init=False)\n"
+        "class Estraneo:\n"
+        f"    {SEGRETO_NOME}: object = None\n"
+        "    @property\n"
+        "    def drivers(self):\n"
+        f"        return self.{SEGRETO_NOME}\n"
+        "    @drivers.setter\n"
+        "    def drivers(self, valore):\n"
+        f"        object.__setattr__(self, '{SEGRETO_NOME}', valore)\n",
+        spazio,
+    )
+    assert dataclasses.is_dataclass(spazio["Estraneo"])
+    return spazio["Estraneo"]
+
+
+class IlCatalogoDeiMessaggi(unittest.TestCase):
+    """Tredicesimo giro: la fabbrica accetta solo chiavi e parametri dal
+    vocabolario chiuso; i metodi rifiutano un `self` estraneo."""
+
+    def _senza_dati(self, testo, dove) -> None:
+        self.assertNotIn(SEGRETO, testo, dove)
+        self.assertNotIn(SEGRETO_NOME, testo, dove)
+
+    @prova("messaggi.senza_dati")
+    def test_un_costruttore_chiamato_su_un_oggetto_estraneo_si_rifiuta(self) -> None:
+        """Prima: `Catalog.__init__(Estraneo(), ...)` girava, e `_normalizza`
+        metteva il nome del campo del chiamante in un errore fidato."""
+        from plenora_io import errors
+
+        Estraneo = _estraneo()
+        with self.assertRaises(PlenoraError) as preso:
+            Catalog.__init__(Estraneo(), determinism="x", drivers=object())
+        self._senza_dati(str(preso.exception), "costruttore")
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+        tradotto(self, preso.exception, "none")
+        self.assertEqual(str(preso.exception), errors.MESSAGGI["rete.self_estraneo"])
+        for metodo in (Catalog.driver, Catalog.__repr__, Catalog.__eq__, Catalog.__hash__):
+            with self.subTest(metodo=metodo.__name__), self.assertRaises(InvalidArgumentError):
+                metodo(Estraneo(), *([None] if metodo in (Catalog.driver, Catalog.__eq__) else []))
+
+    @prova("messaggi.senza_dati")
+    def test_una_sottoclasse_con_campi_ridefiniti_non_entra_nei_messaggi(self) -> None:
+        """La stessa via da `from_json` di una sottoclasse che ridefinisce un
+        campo come proprieta' e i campi della dataclass."""
+        import dataclasses
+
+        from plenora_io import errors
+
+        Estraneo = _estraneo()
+        campo = dataclasses.field()
+        campo.name = SEGRETO_NOME
+        campo._field_type = dataclasses._FIELD  # come lo marca `@dataclass`
+        Derivata = type("Derivata", (Catalog,), {
+            "drivers": Estraneo.drivers,
+            "__dataclass_fields__": {SEGRETO_NOME: campo, **Catalog.__dataclass_fields__},
+        })
+        self.assertEqual(dataclasses.fields(Derivata)[0].name, SEGRETO_NOME)
+        documento = catalogo_sano()
+        documento["drivers"] = [object()]
+        for chiamata in (lambda: Derivata.from_json(documento),
+                         lambda: Derivata(determinism="x", drivers=[object()]),
+                         lambda: hash(Derivata(determinism="x", drivers=[])),
+                         lambda: Derivata(determinism="x", drivers=[]) == Catalog.from_json(
+                             catalogo_sano())):
+            try:
+                chiamata()
+            except PlenoraError as errore:
+                if errors.costruito_dall_sdk(errore):
+                    self._senza_dati(str(errore), "derivata")
+
+    @prova("messaggi.senza_dati")
+    def test_ogni_chiave_con_parametri_ostili(self) -> None:
+        """Per ogni chiave di `MESSAGGI`, ogni parametro del modello con ogni
+        forma di dato del chiamante: il testo non lo contiene, e l'errore
+        nasce comunque (`?` al posto del parametro)."""
+        import string
+
+        from plenora_io import errors
+
+        class StrSegreta(str):
+            pass
+
+        ostili = (
+            SEGRETO, SEGRETO_NOME, StrSegreta("catalog"), f"catalog.{SEGRETO_NOME}",
+            [SEGRETO], (SEGRETO, "null"), {SEGRETO: 1}, _StrSegreta(), Path(SEGRETO),
+            True, b"SEGRETO-9c1e", InvalidArgumentError(SEGRETO),
+        )
+        for chiave, modello in errors.MESSAGGI.items():
+            campi = [c for _, c, _, _ in string.Formatter().parse(modello) if c]
+            for ostile in ostili:
+                with self.subTest(chiave=chiave, ostile=type(ostile).__name__):
+                    errore = errors._dallo_sdk(
+                        InvalidArgumentError, chiave, **{c: ostile for c in campi})
+                    self.assertIs(type(errore), InvalidArgumentError)
+                    self.assertTrue(errors.costruito_dall_sdk(errore))
+                    self._senza_dati(str(errore), chiave)
+                    self.assertEqual(str(errore).count("?") >= len(campi), True)
+        # Una chiave fuori catalogo, o un parametro in piu', non e' un crash.
+        errore = errors._dallo_sdk(InvalidArgumentError, SEGRETO, extra=SEGRETO)
+        self.assertEqual(str(errore), errors.MESSAGGI["sdk.sconosciuto"])
+        # I parametri del vocabolario si scrivono come sono.
+        errore = errors._dallo_sdk(
+            ProtocolError, "protocollo.tipo_campo",
+            dove="catalog.drivers[]", campo="id", tipo="integer",
+            ammessi=("una stringa", "null"))
+        self.assertEqual(
+            str(errore),
+            "catalog.drivers[].id e' integer e non una stringa o null, come il "
+            "protocollo v2 lo dichiara.")
+
+    def test_ogni_chiamata_alla_fabbrica_usa_una_chiave_del_catalogo(self) -> None:
+        """Inventario sull'AST: ogni `_dallo_sdk` nei sorgenti ha come chiave
+        un letterale di `MESSAGGI`; ogni `_dallo_sdk_strutturato` costruisce
+        `BinaryNotFound`, `ProfileError` o -- in `_failure_from_envelope` --
+        la classe della busta."""
+        import ast
+
+        from plenora_io import errors
+
+        cartella = Path(errors.__file__).parent
+        difformi = []
+        for file in sorted(cartella.glob("*.py")):
+            albero = ast.parse(file.read_text(encoding="utf-8"))
+            for funzione in ast.walk(albero):
+                if not isinstance(funzione, ast.FunctionDef):
+                    continue
+                for nodo in ast.walk(funzione):
+                    if not (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name)):
+                        continue
+                    dove = f"{file.name}:{nodo.lineno}"
+                    if nodo.func.id == "_dallo_sdk":
+                        chiave = nodo.args[1] if len(nodo.args) > 1 else None
+                        if not (isinstance(chiave, ast.Constant)
+                                and chiave.value in errors.MESSAGGI):
+                            difformi.append(dove)
+                    elif nodo.func.id == "_dallo_sdk_strutturato":
+                        classe = nodo.args[0]
+                        ammessa = isinstance(classe, ast.Name) and (
+                            classe.id in ("BinaryNotFound", "ProfileError")
+                            or (classe.id == "classe"
+                                and funzione.name == "_failure_from_envelope"))
+                        if not ammessa:
+                            difformi.append(dove)
+        self.assertEqual(difformi, [])
 
 
 if __name__ == "__main__":

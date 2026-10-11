@@ -67,26 +67,35 @@ def _unico_argomento(nome: str, argomenti: tuple[Any, ...], opzioni: dict[str, A
     il messaggio non nomina niente di cio' che si e' passato.
     """
     if opzioni or len(argomenti) > 1:
-        raise _dallo_sdk(InvalidArgumentError, f"`{nome}` vuole al piu' un argomento, per posizione.")
+        raise _dallo_sdk(InvalidArgumentError, "contenitore.argomenti", nome=nome)
     return argomenti[0] if argomenti else predefinito
 
 
-def _intero_o_niente(valore: Any, dove: str) -> int | None:
-    """`None`, o l'intero esatto: `__index__` del chiamante non gira mai."""
+def _intero_o_niente(valore: Any, quale: str) -> int | None:
+    """`None`, o l'intero esatto: `__index__` del chiamante non gira mai.
+
+    `quale` dice di che componente si tratta, e sceglie il messaggio.
+    """
     if valore is None:
         return None
     tipo = type(valore)
     if tipo is bool or not issubclass(tipo, int):
-        raise _dallo_sdk(InvalidArgumentError, f"{dove} e' un intero o `None`.")
+        if quale == "passo":
+            raise _dallo_sdk(InvalidArgumentError, "elenco.passo_non_intero")
+        if quale == "inizio":
+            raise _dallo_sdk(InvalidArgumentError, "elenco.inizio_non_intero")
+        if quale == "fine":
+            raise _dallo_sdk(InvalidArgumentError, "elenco.fine_non_intero")
+        raise _dallo_sdk(InvalidArgumentError, "elenco.limite_non_intero")
     return int.__index__(valore)
 
 
 def _immutabile_elenco(self: Any, *argomenti: Any, **opzioni: Any) -> Any:
-    raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
+    raise _dallo_sdk(InvalidArgumentError, "elenco.immutabile")
 
 
 def _immutabile_dizionario(self: Any, *argomenti: Any, **opzioni: Any) -> Any:
-    raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
+    raise _dallo_sdk(InvalidArgumentError, "dizionario.immutabile")
 
 
 class FrozenList(Sequence):
@@ -114,7 +123,7 @@ class FrozenList(Sequence):
 
     def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenList":
         if cls is not FrozenList:
-            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` non si estende.")
+            raise _dallo_sdk(InvalidArgumentError, "contenitore.non_si_estende", nome='FrozenList')
         elementi = _unico_argomento("FrozenList", argomenti, opzioni, ())
         tipo = type(elementi)
         if tipo is FrozenList:
@@ -124,20 +133,20 @@ class FrozenList(Sequence):
         elif issubclass(tipo, tuple):
             sorgente = tuple.__iter__(elementi)
         else:
-            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` vuole un elenco.")
+            raise _dallo_sdk(InvalidArgumentError, "elenco.vuole_elenco")
         try:
             dati = tuple(_esatto(v, "FrozenList") for v in sorgente)
         except RecursionError:
-            raise _dallo_sdk(InvalidArgumentError, "`FrozenList` e' annidato troppo a fondo.") from None
+            raise _dallo_sdk(InvalidArgumentError, "modello.annidato", dove='FrozenList') from None
         istanza = object.__new__(cls)
         object.__setattr__(istanza, "_dati", dati)
         return istanza
 
     def __setattr__(self, nome: str, valore: Any) -> None:
-        raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "elenco.immutabile")
 
     def __delattr__(self, nome: str) -> None:
-        raise _dallo_sdk(InvalidArgumentError, "un elenco di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "elenco.immutabile")
 
     def __getitem__(self, indice: Any) -> Any:
         dati = object.__getattribute__(self, "_dati")
@@ -146,21 +155,21 @@ class FrozenList(Sequence):
             # `tuple` con lo slice del chiamante eseguiva il loro `__index__`,
             # e cio' che sollevava -- anche un errore dell'SDK con un dato --
             # usciva intatto.
-            passo = _intero_o_niente(indice.step, "il passo di uno slice")
+            passo = _intero_o_niente(indice.step, "passo")
             if passo == 0:
-                raise _dallo_sdk(InvalidArgumentError, "il passo di uno slice non puo' essere zero.")
+                raise _dallo_sdk(InvalidArgumentError, "elenco.passo_zero")
             esatto = slice(
-                _intero_o_niente(indice.start, "l'inizio di uno slice"),
-                _intero_o_niente(indice.stop, "la fine di uno slice"),
+                _intero_o_niente(indice.start, "inizio"),
+                _intero_o_niente(indice.stop, "fine"),
                 passo,
             )
             return FrozenList(list(dati[esatto]))
         if type(indice) is bool or not issubclass(type(indice), int):
-            raise _dallo_sdk(InvalidArgumentError, "l'indice di un elenco e' un intero.")
+            raise _dallo_sdk(InvalidArgumentError, "elenco.indice_non_intero")
         posizione = int.__index__(indice)
         if not -len(dati) <= posizione < len(dati):
             # Anche un `IndexError`: il protocollo di `Sequence` lo riconosce.
-            raise _dallo_sdk(ResultLookupError, "indice oltre l'elenco.")
+            raise _dallo_sdk(ResultLookupError, "elenco.indice_oltre")
         return dati[posizione]
 
     def __len__(self) -> int:
@@ -182,17 +191,15 @@ class FrozenList(Sequence):
         # `inizio` e `fine` sono interi esatti o `None` prima dell'uso, come i
         # componenti di uno slice: `tuple.index` ne chiamava `__index__`.
         if opzioni or len(argomenti) > 2:
-            raise _dallo_sdk(InvalidArgumentError,
-                "`index()` vuole il valore e, per posizione, al piu' inizio e fine."
-            )
-        limiti = [_intero_o_niente(a, "un limite di `index()`") for a in argomenti]
+            raise _dallo_sdk(InvalidArgumentError, "elenco.index_argomenti")
+        limiti = [_intero_o_niente(a, "limite") for a in argomenti]
         cercato = _esatto(valore, "FrozenList")
         dati = object.__getattribute__(self, "_dati")
         inizio, fine, _ = slice(*(limiti + [None] * (2 - len(limiti)))).indices(len(dati))
         for posizione in range(inizio, fine):
             if dati[posizione] == cercato:
                 return posizione
-        raise _dallo_sdk(ResultLookupError, "valore assente dall'elenco.")
+        raise _dallo_sdk(ResultLookupError, "elenco.valore_assente")
 
     def count(self, valore: Any) -> int:
         cercato = _esatto(valore, "FrozenList")
@@ -244,7 +251,7 @@ class FrozenDict(Mapping):
 
     def __new__(cls, *argomenti: Any, **opzioni: Any) -> "FrozenDict":
         if cls is not FrozenDict:
-            raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` non si estende.")
+            raise _dallo_sdk(InvalidArgumentError, "contenitore.non_si_estende", nome='FrozenDict')
         coppie = _unico_argomento("FrozenDict", argomenti, opzioni, None)
         tipo = type(coppie)
         if coppie is None:
@@ -254,39 +261,46 @@ class FrozenDict(Mapping):
         elif issubclass(tipo, dict):
             sorgente = dict.items(coppie)
         else:
-            raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` vuole un dizionario.")
+            raise _dallo_sdk(InvalidArgumentError, "dizionario.vuole_dizionario")
         dati: dict[str, Any] = {}
         for chiave, valore in sorgente:
             if not issubclass(type(chiave), str):
-                raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` ha una chiave che non e' una stringa.")
+                raise _dallo_sdk(
+                    InvalidArgumentError, "modello.chiave_non_stringa",
+                    dove='FrozenDict',
+                )
             esatta = str.join("", [chiave])
             if esatta in dati:
-                raise _dallo_sdk(InvalidArgumentError,
-                    "`FrozenDict` ha due chiavi che normalizzate coincidono."
+                raise _dallo_sdk(
+                    InvalidArgumentError, "modello.chiavi_coincidenti",
+                    dove='FrozenDict',
                 )
             try:
                 dati[esatta] = _esatto(valore, "FrozenDict")
             except RecursionError:
-                raise _dallo_sdk(InvalidArgumentError, "`FrozenDict` e' annidato troppo a fondo.") from None
+                raise _dallo_sdk(
+                    InvalidArgumentError, "modello.annidato",
+                    dove='FrozenDict',
+                ) from None
         istanza = object.__new__(cls)
         object.__setattr__(istanza, "_dati", dati)
         return istanza
 
     def __setattr__(self, nome: str, valore: Any) -> None:
-        raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "dizionario.immutabile")
 
     def __delattr__(self, nome: str) -> None:
-        raise _dallo_sdk(InvalidArgumentError, "un dizionario di un risultato dell'SDK e' immutabile.")
+        raise _dallo_sdk(InvalidArgumentError, "dizionario.immutabile")
 
     def __getitem__(self, chiave: Any) -> Any:
         # `ResultLookupError` e' anche un `KeyError`: `get()` e `in` di
         # `Mapping` lo riconoscono. Il messaggio non nomina la chiave.
         if not issubclass(type(chiave), str):
-            raise _dallo_sdk(ResultLookupError, "chiave non testuale.")
+            raise _dallo_sdk(ResultLookupError, "dizionario.chiave_non_testuale")
         dati = object.__getattribute__(self, "_dati")
         esatta = str.join("", [chiave])
         if esatta not in dati:
-            raise _dallo_sdk(ResultLookupError, "chiave assente dal dizionario.")
+            raise _dallo_sdk(ResultLookupError, "dizionario.chiave_assente")
         return dati[esatta]
 
     def __len__(self) -> int:

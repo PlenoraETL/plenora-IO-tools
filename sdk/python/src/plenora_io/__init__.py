@@ -146,12 +146,9 @@ def version() -> str:
     try:
         letta = _metadata.version(DISTRIBUTION)
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _dallo_sdk(PackageMetadataError,
-            "i metadati del pacchetto `plenora-io` non si leggono: il pacchetto "
-            "non e' installato in questo ambiente."
-        ) from None
+        raise _dallo_sdk(PackageMetadataError, "pacchetto.non_installato") from None
     if type(letta) is not str:
-        raise _dallo_sdk(PackageMetadataError, "i metadati del pacchetto non portano una versione.")
+        raise _dallo_sdk(PackageMetadataError, "pacchetto.senza_versione")
     return letta
 
 __all__ = [

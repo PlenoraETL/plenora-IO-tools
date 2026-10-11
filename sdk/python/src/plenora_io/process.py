@@ -156,16 +156,9 @@ class Completed:
         return self.stdout if name == "stdout" else self.stderr
 
 
-def _quanto(testo: str) -> str:
-    """Quanto un flusso contiene, mai che cosa.
-
-    I messaggi riportavano i primi duecento caratteri di stdout o stderr. Su
-    un flusso che non e' la busta attesa quei caratteri possono essere
-    qualunque cosa -- anche valori del file letto -- e un errore non porta
-    dati. Restano la lunghezza e il flusso; il contenuto lo legge chi esegue
-    il binario a mano.
-    """
-    return f"{len(testo)} caratteri, contenuto non riportato"
+def _nome_del_comando(argv: Any) -> str:
+    """Il sottocomando per i messaggi, dall'elenco chiuso; `?` altrimenti."""
+    return sottocomando(argv) or "?"
 
 
 def comando(argv: list[str]) -> str:
@@ -195,9 +188,11 @@ def _testo(dati: bytes, argv: list[str], flusso: str) -> str:
         return dati.decode("utf-8")
     except UnicodeDecodeError:
         raise _con_effetto_ignoto(
-            _dallo_sdk(ProtocolError,
-                f"{comando(argv)} ha scritto su {flusso} byte che non sono "
-                f"UTF-8 ({len(dati)} byte, contenuto non riportato)."
+            _dallo_sdk(
+                ProtocolError, "processo.non_utf8",
+                comando=_nome_del_comando(argv),
+                flusso=flusso,
+                byte=len(dati),
             ),
             argv,
         ) from None
@@ -254,7 +249,7 @@ def _argv_esatto(argv: Any) -> list[str]:
     come gli argomenti dei metodi del client.
     """
     if type(argv) is not list and type(argv) is not tuple:
-        raise _dallo_sdk(InvalidArgumentError, "`argv` non e' una lista di stringhe.")
+        raise _dallo_sdk(InvalidArgumentError, "processo.argv")
     return [testo(elemento, "argv") for elemento in argv]
 
 
@@ -323,17 +318,17 @@ class Runner:
             # il confine per chi usa `Runner` direttamente. Niente e' partito,
             # quindi l'effetto e' `none`, e il testo dell'eccezione -- che
             # puo' citare l'argomento -- resta fuori.
-            raise _dallo_sdk(InvalidArgumentError,
-                f"un argomento di {comando(argv)} non si puo' passare a un "
-                "processo: contiene un carattere NUL o non e' testo."
+            raise _dallo_sdk(
+                InvalidArgumentError, "processo.argomento_non_passabile",
+                comando=_nome_del_comando(argv),
             ) from None
         except OSError:
             # Il processo non e' partito: niente puo' essere stato scritto, e
             # l'effetto resta `none`. Il testo dell'errore del sistema non
             # entra nel messaggio.
-            errore = _dallo_sdk(ProtocolError,
-                f"il binario di plenora-io non si e' potuto eseguire per "
-                f"{comando(argv)}."
+            errore = _dallo_sdk(
+                ProtocolError, "processo.non_eseguibile",
+                comando=_nome_del_comando(argv),
             )
             raise _ricostruito(errore, _non_partito=True) from None
 
@@ -349,9 +344,9 @@ class Runner:
             raise
         except Exception:  # noqa: BLE001 - l'uscita dal `with` di `Popen`
             self._chiudi(processo)
-            raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
-                f"la chiusura del processo di {comando(argv)} non e' riuscita: "
-                "l'esito non si conosce."
+            raise _con_effetto_ignoto(_dallo_sdk(
+                ProtocolError, "processo.chiusura",
+                comando=_nome_del_comando(argv),
             ), argv) from None
 
         return Completed(
@@ -372,18 +367,16 @@ class Runner:
                 # significherebbe restituire il controllo a chi chiama con un
                 # binario che continua a scrivere sulla destinazione.
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
-                    f"{comando(argv)} non ha risposto entro {self._timeout}s ed "
-                    "e' stato terminato. Il timeout lo sceglie chi chiama, e "
-                    "questo errore non dice che il comando sia fallito: dice "
-                    "che non si sa, e che una destinazione parziale puo' essere "
-                    "rimasta."
+                raise _con_effetto_ignoto(_dallo_sdk(
+                    ProtocolError, "processo.timeout",
+                    comando=_nome_del_comando(argv),
+                    secondi=self._timeout,
                 ), argv) from None
             except (OSError, ValueError):
                 self._chiudi(processo)
-                raise _con_effetto_ignoto(_dallo_sdk(ProtocolError,
-                    f"la comunicazione con {comando(argv)} e' fallita mentre il "
-                    "processo era in corso: l'esito non si conosce."
+                raise _con_effetto_ignoto(_dallo_sdk(
+                    ProtocolError, "processo.comunicazione",
+                    comando=_nome_del_comando(argv),
                 ), argv) from None
         return stdout, stderr
 
@@ -413,11 +406,10 @@ class Runner:
             # Il v2 tace su stderr quando riesce. Non e' pignoleria: e' la sola
             # affermazione che rende quel flusso utilizzabile da chi compone la
             # CLI in una pipeline, e tollerarne la violazione la toglierebbe.
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' riuscito e ha "
-                "scritto su stderr, dove il protocollo v2 non mette niente in "
-                "caso di successo. L'SDK parla v2: un altro protocollo si "
-                f"sceglie, non si deduce. stderr: {_quanto(completed.stderr)}."
+            raise _dallo_sdk(
+                ProtocolError, "processo.stderr_successo",
+                comando=_nome_del_comando(completed.argv),
+                caratteri=len(completed.stderr),
             )
         documento = self._decode(completed, "stdout")
         stato = documento.get("status")
@@ -425,10 +417,10 @@ class Runner:
             # Un'uscita a zero con una busta che non si dichiara riuscita: il
             # protocollo non lo prevede, e leggerla come successo darebbe per
             # buono un documento che il prodotto non ha dichiarato tale.
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' uscito con zero e "
-                f"ha scritto su stdout una busta di stato {_stato(stato)}: il "
-                "protocollo non prevede questa combinazione."
+            raise _dallo_sdk(
+                ProtocolError, "processo.stato_successo",
+                comando=_nome_del_comando(completed.argv),
+                stato=_stato(stato),
             )
         # Al chiamante interessa il **risultato**, non la busta che lo avvolge.
         #
@@ -441,11 +433,9 @@ class Runner:
         # chiama.
         risultato = documento.get("result")
         if _tipo(risultato) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' riuscito ma la sua "
-                "busta non porta un oggetto `result`: il protocollo mette li' i "
-                "dati dell'operazione, e senza non c'e' un risultato da "
-                "consegnare."
+            raise _dallo_sdk(
+                ProtocolError, "processo.senza_result",
+                comando=_nome_del_comando(completed.argv),
             )
         return risultato
 
@@ -458,20 +448,20 @@ class Runner:
         # della busta gli dice quale dei due ha in mano.
         documento = self._decode(completed, "stdout")
         if documento.get("status") != "error":
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' uscito con "
-                f"{completed.exit_code} e ha scritto su stdout una busta di "
-                f"stato {_stato(documento.get('status'))}: un'uscita diversa da zero "
-                "porta una busta d'errore."
+            raise _dallo_sdk(
+                ProtocolError, "processo.stato_errore",
+                comando=_nome_del_comando(completed.argv),
+                uscita=completed.exit_code,
+                stato=_stato(documento.get('status')),
             )
         if completed.stderr != "":
             # Vale anche sul percorso d'errore, e non solo su quello riuscito:
             # una diagnostica scritta accanto alla busta e' esattamente cio'
             # che rende il flusso inutilizzabile per chi lo analizza.
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' fallito e ha "
-                "scritto su stderr, dove il protocollo non mette niente. "
-                f"stderr: {_quanto(completed.stderr)}."
+            raise _dallo_sdk(
+                ProtocolError, "processo.stderr_errore",
+                comando=_nome_del_comando(completed.argv),
+                caratteri=len(completed.stderr),
             )
         return documento
 
@@ -480,11 +470,13 @@ class Runner:
         testo = completed.stream(stream)
         if not testo.strip():
             altro = "stderr" if stream == "stdout" else "stdout"
-            raise _dallo_sdk(ProtocolError,
-                f"{comando(completed.argv)} e' uscito con "
-                f"{completed.exit_code} e non ha scritto niente su {stream}, "
-                f"dove il protocollo mette la busta. "
-                f"{altro}: {_quanto(completed.stream(altro))}."
+            raise _dallo_sdk(
+                ProtocolError, "processo.flusso_vuoto",
+                comando=_nome_del_comando(completed.argv),
+                uscita=completed.exit_code,
+                flusso=stream,
+                altro=altro,
+                caratteri=len(completed.stream(altro)),
             )
         try:
             documento = carica_json(testo)
@@ -493,13 +485,17 @@ class Runner:
             # annidamento, interi oltre il limite di cifre -- e qui gli si
             # aggiunge da dove viene. `from None`: la catena non serve a chi
             # legge, e il messaggio di `carica_json` non porta il testo.
-            raise _dallo_sdk(ProtocolError,
-                f"cio' che {comando(completed.argv)} ha scritto su {stream} "
-                f"non si legge: {errore}; {_quanto(testo)}."
+            raise _dallo_sdk(
+                ProtocolError, "processo.busta_illeggibile",
+                comando=_nome_del_comando(completed.argv),
+                flusso=stream,
+                errore=errore,
+                caratteri=len(testo),
             ) from None
         if _tipo(documento) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"la busta su {stream} e' {_tipo(documento)} e non un "
-                "oggetto JSON."
+            raise _dallo_sdk(
+                ProtocolError, "processo.busta_non_oggetto",
+                flusso=stream,
+                tipo=_tipo(documento),
             )
         return documento

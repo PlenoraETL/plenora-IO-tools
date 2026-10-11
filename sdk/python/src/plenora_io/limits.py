@@ -96,9 +96,7 @@ class Limits:
             if campo.name == Limits.DURATA:
                 esatta = durata(valore, nome)
                 if not 0 <= _millisecondi(esatta) < OLTRE_U64:
-                    raise _dallo_sdk(InvalidArgumentError,
-                        f"`{nome}` e' fuori dall'intervallo che la CLI rappresenta (64 bit)."
-                    )
+                    raise _dallo_sdk(InvalidArgumentError, "arg.fuori_64", nome=nome)
                 object.__setattr__(self, campo.name, esatta)
             else:
                 object.__setattr__(self, campo.name, _int_esatto(valore, nome))

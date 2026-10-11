@@ -1383,7 +1383,13 @@ prossima release è percio' una **major** (5.0.0).
   `str()` di `CommandFailed` si compone dalla busta fissata, come `message` e
   `to_dict()`. `from_json` dei modelli legge lo schema dalla classe
   dell'SDK, non da una sottoclasse: gli `OBBLIGATORI` ridefiniti da una
-  sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio. Cio' che esce
+  sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio.
+  I messaggi degli errori fidati vengono da un catalogo chiuso di modelli
+  (`errors.MESSAGGI`), con parametri da un vocabolario chiuso: un parametro
+  fuori vocabolario si scrive `?`. Alcuni messaggi cambiano di poco (per
+  esempio `plenora-io ?` quando l'argomento non e' un sottocomando noto). Un
+  metodo dell'SDK chiamato non legato su un oggetto di un'altra classe e'
+  `InvalidArgumentError` prima di eseguire. Cio' che esce
   da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
   il chiamante usa l'SDK dentro un proprio `except`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,

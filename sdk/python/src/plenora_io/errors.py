@@ -203,10 +203,7 @@ def _sigillato(errore: Any) -> "InvalidArgumentError":
     # sottoclasse del chiamante puo' chiamarsi come vuole.
     from .confine import nome_sdk  # noqa: PLC0415 - confine importa questo modulo
 
-    return _dallo_sdk(InvalidArgumentError,
-        f"`{nome_sdk(type(errore))}` e' gia' costruito: lo stato di un errore "
-        "dell'SDK non si modifica."
-    )
+    return _dallo_sdk(InvalidArgumentError, "errore.stato_sigillato", nome=nome_sdk(type(errore)))
 
 
 def _modificabile(errore: Any, nome: Any) -> bool:
@@ -231,23 +228,550 @@ def classe_dell_sdk(tipo: type) -> bool:
     )
 
 
-def _dallo_sdk(classe: Any, *argomenti: Any, **opzioni: Any) -> Any:
+# --- il catalogo dei messaggi e il vocabolario dei parametri -----------------
+#
+# Tredicesimo giro di revisione: in dodici giri, ogni volta un nome dinamico
+# diverso -- un `dove`, un nome di campo letto da `dataclasses.fields`, un
+# attributo di una sottoclasse -- finiva nel messaggio di un errore fidato. La
+# classe si chiude nella fabbrica: `_dallo_sdk` non accetta testo, ma una
+# **chiave** di `MESSAGGI` e dei parametri, e ogni parametro passa da
+# `_parametro`, che lo rende solo se appartiene a un vocabolario chiuso. Fuori
+# vocabolario diventa `?`: nessun errore smette di nascere per un parametro
+# sbagliato, e nessun dato del chiamante arriva nel testo, da qualunque via.
+
+#: I modelli fissi dei messaggi degli errori dell'SDK. Le chiavi sono le sole
+#: ammesse da `_dallo_sdk`; una prova sull'AST verifica che ogni chiamata ne usi
+#: una letterale, e una seconda prova prova ogni chiave con parametri ostili.
+MESSAGGI: dict[str, str] = {
+    # la fabbrica e la ricostruzione
+    "sdk.sconosciuto": "errore dell'SDK senza un messaggio a catalogo.",
+    "fabbrica.non_sdk": "solo un errore dell'SDK nasce dalla fabbrica.",
+    "ricostruito.pubblico": "`ricostruito` pubblica non sostituisce lo stato di un errore.",
+    "ricostruito.non_sdk": "solo un errore dell'SDK si ricostruisce.",
+    "ricostruito.voce": "una voce dello stato di un errore non si sostituisce.",
+    "copia.stato_estraneo": "lo stato non e' quello di un errore dell'SDK.",
+    "copia.senza_messaggio": "lo stato di un errore dell'SDK non ha un messaggio.",
+    "copia.voce": "lo stato di un errore dell'SDK ha una voce non ammessa.",
+    "errore.stato_sigillato": (
+        "`{nome}` e' gia' costruito: lo stato di un errore dell'SDK non si modifica."
+    ),
+    "errore.gia_costruito": (
+        "`{nome}` e' gia' costruito: un errore dell'SDK non si reinizializza."
+    ),
+    "effetto.non_valido": "`remote_effect` non e' un effetto di `plenora-error-v1`.",
+    "fallimento.envelope": "`envelope` non e' un `ErrorEnvelope`.",
+    "fallimento.exit_code": "`exit_code` non e' un intero.",
+    # il pacchetto
+    "pacchetto.senza_versione": "i metadati del pacchetto non portano una versione.",
+    "pacchetto.non_installato": (
+        "i metadati del pacchetto `plenora-io` non si leggono: il pacchetto "
+        "non e' installato in questo ambiente."
+    ),
+    # gli argomenti
+    "arg.non_stringa": "`{nome}` non e' una stringa.",
+    "arg.stringa_illeggibile": "`{nome}` non si lascia leggere come stringa.",
+    "arg.nul": (
+        "`{nome}` contiene un carattere NUL, che un argomento di processo non puo' portare."
+    ),
+    "arg.non_utf8": "`{nome}` contiene un carattere che non si codifica in UTF-8.",
+    "arg.non_intero": "`{nome}` non e' un intero.",
+    "arg.intero_illeggibile": "`{nome}` non si lascia leggere come intero.",
+    "arg.fuori_64": "`{nome}` e' fuori dall'intervallo che la CLI rappresenta (64 bit).",
+    "arg.non_percorso": "`{nome}` non e' un percorso: serve una `str` o un `os.PathLike`.",
+    "arg.percorso_illeggibile": "`{nome}` non si lascia leggere come percorso.",
+    "arg.percorso_non_testo": (
+        "`{nome}` non e' un percorso di testo: serve una `str` o un `os.PathLike[str]`."
+    ),
+    "arg.non_booleano": "`{nome}` non e' un booleano.",
+    "arg.non_dizionario": "`{nome}` non e' un dizionario di stringhe.",
+    "arg.dizionario_illeggibile": "`{nome}` non si lascia leggere come dizionario.",
+    "arg.non_coppie": "`{nome}` non rende coppie chiave-valore.",
+    "arg.chiave_con_uguale": (
+        "`{nome}` ha una chiave che contiene `=`: la CLI divide al primo `=`, e "
+        "la coppia arriverebbe con un'altra chiave."
+    ),
+    "arg.chiave_ripetuta": "`{nome}` ripete una chiave.",
+    "arg.non_durata": "`{nome}` non e' un `timedelta`.",
+    "arg.durata_illeggibile": "`{nome}` non si lascia leggere come durata.",
+    "arg.non_limits": "`{nome}` non e' un `Limits`.",
+    "arg.illeggibile": "`{nome}` non si lascia leggere.",
+    "arg.non_secondi": "`{nome}` non e' un numero di secondi.",
+    "arg.numero_illeggibile": "`{nome}` non si lascia leggere come numero.",
+    "arg.secondi_non_positivi": "`{nome}` non e' un numero di secondi positivo e finito.",
+    # l'adattatore Arrow
+    "arrow.assente": (
+        "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
+        "si importa: installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
+    ),
+    "arrow.serie": (
+        "l'adattatore Arrow e' provato con pyarrow {attesa}.x e l'ambiente ne ha "
+        "un'altra serie ({serie}.x): installa l'extra `plenora-io[pyarrow]`."
+    ),
+    "arrow.non_arrow": (
+        "la sorgente non e' un percorso e non espone `__arrow_c_stream__`: "
+        "write() accetta un file Arrow IPC o un oggetto Arrow "
+        "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
+    ),
+    "arrow.illeggibile": (
+        "la sorgente Arrow non si e' potuta leggere come stream: il produttore "
+        "di `__arrow_c_stream__` ha sollevato, o pyarrow non ne legge lo stream."
+    ),
+    "arrow.non_scrivibile": (
+        "il file Arrow IPC temporaneo non si e' potuto scrivere nella "
+        "directory temporanea."
+    ),
+    "arrow.content_type": (
+        "la consegna dichiara un content type che non e' una delle due "
+        "serializzazioni Arrow IPC: l'adattatore non indovina come leggerla."
+    ),
+    "arrow.consegna_illeggibile": (
+        "il file che `read` dichiara di aver consegnato non si legge come "
+        "Arrow IPC nella serializzazione dichiarata."
+    ),
+    "arrow.cartella": (
+        "la directory temporanea dell'adattatore Arrow non si e' potuta "
+        "creare: `temp_dir` non esiste o non si puo' scrivere."
+    ),
+    "arrow.pulizia": (
+        "l'operazione e' riuscita e la directory temporanea "
+        "dell'adattatore Arrow non si e' potuta cancellare: va tolta a mano."
+    ),
+    # il client
+    "client.consegna_non_dichiarata": (
+        "`read` con una destinazione e' riuscito senza dichiarare "
+        "la consegna: non si sa che cosa leggere."
+    ),
+    "client.non_decodifica": (
+        "il risultato di `plenora-io {comando}` non si decodifica nel modello {modello}."
+    ),
+    # la rete e i modelli
+    "rete.imprevisto": (
+        "errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
+        "esterna e' stata intercettata al confine, senza il suo testo."
+    ),
+    "rete.self_estraneo": (
+        "un metodo dell'SDK e' stato chiamato su un oggetto che non e' della sua classe."
+    ),
+    "modello.non_sdk": "il modello non deriva da una classe dell'SDK.",
+    "modello.oggetto_non_ammesso": (
+        "`{dove}` contiene un oggetto di un tipo che un risultato dell'SDK non porta."
+    ),
+    "modello.alterato": (
+        "il modello contiene un valore che un risultato dell'SDK non porta: "
+        "e' stato alterato fuori contratto."
+    ),
+    "modello.immutabile": "`{nome}` e' immutabile: un risultato dell'SDK non si modifica.",
+    "modello.gia_costruito": (
+        "`{nome}` e' gia' costruito: un risultato dell'SDK non si reinizializza."
+    ),
+    "modello.post_init": (
+        "`{nome}` e' gia' costruito: `__post_init__` gira solo nel costruttore, "
+        "e un risultato dell'SDK non si rinormalizza."
+    ),
+    "modello.chiave_non_stringa": "`{dove}` ha una chiave che non e' una stringa.",
+    "modello.chiavi_coincidenti": "`{dove}` ha due chiavi che normalizzate coincidono.",
+    "modello.annidato": "`{dove}` e' annidato troppo a fondo.",
+    # i contenitori
+    "elenco.immutabile": "un elenco di un risultato dell'SDK e' immutabile.",
+    "dizionario.immutabile": "un dizionario di un risultato dell'SDK e' immutabile.",
+    "contenitore.argomenti": "`{nome}` vuole al piu' un argomento, per posizione.",
+    "contenitore.non_si_estende": "`{nome}` non si estende.",
+    "elenco.vuole_elenco": "`FrozenList` vuole un elenco.",
+    "dizionario.vuole_dizionario": "`FrozenDict` vuole un dizionario.",
+    "elenco.passo_non_intero": "il passo di uno slice e' un intero o `None`.",
+    "elenco.inizio_non_intero": "l'inizio di uno slice e' un intero o `None`.",
+    "elenco.fine_non_intero": "la fine di uno slice e' un intero o `None`.",
+    "elenco.limite_non_intero": "un limite di `index()` e' un intero o `None`.",
+    "elenco.passo_zero": "il passo di uno slice non puo' essere zero.",
+    "elenco.indice_non_intero": "l'indice di un elenco e' un intero.",
+    "elenco.indice_oltre": "indice oltre l'elenco.",
+    "elenco.index_argomenti": (
+        "`index()` vuole il valore e, per posizione, al piu' inizio e fine."
+    ),
+    "elenco.valore_assente": "valore assente dall'elenco.",
+    "dizionario.chiave_non_testuale": "chiave non testuale.",
+    "dizionario.chiave_assente": "chiave assente dal dizionario.",
+    # le ricerche nei risultati
+    "ricerca.driver": "nessun driver con l'id richiesto nel catalogo.",
+    "ricerca.campo": "nessun campo con il nome richiesto nel layer.",
+    "ricerca.layer": "nessun layer con il nome richiesto nel file.",
+    "ricerca.layer_conversione": "nessun layer con il nome richiesto nella conversione.",
+    "ricerca.operazione": "nessuna operazione con l'id richiesto.",
+    # la scoperta e il manifesto
+    "binario.ricerca_path": (
+        "la ricerca del binario nel `PATH` non si e' potuta fare: una voce "
+        "del `PATH` non si esamina."
+    ),
+    "fs.non_esaminabile": (
+        "{che_cosa} non si e' potuto esaminare: un permesso o un guasto del "
+        "filesystem impedisce di dire se c'e'."
+    ),
+    "fs.non_risolvibile": "{che_cosa} non si e' potuto risolvere in un percorso assoluto.",
+    "manifesto.non_oggetto": "MANIFEST.json e' {tipo} e non un oggetto.",
+    "manifesto.mancanti": (
+        "MANIFEST.json senza i campi {mancanti}. Sono fra quelli che "
+        "entrambi i costruttori devono scrivere, e uno che manca vuol "
+        "dire che l'artefatto non e' stato prodotto dalla pipeline."
+    ),
+    "manifesto.tipo_campo": "MANIFEST.json: `{campo}` e' {tipo} e non {tipi}.",
+    "manifesto.da_errore": "{errore}",
+    "manifesto.illeggibile": "MANIFEST.json c'e' e non si legge.",
+    "manifesto.non_utf8": "MANIFEST.json c'e' e non e' UTF-8: l'artefatto e' guasto.",
+    "manifesto.non_json": (
+        "MANIFEST.json c'e' e non si legge come JSON: {errore} Un manifesto "
+        "rotto non e' un manifesto assente: l'artefatto e' guasto."
+    ),
+    "manifesto.non_oggetto_json": "MANIFEST.json non contiene un oggetto JSON.",
+    # JSON e la busta d'errore
+    "json.costante": "il documento contiene `{nome}`, che JSON non ha.",
+    "json.numero_infinito": (
+        "il documento contiene un numero che in doppia precisione non e' finito."
+    ),
+    "json.chiave_ripetuta": (
+        "il documento ripete una chiave nello stesso oggetto: "
+        "`json.loads` terrebbe in silenzio l'ultima."
+    ),
+    "json.non_valido": (
+        "il documento non e' JSON valido ({motivo}, riga {riga}, colonna {colonna})."
+    ),
+    "json.troppo_annidato": (
+        "il documento non e' JSON valido (annidamento oltre la profondita' "
+        "che il parser regge)."
+    ),
+    "json.non_convertibile": (
+        "il documento non e' JSON valido (un valore che il parser non converte, "
+        "come un intero oltre il limite di cifre)."
+    ),
+    "json.profondo": "`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare.",
+    "json.chiave_non_stringa": (
+        "`{dove}` ha, a profondita' {profondita}, una chiave {tipo} e non una stringa."
+    ),
+    "json.non_finito": (
+        "`{dove}` ha, a profondita' {profondita}, un numero non finito, che JSON non ha."
+    ),
+    "json.non_esatto": (
+        "`{dove}` ha, a profondita' {profondita}, un valore che non e' un tipo JSON esatto."
+    ),
+    "busta.non_oggetto": "la busta d'errore e' {tipo} e non un oggetto.",
+    "busta.senza_error": "la busta d'errore non porta l'oggetto `error` (e' {tipo}).",
+    "busta.mancanti": (
+        "busta d'errore senza i campi obbligatori {mancanti}. "
+        "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
+    ),
+    "busta.details": (
+        "`error.details` e' {tipo} e non un oggetto: lo schema `plenora-error-v1` "
+        "lo dichiara oggetto quando c'e'."
+    ),
+    "busta.details_row_diagnostics": (
+        "`error.details.row_diagnostics` e' {tipo} e non un oggetto."
+    ),
+    "busta.retry_non_oggetto": "`error.retry` e' {tipo} e non un oggetto `{{kind}}`.",
+    "busta.row_diagnostics": "`row_diagnostics` e' {tipo} e non un oggetto.",
+    "busta.campo_testuale": "`error.{campo}` e' {tipo} e non una stringa non vuota.",
+    "busta.effetto": (
+        "`error.remote_effect` ({tipo}) non e' nel vocabolario chiuso di "
+        "`plenora-error-v1`: {ammessi}. Senza sapere che cosa e' successo "
+        "dall'altra parte nessuna risposta su un ritentativo e' sicura."
+    ),
+    "busta.retry_kind": (
+        "`error.retry.kind` ({tipo}) non e' nel vocabolario chiuso di "
+        "`plenora-error-v1`: {ammessi}."
+    ),
+    "busta.retry_chiavi": (
+        "`error.retry` di tipo «{tipo}» ha {chiavi} chiavi e non esattamente "
+        "{attese}, come lo schema pretende."
+    ),
+    "busta.ritardo": (
+        "`error.retry.delay_ms` ({tipo}) non e' un intero fra 0 e {massimo}."
+    ),
+    "busta.effetto_ignoto": (
+        "`error.remote_effect` e' «unknown» e `error.retry.kind` e' «{tipo}»: lo "
+        "schema ammette soltanto {ammessi}, perche' un ritentativo non si "
+        "dichiara sicuro senza sapere che cosa e' successo."
+    ),
+    # i documenti dei modelli
+    "protocollo.non_oggetto": "{dove}: e' {tipo} e non un oggetto.",
+    "protocollo.mancanti": (
+        "{dove}: mancano i campi {mancanti}, che il protocollo v2 dichiara "
+        "sempre presenti. Il binario e' piu' vecchio dell'SDK, o il "
+        "documento non e' quello che dice di essere."
+    ),
+    "protocollo.tipo_campo": (
+        "{dove}.{campo} e' {tipo} e non {ammessi}, come il protocollo v2 lo dichiara."
+    ),
+    "protocollo.tipo_elemento": (
+        "{dove}.{campo}[{posizione}] e' {tipo} e non {ammessi}, come il "
+        "protocollo v2 lo dichiara."
+    ),
+    "protocollo.non_elenco": "{dove} e' {tipo} e non un elenco.",
+    "versione.campi_in_piu": (
+        "risultato di --version con {campi} campi in piu'. Il suo "
+        "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
+    ),
+    "capabilities.schema": (
+        "capabilities.schema_version non e' 2: l'SDK legge "
+        "`plenora-capabilities-v2` e non indovina un'altra forma."
+    ),
+    # il processo
+    "processo.argv": "`argv` non e' una lista di stringhe.",
+    "processo.argomento_non_passabile": (
+        "un argomento di `plenora-io {comando}` non si puo' passare a un "
+        "processo: contiene un carattere NUL o non e' testo."
+    ),
+    "processo.non_eseguibile": (
+        "il binario di plenora-io non si e' potuto eseguire per `plenora-io {comando}`."
+    ),
+    "processo.chiusura": (
+        "la chiusura del processo di `plenora-io {comando}` non e' riuscita: "
+        "l'esito non si conosce."
+    ),
+    "processo.timeout": (
+        "`plenora-io {comando}` non ha risposto entro {secondi}s ed e' stato "
+        "terminato. Il timeout lo sceglie chi chiama, e questo errore non dice "
+        "che il comando sia fallito: dice che non si sa, e che una destinazione "
+        "parziale puo' essere rimasta."
+    ),
+    "processo.comunicazione": (
+        "la comunicazione con `plenora-io {comando}` e' fallita mentre il "
+        "processo era in corso: l'esito non si conosce."
+    ),
+    "processo.non_utf8": (
+        "`plenora-io {comando}` ha scritto su {flusso} byte che non sono "
+        "UTF-8 ({byte} byte, contenuto non riportato)."
+    ),
+    "processo.stderr_successo": (
+        "`plenora-io {comando}` e' riuscito e ha scritto su stderr, dove il "
+        "protocollo v2 non mette niente in caso di successo. L'SDK parla v2: un "
+        "altro protocollo si sceglie, non si deduce. stderr: {caratteri} "
+        "caratteri, contenuto non riportato."
+    ),
+    "processo.stato_successo": (
+        "`plenora-io {comando}` e' uscito con zero e ha scritto su stdout una "
+        "busta di stato {stato}: il protocollo non prevede questa combinazione."
+    ),
+    "processo.senza_result": (
+        "`plenora-io {comando}` e' riuscito ma la sua busta non porta un oggetto "
+        "`result`: il protocollo mette li' i dati dell'operazione, e senza non "
+        "c'e' un risultato da consegnare."
+    ),
+    "processo.stato_errore": (
+        "`plenora-io {comando}` e' uscito con {uscita} e ha scritto su stdout "
+        "una busta di stato {stato}: un'uscita diversa da zero porta una busta "
+        "d'errore."
+    ),
+    "processo.stderr_errore": (
+        "`plenora-io {comando}` e' fallito e ha scritto su stderr, dove il "
+        "protocollo non mette niente. stderr: {caratteri} caratteri, contenuto "
+        "non riportato."
+    ),
+    "processo.flusso_vuoto": (
+        "`plenora-io {comando}` e' uscito con {uscita} e non ha scritto niente "
+        "su {flusso}, dove il protocollo mette la busta. {altro}: {caratteri} "
+        "caratteri, contenuto non riportato."
+    ),
+    "processo.busta_illeggibile": (
+        "cio' che `plenora-io {comando}` ha scritto su {flusso} non si legge: "
+        "{errore}; {caratteri} caratteri, contenuto non riportato."
+    ),
+    "processo.busta_non_oggetto": "la busta su {flusso} e' {tipo} e non un oggetto JSON.",
+}
+
+#: Le parole che l'SDK usa come contesto o come nome d'argomento nei messaggi,
+#: oltre ai nomi dei campi e delle classi (che `_vocabolario` raccoglie dagli
+#: schemi). Un parametro composto (`catalog.drivers[]`) e' ammesso quando ogni
+#: sua parte -- separata da `.`, con `[]` in coda tolto -- e' nel vocabolario.
+PAROLE_DEI_CONTESTI: frozenset[str] = frozenset({
+    # i documenti e le loro parti
+    "busta d'errore", "risultato di --version", "MANIFEST.json", "error", "details",
+    "retry", "row_diagnostics", "catalog", "drivers", "convert", "layers", "fidelity",
+    "omesse", "reasons", "format", "inspect", "layer", "fields", "geometry",
+    "crs_resolution", "loss", "counts", "esempi", "read", "delivered", "write",
+    "input", "capabilities", "interfaces", "operations", "controls",
+    # gli argomenti dei metodi
+    "binary", "temp_dir", "options", "read_options", "write_options", "output",
+    "destination", "source", "target", "source_format", "target_format",
+    "assume_crs", "durable", "limit", "limits", "timeout", "argv", "deadline",
+    # gli argomenti delle ricerche e le chiavi di `retry`
+    "identificatore", "categoria", "kind", "delay_ms",
+    # le chiavi del manifesto sul filo
+    "nome", "versione", "piattaforma", "profilo", "canale", "non_release", "revisione",
+    # i contenitori e i flussi
+    "FrozenList", "FrozenDict", "stdout", "stderr",
+    # le costanti che JSON non ha
+    "NaN", "Infinity", "-Infinity",
+    # che cosa la scoperta esamina
+    "il pacchetto installato", "un candidato del binario", "il percorso indicato",
+    "PLENORA_IO_BIN", "il binario accanto al pacchetto", "il binario dal PATH",
+    "il manifesto dell'artefatto",
+    # i nomi dei tipi JSON, nelle due forme
+    "null", "boolean", "integer", "number", "string", "array", "object", "non JSON",
+    "un elenco", "un oggetto", "una stringa", "un intero", "un booleano",
+    # lo stato della busta, come `process._stato` lo descrive
+    "«ok»", "«error»", "fuori vocabolario (null)", "fuori vocabolario (boolean)",
+    "fuori vocabolario (integer)", "fuori vocabolario (number)",
+    "fuori vocabolario (string)", "fuori vocabolario (array)",
+    "fuori vocabolario (object)", "fuori vocabolario (non JSON)",
+})
+
+#: I motivi che `json.JSONDecodeError` scrive, per `json.non_valido`.
+MOTIVI_JSON: frozenset[str] = frozenset({
+    "Expecting value", "Expecting ',' delimiter", "Expecting ':' delimiter",
+    "Expecting property name enclosed in double quotes", "Extra data",
+    "Unterminated string starting at", "Invalid control character at",
+    "Invalid \\escape", "Invalid \\uXXXX escape", "Invalid control character",
+    "Illegal trailing comma before end of object",
+    "Illegal trailing comma before end of array",
+})
+
+_vocabolario_fissato: frozenset[str] | None = None
+
+
+def _vocabolario() -> frozenset[str]:
+    """Le parole ammesse come parametro di un messaggio: un insieme chiuso.
+
+    Si costruisce dagli oggetti dell'SDK riconosciuti per identita' -- le
+    classi d'errore di questo modulo, i modelli di `confine.MODELLI`, i
+    contenitori, `Client` e `Runner` -- e dalle costanti di questo modulo:
+    nomi delle classi e dei loro attributi, campi e schemi dei modelli,
+    sottocomandi, categorie, effetti, tipi di ritentativo, profili, posti di
+    ricerca, `PAROLE_DEI_CONTESTI`, `MOTIVI_JSON`. Mai da `cls`, da un'istanza o
+    da un argomento. Si fissa la prima volta che i modelli sono registrati.
+    """
+    global _vocabolario_fissato
+    if _vocabolario_fissato is not None:
+        return _vocabolario_fissato
+    import dataclasses  # noqa: PLC0415
+
+    from .client import Client  # noqa: PLC0415 - il client importa questo modulo
+    from .confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
+    from .process import Runner  # noqa: PLC0415 - process importa questo modulo
+
+    parole: set[str] = set(PAROLE_DEI_CONTESTI) | set(MOTIVI_JSON)
+    parole |= SOTTOCOMANDI | EFFETTI_REMOTI | TIPI_DI_RITENTATIVO
+    parole |= set(PROFILI_NOTI) | set(POSTI_DI_RICERCA) | set(CATEGORIE)
+    classi = [
+        classe for classe in list(globals().values())
+        if type(classe) is type and issubclass(classe, PlenoraError)
+    ]
+    classi += [*MODELLI, FrozenList, FrozenDict, Client, Runner]
+    for classe in classi:
+        parole.add(type.__dict__["__name__"].__get__(classe, type))
+        parole.update(nome for nome in list(vars(classe)) if type(nome) is str)
+    for modello in MODELLI:
+        parole.update(campo.name for campo in dataclasses.fields(modello))
+        for schema in ("OBBLIGATORI", "PROPRI", "OPZIONALI", "ANNULLABILI"):
+            parole.update(v for v in vars(modello).get(schema, ()) if type(v) is str)
+        for chiave, valore in dict(vars(modello).get("RINOMINATI", {})).items():
+            parole.update(v for v in (chiave, valore) if type(v) is str)
+    vocabolario = frozenset(parole)
+    if MODELLI:
+        _vocabolario_fissato = vocabolario
+    return vocabolario
+
+
+def _parola(testo: str) -> bool:
+    """`testo` e' nel vocabolario, intero o come composto puntato."""
+    vocabolario = _vocabolario()
+    if testo in vocabolario or (testo.isascii() and testo.isdigit()):
+        return True
+    parti = testo.split(".")
+    if len(parti) < 2:
+        return False
+    for parte in parti:
+        while parte.endswith("[]"):
+            parte = parte[:-2]
+        if parte not in vocabolario:
+            return False
+    return True
+
+
+def _parametro(valore: Any) -> str:
+    """Un parametro di messaggio reso testo, o `?` se fuori vocabolario.
+
+    Interi e decimali esatti si scrivono come sono; una `str` esatta solo se e'
+    nel vocabolario; una `tuple` di parole sono alternative («a o b»), una
+    `list` un elenco (`['a', 'b']`); un errore dell'SDK fidato si rende con il
+    suo messaggio, che e' a sua volta fatto di parametri ammessi. Ogni altra
+    cosa -- sottoclassi, oggetti, testo qualunque -- e' `?`.
+    """
+    tipo = type(valore)
+    if tipo is int:
+        return int.__repr__(valore)
+    if tipo is float:
+        return float.__repr__(valore)
+    if tipo is str:
+        return valore if _parola(valore) else "?"
+    if tipo is tuple:
+        return " o ".join(_parametro(v) for v in valore)
+    if tipo is list:
+        return "[" + ", ".join(f"'{_parametro(v)}'" for v in valore) + "]"
+    if costruito_dall_sdk(valore):
+        return str(valore)
+    return "?"
+
+
+def _testo(chiave: Any, parametri: dict[str, Any]) -> str:
+    """Il messaggio di `chiave`, con i parametri passati da `_parametro`."""
+    import string  # noqa: PLC0415
+
+    modello = dict.get(MESSAGGI, chiave) if type(chiave) is str else None
+    if modello is None:
+        modello = MESSAGGI["sdk.sconosciuto"]
+    pezzi = []
+    for letterale, campo, _formato, _conversione in string.Formatter().parse(modello):
+        pezzi.append(letterale)
+        if campo is not None:
+            pezzi.append(
+                _parametro(dict.get(parametri, campo)) if campo in parametri else "?"
+            )
+    return "".join(pezzi)
+
+
+#: Le classi che non prendono un messaggio ma lo compongono da un vocabolario
+#: chiuso proprio: i posti di ricerca, i profili, la busta del processo.
+_STRUTTURATE = ("BinaryNotFound", "ProfileError")
+
+
+def _dallo_sdk(classe: Any, chiave: Any, /, *, remote_effect: Any = None, **parametri: Any) -> Any:
     """La fabbrica privata degli errori dell'SDK: costruisce e marca la provenienza.
 
     E' l'**unica** via per cui un errore conta come dell'SDK, e la rete lo
     ricostruisce invece di renderlo `UnexpectedError`. Il costruttore pubblico
-    di una classe d'errore fa sempre un errore esterno, chiunque lo chiami:
-    la provenienza e' una capacita' esplicita, non dedotta dai frame. Ogni
-    errore che l'SDK solleva passa da qui; una prova d'inventario
-    (`test_confini_esterni.LaProvenienzaEsplicita`) rifiuta una chiamata
-    diretta a una classe d'errore nei sorgenti del pacchetto.
+    di una classe d'errore fa sempre un errore esterno, chiunque lo chiami.
+
+    Non accetta testo: `chiave` sceglie un modello fisso di `MESSAGGI`, e i
+    `parametri` passano da `_parametro`, che li rende solo se sono nel
+    vocabolario chiuso (`?` altrimenti). Una chiave fuori catalogo da' il
+    messaggio di `sdk.sconosciuto`, non un crash. Le classi che compongono il
+    messaggio da se' -- `BinaryNotFound`, `ProfileError` e `CommandFailed` --
+    nascono da `_dallo_sdk_strutturato`.
 
     Chiamarla da fuori e' usare un nome privato: fuori contratto (README,
     «Limiti dichiarati»).
     """
-    if not classe_dell_sdk(classe):
-        raise _dallo_sdk(InvalidArgumentError, "solo un errore dell'SDK nasce dalla fabbrica.")
-    errore = classe(*argomenti, **opzioni)
+    if (
+        not classe_dell_sdk(classe)
+        or classe.__name__ in _STRUTTURATE
+        or issubclass(classe, CommandFailed)
+    ):
+        raise _dallo_sdk(InvalidArgumentError, "fabbrica.non_sdk")
+    testo = _testo(chiave, parametri)
+    errore = classe(testo) if remote_effect is None else classe(
+        testo, remote_effect=remote_effect)
+    object.__getattribute__(errore, "__dict__")[PROVENIENZA] = True
+    return errore
+
+
+def _dallo_sdk_strutturato(classe: Any, *argomenti: Any) -> Any:
+    """La fabbrica delle classi che compongono il messaggio da un vocabolario
+    proprio: `BinaryNotFound` (i posti di `POSTI_DI_RICERCA`), `ProfileError`
+    (i profili di `PROFILI_NOTI`) e `CommandFailed` con le sue sottoclassi (la
+    busta che il processo ha scritto, validata da `ErrorEnvelope`)."""
+    if not classe_dell_sdk(classe) or not (
+        classe.__name__ in _STRUTTURATE or issubclass(classe, CommandFailed)
+    ):
+        raise _dallo_sdk(InvalidArgumentError, "fabbrica.non_sdk")
+    errore = classe(*argomenti)
     object.__getattribute__(errore, "__dict__")[PROVENIENZA] = True
     return errore
 
@@ -272,9 +796,7 @@ def ricostruito(errore: Any, *argomenti: Any, **modifiche: Any) -> Any:
     all'SDK passano da `_ricostruito`, privata.
     """
     if argomenti or modifiche:
-        raise _dallo_sdk(
-            InvalidArgumentError, "`ricostruito` pubblica non sostituisce lo stato di un errore."
-        )
+        raise _dallo_sdk(InvalidArgumentError, "ricostruito.pubblico")
     return _ricostruito(errore)
 
 
@@ -295,14 +817,12 @@ def _ricostruito(errore: Any, **modifiche: Any) -> Any:
     volta, e cambiarlo vuol dire farne un'altra, mai con dati nuovi."""
     tipo = type(errore)
     if not classe_dell_sdk(tipo):
-        raise _dallo_sdk(InvalidArgumentError, "solo un errore dell'SDK si ricostruisce.")
+        raise _dallo_sdk(InvalidArgumentError, "ricostruito.non_sdk")
     stato = _stato(errore)
     for nome, valore in modifiche.items():
         verifica = dict.get(_SOSTITUIBILI, nome) if type(nome) is str else None
         if verifica is None or verifica(valore) is False:
-            raise _dallo_sdk(
-                InvalidArgumentError, "una voce dello stato di un errore non si sostituisce."
-            )
+            raise _dallo_sdk(InvalidArgumentError, "ricostruito.voce")
         stato[nome] = valore
     return _da_copia(tipo, stato, provenienza=dict.get(stato, PROVENIENZA) is True)
 
@@ -315,16 +835,16 @@ def _da_copia(tipo: Any, stato: Any, provenienza: bool = False) -> Any:
     diventa `UnexpectedError` come un errore costruito dal chiamante.
     """
     if type(tipo) is not type or not classe_dell_sdk(tipo) or type(stato) is not dict:
-        raise _dallo_sdk(InvalidArgumentError, "lo stato non e' quello di un errore dell'SDK.")
+        raise _dallo_sdk(InvalidArgumentError, "copia.stato_estraneo")
     testo = dict.get(stato, "_messaggio")
     if type(testo) is not str:
-        raise _dallo_sdk(InvalidArgumentError, "lo stato di un errore dell'SDK non ha un messaggio.")
+        raise _dallo_sdk(InvalidArgumentError, "copia.senza_messaggio")
     nuovo = BaseException.__new__(tipo)
     BaseException.__init__(nuovo, testo)
     dati = object.__getattribute__(nuovo, "__dict__")
     for nome, valore in dict.items(stato):
         if type(nome) is not str or nome in ATTRIBUTI_LIBERI:
-            raise _dallo_sdk(InvalidArgumentError, "lo stato di un errore dell'SDK ha una voce non ammessa.")
+            raise _dallo_sdk(InvalidArgumentError, "copia.voce")
         dati[nome] = valore
     dati[PROVENIENZA] = provenienza is True
     dati[SIGILLO] = True
@@ -632,9 +1152,7 @@ class ErrorEnvelope:
                 self, campo, _copia_json(getattr(self, campo), f"error.{campo}")
             )
         if _tipo(self.retry) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"`error.retry` e' {_tipo(self.retry)} e non un oggetto `{{kind}}`."
-            )
+            raise _dallo_sdk(ProtocolError, "busta.retry_non_oggetto", tipo=_tipo(self.retry))
         # La copia diventa subito un `FrozenDict`: nessun contenitore mutabile
         # entra mai in un campo, neanche fra qui e la normalizzazione del
         # costruttore, che sui contenitori gia' immutabili e' idempotente.
@@ -643,8 +1161,9 @@ class ErrorEnvelope:
         )
         if self.row_diagnostics is not None:
             if _tipo(self.row_diagnostics) != "object":
-                raise _dallo_sdk(ProtocolError,
-                    f"`row_diagnostics` e' {_tipo(self.row_diagnostics)} e non un oggetto."
+                raise _dallo_sdk(
+                    ProtocolError, "busta.row_diagnostics",
+                    tipo=_tipo(self.row_diagnostics),
                 )
             object.__setattr__(
                 self,
@@ -665,42 +1184,32 @@ class ErrorEnvelope:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ErrorEnvelope":
         if _tipo(documento) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"la busta d'errore e' {_tipo(documento)} e non un oggetto."
-            )
+            raise _dallo_sdk(ProtocolError, "busta.non_oggetto", tipo=_tipo(documento))
         # Tutto il documento, non solo i campi che si leggono: una chiave che
         # non e' una `str` esatta o un valore che non e' JSON in un ramo
         # ignorato restano un documento che il wire non produce.
         documento = _copia_json(documento, "busta d'errore")
         errore = documento.get("error")
         if _tipo(errore) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"la busta d'errore non porta l'oggetto `error` (e' {_tipo(errore)})."
-            )
+            raise _dallo_sdk(ProtocolError, "busta.senza_error", tipo=_tipo(errore))
         mancanti = [
             campo
             for campo in ("code", "category", "phase", "remote_effect", "retry", "message")
             if campo not in errore
         ]
         if mancanti:
-            raise _dallo_sdk(ProtocolError,
-                f"busta d'errore senza i campi obbligatori {mancanti}. "
-                "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
-            )
+            raise _dallo_sdk(ProtocolError, "busta.mancanti", mancanti=mancanti)
         # `details` e' facoltativo, ma quando c'e' e' un oggetto: lo schema
         # `error-v1` non ammette `null`. Prima un `null` diventava `{}` in
         # silenzio mentre una stringa sollevava `AttributeError` -- due esiti
         # diversi per lo stesso difetto, nessuno dei due nominato.
         if "details" in errore and _tipo(errore["details"]) != "object":
-            raise _dallo_sdk(ProtocolError,
-                f"`error.details` e' {_tipo(errore['details'])} e non un oggetto: "
-                "lo schema `plenora-error-v1` lo dichiara oggetto quando c'e'."
-            )
+            raise _dallo_sdk(ProtocolError, "busta.details", tipo=_tipo(errore['details']))
         dettagli = errore.get("details", {})
         if "row_diagnostics" in dettagli and _tipo(dettagli["row_diagnostics"]) != "object":
-            raise _dallo_sdk(ProtocolError,
-                "`error.details.row_diagnostics` e' "
-                f"{_tipo(dettagli['row_diagnostics'])} e non un oggetto."
+            raise _dallo_sdk(
+                ProtocolError, "busta.details_row_diagnostics",
+                tipo=_tipo(dettagli['row_diagnostics']),
             )
         return cls(
             code=errore["code"],
@@ -773,7 +1282,7 @@ RITARDO_MASSIMO_MS = 86_400_000
 def _effetto(valore: Any) -> str:
     """Un effetto remoto del vocabolario chiuso, o `InvalidArgumentError`."""
     if type(valore) is not str or valore not in EFFETTI_REMOTI:
-        raise _dallo_sdk(InvalidArgumentError, "`remote_effect` non e' un effetto di `plenora-error-v1`.")
+        raise _dallo_sdk(InvalidArgumentError, "effetto.non_valido")
     return valore
 
 
@@ -829,9 +1338,7 @@ def _copia_json(valore: Any, dove: str) -> Any:
     try:
         return _copia_ricorsiva(valore, dove, 0)
     except RecursionError:
-        raise _dallo_sdk(ProtocolError,
-            f"`{dove}` e' annidato piu' a fondo di quanto l'SDK sappia copiare."
-        ) from None
+        raise _dallo_sdk(ProtocolError, "json.profondo", dove=dove) from None
 
 
 def _copia_ricorsiva(valore: Any, dove: str, _profondita: int) -> Any:
@@ -840,29 +1347,25 @@ def _copia_ricorsiva(valore: Any, dove: str, _profondita: int) -> Any:
         copia = {}
         for chiave, interno in valore.items():
             if _tipo(chiave) != "string":
-                raise _dallo_sdk(ProtocolError,
-                    f"`{dove}` ha, a profondita' {_profondita + 1}, una chiave "
-                    f"{_tipo(chiave)} e non una stringa."
+                raise _dallo_sdk(
+                    ProtocolError, "json.chiave_non_stringa",
+                    dove=dove,
+                    profondita=_profondita + 1,
+                    tipo=_tipo(chiave),
                 )
             copia[chiave] = _copia_ricorsiva(interno, dove, _profondita + 1)
         return copia
     if tipo == "array":
         return [_copia_ricorsiva(interno, dove, _profondita + 1) for interno in valore]
     if tipo == "number" and not math.isfinite(valore):
-        raise _dallo_sdk(ProtocolError,
-            f"`{dove}` ha, a profondita' {_profondita}, un numero non finito, "
-            "che JSON non ha."
-        )
+        raise _dallo_sdk(ProtocolError, "json.non_finito", dove=dove, profondita=_profondita)
     if tipo == "non JSON":
-        raise _dallo_sdk(ProtocolError,
-            f"`{dove}` ha, a profondita' {_profondita}, un valore che non e' "
-            "un tipo JSON esatto."
-        )
+        raise _dallo_sdk(ProtocolError, "json.non_esatto", dove=dove, profondita=_profondita)
     return valore
 
 
 def _rifiuta_costante(nome: str) -> Any:
-    raise _dallo_sdk(ProtocolError, f"il documento contiene `{nome}`, che JSON non ha.")
+    raise _dallo_sdk(ProtocolError, "json.costante", nome=nome)
 
 
 def _float_finito(testo: str) -> float:
@@ -870,9 +1373,7 @@ def _float_finito(testo: str) -> float:
     if not math.isfinite(numero):
         # `1e400` non e' una costante: e' un numero che in doppia precisione
         # trabocca in infinito, e `parse_constant` non lo vede.
-        raise _dallo_sdk(ProtocolError,
-            "il documento contiene un numero che in doppia precisione non e' finito."
-        )
+        raise _dallo_sdk(ProtocolError, "json.numero_infinito")
     return numero
 
 
@@ -880,10 +1381,7 @@ def _rifiuta_chiavi_doppie(coppie: list[tuple[str, Any]]) -> dict[str, Any]:
     oggetto: dict[str, Any] = {}
     for chiave, valore in coppie:
         if chiave in oggetto:
-            raise _dallo_sdk(ProtocolError,
-                "il documento ripete una chiave nello stesso oggetto: "
-                "`json.loads` terrebbe in silenzio l'ultima."
-            )
+            raise _dallo_sdk(ProtocolError, "json.chiave_ripetuta")
         oggetto[chiave] = valore
     return oggetto
 
@@ -914,12 +1412,16 @@ def carica_json(testo: str) -> Any:
     except ProtocolError:
         raise
     except json.JSONDecodeError as errore:
-        motivo = f"{errore.msg}, riga {errore.lineno}, colonna {errore.colno}"
+        # Il motivo solo se e' uno di quelli che `json` scrive (`MOTIVI_JSON`).
+        sostituto = _dallo_sdk(
+            ProtocolError, "json.non_valido",
+            motivo=errore.msg, riga=errore.lineno, colonna=errore.colno,
+        )
     except RecursionError:
-        motivo = "annidamento oltre la profondita' che il parser regge"
+        sostituto = _dallo_sdk(ProtocolError, "json.troppo_annidato")
     except ValueError:
-        motivo = "un valore che il parser non converte, come un intero oltre il limite di cifre"
-    raise _dallo_sdk(ProtocolError, f"il documento non e' JSON valido ({motivo}).") from None
+        sostituto = _dallo_sdk(ProtocolError, "json.non_convertibile")
+    raise sostituto from None
 
 
 def _valida_busta(busta: "ErrorEnvelope") -> None:
@@ -931,47 +1433,51 @@ def _valida_busta(busta: "ErrorEnvelope") -> None:
     for campo in ("code", "category", "phase", "message"):
         valore = getattr(busta, campo)
         if _tipo(valore) != "string" or not valore:
-            raise _dallo_sdk(ProtocolError,
-                f"`error.{campo}` e' {_tipo(valore)} e non una stringa non vuota."
+            raise _dallo_sdk(
+                ProtocolError, "busta.campo_testuale",
+                campo=campo,
+                tipo=_tipo(valore),
             )
 
     effetto = busta.remote_effect
     if _tipo(effetto) != "string" or effetto not in EFFETTI_REMOTI:
-        raise _dallo_sdk(ProtocolError,
-            f"`error.remote_effect` ({_tipo(effetto)}) non e' nel vocabolario "
-            f"chiuso di `plenora-error-v1`: {sorted(EFFETTI_REMOTI)}. Senza "
-            "sapere che cosa e' successo dall'altra parte nessuna risposta su "
-            "un ritentativo e' sicura."
+        raise _dallo_sdk(
+            ProtocolError, "busta.effetto",
+            tipo=_tipo(effetto),
+            ammessi=sorted(EFFETTI_REMOTI),
         )
 
     # `retry` e' gia' la copia fatta in `__post_init__`.
     retry = busta.retry
     tipo = retry.get("kind")
     if _tipo(tipo) != "string" or tipo not in TIPI_DI_RITENTATIVO:
-        raise _dallo_sdk(ProtocolError,
-            f"`error.retry.kind` ({_tipo(tipo)}) non e' nel vocabolario chiuso "
-            f"di `plenora-error-v1`: {sorted(TIPI_DI_RITENTATIVO)}."
+        raise _dallo_sdk(
+            ProtocolError, "busta.retry_kind",
+            tipo=_tipo(tipo),
+            ammessi=sorted(TIPI_DI_RITENTATIVO),
         )
     attese = {"kind", "delay_ms"} if tipo == "after" else {"kind"}
     if set(retry) != attese:
         # Le chiavi in piu' non si nominano: vengono dal documento.
-        raise _dallo_sdk(ProtocolError,
-            f"`error.retry` di tipo «{tipo}» ha {len(retry)} chiavi e non "
-            f"esattamente {sorted(attese)}, come lo schema pretende."
+        raise _dallo_sdk(
+            ProtocolError, "busta.retry_chiavi",
+            tipo=tipo,
+            chiavi=len(retry),
+            attese=sorted(attese),
         )
     if tipo == "after":
         ritardo = retry["delay_ms"]
         if _tipo(ritardo) != "integer" or not 0 <= ritardo <= RITARDO_MASSIMO_MS:
-            raise _dallo_sdk(ProtocolError,
-                f"`error.retry.delay_ms` ({_tipo(ritardo)}) non e' un intero fra "
-                f"0 e {RITARDO_MASSIMO_MS}."
+            raise _dallo_sdk(
+                ProtocolError, "busta.ritardo",
+                tipo=_tipo(ritardo),
+                massimo=RITARDO_MASSIMO_MS,
             )
     if effetto == "unknown" and tipo not in RITENTATIVI_CON_EFFETTO_IGNOTO:
-        raise _dallo_sdk(ProtocolError,
-            f"`error.remote_effect` e' «unknown» e `error.retry.kind` e' "
-            f"«{tipo}»: lo schema ammette soltanto "
-            f"{sorted(RITENTATIVI_CON_EFFETTO_IGNOTO)}, perche' un ritentativo "
-            "non si dichiara sicuro senza sapere che cosa e' successo."
+        raise _dallo_sdk(
+            ProtocolError, "busta.effetto_ignoto",
+            tipo=tipo,
+            ammessi=sorted(RITENTATIVI_CON_EFFETTO_IGNOTO),
         )
 
 
@@ -994,9 +1500,9 @@ class CommandFailed(PlenoraError):
         argv: list[str] | None = None,
     ) -> None:
         if type(envelope) is not ErrorEnvelope:
-            raise _dallo_sdk(InvalidArgumentError, "`envelope` non e' un `ErrorEnvelope`.")
+            raise _dallo_sdk(InvalidArgumentError, "fallimento.envelope")
         if type(exit_code) is bool or not issubclass(type(exit_code), int):
-            raise _dallo_sdk(InvalidArgumentError, "`exit_code` non e' un intero.")
+            raise _dallo_sdk(InvalidArgumentError, "fallimento.exit_code")
         self.envelope = envelope
         self.exit_code = int.__pos__(exit_code)
         # Il solo sottocomando, da un elenco chiuso. Fino alla 4.1.1 l'errore
@@ -1281,7 +1787,7 @@ def _failure_from_envelope(
 ) -> CommandFailed:
     """`failure_from_envelope` per la busta che il processo ha scritto: fidato."""
     classe, envelope = _classe_della_busta(documento)
-    return _dallo_sdk(classe, envelope, exit_code, argv)
+    return _dallo_sdk_strutturato(classe, envelope, exit_code, argv)
 
 
 # In fondo: `contenitori` importa `InvalidArgumentError` da qui, e `_tipo` deve

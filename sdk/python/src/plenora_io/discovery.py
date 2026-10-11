@@ -52,7 +52,7 @@ from .errors import (
     carica_json,
     _copia_json,
 )
-from .errors import _dallo_sdk
+from .errors import _dallo_sdk, _dallo_sdk_strutturato
 
 #: Il nome dell'eseguibile, senza estensione: `shutil.which` aggiunge da se'
 #: quelle che la piattaforma usa.
@@ -95,10 +95,7 @@ def _e_un_file(percorso: Path, che_cosa: str) -> bool:
     try:
         return percorso.is_file()
     except OSError:
-        raise _dallo_sdk(LocalIoError,
-            f"{che_cosa} non si e' potuto esaminare: un permesso o un guasto del "
-            "filesystem impedisce di dire se c'e'."
-        ) from None
+        raise _dallo_sdk(LocalIoError, "fs.non_esaminabile", che_cosa=che_cosa) from None
 
 
 def _risolto(percorso: Path, che_cosa: str) -> Path:
@@ -107,9 +104,7 @@ def _risolto(percorso: Path, che_cosa: str) -> Path:
     try:
         return percorso.resolve()
     except (OSError, RuntimeError):
-        raise _dallo_sdk(LocalIoError,
-            f"{che_cosa} non si e' potuto risolvere in un percorso assoluto."
-        ) from None
+        raise _dallo_sdk(LocalIoError, "fs.non_risolvibile", che_cosa=che_cosa) from None
 
 
 def _percorso_indicato(esplicito: Any) -> Path:
@@ -153,15 +148,12 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     try:
         dal_path = shutil.which(NOME)
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _dallo_sdk(LocalIoError,
-            "la ricerca del binario nel `PATH` non si e' potuta fare: una voce "
-            "del `PATH` non si esamina."
-        ) from None
+        raise _dallo_sdk(LocalIoError, "binario.ricerca_path") from None
     cercati.append("il `PATH`")
     if dal_path:
         return _risolto(Path(dal_path), "il binario dal PATH")
 
-    raise _dallo_sdk(BinaryNotFound, cercati)
+    raise _dallo_sdk_strutturato(BinaryNotFound, cercati)
 
 
 @dataclass(frozen=True)
@@ -186,18 +178,14 @@ class Manifest:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Manifest":
         if _tipo(documento) != "object":
-            raise _dallo_sdk(ManifestError, f"MANIFEST.json e' {_tipo(documento)} e non un oggetto.")
+            raise _dallo_sdk(ManifestError, "manifesto.non_oggetto", tipo=_tipo(documento))
         mancanti = [
             campo
             for campo in ("nome", "versione", "piattaforma", "profilo", "canale", "non_release")
             if campo not in documento
         ]
         if mancanti:
-            raise _dallo_sdk(ManifestError,
-                f"MANIFEST.json senza i campi {mancanti}. Sono fra quelli che "
-                "entrambi i costruttori devono scrivere, e uno che manca vuol "
-                "dire che l'artefatto non e' stato prodotto dalla pipeline."
-            )
+            raise _dallo_sdk(ManifestError, "manifesto.mancanti", mancanti=mancanti)
         # I tipi, non solo le chiavi. `release = not documento["non_release"]`
         # dava `True` -- «e' una release» -- per un `null`, e `False` per la
         # stringa `"false"`: un manifesto rotto si dichiarava release. I tipi
@@ -213,14 +201,16 @@ class Manifest:
         }
         for campo, tipi in attesi.items():
             if campo in documento and _tipo(documento[campo]) not in tipi:
-                raise _dallo_sdk(ManifestError,
-                    f"MANIFEST.json: `{campo}` e' {_tipo(documento[campo])} e non "
-                    f"{' o '.join(tipi)}."
+                raise _dallo_sdk(
+                    ManifestError, "manifesto.tipo_campo",
+                    campo=campo,
+                    tipo=_tipo(documento[campo]),
+                    tipi=tuple(tipi),
                 )
         try:
             documento = _copia_json(documento, "MANIFEST.json")
         except ProtocolError as errore:
-            raise _dallo_sdk(ManifestError, str(errore)) from None
+            raise _dallo_sdk(ManifestError, "manifesto.da_errore", errore=errore) from None
         return cls(
             name=documento["nome"],
             version=documento["versione"],
@@ -254,20 +244,15 @@ def leggi_manifesto(binario: Path) -> Manifest | None:
     try:
         testo = percorso.read_text(encoding="utf-8")
     except OSError:
-        raise _dallo_sdk(ManifestError, f"{MANIFESTO} c'e' e non si legge.") from None
+        raise _dallo_sdk(ManifestError, "manifesto.illeggibile") from None
     except UnicodeDecodeError:
-        raise _dallo_sdk(ManifestError,
-            f"{MANIFESTO} c'e' e non e' UTF-8: l'artefatto e' guasto."
-        ) from None
+        raise _dallo_sdk(ManifestError, "manifesto.non_utf8") from None
     try:
         documento = carica_json(testo)
     except ProtocolError as errore:
-        raise _dallo_sdk(ManifestError,
-            f"{MANIFESTO} c'e' e non si legge come JSON: {errore} Un manifesto "
-            "rotto non e' un manifesto assente: l'artefatto e' guasto."
-        ) from None
+        raise _dallo_sdk(ManifestError, "manifesto.non_json", errore=errore) from None
     if _tipo(documento) != "object":
-        raise _dallo_sdk(ManifestError, f"{MANIFESTO} non contiene un oggetto JSON.")
+        raise _dallo_sdk(ManifestError, "manifesto.non_oggetto_json")
     return Manifest.from_json(documento)
 
 
@@ -292,6 +277,10 @@ def verifica_profilo(manifesto: Manifest | None, richiesto: str) -> None:
     # nome di un profilo.
     richiesto = testo(richiesto, "profile")
     if richiesto not in PROFILI:
-        raise _dallo_sdk(ProfileError, richiesto, manifesto.profile if manifesto else None)
+        raise _dallo_sdk_strutturato(
+            ProfileError, richiesto, manifesto.profile if manifesto else None
+        )
     if manifesto is None or manifesto.profile != richiesto:
-        raise _dallo_sdk(ProfileError, richiesto, manifesto.profile if manifesto else None)
+        raise _dallo_sdk_strutturato(
+            ProfileError, richiesto, manifesto.profile if manifesto else None
+        )

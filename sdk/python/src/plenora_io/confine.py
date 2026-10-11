@@ -125,9 +125,9 @@ def _al_confine(errore: Exception, avviati: list[list[str]], etichetta: str) -> 
     """
     if costruito_dall_sdk(errore):
         return ricostruito(errore)
-    return _dallo_sdk(UnexpectedError,
-        f"errore imprevisto dell'SDK in `{etichetta}`: un'eccezione "
-        "esterna e' stata intercettata al confine, senza il suo testo.",
+    return _dallo_sdk(
+        UnexpectedError, "rete.imprevisto",
+        etichetta=etichetta,
         remote_effect=_effetto_dopo(avviati),
     )
 
@@ -211,9 +211,9 @@ def _init_sigillato(init: Callable[..., Any]) -> Callable[..., Any]:
     def costruttore(self: Any, *argomenti: Any, **opzioni: Any) -> None:
         stato = object.__getattribute__(self, "__dict__")
         if dict.get(stato, SIGILLO) is True:
-            raise _dallo_sdk(InvalidArgumentError,
-                f"`{nome_sdk(type(self))}` e' gia' costruito: un errore dell'SDK non si "
-                "reinizializza."
+            raise _dallo_sdk(
+                InvalidArgumentError, "errore.gia_costruito",
+                nome=nome_sdk(type(self)),
             )
         if _errore_in_costruzione.get() is self:
             init(self, *argomenti, **opzioni)
@@ -307,7 +307,7 @@ def _tabella_pyarrow(valore: Any) -> bool:
 
 def _chiave(valore: Any, dove: str) -> str:
     if not issubclass(type(valore), str):
-        raise _dallo_sdk(InvalidArgumentError, f"`{dove}` ha una chiave che non e' una stringa.")
+        raise _dallo_sdk(InvalidArgumentError, "modello.chiave_non_stringa", dove=dove)
     return str.join("", [valore])
 
 
@@ -335,9 +335,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
                 # Due chiavi distinte -- per esempio due sottoclassi di `str`
                 # con lo stesso contenuto -- che diventano la stessa: una
                 # avrebbe coperto l'altra in silenzio.
-                raise _dallo_sdk(InvalidArgumentError,
-                    f"`{dove}` ha due chiavi che normalizzate coincidono."
-                )
+                raise _dallo_sdk(InvalidArgumentError, "modello.chiavi_coincidenti", dove=dove)
             copia[esatta] = _esatto(interno, dove)
         return FrozenDict(copia)
     if issubclass(tipo, str):
@@ -358,15 +356,39 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
         return valore
     if tabella_ammessa and _tabella_pyarrow(valore):
         return valore
-    raise _dallo_sdk(InvalidArgumentError,
-        f"`{dove}` contiene un oggetto di un tipo che un risultato dell'SDK non porta."
-    )
+    raise _dallo_sdk(InvalidArgumentError, "modello.oggetto_non_ammesso", dove=dove)
+
+
+def _classe_del_modello(tipo: Any) -> Any:
+    """La prima classe di `MODELLI` nell'MRO di `tipo`, per identita', o `None`."""
+    try:
+        ordine = type.__dict__["__mro__"].__get__(tipo, type)
+    except TypeError:
+        return None
+    for base in ordine:
+        for modello in MODELLI:
+            if base is modello:
+                return modello
+    return None
+
+
+def _campi(tipo: Any) -> tuple[Any, ...]:
+    """I campi della classe del modello dell'SDK, mai quelli di `tipo`.
+
+    Una sottoclasse puo' ridefinire `__dataclass_fields__`, o un campo come
+    proprieta': i nomi e l'elenco dei campi vengono dalla classe dell'SDK
+    riconosciuta per identita' (tredicesimo giro di revisione).
+    """
+    modello = _classe_del_modello(tipo)
+    if modello is None:
+        raise _dallo_sdk(InvalidArgumentError, "rete.self_estraneo")
+    return dataclasses.fields(modello)
 
 
 def _normalizza(istanza: Any) -> None:
     """Ogni campo dell'istanza nel tipo base esatto e immutabile (vedi `_esatto`)."""
     nome_classe = nome_sdk(type(istanza))
-    for campo in dataclasses.fields(istanza):
+    for campo in _campi(type(istanza)):
         valori = object.__getattribute__(istanza, "__dict__")
         if campo.name not in valori:
             continue
@@ -376,7 +398,7 @@ def _normalizza(istanza: Any) -> None:
                 valori[campo.name], dove, (nome_classe, campo.name) in CAMPI_CON_TABELLA
             )
         except RecursionError:
-            raise _dallo_sdk(InvalidArgumentError, f"`{dove}` e' annidato troppo a fondo.") from None
+            raise _dallo_sdk(InvalidArgumentError, "modello.annidato", dove=dove) from None
         object.__setattr__(istanza, campo.name, esatto)
 
 
@@ -391,7 +413,7 @@ def _forma(valore: Any) -> Any:
         valori = object.__getattribute__(valore, "__dict__")
         return (
             type(valore).__qualname__,
-            tuple((c.name, _forma(valori.get(c.name))) for c in dataclasses.fields(valore)),
+            tuple((c.name, _forma(valori.get(c.name))) for c in _campi(type(valore))),
         )
     if type(valore) is FrozenList:
         return tuple(_forma(v) for v in valore)
@@ -409,10 +431,7 @@ def _forma(valore: Any) -> Any:
     # e un `dict` rimesso in un campo da un `__post_init__` richiamato a mano
     # arrivava a `hash` come `TypeError`: ora un valore che un modello non
     # porta e' un errore dell'SDK, e non la forma di qualcos'altro.
-    raise _dallo_sdk(InvalidArgumentError,
-        "il modello contiene un valore che un risultato dell'SDK non porta: "
-        "e' stato alterato fuori contratto."
-    )
+    raise _dallo_sdk(InvalidArgumentError, "modello.alterato")
 
 
 def _hash_del_modello(self: Any) -> int:
@@ -431,14 +450,12 @@ def _uguale(self: Any, altro: Any) -> Any:
     mie = object.__getattribute__(self, "__dict__")
     sue = object.__getattribute__(altro, "__dict__")
     return all(
-        mie.get(c.name) == sue.get(c.name) for c in dataclasses.fields(self)
+        mie.get(c.name) == sue.get(c.name) for c in _campi(type(self))
     )
 
 
 def _immutabile(self: Any, *argomenti: Any) -> None:
-    raise _dallo_sdk(InvalidArgumentError,
-        f"`{nome_sdk(type(self))}` e' immutabile: un risultato dell'SDK non si modifica."
-    )
+    raise _dallo_sdk(InvalidArgumentError, "modello.immutabile", nome=nome_sdk(type(self)))
 
 
 def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
@@ -447,9 +464,9 @@ def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
         # Una seconda chiamata a `__init__` su un modello gia' costruito lo
         # reinizializzerebbe: e' una modifica, e si rifiuta.
         if object.__getattribute__(self, "__dict__"):
-            raise _dallo_sdk(InvalidArgumentError,
-                f"`{nome_sdk(type(self))}` e' gia' costruito: un risultato dell'SDK non si "
-                "reinizializza."
+            raise _dallo_sdk(
+                InvalidArgumentError, "modello.gia_costruito",
+                nome=nome_sdk(type(self)),
             )
         gettone = _in_costruzione.set(self)
         try:
@@ -484,10 +501,7 @@ def _solo_nel_costruttore(post_init: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(post_init)
     def guardia(self: Any, *argomenti: Any, **opzioni: Any) -> None:
         if _in_costruzione.get() is not self:
-            raise _dallo_sdk(InvalidArgumentError,
-                f"`{nome_sdk(type(self))}` e' gia' costruito: `__post_init__` gira solo "
-                "nel costruttore, e un risultato dell'SDK non si rinormalizza."
-            )
+            raise _dallo_sdk(InvalidArgumentError, "modello.post_init", nome=nome_sdk(type(self)))
         post_init(self, *argomenti, **opzioni)
 
     return guardia
@@ -509,6 +523,31 @@ def _prepara_modello(classe: type) -> None:
     setattr(classe, "__setattr__", _immutabile)
     setattr(classe, "__delattr__", _immutabile)
     setattr(classe, "__plenora_modello__", True)
+
+
+def _con_self(funzione: Callable[..., Any], classe: type) -> Callable[..., Any]:
+    """`funzione` di `classe`, che rifiuta un primo argomento di un'altra classe.
+
+    Un metodo dell'SDK si puo' chiamare non legato -- `Catalog.__init__(x, ...)`
+    -- su un oggetto qualunque, e prima girava: `_normalizza` leggeva i campi
+    di `x` e ne metteva i nomi nei messaggi. Ora un `self` che non ha `classe`
+    nel proprio MRO, per identita', e' `InvalidArgumentError` con un messaggio
+    fisso, prima di eseguire qualunque cosa.
+    """
+
+    @functools.wraps(funzione)
+    def controllato(*argomenti: Any, **opzioni: Any) -> Any:
+        if not argomenti:
+            raise _dallo_sdk(InvalidArgumentError, "rete.self_estraneo")
+        try:
+            ordine = type.__dict__["__mro__"].__get__(type(argomenti[0]), type)
+        except TypeError:
+            ordine = ()
+        if not any(base is classe for base in ordine):
+            raise _dallo_sdk(InvalidArgumentError, "rete.self_estraneo")
+        return funzione(*argomenti, **opzioni)
+
+    return controllato
 
 
 def _confina_classe(classe: type) -> type:
@@ -537,14 +576,14 @@ def _confina_classe(classe: type) -> type:
                 classe,
                 nome,
                 property(
-                    _confinato(valore.fget, etichetta) if valore.fget else None,
-                    _confinato(valore.fset, etichetta) if valore.fset else None,
-                    _confinato(valore.fdel, etichetta) if valore.fdel else None,
+                    _confinato(_con_self(valore.fget, classe), etichetta) if valore.fget else None,
+                    _confinato(_con_self(valore.fset, classe), etichetta) if valore.fset else None,
+                    _confinato(_con_self(valore.fdel, classe), etichetta) if valore.fdel else None,
                     valore.__doc__,
                 ),
             )
         elif callable(valore) and not isinstance(valore, type):
-            setattr(classe, nome, _confinato(valore, etichetta))
+            setattr(classe, nome, _confinato(_con_self(valore, classe), etichetta))
     return classe
 
 

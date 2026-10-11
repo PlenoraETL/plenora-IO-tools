@@ -54,41 +54,37 @@ from .limits import Limits
 OLTRE_U64 = 1 << 64
 
 
-def _rifiuta(nome: str, che_cosa: str) -> InvalidArgumentError:
-    return _dallo_sdk(InvalidArgumentError, f"`{nome}` {che_cosa}.")
-
-
 def _str_esatta(valore: Any, nome: str) -> str:
     """Una `str` nuova con gli stessi caratteri, senza chiamare la sottoclasse."""
     if not issubclass(type(valore), str):
-        raise _rifiuta(nome, "non e' una stringa")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_stringa", nome=nome)
     try:
         testo = str.join("", [valore])
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _rifiuta(nome, "non si lascia leggere come stringa") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.stringa_illeggibile", nome=nome) from None
     if "\x00" in testo:
         # Un processo riceve gli argomenti come stringhe C: un NUL le tronca, e
         # `Popen` lo rifiuta con `ValueError`.
-        raise _rifiuta(nome, "contiene un carattere NUL, che un argomento di processo non puo' portare")
+        raise _dallo_sdk(InvalidArgumentError, "arg.nul", nome=nome)
     try:
         testo.encode("utf-8")
     except UnicodeEncodeError:
         # Un surrogato isolato (per esempio da `os.fsdecode` su byte non
         # UTF-8) non si passa a un processo ne' si scrive in un percorso.
-        raise _rifiuta(nome, "contiene un carattere che non si codifica in UTF-8") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_utf8", nome=nome) from None
     return testo
 
 
 def _int_esatto(valore: Any, nome: str) -> int:
     tipo = type(valore)
     if tipo is bool or not issubclass(tipo, int):
-        raise _rifiuta(nome, "non e' un intero")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_intero", nome=nome)
     try:
         numero = int.__pos__(valore)
     except Exception:  # noqa: BLE001
-        raise _rifiuta(nome, "non si lascia leggere come intero") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.intero_illeggibile", nome=nome) from None
     if not -OLTRE_U64 < numero < OLTRE_U64:
-        raise _rifiuta(nome, "e' fuori dall'intervallo che la CLI rappresenta (64 bit)")
+        raise _dallo_sdk(InvalidArgumentError, "arg.fuori_64", nome=nome)
     return numero
 
 
@@ -98,15 +94,15 @@ def percorso(valore: Any, nome: str) -> str:
         return _str_esatta(valore, nome)
     metodo = getattr(type(valore), "__fspath__", None)
     if metodo is None:
-        raise _rifiuta(nome, "non e' un percorso: serve una `str` o un `os.PathLike`")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_percorso", nome=nome)
     try:
         reso = metodo(valore)
     except Exception:  # noqa: BLE001 - `__fspath__` e' codice di chi chiama
-        raise _rifiuta(nome, "non si lascia leggere come percorso") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.percorso_illeggibile", nome=nome) from None
     if not issubclass(type(reso), str):
         # `bytes`: la riga di comando e' testo, e una decodifica scelta qui
         # sarebbe un'interpretazione che nessuno ha chiesto.
-        raise _rifiuta(nome, "non e' un percorso di testo: serve una `str` o un `os.PathLike[str]`")
+        raise _dallo_sdk(InvalidArgumentError, "arg.percorso_non_testo", nome=nome)
     return _str_esatta(reso, nome)
 
 
@@ -123,7 +119,7 @@ def intero(valore: Any, nome: str) -> str:
 def booleano(valore: Any, nome: str) -> bool:
     """Un `bool`, e nient'altro: `"no"` non e' falso, `1` non e' vero."""
     if type(valore) is not bool:
-        raise _rifiuta(nome, "non e' un booleano")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_booleano", nome=nome)
     return valore
 
 
@@ -132,25 +128,21 @@ def opzioni(valore: Any, nome: str) -> dict[str, str]:
     if valore is None:
         return {}
     if not issubclass(type(valore), Mapping):
-        raise _rifiuta(nome, "non e' un dizionario di stringhe")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_dizionario", nome=nome)
     try:
         coppie = list(valore.items())
     except Exception:  # noqa: BLE001 - `items()` di una Mapping altrui
-        raise _rifiuta(nome, "non si lascia leggere come dizionario") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.dizionario_illeggibile", nome=nome) from None
     copia: dict[str, str] = {}
     for coppia in coppie:
         if type(coppia) is not tuple or len(coppia) != 2:
-            raise _rifiuta(nome, "non rende coppie chiave-valore")
+            raise _dallo_sdk(InvalidArgumentError, "arg.non_coppie", nome=nome)
         chiave = _str_esatta(coppia[0], nome)
         interno = _str_esatta(coppia[1], nome)
         if "=" in chiave:
-            raise _rifiuta(
-                nome,
-                "ha una chiave che contiene `=`: la CLI divide al primo `=`, e "
-                "la coppia arriverebbe con un'altra chiave",
-            )
+            raise _dallo_sdk(InvalidArgumentError, "arg.chiave_con_uguale", nome=nome)
         if chiave in copia:
-            raise _rifiuta(nome, "ripete una chiave")
+            raise _dallo_sdk(InvalidArgumentError, "arg.chiave_ripetuta", nome=nome)
         copia[chiave] = interno
     return copia
 
@@ -166,14 +158,14 @@ def righe_di_opzioni(bandiera: str, mappa: dict[str, str]) -> list[str]:
 def durata(valore: Any, nome: str) -> timedelta:
     """Una `timedelta` nuova, letta con i descrittori del tipo base."""
     if not issubclass(type(valore), timedelta):
-        raise _rifiuta(nome, "non e' un `timedelta`")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_durata", nome=nome)
     try:
         giorni = timedelta.days.__get__(valore)
         secondi = timedelta.seconds.__get__(valore)
         micro = timedelta.microseconds.__get__(valore)
         return timedelta(days=giorni, seconds=secondi, microseconds=micro)
     except Exception:  # noqa: BLE001
-        raise _rifiuta(nome, "non si lascia leggere come durata") from None
+        raise _dallo_sdk(InvalidArgumentError, "arg.durata_illeggibile", nome=nome) from None
 
 
 def limiti(valore: Any, nome: str = "limits") -> Limits | None:
@@ -181,13 +173,16 @@ def limiti(valore: Any, nome: str = "limits") -> Limits | None:
     if valore is None:
         return None
     if not issubclass(type(valore), Limits):
-        raise _rifiuta(nome, "non e' un `Limits`")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_limits", nome=nome)
     campi: dict[str, Any] = {}
     for campo in fields(Limits):
         try:
             interno = object.__getattribute__(valore, campo.name)
         except Exception:  # noqa: BLE001 - una sottoclasse puo' ridefinirlo
-            raise _rifiuta(f"{nome}.{campo.name}", "non si lascia leggere") from None
+            raise _dallo_sdk(
+                InvalidArgumentError, "arg.illeggibile",
+                nome=f"{nome}.{campo.name}",
+            ) from None
         if interno is None:
             campi[campo.name] = None
         elif campo.name == Limits.DURATA:
@@ -208,7 +203,7 @@ def timeout(valore: Any) -> float | None:
         return None
     tipo = type(valore)
     if tipo is bool:
-        raise _rifiuta("timeout", "non e' un numero di secondi")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_secondi", nome="timeout")
     if issubclass(tipo, int):
         # La grandezza prima di qualunque conversione: `float(10**1000)` e
         # `math.isfinite(10**1000)` sollevano `OverflowError`.
@@ -217,9 +212,12 @@ def timeout(valore: Any) -> float | None:
         try:
             secondi = float.__pos__(valore)
         except Exception:  # noqa: BLE001
-            raise _rifiuta("timeout", "non si lascia leggere come numero") from None
+            raise _dallo_sdk(
+                InvalidArgumentError, "arg.numero_illeggibile",
+                nome="timeout",
+            ) from None
     else:
-        raise _rifiuta("timeout", "non e' un numero di secondi")
+        raise _dallo_sdk(InvalidArgumentError, "arg.non_secondi", nome="timeout")
     if not math.isfinite(secondi) or secondi <= 0:
-        raise _rifiuta("timeout", "non e' un numero di secondi positivo e finito")
+        raise _dallo_sdk(InvalidArgumentError, "arg.secondi_non_positivi", nome="timeout")
     return secondi

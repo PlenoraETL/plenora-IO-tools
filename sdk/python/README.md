@@ -160,51 +160,51 @@ costruttore (`errors._ricostruito`), e non legge mai `args`, `__notes__` o
 `str()` dell'oggetto ricevuto. Una callback che prende un errore dell'SDK, ne
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
-Si ricostruisce solo un errore **nato nell'SDK**, e la provenienza e' una
-capacita' esplicita, non una deduzione: un errore conta come dell'SDK solo se
-l'SDK l'ha costruito con la propria fabbrica privata (`errors._dallo_sdk`), e
-ogni errore che l'SDK solleva passa da li' (una prova d'inventario sull'AST
-dei sorgenti rifiuta una chiamata diretta a una classe d'errore). Il
-costruttore pubblico, chiamato in qualunque modo -- da una callback, da un
-`__index__` o da un `__fspath__`, da `map` o `functools.partial` in C, da
-`eval`, da una lambda -- fa sempre un errore **esterno**, e un errore esterno
-o di una sottoclasse del chiamante diventa `UnexpectedError`, come ogni altra
-eccezione esterna. Fino al decimo giro la provenienza si deduceva dai frame,
-e un callable in C che costruisce l'errore non aggiunge un frame: si vedeva
-quello dell'SDK che eseguiva la callback.
+Si ricostruisce solo un errore **nato nell'SDK**: un errore conta come
+dell'SDK solo se l'SDK l'ha costruito con la propria fabbrica privata
+(`errors._dallo_sdk`, o `_dallo_sdk_strutturato` per `BinaryNotFound`,
+`ProfileError` e la busta del processo). Il costruttore pubblico, chiamato in
+qualunque modo -- da una callback, da `map` o `functools.partial` in C, da
+`eval` -- fa sempre un errore **esterno**, che la rete rende
+`UnexpectedError`, come un errore di una sottoclasse del chiamante.
 
-**Nessuna via pubblica alla fiducia.** Nessuna funzione raggiungibile senza
-nomi privati da' un errore fidato con dati del chiamante. Le funzioni che
-conferiscono fiducia con un testo scelto da chi le chiama sono private:
-`errors._copia_json` (il nome del contenitore entra nel messaggio),
-`errors._failure_from_envelope` (la busta del processo), `errors._ricostruito`
-(con le sole sostituzioni dell'SDK: effetto remoto, `_non_partito`,
-`cleanup_failed`), `confine._confinato` e le altre funzioni che danno
-un'etichetta ai messaggi della rete, e l'intero modulo degli argomenti
-(`plenora_io._argomenti`), le cui funzioni nominano l'argomento nel messaggio.
-Restano pubbliche `errors.failure_from_envelope`, che da' un errore
-**esterno** (la busta e' del chiamante), ed `errors.ricostruito`, che copia
-lo stato dell'errore ricevuto senza sostituzioni e ne conserva la
-provenienza. Una prova d'inventario (`INVENTARIO_PUBBLICO` in
-`tests/test_confini_esterni.py`) elenca ogni funzione e classe pubblica dei
-moduli dell'SDK fuori da `__all__`, fallisce se ne compare una nuova, e la
-chiama con ogni combinazione di argomenti che portano un dato riconoscibile:
-un errore fidato che lo contenga e' rosso. `str(errore)`, `message` e
-`to_dict()` vengono dallo stesso stato: per `CommandFailed` il testo si
-compone dalla busta, dall'uscita e dal sottocomando fissati, e `str()`
-contiene `message` preceduto da sottocomando, uscita, categoria, fase e
-codice; per gli altri errori i due testi coincidono.
+**Il testo di un errore fidato.** La fabbrica non accetta testo: prende una
+chiave di un catalogo chiuso di modelli fissi (`errors.MESSAGGI`) e dei
+parametri. Ogni parametro si scrive solo se e' un intero o un decimale, o una
+parola di un vocabolario chiuso costruito dagli oggetti dell'SDK per identita'
+(nomi delle classi e dei loro attributi, campi e schemi dei modelli,
+sottocomandi, categorie, effetti, tipi di ritentativo, profili, posti di
+ricerca, i contesti elencati in `errors.PAROLE_DEI_CONTESTI`), o un composto
+puntato di quelle parole, o un altro errore fidato; ogni altro valore diventa
+`?`, e l'errore nasce comunque. Cio' che e' provato, in
+`tests/test_confini_esterni.py`:
 
-Gli attributi di una sottoclasse non entrano mai in un errore fidato. Lo
-schema di un modello -- `OBBLIGATORI`, `PROPRI`, `OPZIONALI`, `RINOMINATI`,
-`ANNULLABILI` e le annotazioni -- si legge dalla prima classe dell'SDK
-nell'MRO, riconosciuta per identita' (`models._schema`), non da `cls`: una
-sottoclasse con `OBBLIGATORI = ("dato",)` non mette piu' «dato» fra i campi
-mancanti di un `ProtocolError`. La stessa prova d'inventario chiama ogni
-metodo pubblico, classmethod, staticmethod e proprieta' delle classi di
-`__all__` (salvo `Client` e `Runner`, che avviano il binario e hanno prove
-proprie), sulla classe e su una sottoclasse con ogni attributo di classe
-ridefinito, con argomenti che portano un dato riconoscibile.
+* ogni chiamata alla fabbrica nei sorgenti usa una chiave letterale del
+  catalogo (inventario sull'AST), e nessun sorgente chiama direttamente una
+  classe d'errore;
+* ogni chiave, con ogni parametro sostituito da dati del chiamante di ogni
+  forma (testo, sottoclassi di `str`, composti, elenchi, oggetti, errori
+  esterni), da' un testo che non li contiene;
+* ogni funzione e classe pubblica dei moduli fuori da `__all__`
+  (`INVENTARIO_PUBBLICO`, chiuso) e ogni metodo, `__init__`, classmethod,
+  staticmethod e proprieta' delle classi di `__all__` -- anche su una
+  sottoclasse con ogni attributo di classe ridefinito, e `__init__` anche non
+  legato su un oggetto estraneo -- chiamati con combinazioni di argomenti
+  ostili (fino a tre, posizionali e keyword-only) non danno un errore fidato
+  con quei dati, ne' un'eccezione che non sia un `PlenoraError`. `Client` e
+  `Runner` avviano il binario e hanno prove proprie.
+
+Ogni metodo avvolto rifiuta, con un messaggio fisso, un primo argomento che
+non ha la propria classe nell'MRO; lo schema e i campi di un modello si
+leggono dalla classe dell'SDK riconosciuta per identita', mai da `cls` o da
+una sottoclasse. Le funzioni che prima davano un errore fidato con un testo
+del chiamante sono private (`errors._copia_json`, `_failure_from_envelope`,
+`_ricostruito`, `confine._confinato`, il modulo `plenora_io._argomenti`);
+`errors.failure_from_envelope` pubblica da' un errore esterno, ed
+`errors.ricostruito` copia senza sostituzioni. `str(errore)`, `message` e
+`to_dict()` vengono dallo stesso stato: per `CommandFailed` `str()` contiene
+`message` preceduto da sottocomando, uscita, categoria, fase e codice, che
+vengono dalla busta del processo; per gli altri errori coincidono.
 
 Le ricerche nei risultati (`layer`,
 `field`, `driver`, `operation`) sollevano `ResultLookupError`, anche
@@ -277,10 +277,11 @@ Python. Fuori contratto: scrivere con `object.__setattr__` o
 attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 `_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
 `ErrorEnvelope`); chiamare la fabbrica privata degli errori
-(`plenora_io.errors._dallo_sdk`), che e' cio' che rende un errore «dell'SDK»
-alla rete, o un'altra funzione privata che la usa (`_copia_json`,
-`_failure_from_envelope`, `_ricostruito`, `_confinato`, il modulo
-`plenora_io._argomenti`); modificare il modulo `plenora_io.errors` o un altro modulo del
+(`plenora_io.errors._dallo_sdk` e `_dallo_sdk_strutturato`), che e' cio' che
+rende un errore «dell'SDK» alla rete, o un'altra funzione privata che la usa
+(`_copia_json`, `_failure_from_envelope`, `_ricostruito`, `_confinato`, il
+modulo `plenora_io._argomenti`); modificare il catalogo e il vocabolario dei
+messaggi (`MESSAGGI`, `PAROLE_DEI_CONTESTI`), il modulo `plenora_io.errors` o un altro modulo del
 pacchetto. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), e un errore puo' portare testo del

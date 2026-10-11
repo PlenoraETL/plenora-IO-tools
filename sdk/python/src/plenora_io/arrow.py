@@ -85,15 +85,12 @@ def pyarrow() -> Any:
             else ""
         )
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _dallo_sdk(OptionalDependencyError,
-            "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
-            "si importa: installa l'extra `plenora-io[pyarrow]` (pyarrow>=25,<26)."
-        ) from None
+        raise _dallo_sdk(OptionalDependencyError, "arrow.assente") from None
     if maggiore != str(SERIE_PYARROW):
-        raise _dallo_sdk(OptionalDependencyError,
-            f"l'adattatore Arrow e' provato con pyarrow {SERIE_PYARROW}.x e "
-            f"l'ambiente ne ha un'altra serie ({maggiore or 'sconosciuta'}.x): "
-            "installa l'extra `plenora-io[pyarrow]`."
+        raise _dallo_sdk(
+            OptionalDependencyError, "arrow.serie",
+            attesa=SERIE_PYARROW,
+            serie=maggiore or '?',
         )
     return pa
 
@@ -118,11 +115,7 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     copiare i buffer.
     """
     pa = pyarrow()
-    non_arrow = _dallo_sdk(InvalidArgumentError,
-        "la sorgente non e' un percorso e non espone `__arrow_c_stream__`: "
-        "write() accetta un file Arrow IPC o un oggetto Arrow "
-        "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
-    )
+    non_arrow = _dallo_sdk(InvalidArgumentError, "arrow.non_arrow")
     # `isinstance` e `hasattr` eseguono codice della sorgente -- `__class__`,
     # `__getattr__` -- e `hasattr` inghiotte soltanto `AttributeError`: ogni
     # altra eccezione usciva com'era.
@@ -142,26 +135,19 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     # lo porterebbe nel traceback. Quindi `from None`.
     #
     # Due famiglie, due errori: il file temporaneo che non si scrive e' del
-    # filesystem locale (`LocalIoError`); tutto il resto -- pyarrow che non
-    # legge lo stream, o un produttore `__arrow_c_stream__` che solleva
-    # un'eccezione sua -- e' la sorgente che non si lascia leggere.
-    illeggibile = (
-        "la sorgente Arrow non si e' potuta leggere come stream: il produttore "
-        "di `__arrow_c_stream__` ha sollevato, o pyarrow non ne legge lo stream."
-    )
-    non_scrivibile = (
-        "il file Arrow IPC temporaneo non si e' potuto scrivere nella "
-        "directory temporanea."
-    )
+    # filesystem locale (`LocalIoError`, `arrow.non_scrivibile`); tutto il
+    # resto -- pyarrow che non legge lo stream, o un produttore
+    # `__arrow_c_stream__` che solleva un'eccezione sua -- e' la sorgente che
+    # non si lascia leggere (`arrow.illeggibile`).
     try:
         lettore = pa.RecordBatchReader.from_stream(dati)
         schema = lettore.schema
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _dallo_sdk(InvalidArgumentError, illeggibile) from None
+        raise _dallo_sdk(InvalidArgumentError, "arrow.illeggibile") from None
     try:
         uscita = pa.OSFile(str(destinazione), "wb")
     except Exception:  # noqa: BLE001
-        raise _dallo_sdk(LocalIoError, non_scrivibile) from None
+        raise _dallo_sdk(LocalIoError, "arrow.non_scrivibile") from None
     # Le chiusure stanno **dentro** la traduzione, e non in un `with`: chiudere
     # lo scrittore scrive il footer, e su un disco pieno fallisce. Con `with
     # uscita, scrittore` quell'errore usciva come eccezione di pyarrow o del
@@ -178,11 +164,11 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
             except StopIteration:
                 break
             except Exception:  # noqa: BLE001
-                errore = _dallo_sdk(InvalidArgumentError, illeggibile)
+                errore = _dallo_sdk(InvalidArgumentError, "arrow.illeggibile")
                 break
             scrittore.write_batch(batch)
     except Exception:  # noqa: BLE001
-        errore = _dallo_sdk(LocalIoError, non_scrivibile)
+        errore = _dallo_sdk(LocalIoError, "arrow.non_scrivibile")
     for chiusura in (scrittore, uscita):
         if chiusura is None:
             continue
@@ -190,7 +176,7 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
             chiusura.close()
         except Exception:  # noqa: BLE001
             if errore is None:
-                errore = _dallo_sdk(LocalIoError, non_scrivibile)
+                errore = _dallo_sdk(LocalIoError, "arrow.non_scrivibile")
     if errore is not None:
         raise errore from None
     return destinazione
@@ -210,19 +196,13 @@ def leggi_ipc(percorso: Path, content_type: str) -> Any:
     elif content_type == "application/vnd.apache.arrow.stream":
         apri = pa.ipc.open_stream
     else:
-        raise _dallo_sdk(ProtocolError,
-            "la consegna dichiara un content type che non e' una delle due "
-            "serializzazioni Arrow IPC: l'adattatore non indovina come leggerla."
-        )
+        raise _dallo_sdk(ProtocolError, "arrow.content_type")
     try:
         with pa.OSFile(str(percorso), "rb") as sorgente:
             return apri(sorgente).read_all()
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         # `from None`: il testo di pyarrow puo' citare valori del file.
-        raise _dallo_sdk(ProtocolError,
-            "il file che `read` dichiara di aver consegnato non si legge come "
-            "Arrow IPC nella serializzazione dichiarata."
-        ) from None
+        raise _dallo_sdk(ProtocolError, "arrow.consegna_illeggibile") from None
 
 
 class CartellaTemporanea:
@@ -258,10 +238,7 @@ class CartellaTemporanea:
         except (OSError, ValueError):
             # `ValueError` comprende `UnicodeEncodeError`: un percorso che il
             # filesystem non sa codificare.
-            raise _dallo_sdk(LocalIoError,
-                "la directory temporanea dell'adattatore Arrow non si e' potuta "
-                "creare: `temp_dir` non esiste o non si puo' scrivere."
-            ) from None
+            raise _dallo_sdk(LocalIoError, "arrow.cartella") from None
         return self._percorso
 
     def __exit__(self, tipo: Any, valore: Any, traccia: Any) -> None:
@@ -284,12 +261,7 @@ class CartellaTemporanea:
             if classe_dell_sdk(type(valore)):
                 raise _ricostruito(valore, cleanup_failed=True) from None
             return
-        raise _dallo_sdk(CleanupError,
-            "l'operazione e' riuscita e la directory temporanea "
-            "dell'adattatore Arrow non si e' potuta cancellare: va tolta a "
-            "mano.",
-            remote_effect=self._effetto,
-        ) from None
+        raise _dallo_sdk(CleanupError, "arrow.pulizia", remote_effect=self._effetto) from None
 
 
 def cartella_temporanea(
