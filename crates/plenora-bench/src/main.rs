@@ -655,7 +655,7 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
         match child.try_wait() {
             Ok(Some(_)) | Err(_) => break,
             Ok(None) => {
-                if start.elapsed() > deadline {
+                if start.elapsed() >= deadline {
                     child.kill().ok();
                     timed_out = true;
                     break;

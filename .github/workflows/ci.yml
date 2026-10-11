@@ -244,6 +244,16 @@ jobs:
         run: |
           python3 scripts/check_shapefile_fork.py
           python3 scripts/check_parquet_fork.py
+      # Le licenze che i fork ridistribuiscono, sui byte: dichiarate,
+      # versionate, con l'impronta registrata. L'audit riporta il resto e
+      # fallisce solo su queste: il fork di gdal ha ridistribuito codice MIT
+      # senza il suo testo fino alla 4.1.1, e nessun gate lo vedeva. Il
+      # confronto col `.crate` di crates.io si fa se la rete c'e'; senza, resta
+      # la verifica dell'impronta, che non ne ha bisogno.
+      - name: Le licenze dei fork
+        run: |
+          python3 -m unittest scripts.test_audit_fork_licenze
+          python3 scripts/audit-fork.py --scarico "$RUNNER_TEMP/crate-upstream"
       # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
       # come prova dell'invariante `errori.static-non-promuovibile`: qui serve
       # la sua sonda, che e' l'unica cosa che verifica il gate invece del
