@@ -359,6 +359,23 @@ processo che non muore, chiusura che fallisce dopo il successo, interruzione
 durante la chiusura -- catturando stderr e il gestore delle eccezioni dei
 thread.
 
+Il ritorno e' garantito dentro attese limitate, anche nei casi peggiori. Un
+lettore che fallisce uccide subito il processo: con la pipe non piu'
+svuotata il figlio resterebbe bloccato a scrivere, e l'attesa senza timeout
+non tornerebbe. Un lettore ancora bloccato quando l'attesa limitata scade --
+un processo nipote che tiene aperta la pipe -- non si aspetta oltre: il suo
+flusso non si chiude (`close()` aspetterebbe il lettore), si lascia al
+lettore, che lo chiude da se' quando la sua lettura torna, e la chiusura e'
+incompleta (`processo.chiusura`, `unknown` per una scrittura). **Risorsa che
+puo' restare occupata:** quella pipe e il suo thread lettore (un thread
+daemon) restano aperti finche' il nipote non chiude la propria estremita'.
+L'output si accumula in un solo `bytearray` per flusso, rilasciato appena
+decodificato. `IProcessiVeri` lo prova con processi veri -- l'interprete
+Python come figlio -- su Linux e Windows: un nipote che tiene la pipe (il
+ritorno arriva dentro le attese configurate, molto prima che la pipe si
+liberi), un lettore guasto con un figlio che scrive 4 MiB, e il drenaggio di
+alcuni MiB di testo multibyte.
+
 Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
 `tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella
 rete, un contenitore dell'SDK, un modello o un errore dell'SDK, o uno dei

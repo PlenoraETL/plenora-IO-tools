@@ -80,6 +80,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -178,7 +179,7 @@ def comando(argv: list[str]) -> str:
     return f"`plenora-io {sottocomando(argv) or '?'}`"
 
 
-def _testo(dati: bytes, argv: list[str], flusso: str) -> str:
+def _testo(dati: Any, argv: list[str], flusso: str) -> str:
     """I byte di un flusso come testo UTF-8, o `ProtocolError`.
 
     Il protocollo v2 scrive UTF-8. `communicate()` con `text=True` decodificava
@@ -277,12 +278,28 @@ class _Lettore:
     Cattura **ogni** eccezione in un attributo, e non la stampa mai: i
     lettori di `communicate` su Windows lasciavano le proprie eccezioni al
     gestore dei thread, che le scriveva su stderr con il loro testo.
+
+    Ventiduesimo giro:
+
+    * un lettore che fallisce chiama `al_guasto` -- l'SDK vi uccide il
+      processo -- perche' con la pipe non piu' svuotata il figlio resterebbe
+      bloccato a scrivere, e l'attesa senza timeout non tornerebbe;
+    * un flusso il cui lettore e' ancora bloccato (un nipote che tiene la
+      pipe) la chiusura non lo chiude: `close()` aspetterebbe il lock del
+      lettore. Lo «abbandona», e il lettore lo chiude da se' quando la sua
+      `read` torna;
+    * i byte si accumulano in un solo `bytearray`, che chi li prende rilascia
+      (`prendi`): niente blocchi, buffer concatenato e testo vivi insieme.
     """
 
-    def __init__(self, flusso: Any) -> None:
+    def __init__(self, flusso: Any, al_guasto: Any) -> None:
         self._flusso = flusso
-        self._parti: list[bytes] = []
+        self._dati: bytearray | None = bytearray()
         self._guasto = False
+        self._al_guasto = al_guasto
+        self._stato = threading.Lock()
+        self._finito = False
+        self._abbandonato = False
         self._thread = threading.Thread(target=self._leggi, daemon=True)
 
     def _leggi(self) -> None:
@@ -290,20 +307,35 @@ class _Lettore:
             while True:
                 blocco = self._flusso.read(65536)
                 if not blocco:
-                    return
-                if type(blocco) is not bytes:
+                    break
+                if type(blocco) is not bytes or self._dati is None:
                     self._guasto = True
-                    return
-                self._parti.append(blocco)
+                    break
+                self._dati += blocco
+                del blocco
         except BaseException:  # noqa: BLE001 - un lettore non stampa e non solleva
             self._guasto = True
+        finally:
+            if self._guasto:
+                try:
+                    self._al_guasto()
+                except BaseException:  # noqa: BLE001, S110 - il guasto e' gia' registrato
+                    pass
+            with self._stato:
+                self._finito = True
+                abbandonato = self._abbandonato
+            if abbandonato:
+                try:
+                    self._flusso.close()
+                except BaseException:  # noqa: BLE001, S110 - nessuno aspetta piu' il flusso
+                    pass
 
     def avvia(self) -> None:
         self._thread.start()
 
     def aspetta(self, secondi: float) -> None:
-        if self._thread.is_alive() or self._thread.ident is not None:
-            self._thread.join(timeout=secondi)
+        if self._thread.ident is not None:
+            self._thread.join(timeout=max(secondi, 0.0))
 
     def avviato(self) -> bool:
         return self._thread.ident is not None
@@ -311,8 +343,34 @@ class _Lettore:
     def concluso(self) -> bool:
         return not self._thread.is_alive() and not self._guasto
 
-    def dati(self) -> bytes:
-        return b"".join(self._parti)
+    def abbandona(self) -> bool:
+        """Vero se il lettore e' ancora al lavoro: chiudera' lui il flusso.
+        Falso se ha finito: la chiusura del flusso tocca a chi chiama."""
+        with self._stato:
+            if self.avviato() and not self._finito:
+                self._abbandonato = True
+                return True
+            return False
+
+    def prendi(self) -> bytearray:
+        """I byte letti; il lettore non ne tiene piu' il riferimento."""
+        dati, self._dati = self._dati, None
+        return dati if dati is not None else bytearray()
+
+
+def _aspetta_i_lettori(lettori: list[_Lettore], secondi: float) -> None:
+    """Un'attesa sola, condivisa, per tutti i lettori."""
+    scadenza = time.monotonic() + secondi
+    for lettore in lettori:
+        lettore.aspetta(scadenza - time.monotonic())
+
+
+def _uccidi(processo: Any) -> None:
+    """`kill`, senza sollevare: lo chiama un lettore guasto, dal suo thread."""
+    try:
+        processo.kill()
+    except Exception:  # noqa: BLE001, S110 - lo dira' l'attesa, o la chiusura
+        pass
 
 
 @dataclass
@@ -323,14 +381,18 @@ class _EsitoDellaChiusura:
 
 
 def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
-    """La chiusura del processo, su ogni uscita: non solleva mai.
+    """La chiusura del processo, su ogni uscita: non solleva mai, e torna
+    sempre dentro attese limitate.
 
     Se il processo e' ancora vivo: `kill`, poi un'attesa limitata, per
     `_TENTATIVI_DI_CHIUSURA` volte; se non muore, l'esito lo dice (`vivo`).
-    Poi la chiusura delle pipe e l'attesa limitata dei lettori. Ogni guasto
-    di un passo e' registrato e non interrompe i passi seguenti; un'eccezione
-    che non e' `Exception` (un secondo Ctrl-C) si conserva in `interruzione`,
-    e chi chiama decide se e' l'eccezione primaria.
+    Poi un'attesa limitata e condivisa dei lettori. Il flusso di un lettore
+    che ha finito si chiude qui; quello di un lettore ancora bloccato (un
+    nipote che tiene la pipe) si abbandona al lettore, che lo chiudera' quando
+    la sua `read` torna, e la chiusura e' incompleta. Ogni guasto di un passo
+    e' registrato e non interrompe i passi seguenti; un'eccezione che non e'
+    `Exception` (un secondo Ctrl-C) si conserva in `interruzione`, e chi
+    chiama decide se e' l'eccezione primaria.
     """
     esito = _EsitoDellaChiusura()
 
@@ -363,16 +425,17 @@ def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
         if passo(processo.poll) is None:
             esito.riuscita = False
             esito.vivo = True
-    for lettore in lettori:
-        passo(lambda lettore=lettore: lettore.aspetta(_ATTESA_DEI_LETTORI))
-    for nome in ("stdout", "stderr"):
-        flusso = getattr(processo, nome, None)
-        if flusso is not None:
-            passo(flusso.close)
-    for lettore in lettori:
-        passo(lambda lettore=lettore: lettore.aspetta(_ATTESA_DEI_LETTORI))
-        if lettore.avviato() and lettore._thread.is_alive():
+    passo(lambda: _aspetta_i_lettori(lettori, _ATTESA_DEI_LETTORI))
+    flussi = [getattr(processo, "stdout", None), getattr(processo, "stderr", None)]
+    for posizione, flusso in enumerate(flussi):
+        if flusso is None:
+            continue
+        lettore = lettori[posizione] if posizione < len(lettori) else None
+        if lettore is not None and passo(lettore.abbandona):
+            # Il lettore e' ancora bloccato: il flusso lo chiude lui.
             esito.riuscita = False
+            continue
+        passo(flusso.close)
     return esito
 
 
@@ -479,14 +542,22 @@ class Runner:
         risultato: Any = None
         try:
             registra_avvio(argv)
-            lettori = [_Lettore(processo.stdout), _Lettore(processo.stderr)]
+            lettori = [
+                _Lettore(processo.stdout, lambda: _uccidi(processo)),
+                _Lettore(processo.stderr, lambda: _uccidi(processo)),
+            ]
             stdout, stderr = self._attendi(processo, lettori, argv)
+            testo_stdout = _testo(stdout, argv, "stdout")
+            del stdout  # i byte non servono piu': non restano vivi col testo
+            testo_stderr = _testo(stderr, argv, "stderr")
+            del stderr
             completed = Completed(
                 argv=list(argv),
                 exit_code=processo.returncode,
-                stdout=_testo(stdout, argv, "stdout"),
-                stderr=_testo(stderr, argv, "stderr"),
+                stdout=testo_stdout,
+                stderr=testo_stderr,
             )
+            del testo_stdout, testo_stderr
             if completed.exit_code == 0:
                 risultato = FrozenDict(self._success(completed))
             else:
@@ -506,9 +577,11 @@ class Runner:
             raise primaria
         if esito.interruzione is not None:
             # Un'interruzione arrivata durante la chiusura, dopo un esito:
-            # e' l'eccezione primaria, e resta tale.
+            # e' l'eccezione primaria, e resta tale. La chiusura che ha
+            # interrotto non e' riuscita del tutto, e lo dice la nota.
             if scrive(argv):
                 _annota(esito.interruzione, NOTA_DELL_INTERRUZIONE)
+            _annota(esito.interruzione, NOTA_DELLA_CHIUSURA)
             raise esito.interruzione
         if isinstance(risultato, BaseException):
             # `CommandFailed`: e' l'esito del comando, e resta tale.
@@ -575,12 +648,14 @@ class Runner:
 
     def _attendi(
         self, processo: Any, lettori: list["_Lettore"], argv: list[str]
-    ) -> tuple[bytes, bytes]:
+    ) -> tuple[bytearray, bytearray]:
         """I due flussi, letti dai lettori dell'SDK mentre il processo gira.
 
-        L'attesa ha il timeout del client; i lettori si aspettano con un tempo
-        limitato. Un lettore che fallisce o che non finisce e' un guasto della
-        comunicazione, mai un successo.
+        L'attesa ha il timeout del client; un lettore che fallisce uccide il
+        processo (`_Lettore`), cosi' l'attesa torna anche senza timeout. I
+        lettori si aspettano poi con un tempo limitato e condiviso: un lettore
+        che fallisce o che non finisce e' un guasto della comunicazione, mai
+        un successo.
         """
         for lettore in lettori:
             lettore.avvia()
@@ -595,13 +670,12 @@ class Runner:
             raise _dallo_sdk(
                 ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
             ) from None
-        for lettore in lettori:
-            lettore.aspetta(_ATTESA_DEI_LETTORI)
+        _aspetta_i_lettori(lettori, _ATTESA_DEI_LETTORI)
         if any(not lettore.concluso() for lettore in lettori):
             raise _dallo_sdk(
                 ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
             )
-        return lettori[0].dati(), lettori[1].dati()
+        return lettori[0].prendi(), lettori[1].prendi()
 
     # --- i due flussi, ciascuno al proprio posto ---------------------------
 

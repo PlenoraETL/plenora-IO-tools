@@ -3770,6 +3770,10 @@ class LaGestioneDelProcesso(unittest.TestCase):
         finto = PopenFinto([(self.BUSTA, b"")], errore_chiusura=KeyboardInterrupt())
         errore = self._esegui(finto, self.SCRIVE, KeyboardInterrupt)
         self.assertIn(NOTA_DELL_INTERRUZIONE, self._note(errore))
+        # Ventiduesimo giro: la chiusura interrotta non e' riuscita del tutto.
+        from plenora_io._process import NOTA_DELLA_CHIUSURA
+
+        self.assertIn(NOTA_DELLA_CHIUSURA, self._note(errore))
         finto = PopenFinto([OSError(SEGRETO), (self.BUSTA, b"")],
                            errore_chiusura=KeyboardInterrupt())
         errore = self._esegui(finto, self.SCRIVE, PlenoraError)
@@ -3785,6 +3789,110 @@ class LaGestioneDelProcesso(unittest.TestCase):
                 self.assertRaises(KeyboardInterrupt) as preso:
             Client._decodifica(FrozenDict({}), WriteResult, self.SCRIVE)
         self.assertIn(NOTA_DELL_INTERRUZIONE, self._note(preso.exception))
+
+
+# --- 24. ventiduesimo giro di revisione -------------------------------------
+
+
+class IProcessiVeri(unittest.TestCase):
+    """Ventiduesimo giro: il ritorno garantito, con processi veri (l'interprete
+    Python come figlio). I limiti di tempo sono larghi e relativi alle attese
+    configurate, non assoluti."""
+
+    def _runner(self):
+        from plenora_io import Runner
+
+        return Runner(Path(sys.executable))
+
+    def _in_un_thread(self, funzione, limite):
+        """`funzione()` in un thread: se non torna entro `limite`, la prova
+        fallisce invece di restare appesa."""
+        import threading
+
+        esito = {}
+
+        def corpo():
+            try:
+                esito["valore"] = funzione()
+            except BaseException as errore:  # noqa: BLE001 - lo legge la prova
+                esito["errore"] = errore
+
+        filo = threading.Thread(target=corpo, daemon=True)
+        filo.start()
+        filo.join(limite)
+        return filo.is_alive(), esito
+
+    @prova("process.exit")
+    def test_un_nipote_che_tiene_la_pipe_non_blocca_il_ritorno(self) -> None:
+        """Prima: dopo l'attesa limitata dei lettori, `close()` del flusso
+        aspettava il lock del lettore bloccato, finche' il nipote non chiudeva."""
+        import time
+
+        from plenora_io import _process
+
+        tenuta = 6.0
+        figlio = (
+            "import subprocess, sys\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(%s)'],\n"
+            "                 stdout=sys.stdout, stderr=sys.stderr)\n" % tenuta
+        )
+        with mock.patch.object(_process, "_ATTESA_DEI_LETTORI", 0.5):
+            inizio = time.monotonic()
+            appeso, esito = self._in_un_thread(
+                lambda: self._runner().run(["-c", figlio]), tenuta * 3)
+            durata = time.monotonic() - inizio
+        self.assertFalse(appeso)
+        self.assertIs(type(esito.get("errore")), ProtocolError)
+        # Il ritorno arriva dentro le attese configurate, molto prima che il
+        # nipote lasci la pipe.
+        self.assertLess(durata, tenuta / 2)
+
+    @prova("process.communicate")
+    def test_un_lettore_guasto_non_lascia_il_figlio_bloccato(self) -> None:
+        """Prima: con un lettore fallito nessuno svuotava la pipe, il figlio
+        restava bloccato a scrivere, e `wait()` senza timeout non tornava."""
+        processi = []
+        vero_popen = subprocess.Popen
+
+        class Rotto:
+            def __init__(self, flusso):
+                self._flusso = flusso
+
+            def read(self, quanti=-1):
+                raise OSError(SEGRETO)
+
+            def close(self):
+                self._flusso.close()
+
+        def popen(*argomenti, **opzioni):
+            processo = vero_popen(*argomenti, **opzioni)
+            processi.append(processo)
+            processo.stdout = Rotto(processo.stdout)
+            return processo
+
+        figlio = "import sys\nsys.stdout.buffer.write(b'x' * (4 << 20))\n"
+        with mock.patch.object(subprocess, "Popen", popen):
+            appeso, esito = self._in_un_thread(
+                lambda: self._runner().run(["-c", figlio]), 60)
+        for processo in processi:
+            with contextlib.suppress(Exception):
+                processo.kill()
+        self.assertFalse(appeso)
+        self.assertIs(type(esito.get("errore")), ProtocolError)
+        self.assertNotIn(SEGRETO, str(esito["errore"]))
+
+    @prova("process.decode")
+    def test_un_output_grande_si_drena_tutto(self) -> None:
+        """Stdout di alcuni MiB, multibyte, senza perderne la coda."""
+        figlio = (
+            "import json, sys\n"
+            "dato = 'àè€' * (1 << 20)\n"
+            "sys.stdout.buffer.write(json.dumps({'status': 'ok', 'contract': 'x',\n"
+            "    'result': {'dato': dato}}, ensure_ascii=False).encode('utf-8'))\n"
+        )
+        risultato = self._runner().run(["-c", figlio])
+        self.assertEqual(len(risultato["dato"]), 3 << 20)
+        self.assertTrue(risultato["dato"].endswith("àè€"))
 
 
 if __name__ == "__main__":
