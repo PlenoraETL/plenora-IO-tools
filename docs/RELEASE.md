@@ -1373,7 +1373,9 @@ prossima release è percio' una **major** (5.0.0).
   dell'oggetto ricevuto non escono, e il traceback comincia dalla rete. Un
   `PlenoraError` costruito dal chiamante (anche di una classe dell'SDK, per
   esempio sollevato da un `__index__` o da un `__fspath__`) o di una sua
-  sottoclasse diventa `UnexpectedError`, senza il suo testo.
+  sottoclasse diventa `UnexpectedError`, senza il suo testo. Cio' che esce
+  da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
+  il chiamante usa l'SDK dentro un proprio `except`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,

@@ -161,13 +161,28 @@ costruttore (`errors.ricostruito`), e non legge mai `args`, `__notes__` o
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
 Si ricostruisce solo un errore **costruito dall'SDK**: il costruttore annota
-se chi ha chiamato la classe e' un modulo del pacchetto, per nome di modulo e
-non per percorso di file. Un `PlenoraError` costruito dal chiamante -- anche di
-una classe dell'SDK, sollevato da un `__index__` o da un `__fspath__` -- o
-derivato da una sua sottoclasse diventa `UnexpectedError`, come ogni altra
-eccezione esterna. Le ricerche nei risultati (`layer`, `field`, `driver`,
-`operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
-messaggio.
+se il frame che ha chiamato la classe esegue codice del pacchetto, per
+identita' dell'oggetto codice raccolto dalle funzioni dei moduli `plenora_io`
+-- non per percorso di file, ne' per nome di modulo. Un `PlenoraError`
+costruito dal chiamante -- anche di una classe dell'SDK, sollevato da un
+`__index__`, da un `__fspath__`, o da un `eval` senza globali propri che
+eredita quelli di un modulo dell'SDK (`functools.partial(eval, ...)` come
+`__fspath__`) -- o derivato da una sua sottoclasse diventa `UnexpectedError`,
+come ogni altra eccezione esterna. Le ricerche nei risultati (`layer`,
+`field`, `driver`, `operation`) sollevano `ResultLookupError`, anche
+`KeyError`, senza nomi nel messaggio.
+
+**Senza catena vuol dire `__context__` e `__cause__` a `None`.** Python mette
+come `__context__` di un'eccezione quella che si sta gestendo nel momento del
+`raise`: se il chiamante usa l'SDK dentro un proprio `except ValueError(...)`,
+quel `ValueError` diventerebbe il contesto dell'errore dell'SDK, e `from None`
+lo nasconderebbe soltanto. La rete solleva il proprio errore, ne toglie il
+`__context__` e lo rilancia con un `raise` nudo, che non concatena: cio' che
+esce da un metodo pubblico ha `__cause__` e `__context__` a `None` e
+`__suppress_context__` vero. I messaggi nominano le classi dell'SDK, mai
+`type(oggetto).__name__`: una sottoclasse del chiamante -- `type("nome",
+(Version,), {})` -- puo' chiamarsi come vuole, e il messaggio usa il nome della
+prima classe dell'SDK nel suo MRO (`confine.nome_sdk`).
 
 **Le eccezioni hanno lo stato fissato.** Il messaggio, l'effetto remoto e gli
 attributi di ogni errore (`envelope`, `exit_code`, `command`, `searched`,
@@ -224,10 +239,11 @@ Python. Fuori contratto: scrivere con `object.__setattr__` o
 attributi privati (`FrozenDict._dati`, `FrozenList._dati`, `_messaggio`,
 `_sigillato`, `_dall_sdk`, `_effetto_remoto`, le decisioni private di
 `ErrorEnvelope`); modificare il modulo `plenora_io.errors` o un altro modulo
-del pacchetto; eseguire codice compilato o definito sotto un nome di modulo
-`plenora_io...`, che la provenienza degli errori riconosce per nome; rinominare
-o rivendere il pacchetto sotto un altro nome, che spegne quel riconoscimento.
-Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
+del pacchetto, anche sostituendo il `__code__` di una sua funzione o
+inserendo in `sys.modules` un modulo `plenora_io...` del chiamante, perche' la
+provenienza degli errori raccoglie il codice delle funzioni di quei moduli;
+rinominare o rivendere il pacchetto sotto un altro nome, che spegne quel
+riconoscimento. Hazard: un modello o un errore alterato cosi' non e' piu' un risultato
 dell'SDK. Il suo `hash` puo' cambiare (se contiene un valore che un risultato
 non porta e' `InvalidArgumentError`), un errore puo' portare testo del
 chiamante oltre la rete, e con il pacchetto rinominato ogni errore dell'SDK

@@ -1967,7 +1967,7 @@ class LOttavoGiro(unittest.TestCase):
                 FrozenDict({})["assente"]
             except ResultLookupError as errore:
                 errore.args = (SEGRETO,)
-                errore.add_note(SEGRETO)
+                errore.__notes__ = [SEGRETO]  # come `add_note`, anche su 3.10
                 raise
 
         with self.assertRaises(PlenoraError) as preso:
@@ -2061,7 +2061,7 @@ class LOttavoGiro(unittest.TestCase):
         errore.__context__ = None
         errore.__suppress_context__ = True
         errore.__traceback__ = None
-        errore.add_note("nota")
+        errore.__notes__ = ["nota"]
         errore.args = ("altro",)
         self.assertEqual(str(errore), testo)
         self.assertEqual(errore.message, "m")
@@ -2119,6 +2119,109 @@ class LOttavoGiro(unittest.TestCase):
                     self.assertEqual(copiato.to_dict(), errore.to_dict())
                     with self.assertRaises(PlenoraError):
                         copiato.nuovo = 1
+
+
+# --- 12. nono giro di revisione ---------------------------------------------
+
+
+class IlNonoGiro(unittest.TestCase):
+    """Nono giro: nomi di classe nei messaggi, contesto, codice valutato."""
+
+    def _senza_segreto(self, chiamata) -> PlenoraError:
+        with self.assertRaises(PlenoraError) as preso:
+            chiamata()
+        errore = preso.exception
+        self.assertIsInstance(errore, InvalidArgumentError)
+        tradotto(self, errore)
+        return errore
+
+    @prova("messaggi.senza_dati")
+    def test_il_nome_di_una_classe_del_chiamante_non_entra_nei_messaggi(self) -> None:
+        """Prima: `type(self).__name__` nei messaggi di sigillo, di
+        immutabilita' e di normalizzazione portava il nome scelto dal
+        chiamante per la propria sottoclasse."""
+        Errore = type(SEGRETO, (InvalidArgumentError,), {})
+        errore = Errore("m")
+        self.assertIn("InvalidArgumentError", str(
+            self._senza_segreto(lambda: setattr(errore, "nuovo", 1))))
+        self._senza_segreto(lambda: delattr(errore, "_messaggio"))
+        self._senza_segreto(lambda: errore.__init__("m"))
+
+        Versione = type(SEGRETO, (Version,), {})
+        versione = Versione(component_version="4.2.0", cli_protocol_version=2)
+        self.assertIn("Version", str(
+            self._senza_segreto(lambda: setattr(versione, "component_version", "x"))))
+        self._senza_segreto(lambda: delattr(versione, "component_version"))
+        self._senza_segreto(
+            lambda: versione.__init__(component_version="9", cli_protocol_version=2))
+        self._senza_segreto(
+            lambda: Versione(component_version=object(), cli_protocol_version=2))
+
+        Limiti = type(SEGRETO, (Limits,), {})
+        limiti = Limiti(max_rows=3)
+        self._senza_segreto(lambda: limiti.__post_init__())
+
+    @prova("confine.rete")
+    def test_un_errore_dell_sdk_dentro_un_except_del_chiamante_non_ha_contesto(self) -> None:
+        """Prima: l'errore sollevato dalla rete dentro un `except` del
+        chiamante prendeva come `__context__` l'eccezione che il chiamante
+        stava gestendo; `from None` lo nascondeva soltanto."""
+        from plenora_io import ResultLookupError
+
+        casi = (
+            ("ricostruito", lambda: FrozenList([])[3], ResultLookupError),
+            ("ricostruito per nome", lambda: FrozenDict({})["k"], ResultLookupError),
+            ("invalid", lambda: Limits(max_rows="x"), InvalidArgumentError),
+            ("unexpected", lambda: Catalog.from_json(object()), PlenoraError),
+        )
+        for nome, chiamata, classe in casi:
+            with self.subTest(caso=nome):
+                preso = None
+                try:
+                    raise ValueError(SEGRETO)
+                except ValueError:
+                    try:
+                        chiamata()
+                    except PlenoraError as errore:
+                        preso = errore
+                self.assertIsInstance(preso, classe)
+                self.assertIsNone(preso.__context__)
+                self.assertIsNone(preso.__cause__)
+                self.assertTrue(preso.__suppress_context__)
+                testo = "".join(traceback.format_exception(type(preso), preso, preso.__traceback__))
+                self.assertNotIn(SEGRETO, testo)
+        # Con `mock.patch`, un `side_effect` che solleva fuori dall'SDK.
+        try:
+            raise ValueError(SEGRETO)
+        except ValueError:
+            with mock.patch("plenora_io.models.copia_json", side_effect=RuntimeError("x")),                     self.assertRaises(PlenoraError) as preso:
+                Catalog.from_json(catalogo_sano())
+        self.assertIsNone(preso.exception.__context__)
+
+    @prova("confine.rete")
+    def test_codice_valutato_coi_globali_dell_sdk_non_e_dell_sdk(self) -> None:
+        """Prima: `eval` senza globali propri eredita quelli del frame che lo
+        chiama -- la rete, o un modulo dell'SDK -- e l'errore che costruisce
+        passava per costruito dall'SDK, con il suo testo."""
+        from plenora_io.confine import confinato
+
+        sorgente = (
+            "(_ for _ in ()).throw("
+            "__import__('plenora_io').InvalidArgumentError('" + SEGRETO + "'))"
+        )
+        with self.assertRaises(PlenoraError) as preso:
+            confinato(functools.partial(eval, sorgente), "prova")()
+        self.assertEqual(type(preso.exception).__name__, "UnexpectedError")
+        tradotto(self, preso.exception, "none")
+
+        # Dal metodo pubblico: un `__fspath__` che e' un `eval` parziale gira
+        # con i globali del modulo dell'SDK che chiama `os.fspath`.
+        class Percorso:
+            __fspath__ = functools.partial(eval, sorgente, None)
+
+        with self.assertRaises(PlenoraError) as preso:
+            Client(binary=Percorso())
+        tradotto(self, preso.exception, "none")
 
 
 if __name__ == "__main__":

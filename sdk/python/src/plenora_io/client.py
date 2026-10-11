@@ -31,6 +31,7 @@ from typing import Any
 
 from . import argomenti as arg
 from . import arrow
+from .confine import nome_sdk
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
 from .errors import ProtocolError, copia_json
 from .limits import Limits
@@ -628,7 +629,7 @@ class Client:
             raise _con_effetto_ignoto(
                 ProtocolError(
                     f"il risultato di `plenora-io {argv[0]}` non si decodifica nel "
-                    f"modello {modello.__name__}."
+                    f"modello {nome_sdk(modello)}."
                 ),
                 argv,
             ) from None

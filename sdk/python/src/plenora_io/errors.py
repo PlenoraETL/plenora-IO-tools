@@ -117,19 +117,13 @@ class PlenoraError(Exception):
         if _modificabile(self, nome):
             object.__setattr__(self, nome, valore)
             return
-        raise InvalidArgumentError(
-            f"`{type(self).__name__}` e' gia' costruito: lo stato di un errore "
-            "dell'SDK non si modifica."
-        )
+        raise _sigillato(self)
 
     def __delattr__(self, nome: str) -> None:
         if _modificabile(self, nome):
             object.__delattr__(self, nome)
             return
-        raise InvalidArgumentError(
-            f"`{type(self).__name__}` e' gia' costruito: lo stato di un errore "
-            "dell'SDK non si modifica."
-        )
+        raise _sigillato(self)
 
     def __reduce__(self) -> Any:
         # `copy` e `pickle`: dallo stato fissato, mai da `args`. La copia non
@@ -201,6 +195,17 @@ ATTRIBUTI_LIBERI: frozenset[str] = frozenset(
 #: la provenienza.
 SIGILLO = "_sigillato"
 PROVENIENZA = "_dall_sdk"
+
+
+def _sigillato(errore: Any) -> "InvalidArgumentError":
+    # Il nome della classe dell'SDK, non `type(errore).__name__`: una
+    # sottoclasse del chiamante puo' chiamarsi come vuole.
+    from .confine import nome_sdk  # noqa: PLC0415 - confine importa questo modulo
+
+    return InvalidArgumentError(
+        f"`{nome_sdk(type(errore))}` e' gia' costruito: lo stato di un errore "
+        "dell'SDK non si modifica."
+    )
 
 
 def _modificabile(errore: Any, nome: Any) -> bool:

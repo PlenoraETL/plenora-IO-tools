@@ -367,7 +367,7 @@ class Catalog:
         elenco = documento["drivers"]
         if _tipo(elenco) != "array":
             raise ProtocolError(
-                f"catalog.drivers e' {type(elenco).__name__} e non un elenco."
+                f"catalog.drivers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
             determinism=documento["determinism"],
@@ -490,7 +490,7 @@ class Fidelity:
         ragioni = documento["reasons"]
         if _tipo(ragioni) != "array":
             raise ProtocolError(
-                f"fidelity.reasons e' {type(ragioni).__name__} e non un elenco."
+                f"fidelity.reasons e' {_tipo(ragioni)} e non un elenco."
             )
         return cls(
             level=documento["level"],
@@ -624,7 +624,7 @@ class Layer:
         colonne = documento["fields"]
         if _tipo(colonne) != "array":
             raise ProtocolError(
-                f"layers[].fields e' {type(colonne).__name__} e non un elenco."
+                f"layers[].fields e' {_tipo(colonne)} e non un elenco."
             )
         return cls(
             id=documento["id"],
@@ -700,7 +700,7 @@ class Inspect:
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise ProtocolError(
-                f"inspect.layers e' {type(elenco).__name__} e non un elenco."
+                f"inspect.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
             format=FormatDescriptor.from_json(documento["format"]),
@@ -741,7 +741,7 @@ class Layers:
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise ProtocolError(
-                f"layers.layers e' {type(elenco).__name__} e non un elenco."
+                f"layers.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
             format=documento["format"],
@@ -1062,7 +1062,7 @@ class ConvertResult:
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise ProtocolError(
-                f"convert.layers e' {type(elenco).__name__} e non un elenco."
+                f"convert.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
             from_=documento["from"],
@@ -1182,7 +1182,7 @@ class WriteResult:
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise ProtocolError(
-                f"write.layers e' {type(elenco).__name__} e non un elenco."
+                f"write.layers e' {_tipo(elenco)} e non un elenco."
             )
         return cls(
             format=documento["format"],
