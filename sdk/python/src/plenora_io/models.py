@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ._argomenti import testo
-from .errors import ProtocolError, ResultLookupError, _copia_json, _tipo
+from .errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
 from .errors import _dallo_sdk
 
 
@@ -107,6 +107,29 @@ def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
     return None
 
 
+def _schema(classe: Any) -> Any:
+    """La prima classe del modello dell'SDK nell'MRO di `classe`, per identita'.
+
+    Lo schema -- `OBBLIGATORI`, `PROPRI`, `OPZIONALI`, `RINOMINATI`,
+    `ANNULLABILI` e le annotazioni -- si legge da qui, mai da `cls`: una
+    sottoclasse del chiamante puo' ridefinire `OBBLIGATORI = ("dato",)`, e
+    prima i nomi mancanti entravano cosi' in un `ProtocolError` fidato
+    (dodicesimo giro). Gli attributi di una sottoclasse non entrano mai in un
+    messaggio.
+    """
+    from .confine import MODELLI  # noqa: PLC0415 - confine importa i modelli
+
+    try:
+        ordine = type.__dict__["__mro__"].__get__(classe, type)
+    except TypeError:
+        ordine = ()
+    for base in ordine:
+        for modello in MODELLI:
+            if base is modello:
+                return modello
+    raise _dallo_sdk(InvalidArgumentError, "il modello non deriva da una classe dell'SDK.")
+
+
 def _pretendi(
     documento: dict[str, Any],
     campi: tuple[str, ...],
@@ -140,6 +163,8 @@ def _pretendi(
         )
     if modello is None:
         return documento
+    # Lo schema della classe dell'SDK, non quello di `cls` (vedi `_schema`).
+    modello = _schema(modello)
     suggerimenti = typing.get_type_hints(modello)
     rinominati = getattr(modello, "RINOMINATI", {})
     opzionali = getattr(modello, "OPZIONALI", ())
@@ -299,9 +324,9 @@ class FormatDescriptor:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FormatDescriptor":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "format", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "format", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -339,7 +364,7 @@ class Driver(FormatDescriptor):
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Driver":
-        campi = FormatDescriptor.OBBLIGATORI + cls.PROPRI
+        campi = FormatDescriptor.OBBLIGATORI + _schema(cls).PROPRI
         documento = _pretendi(documento, campi, "catalog.drivers[]", cls)
         return cls(
             **{campo: documento[campo] for campo in campi},
@@ -364,7 +389,7 @@ class Catalog:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Catalog":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "catalog", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "catalog", cls)
         elenco = documento["drivers"]
         if _tipo(elenco) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -423,13 +448,13 @@ class Omissions:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Omissions":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.omesse", cls)
-        return cls(**{campo: documento[campo] for campo in cls.OBBLIGATORI})
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "fidelity.omesse", cls)
+        return cls(**{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI})
 
     @property
     def any(self) -> bool:
         """Qualcosa e' stato lasciato fuori, di qualunque delle quattro cause."""
-        return any(getattr(self, campo) for campo in self.OBBLIGATORI)
+        return any(getattr(self, campo) for campo in _schema(type(self)).OBBLIGATORI)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -452,7 +477,7 @@ class FidelityReason:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.reasons[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "fidelity.reasons[]", cls)
         return cls(
             code=documento["code"],
             detail=documento["detail"],
@@ -487,7 +512,7 @@ class Fidelity:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Fidelity":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "fidelity", cls)
         ragioni = documento["reasons"]
         if _tipo(ragioni) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -529,9 +554,9 @@ class Field:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Field":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.fields[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "layer.fields[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -569,11 +594,11 @@ class CrsResolution:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
         documento = _pretendi(
-            documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls
+            documento, _schema(cls).OBBLIGATORI, "layer.geometry.crs_resolution", cls
         )
         return cls(
             status=documento["status"],
-            **{campo: documento.get(campo) for campo in cls.OPZIONALI},
+            **{campo: documento.get(campo) for campo in _schema(cls).OPZIONALI},
             raw=dict(documento),
         )
 
@@ -596,7 +621,7 @@ class Geometry:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Geometry":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "layer.geometry", cls)
         return cls(
             name=documento["name"],
             kind=documento["kind"],
@@ -621,7 +646,7 @@ class Layer:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "inspect.layers[]", cls)
         colonne = documento["fields"]
         if _tipo(colonne) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -674,9 +699,9 @@ class LayerSummary:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layers.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "layers.layers[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -697,7 +722,7 @@ class Inspect:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Inspect":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "inspect", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -738,7 +763,7 @@ class Layers:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layers":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layers", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "layers", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -783,7 +808,7 @@ class Delivered:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Delivered":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "read.delivered", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "read.delivered", cls)
         return cls(
             content_type=documento["content_type"],
             interchange_contract=documento["interchange_contract"],
@@ -839,7 +864,7 @@ class Validation:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Validation":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "read", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "read", cls)
         consegna = documento["delivered"]
         return cls(
             format=documento["format"],
@@ -887,9 +912,9 @@ class LossCount:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossCount":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.counts[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "loss.counts[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -913,9 +938,9 @@ class LossExample:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossExample":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.esempi[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "loss.esempi[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -945,7 +970,7 @@ class LossReport:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossReport":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "loss", cls)
         for campo in ("counts", "esempi"):
             if _tipo(documento[campo]) != "array":
                 raise _dallo_sdk(ProtocolError,
@@ -995,9 +1020,9 @@ class ConvertedLayer:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertedLayer":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "convert.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "convert.layers[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1059,7 +1084,7 @@ class ConvertResult:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertResult":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "convert", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "convert", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -1120,9 +1145,9 @@ class WriteInput:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteInput":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "write.input", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "write.input", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1179,7 +1204,7 @@ class WriteResult:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteResult":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "write", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "write", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
             raise _dallo_sdk(ProtocolError,
@@ -1219,9 +1244,9 @@ class CapabilityInterface:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities.interfaces[]", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "capabilities.interfaces[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1239,7 +1264,7 @@ class OperationContent:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "OperationContent":
         documento = _pretendi(
-            documento, cls.OBBLIGATORI, "capabilities.operations[].input", cls
+            documento, _schema(cls).OBBLIGATORI, "capabilities.operations[].input", cls
         )
         return cls(
             contract=documento["contract"],
@@ -1262,10 +1287,10 @@ class OperationControls:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "OperationControls":
         documento = _pretendi(
-            documento, cls.OBBLIGATORI, "capabilities.operations[].controls", cls
+            documento, _schema(cls).OBBLIGATORI, "capabilities.operations[].controls", cls
         )
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls).OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1310,7 +1335,7 @@ class CapabilityOperation:
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CapabilityOperation":
         documento = _pretendi(
-            documento, cls.OBBLIGATORI, "capabilities.operations[]", cls
+            documento, _schema(cls).OBBLIGATORI, "capabilities.operations[]", cls
         )
         return cls(
             id=documento["id"],
@@ -1358,7 +1383,7 @@ class Capabilities:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "capabilities", cls)
+        documento = _pretendi(documento, _schema(cls).OBBLIGATORI, "capabilities", cls)
         if documento["schema_version"] != 2:
             raise _dallo_sdk(ProtocolError,
                 "capabilities.schema_version non e' 2: l'SDK legge "

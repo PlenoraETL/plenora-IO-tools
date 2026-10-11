@@ -1381,7 +1381,9 @@ prossima release è percio' una **major** (5.0.0).
   `confina_esportati`, `registra_modelli` e il modulo `plenora_io.argomenti`
   diventano privati (`_copia_json`, `_confinato`..., `plenora_io._argomenti`).
   `str()` di `CommandFailed` si compone dalla busta fissata, come `message` e
-  `to_dict()`. Cio' che esce
+  `to_dict()`. `from_json` dei modelli legge lo schema dalla classe
+  dell'SDK, non da una sottoclasse: gli `OBBLIGATORI` ridefiniti da una
+  sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio. Cio' che esce
   da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
   il chiamante usa l'SDK dentro un proprio `except`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,

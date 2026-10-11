@@ -191,7 +191,20 @@ moduli dell'SDK fuori da `__all__`, fallisce se ne compare una nuova, e la
 chiama con ogni combinazione di argomenti che portano un dato riconoscibile:
 un errore fidato che lo contenga e' rosso. `str(errore)`, `message` e
 `to_dict()` vengono dallo stesso stato: per `CommandFailed` il testo si
-compone dalla busta, dall'uscita e dal sottocomando fissati.
+compone dalla busta, dall'uscita e dal sottocomando fissati, e `str()`
+contiene `message` preceduto da sottocomando, uscita, categoria, fase e
+codice; per gli altri errori i due testi coincidono.
+
+Gli attributi di una sottoclasse non entrano mai in un errore fidato. Lo
+schema di un modello -- `OBBLIGATORI`, `PROPRI`, `OPZIONALI`, `RINOMINATI`,
+`ANNULLABILI` e le annotazioni -- si legge dalla prima classe dell'SDK
+nell'MRO, riconosciuta per identita' (`models._schema`), non da `cls`: una
+sottoclasse con `OBBLIGATORI = ("dato",)` non mette piu' «dato» fra i campi
+mancanti di un `ProtocolError`. La stessa prova d'inventario chiama ogni
+metodo pubblico, classmethod, staticmethod e proprieta' delle classi di
+`__all__` (salvo `Client` e `Runner`, che avviano il binario e hanno prove
+proprie), sulla classe e su una sottoclasse con ogni attributo di classe
+ridefinito, con argomenti che portano un dato riconoscibile.
 
 Le ricerche nei risultati (`layer`,
 `field`, `driver`, `operation`) sollevano `ResultLookupError`, anche
