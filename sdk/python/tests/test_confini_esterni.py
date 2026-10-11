@@ -3930,12 +3930,40 @@ class FlussoBloccato:
         self.libera = threading.Event()
         self._registro = registro
 
+        #: Dopo la liberazione: quattro blocchi, poi l'EOF.
+        self._blocchi = [b"x" * 65536] * 4
+
     def read(self, quanti=-1):
         self.libera.wait(30)
-        return b""
+        return self._blocchi.pop(0) if self._blocchi else b""
 
     def close(self):
-        self._registro.append("close stdout")
+        import threading
+
+        chi = "lettore" if threading.current_thread() is not threading.main_thread() else "run"
+        self._registro.append(f"close stdout ({chi})")
+
+
+class LockCheSolleva:
+    """Un lock il cui primo acquisto dal thread chiamante solleva
+    `KeyboardInterrupt`: un Ctrl-C che colpisce il reclamo del flusso."""
+
+    def __init__(self):
+        import threading
+
+        self._vero = threading.Lock()
+        self._sollevato = False
+
+    def __enter__(self):
+        import threading
+
+        if not self._sollevato and threading.current_thread() is threading.main_thread():
+            self._sollevato = True
+            raise KeyboardInterrupt
+        return self._vero.__enter__()
+
+    def __exit__(self, *eccezione):
+        return self._vero.__exit__(*eccezione)
 
 
 class UnSoloResponsabile(unittest.TestCase):
@@ -3979,34 +4007,47 @@ class UnSoloResponsabile(unittest.TestCase):
 
     @prova("process.exit")
     def test_un_interruzione_mentre_si_decide_non_chiude_il_flusso(self) -> None:
-        """Prima: un `KeyboardInterrupt` nella decisione sull'abbandono la
-        faceva rendere `None`, e la chiusura chiamava `close()` sul flusso del
-        lettore bloccato. Ora si chiude solo su una conferma esplicita."""
+        """Ventiquattresimo giro: un `KeyboardInterrupt` sul lock, mentre il
+        chiamante reclama il flusso del lettore bloccato. Prima il lettore
+        restava senza padrone: accumulava (262144 byte in quattro letture) e
+        all'EOF non chiudeva. Ora il flusso resta del lettore, che a fine run
+        scarta, libera il buffer e chiude all'EOF; il chiamante non lo chiude
+        mai."""
         from plenora_io import _process
 
         from test_confini_sdk import PopenFinto
 
         finto = PopenFinto([(b"", b"")])
-        bloccato = []
+        bloccati = []
+        lettori = []
+        originale = _process._Lettore
+
+        class ConLockCheSolleva(originale):
+            def __init__(self, *argomenti, **opzioni):
+                super().__init__(*argomenti, **opzioni)
+                self._stato = LockCheSolleva()
+                lettori.append(self)
 
         def chiamata(argv, **opzioni):
             processo = finto(argv, **opzioni)
             flusso = FlussoBloccato(processo.registro)
-            bloccato.append(flusso)
+            bloccati.append(flusso)
             processo.stdout = flusso
             return processo
 
         try:
             with mock.patch.object(_process, "_ATTESA_DEI_LETTORI", 0.1), \
-                    mock.patch.object(_process._Lettore, "ha_finito",
-                                      side_effect=KeyboardInterrupt, create=True), \
-                    mock.patch.object(_process._Lettore, "abbandona",
-                                      side_effect=KeyboardInterrupt, create=True):
+                    mock.patch.object(_process, "_Lettore", ConLockCheSolleva):
                 self._esegui(chiamata, self.SCRIVE)
-            self.assertNotIn("close stdout", finto.registro)
+            self.assertNotIn("close stdout (run)", finto.registro)
         finally:
-            for flusso in bloccato:
+            for flusso in bloccati:
                 flusso.libera.set()
+        lettore = lettori[0]
+        lettore._thread.join(10)
+        self.assertFalse(lettore._thread.is_alive())
+        self.assertIsNone(lettore._dati)
+        self.assertEqual(finto.registro.count("close stdout (lettore)"), 1)
 
     @prova("process.communicate")
     def test_un_lettore_abbandonato_scarta_e_libera_il_buffer(self) -> None:
@@ -4038,10 +4079,49 @@ class UnSoloResponsabile(unittest.TestCase):
                 self.assertRaises(PlenoraError):
             Runner(Path(sys.executable)).run(["-c", figlio])
         time.sleep(1.0)  # il nipote continua a scrivere
-        abbandonati = [lettore for lettore in lettori if lettore._abbandonato]
+        abbandonati = [lettore for lettore in lettori if not lettore.chiuso_dal_chiamante]
         self.assertTrue(abbandonati)
         for lettore in abbandonati:
             self.assertIsNone(lettore._dati)
+
+
+# --- 26. ventiquattresimo giro di revisione ---------------------------------
+
+
+class IlCicloAPassi(unittest.TestCase):
+    """Ventiquattresimo giro: il ciclo a passi non gira a vuoto."""
+
+    @prova("process.communicate")
+    def test_un_processo_che_dorme_si_aspetta_a_passi_non_a_vuoto(self) -> None:
+        """Un figlio vero che dorme: ogni `wait` del ciclo chiede un passo
+        intero, e le chiamate sono quante ne servono a coprire il sonno (con
+        un margine largo), non migliaia. Si contano le attese, non il tempo."""
+        from plenora_io import Runner, _process
+
+        attese = []
+        vero_popen = subprocess.Popen
+
+        def popen(*argomenti, **opzioni):
+            processo = vero_popen(*argomenti, **opzioni)
+            vero_wait = processo.wait
+
+            def wait(timeout=None):
+                attese.append(timeout)
+                return vero_wait(timeout=timeout)
+
+            processo.wait = wait
+            return processo
+
+        sonno = 1.5
+        figlio = f"import time\ntime.sleep({sonno})\n"
+        with mock.patch.object(subprocess, "Popen", popen), \
+                self.assertRaises(PlenoraError):
+            # Esce senza busta: e' un errore, e qui conta solo l'attesa.
+            Runner(Path(sys.executable)).run(["-c", figlio])
+        self.assertTrue(attese)
+        del_ciclo = [t for t in attese if t is not None and t <= _process._PASSO]
+        self.assertTrue(all(t == _process._PASSO for t in del_ciclo[:-1]), del_ciclo)
+        self.assertLess(len(del_ciclo), 10 * sonno / _process._PASSO)
 
 
 if __name__ == "__main__":

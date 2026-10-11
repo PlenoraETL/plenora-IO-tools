@@ -347,11 +347,13 @@ del processo ha il timeout del client; la chiusura gira su ogni uscita --
 `kill` e un'attesa limitata, ritentati; la chiusura delle pipe; l'attesa
 limitata dei lettori -- e non solleva mai. Un lettore che fallisce o non
 finisce e' un guasto della comunicazione, mai un successo. I guasti della
-chiusura non sostituiscono mai l'eccezione primaria, interruzioni comprese:
-a un'interruzione si aggiunge una nota fissa se la chiusura non e' riuscita
-del tutto; dopo un esito, una chiusura che fallisce e' un `ProtocolError`
-(`unknown` per una scrittura), e un processo che non muore lo dice
-(`processo.non_terminato`). L'SDK non scrive sullo stdin del figlio.
+chiusura non sostituiscono l'eccezione primaria, interruzioni comprese, con
+una sola eccezione: un processo che resta vivo (`processo.non_terminato`)
+prevale sull'errore che ha portato a chiuderlo, e chi chiama perde la
+distinzione fra timeout e guasto della comunicazione -- sapere che il figlio
+puo' essere ancora in esecuzione conta di piu'. A un'interruzione si aggiunge
+una nota fissa se la chiusura non e' riuscita del tutto; dopo un esito, una
+chiusura che fallisce e' un `ProtocolError` (`unknown` per una scrittura). L'SDK non scrive sullo stdin del figlio.
 `LaGestioneDelProcesso` prova ciascun caso -- interruzione con una pipe che
 non si chiude, `SystemExit` e `MemoryError` durante l'attesa (il `kill`
 precede ogni altra attesa), lettore che fallisce, `kill` che fallisce,
@@ -360,7 +362,8 @@ durante la chiusura -- catturando stderr e il gestore delle eccezioni dei
 thread.
 
 Il ritorno e' garantito dentro attese limitate, anche nei casi peggiori.
-Solo il thread principale aspetta e uccide il processo: lo aspetta a passi
+Solo il thread chiamante -- quello che ha chiamato `run` -- aspetta e uccide
+il processo: lo aspetta a passi
 brevi e, fra un passo e l'altro, guarda un `threading.Event` su cui i
 lettori segnalano un guasto, e la scadenza del timeout del client (senza
 timeout il ciclo continua, ma solo finche' i lettori sono sani). Un lettore
@@ -378,7 +381,14 @@ flusso si chiude solo con la conferma esplicita che il lettore ha finito; in
 ogni altro caso, anche un'interruzione mentre si decide, si abbandona al
 lettore, che scarta cio' che legge ancora (continua a leggere, per non
 bloccare il nipote), libera subito il buffer, e chiude il flusso da se'
-quando la sua lettura torna. **Risorsa che puo' restare occupata:** quella
+quando la sua lettura torna. Il flusso e' del lettore finche' il chiamante
+non lo reclama con successo e non conferma di averlo chiuso: a fine run un
+`threading.Event` dice al lettore che il run e' concluso, e se la conferma
+manca -- reclamo fallito, interrotto da un Ctrl-C mentre si prende il lock,
+lettore ancora bloccato -- il lettore scarta, libera e chiude da se'. Nessun
+passaggio di responsabilita' resta a meta'. Il ciclo a passi non consuma
+CPU: un processo che dorme si aspetta con `wait` di un passo alla volta, e
+una prova conta le attese. **Risorsa che puo' restare occupata:** quella
 pipe e il suo thread lettore (un thread daemon) restano aperti finche' il
 nipote non chiude la propria estremita', senza accumulare memoria. L'output
 si accumula in un solo `bytearray` per flusso, rilasciato appena

@@ -1465,7 +1465,7 @@ prossima release è percio' una **major** (5.0.0).
   sostituisce l'eccezione primaria. Un lettore che fallisce, o una chiusura
   che fallisce dopo un esito, sono `ProtocolError` (`unknown` per una
   scrittura), non un successo; un processo che non muore e'
-  `processo.non_terminato`. Solo il thread principale aspetta (a passi
+  `processo.non_terminato`. Solo il thread chiamante aspetta (a passi
   brevi, guardando i lettori e la scadenza) e uccide il processo: un lettore
   che fallisce lo segnala, non lo uccide. Se il processo resta vivo dopo
   `kill`, `terminate` e `kill` l'SDK non aspetta oltre:
@@ -1473,7 +1473,11 @@ prossima release è percio' una **major** (5.0.0).
   flusso di un lettore bloccato da un processo nipote si chiude solo con la
   conferma che il lettore ha finito; altrimenti si lascia al lettore, che
   scarta cio' che legge e libera il buffer: pipe e thread lettore restano
-  occupati finche' il nipote non chiude.
+  occupati finche' il nipote non chiude. Il flusso resta del lettore finche'
+  il chiamante non lo reclama e non conferma di averlo chiuso: un reclamo
+  interrotto non lascia il flusso senza padrone. Un processo che resta vivo
+  prevale sull'errore che ha portato a chiuderlo, e la distinzione fra
+  timeout e guasto della comunicazione si perde.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,

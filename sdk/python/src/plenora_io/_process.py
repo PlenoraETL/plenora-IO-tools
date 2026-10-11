@@ -263,7 +263,7 @@ NOTA_DELL_INTERRUZIONE = (
 _ATTESA_DELLA_CHIUSURA = 5.0
 _ATTESA_DEI_LETTORI = 5.0
 
-#: Il passo dell'attesa del processo: il thread principale aspetta a passi
+#: Il passo dell'attesa del processo: il thread chiamante aspetta a passi
 #: brevi, e fra un passo e l'altro guarda i lettori e la scadenza.
 _PASSO = 0.05
 
@@ -284,25 +284,33 @@ class _Lettore:
 
     Cattura **ogni** eccezione e non la stampa mai; il guasto lo segnala su
     un `threading.Event` condiviso (`guasto`), e non tocca il processo: solo
-    il thread principale chiama `wait` e `kill` (ventitreesimo giro -- un
-    `kill` dal lettore correva con `wait` e, su POSIX con il PID riciclato,
-    poteva colpire un altro processo).
+    il thread chiamante chiama `wait` e `kill`.
 
-    Il flusso lo chiude chi ha la certezza che il lettore abbia finito
-    (`ha_finito`); in ogni altro caso il lettore e' «abbandonato»: scarta
-    cio' che legge ancora -- continua a leggere, per non bloccare un nipote
-    che scrive -- libera il buffer, e chiude il flusso da se' quando la sua
-    lettura torna. I byte si accumulano in un solo `bytearray`, sotto lock.
+    Il flusso e' del lettore finche' il chiamante non lo **reclama** e non
+    conferma di averlo chiuso (ventiquattresimo giro). Il default e' sicuro:
+    a fine run (`conclusione`, un `Event` impostato nel `finally` di `run`)
+    il lettore guarda se il chiamante ha confermato la chiusura; se no --
+    il reclamo e' fallito, e' stato interrotto, il lettore era ancora
+    bloccato su un nipote -- il flusso e' suo: scarta cio' che legge ancora,
+    libera il buffer, e lo chiude all'EOF. Nessun passaggio di
+    responsabilita' si puo' interrompere a meta': la conferma
+    (`chiuso_dal_chiamante`) si scrive solo dopo che `close()` e' tornata, e
+    la conclusione arriva dopo di essa.
     """
 
-    def __init__(self, flusso: Any, guasto: threading.Event) -> None:
+    def __init__(self, flusso: Any, guasto: threading.Event,
+                 conclusione: threading.Event) -> None:
         self._flusso = flusso
         self._dati: bytearray | None = bytearray()
         self._fallito = False
         self._guasto = guasto
+        self._conclusione = conclusione
         self._stato = threading.Lock()
         self._finito = False
-        self._abbandonato = False
+        #: La lettura e' finita (EOF o guasto): il thread puo' restare vivo
+        #: ancora, in attesa della fine del run per chiudere il flusso.
+        self._letto = threading.Event()
+        self.chiuso_dal_chiamante = False
         self._thread = threading.Thread(target=self._leggi, daemon=True)
 
     def _leggi(self) -> None:
@@ -314,9 +322,15 @@ class _Lettore:
                 if type(blocco) is not bytes:
                     self._fallito = True
                     break
+                if self._conclusione.is_set():
+                    # Il run e' concluso e nessuno leggera' piu' questi
+                    # byte: si scartano, e il buffer si libera.
+                    self._dati = None
+                    continue
                 with self._stato:
-                    if not self._abbandonato and self._dati is not None:
-                        self._dati.extend(blocco)
+                    dati = self._dati
+                    if dati is not None:
+                        dati.extend(blocco)
                 del blocco
         except BaseException:  # noqa: BLE001 - un lettore non stampa e non solleva
             self._fallito = True
@@ -325,8 +339,12 @@ class _Lettore:
                 self._guasto.set()
             with self._stato:
                 self._finito = True
-                abbandonato = self._abbandonato
-            if abbandonato:
+            self._letto.set()
+            # Il flusso: lo chiude il chiamante, se lo ha reclamato e lo
+            # conferma; altrimenti, a fine run, lo chiude il lettore.
+            self._conclusione.wait()
+            self._dati = None
+            if not self.chiuso_dal_chiamante:
                 try:
                     self._flusso.close()
                 except BaseException:  # noqa: BLE001, S110 - nessuno aspetta piu' il flusso
@@ -337,23 +355,19 @@ class _Lettore:
 
     def aspetta(self, secondi: float) -> None:
         if self._thread.ident is not None:
-            self._thread.join(timeout=max(secondi, 0.0))
+            self._letto.wait(timeout=max(secondi, 0.0))
 
     def concluso(self) -> bool:
-        return not self._thread.is_alive() and not self._fallito
+        return self._letto.is_set() and not self._fallito
 
-    def ha_finito(self) -> bool:
-        """`True` solo se il lettore ha certamente finito: allora il flusso
-        lo chiude chi chiama. Altrimenti il lettore e' abbandonato -- scarta,
-        libera il buffer, chiudera' lui -- e la risposta e' `False`. Chi
-        chiama chiude il flusso **solo** su un `True` esplicito: un'eccezione
-        qui (un Ctrl-C mentre si prende il lock) non porta mai a `close()`."""
+    def reclama(self) -> bool:
+        """`True` solo se il lettore ha certamente finito (o non e' mai
+        partito): allora il chiamante puo' chiudere il flusso, e conferma con
+        `chiuso_dal_chiamante` dopo `close()`. Qualunque altro esito -- `False`,
+        un'eccezione, un'interruzione mentre si prende il lock -- lascia il
+        flusso al lettore."""
         with self._stato:
-            if self._finito or self._thread.ident is None:
-                return True
-            self._abbandonato = True
-            self._dati = None
-            return False
+            return self._finito or self._thread.ident is None
 
     def prendi(self) -> bytearray:
         """I byte letti; il lettore non ne tiene piu' il riferimento."""
@@ -377,7 +391,7 @@ class _EsitoDellaChiusura:
 
 
 def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
-    """La chiusura del processo, su ogni uscita: dal solo thread principale,
+    """La chiusura del processo, su ogni uscita: dal solo thread chiamante,
     senza mai sollevare, e sempre dentro attese limitate.
 
     Se il processo e' ancora vivo: `kill`, `terminate`, `kill` -- uno per
@@ -430,12 +444,17 @@ def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
         if flusso is None:
             continue
         lettore = lettori[posizione] if posizione < len(lettori) else None
-        if lettore is not None and passo(lettore.ha_finito) is not True:
-            # Non c'e' la conferma che il lettore abbia finito: il flusso
-            # non si chiude mai qui, lo chiudera' il lettore.
+        if lettore is not None and passo(lettore.reclama) is not True:
+            # Il flusso non e' reclamato: resta del lettore, che lo chiudera'
+            # a fine run. Il buffer si lascia subito (un'assegnazione sola).
+            lettore._dati = None
             esito.riuscita = False
             continue
         passo(flusso.close)
+        if lettore is not None:
+            # La conferma, dopo che `close()` e' tornata: senza, il lettore
+            # chiude da se' (una seconda chiusura non fa niente).
+            lettore.chiuso_dal_chiamante = True
     return esito
 
 
@@ -538,12 +557,28 @@ class Runner:
         # (`_chiudi`) non solleva mai: i suoi guasti non sostituiscono
         # l'eccezione primaria, e dopo un successo diventano un errore.
         lettori: list[_Lettore] = []
+        # La fine del run per i lettori: impostata nel `finally` qui sotto,
+        # dopo la chiusura. `Event.set` non aspetta nessuno.
+        conclusione = threading.Event()
+        try:
+            return self._esito(processo, argv, lettori, conclusione)
+        finally:
+            conclusione.set()
+
+    def _esito(
+        self, processo: Any, argv: list[str], lettori: list["_Lettore"],
+        conclusione: threading.Event,
+    ) -> FrozenDict:
+        """Il resto di `run`, dentro il `finally` che conclude i lettori."""
         primaria: BaseException | None = None
         risultato: Any = None
         try:
             registra_avvio(argv)
             guasto = threading.Event()
-            lettori = [_Lettore(processo.stdout, guasto), _Lettore(processo.stderr, guasto)]
+            lettori += [
+                _Lettore(processo.stdout, guasto, conclusione),
+                _Lettore(processo.stderr, guasto, conclusione),
+            ]
             stdout, stderr = self._attendi(processo, lettori, guasto, argv)
             testo_stdout = _testo(stdout, argv, "stdout")
             del stdout  # i byte non servono piu': non restano vivi col testo
@@ -657,7 +692,7 @@ class Runner:
     ) -> tuple[bytearray, bytearray]:
         """I due flussi, letti dai lettori dell'SDK mentre il processo gira.
 
-        Il thread principale e' il solo che aspetta il processo, a passi
+        Il thread chiamante e' il solo che aspetta il processo, a passi
         brevi (`_PASSO`): fra un passo e l'altro guarda l'`Event` dei lettori
         e la scadenza del timeout del client (`None`: nessuna scadenza, ma il
         ciclo continua). Un lettore guasto o la scadenza fanno uscire con un
