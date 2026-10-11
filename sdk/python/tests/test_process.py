@@ -135,7 +135,7 @@ class LEsecutore(unittest.TestCase):
             runner.run(["read", "x"])
         self.assertEqual(preso.exception.exit_code, 5)
         self.assertEqual(preso.exception.envelope.phase, "read")
-        self.assertEqual(preso.exception.argv, ["read", "x"])
+        self.assertEqual(preso.exception.command, "read")
 
     # --- le combinazioni che il protocollo non prevede ---------------------
 
