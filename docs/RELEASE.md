@@ -1391,11 +1391,14 @@ prossima release è percio' una **major** (5.0.0).
   compongono il messaggio da se', gli errori della fabbrica strutturata
   (`_dallo_sdk_strutturato`): `BinaryNotFound` dai posti di ricerca,
   `ProfileError` dai profili noti, e `CommandFailed` con le sue sottoclassi,
-  il cui messaggio e' quello della busta d'errore della CLI -- il
-  `PublicMessage` del prodotto, testo curato che porta come solo testo di
-  runtime il token limitato di un'opzione rifiutata
-  (`PublicMessage::OpzioneRifiutata` in `plenora-io-model/src/error.rs`),
-  validato dalla busta prima di diventare un errore. `carica_json` copia il
+  il cui messaggio **viene dalla busta d'errore della CLI**. L'SDK ne
+  controlla soltanto la forma (stringa non vuota, campi e vocabolari della
+  busta) e lo riproduce: la garanzia che sia testo curato, senza dati, e'
+  della CLI -- il `PublicMessage` del prodotto, il cui solo testo di runtime
+  e' il token limitato di un'opzione rifiutata
+  (`PublicMessage::OpzioneRifiutata` in `plenora-io-model/src/error.rs`) --
+  e non dell'SDK. Il messaggio del timeout di `Runner` non riporta piu' il
+  valore scelto dal chiamante. `carica_json` copia il
   testo in una `str` esatta prima del parser e ricalcola riga e colonna;
   `leggi_manifesto` legge i byte da un percorso esatto. Alcuni messaggi cambiano di poco (per
   esempio `plenora-io ?` quando l'argomento non e' un sottocomando noto). Un

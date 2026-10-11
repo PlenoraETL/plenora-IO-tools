@@ -161,14 +161,26 @@ costruttore (`errors._ricostruito`), e non legge mai `args`, `__notes__` o
 riscrive `args` e lo rilancia non fa uscire il proprio testo; `ResultLookupError`
 resta un `KeyError` e un `IndexError`, quindi `Mapping.get` e `in` funzionano.
 Si ricostruisce solo un errore **nato nell'SDK**: un errore conta come
-dell'SDK solo se l'SDK l'ha costruito con la propria fabbrica privata
-(`errors._dallo_sdk`, o `_dallo_sdk_strutturato` per `BinaryNotFound`,
-`ProfileError` e la busta del processo). Il costruttore pubblico, chiamato in
-qualunque modo -- da una callback, da `map` o `functools.partial` in C, da
-`eval` -- fa sempre un errore **esterno**, che la rete rende
-`UnexpectedError`, come un errore di una sottoclasse del chiamante.
+dell'SDK solo se l'SDK l'ha costruito con una delle sue due fabbriche private.
+Il costruttore pubblico, chiamato in qualunque modo -- da una callback, da
+`map` o `functools.partial` in C, da `eval` -- fa sempre un errore
+**esterno**, che la rete rende `UnexpectedError`, come un errore di una
+sottoclasse del chiamante. Le due fabbriche danno garanzie diverse sul testo:
 
-**Il testo di un errore fidato.** La fabbrica non accetta testo: prende una
+* la **fabbrica a catalogo** (`errors._dallo_sdk`) costruisce ogni altro
+  errore dell'SDK, con un messaggio del catalogo e parametri tipati (sotto);
+* la **fabbrica strutturata** (`errors._dallo_sdk_strutturato`) costruisce i
+  tre tipi che compongono il messaggio da se': `BinaryNotFound` dai posti di
+  ricerca, un elenco chiuso; `ProfileError` dai profili noti; `CommandFailed`
+  e le sue sottoclassi dalla **busta d'errore della CLI**. Di quella busta
+  l'SDK controlla solo la forma -- tipi esatti, campi obbligatori, `message`
+  stringa non vuota, vocabolari chiusi di effetto e ritentativo -- e ne
+  riproduce il messaggio: che sia testo curato, senza dati, lo garantisce la
+  CLI (`PublicMessage` in `crates/plenora-io-model/src/error.rs`, il cui solo
+  testo di runtime e' il token limitato di un'opzione rifiutata), non l'SDK.
+
+**Il testo di un errore della fabbrica a catalogo.** La fabbrica non
+accetta testo: prende una
 chiave di un catalogo chiuso di modelli fissi (`errors.MESSAGGI`) e dei
 parametri, e ogni parametro ha un tipo dichiarato per la sua chiave
 (`errors.PARAMETRI`): un insieme chiuso specifico -- i nomi delle classi

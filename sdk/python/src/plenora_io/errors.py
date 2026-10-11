@@ -530,8 +530,8 @@ MESSAGGI: dict[str, str] = {
         "l'esito non si conosce."
     ),
     "processo.timeout": (
-        "`plenora-io {comando}` non ha risposto entro {secondi}s ed e' stato "
-        "terminato. Il timeout lo sceglie chi chiama, e questo errore non dice "
+        "`plenora-io {comando}` non ha risposto entro il tempo massimo del client "
+        "ed e' stato terminato. Il timeout lo sceglie chi chiama, e questo errore non dice "
         "che il comando sia fallito: dice che non si sa, e che una destinazione "
         "parziale puo' essere rimasta."
     ),
@@ -1231,22 +1231,6 @@ class _Intero:
         return int.__repr__(valore)
 
 
-class _Decimale:
-    """Un parametro decimale esatto e finito, in un intervallo dichiarato."""
-
-    __slots__ = ("minimo", "massimo")
-
-    def __init__(self, minimo: float, massimo: float) -> None:
-        self.minimo, self.massimo = minimo, massimo
-
-    def rendi(self, valore: Any) -> str:
-        if type(valore) is not float or not math.isfinite(valore):
-            return "?"
-        if not self.minimo <= valore <= self.massimo:
-            return "?"
-        return float.__repr__(valore)
-
-
 class _Alternative:
     """Una `tuple` di parametri dello stesso tipo, resa «a o b»."""
 
@@ -1435,7 +1419,9 @@ PARAMETRI: dict[str, dict[str, Any]] = {
     "processo.argomento_non_passabile": {"comando": _COMANDO},
     "processo.non_eseguibile": {"comando": _COMANDO},
     "processo.chiusura": {"comando": _COMANDO},
-    "processo.timeout": {"comando": _COMANDO, "secondi": _Decimale(0.0, 1e15)},
+    # Senza il valore del timeout: e' un numero scelto da chi chiama, e un
+    # decimale scritto per intero e' un dato (quindicesimo giro).
+    "processo.timeout": {"comando": _COMANDO},
     "processo.comunicazione": {"comando": _COMANDO},
     "processo.non_utf8": {"comando": _COMANDO, "flusso": _FLUSSO, "byte": _CONTEGGIO},
     "processo.stderr_successo": {"comando": _COMANDO, "caratteri": _CONTEGGIO},

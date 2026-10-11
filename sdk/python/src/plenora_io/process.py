@@ -370,7 +370,6 @@ class Runner:
                 raise _con_effetto_ignoto(_dallo_sdk(
                     ProtocolError, "processo.timeout",
                     comando=_nome_del_comando(argv),
-                    secondi=self._timeout,
                 ), argv) from None
             except (OSError, ValueError):
                 self._chiudi(processo)

@@ -132,6 +132,30 @@ class IlProcesso(unittest.TestCase):
         self.assi_ignoti(preso.exception)
         nessun_dato(self, preso.exception)
 
+    def test_il_timeout_del_chiamante_non_entra_nel_messaggio(self) -> None:
+        """Quindicesimo giro: il messaggio del timeout scriveva per intero il
+        decimale scelto dal chiamante («0.12345678901234566s»), un dato in un
+        errore fidato; e un valore grande diventava «?s». Ora il messaggio non
+        porta il valore, e nessun modello del catalogo prende un decimale."""
+        from plenora_io import errors
+
+        for scelto in (0.12345678901234567, 1e16, 7.0):
+            with self.subTest(timeout=scelto):
+                finto = PopenFinto([subprocess.TimeoutExpired(["x"], scelto), (b"", b"")])
+                with mock.patch.object(subprocess, "Popen", finto):
+                    with self.assertRaises(ProtocolError) as preso:
+                        Runner(Path("plenora-io"), timeout=scelto).run(SCRIVE)
+                testo = str(preso.exception)
+                self.assertTrue(errors.costruito_dall_sdk(preso.exception))
+                self.assertNotIn(repr(scelto), testo)
+                self.assertNotIn(str(scelto).split(".")[0] + "s", testo)
+                self.assertNotIn("?s", testo)
+                self.assertIn("tempo massimo", testo)
+        for chiave, tipi in errors.PARAMETRI.items():
+            for nome, tipo in tipi.items():
+                with self.subTest(chiave=chiave, parametro=nome):
+                    self.assertNotEqual(type(tipo).__name__, "_Decimale")
+
     def test_un_processo_che_non_parte_non_ha_effetto(self) -> None:
         def non_parte(argv, **opzioni):
             raise FileNotFoundError(SEGRETO)
