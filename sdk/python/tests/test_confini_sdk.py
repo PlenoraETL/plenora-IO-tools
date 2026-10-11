@@ -98,6 +98,12 @@ class PopenFinto:
         self.uccisi = 0
         self.registro = []
         self.stdout = self.stderr = None
+        #: I `kill` arrivati da un thread che non e' il principale, o dopo che
+        #: il processo era gia' stato raccolto: su POSIX, con il PID riciclato,
+        #: colpirebbero un altro processo.
+        self.kill_estranei = []
+        self._appeso = False
+        self._ucciso = False
 
     def __call__(self, argv, **opzioni):
         self.registro = []
@@ -118,26 +124,53 @@ class PopenFinto:
                                   self.registro, "stdout")
         self.stderr = FlussoFinto(dati[1], None, None, self.registro, "stderr")
         self.returncode = None
+        self._appeso = False
+        self._ucciso = False
         return self
 
     def wait(self, timeout=None):
+        """Un timeout scritto nella prova vuol dire «il processo non finisce
+        finche' non lo si uccide»: ogni attesa scade (dopo un istante), come
+        un processo vero che non esce."""
+        import time
+
         self.registro.append("wait")
+        if self._attese and isinstance(self._attese[0], subprocess.TimeoutExpired):
+            self._attese.pop(0)
+            self._appeso = True
+        if self._appeso and not self._ucciso:
+            time.sleep(0.005)
+            raise subprocess.TimeoutExpired(["x"], timeout)
         if self._attese:
             raise self._attese.pop(0)
         if self._non_muore and self.uccisi:
+            time.sleep(0.005)
             raise subprocess.TimeoutExpired(["x"], timeout)
         if self.returncode is None:
-            self.returncode = -9 if self.uccisi else self._codice
+            self.returncode = -9 if self._ucciso else self._codice
         return self.returncode
 
     def poll(self):
         return self.returncode
 
-    def kill(self):
-        self.registro.append("kill")
+    def _segnale(self, nome):
+        import threading
+
+        self.registro.append(nome)
+        if threading.current_thread() is not threading.main_thread() or (
+                self.returncode is not None):
+            self.kill_estranei.append(nome)
         self.uccisi += 1
         if self._errore_kill is not None:
             raise self._errore_kill
+        if not self._non_muore:
+            self._ucciso = True
+
+    def kill(self):
+        self._segnale("kill")
+
+    def terminate(self):
+        self._segnale("terminate")
 
     def send_signal(self, segnale):
         pass
@@ -210,7 +243,7 @@ class IlProcesso(unittest.TestCase):
         ])
         with mock.patch.object(subprocess, "Popen", finto):
             with self.assertRaises(ProtocolError) as preso:
-                Runner(Path("plenora-io"), timeout=1.0).run(SCRIVE)
+                Runner(Path("plenora-io"), timeout=0.2).run(SCRIVE)
         self.assi_ignoti(preso.exception)
         nessun_dato(self, preso.exception)
 
@@ -221,7 +254,8 @@ class IlProcesso(unittest.TestCase):
         porta il valore, e nessun modello del catalogo prende un decimale."""
         from plenora_io import _errors as errors
 
-        for scelto in (0.12345678901234567, 1e16, 7.0):
+        # Valori piccoli: il timeout scade davvero (il `Popen` finto non esce).
+        for scelto in (0.12345678901234567, 0.25):
             with self.subTest(timeout=scelto):
                 finto = PopenFinto([subprocess.TimeoutExpired(["x"], scelto), (b"", b"")])
                 with mock.patch.object(subprocess, "Popen", finto):
