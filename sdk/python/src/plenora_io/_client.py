@@ -47,7 +47,7 @@ from ._models import (
     Version,
     WriteResult,
 )
-from ._process import Runner, _dopo_l_avvio
+from ._process import Runner, _annota_interruzione, _dopo_l_avvio, scrive
 
 #: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
 #:
@@ -447,6 +447,9 @@ class Client:
             except Exception as errore:  # noqa: BLE001 - dopo la scrittura, tutto e' protocollo
                 raise _dopo_l_avvio(
                     errore, ["read", "--output"], "client.consegna_illeggibile") from None
+            except BaseException as interruzione:
+                _annota_interruzione(interruzione)
+                raise
         return letto
 
 
@@ -660,6 +663,10 @@ class Client:
         except Exception as errore:  # noqa: BLE001 - il confine traduce tutto, apposta
             raise _dopo_l_avvio(
                 errore, argv, "client.non_decodifica", modello=nome_sdk(modello)) from None
+        except BaseException as interruzione:
+            if scrive(argv):
+                _annota_interruzione(interruzione)
+            raise
 
     # --- la riga di argomenti ---------------------------------------------
 

@@ -257,22 +257,146 @@ NOTA_DELL_INTERRUZIONE = (
 )
 
 
-def _annota_interruzione(interruzione: BaseException) -> None:
-    """La nota su un'interruzione dopo l'avvio di un comando che scrive.
+#: Quanto si aspetta un processo dopo `kill`, per ciascun tentativo, e quanti
+#: tentativi; quanto si aspettano i lettori dopo che il processo e' uscito.
+_ATTESA_DELLA_CHIUSURA = 5.0
+_TENTATIVI_DI_CHIUSURA = 2
+_ATTESA_DEI_LETTORI = 5.0
+
+#: La nota, fissa e senza dati, su un'interruzione la cui chiusura del figlio
+#: non e' riuscita del tutto.
+NOTA_DELLA_CHIUSURA = (
+    "plenora-io: la chiusura del processo figlio non e' riuscita del tutto; "
+    "potrebbe essere ancora in esecuzione."
+)
+
+
+class _Lettore:
+    """Un thread dell'SDK che legge un flusso fino alla fine.
+
+    Cattura **ogni** eccezione in un attributo, e non la stampa mai: i
+    lettori di `communicate` su Windows lasciavano le proprie eccezioni al
+    gestore dei thread, che le scriveva su stderr con il loro testo.
+    """
+
+    def __init__(self, flusso: Any) -> None:
+        self._flusso = flusso
+        self._parti: list[bytes] = []
+        self._guasto = False
+        self._thread = threading.Thread(target=self._leggi, daemon=True)
+
+    def _leggi(self) -> None:
+        try:
+            while True:
+                blocco = self._flusso.read(65536)
+                if not blocco:
+                    return
+                if type(blocco) is not bytes:
+                    self._guasto = True
+                    return
+                self._parti.append(blocco)
+        except BaseException:  # noqa: BLE001 - un lettore non stampa e non solleva
+            self._guasto = True
+
+    def avvia(self) -> None:
+        self._thread.start()
+
+    def aspetta(self, secondi: float) -> None:
+        if self._thread.is_alive() or self._thread.ident is not None:
+            self._thread.join(timeout=secondi)
+
+    def avviato(self) -> bool:
+        return self._thread.ident is not None
+
+    def concluso(self) -> bool:
+        return not self._thread.is_alive() and not self._guasto
+
+    def dati(self) -> bytes:
+        return b"".join(self._parti)
+
+
+@dataclass
+class _EsitoDellaChiusura:
+    riuscita: bool = True
+    vivo: bool = False
+    interruzione: BaseException | None = None
+
+
+def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
+    """La chiusura del processo, su ogni uscita: non solleva mai.
+
+    Se il processo e' ancora vivo: `kill`, poi un'attesa limitata, per
+    `_TENTATIVI_DI_CHIUSURA` volte; se non muore, l'esito lo dice (`vivo`).
+    Poi la chiusura delle pipe e l'attesa limitata dei lettori. Ogni guasto
+    di un passo e' registrato e non interrompe i passi seguenti; un'eccezione
+    che non e' `Exception` (un secondo Ctrl-C) si conserva in `interruzione`,
+    e chi chiama decide se e' l'eccezione primaria.
+    """
+    esito = _EsitoDellaChiusura()
+
+    def passo(azione: Any) -> Any:
+        try:
+            return azione()
+        except Exception:  # noqa: BLE001 - un guasto della chiusura si registra
+            esito.riuscita = False
+        except BaseException as interruzione:  # noqa: BLE001 - si conserva
+            esito.riuscita = False
+            if esito.interruzione is None:
+                esito.interruzione = interruzione
+        return None
+
+    if passo(processo.poll) is None:
+        for _ in range(_TENTATIVI_DI_CHIUSURA):
+            passo(processo.kill)
+            try:
+                processo.wait(timeout=_ATTESA_DELLA_CHIUSURA)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+            except Exception:  # noqa: BLE001
+                esito.riuscita = False
+                break
+            except BaseException as interruzione:  # noqa: BLE001
+                esito.riuscita = False
+                esito.interruzione = esito.interruzione or interruzione
+                break
+        if passo(processo.poll) is None:
+            esito.riuscita = False
+            esito.vivo = True
+    for lettore in lettori:
+        passo(lambda lettore=lettore: lettore.aspetta(_ATTESA_DEI_LETTORI))
+    for nome in ("stdout", "stderr"):
+        flusso = getattr(processo, nome, None)
+        if flusso is not None:
+            passo(flusso.close)
+    for lettore in lettori:
+        passo(lambda lettore=lettore: lettore.aspetta(_ATTESA_DEI_LETTORI))
+        if lettore.avviato() and lettore._thread.is_alive():
+            esito.riuscita = False
+    return esito
+
+
+def _annota(eccezione: BaseException, nota: str) -> None:
+    """Una nota fissa, senza dati, su un'eccezione che resta la primaria.
 
     `add_note` da Python 3.11; prima, `__notes__` scritto a mano, che e' lo
-    stesso attributo. Una nota che non si scrive non cambia l'interruzione.
+    stesso attributo. Una nota che non si scrive non cambia l'eccezione.
     """
     try:
         aggiungi = getattr(BaseException, "add_note", None)
         if aggiungi is not None:
-            aggiungi(interruzione, NOTA_DELL_INTERRUZIONE)
+            aggiungi(eccezione, nota)
         else:
-            precedenti = getattr(interruzione, "__notes__", None)
+            precedenti = getattr(eccezione, "__notes__", None)
             note = list(precedenti) if type(precedenti) is list else []
-            interruzione.__notes__ = [*note, NOTA_DELL_INTERRUZIONE]
-    except Exception:  # noqa: BLE001, S110 - la nota non sostituisce l'interruzione
+            eccezione.__notes__ = [*note, nota]
+    except Exception:  # noqa: BLE001, S110 - la nota non sostituisce l'eccezione
         pass
+
+
+def _annota_interruzione(interruzione: BaseException) -> None:
+    """La nota su un'interruzione dopo l'avvio di un comando che scrive."""
+    _annota(interruzione, NOTA_DELL_INTERRUZIONE)
 
 
 def _ricrea_runner(binario: Any, timeout: Any) -> "Runner":
@@ -338,19 +462,25 @@ class Runner:
         """
         argv = _argv_esatto(argv)
         processo = self._avvia(argv)
-        # Il confine: `Popen` ha reso il processo. Da qui **tutto** --
-        # `registra_avvio`, la comunicazione, la decodifica dei flussi,
-        # `Completed`, il JSON, il congelamento, la busta d'errore, la
-        # chiusura, il timeout -- passa da un solo gestore (`_dopo_l_avvio`).
-        # Un'interruzione (`KeyboardInterrupt`, `SystemExit`) resta tale: si
-        # chiude il figlio, si annota l'effetto ignoto se il comando scrive, e
-        # la si rilancia.
-        concluso = False
-        sostituto: ProtocolError | None = None
+        # Il confine: `Popen` ha reso il processo. Da qui **tutto** passa da
+        # un solo gestore, e la chiusura del processo gira su ogni uscita.
+        #
+        # Ventunesimo giro: niente `with Popen` e niente `communicate`. Il loro
+        # `__exit__` girava prima del gestore -- un `close()` che falliva
+        # sostituiva un `KeyboardInterrupt`, e l'uscita aspettava senza
+        # limite prima di uccidere il figlio -- e su Windows i thread lettori
+        # di `communicate` stampavano le proprie eccezioni su stderr, mentre
+        # `run` rendeva comunque un successo. Qui i lettori sono dell'SDK
+        # (`_Lettore`), l'attesa ha un tempo esplicito, e la chiusura
+        # (`_chiudi`) non solleva mai: i suoi guasti non sostituiscono
+        # l'eccezione primaria, e dopo un successo diventano un errore.
+        lettori: list[_Lettore] = []
+        primaria: BaseException | None = None
+        risultato: Any = None
         try:
             registra_avvio(argv)
-            stdout, stderr = self._comunica(processo, argv)
-            concluso = True
+            lettori = [_Lettore(processo.stdout), _Lettore(processo.stderr)]
+            stdout, stderr = self._attendi(processo, lettori, argv)
             completed = Completed(
                 argv=list(argv),
                 exit_code=processo.returncode,
@@ -358,23 +488,41 @@ class Runner:
                 stderr=_testo(stderr, argv, "stderr"),
             )
             if completed.exit_code == 0:
-                return FrozenDict(self._success(completed))
-            documento = self._failure(completed)
-            fallimento = _failure_from_envelope(documento, completed.exit_code, argv)
-        except Exception as errore:  # noqa: BLE001 - dopo l'avvio, tutto e' protocollo
-            sostituto = _dopo_l_avvio(errore, argv)
-        except BaseException as interruzione:
-            self._chiudi(processo)
-            concluso = True
+                risultato = FrozenDict(self._success(completed))
+            else:
+                documento = self._failure(completed)
+                risultato = _failure_from_envelope(documento, completed.exit_code, argv)
+        except BaseException as errore:  # noqa: BLE001 - il gestore unico, apposta
+            primaria = errore
+        esito = _chiudi(processo, lettori)
+        if primaria is not None:
+            if isinstance(primaria, Exception):
+                raise _dopo_l_avvio(primaria, argv) from None
+            # Un'interruzione resta tale, dopo la chiusura del figlio.
             if scrive(argv):
-                _annota_interruzione(interruzione)
-            raise
-        finally:
-            if not concluso:
-                self._chiudi(processo)
-        if sostituto is not None:
-            raise sostituto from None
-        raise fallimento
+                _annota(primaria, NOTA_DELL_INTERRUZIONE)
+            if not esito.riuscita:
+                _annota(primaria, NOTA_DELLA_CHIUSURA)
+            raise primaria
+        if esito.interruzione is not None:
+            # Un'interruzione arrivata durante la chiusura, dopo un esito:
+            # e' l'eccezione primaria, e resta tale.
+            if scrive(argv):
+                _annota(esito.interruzione, NOTA_DELL_INTERRUZIONE)
+            raise esito.interruzione
+        if isinstance(risultato, BaseException):
+            # `CommandFailed`: e' l'esito del comando, e resta tale.
+            raise risultato
+        if not esito.riuscita:
+            # Una chiusura che non riesce dopo un successo non e' un successo.
+            if esito.vivo:
+                guasto = _dallo_sdk(
+                    ProtocolError, "processo.non_terminato", comando=_nome_del_comando(argv))
+            else:
+                guasto = _dallo_sdk(
+                    ProtocolError, "processo.chiusura", comando=_nome_del_comando(argv))
+            raise _dopo_l_avvio(guasto, argv) from None
+        return risultato
 
     # --- l'esecuzione -----------------------------------------------------
 
@@ -425,40 +573,35 @@ class Runner:
 
         return processo
 
-    def _comunica(self, processo: Any, argv: list[str]) -> tuple[bytes, bytes]:
-        """I due flussi del processo, letti fino alla fine dentro il suo `with`."""
-        with processo:
-            try:
-                with _inoltra_sigint(processo):
-                    stdout, stderr = processo.communicate(timeout=self._timeout)
-            except subprocess.TimeoutExpired:
-                # Il processo va chiuso prima di sollevare: lasciarlo vivo
-                # significherebbe restituire il controllo a chi chiama con un
-                # binario che continua a scrivere sulla destinazione.
-                self._chiudi(processo)
-                raise _dallo_sdk(
-                    ProtocolError, "processo.timeout", comando=_nome_del_comando(argv),
-                ) from None
-            except (OSError, ValueError):
-                self._chiudi(processo)
-                raise _dallo_sdk(
-                    ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
-                ) from None
-        return stdout, stderr
+    def _attendi(
+        self, processo: Any, lettori: list["_Lettore"], argv: list[str]
+    ) -> tuple[bytes, bytes]:
+        """I due flussi, letti dai lettori dell'SDK mentre il processo gira.
 
-    @staticmethod
-    def _chiudi(processo: subprocess.Popen[bytes]) -> None:
-        """Termina il processo e ne raccoglie i flussi, senza sollevare.
-
-        La seconda attesa dopo il kill era scoperta: se falliva, il suo errore
-        sostituiva quello del timeout. Qui un guasto della chiusura non cambia
-        l'errore che il chiamante riceve, che e' gia' `unknown`.
+        L'attesa ha il timeout del client; i lettori si aspettano con un tempo
+        limitato. Un lettore che fallisce o che non finisce e' un guasto della
+        comunicazione, mai un successo.
         """
+        for lettore in lettori:
+            lettore.avvia()
         try:
-            processo.kill()
-            processo.communicate()
-        except Exception:  # noqa: BLE001 - la chiusura non sostituisce l'errore
-            return
+            with _inoltra_sigint(processo):
+                processo.wait(timeout=self._timeout)
+        except subprocess.TimeoutExpired:
+            raise _dallo_sdk(
+                ProtocolError, "processo.timeout", comando=_nome_del_comando(argv),
+            ) from None
+        except OSError:
+            raise _dallo_sdk(
+                ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
+            ) from None
+        for lettore in lettori:
+            lettore.aspetta(_ATTESA_DEI_LETTORI)
+        if any(not lettore.concluso() for lettore in lettori):
+            raise _dallo_sdk(
+                ProtocolError, "processo.comunicazione", comando=_nome_del_comando(argv),
+            )
+        return lettori[0].dati(), lettori[1].dati()
 
     # --- i due flussi, ciascuno al proprio posto ---------------------------
 

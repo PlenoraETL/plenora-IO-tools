@@ -45,43 +45,125 @@ from test_contratto_sdk import capacita_sane, pa, serve_pyarrow
 SEGRETO = "SEGRETO-7f3a"
 
 
-class PopenFinto:
-    """Un `Popen` con i flussi e i guasti decisi dalla prova."""
+class FlussoFinto:
+    """Una pipe finta: rende i byte una volta, o solleva in lettura o chiusura."""
 
-    def __init__(self, uscite, codice=0):
+    def __init__(self, dati=b"", errore=None, errore_chiusura=None, registro=None, nome=""):
+        self._dati = dati
+        self._errore = errore
+        self._errore_chiusura = errore_chiusura
+        self._registro = registro if registro is not None else []
+        self._nome = nome
+        self.chiuso = False
+
+    def read(self, quanti=-1):
+        if self._errore is not None:
+            errore, self._errore = self._errore, None
+            raise errore
+        dati, self._dati = self._dati, b""
+        return dati
+
+    def close(self):
+        self._registro.append(f"close {self._nome}")
+        self.chiuso = True
+        if self._errore_chiusura is not None:
+            errore, self._errore_chiusura = self._errore_chiusura, None
+            raise errore
+
+
+#: Le eccezioni che un `Popen` finto solleva dall'attesa, e non dalla lettura.
+DALL_ATTESA = (subprocess.TimeoutExpired, KeyboardInterrupt, SystemExit, MemoryError)
+
+
+class PopenFinto:
+    """Un `Popen` con i flussi e i guasti decisi dalla prova.
+
+    `uscite` e' l'elenco di prima: una coppia `(stdout, stderr)` sono i byte
+    dei due flussi; un'eccezione prima della coppia e' un guasto. Un timeout,
+    un'interruzione o un `MemoryError` li solleva `wait` (in ordine, anche
+    dopo `kill`); un `OSError` che viene per primo lo solleva la lettura di
+    stdout, uno che segue un guasto dell'attesa lo solleva la `wait` dopo.
+    `registro` tiene l'ordine di `wait`, `kill` e `close`.
+    """
+
+    def __init__(self, uscite, codice=0, errore_kill=None, errore_chiusura=None,
+                 non_muore=False):
         self._uscite = list(uscite)
-        self.returncode = codice
+        self._codice = codice
+        self._errore_kill = errore_kill
+        self._errore_chiusura = errore_chiusura
+        self._non_muore = non_muore
+        self.returncode = None
         self.pid = 4242
-        self._text = False
+        self.uccisi = 0
+        self.registro = []
+        self.stdout = self.stderr = None
 
     def __call__(self, argv, **opzioni):
-        self._text = bool(opzioni.get("text"))
+        self.registro = []
+        self._attese = []
+        dati = (b"", b"")
+        errore_lettura = None
+        for uscita in self._uscite:
+            if isinstance(uscita, tuple):
+                dati = uscita
+                break
+            if isinstance(uscita, DALL_ATTESA) or self._attese:
+                self._attese.append(uscita)
+            elif errore_lettura is None:
+                errore_lettura = uscita
+            else:
+                self._attese.append(uscita)
+        self.stdout = FlussoFinto(dati[0], errore_lettura, self._errore_chiusura,
+                                  self.registro, "stdout")
+        self.stderr = FlussoFinto(dati[1], None, None, self.registro, "stderr")
+        self.returncode = None
         return self
+
+    def wait(self, timeout=None):
+        self.registro.append("wait")
+        if self._attese:
+            raise self._attese.pop(0)
+        if self._non_muore and self.uccisi:
+            raise subprocess.TimeoutExpired(["x"], timeout)
+        if self.returncode is None:
+            self.returncode = -9 if self.uccisi else self._codice
+        return self.returncode
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.registro.append("kill")
+        self.uccisi += 1
+        if self._errore_kill is not None:
+            raise self._errore_kill
+
+    def send_signal(self, segnale):
+        pass
+
+    # L'interfaccia di `with Popen` e di `communicate`, come la usava l'SDK
+    # fino al ventesimo giro: serve a eseguire le stesse prove sul codice di
+    # prima, e l'SDK di adesso non la chiama.
 
     def __enter__(self):
         return self
 
     def __exit__(self, *eccezione):
+        self.registro.append("exit")
+        self.stdout.close()
+        self.stderr.close()
+        self.wait()
         return False
 
     def communicate(self, timeout=None):
-        uscita = self._uscite.pop(0)
-        if isinstance(uscita, BaseException):
-            raise uscita
-        stdout, stderr = uscita
-        if self._text:
-            # Come il `Popen` vero con `text=True`: decodifica, e solleva.
-            return stdout.decode("utf-8"), stderr.decode("utf-8")
-        return stdout, stderr
-
-    def kill(self):
-        pass
-
-    def poll(self):
-        return self.returncode
-
-    def send_signal(self, segnale):
-        pass
+        self.registro.append("communicate")
+        if self._attese:
+            raise self._attese.pop(0)
+        dati = (self.stdout.read(), self.stderr.read())
+        if self.returncode is None:
+            self.returncode = self._codice
+        return dati
 
 
 def esegui_con(popen, argv):

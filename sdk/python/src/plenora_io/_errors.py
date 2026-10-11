@@ -600,6 +600,10 @@ MESSAGGI: dict[str, str] = {
         "la risposta di `plenora-io {comando}` non si e' potuta leggere come un "
         "documento dell'SDK: l'esito non si conosce."
     ),
+    "processo.non_terminato": (
+        "il processo di `plenora-io {comando}` non si e' potuto terminare: "
+        "potrebbe essere ancora in esecuzione, e l'esito non si conosce."
+    ),
     "client.consegna_illeggibile": (
         "la consegna di `read` non si e' potuta leggere come tabella: l'esito "
         "non si conosce."
@@ -1469,6 +1473,7 @@ PARAMETRI: dict[str, dict[str, Any]] = {
     },
     "processo.busta_non_oggetto": {"flusso": _FLUSSO, "tipo": _TIPO},
     "processo.risposta_illeggibile": {"comando": _COMANDO},
+    "processo.non_terminato": {"comando": _COMANDO},
 }
 
 

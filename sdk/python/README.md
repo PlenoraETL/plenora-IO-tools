@@ -336,7 +336,28 @@ rilanciarle, se il processo e' partito, l'SDK lo chiude (lo termina e ne
 raccoglie i flussi); per un comando che scrive vi aggiunge una nota fissa,
 senza dati (`add_note`, o `__notes__` su Python 3.10), che dice che l'effetto
 remoto va considerato `unknown`: una scrittura interrotta puo' aver lasciato
-una destinazione parziale.
+una destinazione parziale. La stessa nota la mette il client quando
+l'interruzione arriva mentre decodifica la risposta di una scrittura, o legge
+la consegna di `read_table`.
+
+**La gestione del processo e' dell'SDK.** Niente `with Popen` e niente
+`communicate`: due thread lettori dell'SDK accumulano stdout e stderr e
+catturano ogni loro eccezione in un attributo, senza mai stamparla; l'attesa
+del processo ha il timeout del client; la chiusura gira su ogni uscita --
+`kill` e un'attesa limitata, ritentati; la chiusura delle pipe; l'attesa
+limitata dei lettori -- e non solleva mai. Un lettore che fallisce o non
+finisce e' un guasto della comunicazione, mai un successo. I guasti della
+chiusura non sostituiscono mai l'eccezione primaria, interruzioni comprese:
+a un'interruzione si aggiunge una nota fissa se la chiusura non e' riuscita
+del tutto; dopo un esito, una chiusura che fallisce e' un `ProtocolError`
+(`unknown` per una scrittura), e un processo che non muore lo dice
+(`processo.non_terminato`). L'SDK non scrive sullo stdin del figlio.
+`LaGestioneDelProcesso` prova ciascun caso -- interruzione con una pipe che
+non si chiude, `SystemExit` e `MemoryError` durante l'attesa (il `kill`
+precede ogni altra attesa), lettore che fallisce, `kill` che fallisce,
+processo che non muore, chiusura che fallisce dopo il successo, interruzione
+durante la chiusura -- catturando stderr e il gestore delle eccezioni dei
+thread.
 
 Nessun **attributo pubblico** -- di classe, d'istanza o proprieta' -- e' una
 `tuple`, una `list` o un `dict` di Python: e' un callable dell'SDK nella

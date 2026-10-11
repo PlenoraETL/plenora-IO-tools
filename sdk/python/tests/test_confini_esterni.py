@@ -150,29 +150,15 @@ def tradotto(caso: unittest.TestCase, errore: BaseException, effetto: str | None
 class PopenFinto:
     """Un `Popen` che rende i flussi dati, e conta le partenze."""
 
-    def __init__(self, stdout=b"", stderr=b"", codice=0):
-        self.stdout, self.stderr, self.returncode = stdout, stderr, codice
-        self.pid = 4242
+    def __init__(self, stdout=b"", stderr=b"", codice=0, errore_chiusura=None):
+        from test_confini_sdk import PopenFinto as Base
+
+        self._base = Base([(stdout, stderr)], codice=codice, errore_chiusura=errore_chiusura)
         self.partenze = 0
 
     def __call__(self, argv, **opzioni):
         self.partenze += 1
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *eccezione):
-        return False
-
-    def communicate(self, timeout=None):
-        return self.stdout, self.stderr
-
-    def kill(self):
-        pass
-
-    def send_signal(self, segnale):
-        pass
+        return self._base(argv, **opzioni)
 
 
 SCRIVE = ["write", f"/dati/{SEGRETO}.arrow", "/uscita/o.gpkg", "--to", "gpkg"]
@@ -1185,8 +1171,10 @@ class LeCopieNormalizzate(unittest.TestCase):
 
 
 class PopenCheNonEsce(PopenFinto):
-    def __exit__(self, *eccezione):
-        raise OSError(SEGRETO)
+    """La chiusura delle pipe fallisce dopo che il comando e' finito."""
+
+    def __init__(self, stdout=b""):
+        super().__init__(stdout=stdout, errore_chiusura=OSError(SEGRETO))
 
 
 class IPuntiSpecifici(unittest.TestCase):
@@ -3555,38 +3543,12 @@ class LeVisiteDelCongelamento(unittest.TestCase):
 
 
 class PopenCheContaLaChiusura:
-    """Un `Popen` finto che registra `kill` e solleva da `communicate`."""
+    """Un `Popen` finto la cui attesa solleva `guasto`; conta i `kill`."""
 
-    def __init__(self, guasto):
-        self.guasto = guasto
-        self.uccisi = 0
-        self.returncode = None
-        self.pid = 4242
+    def __new__(cls, guasto):
+        from test_confini_sdk import PopenFinto as Base
 
-    def __call__(self, argv, **opzioni):
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *eccezione):
-        return False
-
-    def communicate(self, timeout=None):
-        if self.guasto is not None:
-            guasto, self.guasto = self.guasto, None
-            raise guasto
-        return b"", b""
-
-    def kill(self):
-        self.uccisi += 1
-        self.returncode = -9
-
-    def poll(self):
-        return self.returncode
-
-    def send_signal(self, segnale):
-        pass
+        return Base([guasto])
 
 
 class IlConfineDellAvvio(unittest.TestCase):
@@ -3687,6 +3649,142 @@ class IlConfineDellAvvio(unittest.TestCase):
         versione = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
         self.assertFalse(versione != versione)
         self.assertIs(versione.__ne__(5), NotImplemented)
+
+
+# --- 23. ventunesimo giro di revisione --------------------------------------
+
+
+class LaGestioneDelProcesso(unittest.TestCase):
+    """Ventunesimo giro: niente `with Popen` ne' `communicate`; lettori,
+    attesa e chiusura dell'SDK, e la chiusura non sostituisce mai l'eccezione
+    primaria."""
+
+    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+    SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
+    LEGGE = ["inspect", "s.geojson"]
+
+    def _esegui(self, finto, argv, attesa=BaseException):
+        """Esegue senza lasciar passare niente su stderr: lo si cattura, con
+        il gestore delle eccezioni dei thread."""
+        import io
+        import threading
+
+        from plenora_io import Runner
+
+        stampato = io.StringIO()
+        dai_thread = []
+        with mock.patch.object(subprocess, "Popen", finto), \
+                contextlib.redirect_stderr(stampato), \
+                mock.patch.object(threading, "excepthook", dai_thread.append), \
+                self.assertRaises(attesa) as preso:
+            Runner(Path("plenora-io")).run(argv)
+        self.assertEqual(stampato.getvalue(), "")
+        self.assertEqual(dai_thread, [])
+        return preso.exception
+
+    def _note(self, eccezione):
+        return getattr(eccezione, "__notes__", None) or []
+
+    @prova("process.exit")
+    def test_un_interruzione_non_si_perde_se_la_chiusura_fallisce(self) -> None:
+        """Prima: l'`__exit__` del `with Popen` girava prima del gestore, e un
+        `close()` che sollevava sostituiva il `KeyboardInterrupt`."""
+        from plenora_io._process import NOTA_DELL_INTERRUZIONE
+
+        from test_confini_sdk import PopenFinto
+
+        finto = PopenFinto([KeyboardInterrupt()], errore_chiusura=OSError(SEGRETO))
+        errore = self._esegui(finto, self.SCRIVE, KeyboardInterrupt)
+        self.assertIs(type(errore), KeyboardInterrupt)
+        self.assertIn(NOTA_DELL_INTERRUZIONE, self._note(errore))
+        self.assertGreaterEqual(finto.uccisi, 1)
+
+    @prova("process.exit")
+    def test_dopo_un_guasto_dell_attesa_si_uccide_prima_di_aspettare(self) -> None:
+        """Prima: con `SystemExit` o `MemoryError` l'uscita dal `with` faceva
+        `wait()` senza timeout, prima di `kill`."""
+        from test_confini_sdk import PopenFinto
+
+        for guasto, attesa in ((SystemExit(3), SystemExit), (MemoryError(), ProtocolError)):
+            with self.subTest(guasto=type(guasto).__name__):
+                finto = PopenFinto([guasto])
+                errore = self._esegui(finto, self.SCRIVE, attesa)
+                if isinstance(errore, PlenoraError):
+                    self.assertEqual(errore.remote_effect, "unknown")
+                dopo = finto.registro[finto.registro.index("wait") + 1:]
+                self.assertTrue(dopo, finto.registro)
+                self.assertEqual(dopo[0], "kill", finto.registro)
+
+    @prova("process.communicate")
+    def test_un_lettore_che_fallisce_non_e_un_successo(self) -> None:
+        """Prima: su Windows l'errore di un lettore di `communicate` finiva su
+        stderr, e `run` rendeva comunque un successo."""
+        from test_confini_sdk import PopenFinto
+
+        for argv, effetto in ((self.SCRIVE, "unknown"), (self.LEGGE, "none")):
+            with self.subTest(comando=argv[0]):
+                finto = PopenFinto([OSError(SEGRETO), (self.BUSTA, b"")])
+                errore = self._esegui(finto, argv, PlenoraError)
+                self.assertIs(type(errore), ProtocolError)
+                self.assertEqual(errore.remote_effect, effetto)
+                self.assertNotIn(SEGRETO, str(errore))
+
+    @prova("process.exit")
+    def test_un_kill_che_fallisce_e_un_processo_che_non_muore(self) -> None:
+        from plenora_io._process import NOTA_DELLA_CHIUSURA
+
+        from test_confini_sdk import PopenFinto
+
+        # Il timeout e' l'eccezione primaria, e resta tale; si ritenta il kill.
+        finto = PopenFinto([subprocess.TimeoutExpired(["x"], 1.0)], non_muore=True)
+        errore = self._esegui(finto, self.SCRIVE, PlenoraError)
+        self.assertIs(type(errore), ProtocolError)
+        self.assertEqual(errore.remote_effect, "unknown")
+        self.assertEqual(finto.uccisi, 2)
+        # Un kill che solleva non si inghiotte in silenzio: un'interruzione
+        # primaria porta la nota della chiusura non riuscita.
+        finto = PopenFinto([KeyboardInterrupt()], errore_kill=OSError(SEGRETO),
+                           non_muore=True)
+        errore = self._esegui(finto, self.SCRIVE, KeyboardInterrupt)
+        self.assertIn(NOTA_DELLA_CHIUSURA, self._note(errore))
+
+    @prova("process.exit")
+    def test_una_chiusura_che_fallisce_dopo_il_successo_non_e_un_successo(self) -> None:
+        from test_confini_sdk import PopenFinto
+
+        for argv, effetto in ((self.SCRIVE, "unknown"), (self.LEGGE, "none")):
+            with self.subTest(comando=argv[0]):
+                finto = PopenFinto([(self.BUSTA, b"")], errore_chiusura=OSError(SEGRETO))
+                errore = self._esegui(finto, argv, PlenoraError)
+                self.assertIs(type(errore), ProtocolError)
+                self.assertEqual(errore.remote_effect, effetto)
+
+    @prova("process.exit")
+    def test_un_interruzione_durante_la_chiusura(self) -> None:
+        """Dopo un esito, un Ctrl-C durante la chiusura e' l'eccezione
+        primaria; dopo un guasto, non lo sostituisce."""
+        from plenora_io._process import NOTA_DELL_INTERRUZIONE
+
+        from test_confini_sdk import PopenFinto
+
+        finto = PopenFinto([(self.BUSTA, b"")], errore_chiusura=KeyboardInterrupt())
+        errore = self._esegui(finto, self.SCRIVE, KeyboardInterrupt)
+        self.assertIn(NOTA_DELL_INTERRUZIONE, self._note(errore))
+        finto = PopenFinto([OSError(SEGRETO), (self.BUSTA, b"")],
+                           errore_chiusura=KeyboardInterrupt())
+        errore = self._esegui(finto, self.SCRIVE, PlenoraError)
+        self.assertIs(type(errore), ProtocolError)
+        self.assertEqual(errore.remote_effect, "unknown")
+
+    @prova("client.argomenti")
+    def test_un_interruzione_durante_la_decodifica_di_una_scrittura(self) -> None:
+        from plenora_io import WriteResult
+        from plenora_io._process import NOTA_DELL_INTERRUZIONE
+
+        with mock.patch.object(WriteResult, "from_json", side_effect=KeyboardInterrupt), \
+                self.assertRaises(KeyboardInterrupt) as preso:
+            Client._decodifica(FrozenDict({}), WriteResult, self.SCRIVE)
+        self.assertIn(NOTA_DELL_INTERRUZIONE, self._note(preso.exception))
 
 
 if __name__ == "__main__":

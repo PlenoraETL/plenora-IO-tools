@@ -1459,6 +1459,13 @@ prossima release è percio' una **major** (5.0.0).
   `SystemExit` restano tali: l'SDK chiude il processo figlio prima di
   rilanciarle e, per un comando che scrive, vi aggiunge una nota fissa che
   dice che l'effetto remoto va considerato `unknown`.
+- **Il processo lo gestisce l'SDK.** `Runner` non usa piu' `with Popen` ne'
+  `communicate`: thread lettori propri, un'attesa con timeout, una chiusura
+  (`kill` ritentato, pipe, lettori) su ogni uscita che non solleva mai e non
+  sostituisce l'eccezione primaria. Un lettore che fallisce, o una chiusura
+  che fallisce dopo un esito, sono `ProtocolError` (`unknown` per una
+  scrittura), non un successo; un processo che non muore e'
+  `processo.non_terminato`.
 - **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
   cancellare o aggiungere un attributo a un errore dell'SDK (salvo
   `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,
