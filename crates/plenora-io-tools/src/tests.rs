@@ -2251,6 +2251,7 @@ fn il_trasferimento_alterna_lettura_e_scrittura_un_batch_per_volta() {
         &mut reader,
         &mut writer,
         plenora_io_model::contract::LayerId(0),
+        None,
     )
     .expect("trasferimento riuscito");
 
@@ -2289,6 +2290,7 @@ fn nessuna_lettura_precede_la_scrittura_del_batch_gia_consegnato() {
             &mut reader,
             &mut writer,
             plenora_io_model::contract::LayerId(0),
+            None,
         )
         .expect("trasferimento riuscito");
 
@@ -2322,6 +2324,7 @@ fn una_sorgente_vuota_dichiara_zero_e_non_scrive() {
         &mut reader,
         &mut writer,
         plenora_io_model::contract::LayerId(0),
+        None,
     )
     .expect("trasferimento riuscito");
 
@@ -2345,6 +2348,7 @@ fn senza_cardinalita_accettata_il_trasferimento_fallisce_chiuso() {
         &mut reader,
         &mut writer,
         plenora_io_model::contract::LayerId(0),
+        None,
     )
     .expect_err("senza totale il trasferimento deve fallire");
 
