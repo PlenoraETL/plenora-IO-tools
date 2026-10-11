@@ -66,13 +66,12 @@ from .errors import (
     TimeoutError,
     TransientError,
     UnsupportedError,
-    FrozenDict,
-    FrozenList,
     PackageMetadataError,
     ResultLookupError,
     UnexpectedError,
 )
 from . import confine as _confine
+from .contenitori import FrozenDict, FrozenList, json_default, to_plain
 from .limits import Limits
 from .models import (
     Capabilities,
@@ -226,6 +225,8 @@ __all__ = [
     "WriteInput",
     "WriteResult",
     "__version__",
+    "json_default",
+    "to_plain",
     "version",
 ]
 

@@ -136,11 +136,11 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     dall_ambiente = os.environ.get(VARIABILE)
     if dall_ambiente:
         percorso = Path(dall_ambiente)
-        cercati.append(f"la variabile d'ambiente {VARIABILE}")
+        cercati.append("la variabile d'ambiente PLENORA_IO_BIN")
         if _e_un_file(percorso, VARIABILE):
             return _risolto(percorso, VARIABILE)
     else:
-        cercati.append(f"{VARIABILE} (non impostata)")
+        cercati.append("PLENORA_IO_BIN (non impostata)")
 
     accanto = _albero_accanto_al_pacchetto()
     cercati.append("bin/plenora-io accanto al pacchetto, con MANIFEST.json")

@@ -968,6 +968,9 @@ class LossReport:
         perdita non si e' verificata, ed e' una risposta -- diversamente da un
         nome di layer o di campo, dove l'assenza e' quasi sempre un refuso.
         """
+        # L'argomento si normalizza prima del confronto: una sottoclasse di
+        # `str` con `__eq__` ridefinito rispondeva «uguale» alla prima voce.
+        categoria = testo(categoria, "categoria")
         for voce in self.counts:
             if voce.categoria == categoria:
                 return voce.conteggio

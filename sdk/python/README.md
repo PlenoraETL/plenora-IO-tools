@@ -162,15 +162,22 @@ I modelli -- un elenco chiuso di classi, `confine.NOMI_DEI_MODELLI`,
 riconosciute per identita' -- normalizzano i propri campi nel costruttore:
 tipi base esatti, `FrozenList` al posto di `list`, `FrozenDict` al posto di
 `dict`, modelli dell'SDK rinormalizzati, nient'altro. `FrozenList` e
-`FrozenDict` sono sottoclassi di `list` e `dict` (il confronto con un documento
-JSON e `json.dumps` funzionano come prima) che rifiutano ogni modifica con
-`InvalidArgumentError`. I modelli sono immutabili con lo stesso errore e hanno
+`FrozenDict` sono classi proprie su `collections.abc.Sequence` e `Mapping`,
+con `__slots__` e i dati in un attributo privato: nessun metodo modifica, e
+ogni metodo di modifica di `list` e `dict` (`append`, `update`, `__setitem__`,
+`__ior__`...) risponde con `InvalidArgumentError`. I loro costruttori
+normalizzano gli elementi, e `copy`, `deepcopy` e `pickle` passano dagli
+stessi costruttori. Sono uguali a una `list` o a un `dict` con gli stessi
+elementi (l'altro operando si normalizza prima del confronto), e il loro
+`hash` e' coerente con `==`. Non sono piu' `list` e `dict`: `json.dumps`
+vuole `default=plenora_io.json_default`, oppure `plenora_io.to_plain(...)`.
+I modelli sono immutabili con lo stesso errore, non si reinizializzano, e hanno
 `==` e `hash` canonici: `repr`, `==` e `hash` non eseguono mai codice del
 chiamante, e l'`hash` non cambia dopo la costruzione. Due chiavi che
 normalizzate coincidono sono un errore.
 
 **Fuori contratto:** scavalcare l'immutabilita' con `object.__setattr__`, con
-`__dict__` o con i metodi non legati di `list` e `dict` (`dict.__setitem__`).
+`__dict__` o con il descrittore dello slot dei contenitori.
 Un modello alterato cosi' non e' piu' un risultato dell'SDK; quando entra in un
 altro modello si rinormalizza, ma le garanzie di questa sezione non lo
 coprono. Gli errori non conservano dati negli attributi: `CommandFailed`

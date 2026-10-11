@@ -97,15 +97,17 @@ def con_superficie_python(documento: dict[str, Any]) -> dict[str, Any]:
     copia = copia_json(documento, "capabilities")
     mappate = set(OPERAZIONI.values())
     interfacce = copia.get("interfaces")
-    if isinstance(interfacce, list) and not any(
-        isinstance(voce, dict) and voce.get("kind") == "python_sdk" for voce in interfacce
+    # Il documento e' una copia di `copia_json`: tipi esatti, e si guardano per
+    # identita'.
+    if type(interfacce) is list and not any(
+        type(voce) is dict and voce.get("kind") == "python_sdk" for voce in interfacce
     ):
         interfacce.append(dict(INTERFACCIA_PYTHON))
     for operazione in copia.get("operations") or []:
-        if not isinstance(operazione, dict) or operazione.get("id") not in mappate:
+        if type(operazione) is not dict or operazione.get("id") not in mappate:
             continue
         superfici = operazione.get("surfaces")
-        if isinstance(superfici, list) and "python_sdk" not in superfici:
+        if type(superfici) is list and "python_sdk" not in superfici:
             superfici.append("python_sdk")
     return copia
 

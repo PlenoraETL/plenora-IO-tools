@@ -1307,9 +1307,15 @@ prossima release è percio' una **major** (5.0.0).
   `InvalidArgumentError` invece di `dataclasses.FrozenInstanceError`. Il loro
   `hash` si calcola dalla forma canonica dei campi: prima sollevava `TypeError`.
 - **I campi elenco e oggetto dei modelli sono `FrozenList` e `FrozenDict`**,
-  sottoclassi immutabili di `list` e `dict`: leggerli, confrontarli con un
-  documento e serializzarli funziona come prima, modificarli
-  (`raw["x"] = 1`, `drivers.clear()`) e' `InvalidArgumentError`.
+  contenitori immutabili su `collections.abc.Sequence` e `Mapping`, non piu'
+  `list` e `dict`: si leggono, si iterano e si confrontano con un documento
+  come prima, ma `isinstance(x, list)` e `isinstance(x, dict)` sono falsi e
+  `json.dumps` vuole `default=plenora_io.json_default` (o
+  `plenora_io.to_plain`). Modificarli (`raw["x"] = 1`, `drivers.clear()`) e'
+  `InvalidArgumentError`; un indice o una chiave assente e'
+  `ResultLookupError`, che e' anche `IndexError` e `KeyError`.
+- **`BinaryNotFound.searched`** porta solo i posti noti della ricerca; ogni
+  altro testo e' `?`.
 - **Le ricerche nei risultati** (`layer`, `field`, `driver`, `operation`)
   vogliono una `str`: un altro tipo e' `InvalidArgumentError`.
 - **Gli errori dell'SDK costruiti a mano** normalizzano il messaggio

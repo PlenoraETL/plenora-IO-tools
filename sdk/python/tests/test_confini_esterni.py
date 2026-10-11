@@ -33,6 +33,8 @@ from pathlib import Path
 from unittest import mock
 
 from plenora_io import (
+    FrozenDict,
+    FrozenList,
     Capabilities,
     Catalog,
     Client,
@@ -1032,14 +1034,20 @@ class LaRete(unittest.TestCase):
                 self.assertFalse(callable(valore) and not dataclasses.is_dataclass(valore))
                 if dataclasses.is_dataclass(valore):
                     visita(valore)
-                elif type(valore) is list:
+                elif type(valore) is FrozenList or type(valore) is list:
+                    # Dalla 5.0.0 gli elenchi dei modelli sono `FrozenList`: la
+                    # visita deve scendere anche li', o i driver di un
+                    # catalogo resterebbero fuori.
                     for elemento in valore:
                         if dataclasses.is_dataclass(elemento):
                             visita(elemento)
+                    visitati.append(type(oggetto).__name__)
 
+        visitati: list[str] = []
         for campione in campioni:
             with self.subTest(modello=type(campione).__name__):
                 visita(campione)
+        self.assertIn("Catalog", visitati, "la visita non e' scesa negli elenchi del catalogo")
 
     @prova("confine.rete")
     def test_i_metodi_speciali_dei_modelli_non_escono_dalla_gerarchia(self) -> None:
@@ -1289,9 +1297,17 @@ class LImmutabilita(unittest.TestCase):
                 self.assertIsInstance(preso.exception, InvalidArgumentError)
                 tradotto(self, preso.exception, "none")
         self.assertEqual((hash(versione), hash(catalogo), repr(catalogo)), prima)
-        # Restano un `dict` e una `list` per chi legge e serializza.
-        self.assertIsInstance(versione.raw, dict)
-        self.assertEqual(json.loads(json.dumps(versione.raw)), versione.raw)
+        # Si leggono come un `Mapping` e una `Sequence`, si confrontano con un
+        # documento e si serializzano con `json_default`.
+        from collections.abc import Mapping, Sequence
+
+        import plenora_io
+
+        self.assertIsInstance(versione.raw, Mapping)
+        self.assertIsInstance(catalogo.drivers, Sequence)
+        self.assertEqual(
+            json.loads(json.dumps(versione.raw, default=plenora_io.json_default)), versione.raw
+        )
         self.assertEqual(catalogo.drivers[0].recognised_suffixes, list(catalogo.drivers[0].recognised_suffixes))
 
     @prova("confine.rete")
@@ -1341,8 +1357,8 @@ class LImmutabilita(unittest.TestCase):
 
         catalogo = Catalog.from_json(catalogo_sano())
         driver = catalogo.drivers[0]
-        dict.__setitem__(driver.raw, "x", [1])  # fuori contratto, apposta
-        self.assertIs(type(driver.raw["x"]), list)
+        object.__setattr__(driver, "raw", {"x": [1]})  # fuori contratto, apposta
+        self.assertIs(type(driver.raw), dict)
         dataclasses.replace(catalogo)
         self.assertIs(type(driver.raw["x"]), FrozenList)
 
@@ -1409,6 +1425,216 @@ class LImmutabilita(unittest.TestCase):
         self.assertEqual(Contatore.chiamate, 0)
         with self.assertRaises(PlenoraError):
             CleanupError("m", remote_effect=StrOstile("committed"))
+
+
+class LaMatriceDellImmutabilita(unittest.TestCase):
+    """Sesto giro: ogni via di modifica, per ogni contenitore e per i modelli."""
+
+    MUTAZIONI_DELL_ELENCO = (
+        ("__setitem__", lambda x: x.__setitem__(0, 1)),
+        ("item", lambda x: x.__setitem__(slice(0, 1), [1])),
+        ("__delitem__", lambda x: x.__delitem__(0)),
+        ("__iadd__", lambda x: x.__iadd__([1])),
+        ("__imul__", lambda x: x.__imul__(2)),
+        ("append", lambda x: x.append(1)),
+        ("extend", lambda x: x.extend([1])),
+        ("insert", lambda x: x.insert(0, 1)),
+        ("remove", lambda x: x.remove(1)),
+        ("pop", lambda x: x.pop()),
+        ("clear", lambda x: x.clear()),
+        ("sort", lambda x: x.sort()),
+        ("reverse", lambda x: x.reverse()),
+        ("setattr", lambda x: setattr(x, "_dati", ())),
+        ("delattr", lambda x: delattr(x, "_dati")),
+    )
+    MUTAZIONI_DEL_DIZIONARIO = (
+        ("__setitem__", lambda x: x.__setitem__("k", 1)),
+        ("__delitem__", lambda x: x.__delitem__("k")),
+        ("__ior__", lambda x: x.__ior__({"z": 1})),
+        ("clear", lambda x: x.clear()),
+        ("pop", lambda x: x.pop("k")),
+        ("popitem", lambda x: x.popitem()),
+        ("setdefault", lambda x: x.setdefault("z", 1)),
+        ("update", lambda x: x.update(z=1)),
+        ("setattr", lambda x: setattr(x, "_dati", {})),
+        ("delattr", lambda x: delattr(x, "_dati")),
+    )
+
+    def contenitori(self):
+        return FrozenList([1, [2], {"a": 3}]), FrozenDict({"k": [1], "j": {"x": 2}})
+
+    @prova("confine.rete")
+    def test_ogni_metodo_di_modifica_e_un_errore_e_niente_cambia(self) -> None:
+        elenco, dizionario = self.contenitori()
+        prima = (hash(elenco), hash(dizionario), repr(elenco), repr(dizionario))
+        for oggetto, mutazioni in ((elenco, self.MUTAZIONI_DELL_ELENCO),
+                                   (dizionario, self.MUTAZIONI_DEL_DIZIONARIO)):
+            for nome, mutazione in mutazioni:
+                with self.subTest(contenitore=type(oggetto).__name__, via=nome):
+                    with self.assertRaises(PlenoraError) as preso:
+                        mutazione(oggetto)
+                    self.assertIsInstance(preso.exception, InvalidArgumentError)
+        self.assertEqual((hash(elenco), hash(dizionario), repr(elenco), repr(dizionario)), prima)
+
+    @prova("confine.rete")
+    def test_reinizializzare_non_modifica(self) -> None:
+        """Prima: `drivers.__init__([])` e `raw.__init__({...})` svuotavano o
+        riscrivevano i contenitori (ereditavano `__init__` da `list` e `dict`)."""
+        elenco, dizionario = self.contenitori()
+        prima = (hash(elenco), hash(dizionario))
+        for chiamata in (lambda: elenco.__init__([]), lambda: dizionario.__init__({"x": 1})):
+            try:
+                chiamata()
+            except PlenoraError:
+                pass
+        self.assertEqual((hash(elenco), hash(dizionario)), prima)
+        self.assertEqual(elenco, [1, [2], {"a": 3}])
+        self.assertEqual(dizionario, {"k": [1], "j": {"x": 2}})
+        versione = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
+        with self.assertRaises(PlenoraError) as preso:
+            versione.__init__(component_version="9", cli_protocol_version=2)
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+        self.assertEqual(versione.component_version, "4.2.0")
+
+    @prova("argomenti.sottoclassi")
+    def test_la_costruzione_diretta_normalizza_le_foglie(self) -> None:
+        """Prima: `FrozenList([oggetto])` conservava l'oggetto del chiamante."""
+
+        class Mutevole:
+            def __init__(self):
+                self.stato = 1
+
+            def __hash__(self):
+                return self.stato
+
+        for costruisci in (lambda v: FrozenList([v]), lambda v: FrozenDict({"k": v})):
+            with self.assertRaises(PlenoraError) as preso:
+                costruisci(Mutevole())
+            self.assertIsInstance(preso.exception, InvalidArgumentError)
+        Contatore.chiamate = 0
+        elenco = FrozenList([StrOstile("a"), [IntOstile(2)]])
+        dizionario = FrozenDict({StrOstile("k"): StrOstile("v")})
+        self.assertIs(type(elenco[0]), str)
+        self.assertIs(type(elenco[1]), FrozenList)
+        self.assertIs(type(elenco[1][0]), int)
+        self.assertIs(type(dizionario["k"]), str)
+        hash(elenco), hash(dizionario), repr(elenco), elenco == ["a", [2]]
+        self.assertEqual(Contatore.chiamate, 0)
+
+    @prova("confine.rete")
+    def test_copie_e_pickle_ricostruiscono_contenitori_immutabili(self) -> None:
+        import copy as copia
+        import pickle
+
+        elenco, dizionario = self.contenitori()
+        catalogo = Catalog.from_json(catalogo_sano())
+        strade = [("copy", copia.copy), ("deepcopy", copia.deepcopy)] + [
+            (f"pickle {protocollo}",
+             lambda x, p=protocollo: pickle.loads(pickle.dumps(x, protocol=p)))
+            for protocollo in range(pickle.HIGHEST_PROTOCOL + 1)
+        ]
+
+        def tutti_immutabili(valore):
+            tipo = type(valore)
+            self.assertIsNot(tipo, list)
+            self.assertIsNot(tipo, dict)
+            if tipo is FrozenList:
+                for elemento in valore:
+                    tutti_immutabili(elemento)
+            elif tipo is FrozenDict:
+                for elemento in valore.values():
+                    tutti_immutabili(elemento)
+
+        for nome, strada in strade:
+            with self.subTest(strada=nome):
+                for originale in (elenco, dizionario):
+                    ricostruito = strada(originale)
+                    self.assertIs(type(ricostruito), type(originale))
+                    self.assertEqual(ricostruito, originale)
+                    self.assertEqual(hash(ricostruito), hash(originale))
+                    tutti_immutabili(ricostruito)
+                    with self.assertRaises(PlenoraError):
+                        ricostruito.clear()
+                copiato = strada(catalogo)
+                self.assertEqual(copiato, catalogo)
+                self.assertIs(type(copiato.drivers), FrozenList)
+                self.assertIs(type(copiato.raw), FrozenDict)
+                with self.assertRaises(PlenoraError):
+                    copiato.drivers.append(None)
+
+
+class LePassateSistematiche(unittest.TestCase):
+    """Sesto giro: identita' dei tipi, ricerche, errori costruiti a mano."""
+
+    @prova("argomenti.sottoclassi")
+    def test_una_metaclasse_che_mente_non_passa_dal_costruttore_diretto(self) -> None:
+        """Prima: `tipo in (bool, str, int, float)` chiedeva alla metaclasse se
+        il tipo fosse `str`, e il `Camaleonte` restava nel campo."""
+        from test_tipi_esatti_e_copie import Camaleonte
+
+        valore = Camaleonte("4.2.0")
+        versione = Version(component_version=valore, cli_protocol_version=2)
+        self.assertIs(type(versione.component_version), str)
+        valore.valore = "altro"
+        self.assertEqual(versione.component_version, "4.2.0")
+
+    @prova("argomenti.sottoclassi")
+    def test_ogni_ricerca_normalizza_prima_di_confrontare(self) -> None:
+        """Prima: `LossReport.count()` confrontava l'argomento originale."""
+        from plenora_io import LossReport
+
+        from test_convert import perdita_sana
+
+        Contatore.chiamate = 0
+        perdita = LossReport.from_json(perdita_sana())
+
+        class SempreUguale(str):
+            def __eq__(self, altro):
+                Contatore.chiamate += 1
+                return True
+
+            __hash__ = str.__hash__
+
+        self.assertEqual(perdita.count(SempreUguale("non-c-e")), 0)
+        for chiama in (
+            lambda: Layers.from_json(layers_sano()).layer(StrOstile("non-c-e")),
+            lambda: ConvertResult.from_json(conversione_sana()).layer(StrOstile("non-c-e")),
+        ):
+            with self.assertRaises(KeyError):
+                chiama()
+        self.assertEqual(Contatore.chiamate, 0)
+        with self.assertRaises(PlenoraError):
+            perdita.count(12)
+
+    @prova("messaggi.senza_dati")
+    def test_command_failed_non_formatta_l_exit_code_originale(self) -> None:
+        """Prima: il messaggio usava `exit_code` originale, e il suo
+        `__format__` entrava nel testo dell'eccezione."""
+        from plenora_io import CommandFailed, ErrorEnvelope
+
+        class CodiceOstile(int):
+            def __format__(self, specifica):
+                return SEGRETO
+
+            __str__ = __repr__ = lambda self: SEGRETO
+
+        busta = ErrorEnvelope(code="X", category="io", phase="write", remote_effect="none",
+                              retry={"kind": "never"}, message="m")
+        errore = CommandFailed(busta, CodiceOstile(4), ["write"])
+        self.assertNotIn(SEGRETO, str(errore))
+        self.assertNotIn(SEGRETO, repr(errore.args))
+        self.assertIs(type(errore.exit_code), int)
+        self.assertIn("uscito con 4", str(errore))
+
+    @prova("messaggi.senza_dati")
+    def test_binary_not_found_conserva_solo_i_posti_noti(self) -> None:
+        """Prima: `searched` conservava e riportava testo arbitrario."""
+        from plenora_io import BinaryNotFound
+
+        errore = BinaryNotFound([f"COLONNA={SEGRETO}", "il `PATH`", StrOstile("il `PATH`")])
+        self.assertEqual(errore.searched, ["?", "il `PATH`", "?"])
+        self.assertNotIn(SEGRETO, str(errore))
+        self.assertNotIn(SEGRETO, repr(vars(errore)))
 
 
 class IMessaggi(unittest.TestCase):

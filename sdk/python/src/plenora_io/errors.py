@@ -47,7 +47,7 @@ PROFILI_NOTI: tuple[str, ...] = ("base", "filegdb")
 
 def sottocomando(argv: Any) -> str | None:
     """Il sottocomando, se il primo argomento e' nell'elenco chiuso."""
-    if type(argv) not in (list, tuple) or not argv:
+    if (type(argv) is not list and type(argv) is not tuple) or not argv:
         return None
     primo = argv[0]
     return primo if type(primo) is str and primo in SOTTOCOMANDI else None
@@ -128,79 +128,6 @@ class PlenoraError(Exception):
         return documento
 
 
-class FrozenDict(dict):
-    """Un dizionario immutabile: i campi oggetto dei modelli dell'SDK.
-
-    E' un `dict` -- `json.dumps`, `isinstance(x, dict)` e la lettura funzionano
-    come prima -- ma ogni metodo che lo modificherebbe solleva
-    `InvalidArgumentError`, e ha un `hash` canonico (come `FrozenList`). Prima un modello portava
-    `dict` e `list` ordinari: `versione.raw["x"] = 1` o `catalogo.drivers.clear()`
-    cambiavano il modello e il suo `hash` dopo la costruzione.
-
-    Fuori contratto, come `object.__setattr__` su un modello: scavalcarlo con i
-    metodi non legati di `dict` (`dict.__setitem__(d, k, v)`).
-    """
-
-    __slots__ = ()
-
-    def _immutabile(self, *argomenti: Any, **opzioni: Any) -> Any:
-        raise InvalidArgumentError(
-            "un dizionario di un risultato dell'SDK e' immutabile."
-        )
-
-    __setitem__ = _immutabile
-    __delitem__ = _immutabile
-    __ior__ = _immutabile
-    clear = _immutabile
-    pop = _immutabile
-    popitem = _immutabile
-    setdefault = _immutabile
-    update = _immutabile
-
-    def __hash__(self) -> int:
-        # I valori sono gia' normalizzati: scalari, `tuple`, `FrozenDict`.
-        return hash(tuple(sorted(dict.items(self))))
-
-    def __reduce__(self) -> Any:
-        # `pickle` e `copy.deepcopy` ricostruiscono da qui: un dizionario nuovo
-        # con gli stessi elementi, senza passare dai metodi bloccati.
-        return (FrozenDict, (dict(dict.items(self)),))
-
-
-class FrozenList(list):
-    """Un elenco immutabile: i campi elenco dei modelli dell'SDK.
-
-    E' una `list` -- il confronto con un elenco, `json.dumps`, l'indicizzazione
-    e l'iterazione funzionano come prima -- ma ogni metodo che lo modificherebbe
-    solleva `InvalidArgumentError`, e ha un `hash` canonico. Fuori contratto:
-    scavalcarlo con i metodi non legati di `list`.
-    """
-
-    __slots__ = ()
-
-    def _immutabile(self, *argomenti: Any, **opzioni: Any) -> Any:
-        raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
-
-    __setitem__ = _immutabile
-    __delitem__ = _immutabile
-    __iadd__ = _immutabile
-    __imul__ = _immutabile
-    append = _immutabile
-    extend = _immutabile
-    insert = _immutabile
-    remove = _immutabile
-    pop = _immutabile
-    clear = _immutabile
-    sort = _immutabile
-    reverse = _immutabile
-
-    def __hash__(self) -> int:
-        return hash(tuple(list.__iter__(self)))
-
-    def __reduce__(self) -> Any:
-        return (FrozenList, (list(list.__iter__(self)),))
-
-
 def _messaggio(valore: Any) -> str:
     """Il messaggio di un errore come `str` esatta, senza chiamarne i metodi."""
     if type(valore) is str:
@@ -208,6 +135,27 @@ def _messaggio(valore: Any) -> str:
     if issubclass(type(valore), str):
         return str.join("", [valore])
     return "(messaggio non testuale)"
+
+
+#: I posti in cui la scoperta cerca il binario: un elenco **chiuso** di
+#: etichette fisse. `BinaryNotFound` conserva e riporta solo queste; ogni altro
+#: testo -- per esempio un costruttore chiamato a mano con dati qualunque -- e'
+#: redatto in `?`.
+POSTI_DI_RICERCA: tuple[str, ...] = (
+    "il percorso indicato con Client(binary=...)",
+    "la variabile d'ambiente PLENORA_IO_BIN",
+    "PLENORA_IO_BIN (non impostata)",
+    "bin/plenora-io accanto al pacchetto, con MANIFEST.json",
+    "il `PATH`",
+)
+
+
+def _posto(valore: Any) -> str:
+    if type(valore) is str:
+        for posto in POSTI_DI_RICERCA:
+            if valore == posto:
+                return posto
+    return "?"
 
 
 class BinaryNotFound(PlenoraError):
@@ -228,7 +176,7 @@ class BinaryNotFound(PlenoraError):
         # percorso indicato e il `PATH` sono della macchina di chi chiama, e un
         # errore non porta dati. Chi li vuole li legge dal proprio ambiente.
         voci = list.__iter__(searched) if type(searched) is list else ()
-        self.searched = [_messaggio(dove) for dove in voci]
+        self.searched = [_posto(dove) for dove in voci]
         posti = "\n".join(f"  - {dove}" for dove in self.searched)
         super().__init__(
             "il binario `plenora-io` non e' stato trovato. Cercato, in ordine:\n"
@@ -403,11 +351,11 @@ class PackageMetadataError(PlenoraError):
     _FASE = "probe"
 
 
-class ResultLookupError(PlenoraError, KeyError):
+class ResultLookupError(PlenoraError, KeyError, IndexError):
     """Un nome cercato in un risultato -- layer, campo, driver, operazione -- non c'e'.
 
     E' anche un `KeyError`, come prima, perche' chi lo intercettava cosi' non
-    debba cambiare. Il messaggio non riporta il nome cercato ne' quelli che ci
+    debba cambiare, e un `IndexError`: un indice oltre un `FrozenList`. Il messaggio non riporta il nome cercato ne' quelli che ci
     sono: sono nomi del file o del chiamante, e un errore non porta dati. Chi
     vuole sapere che cosa c'e' legge il risultato.
     """
@@ -848,7 +796,7 @@ class CommandFailed(PlenoraError):
         self.command = sottocomando(argv)
         nome = self.command or "?"
         super().__init__(
-            f"`plenora-io {nome}` e' uscito con {exit_code}: "
+            f"`plenora-io {nome}` e' uscito con {self.exit_code}: "
             f"[{envelope.category}/{envelope.phase}] "
             f"{envelope.code}: {envelope.message}"
         )
@@ -1092,3 +1040,8 @@ def failure_from_envelope(
     envelope = ErrorEnvelope.from_json(documento)
     classe = CATEGORIE.get(envelope.category, CommandFailed)
     return classe(envelope, exit_code, argv)
+
+
+# In fondo: `contenitori` importa `InvalidArgumentError` da qui, e `_tipo` deve
+# riconoscere i due contenitori per identita'.
+from .contenitori import FrozenDict, FrozenList  # noqa: E402

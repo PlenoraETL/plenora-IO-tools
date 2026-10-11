@@ -59,7 +59,8 @@ import dataclasses
 import sys
 from datetime import timedelta
 
-from .errors import FrozenDict, FrozenList, InvalidArgumentError, PlenoraError, UnexpectedError
+from .contenitori import FrozenDict, FrozenList
+from .errors import InvalidArgumentError, PlenoraError, UnexpectedError
 
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
@@ -139,6 +140,8 @@ NON_AVVOLTI_DEFINITI: frozenset[tuple[str, str]] = frozenset(
     {
         ("FrozenDict", "__reduce__"),
         ("FrozenList", "__reduce__"),
+        ("FrozenDict", "__new__"),
+        ("FrozenList", "__new__"),
     }
 )
 
@@ -164,8 +167,16 @@ NOMI_DEI_MODELLI: tuple[str, ...] = (
     "WriteResult",
 )
 
-#: Le classi di `NOMI_DEI_MODELLI`, riempito da `registra_modelli`.
-MODELLI: set[type] = set()
+#: Le classi di `NOMI_DEI_MODELLI`, riempito da `registra_modelli`. Un elenco e
+#: non un insieme, e lo si scorre con `is`: l'appartenenza a un `set` o a una
+#: `tuple` passa per `__eq__` e `__hash__`, che la metaclasse di una classe del
+#: chiamante puo' ridefinire.
+MODELLI: list[type] = []
+
+
+def e_un_modello(tipo: type) -> bool:
+    """`tipo` e' una delle classi del modello, per identita'."""
+    return any(tipo is classe for classe in MODELLI)
 
 #: L'unico campo che porta un oggetto di una dipendenza: la tabella di
 #: `TableRead`. Ogni altro campo che ne contenesse una e' un errore.
@@ -178,7 +189,7 @@ def registra_modelli(spazio: dict[str, Any]) -> None:
         classe = spazio[nome]
         if not dataclasses.is_dataclass(classe):
             raise TypeError(f"{nome} non e' una dataclass")
-        MODELLI.add(classe)
+        MODELLI.append(classe)
 
 
 def _tabella_pyarrow(valore: Any) -> bool:
@@ -195,11 +206,16 @@ def _chiave(valore: Any, dove: str) -> str:
 def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
     """Il valore nel tipo base esatto e **immutabile**, senza chiamare codice
     del chiamante: `FrozenList` al posto di `list` e `tuple`, `FrozenDict` al
-    posto di `dict`. Sono sottoclassi di `list` e `dict`: il confronto con un
-    documento JSON e `json.dumps` restano quelli di prima."""
+    posto di `dict` (vedi `contenitori`)."""
     tipo = type(valore)
-    if valore is None or tipo in (bool, str, int, float):
+    if valore is None or tipo is bool or tipo is str or tipo is int or tipo is float:
         return valore
+    if tipo is FrozenList:
+        # Si ricostruisce: il costruttore rinormalizza gli elementi, e un
+        # modello annidato alterato fuori contratto non passa com'e'.
+        return FrozenList(valore)
+    if tipo is FrozenDict:
+        return FrozenDict(valore)
     if issubclass(tipo, (list, tuple)):
         base = list if issubclass(tipo, list) else tuple
         return FrozenList([_esatto(v, dove) for v in base.__iter__(valore)])
@@ -226,7 +242,7 @@ def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
         from .argomenti import durata  # noqa: PLC0415 - argomenti importa i modelli
 
         return durata(valore, dove)
-    if tipo in MODELLI:
+    if e_un_modello(tipo):
         # Un modello dell'SDK, per identita' della classe: si rinormalizza
         # comunque, perche' un modello alterato fuori contratto non porti
         # dentro un altro il suo stato.
@@ -263,16 +279,16 @@ def _forma(valore: Any) -> Any:
     (stessa busta, tabelle uguali per pyarrow) hanno cosi' lo stesso `hash`, e
     l'uguaglianza resta quella dei campi.
     """
-    if type(valore) in MODELLI:
+    if e_un_modello(type(valore)):
         valori = object.__getattribute__(valore, "__dict__")
         return (
             type(valore).__qualname__,
             tuple((c.name, _forma(valori.get(c.name))) for c in dataclasses.fields(valore)),
         )
     if type(valore) is FrozenList:
-        return tuple(_forma(v) for v in list.__iter__(valore))
+        return tuple(_forma(v) for v in valore)
     if type(valore) is FrozenDict:
-        return tuple(sorted((k, _forma(v)) for k, v in dict.items(valore)))
+        return tuple(sorted((k, _forma(v)) for k, v in valore.items()))
     if _tabella_pyarrow(valore):
         return ("pyarrow.Table",)
     return valore
@@ -307,6 +323,13 @@ def _immutabile(self: Any, *argomenti: Any) -> None:
 def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(init)
     def costruttore(self: Any, *argomenti: Any, **opzioni: Any) -> None:
+        # Una seconda chiamata a `__init__` su un modello gia' costruito lo
+        # reinizializzerebbe: e' una modifica, e si rifiuta.
+        if object.__getattribute__(self, "__dict__"):
+            raise InvalidArgumentError(
+                f"`{type(self).__name__}` e' gia' costruito: un risultato dell'SDK non si "
+                "reinizializza."
+            )
         init(self, *argomenti, **opzioni)
         _normalizza(self)
 
@@ -315,7 +338,7 @@ def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
 
 def _prepara_modello(classe: type) -> None:
     """Normalizzazione nel costruttore, `==` e `hash` canonici, immutabilita'."""
-    if classe not in MODELLI or vars(classe).get("__plenora_modello__", False):
+    if not e_un_modello(classe) or vars(classe).get("__plenora_modello__", False):
         return
     init = vars(classe).get("__init__")
     if init is not None and not getattr(init, SEGNO, False):

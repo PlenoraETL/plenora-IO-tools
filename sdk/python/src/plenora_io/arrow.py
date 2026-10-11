@@ -76,7 +76,11 @@ def pyarrow() -> Any:
         import pyarrow.ipc  # noqa: F401, PLC0415
 
         dichiarata = getattr(pa, "__version__", "")
-        maggiore = str.join("", [dichiarata]).split(".", 1)[0] if isinstance(dichiarata, str) else ""
+        maggiore = (
+            str.join("", [dichiarata]).split(".", 1)[0]
+            if issubclass(type(dichiarata), str)
+            else ""
+        )
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         raise OptionalDependencyError(
             "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
@@ -120,7 +124,8 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     # `__getattr__` -- e `hasattr` inghiotte soltanto `AttributeError`: ogni
     # altra eccezione usciva com'era.
     try:
-        if isinstance(dati, pa.RecordBatch):
+        # Per tipo e non per `isinstance`, che consulta `__class__`.
+        if type(dati) is pa.RecordBatch:
             dati = pa.Table.from_batches([dati])
         espone = hasattr(dati, "__arrow_c_stream__")
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
@@ -263,7 +268,7 @@ class CartellaTemporanea:
             shutil.rmtree(self._percorso)
         except OSError:
             if valore is not None:
-                if isinstance(valore, PlenoraError):
+                if issubclass(type(valore), PlenoraError):
                     valore.cleanup_failed = True
                 return
             raise CleanupError(

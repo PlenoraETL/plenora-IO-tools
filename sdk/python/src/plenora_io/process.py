@@ -216,9 +216,14 @@ def scrive(argv: list[str]) -> bool:
     """
     if not argv:
         return False
-    if argv[0] in ("write", "convert"):
+    primo = argv[0]
+    if type(primo) is not str:
+        return False
+    if primo == "write" or primo == "convert":
         return True
-    return argv[0] == "read" and "--output" in argv
+    return primo == "read" and any(
+        type(a) is str and a == "--output" for a in argv
+    )
 
 
 def _con_effetto_ignoto(errore: ProtocolError, argv: list[str]) -> ProtocolError:
@@ -238,7 +243,7 @@ def _argv_esatto(argv: Any) -> list[str]:
     `Runner.run` e' pubblico, e la riga di comando si normalizza al confine
     come gli argomenti dei metodi del client.
     """
-    if type(argv) not in (list, tuple):
+    if type(argv) is not list and type(argv) is not tuple:
         raise InvalidArgumentError("`argv` non e' una lista di stringhe.")
     return [testo(elemento, "argv") for elemento in argv]
 
