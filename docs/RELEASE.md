@@ -1306,3 +1306,12 @@ prossima release è percio' una **major** (5.0.0).
   risultato non porta e' `InvalidArgumentError`; assegnare un campo e'
   `InvalidArgumentError` invece di `dataclasses.FrozenInstanceError`. Il loro
   `hash` si calcola dalla forma canonica dei campi: prima sollevava `TypeError`.
+- **I campi elenco e oggetto dei modelli sono `FrozenList` e `FrozenDict`**,
+  sottoclassi immutabili di `list` e `dict`: leggerli, confrontarli con un
+  documento e serializzarli funziona come prima, modificarli
+  (`raw["x"] = 1`, `drivers.clear()`) e' `InvalidArgumentError`.
+- **Le ricerche nei risultati** (`layer`, `field`, `driver`, `operation`)
+  vogliono una `str`: un altro tipo e' `InvalidArgumentError`.
+- **Gli errori dell'SDK costruiti a mano** normalizzano il messaggio
+  (`str` esatta) e l'effetto remoto (vocabolario chiuso);
+  `CommandFailed` vuole un `ErrorEnvelope` e un intero.

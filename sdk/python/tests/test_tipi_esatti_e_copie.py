@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from plenora_io import InvalidArgumentError
 from plenora_io import ErrorEnvelope, Field, ManifestError, ProtocolError
 from plenora_io.discovery import Manifest, leggi_manifesto
 from plenora_io.errors import carica_json, failure_from_envelope
@@ -91,12 +92,14 @@ class LaBustaNonCondivideNiente(unittest.TestCase):
         self.assertIsNot(costruita.retry, retry)
 
     def test_cambiare_la_copia_pubblica_non_cambia_le_decisioni(self) -> None:
-        """`retry` e' una copia ordinaria; le decisioni stanno altrove."""
+        """`retry` e' immutabile dalla 5.0.0, e le decisioni stanno altrove."""
         fallito = failure_from_envelope(
             {"status": "error", "error": errore(retry={"kind": "never"})}, 5, ["x"]
         )
-        fallito.envelope.retry["kind"] = "safe"
-        fallito.envelope.retry["delay_ms"] = 1
+        with self.assertRaises(InvalidArgumentError):
+            fallito.envelope.retry["kind"] = "safe"
+        with self.assertRaises(InvalidArgumentError):
+            fallito.envelope.retry["delay_ms"] = 1
         self.assertFalse(fallito.retryable)
         self.assertIsNone(fallito.retry_after_ms)
         self.assertTrue(fallito.must_assume_remote_committed)

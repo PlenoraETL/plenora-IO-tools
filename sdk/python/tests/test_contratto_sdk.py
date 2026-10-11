@@ -258,8 +258,10 @@ class GliAssiStannoSuOgniEccezione(unittest.TestCase):
                 "code": "X",
             },
         )
-        # L'asse e' la decisione validata, non il campo che il chiamante tiene.
-        errore.envelope.retry["kind"] = "safe"
+        # L'asse e' la decisione validata, e dalla 5.0.0 il campo che il
+        # chiamante tiene non si puo' nemmeno cambiare.
+        with self.assertRaises(plenora_io.InvalidArgumentError):
+            errore.envelope.retry["kind"] = "safe"
         self.assertEqual(errore.retry["kind"], "after")
 
 

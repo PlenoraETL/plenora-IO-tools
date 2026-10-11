@@ -59,7 +59,7 @@ import dataclasses
 import sys
 from datetime import timedelta
 
-from .errors import InvalidArgumentError, PlenoraError, UnexpectedError
+from .errors import FrozenDict, FrozenList, InvalidArgumentError, PlenoraError, UnexpectedError
 
 #: Il segno che un callable e' avvolto: la prova per introspezione lo cerca.
 SEGNO = "__plenora_confine__"
@@ -132,15 +132,53 @@ NON_AVVOLTI: dict[str, str] = {
     "__deepcopy__": "copy: lavora sui campi gia' normalizzati",
 }
 
+#: Le sole classi dell'SDK che definiscono un nome di `NON_AVVOLTI`, e quale. Un
+#: elenco chiuso: la prova per introspezione fallisce se una classe ne definisce
+#: un altro, cosi' un'esclusione non si aggiunge in silenzio.
+NON_AVVOLTI_DEFINITI: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("FrozenDict", "__reduce__"),
+        ("FrozenList", "__reduce__"),
+    }
+)
+
 
 def _privato(nome: str) -> bool:
     """Un nome privato (`_x`), non un metodo speciale (`__x__`)."""
     return nome.startswith("_") and not (nome.startswith("__") and nome.endswith("__"))
 
 
-def _e_un_modello(tipo: type) -> bool:
-    """Una dataclass definita dall'SDK, e non una sottoclasse del chiamante."""
-    return dataclasses.is_dataclass(tipo) and tipo.__module__.startswith("plenora_io")
+#: I modelli dell'SDK, per **nome**: un elenco chiuso ed esplicito. Prima un
+#: modello si riconosceva dal prefisso del modulo (`plenora_io...`), e passava
+#: anche una dataclass interna come `process.Completed`, o una del chiamante in
+#: un modulo `plenora_io_plugin`. Ora vale l'identita' della classe, fissata da
+#: `registra_modelli` all'import, e una prova confronta l'elenco con le
+#: dataclass esportate.
+NOMI_DEI_MODELLI: tuple[str, ...] = (
+    "Capabilities", "CapabilityInterface", "CapabilityOperation", "Catalog",
+    "ConvertResult", "ConvertedLayer", "CrsResolution", "Delivered", "Driver",
+    "ErrorEnvelope", "Fidelity", "FidelityReason", "Field", "FormatDescriptor",
+    "Geometry", "Inspect", "Layer", "LayerSummary", "Layers", "Limits", "LossCount",
+    "LossExample", "LossReport", "Manifest", "Omissions", "OperationContent",
+    "OperationControls", "TableRead", "Validation", "Version", "WriteInput",
+    "WriteResult",
+)
+
+#: Le classi di `NOMI_DEI_MODELLI`, riempito da `registra_modelli`.
+MODELLI: set[type] = set()
+
+#: L'unico campo che porta un oggetto di una dipendenza: la tabella di
+#: `TableRead`. Ogni altro campo che ne contenesse una e' un errore.
+CAMPI_CON_TABELLA: frozenset[tuple[str, str]] = frozenset({("TableRead", "table")})
+
+
+def registra_modelli(spazio: dict[str, Any]) -> None:
+    """Le classi dei modelli, prese per nome dallo spazio di `__init__`."""
+    for nome in NOMI_DEI_MODELLI:
+        classe = spazio[nome]
+        if not dataclasses.is_dataclass(classe):
+            raise TypeError(f"{nome} non e' una dataclass")
+        MODELLI.add(classe)
 
 
 def _tabella_pyarrow(valore: Any) -> bool:
@@ -148,22 +186,36 @@ def _tabella_pyarrow(valore: Any) -> bool:
     return pa is not None and type(valore) is getattr(pa, "Table", None)
 
 
-def _esatto(valore: Any, dove: str) -> Any:
-    """Il valore nel tipo base esatto, senza chiamare codice del chiamante."""
+def _chiave(valore: Any, dove: str) -> str:
+    if not issubclass(type(valore), str):
+        raise InvalidArgumentError(f"`{dove}` ha una chiave che non e' una stringa.")
+    return str.join("", [valore])
+
+
+def _esatto(valore: Any, dove: str, tabella_ammessa: bool = False) -> Any:
+    """Il valore nel tipo base esatto e **immutabile**, senza chiamare codice
+    del chiamante: `FrozenList` al posto di `list` e `tuple`, `FrozenDict` al
+    posto di `dict`. Sono sottoclassi di `list` e `dict`: il confronto con un
+    documento JSON e `json.dumps` restano quelli di prima."""
     tipo = type(valore)
     if valore is None or tipo in (bool, str, int, float):
         return valore
-    if tipo in (list, tuple) or issubclass(tipo, (list, tuple)):
+    if issubclass(tipo, (list, tuple)):
         base = list if issubclass(tipo, list) else tuple
-        elementi = [_esatto(v, dove) for v in base.__iter__(valore)]
-        return elementi if base is list else tuple(elementi)
-    if tipo is dict or issubclass(tipo, dict):
-        copia = {}
+        return FrozenList([_esatto(v, dove) for v in base.__iter__(valore)])
+    if issubclass(tipo, dict):
+        copia: dict[str, Any] = {}
         for chiave, interno in dict.items(valore):
-            if not issubclass(type(chiave), str):
-                raise InvalidArgumentError(f"`{dove}` ha una chiave che non e' una stringa.")
-            copia[str.join("", [chiave])] = _esatto(interno, dove)
-        return copia
+            esatta = _chiave(chiave, dove)
+            if esatta in copia:
+                # Due chiavi distinte -- per esempio due sottoclassi di `str`
+                # con lo stesso contenuto -- che diventano la stessa: una
+                # avrebbe coperto l'altra in silenzio.
+                raise InvalidArgumentError(
+                    f"`{dove}` ha due chiavi che normalizzate coincidono."
+                )
+            copia[esatta] = _esatto(interno, dove)
+        return FrozenDict(copia)
     if issubclass(tipo, str):
         return str.join("", [valore])
     if issubclass(tipo, int):
@@ -174,7 +226,13 @@ def _esatto(valore: Any, dove: str) -> Any:
         from .argomenti import durata  # noqa: PLC0415 - argomenti importa i modelli
 
         return durata(valore, dove)
-    if _e_un_modello(tipo) or _tabella_pyarrow(valore):
+    if tipo in MODELLI:
+        # Un modello dell'SDK, per identita' della classe: si rinormalizza
+        # comunque, perche' un modello alterato fuori contratto non porti
+        # dentro un altro il suo stato.
+        _normalizza(valore)
+        return valore
+    if tabella_ammessa and _tabella_pyarrow(valore):
         return valore
     raise InvalidArgumentError(
         f"`{dove}` contiene un oggetto di un tipo che un risultato dell'SDK non porta."
@@ -182,38 +240,62 @@ def _esatto(valore: Any, dove: str) -> Any:
 
 
 def _normalizza(istanza: Any) -> None:
-    """Ogni campo dell'istanza nel tipo base esatto (vedi `_esatto`)."""
+    """Ogni campo dell'istanza nel tipo base esatto e immutabile (vedi `_esatto`)."""
+    nome_classe = type(istanza).__name__
     for campo in dataclasses.fields(istanza):
         valori = object.__getattribute__(istanza, "__dict__")
         if campo.name not in valori:
             continue
-        dove = f"{type(istanza).__name__}.{campo.name}"
+        dove = f"{nome_classe}.{campo.name}"
         try:
-            esatto = _esatto(valori[campo.name], dove)
+            esatto = _esatto(
+                valori[campo.name], dove, (nome_classe, campo.name) in CAMPI_CON_TABELLA
+            )
         except RecursionError:
             raise InvalidArgumentError(f"`{dove}` e' annidato troppo a fondo.") from None
         object.__setattr__(istanza, campo.name, esatto)
 
 
 def _forma(valore: Any) -> Any:
-    """Una forma canonica e hashable di un valore normalizzato."""
-    if dataclasses.is_dataclass(valore) and not isinstance(valore, type):
+    """Una forma canonica e hashable di un valore normalizzato.
+
+    La tabella di `TableRead` vale una costante: due `TableRead` uguali
+    (stessa busta, tabelle uguali per pyarrow) hanno cosi' lo stesso `hash`, e
+    l'uguaglianza resta quella dei campi.
+    """
+    if type(valore) in MODELLI:
         valori = object.__getattribute__(valore, "__dict__")
         return (
             type(valore).__qualname__,
             tuple((c.name, _forma(valori.get(c.name))) for c in dataclasses.fields(valore)),
         )
-    if type(valore) in (list, tuple):
-        return tuple(_forma(v) for v in valore)
-    if type(valore) is dict:
-        return tuple(sorted((k, _forma(v)) for k, v in valore.items()))
+    if type(valore) is FrozenList:
+        return tuple(_forma(v) for v in list.__iter__(valore))
+    if type(valore) is FrozenDict:
+        return tuple(sorted((k, _forma(v)) for k, v in dict.items(valore)))
     if _tabella_pyarrow(valore):
-        return ("pyarrow.Table", id(valore))
+        return ("pyarrow.Table",)
     return valore
 
 
 def _hash_del_modello(self: Any) -> int:
     return hash(_forma(self))
+
+
+def _uguale(self: Any, altro: Any) -> Any:
+    """`==` fra modelli: la stessa classe, per identita', e gli stessi campi.
+
+    Il `__eq__` generato dalla dataclass leggeva `altro.__class__`, che un
+    oggetto del chiamante puo' ridefinire: qui si guarda `type(altro)`. I campi
+    sono normalizzati, quindi il confronto non chiama codice del chiamante.
+    """
+    if type(altro) is not type(self):
+        return NotImplemented
+    mie = object.__getattribute__(self, "__dict__")
+    sue = object.__getattribute__(altro, "__dict__")
+    return all(
+        mie.get(c.name) == sue.get(c.name) for c in dataclasses.fields(self)
+    )
 
 
 def _immutabile(self: Any, *argomenti: Any) -> None:
@@ -232,18 +314,16 @@ def _con_normalizzazione(init: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def _prepara_modello(classe: type) -> None:
-    """Normalizzazione nel costruttore, `hash` canonico, immutabilita'."""
-    if not _e_un_modello(classe) or getattr(classe, "__plenora_modello__", False):
+    """Normalizzazione nel costruttore, `==` e `hash` canonici, immutabilita'."""
+    if classe not in MODELLI or vars(classe).get("__plenora_modello__", False):
         return
     init = vars(classe).get("__init__")
     if init is not None and not getattr(init, SEGNO, False):
         setattr(classe, "__init__", _con_normalizzazione(init))
-    parametri = getattr(classe, "__dataclass_params__", None)
-    if parametri is not None and parametri.frozen:
-        if parametri.eq:
-            setattr(classe, "__hash__", _hash_del_modello)
-        setattr(classe, "__setattr__", _immutabile)
-        setattr(classe, "__delattr__", _immutabile)
+    setattr(classe, "__eq__", _uguale)
+    setattr(classe, "__hash__", _hash_del_modello)
+    setattr(classe, "__setattr__", _immutabile)
+    setattr(classe, "__delattr__", _immutabile)
     setattr(classe, "__plenora_modello__", True)
 
 

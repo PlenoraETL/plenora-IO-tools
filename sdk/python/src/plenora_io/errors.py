@@ -76,6 +76,11 @@ class PlenoraError(Exception):
 
     #: La categoria di `error-v1` per gli errori nati nell'SDK.
     _CATEGORIA = "internal"
+
+    def __init__(self, message: Any = "") -> None:
+        # Il messaggio si normalizza qui: `str(errore)` non deve chiamare un
+        # `__str__` di chi ha costruito l'errore.
+        super().__init__(_messaggio(message))
     #: La fase di `error-v1` in cui l'SDK li solleva.
     _FASE = "validate"
 
@@ -123,6 +128,88 @@ class PlenoraError(Exception):
         return documento
 
 
+class FrozenDict(dict):
+    """Un dizionario immutabile: i campi oggetto dei modelli dell'SDK.
+
+    E' un `dict` -- `json.dumps`, `isinstance(x, dict)` e la lettura funzionano
+    come prima -- ma ogni metodo che lo modificherebbe solleva
+    `InvalidArgumentError`, e ha un `hash` canonico (come `FrozenList`). Prima un modello portava
+    `dict` e `list` ordinari: `versione.raw["x"] = 1` o `catalogo.drivers.clear()`
+    cambiavano il modello e il suo `hash` dopo la costruzione.
+
+    Fuori contratto, come `object.__setattr__` su un modello: scavalcarlo con i
+    metodi non legati di `dict` (`dict.__setitem__(d, k, v)`).
+    """
+
+    __slots__ = ()
+
+    def _immutabile(self, *argomenti: Any, **opzioni: Any) -> Any:
+        raise InvalidArgumentError(
+            "un dizionario di un risultato dell'SDK e' immutabile."
+        )
+
+    __setitem__ = _immutabile
+    __delitem__ = _immutabile
+    __ior__ = _immutabile
+    clear = _immutabile
+    pop = _immutabile
+    popitem = _immutabile
+    setdefault = _immutabile
+    update = _immutabile
+
+    def __hash__(self) -> int:
+        # I valori sono gia' normalizzati: scalari, `tuple`, `FrozenDict`.
+        return hash(tuple(sorted(dict.items(self))))
+
+    def __reduce__(self) -> Any:
+        # `pickle` e `copy.deepcopy` ricostruiscono da qui: un dizionario nuovo
+        # con gli stessi elementi, senza passare dai metodi bloccati.
+        return (FrozenDict, (dict(dict.items(self)),))
+
+
+class FrozenList(list):
+    """Un elenco immutabile: i campi elenco dei modelli dell'SDK.
+
+    E' una `list` -- il confronto con un elenco, `json.dumps`, l'indicizzazione
+    e l'iterazione funzionano come prima -- ma ogni metodo che lo modificherebbe
+    solleva `InvalidArgumentError`, e ha un `hash` canonico. Fuori contratto:
+    scavalcarlo con i metodi non legati di `list`.
+    """
+
+    __slots__ = ()
+
+    def _immutabile(self, *argomenti: Any, **opzioni: Any) -> Any:
+        raise InvalidArgumentError("un elenco di un risultato dell'SDK e' immutabile.")
+
+    __setitem__ = _immutabile
+    __delitem__ = _immutabile
+    __iadd__ = _immutabile
+    __imul__ = _immutabile
+    append = _immutabile
+    extend = _immutabile
+    insert = _immutabile
+    remove = _immutabile
+    pop = _immutabile
+    clear = _immutabile
+    sort = _immutabile
+    reverse = _immutabile
+
+    def __hash__(self) -> int:
+        return hash(tuple(list.__iter__(self)))
+
+    def __reduce__(self) -> Any:
+        return (FrozenList, (list(list.__iter__(self)),))
+
+
+def _messaggio(valore: Any) -> str:
+    """Il messaggio di un errore come `str` esatta, senza chiamarne i metodi."""
+    if type(valore) is str:
+        return valore
+    if issubclass(type(valore), str):
+        return str.join("", [valore])
+    return "(messaggio non testuale)"
+
+
 class BinaryNotFound(PlenoraError):
     """Il binario `plenora-io` non e' stato trovato.
 
@@ -136,11 +223,12 @@ class BinaryNotFound(PlenoraError):
     _CATEGORIA = "invalid_configuration"
     _FASE = "probe"
 
-    def __init__(self, searched: list[str]) -> None:
+    def __init__(self, searched: Any) -> None:
         # I **posti**, non i percorsi: il valore della variabile d'ambiente, il
         # percorso indicato e il `PATH` sono della macchina di chi chiama, e un
         # errore non porta dati. Chi li vuole li legge dal proprio ambiente.
-        self.searched = list(searched)
+        voci = list.__iter__(searched) if type(searched) is list else ()
+        self.searched = [_messaggio(dove) for dove in voci]
         posti = "\n".join(f"  - {dove}" for dove in self.searched)
         super().__init__(
             "il binario `plenora-io` non e' stato trovato. Cercato, in ordine:\n"
@@ -184,10 +272,13 @@ class ProfileError(PlenoraError):
         noti = PROFILI_NOTI
         self.required = required if type(required) is str and required in noti else None
         self.actual = actual if type(actual) is str and actual in noti else None
+        # Il messaggio dai soli valori gia' filtrati: `actual` originale e'
+        # del manifesto e `required` di chi chiama, e formattarli eseguirebbe
+        # il loro `__format__`.
         if actual is None:
             quale = "sconosciuto: nessun manifesto"
-        elif actual in noti:
-            quale = f"«{actual}»"
+        elif self.actual is not None:
+            quale = f"«{self.actual}»"
         else:
             quale = "fuori vocabolario"
         super().__init__(
@@ -251,7 +342,7 @@ class CleanupError(PlenoraError):
 
     def __init__(self, message: str, *, remote_effect: str) -> None:
         super().__init__(message)
-        self._effetto_remoto = remote_effect
+        self._effetto_remoto = _effetto(remote_effect)
 
 
 class InvalidArgumentError(PlenoraError):
@@ -297,7 +388,7 @@ class UnexpectedError(PlenoraError):
 
     def __init__(self, message: str, *, remote_effect: str = "none") -> None:
         super().__init__(message)
-        self._effetto_remoto = remote_effect
+        self._effetto_remoto = _effetto(remote_effect)
 
 
 class PackageMetadataError(PlenoraError):
@@ -521,6 +612,13 @@ RITENTATIVI_CON_EFFETTO_IGNOTO: frozenset[str] = frozenset(
 RITARDO_MASSIMO_MS = 86_400_000
 
 
+def _effetto(valore: Any) -> str:
+    """Un effetto remoto del vocabolario chiuso, o `InvalidArgumentError`."""
+    if type(valore) is not str or valore not in EFFETTI_REMOTI:
+        raise InvalidArgumentError("`remote_effect` non e' un effetto di `plenora-error-v1`.")
+    return valore
+
+
 def _tipo(valore: Any) -> str:
     """Il tipo JSON **esatto** di un valore, per controlli e messaggi.
 
@@ -544,9 +642,11 @@ def _tipo(valore: Any) -> str:
         return "number"
     if tipo is str:
         return "string"
-    if tipo is list:
+    if tipo is list or tipo is FrozenList or tipo is tuple:
+        # `tuple` e `FrozenDict` sono le forme immutabili dei modelli: chi
+        # ricostruisce un modello da un altro (`dataclasses.replace`) le passa.
         return "array"
-    if tipo is dict:
+    if tipo is dict or tipo is FrozenDict:
         return "object"
     return "non JSON"
 
@@ -735,8 +835,12 @@ class CommandFailed(PlenoraError):
         exit_code: int,
         argv: list[str] | None = None,
     ) -> None:
+        if type(envelope) is not ErrorEnvelope:
+            raise InvalidArgumentError("`envelope` non e' un `ErrorEnvelope`.")
+        if type(exit_code) is bool or not issubclass(type(exit_code), int):
+            raise InvalidArgumentError("`exit_code` non e' un intero.")
         self.envelope = envelope
-        self.exit_code = exit_code
+        self.exit_code = int.__pos__(exit_code)
         # Il solo sottocomando, da un elenco chiuso. Fino alla 4.1.1 l'errore
         # conservava `argv` intero -- percorsi, opzioni, valori di chi chiama
         # -- in un attributo che finisce nei log e nei pickle. Chi ha fatto la

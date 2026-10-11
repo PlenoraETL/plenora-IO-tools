@@ -114,18 +114,13 @@ def _risolto(percorso: Path, che_cosa: str) -> Path:
 def _percorso_indicato(esplicito: Any) -> Path:
     """Il percorso passato a `Client(binary=...)`, o `InvalidArgumentError`.
 
-    `Path()` chiama `__fspath__`, che e' codice di chi chiama e puo' sollevare
-    qualunque cosa, e rifiuta con `TypeError` cio' che non e' un percorso.
+    Normalizzato in una `str` esatta da `argomenti.percorso` -- una sola
+    lettura di `__fspath__`, senza NUL, senza surrogati -- prima di diventare
+    un `Path`: niente del chiamante si formatta o si confronta prima.
     """
-    try:
-        percorso = Path(esplicito)
-    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise InvalidArgumentError(
-            "`binary` non e' un percorso: serve una `str` o un `os.PathLike`."
-        ) from None
-    if "\x00" in str(percorso):
-        raise InvalidArgumentError("`binary` contiene un carattere NUL.")
-    return percorso
+    from .argomenti import percorso as percorso_esatto  # noqa: PLC0415
+
+    return Path(percorso_esatto(esplicito, "binary"))
 
 
 def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:

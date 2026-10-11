@@ -158,10 +158,22 @@ nuovo senza rete. Le ricerche nei risultati (`layer`, `field`, `driver`,
 `operation`) sollevano `ResultLookupError`, anche `KeyError`, senza nomi nel
 messaggio.
 
-I modelli normalizzano i propri campi nel costruttore (tipi base esatti,
-modelli dell'SDK, nient'altro), sono immutabili con `InvalidArgumentError` e
-hanno un `hash` canonico: `repr`, `==` e `hash` non eseguono mai codice del
-chiamante. Gli errori non conservano dati negli attributi: `CommandFailed`
+I modelli -- un elenco chiuso di classi, `confine.NOMI_DEI_MODELLI`,
+riconosciute per identita' -- normalizzano i propri campi nel costruttore:
+tipi base esatti, `FrozenList` al posto di `list`, `FrozenDict` al posto di
+`dict`, modelli dell'SDK rinormalizzati, nient'altro. `FrozenList` e
+`FrozenDict` sono sottoclassi di `list` e `dict` (il confronto con un documento
+JSON e `json.dumps` funzionano come prima) che rifiutano ogni modifica con
+`InvalidArgumentError`. I modelli sono immutabili con lo stesso errore e hanno
+`==` e `hash` canonici: `repr`, `==` e `hash` non eseguono mai codice del
+chiamante, e l'`hash` non cambia dopo la costruzione. Due chiavi che
+normalizzate coincidono sono un errore.
+
+**Fuori contratto:** scavalcare l'immutabilita' con `object.__setattr__`, con
+`__dict__` o con i metodi non legati di `list` e `dict` (`dict.__setitem__`).
+Un modello alterato cosi' non e' piu' un risultato dell'SDK; quando entra in un
+altro modello si rinormalizza, ma le garanzie di questa sezione non lo
+coprono. Gli errori non conservano dati negli attributi: `CommandFailed`
 porta il solo sottocomando (`command`), da un elenco chiuso.
 
 L'inventario dei punti in cui puo' nascere un'eccezione esterna, con la prova

@@ -39,6 +39,7 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
+from .argomenti import testo
 from .errors import ProtocolError, ResultLookupError, _tipo, copia_json
 
 
@@ -381,6 +382,7 @@ class Catalog:
         un `None` restituito lo trasforma in un `AttributeError` tre righe piu'
         in la', dove il nome sbagliato non si vede piu'.
         """
+        identificatore = testo(identificatore, "identificatore")
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
@@ -638,6 +640,7 @@ class Layer:
 
     def field(self, name: str) -> Field:
         """La colonna con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
@@ -708,6 +711,7 @@ class Inspect:
 
     def layer(self, name: str) -> Layer:
         """Il layer con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
@@ -747,6 +751,7 @@ class Layers:
         )
 
     def layer(self, name: str) -> LayerSummary:
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
@@ -1087,6 +1092,7 @@ class ConvertResult:
         return self.read_loss.lossless and self.write_loss.lossless
 
     def layer(self, name: str) -> ConvertedLayer:
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
@@ -1369,6 +1375,7 @@ class Capabilities:
 
     def operation(self, identificatore: str) -> CapabilityOperation:
         """L'operazione con quell'id, o `ResultLookupError` (anche un `KeyError`), senza id nel messaggio."""
+        identificatore = testo(identificatore, "identificatore")
         for operazione in self.operations:
             if operazione.id == identificatore:
                 return operazione

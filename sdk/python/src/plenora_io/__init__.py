@@ -66,6 +66,8 @@ from .errors import (
     TimeoutError,
     TransientError,
     UnsupportedError,
+    FrozenDict,
+    FrozenList,
     PackageMetadataError,
     ResultLookupError,
     UnexpectedError,
@@ -178,6 +180,8 @@ __all__ = [
     "FidelityReason",
     "Field",
     "FormatDescriptor",
+    "FrozenDict",
+    "FrozenList",
     "Geometry",
     "Inspect",
     "InternalError",
@@ -229,4 +233,5 @@ __all__ = [
 # eccezioni, passa da `confinato`. Qui e non classe per classe, perche' l'elenco
 # delle cose pubbliche e' `__all__`, e una prova lo confronta con cio' che e'
 # avvolto: un nome nuovo esportato senza rete non puo' sfuggire.
+_confine.registra_modelli(globals())
 _confine.confina_esportati(globals(), __all__)

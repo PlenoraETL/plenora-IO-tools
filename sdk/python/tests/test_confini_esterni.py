@@ -971,7 +971,7 @@ class LaRete(unittest.TestCase):
         sono esattamente `NON_AVVOLTI` e i nomi privati.
         """
         import plenora_io
-        from plenora_io.confine import NON_AVVOLTI
+        from plenora_io.confine import NON_AVVOLTI, NON_AVVOLTI_DEFINITI
 
         scoperti = 0
         esclusi_visti = set()
@@ -979,8 +979,13 @@ class LaRete(unittest.TestCase):
             privato = attributo.startswith("_") and not (
                 attributo.startswith("__") and attributo.endswith("__")
             )
-            if privato or attributo in NON_AVVOLTI:
-                esclusi_visti.add(attributo)
+            if attributo in NON_AVVOLTI:
+                # Un nome escluso che una classe dell'SDK **definisce**: deve
+                # stare nell'elenco chiuso, o l'esclusione si sarebbe aggiunta
+                # in silenzio.
+                esclusi_visti.add((classe.__name__, attributo))
+                continue
+            if privato:
                 continue
             with self.subTest(metodo=f"{classe.__name__}.{attributo}{'.' + parte if parte else ''}"):
                 self.assertTrue(_avvolto(funzione))
@@ -992,6 +997,7 @@ class LaRete(unittest.TestCase):
                     self.assertTrue(_avvolto(valore))
                     scoperti += 1
         self.assertGreater(scoperti, 150)
+        self.assertEqual(esclusi_visti, set(NON_AVVOLTI_DEFINITI))
 
     @prova("confine.rete")
     def test_nessun_metodo_pubblico_rende_un_generatore(self) -> None:
@@ -1253,6 +1259,156 @@ class IPuntiSpecifici(unittest.TestCase):
                 plenora_io.version()
         self.assertEqual(type(preso.exception).__name__, "PackageMetadataError")
         tradotto(self, preso.exception, "none")
+
+
+class LImmutabilita(unittest.TestCase):
+    """Quinto giro: i contenitori dei modelli, l'elenco chiuso, le chiavi."""
+
+    @prova("confine.rete")
+    def test_i_contenitori_annidati_non_si_modificano(self) -> None:
+        """Prima: `versione.raw["x"] = 1` e `catalogo.drivers.clear()`
+        cambiavano il modello e il suo `hash` dopo la costruzione."""
+        versione = Version.from_json({"component_version": "4.2.0", "cli_protocol_version": 2})
+        catalogo = Catalog.from_json(catalogo_sano())
+        prima = (hash(versione), hash(catalogo), repr(catalogo))
+        tentativi = (
+            lambda: versione.raw.__setitem__("x", 1),
+            lambda: versione.raw.update(x=1),
+            lambda: versione.raw.pop("component_version"),
+            lambda: catalogo.drivers.clear(),
+            lambda: catalogo.drivers.append(catalogo.drivers[0]),
+            lambda: catalogo.drivers.__setitem__(0, None),
+            lambda: catalogo.drivers[0].recognised_suffixes.append(".z"),
+            lambda: catalogo.drivers[0].format_options.sort(),
+            lambda: catalogo.raw["drivers"].pop(),
+        )
+        for numero, tentativo in enumerate(tentativi):
+            with self.subTest(tentativo=numero):
+                with self.assertRaises(PlenoraError) as preso:
+                    tentativo()
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+                tradotto(self, preso.exception, "none")
+        self.assertEqual((hash(versione), hash(catalogo), repr(catalogo)), prima)
+        # Restano un `dict` e una `list` per chi legge e serializza.
+        self.assertIsInstance(versione.raw, dict)
+        self.assertEqual(json.loads(json.dumps(versione.raw)), versione.raw)
+        self.assertEqual(catalogo.drivers[0].recognised_suffixes, list(catalogo.drivers[0].recognised_suffixes))
+
+    @prova("confine.rete")
+    def test_solo_le_classi_dell_elenco_chiuso_sono_modelli(self) -> None:
+        """Prima: una dataclass in un modulo `plenora_io...` passava come
+        modello senza normalizzazione, anche `process.Completed`."""
+        import dataclasses
+        import types
+
+        import plenora_io
+        from plenora_io import confine
+        from plenora_io.process import Completed
+
+        esportate = {
+            nome for nome in plenora_io.__all__
+            if isinstance(getattr(plenora_io, nome), type)
+            and dataclasses.is_dataclass(getattr(plenora_io, nome))
+        }
+        self.assertEqual(esportate, set(confine.NOMI_DEI_MODELLI))
+        self.assertEqual({c.__name__ for c in confine.MODELLI}, esportate)
+
+        interno = Completed(argv=["x"], exit_code=0, stdout="", stderr="")
+        modulo = types.ModuleType("plenora_io_plugin")
+        sys.modules["plenora_io_plugin"] = modulo
+        self.addCleanup(sys.modules.pop, "plenora_io_plugin", None)
+        exec(
+            "import dataclasses\n"
+            "@dataclasses.dataclass\n"
+            "class Finto:\n"
+            "    x: object = None\n",
+            modulo.__dict__,
+        )
+        estraneo = modulo.Finto()
+        for valore in (interno, estraneo):
+            with self.subTest(tipo=type(valore).__name__):
+                with self.assertRaises(PlenoraError) as preso:
+                    Version(component_version="1", cli_protocol_version=2, raw={"v": valore})
+                self.assertIsInstance(preso.exception, InvalidArgumentError)
+
+    @prova("confine.rete")
+    def test_un_modello_annidato_si_rinormalizza(self) -> None:
+        """Un modello dell'SDK dentro un altro si rinormalizza comunque: lo
+        stato che un'alterazione fuori contratto gli ha dato non passa."""
+        import dataclasses
+
+        from plenora_io import FrozenList
+
+        catalogo = Catalog.from_json(catalogo_sano())
+        driver = catalogo.drivers[0]
+        dict.__setitem__(driver.raw, "x", [1])  # fuori contratto, apposta
+        self.assertIs(type(driver.raw["x"]), list)
+        dataclasses.replace(catalogo)
+        self.assertIs(type(driver.raw["x"]), FrozenList)
+
+    @prova("confine.rete")
+    def test_due_chiavi_che_normalizzate_coincidono_sono_un_errore(self) -> None:
+        """Prima: due sottoclassi di `str` con lo stesso contenuto diventavano
+        la stessa chiave, e una copriva l'altra in silenzio."""
+
+        class Chiave(str):
+            # Un'altra chiave per il `dict` (hash e uguaglianza propri), con lo
+            # stesso contenuto di "k".
+            def __hash__(self):
+                return 1
+
+            def __eq__(self, altro):
+                return self is altro
+
+        with self.assertRaises(PlenoraError) as preso:
+            Version(component_version="1", cli_protocol_version=2,
+                    raw={"k": 1, Chiave("k"): 2})
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+        tradotto(self, preso.exception, "none")
+
+    @prova("messaggi.senza_dati")
+    def test_profile_error_non_formatta_il_valore_originale(self) -> None:
+        """Prima: il messaggio si costruiva da `actual` originale, e una `str`
+        con `__format__` ostile entrava nel messaggio."""
+        from plenora_io import ProfileError
+
+        Contatore.chiamate = 0
+        errore = ProfileError(StrOstile("filegdb"), StrOstile("base"))
+        self.assertEqual(Contatore.chiamate, 0)
+        self.assertIsNone(errore.required)
+        self.assertIsNone(errore.actual)
+        self.assertIn("fuori vocabolario", str(errore))
+
+    @prova("argomenti.sottoclassi")
+    def test_le_ricerche_normalizzano_l_argomento_prima_di_confrontarlo(self) -> None:
+        Contatore.chiamate = 0
+        catalogo = Catalog.from_json(catalogo_sano())
+        capacita = Capabilities.from_json(capacita_sane())
+        esito = Inspect.from_json(inspect_sano())
+        for chiama in (
+            lambda: catalogo.driver(StrOstile("non-c-e")),
+            lambda: capacita.operation(StrOstile("non-c-e")),
+            lambda: esito.layer(StrOstile("non-c-e")),
+            lambda: esito.layers[0].field(StrOstile("non-c-e")),
+        ):
+            with self.assertRaises(KeyError):
+                chiama()
+        self.assertEqual(Contatore.chiamate, 0)
+        with self.assertRaises(PlenoraError) as preso:
+            catalogo.driver(12)
+        self.assertIsInstance(preso.exception, InvalidArgumentError)
+
+    @prova("messaggi.senza_dati")
+    def test_gli_errori_costruiti_a_mano_non_formattano_valori_altrui(self) -> None:
+        from plenora_io import BinaryNotFound, CleanupError, LocalIoError
+
+        Contatore.chiamate = 0
+        self.assertEqual(str(LocalIoError(StrOstile("m"))), "m")
+        self.assertEqual(str(LocalIoError(object())), "(messaggio non testuale)")
+        BinaryNotFound([StrOstile("posto"), object()])
+        self.assertEqual(Contatore.chiamate, 0)
+        with self.assertRaises(PlenoraError):
+            CleanupError("m", remote_effect=StrOstile("committed"))
 
 
 class IMessaggi(unittest.TestCase):
