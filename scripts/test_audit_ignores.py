@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import unittest
+import subprocess
+from unittest.mock import patch
 
 from scripts import audit_ignores as gate
 
@@ -59,6 +61,62 @@ class SondeFlag(unittest.TestCase):
         senza = {k: v for k, v in COMPLETA.items() if k != "motivo"}
         with self.assertRaises(ValueError):
             gate.flag({"accettate": [senza]})
+
+
+class SondeAudit(unittest.TestCase):
+    registro = {"yanked_accettati": [{"crate": "zip@=8.6.0"}]}
+
+    @staticmethod
+    def report(nome="zip", versione="8.6.0"):
+        return {"warnings": {"yanked": [
+            {"package": {"name": nome, "version": versione}}
+        ]}}
+
+    def test_solo_la_versione_esatta_dichiarata(self):
+        self.assertEqual(gate.verifica_yanked(self.report(), self.registro), [])
+        for nome, versione in (("zip", "8.6.1"), ("altro", "8.6.0")):
+            self.assertTrue(gate.verifica_yanked(self.report(nome, versione), self.registro))
+        self.assertTrue(gate.verifica_yanked(self.report(), {}))
+        with self.assertRaises(ValueError):
+            gate.verifica_yanked(self.report(), {"yanked_accettati": [{"crate": "zip"}]})
+
+    def corsa(self, reports, codici=(0, 0, 0, 0), stderr=""):
+        risultati = []
+        for i, report in enumerate(reports):
+            risultati.extend([
+                subprocess.CompletedProcess([], codici[i * 2]),
+                subprocess.CompletedProcess([], codici[i * 2 + 1], report, stderr),
+            ])
+        with patch.object(gate.subprocess, "run", side_effect=risultati) as run:
+            risultato = gate.esegui({**self.registro, "accettate": [COMPLETA]})
+        for i, lock in enumerate(("Cargo.lock", "fuzz/Cargo.lock")):
+            a, b = [c.args[0] for c in run.call_args_list[i * 2:i * 2 + 2]]
+            self.assertEqual(a, ["cargo", "audit", "--file", lock,
+                                "--ignore", COMPLETA["id"], "--deny", "warnings", "--no-yanked"])
+            self.assertEqual(b, ["cargo", "audit", "--file", lock,
+                                "--ignore", COMPLETA["id"], "--json"])
+        return risultato
+
+    def test_zip_ammesso_in_entrambi_i_lockfile(self):
+        self.assertEqual(self.corsa([json.dumps(self.report())] * 2), 0)
+
+    def test_altro_yanked_blocca_anche_se_solo_nel_fuzz(self):
+        for indice in (0, 1):
+            reports = [json.dumps(self.report())] * 2
+            reports[indice] = json.dumps(self.report("altro"))
+            self.assertEqual(self.corsa(reports), 1)
+
+    def test_advisory_e_errori_operativi_restano_bloccanti(self):
+        for indice in range(4):
+            codici = [0] * 4
+            codici[indice] = 1
+            self.assertEqual(self.corsa([json.dumps(self.report())] * 2, codici), 1)
+        self.assertEqual(self.corsa([json.dumps(self.report())] * 2,
+                                   stderr="error: couldn't check if the package is yanked"), 1)
+
+    def test_report_assente_o_invalido_blocca(self):
+        for report in ("", "{}", "null", '{"warnings": null}'):
+            self.assertEqual(self.corsa([json.dumps(self.report()), report]), 1)
 
 
 if __name__ == "__main__":
