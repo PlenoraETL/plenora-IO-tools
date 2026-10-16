@@ -327,7 +327,7 @@ dependencies = [
  "log",
  "quick-xml 0.41.0",
  "serde",
- "zip",
+ "zip 8.6.0",
 ]
 
 [[package]]
@@ -655,7 +655,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde_json",
  "tempfile",
- "zip",
+ "zip 9.0.3",
 ]
 
 [[package]]
@@ -1621,7 +1621,7 @@ dependencies = [
  "plenora-io-model",
  "serde_json",
  "tempfile",
- "zip",
+ "zip 9.0.3",
 ]
 
 [[package]]
@@ -1865,7 +1865,7 @@ version = "0.99.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34f2d2cda7223168a14fb86bc7411dbc3379bd7d49749ecc53b91ed98585b6b0"
 dependencies = [
- "zip",
+ "zip 8.6.0",
 ]
 
 [[package]]
@@ -2517,6 +2517,21 @@ dependencies = [
  "flate2",
  "indexmap",
  "memchr",
+ "typed-path",
+ "zopfli",
+]
+
+[[package]]
+name = "zip"
+version = "9.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2d98561b612a84ae525331a7a094429ef8a5772514ed507ff6db5f54badc971"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "nix",
  "typed-path",
  "zopfli",
 ]
