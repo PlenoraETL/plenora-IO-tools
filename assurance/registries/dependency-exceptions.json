@@ -12,6 +12,13 @@
       "trigger_di_riesame": "modifica a feature o dipendenze geospaziali"
     }
   ],
+  "aggiornamento_zip": {
+    "data": "2026-10-16",
+    "versione_diretta": "=9.0.3",
+    "motivo": "Tutte le versioni 8.x sono yanked. Il pin diretto passa alla 9.0.3 in Cargo.toml, Cargo.lock e fuzz/Cargo.lock, con default-features = false e la sola feature deflate.",
+    "compatibilita": "La decodifica fallibile dei nomi propaga l'errore senza escludere parti dalla prevalidazione; restano invariati i limiti di 4096 membri, 64 MiB per parte XML e il rapporto di decompressione del budget. Le fixture restano Stored tramite SimpleFileOptions.",
+    "residuo": "calamine 0.36.1 richiede zip ^8.6 e rust_xlsxwriter 0.99.1 richiede zip ^8.3: entrambi i lockfile conservano anche zip 8.6.0. Il solo aggiornamento diretto non chiude cargo deny; occorre aggiornare anche quei vincoli transitivi. Nessuna eccezione yanked aggiunta."
+  },
   "risolte_senza_eccezione": [
     {
       "id": [
