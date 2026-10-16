@@ -133,7 +133,7 @@ class LaScoperta(SenzaAmbiente):
         binario.chmod(0o755)
         os.environ["PATH"] = os.pathsep.join((str(prima), str(seconda)))
         os.environ["PATHEXT"] = ".EXE"
-        stat_originale = os.stat
+        stat_originale = Path.stat
         visitati = []
 
         def stat_negato(percorso, *args, **kwargs):
@@ -145,7 +145,9 @@ class LaScoperta(SenzaAmbiente):
 
         with mock.patch("plenora_io._discovery._albero_accanto_al_pacchetto", return_value=None):
             self.assertEqual(trova_binario(), binario.resolve())
-            with mock.patch("os.stat", side_effect=stat_negato):
+            # Python 3.10 conserva in pathlib un riferimento a os.stat:
+            # sostituire os.stat non intercetta le chiamate di Path.stat.
+            with mock.patch.object(Path, "stat", stat_negato):
                 with self.assertRaises(LocalIoError) as preso:
                     trova_binario()
         self.assertNotIn(binario, visitati)
