@@ -84,7 +84,7 @@ PUNTI: dict[str, tuple[str, str]] = {
     "arrow.cartella": ("fspath, mkdtemp, rmtree", "InvalidArgumentError, LocalIoError, CleanupError"),
     "discovery.binario": ("__fspath__, stat, resolve", "InvalidArgumentError o LocalIoError"),
     "discovery.manifesto": ("OSError, UnicodeDecodeError, JSON", "ManifestError, catena tagliata"),
-    "discovery.which": ("shutil.which che solleva", "LocalIoError"),
+    "discovery.which": ("ricerca PATH che solleva", "LocalIoError"),
     "argomenti.sottoclassi": ("__str__, __format__, __int__, Limits e timedelta derivati", "copie esatte, nessuna chiamata dopo il confine"),
     "argomenti.grandezze": ("10**1000, 10**50000 in interi, limiti e timeout", "InvalidArgumentError prima di ogni conversione"),
     "process.exit": ("__exit__ del context manager di Popen", "ProtocolError, unknown se scrive"),
@@ -1238,10 +1238,10 @@ class IPuntiSpecifici(unittest.TestCase):
         tradotto(self, preso.exception, "none")
 
     @prova("discovery.which")
-    def test_shutil_which_che_solleva_e_local_io_error(self) -> None:
+    def test_ricerca_path_che_solleva_e_local_io_error(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False), \
                 mock.patch.object(discovery, "_albero_accanto_al_pacchetto", return_value=None), \
-                mock.patch.object(discovery.shutil, "which", side_effect=ValueError(SEGRETO)):
+                mock.patch.object(discovery, "_cerca_nel_path", side_effect=ValueError(SEGRETO)):
             os.environ.pop(discovery.VARIABILE, None)
             with self.assertRaises(PlenoraError) as preso:
                 discovery.trova_binario(None)

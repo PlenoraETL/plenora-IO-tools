@@ -34,7 +34,6 @@ nasconderebbe il guasto.
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,8 +54,7 @@ from ._errors import (
 )
 from ._errors import _dallo_sdk, _dallo_sdk_strutturato
 
-#: Il nome dell'eseguibile, senza estensione: `shutil.which` aggiunge da se'
-#: quelle che la piattaforma usa.
+#: Il nome dell'eseguibile, senza le estensioni PATHEXT di Windows.
 NOME = "plenora-io"
 
 #: La variabile d'ambiente, la stessa che il gate delle buste legge per
@@ -122,6 +120,36 @@ def _percorso_indicato(esplicito: Any) -> Path:
     return Path(percorso_esatto(esplicito, "binary"))
 
 
+def _cerca_nel_path() -> Path | None:
+    """Il primo file eseguibile, senza sopprimere gli errori di stat."""
+    path = os.environ.get("PATH")
+    if path is None:
+        try:
+            path = os.confstr("CS_PATH")
+        except (AttributeError, ValueError):
+            path = os.defpath
+    if not path:
+        return None
+    directory = path.split(os.pathsep)
+    nomi = [NOME]
+    if os.name == "nt":
+        estensioni = os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WS;.MSC"
+        nomi = [NOME + estensione for estensione in estensioni.split(os.pathsep) if estensione]
+    visitate: set[str] = set()
+    for cartella in directory:
+        normalizzata = os.path.normcase(cartella)
+        if normalizzata in visitate:
+            continue
+        visitate.add(normalizzata)
+        for nome in nomi:
+            candidato = Path(cartella) / nome
+            if _e_un_file(candidato, "un candidato del PATH") and (
+                os.name == "nt" or os.access(candidato, os.X_OK)
+            ):
+                return candidato
+    return None
+
+
 def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     """Il binario, o `BinaryNotFound` con l'elenco dei posti guardati."""
     cercati: list[str] = []
@@ -146,10 +174,10 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
     if accanto is not None:
         return _risolto(accanto, "il binario accanto al pacchetto")
 
-    # `shutil.which` legge `PATH` e il filesystem: un `PATH` con un NUL o una
+    # La ricerca legge `PATH` e il filesystem: un `PATH` con un NUL o una
     # voce che non si esamina solleva, e non e' un binario introvabile.
     try:
-        dal_path = shutil.which(NOME)
+        dal_path = _cerca_nel_path()
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         raise _dallo_sdk(LocalIoError, "binario.ricerca_path") from None
     cercati.append("il `PATH`")

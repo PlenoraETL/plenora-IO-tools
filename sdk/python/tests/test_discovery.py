@@ -20,6 +20,7 @@ from plenora_io._discovery import (
     MANIFESTO,
     NOME,
     VARIABILE,
+    _cerca_nel_path,
     leggi_manifesto,
     trova_binario,
     verifica_profilo,
@@ -84,6 +85,73 @@ class SenzaAmbiente(unittest.TestCase):
 
 
 class LaScoperta(SenzaAmbiente):
+    def test_path_stat_distingue_assenza_da_guasti(self) -> None:
+        os.environ["PATH"] = str(self.tmp)
+        os.environ["PATHEXT"] = ".EXE"
+        for tipo in (FileNotFoundError, NotADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(Path, "stat", side_effect=tipo()):
+                self.assertIsNone(_cerca_nel_path())
+        for tipo in (PermissionError, OSError, IsADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                with self.assertRaises(LocalIoError) as preso:
+                    _cerca_nel_path()
+                self.assertNotIn(str(self.tmp), str(preso.exception))
+
+    def test_path_rispetta_ordine_tipo_ed_eseguibilita(self) -> None:
+        prima = self.tmp / "prima"
+        seconda = self.tmp / "seconda"
+        prima.mkdir()
+        seconda.mkdir()
+        os.environ["PATH"] = os.pathsep.join((str(prima), str(seconda)))
+        os.environ["PATHEXT"] = ".EXE;.CMD"
+        nome = NOME + (".EXE" if os.name == "nt" else "")
+        candidato = prima / nome
+        altro = seconda / nome
+        altro.write_text("binario", encoding="utf-8")
+        altro.chmod(0o755)
+        candidato.mkdir()
+        self.assertEqual(_cerca_nel_path(), altro)
+        candidato.rmdir()
+        candidato.write_text("binario", encoding="utf-8")
+        if os.name != "nt":
+            candidato.chmod(0o644)
+            self.assertEqual(_cerca_nel_path(), altro)
+        else:
+            (prima / (NOME + ".CMD")).write_text("binario", encoding="utf-8")
+        candidato.chmod(0o755)
+        self.assertEqual(_cerca_nel_path(), candidato)
+
+    def test_path_negato_non_passa_alla_seconda_directory(self) -> None:
+        prima = self.tmp / "riservato"
+        seconda = self.tmp / "seconda"
+        prima.mkdir()
+        seconda.mkdir()
+        binario = seconda / (NOME + (".EXE" if os.name == "nt" else ""))
+        binario.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        binario.chmod(0o755)
+        os.environ["PATH"] = os.pathsep.join((str(prima), str(seconda)))
+        os.environ["PATHEXT"] = ".EXE"
+        stat_originale = os.stat
+        visitati = []
+
+        def stat_negato(percorso, *args, **kwargs):
+            percorso = Path(percorso)
+            visitati.append(percorso)
+            if percorso.parent == prima:
+                raise PermissionError(13, "negato", str(percorso))
+            return stat_originale(percorso, *args, **kwargs)
+
+        with mock.patch("plenora_io._discovery._albero_accanto_al_pacchetto", return_value=None):
+            self.assertEqual(trova_binario(), binario.resolve())
+            with mock.patch("os.stat", side_effect=stat_negato):
+                with self.assertRaises(LocalIoError) as preso:
+                    trova_binario()
+        self.assertNotIn(binario, visitati)
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
     def test_stat_negato_non_passa_al_binario_successivo(self) -> None:
         albero = AlberoFinto(self.tmp / "riservato")
         altro = AlberoFinto(self.tmp / "altro")
