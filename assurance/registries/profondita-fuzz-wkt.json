@@ -111,9 +111,9 @@
   ],
   "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'. La PR #57 aggiorna inoltre zip diretto a 9.0.3 e i lockfile principale e fuzz: il perimetro cambia ancora. Rinvio riallineato all'albero corrente il 2026-10-16; nessuna nuova misura eseguita.",
     "impronta_della_misura": "91713fcde0033145c761c3040b790eaa972652608a858ae0209d48cb6a4c2f07",
-    "impronta_attesa": "c4d9a121e1340170c9bcbc63a614494f79396db461b533962a3530a36948d16e",
+    "impronta_attesa": "674ba0be47a2330d458b7f8bf4958f57829ac10774a0ff1bf0f30cbed48e91c8",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh wkt_parse"

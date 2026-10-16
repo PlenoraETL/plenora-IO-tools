@@ -55,13 +55,14 @@
         "https://github.com/EmbarkStudios/cargo-deny/blob/0.20.2/src/advisories/cfg.rs; src/cfg/package_spec.rs (ignore yanked per PackageSpec e Reason, senza filtro parent)."
       ],
       "limite_verifica_locale": "cargo tree --locked --offline --all-features --target all -i zip@8.6.0, per entrambi i manifesti, non risolve zip 9.0.3 nell'indice locale. Le conclusioni sulle feature derivano dai manifesti dei soli consumer presenti nei lockfile, non da una risoluzione metadata locale riuscita.",
-      "chiusura": "Appena calamine e rust_xlsxwriter accettano zip 9: aggiornarli, rigenerare entrambi i lockfile, verificare l'assenza di zip 8.6.0 e rimuovere questo ignore e la relativa eccezione; rieseguire deny su entrambi i grafi, build e clippy.",
+      "chiusura": "Appena calamine e rust_xlsxwriter accettano zip 9: aggiornarli, rigenerare entrambi i lockfile, verificare l'assenza di zip 8.6.0 e rimuovere questo ignore e la relativa eccezione; rieseguire deny su entrambi i grafi, build e clippy. Quando entrambi pubblicano versioni su zip 9, rimuovere anche la copia iniziale del Cargo.lock nel consumatore, ripristinare la verifica senza lockfile e aggiornare README.md e docs/PRODUCT.md.",
       "trigger_di_riesame": "Ogni aggiornamento di calamine/rust_xlsxwriter, dei lockfile o delle feature ZIP; in particolare legacy-zip, nuovi consumer o introduzione di estrazione su disco.",
       "verifiche_locali": {
         "data": "2026-10-16",
         "gate": "14 test passati; coerenza deny/registro e ambito di entrambi i lockfile verificati.",
         "cargo": "cargo deny --locked check su entrambi i grafi, cargo build --workspace --release --locked e cargo clippy --workspace --all-targets --all-features --locked -- -D warnings tentati: bloccati prima della compilazione/analisi da crates.io config.json, TLS Schannel SEC_E_NO_CREDENTIALS. Nessun esito verde dichiarato."
-      }
+      },
+      "garanzia_indebolita": "Il consumatore esterno deve partire dal Cargo.lock distribuito nell'archivio, copiandolo nella propria radice prima di cargo run. Il gate superficie-rust verifica questa costruzione, non la risoluzione senza lockfile: tutte le zip 8.x sono yanked e calamine e rust_xlsxwriter le richiedono ancora. Cargo riusa le versioni bloccate e aggiunge il pacchetto consumatore."
     }
   ]
 }
