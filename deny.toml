@@ -1,6 +1,6 @@
 # Politica della catena delle dipendenze (cargo-deny), sul modello di
 # plenora-database-tools: advisory rifiutate salvo le eccezioni del registro,
-# crate ritirati (yanked) rifiutati, licenze permissive in allowlist, sorgenti
+# crate ritirati (yanked) rifiutati salvo zip 8.6.0 transitivo, licenze permissive in allowlist, sorgenti
 # solo da crates.io o dai fork governati in `vendor/` (dipendenze dirette per
 # percorso, con nome proprio).
 #
@@ -33,6 +33,10 @@ yanked = "deny"
 # coincidano: due elenchi divergono, e qui la ragione non c'e'.
 ignore = [
     { id = "RUSTSEC-2023-0089", reason = "atomic-polyfill: vedi assurance/registries/dependency-exceptions.json" },
+    # PackageSpec esatto: nessuna altra versione di zip e nessun advisory.
+    # cargo-deny 0.20.2 non limita i parent di un ignore yanked: il gate
+    # check_cargo_deny.py verifica entrambi i lockfile (anche fuzz/).
+    { crate = "zip@=8.6.0", reason = "Solo transitivo di calamine/rust_xlsxwriter; hazard e rientro in assurance/registries/dependency-exceptions.json" },
 ]
 
 # ============================================================================
