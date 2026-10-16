@@ -4468,6 +4468,87 @@ class LaFineDelRun(unittest.TestCase):
 # --- 29. ventisettesimo giro di revisione -----------------------------------
 
 
+class LeAllocazioniDellaChiusura(unittest.TestCase):
+    @prova("process.exit")
+    def test_il_ripristino_del_segnale_non_sostituisce_l_attesa(self):
+        from plenora_io import Runner, _process
+        from test_confini_sdk import PopenFinto
+
+        primaria = KeyboardInterrupt(SEGRETO)
+        finto = PopenFinto([primaria])
+        with mock.patch.object(subprocess, "Popen", finto), \
+                mock.patch.object(_process, "sigint_inoltrabile", return_value=True), \
+                mock.patch.object(_process.signal, "signal",
+                                  side_effect=[None, MemoryError(SEGRETO)]), \
+                self.assertRaises(KeyboardInterrupt) as preso:
+            Runner(Path("plenora-io")).run(LaGestioneDelProcesso.SCRIVE)
+        self.assertIs(preso.exception, primaria)
+        self.assertTrue(finto.stdout.chiuso)
+        self.assertTrue(finto.stderr.chiuso)
+        self.assertIsNotNone(finto.returncode)
+
+    @prova("process.exit")
+    def test_il_finally_protegge_la_primaria_e_traduce_i_guasti(self):
+        import threading
+
+        from plenora_io import Runner, _process
+        from test_confini_sdk import PopenFinto
+
+        class ConclusioneSenzaMemoria(threading.Event):
+            def set(self):
+                raise MemoryError(SEGRETO)
+
+        for primaria in (None, KeyboardInterrupt(SEGRETO)):
+            for punto in ("conclusione", "ultimo_tentativo"):
+                with self.subTest(interruzione=primaria is not None, punto=punto):
+                    finto = PopenFinto([primaria] if primaria is not None else [
+                        (LaGestioneDelProcesso.BUSTA, b"")])
+                    guasto = (
+                        mock.patch.object(_process, "_nuovo_evento", side_effect=[
+                            ConclusioneSenzaMemoria(), threading.Event()])
+                        if punto == "conclusione" else
+                        mock.patch.object(_process, "_ultimo_tentativo",
+                                          side_effect=MemoryError(SEGRETO)))
+                    with guasto, mock.patch.object(subprocess, "Popen", finto), \
+                            self.assertRaises(BaseException) as preso:
+                        Runner(Path("plenora-io")).run(LaGestioneDelProcesso.SCRIVE)
+                    self.assertTrue(finto.stdout.chiuso)
+                    self.assertTrue(finto.stderr.chiuso)
+                    if primaria is not None:
+                        self.assertIs(preso.exception, primaria)
+                    else:
+                        self.assertIs(type(preso.exception), ProtocolError)
+                        self.assertEqual(preso.exception.remote_effect, "unknown")
+                        self.assertNotIn(SEGRETO, str(preso.exception))
+
+    @prova("process.exit")
+    def test_esito_senza_memoria_non_salta_la_pulizia(self):
+        from plenora_io import Runner, _process
+        from test_confini_sdk import PopenFinto
+
+        for primaria in (None, KeyboardInterrupt(SEGRETO)):
+            with self.subTest(interruzione=primaria is not None):
+                uscite = [primaria] if primaria is not None else [
+                    (LaGestioneDelProcesso.BUSTA, b"")]
+                finto = PopenFinto(uscite)
+                with mock.patch.object(subprocess, "Popen", finto), \
+                        mock.patch.object(_process, "_EsitoDellaChiusura",
+                                          side_effect=MemoryError(SEGRETO)), \
+                        self.assertRaises(BaseException) as preso:
+                    Runner(Path("plenora-io")).run(LaGestioneDelProcesso.SCRIVE)
+                self.assertTrue(finto.stdout.chiuso)
+                self.assertTrue(finto.stderr.chiuso)
+                self.assertIsNotNone(finto.returncode)
+                if primaria is not None:
+                    self.assertIs(preso.exception, primaria)
+                    self.assertIn(_process.NOTA_DELLA_CHIUSURA,
+                                  primaria.__notes__)
+                else:
+                    self.assertIs(type(preso.exception), ProtocolError)
+                    self.assertEqual(preso.exception.remote_effect, "unknown")
+                    self.assertNotIn(SEGRETO, str(preso.exception))
+
+
 class GliOggettiDelRunPrimaDellAvvio(unittest.TestCase):
     """Ventisettesimo giro: tutti gli oggetti del run -- liste, `Event`,
     gettone, `weakref` -- si costruiscono prima di `_avvia`, e fra `_avvia`

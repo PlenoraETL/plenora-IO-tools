@@ -127,11 +127,19 @@ def _inoltra_sigint(processo: "subprocess.Popen[str]"):
         with contextlib.suppress(ProcessLookupError, OSError):
             processo.send_signal(signal.SIGINT)
 
+    primaria = False
     precedente = signal.signal(signal.SIGINT, inoltra)
     try:
         yield
+    except BaseException:  # noqa: BLE001 - il ripristino non sostituisce l'attesa
+        primaria = True
+        raise
     finally:
-        signal.signal(signal.SIGINT, precedente)
+        try:
+            signal.signal(signal.SIGINT, precedente)
+        except BaseException:  # noqa: BLE001
+            if not primaria:
+                raise
 
 
 def sigint_inoltrabile() -> bool:
@@ -435,7 +443,8 @@ class _EsitoDellaChiusura:
 
 def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
     """La chiusura del processo, su ogni uscita: dal solo thread chiamante,
-    senza mai sollevare, e sempre dentro attese limitate.
+    sempre dentro attese limitate. L'esito si costruisce solo dopo la
+    pulizia: un guasto della costruzione viene gestito da `_esito`.
 
     Se il processo e' ancora vivo: `kill`, `terminate`, `kill` -- uno per
     volta, ciascuno seguito da un'attesa limitata -- finche' non muore. Un
@@ -446,65 +455,86 @@ def _chiudi(processo: Any, lettori: list[_Lettore]) -> _EsitoDellaChiusura:
     altro si abbandona al lettore, e la chiusura e' incompleta. Un'eccezione
     che non e' `Exception` (un secondo Ctrl-C) si conserva in `interruzione`.
     """
-    esito = _EsitoDellaChiusura()
-
-    def passo(azione: Any) -> Any:
+    riuscita = True
+    vivo = False
+    interruzione = None
+    try:
+        vivo = processo.poll() is None
+    except BaseException as errore:  # noqa: BLE001
+        riuscita = False
+        vivo = True
+        if not isinstance(errore, Exception):
+            interruzione = errore
+    tentativo = 0
+    while vivo and tentativo < 3:
         try:
-            return azione()
-        except Exception:  # noqa: BLE001 - un guasto della chiusura si registra
-            esito.riuscita = False
-        except BaseException as interruzione:  # noqa: BLE001 - si conserva
-            esito.riuscita = False
-            if esito.interruzione is None:
-                esito.interruzione = interruzione
-        return None
-
-    def morto() -> bool:
+            if tentativo == 1:
+                processo.terminate()
+            else:
+                processo.kill()
+        except BaseException as errore:  # noqa: BLE001
+            riuscita = False
+            if interruzione is None and not isinstance(errore, Exception):
+                interruzione = errore
         try:
             processo.wait(timeout=_ATTESA_DELLA_CHIUSURA)
-            return True
+            vivo = False
         except subprocess.TimeoutExpired:
-            return False
-        except Exception:  # noqa: BLE001
-            esito.riuscita = False
-            return False
-        except BaseException as interruzione:  # noqa: BLE001
-            esito.riuscita = False
-            esito.interruzione = esito.interruzione or interruzione
-            return False
-
-    if passo(processo.poll) is None:
-        for azione in (processo.kill, processo.terminate, processo.kill):
-            passo(azione)
-            if morto():
-                break
-        if passo(processo.poll) is None:
-            esito.riuscita = False
-            esito.vivo = True
-    passo(lambda: _aspetta_i_lettori(lettori, _ATTESA_DEI_LETTORI))
-    flussi = [getattr(processo, "stdout", None), getattr(processo, "stderr", None)]
-    for posizione, flusso in enumerate(flussi):
-        if flusso is None:
-            continue
-        lettore = lettori[posizione] if posizione < len(lettori) else None
-        if lettore is not None and passo(lettore.reclama) is not True:
-            # Il flusso non e' reclamato: resta del lettore, che lo chiudera'
-            # a fine run. Il buffer si lascia subito (un'assegnazione sola).
-            lettore._dati = None
-            esito.riuscita = False
-            continue
-        chiuso: list[bool] = []
-
-        def chiudi_e_annota(flusso: Any = flusso, chiuso: list[bool] = chiuso) -> None:
+            pass
+        except BaseException as errore:  # noqa: BLE001
+            riuscita = False
+            if interruzione is None and not isinstance(errore, Exception):
+                interruzione = errore
+        tentativo += 1
+    try:
+        vivo = processo.poll() is None
+        if vivo:
+            riuscita = False
+    except BaseException as errore:  # noqa: BLE001
+        riuscita = False
+        vivo = True
+        if interruzione is None and not isinstance(errore, Exception):
+            interruzione = errore
+    try:
+        _aspetta_i_lettori(lettori, _ATTESA_DEI_LETTORI)
+    except BaseException as errore:  # noqa: BLE001
+        riuscita = False
+        if interruzione is None and not isinstance(errore, Exception):
+            interruzione = errore
+    # Niente liste, closure, lambda o metodi legati costruiti prima del try.
+    # Ogni pipe ha una protezione propria: il guasto della prima non salta
+    # la seconda. I contatori restano fra i piccoli interi di Python.
+    posizione = 0
+    while posizione < 2:
+        lettore = None
+        try:
+            flusso = getattr(processo, "stdout" if posizione == 0 else "stderr", None)
+            if flusso is None:
+                continue
+            lettore = lettori[posizione] if posizione < len(lettori) else None
+            if lettore is not None and lettore.reclama() is not True:
+                lettore._dati = None
+                riuscita = False
+                continue
             flusso.close()
-            chiuso.append(True)  # solo se `close()` e' tornata normalmente
-
-        passo(chiudi_e_annota)
-        if lettore is not None and chiuso:
-            # La conferma: senza, il lettore chiude da se' (una seconda
-            # chiusura non fa niente).
-            lettore.chiuso_dal_chiamante = True
-    return esito
+            if lettore is not None:
+                lettore.chiuso_dal_chiamante = True
+        except BaseException as errore:  # noqa: BLE001
+            riuscita = False
+            if lettore is not None:
+                lettore._dati = None
+            if interruzione is None and not isinstance(errore, Exception):
+                interruzione = errore
+        finally:
+            posizione += 1
+    try:
+        return _EsitoDellaChiusura(riuscita, vivo, interruzione)
+    except BaseException:
+        # Anche un'interruzione raccolta durante la pulizia resta primaria
+        # rispetto a un guasto dell'allocazione dell'esito.
+        if interruzione is not None:
+            raise interruzione
+        raise
 
 
 def _ultimo_tentativo(processo: Any) -> None:
@@ -614,6 +644,7 @@ class Runner:
         guasto = _nuovo_evento()
         gettone = _GettoneDelRun()
         riferimento = weakref.ref(gettone)
+        primaria = None
         processo = self._avvia(argv)
         # Il confine: `Popen` ha reso il processo. Da qui **tutto** passa da
         # un solo gestore, e la chiusura del processo gira su ogni uscita.
@@ -625,21 +656,38 @@ class Runner:
         # di `communicate` stampavano le proprie eccezioni su stderr, mentre
         # `run` rendeva comunque un successo. Qui i lettori sono dell'SDK
         # (`_Lettore`), l'attesa ha un tempo esplicito, e la chiusura
-        # (`_chiudi`) non solleva mai: i suoi guasti non sostituiscono
-        # l'eccezione primaria, e dopo un successo diventano un errore.
+        # (`_chiudi`) protegge ogni passo; `_esito` protegge anche la sua
+        # chiamata: i guasti non sostituiscono l'eccezione primaria.
         # Da qui al `try`, niente. La fine del run per i lettori si
         # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
         try:
             return self._esito(processo, argv, lettori, conclusione, guasto, riferimento)
+        except BaseException as errore:  # noqa: BLE001 - anche nel finally resta primaria
+            primaria = errore
+            raise
         finally:
             try:
                 # L'ultimo tentativo, dal thread chiamante, comunque si sia
                 # usciti da `_chiudi`: un'interruzione al suo ingresso saltava
                 # la terminazione del figlio.
                 _ultimo_tentativo(processo)
+            except BaseException as errore:  # noqa: BLE001
+                if primaria is None:
+                    primaria = errore
+                    if isinstance(errore, Exception):
+                        raise _dopo_l_avvio(errore, argv) from None
+                    raise
+                _annota(primaria, NOTA_DELLA_CHIUSURA)
             finally:
                 gettone = None  # noqa: F841 - il frame non trattiene piu' il gettone
-                conclusione.set()
+                try:
+                    conclusione.set()
+                except BaseException as errore:  # noqa: BLE001
+                    if primaria is None:
+                        if isinstance(errore, Exception):
+                            raise _dopo_l_avvio(errore, argv) from None
+                        raise
+                    _annota(primaria, NOTA_DELLA_CHIUSURA)
 
     def _esito(
         self, processo: Any, argv: list[str], lettori: list["_Lettore"],
@@ -673,10 +721,15 @@ class Runner:
                 risultato = _failure_from_envelope(documento, completed.exit_code, argv)
         except BaseException as errore:  # noqa: BLE001 - il gestore unico, apposta
             primaria = errore
-        esito = _chiudi(processo, lettori)
+        esito = None
+        try:
+            esito = _chiudi(processo, lettori)
+        except BaseException as errore:  # noqa: BLE001 - conserva la primaria
+            if primaria is None:
+                primaria = errore
         if primaria is not None:
             if isinstance(primaria, Exception):
-                if esito.vivo:
+                if esito is not None and esito.vivo:
                     # Un processo rimasto vivo prevale sul guasto che ha
                     # portato a chiuderlo: chi chiama deve saperlo per primo.
                     raise _dopo_l_avvio(_dallo_sdk(
@@ -687,7 +740,7 @@ class Runner:
             # Un'interruzione resta tale, dopo la chiusura del figlio.
             if scrive(argv):
                 _annota(primaria, NOTA_DELL_INTERRUZIONE)
-            if not esito.riuscita:
+            if esito is None or not esito.riuscita:
                 _annota(primaria, NOTA_DELLA_CHIUSURA)
             raise primaria
         if esito.interruzione is not None:
