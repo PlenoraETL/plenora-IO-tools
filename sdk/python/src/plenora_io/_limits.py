@@ -37,6 +37,19 @@ from dataclasses import dataclass, fields
 from datetime import timedelta
 
 
+def _millisecondi(durata: timedelta) -> int:
+    """I millisecondi di una `timedelta` esatta, in interi.
+
+    Non da `total_seconds()`: un `float` perde i millisecondi oltre 2**53
+    microsecondi, e una durata lunga arrivava alla CLI con un altro valore. Le
+    frazioni di millisecondo si troncano, come prima.
+    """
+    giorni = timedelta.days.__get__(durata)
+    secondi = timedelta.seconds.__get__(durata)
+    micro = timedelta.microseconds.__get__(durata)
+    return (giorni * 86_400 + secondi) * 1_000 + micro // 1_000
+
+
 @dataclass(frozen=True, kw_only=True)
 class Limits:
     """I tetti di un'esecuzione, nella forma che la CLI accetta.
@@ -63,7 +76,30 @@ class Limits:
     #: `deadline` e' un `timedelta` perche' e' un tempo, e un intero nudo
     #: lascerebbe indovinare l'unita' -- che nella CLI e' il millisecondo, e
     #: nelle librerie Python quasi sempre il secondo.
-    DURATA = "deadline"
+    _DURATA = "deadline"
+
+    def __post_init__(self) -> None:
+        # La normalizzazione sta nel costruttore, e non solo in `Client`:
+        # `to_argv()` e' pubblico, e `Limits(max_rows=1 << 64).to_argv()`
+        # rendeva un intero fuori dall'intervallo della CLI, mentre una
+        # sottoclasse di `timedelta` faceva eseguire le proprie proprieta'.
+        # Ogni campo diventa qui il tipo base esatto, entro 64 bit, e da li'
+        # nessun metodo legge un oggetto del chiamante.
+        from ._argomenti import OLTRE_U64, _int_esatto, durata  # noqa: PLC0415
+        from ._errors import InvalidArgumentError, _dallo_sdk  # noqa: PLC0415
+
+        for campo in fields(Limits):
+            valore = object.__getattribute__(self, campo.name)
+            if valore is None:
+                continue
+            nome = f"limits.{campo.name}"
+            if campo.name == Limits._DURATA:
+                esatta = durata(valore, nome)
+                if not 0 <= _millisecondi(esatta) < OLTRE_U64:
+                    raise _dallo_sdk(InvalidArgumentError, "arg.fuori_64", nome=nome)
+                object.__setattr__(self, campo.name, esatta)
+            else:
+                object.__setattr__(self, campo.name, _int_esatto(valore, nome))
 
     def to_argv(self) -> list[str]:
         """Gli argomenti, in ordine stabile.
@@ -73,17 +109,18 @@ class Limits:
         che e' cio' che rende confrontabili due esecuzioni.
         """
         argomenti: list[str] = []
-        for campo in fields(self):
-            valore = getattr(self, campo.name)
+        # Dal `__dict__` e dai campi di `Limits`, non da `getattr`: una
+        # sottoclasse puo' ridefinire un campo come proprieta'. I valori sono
+        # quelli normalizzati dal costruttore.
+        valori = object.__getattribute__(self, "__dict__")
+        for campo in fields(Limits):
+            valore = valori.get(campo.name)
             if valore is None:
                 continue
-            if campo.name == self.DURATA:
-                argomenti += [
-                    "--deadline-ms",
-                    str(int(valore.total_seconds() * 1000)),
-                ]
+            if campo.name == Limits._DURATA:
+                argomenti += ["--deadline-ms", int.__repr__(_millisecondi(valore))]
             else:
-                argomenti += [f"--{campo.name.replace('_', '-')}", str(valore)]
+                argomenti += [f"--{campo.name.replace('_', '-')}", int.__repr__(valore)]
         return argomenti
 
     @classmethod
@@ -97,7 +134,7 @@ class Limits:
         """
         fuori = []
         for campo in fields(cls):
-            if campo.name == cls.DURATA:
+            if campo.name == cls._DURATA:
                 fuori.append("--deadline-ms")
             else:
                 fuori.append(f"--{campo.name.replace('_', '-')}")

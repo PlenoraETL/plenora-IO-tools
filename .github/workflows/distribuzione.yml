@@ -470,17 +470,15 @@ jobs:
             exit 1
           fi
           echo "revisione verificata: $head"
-      # L'interprete si dichiara. L'immagine `ubuntu-22.04` porta Python 3.10, e
-      # il pacchetto ne pretende almeno 3.11: l'installazione falliva con
-      # «requires a different Python», che e' il `Requires-Python` che fa
-      # esattamente il proprio mestiere.
+      # L'interprete si dichiara, invece di prendere quello dell'immagine: una
+      # immagine cambia Python senza che questo file cambi.
       #
-      # 3.11 e non l'ultima: e' il **limite inferiore** dichiarato, ed e' quello
-      # che vale la pena esercitare qui. Le altre due versioni della matrice le
+      # 3.10 e non l'ultima: e' il **limite inferiore** dichiarato, ed e' quello
+      # che vale la pena esercitare qui. Le altre versioni della matrice le
       # prova il job `python-sdk` della CI a ogni push.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.11"
+          python-version: "3.10"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
         with:
           pattern: deliverable-linux-*
