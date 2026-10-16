@@ -474,3 +474,133 @@ fn varint_zigzag(valore: i64) -> Vec<u8> {
         n >>= 7;
     }
 }
+
+/// Attributi validi in PLAIN: la restrizione riguarda la rappresentazione Arrow.
+fn geoparquet_con_attributo(attributo: ArrayRef, senza_schema_arrow: bool) -> Vec<u8> {
+    use arrow_array::BinaryArray;
+    use parquet::arrow::arrow_writer::ArrowWriterOptions;
+    use parquet::file::metadata::KeyValue;
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("attributo_riservato", attributo.data_type().clone(), false),
+        Field::new("geometry", DataType::Binary, false),
+    ]));
+    let mut punto = vec![1_u8, 1, 0, 0, 0];
+    punto.extend_from_slice(&12345.5_f64.to_le_bytes());
+    punto.extend_from_slice(&67890.5_f64.to_le_bytes());
+    let geometria = BinaryArray::from_iter_values(std::iter::repeat_n(&punto, attributo.len()));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![attributo, Arc::new(geometria)])
+        .expect("batch con geometria valida");
+    let geo = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"]}}}"#;
+    let proprieta = WriterProperties::builder()
+        .set_dictionary_enabled(false)
+        .set_encoding(Encoding::PLAIN)
+        .set_key_value_metadata(Some(vec![KeyValue::new("geo".to_owned(), geo.to_owned())]))
+        .build();
+    let opzioni = ArrowWriterOptions::new()
+        .with_properties(proprieta)
+        .with_skip_arrow_metadata(senza_schema_arrow);
+    let mut byte = Vec::new();
+    let mut writer = ArrowWriter::try_new_with_options(&mut byte, schema, opzioni).expect("writer");
+    writer.write(&batch).expect("attributi scrivibili");
+    writer.close().expect("chiusura");
+    byte
+}
+
+fn verifica_attributo_al_confine(byte: &[u8], rifiuto: Option<(&str, &'static str)>) {
+    use plenora_io_core::FormatDriver as _;
+
+    if let Some((diagnostica, _)) = rifiuto {
+        match legge(byte) {
+            Esito::Errore(messaggio) => assert!(messaggio.contains(diagnostica), "{messaggio}"),
+            altro => panic!("atteso rifiuto del tipo: {altro:?}"),
+        }
+    }
+    let file = tempfile::NamedTempFile::new().expect("file temporaneo");
+    std::fs::write(file.path(), byte).expect("fixture");
+    let mut righe = 0;
+    let esito = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let aperto = driver_geoparquet::GeoParquetDriver.open(
+            plenora_io_core::Source::Path(file.path().to_path_buf()),
+            opzioni_lettura(),
+        )?;
+        let mut reader = aperto.open_layer_reader(&richiesta())?;
+        while let Some(batch) = reader.next_batch()? {
+            righe += batch.num_rows();
+        }
+        Ok::<(), plenora_io_model::PlenoraIoError>(())
+    }))
+    .expect("nessun panico");
+    if let Some((_, pubblico)) = rifiuto {
+        let errore = esito.expect_err("nessun successo vuoto o troncato");
+        assert_eq!(righe, 0, "nessun batch prima del rifiuto");
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.retry, plenora_io_model::RetryDisposition::Never);
+        assert_eq!(errore.remote_effect, plenora_io_model::RemoteEffect::None);
+        assert_eq!(
+            errore,
+            plenora_io_model::PlenoraIoError::formato_redatto(
+                "geoparquet",
+                &plenora_io_model::PublicMessage::Curated(pubblico),
+            )
+        );
+    } else {
+        esito.expect("controprova leggibile");
+        assert_eq!(righe, 2);
+    }
+}
+
+#[test]
+fn dictionary_flba_plain_e_rifiutato_al_confine() {
+    use arrow_array::{types::Int8Type, DictionaryArray, FixedSizeBinaryArray, Int8Array};
+    let valori: ArrayRef = Arc::new(
+        FixedSizeBinaryArray::try_from_iter([b"segreto1", b"segreto2"].into_iter()).expect("FLBA"),
+    );
+    let dizionario: ArrayRef = Arc::new(
+        DictionaryArray::<Int8Type>::try_new(Int8Array::from(vec![0, 1]), Arc::clone(&valori))
+            .expect("dizionario"),
+    );
+    verifica_attributo_al_confine(&geoparquet_con_attributo(valori, false), None);
+    verifica_attributo_al_confine(
+        &geoparquet_con_attributo(dizionario, false),
+        Some((
+            parquet::basic::FLBA_AS_DICTIONARY,
+            "lettura Parquet fallita",
+        )),
+    );
+}
+
+#[test]
+fn interval_plain_senza_schema_arrow_rifiuta_mesi_e_overflow() {
+    use arrow_array::types::IntervalDayTimeType;
+    use arrow_array::{IntervalDayTimeArray, IntervalYearMonthArray};
+    let zero: ArrayRef = Arc::new(IntervalYearMonthArray::from(vec![0, 0]));
+    verifica_attributo_al_confine(&geoparquet_con_attributo(zero, true), None);
+    let mesi: ArrayRef = Arc::new(IntervalYearMonthArray::from(vec![0, 12345]));
+    verifica_attributo_al_confine(&geoparquet_con_attributo(Arc::clone(&mesi), false), None);
+    verifica_attributo_al_confine(
+        &geoparquet_con_attributo(mesi, true),
+        Some((
+            parquet::basic::INTERVAL_NOT_AS_DECLARED,
+            "batch Parquet non leggibile",
+        )),
+    );
+    // Il writer conserva i bit: i32::MIN e' il valore Parquet unsigned 2^31.
+    for (giorni, millisecondi) in [(i32::MIN, 0), (0, i32::MIN)] {
+        let valori: ArrayRef = Arc::new(IntervalDayTimeArray::from(vec![
+            IntervalDayTimeType::make_value(0, 0),
+            IntervalDayTimeType::make_value(giorni, millisecondi),
+        ]));
+        verifica_attributo_al_confine(
+            &geoparquet_con_attributo(valori, true),
+            Some((
+                parquet::basic::INTERVAL_OUT_OF_RANGE,
+                "batch Parquet non leggibile",
+            )),
+        );
+    }
+}

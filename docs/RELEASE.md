@@ -1312,6 +1312,24 @@ rifiutati**. Non e' soltanto una correzione dei file malformati.
 
 Sono escluse le codifiche `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`,
 `DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` (valori e livelli).
+Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY`
+(distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non
+rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime`
+(default senza schema Arrow incorporato), giorni o millisecondi non nulli con
+`YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre
+dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi
+Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso
+su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp
+locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla
+rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di
+rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY
+limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante;
+statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza
+esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine
+stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e
+fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di
+ogni rappresentazione permessa dal formato Parquet.
+
 Il fork rifiuta inoltre `INDEX_PAGE`, lettura di page index
 (`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati
 (selezioni/filtri di righe, offset, salto di record o pagine).
@@ -1320,13 +1338,15 @@ row group con `with_row_groups`, che resta consentito. La presenza nel file
 di indici o bloom filter non richiesti non implica da sola un rifiuto.
 
 Al confine del driver l'errore e' tipizzato: categoria `DataMapping`, fase
-`Read`, retry `Never`, effetto remoto `None`; per le codifiche escluse nei
+`Read`, retry `Never`, effetto remoto `None`; per Dictionary FLBA il messaggio
+statico e' `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei
 batch il messaggio statico e' «batch Parquet non leggibile», senza dati del
 file. Non e' un panico ne' un risultato vuoto. Il fork segnala esplicitamente
 la codifica non qualificata (`Parquet encoding not qualified for reading`);
 IO non propaga il testo della dipendenza. Le prove con file validi DELTA e
 BYTE_STREAM_SPLIT e controprova PLAIN sono in
-`crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`.
+`crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`, insieme alle
+controprove Dictionary FLBA e INTERVAL con geometria valida e attributi PLAIN.
 
 Motivo: questi decoder e percorsi non sono qualificati nel fork condiviso
 con data-tools2. **Rientro:** qualificazione dei singoli percorsi nel fork
