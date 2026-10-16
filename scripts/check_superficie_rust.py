@@ -237,6 +237,17 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
         return ["l'archivio non contiene `rust-toolchain.toml`: la versione minima non e' distribuita"]
     shutil.copy(pin, fuori / "rust-toolchain.toml")
 
+    # Tutte le zip 8.x sono yanked: calamine e rust_xlsxwriter le richiedono
+    # ancora, e cargo puo' riusarle solo da un lockfile esistente. La prova
+    # garantisce quindi il consumo con il Cargo.lock distribuito, non una
+    # risoluzione da zero. Cargo potra' aggiungere il pacchetto consumatore.
+    # Quando entrambi pubblicheranno versioni su zip 9, aggiornarli e togliere
+    # questa copia: il consumatore deve tornare a risolvere senza lockfile.
+    lock = radice / "Cargo.lock"
+    if not lock.is_file():
+        return ["l'archivio non contiene `Cargo.lock`: necessario finche' vale l'eccezione zip 8.6.0"]
+    shutil.copyfile(lock, fuori / "Cargo.lock")
+
     # Senza `--offline`, e la ragione e' che la proprieta' sotto esame non e' la
     # ermeticita': e' che un consumatore esterno possa costruire questa
     # superficie. Un consumatore esterno scarica le proprie dipendenze, e i tre

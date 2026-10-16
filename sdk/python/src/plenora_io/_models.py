@@ -39,7 +39,10 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
-from .errors import ProtocolError, _tipo, copia_json
+from ._argomenti import testo
+from ._errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
+from ._errors import _dallo_sdk
+from ._contenitori import FrozenList
 
 
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
@@ -91,8 +94,9 @@ _NOMI_DEI_TIPI = {
 }
 
 
-def _nomi(tipi: frozenset[str]) -> str:
-    return " o ".join(_NOMI_DEI_TIPI[tipo] for tipo in sorted(tipi))
+def _alternative(tipi: frozenset[str]) -> tuple[str, ...]:
+    """I nomi dei tipi, come alternative di un parametro di messaggio («a o b»)."""
+    return tuple(_NOMI_DEI_TIPI[tipo] for tipo in sorted(tipi))
 
 
 def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
@@ -103,6 +107,29 @@ def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
             (elemento,) = typing.get_args(membro)
             return tipi_json(elemento)
     return None
+
+
+def _schema(classe: Any) -> Any:
+    """La prima classe del modello dell'SDK nell'MRO di `classe`, per identita'.
+
+    Lo schema -- `_OBBLIGATORI`, `_PROPRI`, `_OPZIONALI`, `_RINOMINATI`,
+    `_ANNULLABILI` e le annotazioni -- si legge da qui, mai da `cls`: una
+    sottoclasse del chiamante puo' ridefinire `_OBBLIGATORI = ("dato",)`, e
+    prima i nomi mancanti entravano cosi' in un `ProtocolError` fidato
+    (dodicesimo giro). Gli attributi di una sottoclasse non entrano mai in un
+    messaggio.
+    """
+    from ._confine import MODELLI  # noqa: PLC0415 - confine importa i modelli
+
+    try:
+        ordine = type.__dict__["__mro__"].__get__(classe, type)
+    except TypeError:
+        ordine = ()
+    for base in ordine:
+        for modello in MODELLI:
+            if base is modello:
+                return modello
+    raise _dallo_sdk(InvalidArgumentError, "modello.non_sdk")
 
 
 def _pretendi(
@@ -117,7 +144,7 @@ def _pretendi(
     dove il protocollo promette un intero passavano, e diventavano un attributo
     tipizzato `int` che non lo era -- un dato sbagliato piu' avanti, dove
     nessuno riconosce piu' l'incompatibilita'. Ora il tipo si confronta con
-    l'annotazione della dataclass, e i campi `OPZIONALI`, quando ci sono, non
+    l'annotazione della dataclass, e i campi `_OPZIONALI`, quando ci sono, non
     ammettono `null`: la loro assenza si scrive omettendoli.
 
     Rende una **copia** profonda del documento, fatta solo di tipi JSON esatti:
@@ -127,40 +154,46 @@ def _pretendi(
     `errors.py` per la ragione.
     """
     if _tipo(documento) != "object":
-        raise ProtocolError(f"{dove}: e' {_tipo(documento)} e non un oggetto.")
-    documento = copia_json(documento, dove)
+        raise _dallo_sdk(ProtocolError, "protocollo.non_oggetto", dove=dove, tipo=_tipo(documento))
+    documento = _copia_json(documento, dove)
     mancanti = [campo for campo in campi if campo not in documento]
     if mancanti:
-        raise ProtocolError(
-            f"{dove}: mancano i campi {mancanti}, che il protocollo v2 dichiara "
-            "sempre presenti. Il binario e' piu' vecchio dell'SDK, o il "
-            "documento non e' quello che dice di essere."
-        )
+        raise _dallo_sdk(ProtocolError, "protocollo.mancanti", dove=dove, mancanti=mancanti)
     if modello is None:
         return documento
+    # Lo schema della classe dell'SDK, non quello di `cls` (vedi `_schema`).
+    modello = _schema(modello)
     suggerimenti = typing.get_type_hints(modello)
-    rinominati = getattr(modello, "RINOMINATI", {})
-    opzionali = getattr(modello, "OPZIONALI", ())
+    rinominati = getattr(modello, "_RINOMINATI", {})
+    opzionali = getattr(modello, "_OPZIONALI", ())
+    annullabili = getattr(modello, "_ANNULLABILI", ())
     for campo in tuple(campi) + tuple(c for c in opzionali if c in documento):
         annotazione = suggerimenti[rinominati.get(campo, campo)]
         ammessi = tipi_json(annotazione)
         if ammessi is None:
             continue
-        if campo in opzionali:
+        if campo in opzionali and campo not in annullabili:
             ammessi = ammessi - {"null"}
         valore = documento[campo]
         if _tipo(valore) not in ammessi:
-            raise ProtocolError(
-                f"{dove}.{campo} e' {_tipo(valore)} e non {_nomi(ammessi)}, "
-                "come il protocollo v2 lo dichiara."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.tipo_campo",
+                dove=dove,
+                campo=campo,
+                tipo=_tipo(valore),
+                ammessi=_alternative(ammessi),
             )
         elementi = _tipi_degli_elementi(annotazione)
         if _tipo(valore) == "array" and elementi is not None:
             for posizione, voce in enumerate(valore):
                 if _tipo(voce) not in elementi:
-                    raise ProtocolError(
-                        f"{dove}.{campo}[{posizione}] e' {_tipo(voce)} e non "
-                        f"{_nomi(elementi)}, come il protocollo v2 lo dichiara."
+                    raise _dallo_sdk(
+                        ProtocolError, "protocollo.tipo_elemento",
+                        dove=dove,
+                        campo=campo,
+                        posizione=posizione,
+                        tipo=_tipo(voce),
+                        ammessi=_alternative(elementi),
                     )
     return documento
 
@@ -200,10 +233,7 @@ class Version:
         in_piu = len(set(documento) - set(attesi))
         if in_piu:
             # Quante, non quali: i nomi vengono dal documento.
-            raise ProtocolError(
-                f"risultato di --version con {in_piu} campi in piu'. Il suo "
-                "schema e' chiuso: due campi, ne' uno di meno ne' uno di piu'."
-            )
+            raise _dallo_sdk(ProtocolError, "versione.campi_in_piu", campi=in_piu)
         return cls(
             component_version=documento["component_version"],
             cli_protocol_version=documento["cli_protocol_version"],
@@ -265,7 +295,7 @@ class FormatDescriptor:
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     #: I campi che il protocollo dichiara `sempre: true` sotto `.format`.
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "id",
         "direction",
         "runtime",
@@ -296,9 +326,9 @@ class FormatDescriptor:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FormatDescriptor":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "format", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "format", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -332,11 +362,11 @@ class Driver(FormatDescriptor):
 
     #: I due campi che il catalogo aggiunge. Il gate li somma a quelli del
     #: descrittore e confronta il totale con `.drivers[]`.
-    PROPRI = ("available", "required_feature")
+    _PROPRI = ("available", "required_feature")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Driver":
-        campi = FormatDescriptor.OBBLIGATORI + cls.PROPRI
+        campi = FormatDescriptor._OBBLIGATORI + _schema(cls)._PROPRI
         documento = _pretendi(documento, campi, "catalog.drivers[]", cls)
         return cls(
             **{campo: documento[campo] for campo in campi},
@@ -357,15 +387,17 @@ class Catalog:
     drivers: list[Driver]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("determinism", "drivers")
+    _OBBLIGATORI = ("determinism", "drivers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Catalog":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "catalog", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "catalog", cls)
         elenco = documento["drivers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
-                f"catalog.drivers e' {type(elenco).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='catalog.drivers',
+                tipo=_tipo(elenco),
             )
         return cls(
             determinism=documento["determinism"],
@@ -374,22 +406,22 @@ class Catalog:
         )
 
     def driver(self, identificatore: str) -> Driver:
-        """Il driver con quell'id, o `KeyError`.
+        """Il driver con quell'id, o `ResultLookupError` (anche un `KeyError`).
 
         Non restituisce `None`: un id che non c'e' e' quasi sempre un refuso, e
         un `None` restituito lo trasforma in un `AttributeError` tre righe piu'
         in la', dove il nome sbagliato non si vede piu'.
         """
+        identificatore = testo(identificatore, "identificatore")
         for driver in self.drivers:
             if driver.id == identificatore:
                 return driver
-        noti = ", ".join(sorted(d.id for d in self.drivers))
-        raise KeyError(f"nessun driver «{identificatore}»; il catalogo ha: {noti}")
+        raise _dallo_sdk(ResultLookupError, "ricerca.driver")
 
     @property
     def available(self) -> list[Driver]:
         """I driver che **questo** binario puo' usare davvero."""
-        return [driver for driver in self.drivers if driver.available]
+        return FrozenList([driver for driver in self.drivers if driver.available])
 
 
 # --- la sezione di fedelta', che tre buste su cinque portano ----------------
@@ -411,7 +443,7 @@ class Omissions:
     esempi_omessi: int
     omesse_per_byte: int
 
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "categorie_omesse",
         "ragioni_omesse",
         "esempi_omessi",
@@ -420,13 +452,13 @@ class Omissions:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Omissions":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.omesse", cls)
-        return cls(**{campo: documento[campo] for campo in cls.OBBLIGATORI})
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity.omesse", cls)
+        return cls(**{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI})
 
     @property
     def any(self) -> bool:
         """Qualcosa e' stato lasciato fuori, di qualunque delle quattro cause."""
-        return any(getattr(self, campo) for campo in self.OBBLIGATORI)
+        return any(getattr(self, campo) for campo in _schema(type(self))._OBBLIGATORI)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -444,12 +476,12 @@ class FidelityReason:
     layer_index: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("code", "detail")
-    OPZIONALI = ("field_index", "layer_index")
+    _OBBLIGATORI = ("code", "detail")
+    _OPZIONALI = ("field_index", "layer_index")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity.reasons[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity.reasons[]", cls)
         return cls(
             code=documento["code"],
             detail=documento["detail"],
@@ -480,15 +512,17 @@ class Fidelity:
     omesse_esatte: bool
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("level", "reasons", "troncato", "omesse", "omesse_esatte")
+    _OBBLIGATORI = ("level", "reasons", "troncato", "omesse", "omesse_esatte")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Fidelity":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "fidelity", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity", cls)
         ragioni = documento["reasons"]
         if _tipo(ragioni) != "array":
-            raise ProtocolError(
-                f"fidelity.reasons e' {type(ragioni).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='fidelity.reasons',
+                tipo=_tipo(ragioni),
             )
         return cls(
             level=documento["level"],
@@ -522,13 +556,13 @@ class Field:
     geometry: bool
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("name", "type", "nullable", "geometry")
+    _OBBLIGATORI = ("name", "type", "nullable", "geometry")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Field":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.fields[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layer.fields[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -541,42 +575,59 @@ class CrsResolution:
     assunto dal chiamante hanno lo stesso aspetto in `id`, e solo questo campo
     li distingue. Un consumatore che li confondesse attribuirebbe al file una
     coordinata che gli e' stata suggerita da fuori.
+
+    Solo `status` e' sempre presente: lo schema `plenora-io-inspect-v1` non
+    pretende altro, e per una geometria senza CRS (`missing`) il binario rende
+    `{"status": "missing"}` e basta. Gli altri campi sono `None` quando mancano
+    o valgono `null`; quando ci sono, devono essere testo.
     """
 
-    id: str
-    kind: str
     status: str
-    axis_order: str
-    definition: str | None
-    definition_format: str | None
+    id: str | None = None
+    kind: str | None = None
+    axis_order: str | None = None
+    definition: str | None = None
+    definition_format: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("id", "kind", "status", "axis_order", "definition", "definition_format")
+    _OBBLIGATORI = ("status",)
+    _OPZIONALI = ("id", "kind", "axis_order", "definition", "definition_format")
+    #: Fra gli opzionali, quelli che quando ci sono possono valere `null`: il
+    #: protocollo li dichiara cosi' (una definizione puo' mancare a un CRS
+    #: risolto per identificatore).
+    _ANNULLABILI = ("definition", "definition_format")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution", cls)
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "layer.geometry.crs_resolution", cls
+        )
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            status=documento["status"],
+            **{campo: documento.get(campo) for campo in _schema(cls)._OPZIONALI},
             raw=dict(documento),
         )
 
 
 @dataclass(frozen=True, kw_only=True)
 class Geometry:
-    """La colonna geometrica di un layer, col suo sistema di riferimento."""
+    """La colonna geometrica di un layer, col suo sistema di riferimento.
+
+    `crs` e' `None` per una geometria senza CRS: `crs_resolution.status` dice
+    allora `missing`, ed e' quello il campo da guardare.
+    """
 
     name: str
     kind: str
-    crs: str
+    crs: str | None
     crs_resolution: CrsResolution
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("name", "kind", "crs", "crs_resolution")
+    _OBBLIGATORI = ("name", "kind", "crs", "crs_resolution")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Geometry":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layer.geometry", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layer.geometry", cls)
         return cls(
             name=documento["name"],
             kind=documento["kind"],
@@ -593,39 +644,46 @@ class Layer:
     id: int
     name: str
     fields: list[Field]
-    geometry: Geometry
+    #: `None` per un layer senza geometria, che il binario legge e scrive.
+    geometry: Geometry | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("id", "name", "fields", "geometry")
+    _OBBLIGATORI = ("id", "name", "fields", "geometry")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "inspect.layers[]", cls)
         colonne = documento["fields"]
         if _tipo(colonne) != "array":
-            raise ProtocolError(
-                f"layers[].fields e' {type(colonne).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers[].fields',
+                tipo=_tipo(colonne),
             )
         return cls(
             id=documento["id"],
             name=documento["name"],
             fields=[Field.from_json(voce) for voce in colonne],
-            geometry=Geometry.from_json(documento["geometry"]),
+            geometry=(
+                None
+                if documento["geometry"] is None
+                else Geometry.from_json(documento["geometry"])
+            ),
             raw=dict(documento),
         )
 
     def field(self, name: str) -> Field:
-        """La colonna con quel nome, o `KeyError` che elenca quelle che ci sono."""
+        """La colonna con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
         for colonna in self.fields:
             if colonna.name == name:
                 return colonna
-        noti = ", ".join(colonna.name for colonna in self.fields)
-        raise KeyError(f"nessun campo «{name}» nel layer «{self.name}»; ci sono: {noti}")
+        raise _dallo_sdk(ResultLookupError, "ricerca.campo")
 
     @property
     def attributes(self) -> list[Field]:
         """Le colonne che non sono la geometria."""
-        return [colonna for colonna in self.fields if not colonna.geometry]
+        return FrozenList([colonna for colonna in self.fields if not colonna.geometry])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -641,16 +699,17 @@ class LayerSummary:
     id: int
     name: str
     field_count: int
-    geometry_crs: str
+    #: `None` per un layer senza geometria o senza CRS.
+    geometry_crs: str | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
+    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layers.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers.layers[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -667,15 +726,17 @@ class Inspect:
     layers: list[Layer]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("format", "fidelity", "layers")
+    _OBBLIGATORI = ("format", "fidelity", "layers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Inspect":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "inspect", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "inspect", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
-                f"inspect.layers e' {type(elenco).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='inspect.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=FormatDescriptor.from_json(documento["format"]),
@@ -685,12 +746,12 @@ class Inspect:
         )
 
     def layer(self, name: str) -> Layer:
-        """Il layer con quel nome, o `KeyError` che elenca quelli che ci sono."""
+        """Il layer con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -708,15 +769,17 @@ class Layers:
     layers: list[LayerSummary]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("format", "fidelity", "layers")
+    _OBBLIGATORI = ("format", "fidelity", "layers")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layers":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "layers", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
-                f"layers.layers e' {type(elenco).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=documento["format"],
@@ -726,11 +789,11 @@ class Layers:
         )
 
     def layer(self, name: str) -> LayerSummary:
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -742,7 +805,7 @@ class Delivered:
     si deduce dall'assenza di un campo.
     """
 
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "content_type",
         "interchange_contract",
         "bytes_written",
@@ -757,7 +820,7 @@ class Delivered:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Delivered":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "read.delivered", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "read.delivered", cls)
         return cls(
             content_type=documento["content_type"],
             interchange_contract=documento["interchange_contract"],
@@ -800,7 +863,7 @@ class Validation:
     delivered: "Delivered | None"
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "format",
         "layer",
         "rows_read",
@@ -813,7 +876,7 @@ class Validation:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Validation":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "read", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "read", cls)
         consegna = documento["delivered"]
         return cls(
             format=documento["format"],
@@ -857,13 +920,13 @@ class LossCount:
     conteggio: int
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("categoria", "conteggio")
+    _OBBLIGATORI = ("categoria", "conteggio")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossCount":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.counts[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.counts[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -883,13 +946,13 @@ class LossExample:
     layer_index: int
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("category", "context", "field_index", "layer_index")
+    _OBBLIGATORI = ("category", "context", "field_index", "layer_index")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossExample":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss.esempi[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.esempi[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -915,16 +978,17 @@ class LossReport:
     omesse_esatte: bool
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("lossless", "counts", "esempi", "troncato", "omesse", "omesse_esatte")
+    _OBBLIGATORI = ("lossless", "counts", "esempi", "troncato", "omesse", "omesse_esatte")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossReport":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "loss", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss", cls)
         for campo in ("counts", "esempi"):
             if _tipo(documento[campo]) != "array":
-                raise ProtocolError(
-                    f"loss.{campo} e' {_tipo(documento[campo])} e non "
-                    "un elenco."
+                raise _dallo_sdk(
+                    ProtocolError, "protocollo.non_elenco",
+                    dove=f'loss.{campo}',
+                    tipo=_tipo(documento[campo]),
                 )
         return cls(
             lossless=documento["lossless"],
@@ -943,6 +1007,9 @@ class LossReport:
         perdita non si e' verificata, ed e' una risposta -- diversamente da un
         nome di layer o di campo, dove l'assenza e' quasi sempre un refuso.
         """
+        # L'argomento si normalizza prima del confronto: una sottoclasse di
+        # `str` con `__eq__` ridefinito rispondeva «uguale» alla prima voce.
+        categoria = testo(categoria, "categoria")
         for voce in self.counts:
             if voce.categoria == categoria:
                 return voce.conteggio
@@ -950,7 +1017,7 @@ class LossReport:
 
     @property
     def categories(self) -> list[str]:
-        return [voce.categoria for voce in self.counts]
+        return FrozenList([voce.categoria for voce in self.counts])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -962,13 +1029,13 @@ class ConvertedLayer:
     batches: int
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("name", "rows", "batches")
+    _OBBLIGATORI = ("name", "rows", "batches")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertedLayer":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "convert.layers[]", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "convert.layers[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1010,7 +1077,7 @@ class ConvertResult:
     write_loss: LossReport
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "from",
         "to",
         "layers",
@@ -1026,15 +1093,17 @@ class ConvertResult:
 
     #: I campi del wire che in Python prendono un altro nome, e perche'.
     #: Il gate legge questa mappa invece di indovinare la deviazione.
-    RINOMINATI = {"from": "from_"}
+    _RINOMINATI = {"from": "from_"}
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "ConvertResult":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "convert", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "convert", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
-                f"convert.layers e' {type(elenco).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='convert.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             from_=documento["from"],
@@ -1067,11 +1136,11 @@ class ConvertResult:
         return self.read_loss.lossless and self.write_loss.lossless
 
     def layer(self, name: str) -> ConvertedLayer:
+        name = testo(name, "name")
         for strato in self.layers:
             if strato.name == name:
                 return strato
-        noti = ", ".join(strato.name for strato in self.layers)
-        raise KeyError(f"nessun layer «{name}» nella conversione; ci sono: {noti}")
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer_conversione")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1087,13 +1156,13 @@ class WriteInput:
     interchange_contract: str
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = ("content_type", "interchange_contract")
+    _OBBLIGATORI = ("content_type", "interchange_contract")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteInput":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "write.input", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "write.input", cls)
         return cls(
-            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
         )
 
@@ -1134,7 +1203,7 @@ class WriteResult:
     write_loss: LossReport
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    OBBLIGATORI = (
+    _OBBLIGATORI = (
         "format",
         "input",
         "layers",
@@ -1150,11 +1219,13 @@ class WriteResult:
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "WriteResult":
-        documento = _pretendi(documento, cls.OBBLIGATORI, "write", cls)
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "write", cls)
         elenco = documento["layers"]
         if _tipo(elenco) != "array":
-            raise ProtocolError(
-                f"write.layers e' {type(elenco).__name__} e non un elenco."
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='write.layers',
+                tipo=_tipo(elenco),
             )
         return cls(
             format=documento["format"],
@@ -1171,3 +1242,186 @@ class WriteResult:
             raw=dict(documento),
         )
 
+
+
+# --- la scoperta delle capacita' --------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityInterface:
+    """Una superficie che l'artefatto espone: tipo, contratto, versione, nome."""
+
+    kind: str
+    contract: str
+    version: int
+    artifact: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("kind", "contract", "version", "artifact")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.interfaces[]", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationContent:
+    """L'ingresso o l'uscita di un'operazione: il contratto e i content type."""
+
+    contract: str
+    content_types: list[str]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("contract", "content_types")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationContent":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[].input", cls
+        )
+        return cls(
+            contract=documento["contract"],
+            content_types=list(documento["content_types"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationControls:
+    """I controlli che l'operazione onora: cancellazione, scadenza, idempotenza."""
+
+    cancellation: bool
+    deadline: bool
+    idempotency_key: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("cancellation", "deadline", "idempotency_key")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationControls":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[].controls", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityOperation:
+    """Un'operazione del documento `capabilities-v2`.
+
+    Identificatore, versione, stato, superfici, contratti, effetto e controlli
+    sono attributi tipizzati: PYTHON-SDK-1.0 §7 pretende che restino leggibili
+    senza analizzare testo. `attributes` e' diagnostica **opaca** (CAP-013):
+    resta un dizionario, e la selezione si fa sui content type.
+    """
+
+    id: str
+    version: int
+    status: str
+    surfaces: list[str]
+    input: OperationContent
+    output: OperationContent
+    side_effect: str
+    controls: OperationControls
+    attributes: dict[str, Any] | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "id",
+        "version",
+        "status",
+        "surfaces",
+        "input",
+        "output",
+        "side_effect",
+        "controls",
+    )
+    #: `attributes` c'e' solo sulle operazioni che dichiarano qualcosa oltre al
+    #: descrittore: oggi `io.read`. Il manifesto del protocollo lo dice
+    #: «sempre» perche' misura la presenza **per busta**, non per elemento:
+    #: `scripts/check_sdk_python.py` lo sa da `OPZIONALI_PER_ELEMENTO`.
+    _OPZIONALI = ("attributes",)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityOperation":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[]", cls
+        )
+        return cls(
+            id=documento["id"],
+            version=documento["version"],
+            status=documento["status"],
+            surfaces=list(documento["surfaces"]),
+            input=OperationContent.from_json(documento["input"]),
+            output=OperationContent.from_json(documento["output"]),
+            side_effect=documento["side_effect"],
+            controls=OperationControls.from_json(documento["controls"]),
+            attributes=documento.get("attributes"),
+            raw=dict(documento),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Lo stato e' `available`: l'operazione si puo' chiamare."""
+        return self.status == "available"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Capabilities:
+    """Il documento `plenora-capabilities-v2` del binario in uso.
+
+    E' quello di `plenora-io capabilities` con la superficie dell'SDK: il
+    client aggiunge l'interfaccia `python_sdk` e la superficie `python_sdk`
+    sulle operazioni che espone (PYTHON-SDK-1.0 §7, CAP-003, CAP-006). Tutto
+    il resto e' il documento del binario, tipizzato e non riscritto.
+    """
+
+    schema_version: int
+    component: str
+    component_version: str
+    interfaces: list[CapabilityInterface]
+    operations: list[CapabilityOperation]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "capabilities", cls)
+        if documento["schema_version"] != 2:
+            raise _dallo_sdk(ProtocolError, "capabilities.schema")
+        return cls(
+            schema_version=documento["schema_version"],
+            component=documento["component"],
+            component_version=documento["component_version"],
+            interfaces=[
+                CapabilityInterface.from_json(voce) for voce in documento["interfaces"]
+            ],
+            operations=[
+                CapabilityOperation.from_json(voce) for voce in documento["operations"]
+            ],
+            raw=dict(documento),
+        )
+
+    def operation(self, identificatore: str) -> CapabilityOperation:
+        """L'operazione con quell'id, o `ResultLookupError` (anche un `KeyError`), senza id nel messaggio."""
+        identificatore = testo(identificatore, "identificatore")
+        for operazione in self.operations:
+            if operazione.id == identificatore:
+                return operazione
+        raise _dallo_sdk(ResultLookupError, "ricerca.operazione")

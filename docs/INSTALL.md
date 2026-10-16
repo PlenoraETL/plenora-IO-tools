@@ -64,8 +64,8 @@ ciò che installa — e non tutti girano fuori dal repository: quali saltano, e
 perché, è un elenco chiuso in
 [`assurance/registries/sonde-saltate-nella-sdist.json`](../assurance/registries/sonde-saltate-nella-sdist.json).
 
-`Requires-Python` è `>=3.11,<3.14`, e copre **soltanto** le versioni che la CI
-prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python
+`Requires-Python` è `>=3.10,<3.15`, e copre **soltanto** le versioni che la CI
+prova. Dichiarare `>=3.10` senza limite superiore prometterebbe ogni Python
 futuro, e una promessa del genere la si mantiene provandola.
 
 ## Come si ottiene, e sotto quali termini
@@ -205,8 +205,15 @@ oppure, se si preferisce ricostruire dai sorgenti:
 pip install plenora_io-2.0.0.tar.gz
 ```
 
-L'installazione non scarica nient'altro: il pacchetto non ha dipendenze a
-runtime, e in particolare **non scarica il binario**. Un pacchetto Python che
+Con l'adattatore Arrow facoltativo (`read_table()`, `write()` da un oggetto
+PyArrow) si chiede l'extra, che installa `pyarrow>=25,<26`:
+
+```
+pip install "plenora_io-2.0.0-py3-none-any.whl[pyarrow]"
+```
+
+L'installazione non scarica nient'altro: il pacchetto non ha dipendenze
+obbligatorie, e in particolare **non scarica il binario**. Un pacchetto Python che
 tirasse giù un eseguibile sarebbe una via d'esecuzione di codice che nessun
 lockfile controlla, e chi lo installa non l'ha chiesta.
 

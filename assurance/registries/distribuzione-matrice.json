@@ -434,7 +434,7 @@
       }
     ],
     "il_binario_non_e_dentro": "nessuno dei due porta `plenora-io`. Incorporarlo vorrebbe dire una wheel per piattaforma, il triplo degli artefatti da qualificare, e un prodotto che si aggiorna solo cambiando il pacchetto Python. La separazione si paga con `smoke-installato`, che la dimostra funzionante contro un artefatto nativo vero.",
-    "requires_python": "copre **soltanto** le versioni che la CI prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python futuro, e la promessa la si mantiene provandola.",
+    "requires_python": "copre **soltanto** le versioni che la CI prova. Dichiarare `>=3.10` senza limite superiore prometterebbe ogni Python futuro, e la promessa la si mantiene provandola.",
     "il_sorgente_resta_leggibile": "wheel e sdist sono Python puro: contengono i `.py` cosi' come sono scritti, e la sdist anche i test. Chi li riceve legge il sorgente. E' una conseguenza della forma, non una svista, ed e' stata accettata esplicitamente: la consegna e' riservata, non segreta. Chi volesse anche la riservatezza del codice non otterrebbe da questa scelta cio' che cerca -- servirebbe un SDK compilato, che e' un altro prodotto, con un'altra qualifica e un'altra matrice."
   },
   "pubblicazione": {

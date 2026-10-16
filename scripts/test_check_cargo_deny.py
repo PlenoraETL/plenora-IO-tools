@@ -48,6 +48,37 @@ class LaCoerenza(unittest.TestCase):
         d["sources"]["unknown-git"] = "allow"
         self.assertTrue(gate.coerenza(d, registro()))
 
+    def test_solo_zip_esatto_puo_essere_yanked(self) -> None:
+        for spec in ("zip", "zip@8", "zip@^8.6.0", "zip@=8.6.1", "altro@=8.6.0"):
+            with self.subTest(spec=spec):
+                d = politica()
+                d["advisories"]["ignore"].append({"crate": spec, "reason": "r"})
+                r = {"yanked_accettati": [{"crate": spec}]}
+                self.assertTrue(gate.coerenza(d, r))
+
+    def test_zip_esatto_non_ignora_advisory(self) -> None:
+        d = politica("RUSTSEC-2023-0089")
+        d["advisories"]["ignore"].append({"crate": "zip@=8.6.0", "reason": "r"})
+        r = registro("RUSTSEC-2023-0089")
+        r["yanked_accettati"] = [{"crate": "zip@=8.6.0"}]
+        self.assertEqual(gate.coerenza(d, r), [])
+        self.assertTrue(gate.coerenza(d, registro("RUSTSEC-2023-0089")))
+        d["advisories"]["disable-yank-checking"] = True
+        self.assertTrue(gate.coerenza(d, r))
+
+    def test_nuovi_consumer_zip8_vietati(self) -> None:
+        for nome in ("calamine", "rust_xlsxwriter", "driver-xls", "altro"):
+            with self.subTest(nome=nome):
+                lock = {"package": [{
+                    "name": nome, "dependencies": ["zip 8.6.0"],
+                    "source": "registry+https://github.com/rust-lang/crates.io-index",
+                }]}
+                self.assertEqual(bool(gate.ambito_zip(lock)), nome not in {"calamine", "rust_xlsxwriter"})
+
+    def test_entrambi_i_lockfile_rispettano_ambito(self) -> None:
+        for percorso in (gate.ROOT / "Cargo.lock", gate.ROOT / "fuzz/Cargo.lock"):
+            self.assertEqual(gate.ambito_zip(tomllib.loads(percorso.read_text())), [])
+
     def test_la_forma_breve_degli_ignorati(self) -> None:
         d = {"advisories": {"yanked": "deny", "ignore": ["A"]}, "sources": politica()["sources"]}
         self.assertEqual(gate.coerenza(d, registro("A")), [])

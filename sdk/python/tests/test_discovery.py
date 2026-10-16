@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
-from plenora_io import BinaryNotFound, ManifestError, ProfileError
-from plenora_io.discovery import (
+from plenora_io import BinaryNotFound, LocalIoError, ManifestError, ProfileError
+from plenora_io._discovery import (
     MANIFESTO,
     NOME,
     VARIABILE,
+    _cerca_nel_path,
     leggi_manifesto,
     trova_binario,
     verifica_profilo,
@@ -32,6 +35,14 @@ MANIFESTO_SANO = {
     "non_release": True,
     "revisione": "a" * 40,
 }
+
+
+def _is_file_python314(percorso):
+    """Riproduce anche sui Python precedenti gli OSError soppressi dal 3.14."""
+    try:
+        return stat.S_ISREG(percorso.stat().st_mode)
+    except OSError:
+        return False
 
 
 class AlberoFinto:
@@ -74,6 +85,97 @@ class SenzaAmbiente(unittest.TestCase):
 
 
 class LaScoperta(SenzaAmbiente):
+    def test_path_stat_distingue_assenza_da_guasti(self) -> None:
+        os.environ["PATH"] = str(self.tmp)
+        os.environ["PATHEXT"] = ".EXE"
+        for tipo in (FileNotFoundError, NotADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(Path, "stat", side_effect=tipo()):
+                self.assertIsNone(_cerca_nel_path())
+        for tipo in (PermissionError, OSError, IsADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                with self.assertRaises(LocalIoError) as preso:
+                    _cerca_nel_path()
+                self.assertNotIn(str(self.tmp), str(preso.exception))
+
+    def test_path_rispetta_ordine_tipo_ed_eseguibilita(self) -> None:
+        prima = self.tmp / "prima"
+        seconda = self.tmp / "seconda"
+        prima.mkdir()
+        seconda.mkdir()
+        os.environ["PATH"] = os.pathsep.join((str(prima), str(seconda)))
+        os.environ["PATHEXT"] = ".EXE;.CMD"
+        nome = NOME + (".EXE" if os.name == "nt" else "")
+        candidato = prima / nome
+        altro = seconda / nome
+        altro.write_text("binario", encoding="utf-8")
+        altro.chmod(0o755)
+        candidato.mkdir()
+        self.assertEqual(_cerca_nel_path(), altro)
+        candidato.rmdir()
+        candidato.write_text("binario", encoding="utf-8")
+        if os.name != "nt":
+            candidato.chmod(0o644)
+            self.assertEqual(_cerca_nel_path(), altro)
+        else:
+            (prima / (NOME + ".CMD")).write_text("binario", encoding="utf-8")
+        candidato.chmod(0o755)
+        self.assertEqual(_cerca_nel_path(), candidato)
+
+    def test_path_negato_non_passa_alla_seconda_directory(self) -> None:
+        prima = self.tmp / "riservato"
+        seconda = self.tmp / "seconda"
+        prima.mkdir()
+        seconda.mkdir()
+        binario = seconda / (NOME + (".EXE" if os.name == "nt" else ""))
+        binario.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        binario.chmod(0o755)
+        os.environ["PATH"] = os.pathsep.join((str(prima), str(seconda)))
+        os.environ["PATHEXT"] = ".EXE"
+        stat_originale = Path.stat
+        visitati = []
+
+        def stat_negato(percorso, *args, **kwargs):
+            percorso = Path(percorso)
+            visitati.append(percorso)
+            if percorso.parent == prima:
+                raise PermissionError(13, "negato", str(percorso))
+            return stat_originale(percorso, *args, **kwargs)
+
+        with mock.patch("plenora_io._discovery._albero_accanto_al_pacchetto", return_value=None):
+            self.assertEqual(trova_binario(), binario.resolve())
+            # Python 3.10 conserva in pathlib un riferimento a os.stat:
+            # sostituire os.stat non intercetta le chiamate di Path.stat.
+            with mock.patch.object(Path, "stat", stat_negato):
+                with self.assertRaises(LocalIoError) as preso:
+                    trova_binario()
+        self.assertNotIn(binario, visitati)
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
+    def test_stat_negato_non_passa_al_binario_successivo(self) -> None:
+        albero = AlberoFinto(self.tmp / "riservato")
+        altro = AlberoFinto(self.tmp / "altro")
+        os.environ[VARIABILE] = str(altro.binario)
+        stat_originale = Path.stat
+        visitati = []
+
+        def stat(percorso, *args, **kwargs):
+            visitati.append(percorso)
+            if percorso == albero.binario:
+                raise PermissionError(13, "negato", str(percorso))
+            return stat_originale(percorso, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", stat), mock.patch.object(
+            Path, "is_file", _is_file_python314
+        ):
+            with self.assertRaises(LocalIoError) as preso:
+                trova_binario(albero.binario)
+        self.assertNotIn(altro.binario, visitati)
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
     def test_il_percorso_esplicito_vince(self) -> None:
         albero = AlberoFinto(self.tmp / "albero")
         altro = AlberoFinto(self.tmp / "altro")
@@ -107,7 +209,11 @@ class LaScoperta(SenzaAmbiente):
         with self.assertRaises(BinaryNotFound) as preso:
             trova_binario(self.tmp / "niente")
         messaggio = str(preso.exception)
-        self.assertIn("niente", messaggio)
+        # I posti, non i percorsi: il percorso indicato e il `PATH` sono della
+        # macchina di chi chiama (erano nel messaggio fino alla 4.1.1).
+        self.assertNotIn("niente", messaggio)
+        self.assertNotIn(str(self.tmp), messaggio)
+        self.assertIn("Client(binary=...)", messaggio)
         self.assertIn(VARIABILE, messaggio)
         self.assertIn("PATH", messaggio)
         self.assertIn("non lo scarica", messaggio)
@@ -127,6 +233,33 @@ class LaScoperta(SenzaAmbiente):
 
 
 class IlManifesto(SenzaAmbiente):
+    def test_stat_distingue_assenza_da_altri_guasti(self) -> None:
+        albero = AlberoFinto(self.tmp / "albero")
+        for tipo in (FileNotFoundError, NotADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                self.assertIsNone(leggi_manifesto(albero.binario))
+        for tipo in (OSError, IsADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                with self.assertRaises(LocalIoError) as preso:
+                    leggi_manifesto(albero.binario)
+                self.assertNotIn(str(self.tmp), str(preso.exception))
+
+    def test_stat_negato_non_rende_il_manifesto_assente(self) -> None:
+        albero = AlberoFinto(self.tmp / "riservato")
+        percorso = albero.radice / MANIFESTO
+        with mock.patch.object(
+            Path, "stat", side_effect=PermissionError(13, "negato", str(percorso))
+        ) as stat, mock.patch.object(Path, "is_file", _is_file_python314):
+            with self.assertRaises(LocalIoError) as preso:
+                leggi_manifesto(albero.binario)
+        stat.assert_called_once()
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
     def test_assente_non_e_un_errore(self) -> None:
         """Un binario costruito da cargo non ha un manifesto ed e' usabile."""
         albero = AlberoFinto(self.tmp / "cargo", manifesto=None)

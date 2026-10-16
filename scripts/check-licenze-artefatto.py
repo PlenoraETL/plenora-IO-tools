@@ -29,6 +29,7 @@ a metapacchetto per farlo tacere.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -162,6 +163,24 @@ def verifica(albero: pathlib.Path) -> list[str]:
                 "identificatori dichiarati da un crate e non consegnati: "
                 + ", ".join(f"{i} ({', '.join(n[:3])})" for i, n in sorted(scoperti.items()))
             )
+        # E ogni crate porta il **proprio** avviso -- l'avviso di copyright,
+        # il NOTICE -- non solo il testo generico dell'identificatore: e' cio'
+        # che MIT, BSD e Apache-2.0 chiedono di ridistribuire.
+        for componente in dichiarati["pacchetti"]:
+            etichetta = f"{componente['nome']}-{componente['versione']}"
+            elenco = componente.get("avvisi") or []
+            if not elenco:
+                errori.append(f"crate-rust: {etichetta} non ha un avviso di licenza proprio")
+                continue
+            for avviso in elenco:
+                file = albero / "LICENSES" / "crate-rust" / etichetta / avviso["file"]
+                if not file.is_file():
+                    errori.append(f"crate-rust: manca {etichetta}/{avviso['file']}")
+                elif (
+                    hashlib.sha256(file.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+                    != avviso["sha256"]
+                ):
+                    errori.append(f"crate-rust: {etichetta}/{avviso['file']} non e' quello dichiarato")
 
     licenze = manifesto.get("licenze", {})
     if licenze.get("senza_testo", 0) != 0:

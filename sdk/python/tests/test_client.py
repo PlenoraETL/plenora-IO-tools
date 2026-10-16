@@ -36,7 +36,7 @@ from plenora_io import (
     ProtocolError,
     ResourceLimitError,
 )
-from plenora_io.discovery import NOME, VARIABILE
+from plenora_io._discovery import NOME, VARIABILE
 
 from _repository import RADICE, serve_le_fixture
 
@@ -379,7 +379,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         # La classe viene dalla categoria, non dal testo: quale sia la
         # categoria lo decide il prodotto, e la sonda non la fissa -- verifica
         # che la classe sollevata sia **quella** che le compete.
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         attesa = errors.CATEGORIE[preso.exception.envelope.category]
         self.assertIs(type(preso.exception), attesa)

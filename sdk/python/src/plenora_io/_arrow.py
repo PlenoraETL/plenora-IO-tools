@@ -1,0 +1,272 @@
+"""L'adattatore Arrow facoltativo: `pyarrow` al confine, file IPC nel mezzo.
+
+# Che cosa fa, e che cosa non fa
+
+L'SDK parla con la CLI per **percorsi**: `read()` consegna un file Arrow IPC,
+`write()` ne legge uno. PYTHON-SDK-1.0 §3 chiede che un SDK tabellare usi
+oggetti PyArrow o Arrow IPC al confine pubblico; l'IPC c'e' gia', e questo
+modulo aggiunge gli oggetti PyArrow sopra lo stesso confine, senza cambiarlo:
+
+* `Client.read_table()` legge in un file IPC temporaneo e lo restituisce come
+  `pa.Table`;
+* `Client.write()` accetta, al posto del percorso, un oggetto che espone
+  `__arrow_c_stream__` -- `pa.Table`, `pa.RecordBatch`, `pa.RecordBatchReader`,
+  o qualunque produttore della Arrow PyCapsule Interface -- e lo scrive in un
+  file IPC temporaneo prima di passarlo alla CLI.
+
+Il file temporaneo e' il prezzo di un wrapper di processo: i dati attraversano
+il disco una volta in piu'. Non c'e' un canale in memoria fra due processi che
+il protocollo v2 dichiari, e inventarne uno qui sarebbe una superficie che
+nessun contratto descrive.
+
+# Perche' `pyarrow` e' un extra e non una dipendenza
+
+Chi lavora per percorsi -- il caso per cui l'SDK e' nato -- non ne ha bisogno,
+e una dipendenza da centinaia di megabyte per un wrapper della libreria
+standard sarebbe un costo senza ritorno. Si installa con
+`plenora-io[pyarrow]`, nella serie `>=25,<26` che plenora-data-tools fissa:
+una sola serie di pyarrow nello stesso ambiente per tutte le librerie Plenora.
+
+L'import e' **pigro**: avviene alla prima chiamata che ne ha bisogno, e se
+manca la chiamata fallisce con `OptionalDependencyError` (`unsupported`) prima
+di eseguire niente.
+
+# La serie, verificata e non solo dichiarata
+
+`>=25,<26` e' scritto nei metadati, ma un ambiente puo' avere un'altra serie
+installata accanto, per esempio con `--no-deps`. Qui la versione importata si
+confronta con la serie dichiarata, e una serie diversa e' `unsupported`
+invece di un adattatore che gira su una libreria mai provata.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from ._argomenti import percorso
+from ._errors import (
+    CleanupError,
+    InvalidArgumentError,
+    LocalIoError,
+    OptionalDependencyError,
+    PlenoraError,
+    ProtocolError,
+    classe_dell_sdk,
+    _ricostruito,
+)
+from ._errors import _dallo_sdk
+
+#: La serie di pyarrow dichiarata dall'extra e provata dalla CI.
+SERIE_PYARROW = 25
+
+
+def pyarrow() -> Any:
+    """Il modulo `pyarrow`, o `OptionalDependencyError`.
+
+    Il messaggio non riporta il testo dell'`ImportError`: dice che cosa manca
+    e come installarlo, che e' tutto cio' che serve a chi lo legge.
+    """
+    # Qualunque eccezione dell'import, non solo `ImportError`: un pyarrow
+    # installato a meta' o rotto solleva `OSError` (una DLL che manca),
+    # `AttributeError` o altro dal proprio `__init__`. Anche la lettura di
+    # `__version__` sta dentro: e' codice di un modulo che non controlliamo.
+    try:
+        import pyarrow as pa  # noqa: PLC0415 - import pigro, e' il punto
+        import pyarrow.ipc  # noqa: F401, PLC0415
+
+        dichiarata = getattr(pa, "__version__", "")
+        maggiore = (
+            str.join("", [dichiarata]).split(".", 1)[0]
+            if issubclass(type(dichiarata), str)
+            else ""
+        )
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise _dallo_sdk(OptionalDependencyError, "arrow.assente") from None
+    if maggiore != str(SERIE_PYARROW):
+        raise _dallo_sdk(
+            OptionalDependencyError, "arrow.serie",
+            attesa=SERIE_PYARROW,
+            serie=int(maggiore) if maggiore.isascii() and maggiore.isdigit()
+            and len(maggiore) < 6 else None,
+        )
+    return pa
+
+
+def e_un_percorso(valore: Any) -> bool:
+    """Una sorgente che la CLI legge da se': `str` o `os.PathLike`."""
+    # Dal tipo e non dall'istanza: `isinstance` consulta `__class__`, che un
+    # oggetto puo' ridefinire.
+    tipo = type(valore)
+    return issubclass(tipo, str) or hasattr(tipo, "__fspath__")
+
+
+def scrivi_ipc(dati: Any, cartella: Path) -> Path:
+    """Scrive un produttore di stream Arrow in un file IPC dentro `cartella`.
+
+    Il produttore si consuma **a batch**: `RecordBatchReader.from_stream`
+    legge lo stream che l'oggetto espone, e ogni batch va su disco prima del
+    successivo. Una tabella grande non si materializza una seconda volta.
+
+    `pa.RecordBatch` non sempre espone `__arrow_c_stream__` (solo
+    `__arrow_c_array__`): lo si avvolge in una tabella di un batch, senza
+    copiare i buffer.
+    """
+    pa = pyarrow()
+    non_arrow = _dallo_sdk(InvalidArgumentError, "arrow.non_arrow")
+    # `isinstance` e `hasattr` eseguono codice della sorgente -- `__class__`,
+    # `__getattr__` -- e `hasattr` inghiotte soltanto `AttributeError`: ogni
+    # altra eccezione usciva com'era.
+    try:
+        # Per tipo e non per `isinstance`, che consulta `__class__`.
+        if type(dati) is pa.RecordBatch:
+            dati = pa.Table.from_batches([dati])
+        espone = hasattr(dati, "__arrow_c_stream__")
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise non_arrow from None
+    if not espone:
+        raise non_arrow
+    destinazione = cartella / "ingresso.arrow"
+    # Nessuna eccezione esterna attraversa il confine pubblico (PYTHON-SDK-1.0
+    # §6), e nessuna resta nella catena: il testo di pyarrow, o di un
+    # produttore qualunque, puo' citare valori della sorgente, e `__cause__`
+    # lo porterebbe nel traceback. Quindi `from None`.
+    #
+    # Due famiglie, due errori: il file temporaneo che non si scrive e' del
+    # filesystem locale (`LocalIoError`, `arrow.non_scrivibile`); tutto il
+    # resto -- pyarrow che non legge lo stream, o un produttore
+    # `__arrow_c_stream__` che solleva un'eccezione sua -- e' la sorgente che
+    # non si lascia leggere (`arrow.illeggibile`).
+    try:
+        lettore = pa.RecordBatchReader.from_stream(dati)
+        schema = lettore.schema
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        raise _dallo_sdk(InvalidArgumentError, "arrow.illeggibile") from None
+    try:
+        uscita = pa.OSFile(str(destinazione), "wb")
+    except Exception:  # noqa: BLE001
+        raise _dallo_sdk(LocalIoError, "arrow.non_scrivibile") from None
+    # Le chiusure stanno **dentro** la traduzione, e non in un `with`: chiudere
+    # lo scrittore scrive il footer, e su un disco pieno fallisce. Con `with
+    # uscita, scrittore` quell'errore usciva come eccezione di pyarrow o del
+    # sistema, e se il ciclo stava gia' sollevando lo copriva. Qui il primo
+    # errore tradotto vince; una chiusura che fallisce dopo un ciclo riuscito
+    # e' `LocalIoError`, perche' il file non e' completo.
+    errore: PlenoraError | None = None
+    scrittore = None
+    try:
+        scrittore = pa.ipc.new_file(uscita, schema)
+        while True:
+            try:
+                batch = lettore.read_next_batch()
+            except StopIteration:
+                break
+            except Exception:  # noqa: BLE001
+                errore = _dallo_sdk(InvalidArgumentError, "arrow.illeggibile")
+                break
+            scrittore.write_batch(batch)
+    except Exception:  # noqa: BLE001
+        errore = _dallo_sdk(LocalIoError, "arrow.non_scrivibile")
+    for chiusura in (scrittore, uscita):
+        if chiusura is None:
+            continue
+        try:
+            chiusura.close()
+        except Exception:  # noqa: BLE001
+            if errore is None:
+                errore = _dallo_sdk(LocalIoError, "arrow.non_scrivibile")
+    if errore is not None:
+        raise errore from None
+    return destinazione
+
+
+def leggi_ipc(percorso: Path, content_type: str) -> Any:
+    """Il file consegnato da `read()`, come `pa.Table` in memoria.
+
+    La serializzazione si sceglie da cio' che la busta dichiara di aver
+    consegnato, non dal nome del file ne' provando l'una e poi l'altra. Il file
+    si legge per intero in memoria e si chiude prima di tornare: il chiamante
+    lo cancella subito dopo, e su Windows un file aperto non si cancella.
+    """
+    pa = pyarrow()
+    if content_type == "application/vnd.apache.arrow.file":
+        apri = pa.ipc.open_file
+    elif content_type == "application/vnd.apache.arrow.stream":
+        apri = pa.ipc.open_stream
+    else:
+        raise _dallo_sdk(ProtocolError, "arrow.content_type")
+    try:
+        with pa.OSFile(str(percorso), "rb") as sorgente:
+            return apri(sorgente).read_all()
+    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
+        # `from None`: il testo di pyarrow puo' citare valori del file.
+        raise _dallo_sdk(ProtocolError, "arrow.consegna_illeggibile") from None
+
+
+class CartellaTemporanea:
+    """Una directory temporanea, cancellata all'uscita dal blocco.
+
+    `temp_dir` sceglie **dove**: con dati grandi conta che stia su un disco
+    con spazio, e che sia lo stesso filesystem della destinazione non conta,
+    perche' la CLI pubblica la propria uscita da se'.
+
+    Al posto di `tempfile.TemporaryDirectory`, che ai due capi solleva errori
+    del sistema operativo con il percorso di chi chiama:
+
+    * se la directory non si crea -- `temp_dir` che non esiste, o non si
+      scrive -- e' `LocalIoError`, prima di eseguire niente;
+    * se non si cancella dopo che il blocco e' riuscito, e' `CleanupError`
+      (ERR-015) con l'effetto che il blocco ha gia' avuto: `committed` per
+      `write`, che ha pubblicato la destinazione;
+    * se non si cancella mentre il blocco sta gia' sollevando, resta l'errore
+      del blocco -- e' quello che conta -- e porta `cleanup_failed = True`.
+    """
+
+    def __init__(self, temp_dir: str | os.PathLike[str] | None, *, effetto: str) -> None:
+        # `percorso` verifica il tipo, `__fspath__` e il NUL: prima un
+        # `temp_dir` sbagliato usciva come `TypeError`, o come `ValueError` di
+        # `mkdtemp` per un NUL.
+        self._temp_dir = None if temp_dir is None else percorso(temp_dir, "temp_dir")
+        self._effetto = effetto
+        self._percorso: str | None = None
+
+    def __enter__(self) -> str:
+        try:
+            self._percorso = tempfile.mkdtemp(prefix="plenora-io-arrow-", dir=self._temp_dir)
+        except (OSError, ValueError):
+            # `ValueError` comprende `UnicodeEncodeError`: un percorso che il
+            # filesystem non sa codificare.
+            raise _dallo_sdk(LocalIoError, "arrow.cartella") from None
+        return self._percorso
+
+    def __exit__(self, tipo: Any, valore: Any, traccia: Any) -> None:
+        if self._percorso is None:
+            return
+        try:
+            shutil.rmtree(self._percorso)
+        except OSError:
+            fallita = True
+        else:
+            fallita = False
+        if not fallita:
+            return
+        # Fuori dall'`except`: l'`OSError`, che puo' citare il percorso, non
+        # resta nella catena di cio' che si solleva qui.
+        if valore is not None:
+            # Lo stato di un errore dell'SDK si fissa una volta: il segno va
+            # su una copia, che prende il posto dell'errore del blocco. Un
+            # oggetto che non e' un errore dell'SDK resta com'e'.
+            if classe_dell_sdk(type(valore)):
+                raise _ricostruito(valore, cleanup_failed=True) from None
+            return
+        raise _dallo_sdk(CleanupError, "arrow.pulizia", remote_effect=self._effetto) from None
+
+
+def cartella_temporanea(
+    temp_dir: str | os.PathLike[str] | None, *, effetto: str = "none"
+) -> CartellaTemporanea:
+    """Vedi `CartellaTemporanea`."""
+    return CartellaTemporanea(temp_dir, effetto=effetto)

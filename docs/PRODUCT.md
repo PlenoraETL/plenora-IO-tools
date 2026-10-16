@@ -225,6 +225,20 @@ derivazione dall'identificatore.
 
 ## Contratti pubblici
 
+### Limite temporaneo del consumo Rust
+
+La verifica del consumatore esterno dall'archivio sorgente garantisce la
+costruzione partendo dal `Cargo.lock` distribuito, da copiare nella radice del
+progetto consumatore prima di `cargo run`. Non garantisce la risoluzione da
+zero senza lockfile: calamine e rust_xlsxwriter richiedono ancora zip 8.x,
+le cui versioni sono tutte yanked e riutilizzabili solo da un lockfile esistente.
+È una garanzia indebolita, dichiarata nella stessa
+[eccezione zip 8.6.0](../assurance/registries/dependency-exceptions.json).
+Quando entrambi pubblicheranno versioni su zip 9, aggiorneremo dipendenze e
+lockfile e il consumatore tornerà a essere verificato senza lockfile iniziale.
+
+### Compatibilità
+
 La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rust
 è interna e instabile: non porta garanzia semver e i crate non sono pubblicati.
 
