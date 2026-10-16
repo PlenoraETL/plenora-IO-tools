@@ -82,7 +82,7 @@ PUNTI: dict[str, tuple[str, str]] = {
     "client.read_table": ("consegna assente o illeggibile dopo la scrittura", "ProtocolError, unknown"),
     "arrow.scrivi_ipc": ("hasattr, from_stream, batch, footer, chiusura", "InvalidArgumentError o LocalIoError"),
     "arrow.cartella": ("fspath, mkdtemp, rmtree", "InvalidArgumentError, LocalIoError, CleanupError"),
-    "discovery.binario": ("__fspath__, is_file, resolve", "InvalidArgumentError o LocalIoError"),
+    "discovery.binario": ("__fspath__, stat, resolve", "InvalidArgumentError o LocalIoError"),
     "discovery.manifesto": ("OSError, UnicodeDecodeError, JSON", "ManifestError, catena tagliata"),
     "discovery.which": ("shutil.which che solleva", "LocalIoError"),
     "argomenti.sottoclassi": ("__str__, __format__, __int__, Limits e timedelta derivati", "copie esatte, nessuna chiamata dopo il confine"),
@@ -627,7 +627,7 @@ class LaScoperta(unittest.TestCase):
         def non_esamina(self, *argomenti, **opzioni):
             raise PermissionError(13, SEGRETO)
 
-        with mock.patch.object(Path, "is_file", non_esamina):
+        with mock.patch.object(Path, "stat", non_esamina):
             with self.assertRaises(PlenoraError) as preso:
                 discovery.trova_binario(self.binario)
         self.assertIsInstance(preso.exception, LocalIoError)

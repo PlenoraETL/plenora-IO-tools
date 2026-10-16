@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,16 +85,18 @@ def _albero_accanto_al_pacchetto() -> Path | None:
 
 
 def _e_un_file(percorso: Path, che_cosa: str) -> bool:
-    """`Path.is_file()`, con il guasto tradotto invece che inghiottito.
+    """Esamina il tipo del file senza inghiottire gli errori di accesso.
 
-    `is_file()` rende `False` per un percorso che non c'e', ma solleva
-    `OSError` per uno che non si puo' esaminare -- un permesso negato su una
-    directory intermedia. Trattarlo da assente farebbe passare la ricerca al
+    Da Python 3.14 `Path.is_file()` sopprime tutti gli `OSError`. Solo un file
+    mancante o una componente non directory significano assenza. Gli altri
+    guasti diventano `LocalIoError`: trattarli da assenza farebbe passare al
     candidato successivo, e il binario scelto sarebbe un altro da quello che
     il primo posto indicava, in silenzio: e' `LocalIoError`.
     """
     try:
-        return percorso.is_file()
+        return stat.S_ISREG(percorso.stat().st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
     except OSError:
         raise _dallo_sdk(LocalIoError, "fs.non_esaminabile", che_cosa=che_cosa) from None
 

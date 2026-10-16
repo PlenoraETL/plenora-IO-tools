@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
-from plenora_io import BinaryNotFound, ManifestError, ProfileError
+from plenora_io import BinaryNotFound, LocalIoError, ManifestError, ProfileError
 from plenora_io._discovery import (
     MANIFESTO,
     NOME,
@@ -32,6 +34,14 @@ MANIFESTO_SANO = {
     "non_release": True,
     "revisione": "a" * 40,
 }
+
+
+def _is_file_python314(percorso):
+    """Riproduce anche sui Python precedenti gli OSError soppressi dal 3.14."""
+    try:
+        return stat.S_ISREG(percorso.stat().st_mode)
+    except OSError:
+        return False
 
 
 class AlberoFinto:
@@ -74,6 +84,28 @@ class SenzaAmbiente(unittest.TestCase):
 
 
 class LaScoperta(SenzaAmbiente):
+    def test_stat_negato_non_passa_al_binario_successivo(self) -> None:
+        albero = AlberoFinto(self.tmp / "riservato")
+        altro = AlberoFinto(self.tmp / "altro")
+        os.environ[VARIABILE] = str(altro.binario)
+        stat_originale = Path.stat
+        visitati = []
+
+        def stat(percorso, *args, **kwargs):
+            visitati.append(percorso)
+            if percorso == albero.binario:
+                raise PermissionError(13, "negato", str(percorso))
+            return stat_originale(percorso, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", stat), mock.patch.object(
+            Path, "is_file", _is_file_python314
+        ):
+            with self.assertRaises(LocalIoError) as preso:
+                trova_binario(albero.binario)
+        self.assertNotIn(altro.binario, visitati)
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
     def test_il_percorso_esplicito_vince(self) -> None:
         albero = AlberoFinto(self.tmp / "albero")
         altro = AlberoFinto(self.tmp / "altro")
@@ -131,6 +163,33 @@ class LaScoperta(SenzaAmbiente):
 
 
 class IlManifesto(SenzaAmbiente):
+    def test_stat_distingue_assenza_da_altri_guasti(self) -> None:
+        albero = AlberoFinto(self.tmp / "albero")
+        for tipo in (FileNotFoundError, NotADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                self.assertIsNone(leggi_manifesto(albero.binario))
+        for tipo in (OSError, IsADirectoryError):
+            with self.subTest(tipo=tipo), mock.patch.object(
+                Path, "stat", side_effect=tipo(str(self.tmp))
+            ):
+                with self.assertRaises(LocalIoError) as preso:
+                    leggi_manifesto(albero.binario)
+                self.assertNotIn(str(self.tmp), str(preso.exception))
+
+    def test_stat_negato_non_rende_il_manifesto_assente(self) -> None:
+        albero = AlberoFinto(self.tmp / "riservato")
+        percorso = albero.radice / MANIFESTO
+        with mock.patch.object(
+            Path, "stat", side_effect=PermissionError(13, "negato", str(percorso))
+        ) as stat, mock.patch.object(Path, "is_file", _is_file_python314):
+            with self.assertRaises(LocalIoError) as preso:
+                leggi_manifesto(albero.binario)
+        stat.assert_called_once()
+        self.assertNotIn(str(self.tmp), str(preso.exception))
+        self.assertTrue(preso.exception.__suppress_context__)
+
     def test_assente_non_e_un_errore(self) -> None:
         """Un binario costruito da cargo non ha un manifesto ed e' usabile."""
         albero = AlberoFinto(self.tmp / "cargo", manifesto=None)
