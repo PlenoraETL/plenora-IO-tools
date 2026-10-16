@@ -45,7 +45,12 @@ GRAFI = (None, "fuzz/Cargo.toml")
 
 def ignorati_della_politica(politica: dict) -> set[str]:
     voci = politica.get("advisories", {}).get("ignore", [])
-    return {voce["id"] if isinstance(voce, dict) else voce for voce in voci}
+    return {
+        voce["id"] if isinstance(voce, dict) else voce
+        for voce in voci
+        if (isinstance(voce, dict) and "id" in voce)
+        or (isinstance(voce, str) and "@" not in voce and voce[:1].isupper())
+    }
 
 
 def accettati_del_registro(registro: dict) -> set[str]:
@@ -56,6 +61,18 @@ def coerenza(politica: dict, registro: dict) -> list[str]:
     errori: list[str] = []
     if politica.get("advisories", {}).get("yanked") != "deny":
         errori.append("deny.toml: `advisories.yanked` deve essere `deny`")
+    if politica.get("advisories", {}).get("disable-yank-checking", False):
+        errori.append("deny.toml: il controllo yanked non puo' essere disabilitato")
+    voci = politica.get("advisories", {}).get("ignore", [])
+    yanked = [
+        v.get("crate") if isinstance(v, dict) else v
+        for v in voci
+        if (isinstance(v, dict) and "id" not in v)
+        or (isinstance(v, str) and ("@" in v or not v[:1].isupper()))
+    ]
+    registrati = [v["crate"] for v in registro.get("yanked_accettati", [])]
+    if yanked != registrati or any(v != "zip@=8.6.0" for v in yanked):
+        errori.append("eccezioni yanked: ammesso solo zip@=8.6.0, coerente col registro")
     nella_politica = ignorati_della_politica(politica)
     nel_registro = accettati_del_registro(registro)
     for solo in sorted(nella_politica - nel_registro):
@@ -71,6 +88,25 @@ def coerenza(politica: dict, registro: dict) -> list[str]:
     sorgenti = politica.get("sources", {})
     if sorgenti.get("unknown-registry") != "deny" or sorgenti.get("unknown-git") != "deny":
         errori.append("deny.toml: registri e repository git sconosciuti vanno rifiutati")
+    return errori
+
+
+def ambito_zip(lock: dict) -> list[str]:
+    """L'ignore yanked non deve autorizzare nuovi consumer, neppure nel fuzz."""
+    errori = []
+    pacchetti = lock.get("package", [])
+    versioni_zip = {p["version"] for p in pacchetti if p["name"] == "zip"}
+    for p in pacchetti:
+        for dep in p.get("dependencies", []):
+            parti = dep.split()
+            usa_zip8 = parti[:2] == ["zip", "8.6.0"] or (
+                parti == ["zip"] and "8.6.0" in versioni_zip
+            )
+            if usa_zip8 and (
+                p["name"] not in {"calamine", "rust_xlsxwriter"}
+                or p.get("source") != "registry+https://github.com/rust-lang/crates.io-index"
+            ):
+                errori.append(f"zip 8.6.0: consumer non autorizzato {p['name']}")
     return errori
 
 
@@ -99,7 +135,7 @@ def esegui(atteso: str) -> list[str]:
         ]
     errori: list[str] = []
     for manifesto in GRAFI:
-        comando = ["cargo", "deny", "--locked"]
+        comando = ["cargo", "deny", "--locked", "--config", str(POLITICA)]
         if manifesto:
             comando += ["--manifest-path", manifesto]
         comando += ["check", "--hide-inclusion-graph"]
@@ -120,6 +156,9 @@ def main() -> int:
     politica = tomllib.loads(POLITICA.read_text(encoding="utf-8"))
     registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
     errori = coerenza(politica, registro)
+    for lockfile in (ROOT / "Cargo.lock", ROOT / "fuzz" / "Cargo.lock"):
+        lock = tomllib.loads(lockfile.read_text(encoding="utf-8"))
+        errori.extend(f"{lockfile}: {e}" for e in ambito_zip(lock))
     atteso = versione_fissata(PIN.read_text(encoding="utf-8"))
     if atteso is None:
         errori.append(f"{CHIAVE_DEL_PIN} non e' in scripts/toolchain-pins.env")

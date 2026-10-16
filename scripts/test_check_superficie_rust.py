@@ -10,9 +10,13 @@ perche' una verifica che non sa dire di no non verifica niente.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
+import subprocess
+import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 _SPEC = importlib.util.spec_from_file_location(
     "check_superficie_rust",
@@ -87,6 +91,49 @@ class SondeGrafo(unittest.TestCase):
 
 
 class SondeConsumatore(unittest.TestCase):
+    def test_il_lock_distribuito_precede_cargo_e_non_puo_mancare(self) -> None:
+        """La prova usa il lock dell'archivio e rifiuta un archivio senza."""
+        for con_lock in (True, False):
+            with self.subTest(con_lock=con_lock), tempfile.TemporaryDirectory() as tmp:
+                lavoro = pathlib.Path(tmp)
+                sorgente = lavoro / "sorgente"
+                for relativo in (
+                    "crates/plenora-io-tools/src/lib.rs",
+                    *(f"vendor/{nome}/Cargo.toml" for nome in gate.FORK.values()),
+                    "rust-toolchain.toml",
+                ):
+                    file = sorgente / relativo
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text("", encoding="utf-8")
+                lock = b"# lock distribuito, distinto dal checkout\nversion = 4\n"
+                if con_lock:
+                    (sorgente / "Cargo.lock").write_bytes(lock)
+
+                def esegui(comando, **opzioni):
+                    if comando[0] != "cargo":
+                        uscita = lavoro / "archivio"
+                        uscita.mkdir()
+                        (uscita / "MANIFEST-sorgente.json").write_text(
+                            json.dumps({"artefatto": "src.tar", "versione": "prova"}),
+                            encoding="utf-8",
+                        )
+                        with tarfile.open(uscita / "src.tar", "w") as archivio:
+                            archivio.add(sorgente, arcname="plenora-io-prova")
+                        return subprocess.CompletedProcess(comando, 0)
+                    self.assertTrue(con_lock, "cargo non deve partire senza lock")
+                    self.assertEqual(comando, ["cargo", "run", "--quiet"])
+                    self.assertEqual((opzioni["cwd"] / "Cargo.lock").read_bytes(), lock)
+                    # Arresta la simulazione dopo aver osservato il confine cargo.
+                    return subprocess.CompletedProcess(comando, 1, "", "fine sonda")
+
+                with mock.patch.object(gate.subprocess, "run", side_effect=esegui), \
+                     mock.patch.object(gate, "inclusioni_fuori_dal_crate", return_value=[]):
+                    problemi = gate.compila_dall_archivio(lavoro)
+                self.assertTrue(any(
+                    ("fine sonda" if con_lock else "non contiene `Cargo.lock`") in p
+                    for p in problemi
+                ), problemi)
+
     def test_il_consumatore_non_dichiara_patch(self) -> None:
         """La prova vale solo se il consumatore parte senza `[patch]`."""
         import tomllib

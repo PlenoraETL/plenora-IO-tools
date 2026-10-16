@@ -360,6 +360,10 @@ jobs:
           tool: cargo-audit@0.22.2
       # Gli ID ignorati vengono dal registro, non da un elenco scritto qui: due
       # elenchi divergono, e il secondo non porta la ragione dell'eccezione.
+      # cargo-audit 0.22.2 non ha ignore yanked per crate: il wrapper mantiene
+      # --deny warnings sugli advisory e controlla separatamente il JSON con
+      # yanked abilitato, ammettendo solo zip@8.6.0 dal registro. Ogni altro
+      # yanked in ciascun lockfile resta bloccante, anche fuori dal grafo deny.
       #
       # I lockfile sono due. `fuzz/` e' un workspace staccato con il proprio
       # `Cargo.lock`, e quel grafo compila i driver contro input ostili: un
@@ -369,10 +373,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
-          # shellcheck disable=SC2046
-          cargo audit --deny warnings $(python3 scripts/audit_ignores.py)
-          # shellcheck disable=SC2046
-          cargo audit --file fuzz/Cargo.lock --deny warnings $(python3 scripts/audit_ignores.py)
+          python3 scripts/audit_ignores.py --esegui
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
