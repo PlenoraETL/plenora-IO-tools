@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -75,7 +76,7 @@ class SondeArtefatto(unittest.TestCase):
 
     def test_il_gate_diventa_rosso(self) -> None:
         esito = subprocess.run(
-            ["python3", str(calcolo.ROOT / "scripts" / "check_dxf_fork.py")],
+            [sys.executable, str(calcolo.ROOT / "scripts" / "check_dxf_fork.py")],
             cwd=calcolo.ROOT,
             capture_output=True,
             text=True,
@@ -135,7 +136,7 @@ class SondeFiniRiga(unittest.TestCase):
         try:
             bersaglio.write_bytes(originale.replace(b"\n", b"\r\n"))
             esito = subprocess.run(
-                ["python3", str(calcolo.ROOT / "scripts" / "check_dxf_fork.py")],
+                [sys.executable, str(calcolo.ROOT / "scripts" / "check_dxf_fork.py")],
                 cwd=calcolo.ROOT,
                 capture_output=True,
                 text=True,

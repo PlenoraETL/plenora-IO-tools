@@ -37,6 +37,40 @@ use bytes::Bytes;
 use std::any::Any;
 use std::sync::Arc;
 
+/// PLENORA: the column is annotated as text (`UTF8`, `JSON`, `ENUM`): its
+/// values are validated as UTF-8 while decoding.
+pub(crate) fn annotated_as_text(desc: &crate::schema::types::ColumnDescriptor) -> bool {
+    matches!(
+        desc.converted_type(),
+        ConvertedType::UTF8 | ConvertedType::JSON | ConvertedType::ENUM
+    )
+}
+
+/// PLENORA: a string Arrow type (also as dictionary values) is read only from
+/// a column annotated as text. The decoders validate UTF-8 from the
+/// annotation, not from the Arrow type: an Arrow schema (embedded or given)
+/// that asked for strings over a plain byte array produced a string array of
+/// unvalidated bytes (a panic in debug builds, invalid UTF-8 in release).
+pub(crate) fn check_text_annotation(
+    desc: &crate::schema::types::ColumnDescriptor,
+    data_type: &ArrowType,
+) -> Result<()> {
+    let stringa = |t: &ArrowType| {
+        matches!(
+            t,
+            ArrowType::Utf8 | ArrowType::LargeUtf8 | ArrowType::Utf8View
+        )
+    };
+    let chiede_testo = match data_type {
+        ArrowType::Dictionary(_, valori) => stringa(valori),
+        altro => stringa(altro),
+    };
+    if chiede_testo && !annotated_as_text(desc) {
+        return Err(nyi_err!("{}", crate::basic::STRING_WITHOUT_ANNOTATION));
+    }
+    Ok(())
+}
+
 /// Returns an [`ArrayReader`] that decodes the provided byte array column
 pub fn make_byte_array_reader(
     pages: Box<dyn PageIterator>,
@@ -52,6 +86,7 @@ pub fn make_byte_array_reader(
             .data_type()
             .clone(),
     };
+    check_text_annotation(column_desc.as_ref(), &data_type)?;
 
     match data_type {
         ArrowType::Binary
@@ -193,7 +228,8 @@ impl<I: OffsetSizeTrait> ColumnValueDecoder for ByteArrayColumnValueDecoder<I> {
     type Buffer = OffsetBuffer<I>;
 
     fn new(desc: &ColumnDescPtr) -> Self {
-        let validate_utf8 = desc.converted_type() == ConvertedType::UTF8;
+        // PLENORA: `JSON` and `ENUM` are text too.
+        let validate_utf8 = annotated_as_text(desc);
         Self {
             dict: None,
             decoder: None,
@@ -208,14 +244,13 @@ impl<I: OffsetSizeTrait> ColumnValueDecoder for ByteArrayColumnValueDecoder<I> {
         encoding: Encoding,
         _is_sorted: bool,
     ) -> Result<()> {
-        if !matches!(
-            encoding,
-            Encoding::PLAIN | Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY
-        ) {
-            return Err(nyi_err!(
-                "Invalid/Unsupported encoding type for dictionary: {}",
-                encoding
-            ));
+        // PLENORA: an excluded encoding has the text of every other rejection.
+        crate::basic::check_dictionary_page_encoding(encoding)?;
+        // PLENORA: one dictionary per column chunk, as the generic decoder
+        // requires: a second dictionary page replaced the first in silence,
+        // and the indices before it read other values.
+        if self.dict.is_some() {
+            return Err(general_err!("Column cannot have more than one dictionary"));
         }
 
         let mut buffer = OffsetBuffer::with_capacity(0);
@@ -225,7 +260,9 @@ impl<I: OffsetSizeTrait> ColumnValueDecoder for ByteArrayColumnValueDecoder<I> {
             Some(num_values as usize),
             self.validate_utf8,
         );
-        decoder.read(&mut buffer, usize::MAX)?;
+        let letti = decoder.read(&mut buffer, usize::MAX)?;
+        // PLENORA: the count was ignored; a short dictionary was kept.
+        decoder.verifica_dizionario(letti, num_values as usize)?;
         self.dict = Some(buffer);
         Ok(())
     }
@@ -264,6 +301,14 @@ impl<I: OffsetSizeTrait> ColumnValueDecoder for ByteArrayColumnValueDecoder<I> {
 
         decoder.skip(num_values, self.dict.as_ref())
     }
+
+    fn verifica_fine_pagina(&self, fine: crate::column::reader::decoder::FinePagina) -> Result<()> {
+        crate::column::reader::decoder::fine_esatta(
+            self.decoder
+                .as_ref()
+                .is_some_and(|decoder| decoder.fine_esatta(fine)),
+        )
+    }
 }
 
 /// A generic decoder from uncompressed parquet value data to [`OffsetBuffer`]
@@ -275,6 +320,17 @@ pub enum ByteArrayDecoder {
 }
 
 impl ByteArrayDecoder {
+    /// PLENORA: the page ends with the values read.
+    pub fn fine_esatta(&self, fine: crate::column::reader::decoder::FinePagina) -> bool {
+        match self {
+            Self::Plain(d) => {
+                crate::util::bit_util::coda_di_zeri(&d.buf, d.offset, fine.coda_di_zeri)
+            }
+            Self::Dictionary(d) => d.decoder.fine_esatta(fine),
+            Self::DeltaLength(_) | Self::DeltaByteArray(_) => false,
+        }
+    }
+
     pub fn new(
         encoding: Encoding,
         data: Bytes,
@@ -282,6 +338,8 @@ impl ByteArrayDecoder {
         num_values: Option<usize>,
         validate_utf8: bool,
     ) -> Result<Self> {
+        // PLENORA: only the qualified encodings are read, page by page.
+        crate::basic::check_qualified_value_encoding(encoding)?;
         let decoder = match encoding {
             Encoding::PLAIN => ByteArrayDecoder::Plain(ByteArrayDecoderPlain::new(
                 data,
@@ -410,9 +468,11 @@ impl ByteArrayDecoderPlain {
             return Ok(0);
         }
 
+        // PLENORA: `checked_div`: no values left over a non-empty buffer
+        // divided by zero.
         let estimated_bytes = remaining_bytes
             .checked_mul(to_read)
-            .map(|x| x / self.max_remaining_values)
+            .and_then(|x| x.checked_div(self.max_remaining_values))
             .unwrap_or_default();
 
         output.values.reserve(estimated_bytes);
@@ -447,6 +507,15 @@ impl ByteArrayDecoderPlain {
             output.check_valid_utf8(initial_values_length)?;
         }
         Ok(read)
+    }
+
+    /// PLENORA: a dictionary page holds exactly the values its header
+    /// declares: `letti` of `dichiarati`, and every byte consumed.
+    pub fn verifica_dizionario(&self, letti: usize, dichiarati: usize) -> Result<()> {
+        if letti != dichiarati || self.offset != self.buf.len() {
+            return Err(general_err!("{}", crate::basic::DICTIONARY_NOT_AS_DECLARED));
+        }
+        Ok(())
     }
 
     pub fn skip(&mut self, to_skip: usize) -> Result<usize> {
@@ -663,7 +732,7 @@ mod tests {
         let mut decoder = ByteArrayColumnValueDecoder::new(&column_desc);
 
         decoder
-            .set_dict(encoded_dictionary, 4, Encoding::RLE_DICTIONARY, false)
+            .set_dict(encoded_dictionary, 4, Encoding::PLAIN, false)
             .unwrap();
 
         for (encoding, page) in pages {
@@ -720,7 +789,7 @@ mod tests {
         let mut decoder = ByteArrayColumnValueDecoder::new(&column_desc);
 
         decoder
-            .set_dict(encoded_dictionary, 4, Encoding::RLE_DICTIONARY, false)
+            .set_dict(encoded_dictionary, 4, Encoding::PLAIN, false)
             .unwrap();
 
         for (encoding, page) in pages {
@@ -764,8 +833,10 @@ mod tests {
         let column_desc = utf8_column();
         let mut decoder = ByteArrayColumnValueDecoder::new(&column_desc);
 
+        // PLENORA: the dictionary of no data has no entry (4 declared and
+        // none in the page is a dictionary not as declared).
         decoder
-            .set_dict(encoded_dictionary, 4, Encoding::RLE_DICTIONARY, false)
+            .set_dict(encoded_dictionary, 0, Encoding::PLAIN, false)
             .unwrap();
 
         // test nulls read

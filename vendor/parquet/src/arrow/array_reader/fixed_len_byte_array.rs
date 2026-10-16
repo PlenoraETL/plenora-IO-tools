@@ -242,6 +242,37 @@ impl ArrayReader for FixedLenByteArrayReader {
             ArrowType::Interval(unit) => {
                 // An interval is stored as 3x 32-bit unsigned integers storing months, days,
                 // and milliseconds
+                // PLENORA: an INTERVAL is months, days and milliseconds; a
+                // unit that holds only some of them read the others away in
+                // silence (`DayTime` is the unit without an Arrow schema in
+                // the file). The parts the unit does not hold must be zero.
+                let parti_perse = match unit {
+                    IntervalUnit::YearMonth => 4..12,
+                    IntervalUnit::DayTime => 0..4,
+                    IntervalUnit::MonthDayNano => 0..0,
+                };
+                if binary
+                    .iter()
+                    .flatten()
+                    .any(|b| b[parti_perse.clone()].iter().any(|byte| *byte != 0))
+                {
+                    return Err(general_err!("{}", crate::basic::INTERVAL_NOT_AS_DECLARED));
+                }
+                // PLENORA: the three components are unsigned 32-bit integers,
+                // and the Arrow interval holds them as `i32`: one over
+                // `i32::MAX` (2^31 days) became negative in silence.
+                let parti_tenute: &[std::ops::Range<usize>] = match unit {
+                    IntervalUnit::YearMonth => &[0..4],
+                    IntervalUnit::DayTime => &[4..8, 8..12],
+                    IntervalUnit::MonthDayNano => &[],
+                };
+                if binary.iter().flatten().any(|b| {
+                    parti_tenute
+                        .iter()
+                        .any(|parte| b[parte.clone()][3] & 0x80 != 0)
+                }) {
+                    return Err(general_err!("{}", crate::basic::INTERVAL_OUT_OF_RANGE));
+                }
                 match unit {
                     IntervalUnit::YearMonth => {
                         let f = |b: &[u8]| i32::from_le_bytes(b[0..4].try_into().unwrap());
@@ -417,27 +448,24 @@ impl ColumnValueDecoder for ValueDecoder {
         encoding: Encoding,
         _is_sorted: bool,
     ) -> Result<()> {
-        if !matches!(
-            encoding,
-            Encoding::PLAIN | Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY
-        ) {
-            return Err(nyi_err!(
-                "Invalid/Unsupported encoding type for dictionary: {}",
-                encoding
-            ));
+        // PLENORA: an excluded encoding has the text of every other rejection.
+        crate::basic::check_dictionary_page_encoding(encoding)?;
+        // PLENORA: one dictionary per column chunk, as the generic decoder
+        // requires: a second dictionary page replaced the first in silence,
+        // and the indices before it read other values.
+        if self.dict_page.is_some() {
+            return Err(general_err!("Column cannot have more than one dictionary"));
         }
         // PLENORA: a wrapped product would accept a short dictionary.
         let expected_len = (num_values as usize)
             .checked_mul(self.byte_length)
             .ok_or_else(|| general_err!("dictionary page size overflows"))?;
-        if expected_len > buf.len() {
-            return Err(general_err!(
-                "too few bytes in dictionary page, expected {} got {}",
-                expected_len,
-                buf.len()
-            ));
+        // PLENORA: the dictionary holds exactly the values its header
+        // declares; bytes after them are not entries (an index into them was
+        // read as a value in silence), and are rejected like a short page.
+        if expected_len != buf.len() {
+            return Err(general_err!("{}", crate::basic::DICTIONARY_NOT_AS_DECLARED));
         }
-
         self.dict_page = Some(buf);
         Ok(())
     }
@@ -449,12 +477,14 @@ impl ColumnValueDecoder for ValueDecoder {
         num_levels: usize,
         num_values: Option<usize>,
     ) -> Result<()> {
-        // PLENORA: PLAIN and BYTE_STREAM_SPLIT pages hold whole values; a
-        // remainder was dropped in silence (65 bytes of 8-byte values read 8
-        // values and ignored the last byte).
-        if matches!(encoding, Encoding::PLAIN | Encoding::BYTE_STREAM_SPLIT)
-            && !data.len().is_multiple_of(self.byte_length)
-        {
+        // PLENORA: only the qualified encodings are read, page by page.
+        crate::basic::check_qualified_value_encoding(encoding)?;
+        // PLENORA: BYTE_STREAM_SPLIT pages hold whole values; a remainder was
+        // dropped in silence (65 bytes of 8-byte values read 8 values and
+        // ignored the last byte). A PLAIN remainder is judged at the end of
+        // the page, with the rest of the stream (`verifica_fine_pagina`): the
+        // zero bytes fastparquet appends to a v1 page are not a whole value.
+        if encoding == Encoding::BYTE_STREAM_SPLIT && !data.len().is_multiple_of(self.byte_length) {
             return Err(general_err!(
                 "{} page of {} bytes is not a whole number of {}-byte values",
                 encoding,
@@ -515,7 +545,12 @@ impl ColumnValueDecoder for ValueDecoder {
                 Ok(to_read)
             }
             Decoder::Dict { decoder } => {
-                let dict = self.dict_page.as_ref().unwrap();
+                // PLENORA: a dictionary-encoded page with no dictionary page is
+                // an error, not a panic.
+                let dict = self
+                    .dict_page
+                    .as_ref()
+                    .ok_or_else(|| general_err!("missing dictionary page for column"))?;
                 // All data must be NULL
                 if dict.is_empty() {
                     return Ok(0);
@@ -591,6 +626,17 @@ impl ColumnValueDecoder for ValueDecoder {
                 Ok(to_read)
             }
         }
+    }
+
+    fn verifica_fine_pagina(&self, fine: crate::column::reader::decoder::FinePagina) -> Result<()> {
+        let esatta = match self.decoder.as_ref() {
+            Some(Decoder::Plain { buf, offset }) => {
+                crate::util::bit_util::coda_di_zeri(buf, *offset, fine.coda_di_zeri)
+            }
+            Some(Decoder::Dict { decoder }) => decoder.fine_esatta(fine),
+            Some(Decoder::Delta { .. } | Decoder::ByteStreamSplit { .. }) | None => false,
+        };
+        crate::column::reader::decoder::fine_esatta(esatta)
     }
 }
 

@@ -44,6 +44,9 @@
 //!   metadati di colonna e righe, che il primo controllo non vede, e' un errore
 //!   invece di un panico.
 //!
+//! Dalla base data-tools2 6492733 `BYTE_STREAM_SPLIT` e rifiutata come
+//! codifica non qualificata, anche con dichiarazioni coerenti.
+//!
 //! Il riproduttore resta la descrizione del difetto a monte, che
 //! `upstream/arrow-rs-byte-stream-split/` porta ad arrow-rs.
 
@@ -86,6 +89,10 @@ fn parquet_valido(valori: &[f64]) -> Vec<u8> {
 /// `x` resta la prima colonna, quindi i primi `num_values` dell'header di
 /// pagina e dei metadati di colonna sono i suoi.
 fn geoparquet_valido(valori: &[f64]) -> Vec<u8> {
+    geoparquet_con_codifiche(valori, Encoding::BYTE_STREAM_SPLIT, Encoding::PLAIN)
+}
+
+fn geoparquet_con_codifiche(valori: &[f64], numeri: Encoding, geometria: Encoding) -> Vec<u8> {
     use arrow_array::BinaryArray;
     use parquet::file::metadata::KeyValue;
     use parquet::schema::types::ColumnPath;
@@ -112,7 +119,8 @@ fn geoparquet_valido(valori: &[f64]) -> Vec<u8> {
     let proprieta = WriterProperties::builder()
         .set_writer_version(WriterVersion::PARQUET_2_0)
         .set_dictionary_enabled(false)
-        .set_column_encoding(ColumnPath::from("x"), Encoding::BYTE_STREAM_SPLIT)
+        .set_column_encoding(ColumnPath::from("x"), numeri)
+        .set_column_encoding(ColumnPath::from("geometry"), geometria)
         .set_key_value_metadata(Some(vec![KeyValue::new("geo".to_owned(), geo.to_owned())]))
         .build();
 
@@ -122,6 +130,68 @@ fn geoparquet_valido(valori: &[f64]) -> Vec<u8> {
     scrittore.write(&batch).expect("la scrittura riesce");
     scrittore.close().expect("la chiusura riesce");
     byte
+}
+
+/// File validi scritti dal writer, senza alterazioni: il rifiuto restringe
+/// la compatibilita', anche quando geometria e conteggi sono corretti.
+#[test]
+fn il_driver_rifiuta_delta_valido_con_errore_tipizzato() {
+    verifica_codifica_al_confine(Encoding::PLAIN, Encoding::DELTA_LENGTH_BYTE_ARRAY);
+}
+
+#[test]
+fn il_driver_rifiuta_byte_stream_split_valido_con_errore_tipizzato() {
+    verifica_codifica_al_confine(Encoding::BYTE_STREAM_SPLIT, Encoding::PLAIN);
+}
+
+fn verifica_codifica_al_confine(numeri: Encoding, geometria: Encoding) {
+    use plenora_io_core::FormatDriver as _;
+
+    let valori = [12345.5, 67890.5];
+    let leggi = |byte: &[u8]| {
+        let file = tempfile::NamedTempFile::new().expect("file temporaneo");
+        std::fs::write(file.path(), byte).expect("scrittura fixture");
+        // La barriera del test distingue un panico da un Err di prodotto.
+        std::panic::catch_unwind(|| {
+            let aperto = driver_geoparquet::GeoParquetDriver.open(
+                plenora_io_core::Source::Path(file.path().to_path_buf()),
+                opzioni_lettura(),
+            )?;
+            let mut lettore = aperto.open_layer_reader(&richiesta())?;
+            let mut righe = 0;
+            while let Some(batch) = lettore.next_batch()? {
+                righe += batch.num_rows();
+            }
+            Ok::<usize, plenora_io_model::PlenoraIoError>(righe)
+        })
+        .expect("nessun panico al confine del driver")
+    };
+    let plain = geoparquet_con_codifiche(&valori, Encoding::PLAIN, Encoding::PLAIN);
+    assert_eq!(leggi(&plain).expect("controprova PLAIN leggibile"), 2);
+    let byte = geoparquet_con_codifiche(&valori, numeri, geometria);
+    // Dimostra che il writer ha esercitato il rifiuto della codifica,
+    // anziche' ricadere su PLAIN o produrre un altro errore strutturale.
+    match legge(&byte) {
+        Esito::Errore(messaggio) => {
+            assert!(messaggio.contains(parquet::basic::ENCODING_NOT_QUALIFIED));
+        }
+        altro => panic!("atteso rifiuto della codifica: {altro:?}"),
+    }
+    let errore = leggi(&byte).expect_err("non deve restituire righe o un risultato vuoto");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::DataMapping
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.retry, plenora_io_model::RetryDisposition::Never);
+    assert_eq!(errore.remote_effect, plenora_io_model::RemoteEffect::None);
+    assert_eq!(
+        errore,
+        plenora_io_model::PlenoraIoError::formato_redatto(
+            "geoparquet",
+            &plenora_io_model::PublicMessage::Curated("batch Parquet non leggibile"),
+        )
+    );
 }
 
 /// Come e' finita una lettura: tre esiti, e non due.
@@ -172,23 +242,16 @@ fn legge(byte: &[u8]) -> Esito {
     }
 }
 
-/// Il file valido si legge: e' il controfattuale, e va prima dell'alterazione.
-///
-/// Senza, un panico sul file alterato non direbbe se la causa e' il campo o la
-/// codifica stessa.
+/// Dalla base 6492733 anche un `BYTE_STREAM_SPLIT` valido e non qualificato.
+/// Il riproduttore upstream resta in upstream/arrow-rs-byte-stream-split.
 #[test]
-fn il_file_valido_con_byte_stream_split_si_legge() {
+fn il_file_valido_con_byte_stream_split_e_non_qualificato() {
     let valori: Vec<f64> = (0..8).map(|i| f64::from(i) + 0.5).collect();
     match legge(&parquet_valido(&valori)) {
-        Esito::Letto(righe) => assert_eq!(
-            righe,
-            valori.len(),
-            "il file valido deve restituire tutte le righe"
-        ),
-        Esito::Errore(messaggio) | Esito::Panico(messaggio) => panic!(
-            "il file valido non si legge: la codifica non e' utilizzabile per il \
-             riproduttore, e il seguito non misurerebbe il campo: {messaggio}"
-        ),
+        Esito::Errore(messaggio) => {
+            assert!(messaggio.contains(parquet::basic::ENCODING_NOT_QUALIFIED));
+        }
+        altro => panic!("atteso rifiuto esplicito: {altro:?}"),
     }
 }
 
@@ -197,10 +260,6 @@ fn il_file_valido_con_byte_stream_split_si_legge() {
 fn parquet_con_num_values_gonfiato() -> (Vec<u8>, Vec<u8>) {
     let valori: Vec<f64> = (0..8).map(|i| f64::from(i) + 0.5).collect();
     let originale = parquet_valido(&valori);
-    assert!(
-        matches!(legge(&originale), Esito::Letto(_)),
-        "il controfattuale non regge: il file di partenza non si legge"
-    );
     let (solo_pagina, concordi) = gonfia(&originale, valori.len());
     (solo_pagina, concordi)
 }
@@ -261,7 +320,7 @@ fn num_values_della_sola_pagina_oltre_il_chunk_e_un_errore() {
 /// 60.0.0 a monte panica (`index out of bounds`); quello del fork restituisce
 /// un errore.
 #[test]
-fn num_values_concordi_oltre_i_byte_sono_un_errore_del_decoder() {
+fn num_values_concordi_sono_rifiutati_come_codifica_non_qualificata() {
     let (_, concordi) = parquet_con_num_values_gonfiato();
     match legge(&concordi) {
         Esito::Panico(messaggio) => panic!(
@@ -270,7 +329,7 @@ fn num_values_concordi_oltre_i_byte_sono_un_errore_del_decoder() {
         ),
         Esito::Errore(messaggio) => {
             assert!(
-                messaggio.contains("values requested beyond"),
+                messaggio.contains(parquet::basic::ENCODING_NOT_QUALIFIED),
                 "il rifiuto atteso e' quello del decoder del fork: {messaggio}"
             );
         }

@@ -1304,6 +1304,39 @@ upstream dipendono dai manutentori dei progetti originali.
 
 ## Note della prossima release
 
+### Compatibilita' GeoParquet: codifiche e percorsi non qualificati
+
+Il riallineamento al fork comune con data-tools2 `6492733` restringe gli
+ingressi accettati: **anche file GeoParquet validi prima leggibili sono ora
+rifiutati**. Non e' soltanto una correzione dei file malformati.
+
+Sono escluse le codifiche `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`,
+`DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` (valori e livelli).
+Il fork rifiuta inoltre `INDEX_PAGE`, lettura di page index
+(`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati
+(selezioni/filtri di righe, offset, salto di record o pagine).
+IO non usa page index, bloom filter o questi salti: il pruning seleziona
+row group con `with_row_groups`, che resta consentito. La presenza nel file
+di indici o bloom filter non richiesti non implica da sola un rifiuto.
+
+Al confine del driver l'errore e' tipizzato: categoria `DataMapping`, fase
+`Read`, retry `Never`, effetto remoto `None`; per le codifiche escluse nei
+batch il messaggio statico e' «batch Parquet non leggibile», senza dati del
+file. Non e' un panico ne' un risultato vuoto. Il fork segnala esplicitamente
+la codifica non qualificata (`Parquet encoding not qualified for reading`);
+IO non propaga il testo della dipendenza. Le prove con file validi DELTA e
+BYTE_STREAM_SPLIT e controprova PLAIN sono in
+`crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`.
+
+Motivo: questi decoder e percorsi non sono qualificati nel fork condiviso
+con data-tools2. **Rientro:** qualificazione dei singoli percorsi nel fork
+comune, incluse campagne fuzz dedicate e regressioni, adozione in IO della
+base qualificata e verifica al confine del driver. La campagna
+`geoparquet_reader` sul candidato resta da eseguire; questi test non la
+sostituiscono. Il limite e' riportato anche in
+[PRODUCT](PRODUCT.md#limitazioni-di-prodotto) e nel
+[registro del fork](../assurance/registries/vendor-parquet-fork.json).
+
 **Gli esaurimenti e i guasti dell'interprete sono fuori garanzia.** Regola:
 `MemoryError`, `RecursionError` interno, thread non avviabili e interruzioni
 asincrone nei meccanismi interni dell'SDK sono esclusi dalla garanzia: quasi
