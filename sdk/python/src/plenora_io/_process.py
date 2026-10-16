@@ -376,11 +376,14 @@ class _Lettore:
         except BaseException:  # noqa: BLE001 - un lettore non stampa e non solleva
             self._fallito = True
         finally:
-            if self._fallito:
-                self._guasto.set()
-            with self._stato:
-                self._finito = True
-            self._letto.set()
+            try:
+                if self._fallito:
+                    self._guasto.set()
+                with self._stato:
+                    self._finito = True
+                self._letto.set()
+            except Exception:  # noqa: BLE001, S110 - libera comunque il buffer
+                pass
             # Il flusso: lo chiude il chiamante, se lo ha reclamato e lo
             # conferma; altrimenti, a fine run, lo chiude il lettore. La fine
             # del run e' **certa**: la conclusione impostata, oppure il
@@ -389,8 +392,11 @@ class _Lettore:
             # di allora il lettore non scarta niente: il run puo' ancora
             # prendere i suoi byte (ventiseiesimo giro -- un'attesa fissa
             # dall'EOF scartava lo stderr di un run ancora vivo).
-            while not self._run_finito():
-                self._conclusione.wait(_PASSO_DEL_LETTORE)
+            try:
+                while not self._run_finito():
+                    self._conclusione.wait(_PASSO_DEL_LETTORE)
+            except Exception:  # noqa: BLE001, S110 - libera comunque il buffer
+                pass
             self._dati = None
             if not self.chiuso_dal_chiamante:
                 try:
@@ -634,6 +640,7 @@ class Runner:
         confine (diciottesimo giro). I modelli lo leggono con `from_json`.
         """
         argv = _argv_esatto(argv)
+        scrittura = scrive(argv)
         # Prima di `Popen`, **tutti** gli oggetti del run: una costruzione
         # che fallisce qui non lascia un processo senza pulizia (ventisettesimo
         # giro: il gettone e il suo `weakref` stavano fra `Popen` e il `try`).
@@ -661,7 +668,7 @@ class Runner:
         # Da qui al `try`, niente. La fine del run per i lettori si
         # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
         try:
-            return self._esito(processo, argv, lettori, conclusione, guasto, riferimento)
+            return self._esito(processo, argv, lettori, conclusione, guasto, riferimento, scrittura)
         except BaseException as errore:  # noqa: BLE001 - anche nel finally resta primaria
             primaria = errore
             raise
@@ -692,6 +699,7 @@ class Runner:
     def _esito(
         self, processo: Any, argv: list[str], lettori: list["_Lettore"],
         conclusione: threading.Event, guasto: threading.Event, gettone: Any,
+        scrittura: bool,
     ) -> FrozenDict:
         """Il resto di `run`, dentro il `finally` che conclude i lettori."""
         primaria: BaseException | None = None
@@ -738,7 +746,7 @@ class Runner:
                     ), argv) from None
                 raise _dopo_l_avvio(primaria, argv) from None
             # Un'interruzione resta tale, dopo la chiusura del figlio.
-            if scrive(argv):
+            if scrittura:
                 _annota(primaria, NOTA_DELL_INTERRUZIONE)
             if esito is None or not esito.riuscita:
                 _annota(primaria, NOTA_DELLA_CHIUSURA)
@@ -747,7 +755,7 @@ class Runner:
             # Un'interruzione arrivata durante la chiusura, dopo un esito:
             # e' l'eccezione primaria, e resta tale. La chiusura che ha
             # interrotto non e' riuscita del tutto, e lo dice la nota.
-            if scrive(argv):
+            if scrittura:
                 _annota(esito.interruzione, NOTA_DELL_INTERRUZIONE)
             _annota(esito.interruzione, NOTA_DELLA_CHIUSURA)
             raise esito.interruzione

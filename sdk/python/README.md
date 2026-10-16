@@ -101,6 +101,19 @@ tiene fuori dal profilo.
 
 ### Limiti dichiarati
 
+**Gli esaurimenti e i guasti dell'interprete sono fuori garanzia.** Regola:
+`MemoryError`, `RecursionError` interno, thread non avviabili e interruzioni
+asincrone nei meccanismi interni dell'SDK sono esclusi dalla garanzia: quasi
+ogni operazione Python alloca, quindi una protezione completa non e'
+dimostrabile. Ambito: la gestione del processo, compresi lettori, notifiche
+e pulizia. Hazard: con memoria esaurita o un guasto dell'interprete lo SDK
+puo' restituire `UnexpectedError` al posto dell'errore atteso, lasciare
+risorse non rilasciate o lasciare il figlio vivo. L'eccezione primaria
+dell'utente va preservata per quanto ottenibile senza nuovo codice
+speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
+dell'interprete e verificare e chiudere gli eventuali processi figli e le
+risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
+
 **La cancellazione non e' un parametro.** Regola: PYTHON-SDK-1.0 §8 (SHOULD).
 Ambito: tutti i metodi. Un Ctrl-C e' inoltrato al prodotto soltanto dal thread
 principale e fuori da Windows (`Client.cancellable`); non c'e' un token che il

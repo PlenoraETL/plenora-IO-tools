@@ -1304,6 +1304,19 @@ upstream dipendono dai manutentori dei progetti originali.
 
 ## Note della prossima release
 
+**Gli esaurimenti e i guasti dell'interprete sono fuori garanzia.** Regola:
+`MemoryError`, `RecursionError` interno, thread non avviabili e interruzioni
+asincrone nei meccanismi interni dell'SDK sono esclusi dalla garanzia: quasi
+ogni operazione Python alloca, quindi una protezione completa non e'
+dimostrabile. Ambito: la gestione del processo, compresi lettori, notifiche
+e pulizia. Hazard: con memoria esaurita o un guasto dell'interprete lo SDK
+puo' restituire `UnexpectedError` al posto dell'errore atteso, lasciare
+risorse non rilasciate o lasciare il figlio vivo. L'eccezione primaria
+dell'utente va preservata per quanto ottenibile senza nuovo codice
+speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
+dell'interprete e verificare e chiudere gli eventuali processi figli e le
+risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
+
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
 la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
