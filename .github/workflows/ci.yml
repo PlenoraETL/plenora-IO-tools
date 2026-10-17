@@ -263,7 +263,7 @@ jobs:
       # quello del target Linux; il job Windows ripete la verifica sul suo.
       - name: Gli avvisi di licenza dei crate
         run: |
-          python3 -m unittest scripts.test_avvisi_crate scripts.test_licenze
+          python3 -m unittest scripts.test_avvisi_crate scripts.test_licenze scripts.test_wheel_nativa
           python3 scripts/avvisi_crate.py
       # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
       # come prova dell'invariante `errori.static-non-promuovibile`: qui serve

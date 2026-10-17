@@ -4,7 +4,7 @@
   "perche_un_elenco_e_non_un_numero": "«27 saltate» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
   "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
   "dove_girano_invece": "nel repository, dove il job `python-sdk` della CI le esegue su ogni versione di Python della matrice. Saltare nell'installazione non vuol dire non essere verificate: vuol dire esserlo altrove, e questo registro dice dove.",
-  "totale": 95,
+  "totale": 97,
   "eseguite_nella_sdist": 316,
   "condizioni": [
     {
@@ -13,7 +13,7 @@
       "perche_non_sta_nella_sdist": "pesano, e sono del **prodotto** invece che dell'SDK. Metterle in un pacchetto Python vorrebbe dire spedire dati di prova di un altro componente a chi installa un wrapper, e legarne la versione a quella dell'SDK: due cose che cambiano per ragioni diverse.",
       "che_cosa_resta_verificato": "tutto cio' che non tocca un file: la decodifica delle buste, la gerarchia degli errori, i tetti, la scoperta del binario. Le sonde saltate sono quelle d'**integrazione**, e girano nel repository, dove il gate `python-sdk` della CI le esegue a ogni push.",
       "ragione_del_salto": "servono le fixture canoniche della CLI, che non stanno nella sdist",
-      "quante": 71,
+      "quante": 73,
       "sonde": [
         "test_client.ConIlModuloNativo.test_capabilities_dichiara_la_superficie_python",
         "test_client.ConIlModuloNativo.test_i_due_comandi_concordano_sullo_stesso_file",
@@ -25,10 +25,11 @@
         "test_client.ConIlModuloNativo.test_la_versione_e_quella_del_pacchetto",
         "test_client.ConIlModuloNativo.test_la_versione_si_decodifica",
         "test_client.ConIlModuloNativo.test_layers_riassume_senza_lo_schema",
+        "test_client.ConIlModuloNativo.test_sigint_predefinito_e_personalizzato",
+        "test_client.ConIlModuloNativo.test_timeout_reale_inferiore_a_50_ms",
         "test_client.ConIlModuloNativo.test_un_comando_che_fallisce_porta_la_busta",
         "test_client.ConIlModuloNativo.test_un_crs_che_non_si_risolve_e_un_rifiuto_tipizzato",
         "test_client.ConIlModuloNativo.test_un_layer_che_non_esiste_e_un_rifiuto",
-        "test_client.ConIlModuloNativo.test_un_segnale_che_solleva_risale_dopo_l_annullamento",
         "test_client.ConIlModuloNativo.test_un_tetto_superato_e_un_errore_tipizzato",
         "test_client.ConIlModuloNativo.test_una_deadline_governata_non_e_un_timeout_dell_sdk",
         "test_client.ConIlModuloNativo.test_una_opzione_ignota_e_rifiutata",
@@ -42,6 +43,7 @@
         "test_client.ContrIlBinarioVero.test_la_fedelta_arriva_strutturata",
         "test_client.ContrIlBinarioVero.test_la_versione_si_decodifica",
         "test_client.ContrIlBinarioVero.test_layers_riassume_senza_lo_schema",
+        "test_client.ContrIlBinarioVero.test_sigint_predefinito_e_personalizzato",
         "test_client.ContrIlBinarioVero.test_un_comando_che_fallisce_porta_la_busta",
         "test_client.ContrIlBinarioVero.test_un_crs_che_non_si_risolve_e_un_rifiuto_tipizzato",
         "test_client.ContrIlBinarioVero.test_un_layer_che_non_esiste_e_un_rifiuto",

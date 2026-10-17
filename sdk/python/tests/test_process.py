@@ -276,7 +276,7 @@ class IMessaggiNonPortanoDati(unittest.TestCase):
 
     def test_il_timeout_del_modulo_nativo(self) -> None:
         class Finto:
-            def esegui(self, argv, timeout):
+            def esegui(self, argv, timeout, interrotto=None):
                 return (130, "{}", True)
 
         with self.assertRaises(ProtocolError) as preso:

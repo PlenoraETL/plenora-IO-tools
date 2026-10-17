@@ -426,14 +426,93 @@ class ContrIlBinarioVero(unittest.TestCase):
         self.assertGreater(esito.rows_read, 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_sigint_predefinito_e_personalizzato(self) -> None:
+        """Stesso SIGINT reale nei due backend, con arresto e ripristino."""
+        import signal
+        import threading
+        from plenora_io import CancelledError
+
+        class DalGestore(BaseException):
+            pass
+
+        def ordinario(numero, quadro):
+            raise ValueError("SEGRETO-gestore")
+
+        def asincrono(numero, quadro):
+            raise DalGestore("SEGRETO-gestore")
+
+        client = self.nuovo_client()
+        with TemporaryDirectory(prefix="plenora-sdk-segnale-") as cartella:
+            radice = Path(cartella)
+            sorgente = radice / "grande.csv"
+            with sorgente.open("w", encoding="utf-8") as file:
+                file.write("id,etichetta,geom\n")
+                riga = "1," + "x" * 320 + ",POINT(1.5 2.5)\n"
+                for _ in range(600_000):
+                    file.write(riga)
+            for gestore in (signal.default_int_handler, ordinario, asincrono):
+                with self.subTest(gestore=gestore.__name__):
+                    uscita = radice / (gestore.__name__ + ".arrow")
+                    fermo = threading.Event()
+                    inviato = threading.Event()
+
+                    def al_primo_staging():
+                        while not fermo.wait(0.001):
+                            if any(v != sorgente for v in radice.iterdir()):
+                                inviato.set()
+                                signal.raise_signal(signal.SIGINT)
+                                return
+
+                    precedente = signal.signal(signal.SIGINT, gestore)
+                    timer = threading.Thread(target=al_primo_staging, daemon=True)
+                    senza_inoltro = sys.platform == "win32" and client.backend == "process"
+                    atteso = CancelledError
+                    if senza_inoltro:
+                        atteso = {signal.default_int_handler: KeyboardInterrupt,
+                                  ordinario: ProtocolError, asincrono: DalGestore}[gestore]
+                    try:
+                        timer.start()
+                        with self.assertRaises(atteso) as preso:
+                            client.convert(sorgente, uscita, source_format="csv",
+                                           target_format="ipc", assume_crs="EPSG:4326",
+                                           read_options={"wkt_column": "geom"})
+                        if isinstance(preso.exception, Exception):
+                            self.assertNotIn("SEGRETO", str(preso.exception))
+                        self.assertIs(signal.getsignal(signal.SIGINT), gestore)
+                    finally:
+                        fermo.set()
+                        timer.join()
+                        signal.signal(signal.SIGINT, precedente)
+                    self.assertTrue(inviato.is_set())
+                    self.assertFalse(uscita.exists())
+                    if not senza_inoltro:
+                        self.assertEqual(sorted(radice.iterdir()), [sorgente])
+                    else:
+                        # Il processo Windows viene terminato, non cancellato:
+                        # lo staging non ha la garanzia di cleanup cooperativo.
+                        for voce in radice.iterdir():
+                            if voce != sorgente:
+                                if voce.is_dir():
+                                    shutil.rmtree(voce)
+                                else:
+                                    voce.unlink()
+
 
 
 # Le stesse sonde d'integrazione, dal modulo nativo della wheel abi3 (vedi
 # `_nativo.py`), piu' quella che solo la variante nativa puo' fare.
 @serve_le_fixture
 class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[misc]
+    def test_timeout_reale_inferiore_a_50_ms(self) -> None:
+        client = self.nuovo_client()
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
+        client.inspect(fixture)  # senza timeout lo stesso input riesce
+        _, _, scaduto = client._runner._nativo.esegui(["inspect", str(fixture)], 0.000001)
+        self.assertTrue(scaduto)
+        runner = NativeRunner(client._runner._nativo, timeout=0.000001)
+        with self.assertRaises(ProtocolError):
+            runner.run(["inspect", str(fixture)])
+
     def test_capabilities_dichiara_la_superficie_python(self) -> None:
         capacita = self.nuovo_client().capabilities()
         self.assertIn("python_sdk", capacita.operation("io.write").surfaces)
@@ -442,68 +521,6 @@ class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[mi
         """Lo SDK e il prodotto che esegue escono con la stessa versione."""
         self.assertEqual(self.nuovo_client().version().version, __version__)
 
-    def test_un_segnale_che_solleva_risale_dopo_l_annullamento(self) -> None:
-        """L'eccezione del gestore Python di un segnale risale, a comando fermato.
-
-        Il modulo la inghiottiva e rendeva la busta `CANCELLED`: un gestore
-        installato dall'applicazione non arrivava mai. Ora il comando si
-        annulla in modo cooperativo, il modulo attende che si fermi -- nessuna
-        destinazione pubblicata -- e poi risale l'eccezione del gestore.
-        """
-        import signal
-        import threading
-
-        class DalGestore(BaseException):
-            pass
-
-        def gestore(_numero, _quadro):
-            raise DalGestore
-
-        client = self.nuovo_client()
-        with TemporaryDirectory(prefix="plenora-sdk-segnale-") as cartella:
-            radice = Path(cartella)
-            sorgente = radice / "grande.csv"
-            # Abbastanza grande da lasciare una finestra fra la comparsa dello
-            # staging e la fine della conversione -- in build di rilascio sono
-            # circa 0,3 s ogni 70 MB -- e sotto il tetto di default dei byte
-            # d'ingresso (256 MiB).
-            riempimento = "x" * 320
-            with sorgente.open("w", encoding="utf-8") as file:
-                file.write("id,etichetta,geom\n")
-                for indice in range(600_000):
-                    file.write(f"{indice},{riempimento},POINT({indice % 360}.5 {indice % 180}.5)\n")
-            uscita = radice / "uscita.arrow"
-
-            # Il segnale parte quando lo staging compare accanto alla
-            # destinazione: da li' il comando e' certamente in corso, e non
-            # finito. Un ritardo fisso dipenderebbe dalla macchina.
-            fermo = threading.Event()
-
-            def al_primo_staging() -> None:
-                while not fermo.wait(0.001):
-                    if any(voce != sorgente for voce in radice.iterdir()):
-                        signal.raise_signal(signal.SIGINT)
-                        return
-
-            precedente = signal.signal(signal.SIGINT, gestore)
-            timer = threading.Thread(target=al_primo_staging, daemon=True)
-            try:
-                timer.start()
-                with self.assertRaises(DalGestore):
-                    client.convert(
-                        sorgente,
-                        uscita,
-                        source_format="csv",
-                        target_format="ipc",
-                        assume_crs="EPSG:4326",
-                        read_options={"wkt_column": "geom"},
-                    )
-            finally:
-                fermo.set()
-                timer.join()
-                signal.signal(signal.SIGINT, precedente)
-            self.assertFalse(uscita.exists(), "nessuna destinazione pubblicata")
-            self.assertEqual(sorted(radice.iterdir()), [sorgente], "nessuno staging rimasto")
 
 
 class IlRunnerNativo(unittest.TestCase):
@@ -514,7 +531,7 @@ class IlRunnerNativo(unittest.TestCase):
             self.risposta = (codice, stdout, scaduto)
             self.chiamate: list[tuple[list[str], float | None]] = []
 
-        def esegui(self, argv: list[str], timeout: float | None):
+        def esegui(self, argv: list[str], timeout: float | None, interrotto=None):
             self.chiamate.append((argv, timeout))
             return self.risposta
 
@@ -544,10 +561,11 @@ class IlRunnerNativo(unittest.TestCase):
             NativeRunner(finto, timeout=1.0).run(["read", "x"])
         self.assertIn("annullato", str(preso.exception))
 
-    def test_scaduto_ma_gia_riuscito_rende_il_risultato(self) -> None:
-        """Allo scadere il comando era finito: il risultato e' vero."""
+    def test_scaduto_anche_se_riuscito_rende_timeout(self) -> None:
+        """Una risposta oltre la scadenza non nasconde il timeout."""
         finto = self.Finto(0, self.BUSTA_OK, True)
-        self.assertEqual(NativeRunner(finto, timeout=1.0).run(["catalog"]), {"x": 1})
+        with self.assertRaises(ProtocolError):
+            NativeRunner(finto, timeout=1.0).run(["catalog"])
 
     def test_una_busta_d_errore_e_l_errore_della_sua_categoria(self) -> None:
         finto = self.Finto(130, self.BUSTA_ERRORE, False)
@@ -559,7 +577,7 @@ class IlRunnerNativo(unittest.TestCase):
 class IlConfineNativo(unittest.TestCase):
     def test_guasto_dopo_scrittura_senza_dati_ne_catena(self) -> None:
         class Finto:
-            def esegui(self, argv, timeout):
+            def esegui(self, argv, timeout, interrotto=None):
                 raise ValueError("SEGRETO")
         for argv, effetto in [(["convert", "SEGRETO"], "unknown"), (["catalog"], "none")]:
             with self.subTest(argv=argv), self.assertRaises(ProtocolError) as preso:
@@ -571,7 +589,7 @@ class IlConfineNativo(unittest.TestCase):
 
     def test_interruzione_di_scrittura_annotata(self) -> None:
         class Finto:
-            def esegui(self, argv, timeout):
+            def esegui(self, argv, timeout, interrotto=None):
                 raise KeyboardInterrupt
         with self.assertRaises(KeyboardInterrupt) as preso:
             NativeRunner(Finto()).run(["write", "x"])
@@ -601,3 +619,7 @@ class IlConfineNativo(unittest.TestCase):
             scoperta.side_effect = ImportError("SEGRETO")
             with self.assertRaises(UnexpectedError):
                 Client()
+
+
+if __name__ == "__main__":
+    unittest.main()

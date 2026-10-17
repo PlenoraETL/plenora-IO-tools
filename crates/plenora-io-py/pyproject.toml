@@ -42,4 +42,4 @@ Repository = "https://github.com/PlenoraETL/plenora-IO-tools"
 manifest-path = "../../crates/plenora-io-py/Cargo.toml"
 python-source = "python"
 module-name = "plenora_io._native"
-include = ["python/plenora_io/py.typed"]
+include = ["LICENSE", "python/plenora_io/py.typed", "python/plenora_io/LICENSE", "python/plenora_io/LICENSES/**/*"]

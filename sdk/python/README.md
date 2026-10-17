@@ -135,7 +135,7 @@ processo su entrambe le piattaforme.
 Con `backend == "native"`, Ctrl-C e' raccolto dal thread principale anche
 su Windows: annulla cooperativamente e attende il worker Rust. Anche il
 timeout annulla e attende; non e' un limite rigido al tempo di ritorno. Se
-il comando era gia' riuscito, si conserva il successo. Un timeout o un guasto
+la scadenza e' trascorsa al ritorno, anche un successo diventa timeout. Un timeout o un guasto
 dopo l'avvio di una scrittura porta effetto `unknown`, come nel backend di
 processo. Le esclusioni per memoria esaurita, guasti dell'interprete e
 interruzioni asincrone nei meccanismi interni valgono per entrambi i backend.
@@ -361,7 +361,8 @@ ritentativo cieco e' escluso.
 
 **Le interruzioni restano interruzioni.** `KeyboardInterrupt`, `SystemExit` e
 le altre `BaseException` che non sono `Exception` attraversano l'SDK senza
-diventare un `PlenoraError`: un Ctrl-C deve fermare chi chiama. Prima di
+diventare un `PlenoraError`. Questo riguarda le eccezioni asincrone generiche,
+non il SIGINT raccolto dal gestore cooperativo durante il comando. Prima di
 rilanciarle, se il processo e' partito, l'SDK lo chiude (lo termina e ne
 raccoglie i flussi); per un comando che scrive vi aggiunge una nota fissa,
 senza dati (`add_note`, o `__notes__` su Python 3.10), che dice che l'effetto
@@ -555,22 +556,33 @@ scorciatoia, non l'unica informazione.
 
 ## Un Ctrl-C ferma la conversione con grazia
 
-Il segnale viene **inoltrato** al prodotto, che al primo arma un token
-cooperativo: la pipeline lo osserva ai propri punti di verifica e torna un
-`CancelledError` con la destinazione ripulita. Al secondo, il processo esce.
+Nel thread principale, durante un comando, il backend nativo e quello di
+processo su Unix sospendono il gestore SIGINT dell'applicazione e lo
+ripristinano all'uscita. Il primo SIGINT richiede la cancellazione cooperativa:
+lo SDK attende l'arresto e traduce la busta del comando in `CancelledError`,
+anziche' sollevare `KeyboardInterrupt`. Un comando gia' concluso puo' ancora
+restituire il proprio esito. I gestori personalizzati non vengono chiamati
+in questo intervallo: vale sia per quelli che ritornano normalmente, sia per
+quelli che solleverebbero `Exception` o `BaseException`. Nel nativo ulteriori
+SIGINT mantengono la richiesta; il processo Unix conserva il comportamento
+del CLI al secondo segnale (uscita immediata).
 
-Col modulo nativo il Ctrl-C non si inoltra: lo raccoglie il modulo stesso dal
-thread principale e arma lo stesso token, anche su Windows. Il modulo attende
-che il comando si fermi -- destinazione ripulita -- e poi lascia risalire
-l'eccezione del gestore Python del segnale: `KeyboardInterrupt` con quello
-predefinito, la propria con un gestore dell'applicazione, non un
-`CancelledError`. Il secondo Ctrl-C non ha equivalente -- un thread non si
-uccide -- e il comando si attende fino al proprio punto di verifica.
+Su Windows il nativo offre la stessa cancellazione cooperativa. Il backend di
+processo non puo' inoltrare SIGINT al figlio senza coinvolgere il processo
+ospite: mantiene il gestore dell'applicazione. Se questo solleva, lo SDK
+termina e attende il figlio; un'eccezione ordinaria viene redatta nel consueto
+errore SDK, mentre `KeyboardInterrupt` e le altre `BaseException` risalgono.
+Se il gestore ritorna, il comando continua. Non si promette in questo caso
+il cleanup cooperativo dello staging. Fuori dal thread principale non si
+installano gestori. Restano fuori garanzia le interruzioni asincrone generiche
+(#44); le eccezioni ordinarie attraversano sempre il confine di redazione,
+mentre le `BaseException` conservano la loro identita'.
 
-Il gestore vive per la durata della singola esecuzione e viene rimesso com'era:
-una libreria non e' padrona del gestore dei segnali di chi la ospita. Fuori dal
-thread principale, e su Windows, l'inoltro non si arma e il comando funziona lo
-stesso -- `Client.cancellable` lo dice.
+Il timeout del client limita ciascuna attesa al tempo residuo. Anche un risultato
+ricevuto dopo la scadenza produce l'errore SDK di timeout (`ProtocolError`);
+il nativo cancella cooperativamente e attende l'arresto, mentre il backend di
+processo termina il figlio. Non e' la deadline governata del motore, che ha
+una propria busta `TimeoutError`.
 
 ## `validate()` conta, non consegna
 

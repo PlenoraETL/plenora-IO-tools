@@ -142,6 +142,40 @@ def _inoltra_sigint(processo: "subprocess.Popen[str]"):
                 raise
 
 
+@contextlib.contextmanager
+def _sigint_nativo():
+    """Come l'inoltro POSIX: sospende il gestore utente, poi lo ripristina.
+
+    Il callback non solleva: Rust cancella e attende il comando. Funziona
+    anche su Windows, dove non occorre inoltrare un segnale a un figlio.
+    """
+    richiesta = False
+
+    def registra(numero, frame):
+        nonlocal richiesta
+        richiesta = True
+
+    def interrotto():
+        return richiesta
+
+    if threading.current_thread() is not threading.main_thread():
+        yield interrotto
+        return
+    precedente = signal.signal(signal.SIGINT, registra)
+    primaria = False
+    try:
+        yield interrotto
+    except BaseException:
+        primaria = True
+        raise
+    finally:
+        try:
+            signal.signal(signal.SIGINT, precedente)
+        except BaseException:
+            if not primaria:
+                raise
+
+
 def sigint_inoltrabile() -> bool:
     """L'inoltro del segnale e' possibile in questo contesto.
 
@@ -1021,8 +1055,9 @@ class NativeRunner(Runner):
         argv = _argv_esatto(argv)
         try:
             registra_avvio(argv)
-            codice, stdout, scaduto = self._nativo.esegui(list(argv), self._timeout)
-            if scaduto and codice != 0:
+            with _sigint_nativo() as interrotto:
+                codice, stdout, scaduto = self._nativo.esegui(list(argv), self._timeout, interrotto)
+            if scaduto:
                 raise _dallo_sdk(
                     ProtocolError, "nativo.timeout", comando=_nome_del_comando(argv)
                 )
