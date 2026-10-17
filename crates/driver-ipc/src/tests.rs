@@ -7,6 +7,7 @@
 use super::*;
 
 mod buffer_ipc;
+mod layout_ipc;
 mod schema_ipc;
 
 /// Opzioni di lettura sul modello unificato.

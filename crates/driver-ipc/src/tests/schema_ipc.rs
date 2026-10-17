@@ -105,7 +105,7 @@ fn schema<'a>(b: &mut FlatBufferBuilder<'a>, contenitore: Type) -> WIPOffset<Sch
     )
 }
 
-fn incapsula(metadati: &[u8], corpo: &[u8], byte: &mut Vec<u8>) -> i32 {
+pub(super) fn incapsula(metadati: &[u8], corpo: &[u8], byte: &mut Vec<u8>) -> i32 {
     let n = metadati.len().next_multiple_of(8);
     byte.extend_from_slice(&[255; 4]);
     byte.extend_from_slice(&i32::try_from(n).unwrap().to_le_bytes());
