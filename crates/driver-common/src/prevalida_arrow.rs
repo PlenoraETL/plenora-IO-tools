@@ -260,7 +260,7 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
     }
 
     let mut messaggi = 0_usize;
-    let mut schema_visto = false;
+    let mut byte_schema: Option<Vec<u8>> = None;
     let mut posizione = 0_u64;
 
     loop {
@@ -319,16 +319,27 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 
         if let Some(schema) = messaggio.header_as_schema() {
             valida_schema(driver, schema)?;
-            schema_visto = true;
+            // Il decoder conserva lo schema iniziale anche nei messaggi successivi.
+            if byte_schema.is_none() {
+                byte_schema = Some(byte.clone());
+            }
         }
 
         let corpo = messaggio.bodyLength();
         let corpo = u64::try_from(corpo)
             .map_err(|_| errore(driver, "lunghezza del corpo Arrow negativa"))?;
-        // I metadati sono allineati a otto byte prima del corpo.
+        let schema_serializzato = byte_schema
+            .as_deref()
+            .ok_or_else(|| errore(driver, "flusso Arrow senza messaggio di schema"))?;
+        let schema = root_as_message(schema_serializzato)
+            .map_err(|_| errore(driver, "messaggio Arrow non decodificabile"))?
+            .header_as_schema()
+            .ok_or_else(|| errore(driver, "flusso Arrow senza messaggio di schema"))?;
+        valida_corpo(driver, schema, messaggio, corpo)?;
+        // La lunghezza incapsulata include gia' il padding: come StreamReader,
+        // non arrotondiamo separatamente la posizione del messaggio successivo.
         let dopo_i_metadati = inizio_metadati + lunghezza_metadati as u64;
-        let allineata = dopo_i_metadati.next_multiple_of(8);
-        let termine = allineata
+        let termine = dopo_i_metadati
             .checked_add(corpo)
             .ok_or_else(|| errore(driver, "corpo Arrow oltre la dimensione rappresentabile"))?;
         if termine > dimensione {
@@ -342,7 +353,7 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
         }
     }
 
-    if !schema_visto {
+    if byte_schema.is_none() {
         return Err(errore(driver, "flusso Arrow senza messaggio di schema"));
     }
     Ok(())
@@ -498,6 +509,16 @@ fn valida_blocco(
         valida_schema(driver, schema_del_messaggio)?;
     }
 
+    valida_corpo(driver, schema, messaggio, lunghezza_corpo)
+}
+
+/// Un solo controllo per file, flussi, dizionari completi e delta.
+fn valida_corpo(
+    driver: &'static str,
+    schema: FbSchema<'_>,
+    messaggio: arrow_ipc::Message<'_>,
+    lunghezza_corpo: u64,
+) -> Result<()> {
     // Un corpo compresso non e' ispezionabile qui, ed e' irrilevante: la
     // versione pinnata di `arrow-ipc` e' compilata senza `lz4` e senza `zstd`
     // (`default = []`), quindi rifiuta il codec con un errore prima di
@@ -510,6 +531,7 @@ fn valida_blocco(
         if batch.compression().is_some() {
             return Err(errore(driver, "corpo Arrow compresso non verificabile"));
         }
+        valida_buffer(driver, batch, lunghezza_corpo)?;
         valida_batch(driver, schema, batch, versione_v4, lunghezza_corpo)?;
     }
     if let Some(dizionario) = messaggio.header_as_dictionary_batch() {
