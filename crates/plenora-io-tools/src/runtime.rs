@@ -610,15 +610,11 @@ impl<'a> BindingRuntime<'a> {
         let mut richiesta = self.richiesta(descrittore, &campi)?;
         let rimasti = scadenza.map(millisecondi_rimasti).transpose()?;
         richiesta.limits = tetti(&campi, rimasti);
-        // La scadenza assoluta va nel **token**: quando arriva durante
-        // l'esecuzione, la pipeline la osserva come `timeout`
-        // (PUBLIC-SURFACES-1.0 SURF-010), non come una quota di risorse
-        // esaurita. Il tetto di durata qui sopra resta oltre la scadenza, cosi'
-        // da non arrivare prima di lei.
-        let cancellazione = match scadenza {
-            Some(istante) => cancellazione.child_token_with_deadline(Some(istante)),
-            None => cancellazione,
-        };
+        // Entrambe le forme di scadenza vanno nel token conservato fino alla
+        // consegna e alla finalizzazione, oltre la vita del PipelineContext.
+        // La pipeline le osserva come `timeout` (SURF-010); per l'assoluta
+        // il tetto di durata resta oltre la scadenza.
+        let cancellazione = token_della_richiesta(cancellazione, scadenza, campi.deadline_ms)?;
         richiesta = richiesta.con_cancellazione(cancellazione.clone());
         let esito = match descrittore.operazione {
             "io.catalog" => return Ok((descrittore, Carico::Json(operazioni::catalog()))),
@@ -787,6 +783,28 @@ fn verifica_controlli(cancellazione: &CancellationToken, fase: ErrorPhase) -> Re
         return Err(errore_della_busta(crate::map_err(errore).1));
     }
     Ok(())
+}
+
+// RT-023 esclude le due scadenze insieme. La relativa parte dopo la
+// risoluzione, come la durata della pipeline, ma sopravvive fino alla risposta.
+fn token_della_richiesta(
+    token: CancellationToken,
+    scadenza: Option<Instant>,
+    deadline_ms: Option<u64>,
+) -> Result<CancellationToken, Value> {
+    if let Some(istante) = scadenza {
+        return Ok(token.child_token_with_deadline(Some(istante)));
+    }
+    let Some(ms) = deadline_ms else {
+        return Ok(token);
+    };
+    token
+        .child_token_with_timeout(Duration::from_millis(ms))
+        .ok_or_else(|| {
+            errore_del_payload(&PublicMessage::Curated(
+                "deadline_ms non e' rappresentabile come scadenza",
+            ))
+        })
 }
 
 fn tetti(campi: &Campi, scadenza_ms: Option<u64>) -> PipelineLimits {

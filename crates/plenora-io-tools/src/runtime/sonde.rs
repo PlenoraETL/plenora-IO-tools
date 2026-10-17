@@ -284,3 +284,124 @@ fn interruzione_alla_restituzione_non_rende_un_carico_gia_completo() {
         }
     }
 }
+
+// La stessa preparazione del binding: il payload governa sia i tetti sia
+// il token conservato. Solo l'orologio avanza, mai una cancellazione esplicita.
+fn richiesta_con_deadline(
+    sorgente: &std::path::Path,
+) -> (
+    crate::operazioni::Richiesta,
+    plenora_io_model::PipelineClock,
+) {
+    let orologio = plenora_io_model::PipelineClock::manual(Instant::now());
+    let campi = campi(json!({"deadline_ms": 60_000}));
+    let token = super::token_della_richiesta(
+        super::CancellationToken::with_clock(orologio.clone()),
+        None,
+        campi.deadline_ms,
+    )
+    .expect("scadenza relativa rappresentabile");
+    let richiesta = crate::operazioni::Richiesta::sulla_sorgente(sorgente)
+        .con_tetti(tetti(&campi, None))
+        .con_cancellazione(token);
+    (richiesta, orologio)
+}
+
+fn verifica_timeout(errore: &serde_json::Value, fase: &str) {
+    assert_eq!(errore["code"], "DEADLINE_EXCEEDED");
+    assert_eq!(errore["category"], "timeout");
+    assert_eq!(errore["phase"], fase);
+    assert_eq!(errore["remote_effect"], "none");
+    assert_eq!(errore["retry"]["kind"], "never");
+}
+
+#[test]
+fn deadline_del_payload_dopo_il_file_arrow_impedisce_la_consegna() {
+    let privata = tempfile::tempdir().expect("directory privata");
+    let percorso = privata.path().to_path_buf();
+    let sorgente =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.geojson");
+    let (richiesta, orologio) = richiesta_con_deadline(&sorgente);
+    let token = richiesta.cancellation.clone();
+    let rapporto = crate::operazioni::read(
+        richiesta
+            .con_destinazione(percorso.join("consegna.arrows"))
+            .con_opzione_di_scrittura("serialization", "stream"),
+    )
+    .expect("produzione completata prima della scadenza");
+    assert!(percorso.join("consegna.arrows").is_file());
+    assert!(!token.is_cancelled());
+    orologio.advance(Duration::from_secs(60)).expect("scade");
+    let errore = super::completa_flusso(privata, Ok(rapporto), &token)
+        .expect_err("il token sopravvive al PipelineContext");
+    verifica_timeout(&errore, "read");
+    assert!(!percorso.exists(), "cleanup dopo il timeout");
+}
+
+#[test]
+fn deadline_del_payload_alla_finalizzazione_delle_cinque_operazioni() {
+    use crate::operazioni;
+    let sorgente =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.geojson");
+    let deposito = tempfile::tempdir().expect("deposito");
+    let arrow = deposito.path().join("input.arrow");
+    operazioni::read(operazioni::Richiesta::sulla_sorgente(&sorgente).con_destinazione(&arrow))
+        .expect("dataset per io.write");
+    for operazione in [
+        "io.inspect",
+        "io.layers",
+        "io.read",
+        "io.write",
+        "io.convert",
+    ] {
+        let privata = tempfile::tempdir().expect("directory privata");
+        let percorso = privata.path().to_path_buf();
+        let (richiesta, orologio) = richiesta_con_deadline(if operazione == "io.write" {
+            &arrow
+        } else {
+            &sorgente
+        });
+        let token = richiesta.cancellation.clone();
+        let carico = if operazione == "io.read" {
+            let rapporto = operazioni::read(
+                richiesta
+                    .con_destinazione(percorso.join("consegna.arrows"))
+                    .con_opzione_di_scrittura("serialization", "stream"),
+            )
+            .expect("file prodotto");
+            assert!(percorso.join("consegna.arrows").is_file());
+            let byte = super::leggi_flusso(
+                std::fs::File::open(percorso.join("consegna.arrows")).expect("file"),
+                &token,
+            )
+            .expect("byte letti prima della scadenza");
+            super::Carico::FlussoArrow { byte, rapporto }
+        } else {
+            let documento = match operazione {
+                "io.inspect" => operazioni::inspect(richiesta),
+                "io.layers" => operazioni::layers(richiesta),
+                "io.write" => operazioni::write(
+                    richiesta
+                        .con_destinazione(percorso.join("uscita.geojson"))
+                        .con_formato_destinazione("geojson"),
+                ),
+                "io.convert" => operazioni::convert(
+                    richiesta
+                        .con_formato_sorgente("geojson")
+                        .con_destinazione(percorso.join("uscita.geojson"))
+                        .con_formato_destinazione("geojson"),
+                ),
+                _ => unreachable!(),
+            }
+            .expect(operazione);
+            super::Carico::Json(documento)
+        };
+        assert!(!token.is_cancelled(), "{operazione}: produzione completata");
+        // La scadenza arriva soltanto nel cleanup, dopo file e carico completo.
+        privata.close().expect("cleanup");
+        orologio.advance(Duration::from_secs(60)).expect("scade");
+        let errore = super::finalizza_carico(carico, &token).expect_err(operazione);
+        verifica_timeout(&errore, "finalize");
+        assert!(!percorso.exists());
+    }
+}

@@ -3,7 +3,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::task::{Context, Poll, Waker};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use crate::PipelineClock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancellationReason {
@@ -44,6 +46,7 @@ struct WaiterEntry {
 struct Inner {
     reason: AtomicU8,
     deadline: Option<Instant>,
+    clock: PipelineClock,
     waiters: Mutex<Vec<WaiterEntry>>,
     children: Mutex<Vec<Weak<Self>>>,
 }
@@ -78,10 +81,21 @@ impl CancellationToken {
     }
 
     fn new_inner(deadline: Option<Instant>) -> Self {
+        Self::new_inner_with_clock(deadline, PipelineClock::system())
+    }
+
+    /// Costruisce un token con l'orologio condiviso, manuale nelle prove.
+    #[must_use]
+    pub fn with_clock(clock: PipelineClock) -> Self {
+        Self::new_inner_with_clock(None, clock)
+    }
+
+    fn new_inner_with_clock(deadline: Option<Instant>, clock: PipelineClock) -> Self {
         Self {
             inner: Arc::new(Inner {
                 reason: AtomicU8::new(0),
                 deadline,
+                clock,
                 waiters: Mutex::new(Vec::new()),
                 children: Mutex::new(Vec::new()),
             }),
@@ -106,7 +120,7 @@ impl CancellationToken {
         CancellationReason::from_code(self.inner.reason.load(Ordering::Acquire)).or_else(|| {
             self.inner
                 .deadline
-                .filter(|deadline| Instant::now() >= *deadline)
+                .filter(|deadline| self.inner.clock.now() >= *deadline)
                 .map(|_| CancellationReason::Deadline)
         })
     }
@@ -121,6 +135,14 @@ impl CancellationToken {
         self.child_token_with_deadline(self.inner.deadline)
     }
 
+    /// La durata parte adesso e resta nel figlio anche dopo la pipeline.
+    /// Rende `None` se la scadenza non e' rappresentabile come `Instant`.
+    #[must_use]
+    pub fn child_token_with_timeout(&self, duration: Duration) -> Option<Self> {
+        let deadline = self.inner.clock.now().checked_add(duration)?;
+        Some(self.child_token_with_deadline(Some(deadline)))
+    }
+
     #[must_use]
     pub fn child_token_with_deadline(&self, deadline: Option<Instant>) -> Self {
         let deadline = match (self.inner.deadline, deadline) {
@@ -128,7 +150,7 @@ impl CancellationToken {
             (Some(parent), None) => Some(parent),
             (None, child) => child,
         };
-        let child = Self::new_inner(deadline);
+        let child = Self::new_inner_with_clock(deadline, self.inner.clock.clone());
         {
             let mut children = lock_recover(&self.inner.children);
             children.retain(|existing| existing.strong_count() > 0);

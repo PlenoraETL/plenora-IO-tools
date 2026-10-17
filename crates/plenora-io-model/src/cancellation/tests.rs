@@ -64,3 +64,25 @@ fn deadline_is_declarative() {
     let token = CancellationToken::with_deadline(Instant::now());
     assert_eq!(token.reason(), Some(CancellationReason::Deadline));
 }
+
+#[test]
+fn relative_deadline_uses_shared_clock_and_never_extends_parent() {
+    let clock = PipelineClock::manual(Instant::now());
+    let root = CancellationToken::with_clock(clock.clone());
+    let parent = root
+        .child_token_with_timeout(Duration::from_secs(2))
+        .unwrap();
+    let child = parent
+        .child_token_with_timeout(Duration::from_secs(3))
+        .unwrap();
+    let earlier = parent
+        .child_token_with_timeout(Duration::from_secs(1))
+        .unwrap();
+    clock.advance(Duration::from_secs(1)).unwrap();
+    assert_eq!(earlier.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(child.reason(), None);
+    clock.advance(Duration::from_secs(1)).unwrap();
+    assert_eq!(parent.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(child.reason(), Some(CancellationReason::Deadline));
+    assert_eq!(root.reason(), None, "il timeout del figlio resta isolato");
+}
