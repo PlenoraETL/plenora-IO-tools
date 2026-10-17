@@ -4570,7 +4570,8 @@ class GliOggettiDelRunPrimaDellAvvio(unittest.TestCase):
         albero = ast.parse(sorgente.read_text(encoding="utf-8"))
         corpi = [
             funzione.body
-            for classe in ast.walk(albero) if isinstance(classe, ast.ClassDef)
+            for classe in ast.walk(albero)
+            if isinstance(classe, ast.ClassDef) and classe.name == "Runner"
             for funzione in classe.body
             if isinstance(funzione, ast.FunctionDef) and funzione.name == "run"
         ]

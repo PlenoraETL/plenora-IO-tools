@@ -24,7 +24,7 @@ manifesto.
 
 # Il gate
 
-`python3 scripts/avvisi_crate.py --profilo base|filegdb` fallisce se un crate
+`python3 scripts/avvisi_crate.py --profilo base|filegdb|nativo` fallisce se un crate
 linkato non ha un avviso -- ne' nel pacchetto, ne' nel registro -- se un testo
 del registro non ha l'impronta registrata, o se una voce del registro non serve
 piu' (un registro che accetta voci obsolete descriverebbe un altro grafo).
@@ -178,7 +178,10 @@ def verifica(profili: list[str]) -> list[str]:
     errori: list[str] = []
     usate_in_tutti: set[tuple[str, str]] = set()
     for profilo in profili:
-        crate = dipendenze.linkati(dipendenze.grafo(profilo))
+        crate = dipendenze.linkati(
+            dipendenze.grafo("base" if profilo == "nativo" else profilo),
+            radice="plenora-io-py" if profilo == "nativo" else "plenora-io-tools",
+        )
         _, errori_del_profilo, usate = avvisi(crate)
         errori += [f"[{profilo}] {e}" for e in errori_del_profilo]
         usate_in_tutti |= usate
@@ -201,10 +204,10 @@ def verifica(profili: list[str]) -> list[str]:
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument(
-        "--profilo", action="append", choices=["base", "filegdb"], default=None
+        "--profilo", action="append", choices=["base", "filegdb", "nativo"], default=None
     )
     opzioni = argomenti.parse_args()
-    profili = opzioni.profilo or ["base", "filegdb"]
+    profili = opzioni.profilo or ["base", "filegdb", "nativo"]
     errori = verifica(profili)
     if errori:
         print("avvisi dei crate: falliti")

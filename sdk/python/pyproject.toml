@@ -23,7 +23,8 @@ readme = "README.md"
 # Il limite superiore non e' pessimismo: `Requires-Python` e' cio' che pip legge
 # per decidere se questo pacchetto puo' girare, e dichiarare `>=3.10` senza
 # limite prometterebbe ogni Python futuro. La matrice della CI prova dalla 3.10
-# alla 3.14; il giorno in cui ne provera' un'altra, questa riga si allarga
+# alla 3.14, come la wheel abi3 (crates/plenora-io-py/pyproject.toml),
+# verificata da scripts/check_requires_python.py; il giorno in cui ne provera' un'altra, questa riga si allarga
 # insieme a lei.
 #
 # Il minimo e' 3.10 perche' PYTHON-SDK-1.0 §2 lo pretende («MUST support Python

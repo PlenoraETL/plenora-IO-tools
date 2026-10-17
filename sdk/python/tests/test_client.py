@@ -33,11 +33,14 @@ from plenora_io import (
     Client,
     CommandFailed,
     Limits,
+    NativeRunner,
     ProtocolError,
     ResourceLimitError,
+    __version__,
 )
 from plenora_io._discovery import NOME, VARIABILE
 
+from _nativo import client_di_prova, variante_nativa
 from _repository import RADICE, serve_le_fixture
 
 
@@ -170,12 +173,15 @@ class ContrIlBinarioVero(unittest.TestCase):
                 "niente da esercitare"
             )
 
+    def nuovo_client(self) -> Client:
+        return client_di_prova(self.binario)
+
     def test_la_versione_si_decodifica(self) -> None:
-        versione = Client(binary=self.binario).version()
+        versione = self.nuovo_client().version()
         self.assertTrue(versione.version)
 
     def test_il_catalogo_si_decodifica_intero(self) -> None:
-        catalogo = Client(binary=self.binario).catalog()
+        catalogo = self.nuovo_client().catalog()
         self.assertTrue(catalogo.drivers)
         # I dieci driver del prodotto: il numero non e' fissato qui -- lo fissa
         # il catalogo -- ma che ce ne sia piu' d'uno e che ciascuno si
@@ -186,7 +192,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
 
     def test_inspect_si_decodifica_intero(self) -> None:
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.inspect(fixture)
         self.assertEqual(esito.format.id, "geojson")
@@ -211,7 +217,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         self.assertEqual(strato.geometry.crs_resolution.id, strato.geometry.crs)
 
     def test_layers_riassume_senza_lo_schema(self) -> None:
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         esito = cliente.layers(fixture)
         self.assertEqual(esito.format, "gpkg")
@@ -227,7 +233,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         chi sceglie il piu' economico otterrebbe una risposta diversa da chi
         paga l'inferenza.
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         completo = cliente.inspect(fixture)
         riassunto = cliente.layers(fixture)
@@ -242,7 +248,7 @@ class ContrIlBinarioVero(unittest.TestCase):
             self.assertEqual(strato.geometry.crs, sommario.geometry_crs)
 
     def test_la_fedelta_arriva_strutturata(self) -> None:
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         fedelta = cliente.layers(fixture).fidelity
 
@@ -263,7 +269,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         E' una decisione di prodotto, e l'SDK la porta a chi lo usa come
         categoria: `assume_crs` e' la via per dire «lo so io».
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico_punti.shp"
         with self.assertRaises(CommandFailed) as preso:
             cliente.inspect(fixture)
@@ -276,7 +282,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
 
     def test_validate_legge_conta_e_non_da_righe(self) -> None:
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         esito = cliente.validate(fixture)
         self.assertGreater(esito.rows_read, 0)
@@ -288,7 +294,7 @@ class ContrIlBinarioVero(unittest.TestCase):
 
     def test_il_conteggio_di_validate_e_quello_di_inspect(self) -> None:
         """Le due strade guardano lo stesso file e devono descriverlo uguale."""
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
         letto = cliente.validate(fixture)
         guardato = cliente.inspect(fixture)
@@ -312,7 +318,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         forma delle buste e non il significato dei valori. La sonda le fissa
         cosi' che un cambiamento si veda.
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         intero = cliente.validate(fixture)
         righe = intero.rows_read
@@ -336,7 +342,7 @@ class ContrIlBinarioVero(unittest.TestCase):
     def test_un_tetto_superato_e_un_errore_tipizzato(self) -> None:
         """La difesa che scatta e' un'informazione, non un guasto: chi la
         incontra alza il tetto o riduce il lavoro, e in entrambi i casi decide."""
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(ResourceLimitError) as preso:
             cliente.validate(fixture, limits=Limits(max_rows=1))
@@ -350,7 +356,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         busta che descrive il lavoro fatto. Il `timeout` del client uccide il
         processo, e quel che resta e' «non si sa».
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         # Una deadline generosa non cambia l'esito: la sonda non misura il
         # tempo, misura che l'opzione arrivi al prodotto senza rompere niente.
@@ -358,7 +364,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         self.assertTrue(esito.complete)
 
     def test_un_layer_che_non_esiste_e_un_rifiuto(self) -> None:
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(CommandFailed) as preso:
             cliente.validate(fixture, layer=99)
@@ -371,7 +377,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         metodo privato dell'esecutore, e verificava una strada che nessun utente
         dell'SDK percorre.
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         with self.assertRaises(CommandFailed) as preso:
             cliente.inspect("/non/esiste.geojson")
         self.assertEqual(preso.exception.envelope.phase, "read")
@@ -398,7 +404,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         strada fra il parametro Python e il driver: un SDK che costruisse
         l'argomento sbagliato passerebbe le prove Rust e fallirebbe questa.
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(CommandFailed) as preso:
             cliente.validate(fixture, options={"chiave_inventata": "1"})
@@ -412,12 +418,207 @@ class ContrIlBinarioVero(unittest.TestCase):
         sonda qui sopra starebbe misurando un rifiuto indiscriminato invece
         della validazione delle chiavi.
         """
-        cliente = Client(binary=self.binario)
+        cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.csv"
         esito = cliente.validate(
             fixture, assume_crs="EPSG:4326", options={"wkt_column": "geometry"}
         )
         self.assertGreater(esito.rows_read, 0)
+
+
+    def test_sigint_predefinito_e_personalizzato(self) -> None:
+        """Stesso SIGINT reale nei due backend, con arresto e ripristino."""
+        import signal
+        import threading
+        from plenora_io import CancelledError
+
+        class DalGestore(BaseException):
+            pass
+
+        def ordinario(numero, quadro):
+            raise ValueError("SEGRETO-gestore")
+
+        def asincrono(numero, quadro):
+            raise DalGestore("SEGRETO-gestore")
+
+        client = self.nuovo_client()
+        with TemporaryDirectory(prefix="plenora-sdk-segnale-") as cartella:
+            radice = Path(cartella)
+            sorgente = radice / "grande.csv"
+            with sorgente.open("w", encoding="utf-8") as file:
+                file.write("id,etichetta,geom\n")
+                riga = "1," + "x" * 320 + ",POINT(1.5 2.5)\n"
+                for _ in range(600_000):
+                    file.write(riga)
+            for gestore in (signal.default_int_handler, ordinario, asincrono):
+                with self.subTest(gestore=gestore.__name__):
+                    uscita = radice / (gestore.__name__ + ".arrow")
+                    fermo = threading.Event()
+                    inviato = threading.Event()
+
+                    def al_primo_staging():
+                        while not fermo.wait(0.001):
+                            if any(v != sorgente for v in radice.iterdir()):
+                                inviato.set()
+                                signal.raise_signal(signal.SIGINT)
+                                return
+
+                    precedente = signal.signal(signal.SIGINT, gestore)
+                    timer = threading.Thread(target=al_primo_staging, daemon=True)
+                    senza_inoltro = sys.platform == "win32" and client.backend == "process"
+                    atteso = CancelledError
+                    if senza_inoltro:
+                        atteso = {signal.default_int_handler: KeyboardInterrupt,
+                                  ordinario: ProtocolError, asincrono: DalGestore}[gestore]
+                    try:
+                        timer.start()
+                        with self.assertRaises(atteso) as preso:
+                            client.convert(sorgente, uscita, source_format="csv",
+                                           target_format="ipc", assume_crs="EPSG:4326",
+                                           read_options={"wkt_column": "geom"})
+                        if isinstance(preso.exception, Exception):
+                            self.assertNotIn("SEGRETO", str(preso.exception))
+                        self.assertIs(signal.getsignal(signal.SIGINT), gestore)
+                    finally:
+                        fermo.set()
+                        timer.join()
+                        signal.signal(signal.SIGINT, precedente)
+                    self.assertTrue(inviato.is_set())
+                    self.assertFalse(uscita.exists())
+                    if not senza_inoltro:
+                        self.assertEqual(sorted(radice.iterdir()), [sorgente])
+                    else:
+                        # Il processo Windows viene terminato, non cancellato:
+                        # lo staging non ha la garanzia di cleanup cooperativo.
+                        for voce in radice.iterdir():
+                            if voce != sorgente:
+                                if voce.is_dir():
+                                    shutil.rmtree(voce)
+                                else:
+                                    voce.unlink()
+
+
+
+# Le stesse sonde d'integrazione, dal modulo nativo della wheel abi3 (vedi
+# `_nativo.py`), piu' quella che solo la variante nativa puo' fare.
+@serve_le_fixture
+class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[misc]
+    def test_timeout_reale_inferiore_a_50_ms(self) -> None:
+        client = self.nuovo_client()
+        fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
+        client.inspect(fixture)  # senza timeout lo stesso input riesce
+        _, _, scaduto = client._runner._nativo.esegui(["inspect", str(fixture)], 0.000001)
+        self.assertTrue(scaduto)
+        runner = NativeRunner(client._runner._nativo, timeout=0.000001)
+        with self.assertRaises(ProtocolError):
+            runner.run(["inspect", str(fixture)])
+
+    def test_capabilities_dichiara_la_superficie_python(self) -> None:
+        capacita = self.nuovo_client().capabilities()
+        self.assertIn("python_sdk", capacita.operation("io.write").surfaces)
+
+    def test_la_versione_e_quella_del_pacchetto(self) -> None:
+        """Lo SDK e il prodotto che esegue escono con la stessa versione."""
+        self.assertEqual(self.nuovo_client().version().version, __version__)
+
+
+
+class IlRunnerNativo(unittest.TestCase):
+    """`NativeRunner` contro un modulo finto: le condizioni che il vero non produce."""
+
+    class Finto:
+        def __init__(self, codice: int, stdout: str, scaduto: bool) -> None:
+            self.risposta = (codice, stdout, scaduto)
+            self.chiamate: list[tuple[list[str], float | None]] = []
+
+        def esegui(self, argv: list[str], timeout: float | None, interrotto=None):
+            self.chiamate.append((argv, timeout))
+            return self.risposta
+
+    BUSTA_OK = json.dumps({"status": "ok", "result": {"x": 1}})
+    BUSTA_ERRORE = json.dumps(
+        {
+            "status": "error",
+            "error": {
+                "category": "cancelled",
+                "phase": "read",
+                "remote_effect": "none",
+                "retry": {"kind": "never"},
+                "code": "CANCELLED",
+                "message": "annullata",
+            },
+        }
+    )
+
+    def test_il_timeout_passa_al_modulo(self) -> None:
+        finto = self.Finto(0, self.BUSTA_OK, False)
+        NativeRunner(finto, timeout=2.5).run(["catalog"])
+        self.assertEqual(finto.chiamate, [(["catalog"], 2.5)])
+
+    def test_scaduto_e_annullato_e_un_errore_di_protocollo(self) -> None:
+        finto = self.Finto(130, self.BUSTA_ERRORE, True)
+        with self.assertRaises(ProtocolError) as preso:
+            NativeRunner(finto, timeout=1.0).run(["read", "x"])
+        self.assertIn("annullato", str(preso.exception))
+
+    def test_scaduto_anche_se_riuscito_rende_timeout(self) -> None:
+        """Una risposta oltre la scadenza non nasconde il timeout."""
+        finto = self.Finto(0, self.BUSTA_OK, True)
+        with self.assertRaises(ProtocolError):
+            NativeRunner(finto, timeout=1.0).run(["catalog"])
+
+    def test_una_busta_d_errore_e_l_errore_della_sua_categoria(self) -> None:
+        finto = self.Finto(130, self.BUSTA_ERRORE, False)
+        with self.assertRaises(CommandFailed):
+            NativeRunner(finto).run(["read", "x"])
+
+
+
+class IlConfineNativo(unittest.TestCase):
+    def test_guasto_dopo_scrittura_senza_dati_ne_catena(self) -> None:
+        class Finto:
+            def esegui(self, argv, timeout, interrotto=None):
+                raise ValueError("SEGRETO")
+        for argv, effetto in [(["convert", "SEGRETO"], "unknown"), (["catalog"], "none")]:
+            with self.subTest(argv=argv), self.assertRaises(ProtocolError) as preso:
+                NativeRunner(Finto()).run(argv)
+            self.assertEqual(preso.exception.remote_effect, effetto)
+            self.assertNotIn("SEGRETO", str(preso.exception))
+            self.assertIsNone(preso.exception.__context__)
+            self.assertIsNone(preso.exception.__cause__)
+
+    def test_interruzione_di_scrittura_annotata(self) -> None:
+        class Finto:
+            def esegui(self, argv, timeout, interrotto=None):
+                raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt) as preso:
+            NativeRunner(Finto()).run(["write", "x"])
+        self.assertTrue(preso.exception.__notes__)
+
+    def test_scelta_backend_e_copia(self) -> None:
+        import copy
+        from unittest import mock
+        from plenora_io import UnexpectedError
+        finto = IlRunnerNativo.Finto(0, IlRunnerNativo.BUSTA_OK, False)
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch(
+            "plenora_io._client.modulo_nativo", return_value=finto
+        ) as scoperta:
+            client = Client()
+            self.assertEqual(client.backend, "native")
+            self.assertIsNone(client.binary)
+            self.assertEqual(copy.copy(client).backend, "native")
+            self.assertEqual(copy.copy(client._runner).run(["catalog"]), {"x": 1})
+            with mock.patch("plenora_io._client.trova_binario", return_value=Path("binario")), mock.patch(
+                "plenora_io._client.leggi_manifesto", return_value=None
+            ):
+                scoperta.reset_mock()
+                self.assertEqual(Client(binary="esplicito").backend, "process")
+                with mock.patch.dict(os.environ, {VARIABILE: "ambiente"}):
+                    self.assertEqual(Client().backend, "process")
+                scoperta.assert_not_called()
+            scoperta.side_effect = ImportError("SEGRETO")
+            with self.assertRaises(UnexpectedError):
+                Client()
 
 
 if __name__ == "__main__":

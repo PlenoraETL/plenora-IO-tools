@@ -32,7 +32,7 @@ from typing import Any
 from . import _argomenti as arg
 from . import _arrow as arrow
 from ._confine import nome_sdk
-from ._discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
+from ._discovery import VARIABILE, modulo_nativo, Manifest, leggi_manifesto, trova_binario, verifica_profilo
 from ._errors import ProtocolError, _copia_json
 from ._errors import _dallo_sdk
 from ._contenitori import _memo, _protocollo
@@ -47,7 +47,7 @@ from ._models import (
     Version,
     WriteResult,
 )
-from ._process import Runner, _annota_interruzione, _dopo_l_avvio, scrive
+from ._process import NativeRunner, Runner, _annota_interruzione, _dopo_l_avvio, scrive
 
 #: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
 #:
@@ -150,9 +150,18 @@ class Client:
         timeout: float | None = None,
     ) -> None:
         timeout = arg.timeout(timeout)
-        percorso = trova_binario(binary)
-        self._runner = Runner(percorso, timeout=timeout)
-        self._manifest = leggi_manifesto(percorso)
+        nativo = None
+        if binary is None and not os.environ.get(VARIABILE):
+            nativo = modulo_nativo()
+        self._runner: Runner
+        if nativo is not None:
+            self._runner = NativeRunner(nativo, timeout=timeout)
+            self._manifest: Manifest | None = None
+        else:
+            percorso = trova_binario(binary)
+            self._runner = Runner(percorso, timeout=timeout)
+            self._manifest = leggi_manifesto(percorso)
+
 
     # Il protocollo di serializzazione: lo stato sono i soli parametri del
     # costruttore -- il binario e il timeout -- e si ricostruisce chiamandolo,
@@ -160,7 +169,7 @@ class Client:
 
     def __getstate__(self) -> dict[str, Any]:
         runner = object.__getattribute__(self, "_runner")
-        return {"binary": str(runner.binary), "timeout": runner._timeout}
+        return {"binary": None if runner.binary is None else str(runner.binary), "timeout": runner._timeout}
 
     def __reduce__(self) -> Any:
         stato = self.__getstate__()
@@ -179,8 +188,13 @@ class Client:
         return self.__copy__()
 
     @property
-    def binary(self) -> Path:
+    def binary(self) -> Path | None:
         return self._runner.binary
+
+    @property
+    def backend(self) -> str:
+        """`"native"` col modulo della wheel abi3, `"process"` col binario."""
+        return "native" if isinstance(self._runner, NativeRunner) else "process"
 
     @property
     def manifest(self) -> Manifest | None:
@@ -628,7 +642,8 @@ class Client:
     def cancellable(self) -> bool:
         """Un Ctrl-C durante un comando arriva al prodotto.
 
-        Falso da un thread che non sia il principale e su Windows. Il comando
+        Falso da un thread secondario; su Windows e' disponibile solo col
+        backend nativo. Il comando
         funziona lo stesso: cambia solo che non lo si puo' fermare con grazia,
         e chi ha bisogno di saperlo lo chiede qui invece di scoprirlo.
         """

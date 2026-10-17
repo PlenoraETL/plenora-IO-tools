@@ -132,5 +132,23 @@
       "cargo_deny": "python scripts/check_cargo_deny.py --esegui: exit 0, cargo-deny 0.20.2; advisories, bans, licenses, sources ok su workspace e fuzz. Warning non bloccanti su duplicati e ignore/eccezioni non incontrati.",
       "cargo_audit": "python scripts/audit_ignores.py --esegui: exit 1 su entrambi i lockfile, prima dell'analisi. Fetch del database impossibile: failed to obtain lock file C:/Users/Marco/.cargo/advisory-db..lock, attempted to take an exclusive lock on a read-only path. Nessun esito verde audit dichiarato; da rieseguire in ambiente con cache scrivibile e rete."
     }
-  }
+  },
+  "unsafe_nelle_dipendenze": [
+    {
+      "crate_del_workspace": "plenora-io-py",
+      "dipendenza": "pyo3",
+      "versione": "=0.29.2",
+      "che_cosa": "le macro `#[pymodule]` e `#[pyfunction]` generano codice `unsafe` per l'interfaccia C di CPython. E' espansione di una macro di un altro crate, che il lint `unsafe_code` non esamina; il codice scritto nel crate non ha `unsafe`, e `unsafe_code = \"forbid\"` del workspace vale anche per lui.",
+      "verifica": "`scripts/check_unsafe_forbid.py`: `forbid` nel workspace, `[lints] workspace = true` in ogni crate, nessun `unsafe` ne' `allow(unsafe_code)` scritto nei sorgenti, e questa voce per ogni crate che dipende da `pyo3`.",
+      "come_negli_altri_repository": "plenora-database-tools e plenora-data-tools tengono lo stesso `forbid` di workspace sui loro crate PyO3, senza `allow` ne' eccezioni al lint.",
+      "trigger_di_riesame": "aggiornamento di `pyo3`, o un crate nuovo che lo usa"
+    }
+  ],
+  "deroghe_al_forbid": [
+    {
+      "crate_del_workspace": "plenora-bench",
+      "perche": "harness di misura, non spedito (`publish = false`, fuori dagli artefatti): un `GlobalAlloc` contatore e `getrusage` richiedono `unsafe`, e il crate non eredita i lint del workspace. La deroga e' dichiarata nel suo `Cargo.toml`.",
+      "verifica": "`scripts/check_unsafe_forbid.py` salta soltanto i crate elencati qui, e pretende che non siano pubblicabili."
+    }
+  ]
 }

@@ -1,7 +1,7 @@
 """SDK Python per la CLI `plenora-io`.
 
-Un wrapper sul protocollo v2, non un binding: nessun codice nativo, nessun
-download. Il confine pubblico di questo prodotto e' la busta JSON -- che
+Il protocollo v2, dal binario oppure dal modulo nativo della wheel abi3:
+nessun download. Il confine pubblico di questo prodotto e' la busta JSON -- che
 `release/cli-protocol-v2.json` ratifica campo per campo -- e l'API Rust e'
 dichiarata `internal_unstable`. L'SDK si appoggia alla sola cosa che il
 progetto promette.
@@ -104,7 +104,7 @@ from ._models import (
     WriteInput,
     WriteResult,
 )
-from ._process import Runner
+from ._process import NativeRunner, Runner
 
 #: I profili della distribuzione, come contenitore dell'SDK: un attributo
 #: pubblico non e' mai una `tuple` o una `list` di Python (README, «Il confine
@@ -117,11 +117,8 @@ PROFILES = FrozenList(list(_PROFILI))
 #: scritta in due posti sarebbe divergita alla prima release fatta di fretta, e
 #: il pacchetto avrebbe dichiarato una versione e importato un'altra.
 #:
-#: Non e' la versione del **binario**, e le due vanno tenute distinte: un SDK
-#: puo' uscire per un difetto proprio senza che il prodotto cambi, e un binario
-#: nuovo puo' funzionare con un SDK vecchio finche' il protocollo regge. Che
-#: qui dica `2.0.0` come il prodotto e' la scelta di partire allineati, non un
-#: vincolo: chi vuole la versione del prodotto la chiede a `Client.version()`.
+#: E' la versione del workspace e della wheel nativa; il gate SDK verifica
+#: l'allineamento. Client.version() interroga invece il backend in uso.
 __version__ = "4.1.1"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
@@ -200,6 +197,7 @@ __all__ = [
     "LossReport",
     "Manifest",
     "ManifestError",
+    "NativeRunner",
     "NotFoundError",
     "Omissions",
     "OperationContent",
