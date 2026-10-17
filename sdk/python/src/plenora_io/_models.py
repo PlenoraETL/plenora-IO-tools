@@ -1,0 +1,1427 @@
+"""I modelli delle due buste che questo ciclo copre: bootstrap e catalogo.
+
+# I nomi sono quelli del wire
+
+`hostile_input_hardened`, non `hardened_against_hostile_input`. Tradurre
+costringerebbe chi legge `release/cli-protocol-v2.json` a tenere due
+vocabolari, e la prima volta che i due divergono nessuno sa quale sia quello
+giusto.
+
+# Perche' `raw` c'e' sempre
+
+Ogni modello conserva il documento da cui e' nato. Non e' pigrizia: un campo che
+il protocollo aggiunge come `add_optional_field` -- che le sue regole di
+compatibilita' consentono -- arriva a chi usa l'SDK anche prima che l'SDK lo
+modelli. Senza, un consumatore dovrebbe aspettare una nostra release per leggere
+un campo che il prodotto gli sta gia' mandando.
+
+# Perche' i campi mancanti sono un errore e non `None`
+
+`from_json` pretende i campi che il protocollo dichiara `sempre: true`. Un
+modello che li riempisse di `None` trasformerebbe un'incompatibilita' di
+versione -- «questo binario e' piu' vecchio dell'SDK» -- in dati sbagliati piu'
+avanti, dove nessuno la riconosce piu'. I campi dichiarati `sempre: false` sono
+opzionali qui, ed e' la stessa distinzione.
+
+# Perche' `write_capabilities` non e' modellato in profondita'
+
+Le sue foglie sono undici sottostrutture e un vocabolario chiuso per ciascuna.
+Modellarle qui vorrebbe dire ratificare in questo ciclo una superficie che
+serve a `convert`, che questo ciclo non copre: resterebbe scritta e non
+esercitata, cioe' la promessa non onorata che il gate delle buste esiste per
+impedire. Resta un dizionario, e il gate dei modelli sa che e' voluto.
+"""
+
+from __future__ import annotations
+
+import types
+import typing
+from dataclasses import dataclass, field
+from typing import Any
+
+from ._argomenti import testo
+from ._errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
+from ._errors import _dallo_sdk
+from ._contenitori import FrozenList
+
+
+def tipi_json(annotazione: Any) -> frozenset[str] | None:
+    """I tipi JSON che un'annotazione del modello ammette sul wire.
+
+    `None` vuol dire «nessun controllo qui»: `Any`. Un modello annidato vale
+    `object`, e il resto lo controlla il suo `from_json`. Serve a due posti --
+    alla validazione qui sotto e a `scripts/check_sdk_python.py`, che confronta
+    questi insiemi con i `tipi` dichiarati da `release/cli-protocol-v2.json` --
+    ed e' una funzione sola perche' due traduzioni dell'annotazione potrebbero
+    divergere, e il gate approverebbe una regola diversa da quella che gira.
+    """
+    if annotazione is Any:
+        return None
+    origine = typing.get_origin(annotazione)
+    if origine in (typing.Union, types.UnionType):
+        insieme: set[str] = set()
+        for membro in typing.get_args(annotazione):
+            if membro is type(None):
+                insieme.add("null")
+                continue
+            parziale = tipi_json(membro)
+            if parziale is None:
+                return None
+            insieme |= parziale
+        return frozenset(insieme)
+    if origine is list:
+        return frozenset({"array"})
+    if origine is dict:
+        return frozenset({"object"})
+    if annotazione is bool:
+        return frozenset({"boolean"})
+    if annotazione is int:
+        return frozenset({"integer"})
+    if annotazione is str:
+        return frozenset({"string"})
+    if isinstance(annotazione, type) and hasattr(annotazione, "from_json"):
+        return frozenset({"object"})
+    raise TypeError(f"annotazione senza traduzione JSON: {annotazione!r}")
+
+
+_NOMI_DEI_TIPI = {
+    "array": "un elenco",
+    "object": "un oggetto",
+    "string": "una stringa",
+    "integer": "un intero",
+    "boolean": "un booleano",
+    "null": "null",
+}
+
+
+def _alternative(tipi: frozenset[str]) -> tuple[str, ...]:
+    """I nomi dei tipi, come alternative di un parametro di messaggio («a o b»)."""
+    return tuple(_NOMI_DEI_TIPI[tipo] for tipo in sorted(tipi))
+
+
+def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
+    """Per `list[T]`, i tipi JSON degli elementi; `None` se non c'e' da dire."""
+    unione = typing.get_origin(annotazione) in (typing.Union, types.UnionType)
+    for membro in typing.get_args(annotazione) if unione else (annotazione,):
+        if typing.get_origin(membro) is list:
+            (elemento,) = typing.get_args(membro)
+            return tipi_json(elemento)
+    return None
+
+
+def _schema(classe: Any) -> Any:
+    """La prima classe del modello dell'SDK nell'MRO di `classe`, per identita'.
+
+    Lo schema -- `_OBBLIGATORI`, `_PROPRI`, `_OPZIONALI`, `_RINOMINATI`,
+    `_ANNULLABILI` e le annotazioni -- si legge da qui, mai da `cls`: una
+    sottoclasse del chiamante puo' ridefinire `_OBBLIGATORI = ("dato",)`, e
+    prima i nomi mancanti entravano cosi' in un `ProtocolError` fidato
+    (dodicesimo giro). Gli attributi di una sottoclasse non entrano mai in un
+    messaggio.
+    """
+    from ._confine import MODELLI  # noqa: PLC0415 - confine importa i modelli
+
+    try:
+        ordine = type.__dict__["__mro__"].__get__(classe, type)
+    except TypeError:
+        ordine = ()
+    for base in ordine:
+        for modello in MODELLI:
+            if base is modello:
+                return modello
+    raise _dallo_sdk(InvalidArgumentError, "modello.non_sdk")
+
+
+def _pretendi(
+    documento: dict[str, Any],
+    campi: tuple[str, ...],
+    dove: str,
+    modello: type | None = None,
+) -> dict[str, Any]:
+    """I campi ci sono, e hanno il tipo che il modello dichiara.
+
+    Controllava soltanto la **presenza** delle chiavi: un `null` o una stringa
+    dove il protocollo promette un intero passavano, e diventavano un attributo
+    tipizzato `int` che non lo era -- un dato sbagliato piu' avanti, dove
+    nessuno riconosce piu' l'incompatibilita'. Ora il tipo si confronta con
+    l'annotazione della dataclass, e i campi `_OPZIONALI`, quando ci sono, non
+    ammettono `null`: la loro assenza si scrive omettendoli.
+
+    Rende una **copia** profonda del documento, fatta solo di tipi JSON esatti:
+    il modello costruisce i propri campi da quella, e un documento che il
+    chiamante cambia dopo non cambia il modello. Le sottoclassi di `dict`,
+    `str` e simili sono rifiutate a qualunque profondita' -- vedi `_tipo` in
+    `errors.py` per la ragione.
+    """
+    if _tipo(documento) != "object":
+        raise _dallo_sdk(ProtocolError, "protocollo.non_oggetto", dove=dove, tipo=_tipo(documento))
+    documento = _copia_json(documento, dove)
+    mancanti = [campo for campo in campi if campo not in documento]
+    if mancanti:
+        raise _dallo_sdk(ProtocolError, "protocollo.mancanti", dove=dove, mancanti=mancanti)
+    if modello is None:
+        return documento
+    # Lo schema della classe dell'SDK, non quello di `cls` (vedi `_schema`).
+    modello = _schema(modello)
+    suggerimenti = typing.get_type_hints(modello)
+    rinominati = getattr(modello, "_RINOMINATI", {})
+    opzionali = getattr(modello, "_OPZIONALI", ())
+    annullabili = getattr(modello, "_ANNULLABILI", ())
+    for campo in tuple(campi) + tuple(c for c in opzionali if c in documento):
+        annotazione = suggerimenti[rinominati.get(campo, campo)]
+        ammessi = tipi_json(annotazione)
+        if ammessi is None:
+            continue
+        if campo in opzionali and campo not in annullabili:
+            ammessi = ammessi - {"null"}
+        valore = documento[campo]
+        if _tipo(valore) not in ammessi:
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.tipo_campo",
+                dove=dove,
+                campo=campo,
+                tipo=_tipo(valore),
+                ammessi=_alternative(ammessi),
+            )
+        elementi = _tipi_degli_elementi(annotazione)
+        if _tipo(valore) == "array" and elementi is not None:
+            for posizione, voce in enumerate(valore):
+                if _tipo(voce) not in elementi:
+                    raise _dallo_sdk(
+                        ProtocolError, "protocollo.tipo_elemento",
+                        dove=dove,
+                        campo=campo,
+                        posizione=posizione,
+                        tipo=_tipo(voce),
+                        ammessi=_alternative(elementi),
+                    )
+    return documento
+
+
+@dataclass(frozen=True, kw_only=True)
+class Version:
+    """Il risultato di `plenora-io --version --format json`.
+
+    Non e' piu' una busta a parte. Fino alla 3.0.0 `--version` rendeva
+    `{"status": "ok", "version": "..."}` -- un documento che non era la busta
+    comune e che si leggeva **prima** di sapere con quale protocollo si stesse
+    parlando. CLI 2.0 chiede invece che anche la scoperta passi dalla busta:
+    l'identita' e la versione di protocollo stanno li', e qui resta il
+    risultato.
+
+    Lo schema del risultato e' **chiuso**: esattamente questi due campi. Chi lo
+    consuma deve accorgersi di un campo nuovo subito, non quando gli serviva.
+    """
+
+    component_version: str
+    cli_protocol_version: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    #: La versione del componente, col nome che aveva prima della 4.0.0.
+    #:
+    #: Non e' un alias di comodo: e' la sola cosa che l'SDK puo' offrire a chi
+    #: leggeva `.version` senza costringerlo a cambiare riga per un campo che
+    #: significa esattamente lo stesso.
+    @property
+    def version(self) -> str:
+        return self.component_version
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Version":
+        attesi = ("component_version", "cli_protocol_version")
+        documento = _pretendi(documento, attesi, "risultato di --version", cls)
+        in_piu = len(set(documento) - set(attesi))
+        if in_piu:
+            # Quante, non quali: i nomi vengono dal documento.
+            raise _dallo_sdk(ProtocolError, "versione.campi_in_piu", campi=in_piu)
+        return cls(
+            component_version=documento["component_version"],
+            cli_protocol_version=documento["cli_protocol_version"],
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class FormatDescriptor:
+    """Il descrittore di un formato: che cosa il driver sa fare, e come.
+
+    E' lo **stesso** tipo che `catalog` mette dentro ogni elemento di `drivers`
+    e che `inspect` mette sotto `format`. Non e' una somiglianza: il gate delle
+    buste ha misurato che i percorsi del secondo sono un sottoinsieme esatto dei
+    primi, e i due campi in piu' del catalogo sono quelli che `Driver` aggiunge.
+
+    Scriverlo una volta sola e' cio' che impedisce alle due copie di divergere
+    senza che nessuno se ne accorga.
+
+    `kw_only` non e' un vezzo: `Driver` eredita da qui e aggiunge campi
+    obbligatori dopo `raw`, che ha un valore predefinito. Senza, la dataclass
+    non si costruirebbe.
+    """
+
+    id: str
+    direction: str
+    runtime: str
+    fidelity_class: str
+    crs_handling: str
+    multi_layer: bool
+    multi_file: bool
+    hostile_input_hardened: bool
+    spec_version_supported: str | None
+    buffering: str
+    descriptor_version: int
+    driver_version: int
+    semantic_version: int
+    effective_delivery: str
+    native_read_mode: str
+    read_mode: str
+    write_mode: str
+    read_determinism: str
+    write_determinism: str
+    reader_concurrency: str
+    projection_support: str
+    predicate_pruning_support: str
+    spatial_pruning_support: str
+    format_options: list[dict[str, Any]]
+    write_capabilities: dict[str, Any]
+    #: I suffissi per cui un percorso viene **riconosciuto** come questo
+    #: formato, quando nessuno lo dichiara.
+    #:
+    #: Non e' il gemello del vincolo che la scrittura pone sul percorso -- che
+    #: sta in `write_capabilities["sink_path"]` -- ma il suo complemento:
+    #: scrivere su un nome qualsiasi e' ammesso dove il vincolo e' `free`, e
+    #: questo campo dice che cosa si perde facendolo, cioe' la riapribilita'
+    #: per deduzione.
+    recognised_suffixes: list[str]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    #: I campi che il protocollo dichiara `sempre: true` sotto `.format`.
+    _OBBLIGATORI = (
+        "id",
+        "direction",
+        "runtime",
+        "fidelity_class",
+        "crs_handling",
+        "multi_layer",
+        "multi_file",
+        "hostile_input_hardened",
+        "spec_version_supported",
+        "buffering",
+        "descriptor_version",
+        "driver_version",
+        "semantic_version",
+        "effective_delivery",
+        "native_read_mode",
+        "read_mode",
+        "write_mode",
+        "read_determinism",
+        "write_determinism",
+        "reader_concurrency",
+        "projection_support",
+        "predicate_pruning_support",
+        "spatial_pruning_support",
+        "format_options",
+        "write_capabilities",
+        "recognised_suffixes",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "FormatDescriptor":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "format", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+    @property
+    def writable(self) -> bool:
+        """Il formato dichiara di saper scrivere.
+
+        Derivato da `direction`, che il descrittore porta. E' una comodita' e
+        non un'affermazione nuova -- la fonte resta il campo, e chi vuole il
+        resto lo legge da li'.
+        """
+        return self.direction in ("bidirectional", "write_only")
+
+    @property
+    def readable(self) -> bool:
+        return self.direction in ("bidirectional", "read_only")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Driver(FormatDescriptor):
+    """Un elemento di `catalog.drivers`: il descrittore, piu' due campi suoi.
+
+    `available` e `required_feature` non stanno nel descrittore che `inspect`
+    restituisce: sono del catalogo, e dicono se **questo** binario possa usare
+    quel driver. Un descrittore descrive un formato; il catalogo descrive
+    un'installazione.
+    """
+
+    available: bool
+    required_feature: str | None
+
+    #: I due campi che il catalogo aggiunge. Il gate li somma a quelli del
+    #: descrittore e confronta il totale con `.drivers[]`.
+    _PROPRI = ("available", "required_feature")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Driver":
+        campi = FormatDescriptor._OBBLIGATORI + _schema(cls)._PROPRI
+        documento = _pretendi(documento, campi, "catalog.drivers[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in campi},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Catalog:
+    """La busta di `plenora-io catalog`.
+
+    `determinism` sta al primo livello e riguarda **la busta**, non i driver: e'
+    l'unica superficie che il progetto promette byte per byte, ed e' scritto li'
+    perche' e' una proprieta' del documento intero.
+    """
+
+    determinism: str
+    drivers: list[Driver]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("determinism", "drivers")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Catalog":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "catalog", cls)
+        elenco = documento["drivers"]
+        if _tipo(elenco) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='catalog.drivers',
+                tipo=_tipo(elenco),
+            )
+        return cls(
+            determinism=documento["determinism"],
+            drivers=[Driver.from_json(voce) for voce in elenco],
+            raw=dict(documento),
+        )
+
+    def driver(self, identificatore: str) -> Driver:
+        """Il driver con quell'id, o `ResultLookupError` (anche un `KeyError`).
+
+        Non restituisce `None`: un id che non c'e' e' quasi sempre un refuso, e
+        un `None` restituito lo trasforma in un `AttributeError` tre righe piu'
+        in la', dove il nome sbagliato non si vede piu'.
+        """
+        identificatore = testo(identificatore, "identificatore")
+        for driver in self.drivers:
+            if driver.id == identificatore:
+                return driver
+        raise _dallo_sdk(ResultLookupError, "ricerca.driver")
+
+    @property
+    def available(self) -> list[Driver]:
+        """I driver che **questo** binario puo' usare davvero."""
+        return FrozenList([driver for driver in self.drivers if driver.available])
+
+
+# --- la sezione di fedelta', che tre buste su cinque portano ----------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Omissions:
+    """Quante voci la diagnostica ha lasciato fuori, e per quale delle quattro
+    cause.
+
+    Restano separate perche' portano a decisioni diverse: chi ha perso
+    *categorie* sa di non conoscere tutti i tipi di perdita, chi ha perso
+    *esempi* li conosce e non ne ha campioni. Sommarle in un numero solo direbbe
+    che qualcosa manca senza dire che cosa.
+    """
+
+    categorie_omesse: int
+    ragioni_omesse: int
+    esempi_omessi: int
+    omesse_per_byte: int
+
+    _OBBLIGATORI = (
+        "categorie_omesse",
+        "ragioni_omesse",
+        "esempi_omessi",
+        "omesse_per_byte",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Omissions":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity.omesse", cls)
+        return cls(**{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI})
+
+    @property
+    def any(self) -> bool:
+        """Qualcosa e' stato lasciato fuori, di qualunque delle quattro cause."""
+        return any(getattr(self, campo) for campo in _schema(type(self))._OBBLIGATORI)
+
+
+@dataclass(frozen=True, kw_only=True)
+class FidelityReason:
+    """Una ragione per cui la fedelta' non e' esatta.
+
+    `field_index` e `layer_index` vengono **insieme** o non vengono: una ragione
+    che nomina un campo nomina anche il layer in cui sta. Quelle che riguardano
+    il formato nel suo insieme non ne hanno, ed e' perche' sono opzionali qui.
+    """
+
+    code: str
+    detail: str
+    field_index: int | None = None
+    layer_index: int | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("code", "detail")
+    _OPZIONALI = ("field_index", "layer_index")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity.reasons[]", cls)
+        return cls(
+            code=documento["code"],
+            detail=documento["detail"],
+            field_index=documento.get("field_index"),
+            layer_index=documento.get("layer_index"),
+            raw=dict(documento),
+        )
+
+    @property
+    def localized(self) -> bool:
+        """La ragione nomina un campo preciso invece del formato intero."""
+        return self.field_index is not None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Fidelity:
+    """La sezione di fedelta': quanto si perde, e perche'.
+
+    `troncato` non e' un dettaglio da ignorare: dice che l'elenco che si sta
+    leggendo **non e' tutto**, e un consumatore che lo trascurasse concluderebbe
+    dall'assenza di una ragione che quella perdita non c'e'.
+    """
+
+    level: str
+    reasons: list[FidelityReason]
+    troncato: bool
+    omesse: Omissions
+    omesse_esatte: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("level", "reasons", "troncato", "omesse", "omesse_esatte")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Fidelity":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "fidelity", cls)
+        ragioni = documento["reasons"]
+        if _tipo(ragioni) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='fidelity.reasons',
+                tipo=_tipo(ragioni),
+            )
+        return cls(
+            level=documento["level"],
+            reasons=[FidelityReason.from_json(voce) for voce in ragioni],
+            troncato=documento["troncato"],
+            omesse=Omissions.from_json(documento["omesse"]),
+            omesse_esatte=documento["omesse_esatte"],
+            raw=dict(documento),
+        )
+
+    @property
+    def exact(self) -> bool:
+        """La lettura non perde niente.
+
+        `level == "exact"` **e** nessun troncamento: una sezione troncata non
+        puo' dirsi esatta, perche' le ragioni che mancano non si sono viste.
+        """
+        return self.level == "exact" and not self.troncato
+
+
+# --- il layer, e cio' che lo descrive ---------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Field:
+    """Una colonna: il nome, il tipo Arrow, se ammetta nulli, se sia geometria."""
+
+    name: str
+    type: str
+    nullable: bool
+    geometry: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("name", "type", "nullable", "geometry")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Field":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layer.fields[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CrsResolution:
+    """Come il CRS e' stato risolto, e da dove viene.
+
+    `status` e' l'informazione che conta: un identificatore risolto e uno
+    assunto dal chiamante hanno lo stesso aspetto in `id`, e solo questo campo
+    li distingue. Un consumatore che li confondesse attribuirebbe al file una
+    coordinata che gli e' stata suggerita da fuori.
+
+    Solo `status` e' sempre presente: lo schema `plenora-io-inspect-v1` non
+    pretende altro, e per una geometria senza CRS (`missing`) il binario rende
+    `{"status": "missing"}` e basta. Gli altri campi sono `None` quando mancano
+    o valgono `null`; quando ci sono, devono essere testo.
+    """
+
+    status: str
+    id: str | None = None
+    kind: str | None = None
+    axis_order: str | None = None
+    definition: str | None = None
+    definition_format: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("status",)
+    _OPZIONALI = ("id", "kind", "axis_order", "definition", "definition_format")
+    #: Fra gli opzionali, quelli che quando ci sono possono valere `null`: il
+    #: protocollo li dichiara cosi' (una definizione puo' mancare a un CRS
+    #: risolto per identificatore).
+    _ANNULLABILI = ("definition", "definition_format")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "layer.geometry.crs_resolution", cls
+        )
+        return cls(
+            status=documento["status"],
+            **{campo: documento.get(campo) for campo in _schema(cls)._OPZIONALI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Geometry:
+    """La colonna geometrica di un layer, col suo sistema di riferimento.
+
+    `crs` e' `None` per una geometria senza CRS: `crs_resolution.status` dice
+    allora `missing`, ed e' quello il campo da guardare.
+    """
+
+    name: str
+    kind: str
+    crs: str | None
+    crs_resolution: CrsResolution
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("name", "kind", "crs", "crs_resolution")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Geometry":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layer.geometry", cls)
+        return cls(
+            name=documento["name"],
+            kind=documento["kind"],
+            crs=documento["crs"],
+            crs_resolution=CrsResolution.from_json(documento["crs_resolution"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Layer:
+    """Un layer con il suo schema, come `inspect` lo descrive."""
+
+    id: int
+    name: str
+    fields: list[Field]
+    #: `None` per un layer senza geometria, che il binario legge e scrive.
+    geometry: Geometry | None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("id", "name", "fields", "geometry")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Layer":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "inspect.layers[]", cls)
+        colonne = documento["fields"]
+        if _tipo(colonne) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers[].fields',
+                tipo=_tipo(colonne),
+            )
+        return cls(
+            id=documento["id"],
+            name=documento["name"],
+            fields=[Field.from_json(voce) for voce in colonne],
+            geometry=(
+                None
+                if documento["geometry"] is None
+                else Geometry.from_json(documento["geometry"])
+            ),
+            raw=dict(documento),
+        )
+
+    def field(self, name: str) -> Field:
+        """La colonna con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
+        for colonna in self.fields:
+            if colonna.name == name:
+                return colonna
+        raise _dallo_sdk(ResultLookupError, "ricerca.campo")
+
+    @property
+    def attributes(self) -> list[Field]:
+        """Le colonne che non sono la geometria."""
+        return FrozenList([colonna for colonna in self.fields if not colonna.geometry])
+
+
+@dataclass(frozen=True, kw_only=True)
+class LayerSummary:
+    """Un layer come `layers` lo riassume: senza lo schema.
+
+    Non e' un `Layer` incompleto ed e' un tipo a parte: `layers` esiste per
+    rispondere «che cosa c'e' qui dentro» senza pagare l'inferenza dello schema,
+    e un modello che promettesse `fields` vuoti farebbe credere a un layer senza
+    colonne.
+    """
+
+    id: int
+    name: str
+    field_count: int
+    #: `None` per un layer senza geometria o senza CRS.
+    geometry_crs: str | None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers.layers[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+# --- le due buste di questo ciclo -------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Inspect:
+    """La busta di `plenora-io inspect`: il descrittore e i layer con lo schema."""
+
+    format: FormatDescriptor
+    fidelity: Fidelity
+    layers: list[Layer]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("format", "fidelity", "layers")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Inspect":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "inspect", cls)
+        elenco = documento["layers"]
+        if _tipo(elenco) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='inspect.layers',
+                tipo=_tipo(elenco),
+            )
+        return cls(
+            format=FormatDescriptor.from_json(documento["format"]),
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            layers=[Layer.from_json(voce) for voce in elenco],
+            raw=dict(documento),
+        )
+
+    def layer(self, name: str) -> Layer:
+        """Il layer con quel nome, o `ResultLookupError` (anche un `KeyError`), senza nomi nel messaggio."""
+        name = testo(name, "name")
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Layers:
+    """La busta di `plenora-io layers`: i layer riassunti.
+
+    `format` qui e' una **stringa** -- l'identificatore del driver -- e non il
+    descrittore che `inspect` restituisce. I due campi hanno lo stesso nome e
+    tipi diversi, ed e' il wire a volerlo: modellarli uguali avrebbe richiesto
+    di inventare un descrittore che questa busta non porta.
+    """
+
+    format: str
+    fidelity: Fidelity
+    layers: list[LayerSummary]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("format", "fidelity", "layers")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Layers":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers", cls)
+        elenco = documento["layers"]
+        if _tipo(elenco) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='layers.layers',
+                tipo=_tipo(elenco),
+            )
+        return cls(
+            format=documento["format"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            layers=[LayerSummary.from_json(voce) for voce in elenco],
+            raw=dict(documento),
+        )
+
+    def layer(self, name: str) -> LayerSummary:
+        name = testo(name, "name")
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Delivered:
+    """Che cosa `read(output=...)` ha consegnato.
+
+    Esiste perche' la consegna e' **facoltativa**, e la sua assenza deve essere
+    leggibile: `Validation.delivered` vale `None` quando non c'e' stata, e non
+    si deduce dall'assenza di un campo.
+    """
+
+    _OBBLIGATORI = (
+        "content_type",
+        "interchange_contract",
+        "bytes_written",
+        "publish_outcome",
+    )
+
+    content_type: str
+    interchange_contract: str
+    bytes_written: int
+    publish_outcome: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Delivered":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "read.delivered", cls)
+        return cls(
+            content_type=documento["content_type"],
+            interchange_contract=documento["interchange_contract"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Validation:
+    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v1`.
+
+    # Che cosa dice, e che cosa non da'
+
+    Il comando legge il file **per intero** -- decodifica ogni geometria, applica
+    ogni tetto, accumula la diagnostica di perdita -- e poi butta via le righe.
+    Restituisce quante ne ha lette, in quanti batch, se si e' fermato prima
+    della fine, e con quale fedelta'.
+
+    Non e' una lettura a meta': e' una lettura completa di cui si conserva il
+    **giudizio** invece dei dati. Chi vuole i dati non li chiede a questo
+    comando: li fa scrivere da `convert` in un formato che sa leggere.
+
+    # `truncated` non e' un dettaglio
+
+    Dice che il conteggio **non e' quello del file**: si e' fermato a un limite,
+    e le righe oltre non sono state guardate. Un consumatore che leggesse
+    `rows_read` senza guardarlo concluderebbe che il file ha meno righe di
+    quante ne abbia, e la differenza non si vede da nessun'altra parte.
+    """
+
+    format: str
+    layer: Layer
+    rows_read: int
+    batches: int
+    truncated: bool
+    fidelity: Fidelity
+    loss: "LossReport"
+    delivered: "Delivered | None"
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "format",
+        "layer",
+        "rows_read",
+        "batches",
+        "truncated",
+        "fidelity",
+        "loss",
+        "delivered",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Validation":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "read", cls)
+        consegna = documento["delivered"]
+        return cls(
+            format=documento["format"],
+            layer=Layer.from_json(documento["layer"]),
+            rows_read=documento["rows_read"],
+            batches=documento["batches"],
+            truncated=documento["truncated"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            loss=LossReport.from_json(documento["loss"]),
+            # `None` quando non c'e' stata consegna, e il campo c'e' comunque:
+            # l'assenza si legge, non si deduce.
+            delivered=Delivered.from_json(consegna) if consegna is not None else None,
+            raw=dict(documento),
+        )
+
+    @property
+    def complete(self) -> bool:
+        """Il file e' stato letto fino in fondo.
+
+        E' il contrario di `truncated`, e sta qui perche' il nome positivo e'
+        quello che si scrive in un `if`: `if esito.complete` invece di
+        `if not esito.truncated`, che si legge male e si nega peggio.
+        """
+        return not self.truncated
+
+
+# --- la perdita, che e' un'altra cosa dalla fedelta' ------------------------
+#
+# `Fidelity` dice **se** e perche' una conversione perde qualcosa, e lo dice
+# prima di farla: e' una proprieta' della coppia formato-contratto. `LossReport`
+# dice che cosa e' andato perso **davvero**, contando le occorrenze e portandone
+# esempi. Un file che il descrittore dichiara `conditional` puo' non perdere
+# niente, se i dati non toccano i limiti che la condizione nomina.
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossCount:
+    """Quante volte una categoria di perdita si e' verificata."""
+
+    categoria: str
+    conteggio: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("categoria", "conteggio")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossCount":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.counts[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossExample:
+    """Un caso concreto di perdita: dove, e con che contesto.
+
+    Gli indici sono **piatti**: la posizione del campo nello schema e quella del
+    layer nel file, non un percorso. Il contesto e' gia' redatto -- non porta
+    valori del file -- e questo lo rende registrabile senza pensarci.
+    """
+
+    category: str
+    context: str
+    field_index: int
+    layer_index: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("category", "context", "field_index", "layer_index")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossExample":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.esempi[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossReport:
+    """Che cosa una conversione ha perso, con i conteggi e gli esempi.
+
+    `counts` e' un **elenco** e non una mappa: ha un ordine dichiarato e una
+    lunghezza dichiarata, dove la mappa aveva l'uno e l'altra impliciti. E' il
+    cambiamento di tipo che ha reso necessario il protocollo v2.
+
+    `lossless` e' una scorciatoia, non l'unica informazione: quando e' falso,
+    `counts` dice **quanto** e `esempi` dice **dove**. Un consumatore che si
+    fermasse al booleano saprebbe che qualcosa e' andato perso e non che cosa.
+    """
+
+    lossless: bool
+    counts: list[LossCount]
+    esempi: list[LossExample]
+    troncato: bool
+    omesse: Omissions
+    omesse_esatte: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("lossless", "counts", "esempi", "troncato", "omesse", "omesse_esatte")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossReport":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss", cls)
+        for campo in ("counts", "esempi"):
+            if _tipo(documento[campo]) != "array":
+                raise _dallo_sdk(
+                    ProtocolError, "protocollo.non_elenco",
+                    dove=f'loss.{campo}',
+                    tipo=_tipo(documento[campo]),
+                )
+        return cls(
+            lossless=documento["lossless"],
+            counts=[LossCount.from_json(v) for v in documento["counts"]],
+            esempi=[LossExample.from_json(v) for v in documento["esempi"]],
+            troncato=documento["troncato"],
+            omesse=Omissions.from_json(documento["omesse"]),
+            omesse_esatte=documento["omesse_esatte"],
+            raw=dict(documento),
+        )
+
+    def count(self, categoria: str) -> int:
+        """Quante volte quella categoria compare, o zero.
+
+        Zero e non `KeyError`: una categoria che non c'e' vuol dire che quella
+        perdita non si e' verificata, ed e' una risposta -- diversamente da un
+        nome di layer o di campo, dove l'assenza e' quasi sempre un refuso.
+        """
+        # L'argomento si normalizza prima del confronto: una sottoclasse di
+        # `str` con `__eq__` ridefinito rispondeva «uguale» alla prima voce.
+        categoria = testo(categoria, "categoria")
+        for voce in self.counts:
+            if voce.categoria == categoria:
+                return voce.conteggio
+        return 0
+
+    @property
+    def categories(self) -> list[str]:
+        return FrozenList([voce.categoria for voce in self.counts])
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConvertedLayer:
+    """Quanto e' passato per un layer: righe e batch."""
+
+    name: str
+    rows: int
+    batches: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("name", "rows", "batches")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "ConvertedLayer":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "convert.layers[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConvertResult:
+    """L'esito di `convert()`.
+
+    # I nomi e una parola riservata
+
+    `from` e' una parola chiave di Python e non puo' essere il nome di un
+    attributo. E' l'unico campo del wire che questo SDK rinomina, e la
+    convenzione e' quella di PEP 8: un trattino basso in coda, `from_`. Il nome
+    del wire resta leggibile in `raw["from"]`, e il gate dei modelli conosce la
+    deviazione perche' e' **dichiarata**, non dedotta.
+
+    # Tre fedelta' e due perdite
+
+    `read_fidelity` e `write_fidelity` dicono che cosa i due formati promettono
+    da soli; `conversion_fidelity` che cosa promette la coppia, che e' meno di
+    entrambe. `read_loss` e `write_loss` dicono che cosa e' andato perso
+    davvero, dai due lati.
+
+    Sono cinque sezioni e non una perche' rispondono a domande diverse, e chi le
+    fondesse non saprebbe piu' se una perdita e' colpa del formato d'origine o
+    di quello di destinazione -- che e' l'unica cosa da sapere per evitarla.
+    """
+
+    from_: str
+    to: str
+    layers: list[ConvertedLayer]
+    total_rows: int
+    bytes_written: int
+    publish_outcome: str
+    read_fidelity: Fidelity
+    write_fidelity: Fidelity
+    conversion_fidelity: Fidelity
+    read_loss: LossReport
+    write_loss: LossReport
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "from",
+        "to",
+        "layers",
+        "total_rows",
+        "bytes_written",
+        "publish_outcome",
+        "read_fidelity",
+        "write_fidelity",
+        "conversion_fidelity",
+        "read_loss",
+        "write_loss",
+    )
+
+    #: I campi del wire che in Python prendono un altro nome, e perche'.
+    #: Il gate legge questa mappa invece di indovinare la deviazione.
+    _RINOMINATI = {"from": "from_"}
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "ConvertResult":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "convert", cls)
+        elenco = documento["layers"]
+        if _tipo(elenco) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='convert.layers',
+                tipo=_tipo(elenco),
+            )
+        return cls(
+            from_=documento["from"],
+            to=documento["to"],
+            layers=[ConvertedLayer.from_json(v) for v in elenco],
+            total_rows=documento["total_rows"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            read_fidelity=Fidelity.from_json(documento["read_fidelity"]),
+            write_fidelity=Fidelity.from_json(documento["write_fidelity"]),
+            conversion_fidelity=Fidelity.from_json(documento["conversion_fidelity"]),
+            read_loss=LossReport.from_json(documento["read_loss"]),
+            write_loss=LossReport.from_json(documento["write_loss"]),
+            raw=dict(documento),
+        )
+
+    @property
+    def published(self) -> bool:
+        """La destinazione e' stata pubblicata.
+
+        Non e' un sinonimo di «riuscito»: una conversione puo' riuscire e non
+        pubblicare -- e' `publish_outcome` a dirlo, con il proprio vocabolario --
+        e leggere il successo dal solo codice d'uscita perderebbe la differenza.
+        """
+        return self.publish_outcome == "published"
+
+    @property
+    def lossless(self) -> bool:
+        """Niente e' andato perso, ne' leggendo ne' scrivendo."""
+        return self.read_loss.lossless and self.write_loss.lossless
+
+    def layer(self, name: str) -> ConvertedLayer:
+        name = testo(name, "name")
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        raise _dallo_sdk(ResultLookupError, "ricerca.layer_conversione")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteInput:
+    """Che cosa `io.write` ha accettato in ingresso.
+
+    Due campi soli, e servono a una cosa: chi incatena `read()` e `write()` puo'
+    verificare che il contratto d'interscambio dichiarato in uscita dalla prima
+    sia quello dichiarato in ingresso dalla seconda, senza aprire i byte.
+    """
+
+    content_type: str
+    interchange_contract: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("content_type", "interchange_contract")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "WriteInput":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "write.input", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteResult:
+    """L'esito di `write()`: la pubblicazione di un dataset Arrow.
+
+    # Perche' le fedelta' sono tre anche qui
+
+    `input_fidelity` e' cio' che la lettura del dataset Arrow ha conservato --
+    normalmente tutto, perche' Arrow e' la rappresentazione e non una
+    traduzione -- e `write_fidelity` cio' che il formato di destinazione sa
+    esprimere. `fidelity` e' il giudizio combinato, che e' quello
+    dell'operazione. Chi le fondesse non saprebbe piu' se una perdita venga da
+    cio' che gli e' stato dato o da dove l'ha messo, che e' l'unica cosa da
+    sapere per evitarla.
+
+    # `publish_outcome` non e' decorativo
+
+    Porta due valori: `published` e `published_durability_unconfirmed`. Il
+    secondo dice che i byte ci sono ma il sistema non ha confermato che
+    sopravvivano a un'interruzione, e arriva solo se la durabilita' e' stata
+    chiesta. Un esito che tacesse l'incertezza sarebbe indistinguibile dalla
+    certezza, che e' la forma peggiore.
+    """
+
+    format: str
+    input: WriteInput
+    layers: list[ConvertedLayer]
+    rows_written: int
+    bytes_written: int
+    publish_outcome: str
+    fidelity: Fidelity
+    input_fidelity: Fidelity
+    write_fidelity: Fidelity
+    input_loss: LossReport
+    write_loss: LossReport
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "format",
+        "input",
+        "layers",
+        "rows_written",
+        "bytes_written",
+        "publish_outcome",
+        "fidelity",
+        "input_fidelity",
+        "write_fidelity",
+        "input_loss",
+        "write_loss",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "WriteResult":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "write", cls)
+        elenco = documento["layers"]
+        if _tipo(elenco) != "array":
+            raise _dallo_sdk(
+                ProtocolError, "protocollo.non_elenco",
+                dove='write.layers',
+                tipo=_tipo(elenco),
+            )
+        return cls(
+            format=documento["format"],
+            input=WriteInput.from_json(documento["input"]),
+            layers=[ConvertedLayer.from_json(v) for v in elenco],
+            rows_written=documento["rows_written"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            input_fidelity=Fidelity.from_json(documento["input_fidelity"]),
+            write_fidelity=Fidelity.from_json(documento["write_fidelity"]),
+            input_loss=LossReport.from_json(documento["input_loss"]),
+            write_loss=LossReport.from_json(documento["write_loss"]),
+            raw=dict(documento),
+        )
+
+
+
+# --- la scoperta delle capacita' --------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityInterface:
+    """Una superficie che l'artefatto espone: tipo, contratto, versione, nome."""
+
+    kind: str
+    contract: str
+    version: int
+    artifact: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("kind", "contract", "version", "artifact")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityInterface":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.interfaces[]", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationContent:
+    """L'ingresso o l'uscita di un'operazione: il contratto e i content type."""
+
+    contract: str
+    content_types: list[str]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("contract", "content_types")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationContent":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[].input", cls
+        )
+        return cls(
+            contract=documento["contract"],
+            content_types=list(documento["content_types"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperationControls:
+    """I controlli che l'operazione onora: cancellazione, scadenza, idempotenza."""
+
+    cancellation: bool
+    deadline: bool
+    idempotency_key: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("cancellation", "deadline", "idempotency_key")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "OperationControls":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[].controls", cls
+        )
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CapabilityOperation:
+    """Un'operazione del documento `capabilities-v2`.
+
+    Identificatore, versione, stato, superfici, contratti, effetto e controlli
+    sono attributi tipizzati: PYTHON-SDK-1.0 §7 pretende che restino leggibili
+    senza analizzare testo. `attributes` e' diagnostica **opaca** (CAP-013):
+    resta un dizionario, e la selezione si fa sui content type.
+    """
+
+    id: str
+    version: int
+    status: str
+    surfaces: list[str]
+    input: OperationContent
+    output: OperationContent
+    side_effect: str
+    controls: OperationControls
+    attributes: dict[str, Any] | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "id",
+        "version",
+        "status",
+        "surfaces",
+        "input",
+        "output",
+        "side_effect",
+        "controls",
+    )
+    #: `attributes` c'e' solo sulle operazioni che dichiarano qualcosa oltre al
+    #: descrittore: oggi `io.read`. Il manifesto del protocollo lo dice
+    #: «sempre» perche' misura la presenza **per busta**, non per elemento:
+    #: `scripts/check_sdk_python.py` lo sa da `OPZIONALI_PER_ELEMENTO`.
+    _OPZIONALI = ("attributes",)
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CapabilityOperation":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "capabilities.operations[]", cls
+        )
+        return cls(
+            id=documento["id"],
+            version=documento["version"],
+            status=documento["status"],
+            surfaces=list(documento["surfaces"]),
+            input=OperationContent.from_json(documento["input"]),
+            output=OperationContent.from_json(documento["output"]),
+            side_effect=documento["side_effect"],
+            controls=OperationControls.from_json(documento["controls"]),
+            attributes=documento.get("attributes"),
+            raw=dict(documento),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Lo stato e' `available`: l'operazione si puo' chiamare."""
+        return self.status == "available"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Capabilities:
+    """Il documento `plenora-capabilities-v2` del binario in uso.
+
+    E' quello di `plenora-io capabilities` con la superficie dell'SDK: il
+    client aggiunge l'interfaccia `python_sdk` e la superficie `python_sdk`
+    sulle operazioni che espone (PYTHON-SDK-1.0 §7, CAP-003, CAP-006). Tutto
+    il resto e' il documento del binario, tipizzato e non riscritto.
+    """
+
+    schema_version: int
+    component: str
+    component_version: str
+    interfaces: list[CapabilityInterface]
+    operations: list[CapabilityOperation]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "schema_version",
+        "component",
+        "component_version",
+        "interfaces",
+        "operations",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Capabilities":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "capabilities", cls)
+        if documento["schema_version"] != 2:
+            raise _dallo_sdk(ProtocolError, "capabilities.schema")
+        return cls(
+            schema_version=documento["schema_version"],
+            component=documento["component"],
+            component_version=documento["component_version"],
+            interfaces=[
+                CapabilityInterface.from_json(voce) for voce in documento["interfaces"]
+            ],
+            operations=[
+                CapabilityOperation.from_json(voce) for voce in documento["operations"]
+            ],
+            raw=dict(documento),
+        )
+
+    def operation(self, identificatore: str) -> CapabilityOperation:
+        """L'operazione con quell'id, o `ResultLookupError` (anche un `KeyError`), senza id nel messaggio."""
+        identificatore = testo(identificatore, "identificatore")
+        for operazione in self.operations:
+            if operazione.id == identificatore:
+                return operazione
+        raise _dallo_sdk(ResultLookupError, "ricerca.operazione")

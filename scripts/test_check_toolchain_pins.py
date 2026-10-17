@@ -22,6 +22,7 @@ PLENORA_RUST_STABLE=1.92.0
 PLENORA_RUST_NIGHTLY=nightly-2026-07-21
 PLENORA_CARGO_FUZZ_VERSION=0.13.2
 PLENORA_CARGO_LLVM_COV_VERSION=0.9.0
+PLENORA_CARGO_DENY_VERSION=0.20.2
 """
 
 ALBERO = {
@@ -61,7 +62,13 @@ ALBERO = {
         '      - uses: setup-rust\n        with:\n          toolchain: "1.92.0"\n'
         "      - uses: install-action\n        with:\n          tool: cargo-llvm-cov@0.9.0\n"
     ),
-    "scripts/fuzz-smoke.sh": 'toolchain="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"\n',
+    ".github/workflows/supply-chain.yml": (
+        "jobs:\n"
+        "  cargo-deny:\n"
+        "    steps:\n"
+        "      - uses: install-action\n        with:\n          tool: cargo-deny@0.20.2\n"
+    ),
+    "scripts/fuzz-smoke.sh":'toolchain="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"\n',
     "scripts/fuzz-campaign.sh": 'toolchain="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"\n',
 }
 
@@ -202,6 +209,18 @@ class SondeDivergenza(unittest.TestCase):
             "Dockerfile.dev",
             "ARG PLENORA_CARGO_LLVM_COV_VERSION=0.9.0",
             "ARG PLENORA_CARGO_LLVM_COV_VERSION=0.8.7",
+        )
+        self.assertTrue(verifica(radice))
+
+    def test_cargo_deny_divergente_nella_supply_chain(self) -> None:
+        radice = self.sostituisci(
+            ".github/workflows/supply-chain.yml", "cargo-deny@0.20.2", "cargo-deny@0.19.0"
+        )
+        self.assertTrue(verifica(radice))
+
+    def test_cargo_deny_tolto_dalla_supply_chain(self) -> None:
+        radice = self.sostituisci(
+            ".github/workflows/supply-chain.yml", "tool: cargo-deny@0.20.2", "tool: cargo-deny"
         )
         self.assertTrue(verifica(radice))
 

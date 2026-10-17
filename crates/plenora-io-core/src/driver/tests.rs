@@ -314,8 +314,18 @@ fn un_guasto_del_backend_dopo_una_scrittura_riuscita_non_pubblica_niente() {
     std::fs::write(&destinazione, preesistente).expect("la preesistente si scrive");
 
     let scritti = Arc::new(AtomicUsize::new(0));
-    let staging = crate::publish::StagedFile::new(&destinazione, false, u64::MAX)
-        .expect("lo staging si crea");
+    let staging = crate::publish::StagedFile::new(
+        &destinazione,
+        false,
+        u64::MAX,
+        plenora_io_model::budget::PipelineBudget::builder()
+            .build()
+            .expect("il budget di prova si costruisce")
+            .into_write_parts()
+            .into_budget()
+            .context(),
+    )
+    .expect("lo staging si crea");
     let percorso_staging = staging
         .path()
         .expect("lo staging ha un percorso")
@@ -1740,4 +1750,160 @@ fn il_preflight_spende_il_permit_e_non_osserva_due_volte() {
     )
     .expect_err("il permit e' one-shot");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+}
+
+/// Il driver che, scrivendo, vede scadere la deadline ed esaurisce una quota.
+struct ScrittoreCheScadeEdEsaurisce {
+    token: CancellationToken,
+}
+
+impl FormatWriter for ScrittoreCheScadeEdEsaurisce {
+    fn write(&mut self, _batch: &RecordBatch) -> Result<()> {
+        self.token.cancel_due_to_deadline();
+        Err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+            "output oltre il tetto derivato dall'input osservato",
+        )))
+    }
+
+    fn finish(self: Box<Self>) -> Result<Published> {
+        unreachable!("`finish` non deve essere raggiunto dopo un `write` fallito")
+    }
+}
+
+fn scrittura_con_token(token: &CancellationToken) -> WriteOptions {
+    WriteOptions::from_write_parts(
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti_di_prova())
+            .cancellation(token.clone())
+            .build()
+        {
+            Ok(bundle) => bundle.into_write_parts(),
+            Err(error) => unreachable!("limiti di prova: {error:?}"),
+        },
+    )
+}
+
+/// La gara fra deadline e quota dal lato della scrittura: la scadenza ha la
+/// precedenza (SURF-010). Armata sul token dentro `write`, senza attese.
+#[test]
+fn a_deadline_inside_the_driver_write_beats_its_quota_error() {
+    let token = CancellationToken::new();
+    let opts = scrittura_con_token(&token);
+    let mut writer = with_write_limits(Box::new(ScrittoreCheScadeEdEsaurisce { token }), &opts);
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+    let errore = writer.write(&batch).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Write, "{errore:?}");
+}
+
+/// Senza scadenza la stessa quota resta una quota.
+#[test]
+fn without_a_deadline_the_driver_quota_error_stays_a_limit() {
+    let opts = scrittura_con_token(&CancellationToken::new());
+    let mut writer = with_write_limits(
+        Box::new(ScrittoreCheScadeEdEsaurisce {
+            token: CancellationToken::new(),
+        }),
+        &opts,
+    );
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+    let errore = writer.write(&batch).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+}
+
+/// Il backend che, finalizzando, vede scadere la deadline e misura un output
+/// oltre la quota: e' il caso in cui il controllo dimensionale arriva prima
+/// dell'ultimo controllo della pubblicazione.
+struct FinalizzazioneCheScadeEdEccede {
+    token: CancellationToken,
+}
+
+impl FormatWriter for FinalizzazioneCheScadeEdEccede {
+    fn write(&mut self, _batch: &RecordBatch) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Published> {
+        self.token.cancel_due_to_deadline();
+        Err(PlenoraIoError::limite_alla_pubblicazione_redatto(
+            &PublicMessage::Curated("output oltre il limite"),
+        ))
+    }
+}
+
+/// La quota superata dentro la finalizzazione, a scadenza passata, e' una
+/// scadenza in fase `finalize` (SURF-010).
+#[test]
+fn a_deadline_inside_the_backend_finish_beats_the_output_quota() {
+    let token = CancellationToken::new();
+    let opts = scrittura_con_token(&token);
+    let writer = with_write_limits(Box::new(FinalizzazioneCheScadeEdEccede { token }), &opts);
+    let Err(errore) = writer.finish() else {
+        panic!("la finalizzazione oltre quota e oltre la scadenza non riesce");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Finalize, "{errore:?}");
+}
+
+/// Senza scadenza, la stessa finalizzazione resta una quota.
+#[test]
+fn without_a_deadline_the_backend_finish_quota_stays_a_limit() {
+    let opts = scrittura_con_token(&CancellationToken::new());
+    let writer = with_write_limits(
+        Box::new(FinalizzazioneCheScadeEdEccede {
+            token: CancellationToken::new(),
+        }),
+        &opts,
+    );
+    let Err(errore) = writer.finish() else {
+        panic!("la finalizzazione oltre quota non riesce");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+}
+
+/// La precedenza della scadenza vale anche per `write_to_layer`.
+#[test]
+fn a_deadline_inside_write_to_layer_beats_its_quota_error() {
+    let token = CancellationToken::new();
+    let opts = scrittura_con_token(&token);
+    let mut writer = with_write_limits(Box::new(ScrittoreCheScadeEdEsaurisce { token }), &opts);
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+    let errore = writer.write_to_layer(LayerId(0), &batch).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Write, "{errore:?}");
 }

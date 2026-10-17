@@ -1,17 +1,63 @@
 {
   "schema_version": 1,
-  "descrizione": "Advisory accettati temporaneamente. Riguardano warning di manutenzione, non vulnerabilita' note: `cargo audit --deny warnings` continua a bloccare ogni nuovo advisory, e ignora soltanto gli ID qui elencati. La CI costruisce i propri `--ignore` da questo file.",
+  "descrizione": "Advisory accettati temporaneamente. Comprendono warning di manutenzione e i tre advisory ZIP di estrazione su disco con esposizione verificata assente nel perimetro dichiarato: `cargo audit --deny warnings` continua a bloccare ogni nuovo advisory, e ignora soltanto gli ID qui elencati. La CI costruisce i propri `--ignore` da questo file. Le eccezioni yanked sono separate in yanked_accettati: non diventano ignore di cargo audit o di advisory RustSec. scripts/audit_ignores.py --esegui mantiene --deny warnings con --no-yanked per gli advisory e controlla separatamente il JSON di cargo audit con yanked abilitato su entrambi i lockfile; errori dello strumento o report invalidi restano bloccanti.",
   "accettate": [
     {
       "id": "RUSTSEC-2023-0089",
       "crate": "atomic-polyfill",
       "accettata_dal": "2026-07-27",
       "motivo": "presente nel lockfile attraverso versioni opzionali di rstar, ma assente dal grafo attivo di cargo tree --workspace --all-features --target all",
-      "esposizione": "nessun codice del componente distribuibile lo collega",
+      "esposizione": "nessun codice del componente distribuibile lo collega. Vale anche per `fuzz/Cargo.lock`, che la CI audita con la stessa eccezione: anche li' `cargo tree --locked -i atomic-polyfill --all-features --target all` non stampa niente (verificato il 2026-10-05)",
       "chiusura": "rimuovere l'eccezione appena l'ecosistema geo-types/rstar non lo include piu' nella risoluzione del lockfile",
       "trigger_di_riesame": "modifica a feature o dipendenze geospaziali"
+    },
+    {
+      "id": "RUSTSEC-2026-0367",
+      "crate": "zip",
+      "versione": "=8.6.0",
+      "accettata_dal": "2026-10-17",
+      "regola": "AGENTS.md regola 4: deviazione dichiarata; decisione esplicita utente 2026-10-17, eccezione senza fork.",
+      "ambito": "Solo zip 8.6.0 transitivo via calamine 0.36.1 e rust_xlsxwriter 0.99.1, in Cargo.lock e fuzz/Cargo.lock. Lettura dei membri solo in memoria; rust_xlsxwriter crea nuovi archivi. Nessuna estrazione su disco. Zip diretto 9.0.3 escluso dalla deroga. Gli ignore degli strumenti sono per ID, senza filtro versione: limite documentato in verifica_advisory_zip_2026_10_17.",
+      "motivo": "Esposizione assente alle API vulnerabili nei percorsi IO ispezionati; mantenuta la risoluzione transitiva in attesa dei consumer su zip >=9.0.0.",
+      "hazard": "Preservazione insicura dei bit SUID/SGID durante l'estrazione ZIP. Correzione indicata: zip >=9.0.0. L'aggiornamento diretto non corregge zip 8.6.0 transitivo; questa verifica non esclude altri difetti.",
+      "esposizione": "calamine-0.36.1/src/xlsx/mod.rs:2544, :2761, :2763: ZipArchive::new/by_name -> BufReader -> XML in memoria; rust_xlsxwriter-0.99.1/src/packager.rs:91, :342, :345, :219: creazione archivio; src/workbook.rs:2408: tema in String. IO crates/driver-xls/src/lib.rs:323, :444, :546, :942: lettura e save_to_buffer. Nessun extract o scrittura di membri estratti. Inventario completo in verifica_advisory_zip_2026_10_17.evidenze.",
+      "chiusura": "Rientro: appena calamine e rust_xlsxwriter passano a zip 9, aggiornarli e rigenerare entrambi i lockfile; verificare assenza di zip 8.6.0, rimuovere i tre ignore advisory da deny.toml e le tre eccezioni accettate (quindi i flag audit), insieme alla deroga yanked; rieseguire gate, audit e deny su entrambi i grafi.",
+      "trigger_di_riesame": "Ogni uso di extract o nuove API zip, scrittura di membri su disco, modifica a feature, consumer, calamine/rust_xlsxwriter o lockfile. Se compare un percorso di estrazione raggiungibile, l'eccezione non e' piu' giustificata."
+    },
+    {
+      "id": "RUSTSEC-2026-0368",
+      "crate": "zip",
+      "versione": "=8.6.0",
+      "accettata_dal": "2026-10-17",
+      "regola": "AGENTS.md regola 4: deviazione dichiarata; decisione esplicita utente 2026-10-17, eccezione senza fork.",
+      "ambito": "Solo zip 8.6.0 transitivo via calamine 0.36.1 e rust_xlsxwriter 0.99.1, in Cargo.lock e fuzz/Cargo.lock. Lettura dei membri solo in memoria; rust_xlsxwriter crea nuovi archivi. Nessuna estrazione su disco. Zip diretto 9.0.3 escluso dalla deroga. Gli ignore degli strumenti sono per ID, senza filtro versione: limite documentato in verifica_advisory_zip_2026_10_17.",
+      "motivo": "Esposizione assente alle API vulnerabili nei percorsi IO ispezionati; mantenuta la risoluzione transitiva in attesa dei consumer su zip >=9.0.0.",
+      "hazard": "ZipArchive::extract crea symlink con target fuori dalla destinazione. Correzione indicata: zip >=9.0.0. L'aggiornamento diretto non corregge zip 8.6.0 transitivo; questa verifica non esclude altri difetti.",
+      "esposizione": "calamine-0.36.1/src/xlsx/mod.rs:2544, :2761, :2763: ZipArchive::new/by_name -> BufReader -> XML in memoria; rust_xlsxwriter-0.99.1/src/packager.rs:91, :342, :345, :219: creazione archivio; src/workbook.rs:2408: tema in String. IO crates/driver-xls/src/lib.rs:323, :444, :546, :942: lettura e save_to_buffer. Nessun extract o scrittura di membri estratti. Inventario completo in verifica_advisory_zip_2026_10_17.evidenze.",
+      "chiusura": "Rientro: appena calamine e rust_xlsxwriter passano a zip 9, aggiornarli e rigenerare entrambi i lockfile; verificare assenza di zip 8.6.0, rimuovere i tre ignore advisory da deny.toml e le tre eccezioni accettate (quindi i flag audit), insieme alla deroga yanked; rieseguire gate, audit e deny su entrambi i grafi.",
+      "trigger_di_riesame": "Ogni uso di extract o nuove API zip, scrittura di membri su disco, modifica a feature, consumer, calamine/rust_xlsxwriter o lockfile. Se compare un percorso di estrazione raggiungibile, l'eccezione non e' piu' giustificata."
+    },
+    {
+      "id": "RUSTSEC-2026-0369",
+      "crate": "zip",
+      "versione": "=8.6.0",
+      "accettata_dal": "2026-10-17",
+      "regola": "AGENTS.md regola 4: deviazione dichiarata; decisione esplicita utente 2026-10-17, eccezione senza fork.",
+      "ambito": "Solo zip 8.6.0 transitivo via calamine 0.36.1 e rust_xlsxwriter 0.99.1, in Cargo.lock e fuzz/Cargo.lock. Lettura dei membri solo in memoria; rust_xlsxwriter crea nuovi archivi. Nessuna estrazione su disco. Zip diretto 9.0.3 escluso dalla deroga. Gli ignore degli strumenti sono per ID, senza filtro versione: limite documentato in verifica_advisory_zip_2026_10_17.",
+      "motivo": "Esposizione assente alle API vulnerabili nei percorsi IO ispezionati; mantenuta la risoluzione transitiva in attesa dei consumer su zip >=9.0.0.",
+      "hazard": "ZipStreamReader::extract e ZipArchive::extract applicano permessi Unix attraverso symlink. Correzione indicata: zip >=9.0.0. L'aggiornamento diretto non corregge zip 8.6.0 transitivo; questa verifica non esclude altri difetti.",
+      "esposizione": "calamine-0.36.1/src/xlsx/mod.rs:2544, :2761, :2763: ZipArchive::new/by_name -> BufReader -> XML in memoria; rust_xlsxwriter-0.99.1/src/packager.rs:91, :342, :345, :219: creazione archivio; src/workbook.rs:2408: tema in String. IO crates/driver-xls/src/lib.rs:323, :444, :546, :942: lettura e save_to_buffer. Nessun extract o scrittura di membri estratti. Inventario completo in verifica_advisory_zip_2026_10_17.evidenze.",
+      "chiusura": "Rientro: appena calamine e rust_xlsxwriter passano a zip 9, aggiornarli e rigenerare entrambi i lockfile; verificare assenza di zip 8.6.0, rimuovere i tre ignore advisory da deny.toml e le tre eccezioni accettate (quindi i flag audit), insieme alla deroga yanked; rieseguire gate, audit e deny su entrambi i grafi.",
+      "trigger_di_riesame": "Ogni uso di extract o nuove API zip, scrittura di membri su disco, modifica a feature, consumer, calamine/rust_xlsxwriter o lockfile. Se compare un percorso di estrazione raggiungibile, l'eccezione non e' piu' giustificata."
     }
   ],
+  "aggiornamento_zip": {
+    "data": "2026-10-16",
+    "versione_diretta": "=9.0.3",
+    "motivo": "Tutte le versioni 8.x sono yanked. Il pin diretto passa alla 9.0.3 in Cargo.toml, Cargo.lock e fuzz/Cargo.lock, con default-features = false e la sola feature deflate.",
+    "compatibilita": "La decodifica fallibile dei nomi propaga l'errore senza escludere parti dalla prevalidazione; restano invariati i limiti di 4096 membri, 64 MiB per parte XML e il rapporto di decompressione del budget. Le fixture restano Stored tramite SimpleFileOptions.",
+    "residuo": "calamine 0.36.1 richiede zip ^8.6 e rust_xlsxwriter 0.99.1 richiede zip ^8.3. Cargo.lock e fuzz/Cargo.lock contengono gia' zip 8.6.0 solo attraverso questi due consumer e zip 9.0.3 diretto: si conservano le risoluzioni, con l'eccezione yanked dichiarata sotto."
+  },
   "risolte_senza_eccezione": [
     {
       "id": [
@@ -30,5 +76,61 @@
       "come": "`paste` **non e' piu' nel grafo**. Era una dipendenza build-time di `parquet 59.1.0`; la 59.3.0 non la tira, e con l'aggiornamento del 2026-09-07 esce dal lockfile e dalla closure di `driver-geoparquet`. Un advisory su una crate che non compiliamo non ha bisogno di un'eccezione: non c'e' niente da accettare. Questo chiude la voce per intero, e non a meta'.",
       "nota": "il testo con cui l'eccezione fu accettata il 2026-07-27 legava due cose diverse: la rimozione di `paste` e i test di interoperabilita' con `plenora-data-tools`. La prima e' fatta e chiude questa voce. La seconda **non e' una condizione residua di questo advisory** e non va tenuta qui, dove finirebbe fra le cose risolte e nessuno la rileggerebbe: e' una verifica aperta per conto suo, che vive nell'invariante differita `sistema.qualifica-cross-component` del contratto di release e nella voce `verifiche_aperte.interoperabilita_arrow_con_data_tools` del censimento verso la 3.0.0. L'aggiornamento ad Arrow 59.3.0 la rende piu' urgente, non soddisfatta."
     }
-  ]
+  ],
+  "yanked_accettati": [
+    {
+      "crate": "zip@=8.6.0",
+      "accettata_dal": "2026-10-16",
+      "regola": "Decisione esplicita dell'utente: accettato SOLO zip 8.6.0 yanked come dipendenza transitiva di calamine e rust_xlsxwriter. Tutti gli altri yanked restano deny; nessun advisory di sicurezza viene ignorato da questa eccezione. I tre advisory RUSTSEC-2026-0367/0368/0369 hanno eccezioni separate in accettate, decise il 2026-10-17 ai sensi della regola 4.",
+      "ambito": "Cargo.lock e fuzz/Cargo.lock; stessa deny.toml passata esplicitamente dal gate a entrambi i grafi. cargo-deny 0.20.2 supporta nome e versione esatti (zip@=8.6.0), ma non un vincolo sui parent nell'ignore yanked; scripts/check_cargo_deny.py controlla i consumer in entrambi i lockfile. Il job rust usa scripts/audit_ignores.py --esegui: controllo JSON dei lockfile interi con unica allowlist zip@=8.6.0 letta da questo registro, indipendente dal grafo risolto di cargo-deny. cargo-audit 0.22.2 offre --ignore solo per ID advisory e --no-yanked per tutta la categoria, non per PackageSpec.",
+      "hazard": "Le correzioni di zip 9.0.1 (overflow nel decoder implode e permessi in estrazione) non coprono la lettura XLSX di calamine, che usa ancora zip 8.6.0. Aggiornare la dipendenza diretta a 9.0.3 non aggiorna quella transitiva. I due percorsi specifici risultano non raggiungibili con le feature e le chiamate ispezionate; questo non prova l'assenza di altri difetti in zip 8. Disabilitare soltanto yanked in cargo audit allargherebbe la deroga a ogni crate: il secondo passaggio JSON mantiene il controllo su ogni altro nome/versione in entrambi i lockfile. Il primo passaggio conserva --deny warnings per gli advisory, con le sole deroghe RUSTSEC registrate in accettate, inclusi RUSTSEC-2026-0367/0368/0369; vedere verifica_advisory_zip_2026_10_17 per API ed esposizione.",
+      "esposizione": "calamine 0.36.1 e rust_xlsxwriter 0.99.1 dichiarano zip con default-features=false e features=[deflate]. Implode e' compilato soltanto con legacy-zip, non richiesta da questi consumer. Il reader XLSX di calamine usa ZipArchive::new, by_name e XmlReader su BufReader<ZipFile>: decomprime in memoria, senza ZipArchive::extract o applicazione di permessi su disco. rust_xlsxwriter usa ZipWriter per produrre XLSX. I file temporanei del driver/fuzzer non sono estrazioni dei membri ZIP con i loro permessi.",
+      "evidenze": [
+        "Sorgenti crates.io locali: calamine-0.36.1/Cargo.toml [dependencies.zip]; rust_xlsxwriter-0.99.1/Cargo.toml [dependencies.zip].",
+        "calamine-0.36.1/src/xlsx/mod.rs:2544 (ZipArchive::new), :2754-2775 (xml_reader: by_name -> BufReader -> XmlReader); nessuna chiamata extract nel reader XLSX.",
+        "zip-8.6.0/src/lib.rs:44 (modulo legacy condizionale), src/compression.rs:536-538 (ImplodeDecoder sotto cfg legacy-zip).",
+        "crates/driver-xls/src/lib.rs:322 (open_workbook calamine), :546 (prevalidazione con zip diretto); fuzz/fuzz_targets/xlsx_reader.rs usa lo stesso driver.",
+        "Cargo.lock e fuzz/Cargo.lock: soli archi entranti in zip 8.6.0 da calamine e rust_xlsxwriter; verificati dal gate anche se cargo metadata non e disponibile.",
+        "https://github.com/EmbarkStudios/cargo-deny/blob/0.20.2/src/advisories/cfg.rs; src/cfg/package_spec.rs (ignore yanked per PackageSpec e Reason, senza filtro parent).",
+        "Cache cargo-audit-0.22.2: src/commands/audit.rs (--ignore, --no-yanked); src/auditor.rs (check_for_yanked_crates); src/presenter.rs (report JSON e warning bloccanti). Ricerca repository: le sole invocazioni operative di cargo audit erano in .github/workflows/ci.yml; nessuna in release o verify.",
+        "Verifica aggiornata e inventario API file:riga in verifica_advisory_zip_2026_10_17; eccezioni advisory distinte in accettate per RUSTSEC-2026-0367/0368/0369."
+      ],
+      "limite_verifica_locale": "cargo tree --locked --offline --all-features --target all -i zip@8.6.0, per entrambi i manifesti, non risolve zip 9.0.3 nell'indice locale. Le conclusioni sulle feature derivano dai manifesti dei soli consumer presenti nei lockfile, non da una risoluzione metadata locale riuscita.",
+      "chiusura": "Appena calamine e rust_xlsxwriter accettano zip 9: aggiornarli, rigenerare entrambi i lockfile, verificare l'assenza di zip 8.6.0 e rimuovere questo ignore e la relativa eccezione; rieseguire deny su entrambi i grafi, build e clippy. Quando entrambi pubblicano versioni su zip 9, rimuovere anche la copia iniziale del Cargo.lock nel consumatore, ripristinare la verifica senza lockfile e aggiornare README.md e docs/PRODUCT.md. Rimuovere anche la deroga nel controllo JSON audit (o ripristinare cargo audit --deny warnings senza --no-yanked in tutti i punti di esecuzione), rieseguendo i test Python e audit su entrambi i lockfile. Rimuovere contestualmente le tre eccezioni advisory RUSTSEC-2026-0367/0368/0369 e i relativi ignore deny/audit.",
+      "trigger_di_riesame": "Ogni aggiornamento di calamine/rust_xlsxwriter, dei lockfile o delle feature ZIP; in particolare legacy-zip, nuovi consumer o introduzione di estrazione su disco. Ogni uso di extract o nuove API zip richiede riesame anche delle tre eccezioni advisory.",
+      "verifiche_locali": {
+        "data": "2026-10-16",
+        "gate": "14 test passati; coerenza deny/registro e ambito di entrambi i lockfile verificati.",
+        "cargo": "cargo deny --locked check su entrambi i grafi, cargo build --workspace --release --locked e cargo clippy --workspace --all-targets --all-features --locked -- -D warnings tentati: bloccati prima della compilazione/analisi da crates.io config.json, TLS Schannel SEC_E_NO_CREDENTIALS. Nessun esito verde dichiarato."
+      },
+      "garanzia_indebolita": "Il consumatore esterno deve partire dal Cargo.lock distribuito nell'archivio, copiandolo nella propria radice prima di cargo run. Il gate superficie-rust verifica questa costruzione, non la risoluzione senza lockfile: tutte le zip 8.x sono yanked e calamine e rust_xlsxwriter le richiedono ancora. Cargo riusa le versioni bloccate e aggiunge il pacchetto consumatore.",
+      "advisory_correlati": [
+        "RUSTSEC-2026-0367",
+        "RUSTSEC-2026-0368",
+        "RUSTSEC-2026-0369"
+      ]
+    }
+  ],
+  "verifica_advisory_zip_2026_10_17": {
+    "regola": "AGENTS.md regola 4, come riportata nella richiesta: deviazione dichiarata con regola, ambito, hazard e rientro. Decisione esplicita utente del 2026-10-17: eccezione, non fork. AGENTS.md non presente nella worktree o nei suoi antenati al momento della verifica.",
+    "evidenze": [
+      "Sorgenti ispezionate il 2026-10-17 nella cache C:/Users/Marco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f; i percorsi dei crate sotto sono relativi a questa radice.",
+      "calamine-0.36.1/src/xlsx/mod.rs:2544 ZipArchive::new; src/utils.rs:169 file_names; src/xlsx/mod.rs:2761 by_name, :2763 BufReader<ZipFile> -> XmlReader. IO: crates/driver-xls/src/lib.rs:323 open_workbook<Xlsx>, :153 worksheet_cells_reader. Nessuna materializzazione dei membri sul filesystem.",
+      "Altre API calamine XLSX: src/xlsx/mod.rs:708 len, :709 by_index, :710 ZipFile::name, :722 Read::read_to_end in Vec (picture); :2579 by_name e :2582 size per VBA letto in memoria. Nessuna extract anche nei rami opzionali.",
+      "Inventario degli altri reader calamine (IO instrada soltanto Xlsx): src/ods.rs:181 ZipArchive::new; :184, :287, :330 by_name; :187 read_exact; :815 len, :816 by_index, :817 name, :829 read_to_end in Vec. src/xlsb/mod.rs:476 ZipArchive::new; :173, :507, :647 by_name; :444 len, :445 by_index, :446 name, :457 read_to_end in Vec; :510 size; :649 BufReader<ZipFile>, :658 read_exact. src/utils.rs:169 file_names comune ai reader XLSX/XLSB.",
+      "rust_xlsxwriter-0.99.1/src/packager.rs:91 ZipWriter::new_stream; :93 SimpleFileOptions::default, :94 compression_method(Deflated), :95 unix_permissions(0o600), :96 last_modified_time(DateTime::default), :97 large_file, :100 compression_method(Stored); :342 start_file, :345 Write::write_all (ripetute per le parti), :219 finish. I permessi sono metadati del nuovo archivio, non chmod sul filesystem. :462 io::copy legge celle temporanee e scrive nel ZipWriter (feature constant_memory), non estrae un archivio.",
+      "rust_xlsxwriter-0.99.1/src/workbook.rs:2397 ZipArchive::new, :2406 by_name, :2408 Read::read_to_string in String (tema, non invocato da IO). IO: crates/driver-xls/src/lib.rs:866 Workbook::new, :942 save_to_buffer; rust_xlsxwriter-0.99.1/src/workbook.rs:1371 save_to_buffer, :1374 save_internal, :2592 Packager::new. L'output e' un nuovo XLSX, non membri estratti.",
+      "IO zip diretto 9.0.3: crates/driver-xls/src/lib.rs:444 e :546 ZipArchive::new; :448 len, :451 by_index, :454 compressed_size, :460 size; :582 name_for_index, :598 by_index, :600 size; lettura XML in memoria. Fixture ZIP nei test: ZipWriter, non estrazione. fuzz/fuzz_targets/xlsx_reader.rs:11 salva l'intero input, :16 chiama lo stesso XlsDriver.",
+      "Ricerca dei riferimenti zip e delle chiamate extract/ZipStreamReader e ispezione dei reader/writer in crates/, fuzz/ e src/ dei due consumer: nessun percorso raggiungibile da IO chiama ZipArchive::extract, ZipStreamReader::extract o scrive membri su disco da un archivio. Le utility VBA citate nella documentazione di rust_xlsxwriter non sono chiamate da IO.",
+      "calamine-0.36.1/Cargo.toml:148 e rust_xlsxwriter-0.99.1/Cargo.toml:2466: zip con default-features=false, features=[deflate]. Cargo.lock e fuzz/Cargo.lock verificati: zip 8.6.0 ha soltanto calamine 0.36.1 e rust_xlsxwriter 0.99.1 come consumer; IO usa zip 9.0.3.",
+      "cargo-deny-0.20.2/src/advisories/cfg.rs:13 IgnoreId contiene solo id e reason; :35 legge reason, :37 rifiuta campi aggiuntivi. L'ignore advisory non supporta PackageSpec/versione/parent, diversamente dall'ignore yanked. cargo audit --ignore e' anch'esso per ID; scripts/check_cargo_deny.py verifica i consumer zip 8.6.0 in entrambi i lockfile. Il vincolo alla versione dell'advisory e' documentale, non un filtro nativo degli strumenti."
+    ],
+    "verifiche_locali": {
+      "data": "2026-10-17",
+      "test": "python -m unittest scripts.test_audit_ignores scripts.test_check_cargo_deny: 25 test passati. Sono i due moduli di test che coprono questo registro; nessun altro registro modificato. python scripts/check_cargo_deny.py: coerenza e consumer di entrambi i lockfile verificati. git diff --check: passato.",
+      "flag_audit": "--ignore RUSTSEC-2023-0089 --ignore RUSTSEC-2026-0367 --ignore RUSTSEC-2026-0368 --ignore RUSTSEC-2026-0369",
+      "cargo_deny": "python scripts/check_cargo_deny.py --esegui: exit 0, cargo-deny 0.20.2; advisories, bans, licenses, sources ok su workspace e fuzz. Warning non bloccanti su duplicati e ignore/eccezioni non incontrati.",
+      "cargo_audit": "python scripts/audit_ignores.py --esegui: exit 1 su entrambi i lockfile, prima dell'analisi. Fetch del database impossibile: failed to obtain lock file C:/Users/Marco/.cargo/advisory-db..lock, attempted to take an exclusive lock on a read-only path. Nessun esito verde audit dichiarato; da rieseguire in ambiente con cache scrivibile e rete."
+    }
+  }
 }

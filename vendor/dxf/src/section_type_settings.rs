@@ -61,8 +61,20 @@ impl SectionTypeSettings {
                 }
                 2 => {
                     // value should be "SectionGeometrySettings", but it doesn't really matter
-                    while let Some(gs) = SectionGeometrySettings::read(iter)? {
-                        ss.geometry_settings.push(gs);
+                    // `SectionGeometrySettings::read` oggi restituisce `Some` solo
+                    // dopo aver consumato la coppia `90` da cui parte; la guardia lo
+                    // pretende invece di supporlo, come nel ciclo di
+                    // `apply_custom_reader_sectionsettings` che richiama questa
+                    // funzione.
+                    loop {
+                        let prima = iter.posizione();
+                        match SectionGeometrySettings::read(iter)? {
+                            Some(gs) => {
+                                iter.esigi_progresso(prima)?;
+                                ss.geometry_settings.push(gs);
+                            }
+                            None => break,
+                        }
                     }
                 }
                 3 => (), // value should be "SectionTypeSettingsEnd", but it doesn't really matter

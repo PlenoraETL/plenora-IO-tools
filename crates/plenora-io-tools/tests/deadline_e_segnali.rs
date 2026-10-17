@@ -57,11 +57,15 @@ const RIEMPIMENTO: usize = 320;
 const CRS: &str = "EPSG:4326";
 const OPZIONE_WKT: &str = "wkt_column=geom";
 
-/// La proiezione di `resource_limit`, secondo CLI 2.0 §8.
+/// La proiezione di `timeout`, secondo CLI 2.0 §8.
 ///
-/// Era `7`, il codice storico di `LIMIT_EXCEEDED`. Nel contratto il `7` non
-/// esiste: i codici d'uscita proiettano la **categoria**, e `resource_limit`
-/// proietta `4`.
+/// Una deadline scaduta e' un `timeout` (PUBLIC-SURFACES-1.0 SURF-010). Fino
+/// alla 4.1.0 usciva `resource_limit`, proiettata in `4`, con codice
+/// `LIMIT_EXCEEDED`: una quota invece di una scadenza. `timeout` proietta `5`.
+const EXIT_TIMEOUT: i32 = 5;
+
+/// La proiezione di `resource_limit`, secondo CLI 2.0 §8: il rifiuto di una
+/// quota a zero, che non e' una scadenza.
 const EXIT_LIMITE: i32 = 4;
 
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
@@ -159,12 +163,15 @@ fn una_deadline_di_un_millisecondo_ferma_la_conversione_prima_del_publish() {
 
     assert_eq!(
         output.status.code(),
-        Some(EXIT_LIMITE),
+        Some(EXIT_TIMEOUT),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let documento = busta(&String::from_utf8_lossy(&output.stdout));
-    assert_eq!(documento["error"]["code"], "LIMIT_EXCEEDED");
+    assert_eq!(documento["error"]["code"], "DEADLINE_EXCEEDED");
+    assert_eq!(documento["error"]["category"], "timeout");
+    assert_eq!(documento["error"]["remote_effect"], "none");
+    assert_eq!(documento["error"]["retry"]["kind"], "never");
     assert!(
         !uscita.exists(),
         "la destinazione non deve essere pubblicata"

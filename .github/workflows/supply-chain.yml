@@ -1,0 +1,52 @@
+name: supply-chain
+
+# Applica la politica di `deny.toml` al grafo del workspace e a quello staccato
+# di `fuzz/`, ciascuno col proprio `Cargo.lock`: advisory (con le sole
+# eccezioni del registro), crate ritirati, licenze, ban e sorgenti. Sul modello
+# di plenora-database-tools.
+#
+# `cargo audit` resta nel job `rust` di `ci.yml`: guarda il lockfile intero,
+# comprese le versioni che nessuna feature attiva, mentre cargo-deny guarda il
+# grafo risolto. Le due viste si completano, e le eccezioni vengono dallo
+# stesso registro (`scripts/check_cargo_deny.py` ne verifica la coerenza).
+#
+# Gira anche a calendario perche' il rischio qui non arriva da un commit: un
+# advisory pubblicato domani riguarda il codice fermo di oggi, e senza una
+# corsa schedulata resterebbe invisibile fino alla PR successiva.
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  schedule:
+    # Lunedi' 05:17 UTC. Minuto non tondo: gli orari tondi sono i piu'
+    # congestionati su Actions e le corse schedulate vengono rimandate.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      # Versione esatta, la stessa di `scripts/toolchain-pins.env`
+      # (`check_toolchain_pins.py` le confronta): le regole cambiano fra
+      # versioni dello strumento.
+      - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-deny
+        with:
+          tool: cargo-deny@0.20.2
+      - name: Le sonde del gate
+        run: python3 -m unittest scripts.test_check_cargo_deny
+      # `advisories` dipende dal database RustSec e puo' diventare rosso senza
+      # modifiche al commit; licenze, ban e sorgenti dipendono solo dal
+      # lockfile e da `deny.toml`.
+      - name: advisories, licenses, bans e sources sui due grafi
+        run: python3 scripts/check_cargo_deny.py --esegui

@@ -67,6 +67,44 @@ class SondeDelRaggruppamento(unittest.TestCase):
         self.assertEqual(set(stato["osservati"]), {".contract", ".a", ".b"})
         self.assertEqual(stato["in_tutte"], {".contract", ".a"})
 
+    def test_un_oggetto_null_non_rende_opzionali_i_suoi_campi(self) -> None:
+        """`geometry: null` in una busta non dice che `geometry.name` puo'
+        mancare quando `geometry` c'e': la presenza si misura dove il
+        contenitore e' un oggetto."""
+        per_busta, _ = gate.raggruppa(
+            [
+                self.osservazione("con", {"contract": "c", "g": {"n": "x", "k": 1}}),
+                self.osservazione("senza", {"contract": "c", "g": None}),
+            ]
+        )
+        stato = per_busta["c"]
+        self.assertIn(".g.n", stato["in_tutte"])
+        self.assertIn(".g", stato["in_tutte"])
+        self.assertEqual(stato["osservati"][".g"], {"object", "null"})
+
+    def test_un_campo_che_manca_in_un_oggetto_presente_e_opzionale(self) -> None:
+        """La controprova: se l'oggetto c'e' e il campo no, il campo e'
+        opzionale come prima."""
+        per_busta, _ = gate.raggruppa(
+            [
+                self.osservazione("con", {"contract": "c", "g": {"n": "x", "k": 1}}),
+                self.osservazione("senza-k", {"contract": "c", "g": {"n": "y"}}),
+            ]
+        )
+        self.assertNotIn(".g.k", per_busta["c"]["in_tutte"])
+
+    def test_un_array_vuoto_rende_opzionale_l_elemento(self) -> None:
+        """Gli elementi di un array restano quelli di prima: un array vuoto e'
+        un contenitore presente, e l'elemento che manca e' opzionale."""
+        per_busta, _ = gate.raggruppa(
+            [
+                self.osservazione("pieno", {"contract": "c", "a": [{"x": 1}]}),
+                self.osservazione("vuoto", {"contract": "c", "a": []}),
+            ]
+        )
+        self.assertNotIn(".a[]", per_busta["c"]["in_tutte"])
+        self.assertIn(".a[].x", per_busta["c"]["in_tutte"])
+
     def test_un_caso_senza_json_e_nominato(self) -> None:
         _, problemi = gate.raggruppa([self.osservazione("muto", None)])
         self.assertEqual(len(problemi), 1)

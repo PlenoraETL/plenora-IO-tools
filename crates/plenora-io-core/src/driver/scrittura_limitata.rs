@@ -298,6 +298,11 @@ impl FormatWriter for LimitedWriter {
             })?;
             Ok(())
         });
+        // Il driver scrive, e il tempo passa: una quota esaurita dentro la
+        // scrittura dopo la scadenza e' una scadenza.
+        let result = result.map_err(|errore| {
+            super::limite_o_scadenza(self.budget.context(), errore, ErrorPhase::Write)
+        });
         if result.is_err() {
             self.failed = true;
         }
@@ -327,6 +332,11 @@ impl FormatWriter for LimitedWriter {
             })?;
             Ok(())
         });
+        // Il driver scrive, e il tempo passa: una quota esaurita dentro la
+        // scrittura dopo la scadenza e' una scadenza.
+        let result = result.map_err(|errore| {
+            super::limite_o_scadenza(self.budget.context(), errore, ErrorPhase::Write)
+        });
         if result.is_err() {
             self.failed = true;
         }
@@ -353,7 +363,13 @@ impl FormatWriter for LimitedWriter {
                 "EOF prima dell'input_total esatto dichiarato",
             )));
         }
-        let mut published = self.inner.finish()?;
+        // La finalizzazione del backend misura l'output: una quota superata
+        // dopo che la scadenza e' passata dentro `finish` e' una scadenza.
+        let contesto = self.budget.context().clone();
+        let mut published = self
+            .inner
+            .finish()
+            .map_err(|errore| super::limite_o_scadenza(&contesto, errore, ErrorPhase::Finalize))?;
         published.loss.merge(&self.planned_loss);
         published.fidelity = self.fidelity.with_loss_report(&published.loss);
         Ok(published)

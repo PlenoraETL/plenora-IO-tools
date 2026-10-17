@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "prodotto_da": "scripts/check_public_contracts.py",
+  "prodotto_il": "2026-10-09T13:38:02Z",
+  "artefatto": {
+    "nome": "plenora-io-4.1.1-windows-x86_64-filegdb.zip",
+    "digest": "sha256:b6b8dd897b1df0edfaca9151924f5cfcfe301636e94323ad8ad46fea501ae15f",
+    "byte": 47821711
+  },
+  "esigente": true,
+  "conforme": true,
+  "binario": {
+    "percorso_nell_archivio": "plenora-io-4.1.1-windows-x86_64-filegdb/bin/plenora-io.exe",
+    "digest": "sha256:38bbd669c02c2f9a0a2049d2f1232d6bb1b41651213ef3c862ee55fd710cf3e0"
+  },
+  "contratti": {
+    "pin": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3"
+  },
+  "requisiti": {
+    "totale": 32,
+    "protetti": 32,
+    "regressioni": [],
+    "da_dichiarare": [],
+    "non_soddisfatti": [],
+    "invocazioni_guaste": []
+  }
+}

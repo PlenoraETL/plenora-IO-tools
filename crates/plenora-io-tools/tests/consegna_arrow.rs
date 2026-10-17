@@ -82,7 +82,7 @@ fn batch_consegnati(percorso: &Path) -> (Vec<RecordBatch>, arrow_schema::SchemaR
     (batch, schema)
 }
 
-fn metadati(mappa: &std::collections::HashMap<String, String>) -> BTreeMap<&str, &str> {
+fn metadati(mappa: &arrow_schema::Metadata) -> BTreeMap<&str, &str> {
     mappa
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))

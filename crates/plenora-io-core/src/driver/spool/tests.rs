@@ -11,6 +11,7 @@ use arrow_schema::{DataType, Field, Schema};
 
 use super::*;
 use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
+use plenora_io_model::PipelineClock;
 
 /// Budget dell'operazione per i test, dal modello unificato.
 ///
@@ -640,6 +641,89 @@ fn migration_stops_on_cancellation() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
 }
 
+/// Uno schema il cui messaggio IPC supera il buffer del writer: la sua
+/// scrittura passa dalla guardia gia' dentro `StreamWriter::try_new`.
+fn schema_ingombrante() -> SchemaRef {
+    let metadati =
+        std::collections::HashMap::from([("descrizione".to_owned(), "x".repeat(64 * 1024))]);
+    Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false).with_metadata(metadati),
+        Field::new("nome", DataType::Utf8, true),
+    ]))
+}
+
+fn spool_in_memoria(
+    schema: &SchemaRef,
+    budget: &OperationBudget,
+    token: CancellationToken,
+) -> StagedSpool {
+    StagedSpool {
+        schema: Arc::clone(schema),
+        budget: budget.clone(),
+        cancellation: token,
+        memory_threshold: 2 * PER_BATCH_OVERHEAD_BYTES,
+        stage: Stage::Memory {
+            batches: VecDeque::new(),
+            bytes: 0,
+        },
+        sealed: false,
+        spilled_once: false,
+    }
+}
+
+/// La quota di spill che non basta al solo schema e' una quota, non un
+/// errore di I/O: era `SPOOL_CREATE_FAILED`, perche' la creazione del writer
+/// scartava l'errore della guardia.
+#[test]
+fn a_schema_beyond_the_spill_quota_is_a_limit_not_an_io_error() {
+    let schema = schema_ingombrante();
+    let budget = budget_di(1 << 20, 4096);
+    let mut spool = spool_in_memoria(&schema, &budget, CancellationToken::new());
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
+    let errore = spingi(&mut spool, &budget, batch(&schema, 4, 4), 100)
+        .expect_err("lo schema oltre la quota di spill deve fallire");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+}
+
+/// Una scadenza che arriva mentre lo spool scrive lo schema e' un `timeout`
+/// (SURF-010). La scadenza e' quella del token, armata senza attese: il test
+/// non dipende dall'orologio.
+#[test]
+fn a_deadline_while_the_schema_is_written_is_a_timeout() {
+    let schema = schema_ingombrante();
+    let token = CancellationToken::new();
+    let budget = match PipelineBudget::builder()
+        .limits(
+            PipelineLimits::default()
+                .with_memory_bytes(1 << 20)
+                .with_spill_bytes(1 << 24)
+                .with_max_wkb_cell_bytes(1 << 20),
+        )
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    // Lo spool non guarda il proprio token prima di creare il writer: la
+    // scadenza la vede soltanto la guardia, che e' il punto da provare.
+    let mut spool = spool_in_memoria(&schema, &budget, CancellationToken::new());
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
+    let lease = budget
+        .context()
+        .lease_memory_internal(100 + PER_BATCH_OVERHEAD_BYTES)
+        .expect("lease prima della scadenza");
+    token.cancel_due_to_deadline();
+    let errore = spool
+        .push(batch(&schema, 4, 4), lease)
+        .expect_err("la scadenza deve fermare la migrazione");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
+}
+
 #[test]
 fn replay_stops_on_cancellation() {
     let schema = schema();
@@ -655,10 +739,55 @@ fn replay_stops_on_cancellation() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
 }
 
+/// La scadenza scatta fra il sigillo e il replay, e solo li'.
+///
+/// Era una deadline di un millisecondo seguita da una `sleep`: sotto
+/// strumentazione (`coverage`) il millisecondo passava gia' durante la `push`,
+/// e la prova falliva nel punto sbagliato. Con l'orologio manuale il tempo non
+/// passa finche' la prova non lo fa passare, e la `push` e il sigillo girano a
+/// scadenza intatta per costruzione.
 #[test]
 fn replay_stops_when_the_deadline_expires() {
     let schema = schema();
-    let budget = budget_con(PipelineLimits::default().with_duration_ms(1));
+    let orologio = PipelineClock::manual(std::time::Instant::now());
+    let budget = match PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_duration_ms(1))
+        .clock(orologio.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
+    let mut spool = StagedSpool::new(
+        Arc::clone(&schema),
+        budget.clone(),
+        CancellationToken::default(),
+    );
+    spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push a scadenza intatta");
+    spool.seal().expect("seal a scadenza intatta");
+    orologio
+        .advance(std::time::Duration::from_millis(1))
+        .expect("avanzamento");
+    let errore = spool
+        .next_batch()
+        .expect_err("la deadline deve interrompere il replay");
+    // SURF-010: una scadenza e' un `timeout`, non una quota.
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Timeout);
+}
+
+/// Il controllo: un istante prima della scadenza il replay procede.
+#[test]
+fn replay_runs_until_the_last_instant_before_the_deadline() {
+    let schema = schema();
+    let orologio = PipelineClock::manual(std::time::Instant::now());
+    let budget = match PipelineBudget::builder()
+        .limits(PipelineLimits::default().with_duration_ms(1))
+        .clock(orologio.clone())
+        .build()
+    {
+        Ok(bundle) => bundle.into_write_parts().into_budget(),
+        Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+    };
     let mut spool = StagedSpool::new(
         Arc::clone(&schema),
         budget.clone(),
@@ -666,11 +795,16 @@ fn replay_stops_when_the_deadline_expires() {
     );
     spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
     spool.seal().expect("seal");
-    std::thread::sleep(std::time::Duration::from_millis(5));
-    let errore = spool
-        .next_batch()
-        .expect_err("la deadline deve interrompere il replay");
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    orologio
+        .advance(std::time::Duration::from_micros(999))
+        .expect("avanzamento");
+    assert!(
+        spool
+            .next_batch()
+            .expect("ancora dentro la scadenza")
+            .is_some(),
+        "un istante prima della scadenza il replay consegna"
+    );
 }
 
 #[test]

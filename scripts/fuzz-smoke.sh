@@ -69,6 +69,34 @@ fi
 echo "toolchain fuzz: ${toolchain}"
 
 duration="${seconds_flag:-${PLENORA_FUZZ_SECONDS:-60}}"
+
+# Lo stack di un esaurimento di memoria si legge solo simbolizzato: senza
+# `llvm-symbolizer` AddressSanitizer stampa indirizzi, e il classificatore non
+# ha una firma da confrontare -- ogni esaurimento diventa illeggibile, cioe'
+# rosso, anche quello gia' registrato. Si cerca quindi un simbolizzatore prima
+# di correre, e si dice quale. Se non c'e' lo si dice, e il rosso resta: e' la
+# direzione sicura.
+if [ -z "${ASAN_SYMBOLIZER_PATH:-}" ]; then
+    simbolizzatore="$(command -v llvm-symbolizer || true)"
+    if [ -z "${simbolizzatore}" ]; then
+        simbolizzatore="$(ls /usr/bin/llvm-symbolizer-* 2>/dev/null | sort -V | tail -n 1 || true)"
+    fi
+    if [ -n "${simbolizzatore}" ]; then
+        export ASAN_SYMBOLIZER_PATH="${simbolizzatore}"
+    fi
+fi
+if [ -n "${ASAN_SYMBOLIZER_PATH:-}" ]; then
+    echo "simbolizzatore: ${ASAN_SYMBOLIZER_PATH}"
+else
+    echo "ATTENZIONE: nessun llvm-symbolizer: un esaurimento di memoria sara' illeggibile, cioe' rosso" >&2
+fi
+# La provenienza della corsa, per il classificatore: la radice reale del
+# registro di cargo e il commit della toolchain del fuzzing. Solo sotto questi
+# prefissi esatti libFuzzer e la libreria standard si riconoscono come runtime,
+# e una crate del registro si attribuisce alla versione del lockfile.
+radice_registry="${CARGO_HOME:-${HOME}/.cargo}/registry/src"
+rustc_commit="$(rustc +"${toolchain}" -vV | sed -n 's/^commit-hash: //p')"
+echo "registro: ${radice_registry}; rustc: ${rustc_commit}"
 rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
 max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
 
@@ -191,6 +219,13 @@ done
 # corsa fallita senza panico riconoscibile e' un guasto, non un finding noto.
 failed=()
 noti=()
+# `bersaglio=id` per ogni bersaglio fermato a un finding noto: l'arresto si
+# legge con la voce che l'ha riconosciuto, nel riepilogo e nel verbale.
+voci=()
+# Chi e' uscito senza un esito leggibile: un crash senza firma, o una corsa
+# terminata con 0 ma senza il riepilogo conclusivo di libFuzzer -- un'uscita
+# vuota non e' un bersaglio che ha finito.
+illeggibili=()
 skipped=0
 uscite=$(mktemp -d)
 trap 'rm -rf "${uscite}"' EXIT
@@ -203,25 +238,43 @@ for target in "${targets[@]}"; do
     fi
     echo "=== ${target}: ${duration}s ==="
     uscita="${uscite}/${target}.txt"
-    if cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
+    # Lo script gira con `set -euo pipefail`: un comando che esce diverso da
+    # zero lo interromperebbe qui, prima della classificazione, del verbale e
+    # del riepilogo. L'esito della corsa e quello del classificatore si
+    # catturano percio' esplicitamente, con `|| codice=$?`. Con `pipefail`
+    # l'esito della pipeline e' quello di `cargo`, perche' `tee` esce 0.
+    esito_corsa=0
+    cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \
         "-timeout=15" \
         "-print_final_stats=1" \
-        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}"; then
+        "-artifact_prefix=fuzz/artifacts/${target}/" 2>&1 | tee "${uscita}" || esito_corsa=$?
+    if [ "${esito_corsa}" -eq 0 ]; then
+        conclusa=0
+        python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
+            --conclusa "${uscita}" || conclusa=$?
+        if [ "${conclusa}" -ne 0 ]; then
+            illeggibili+=("${target}")
+        fi
         continue
     fi
-    # `pipefail` non e' attivo qui: l'esito della corsa e' quello di `cargo`,
-    # non di `tee`, e si rilegge da PIPESTATUS.
-    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
-        continue
-    fi
+    voce_nota="${uscite}/${target}.voce"
+    codice=0
     python3 "$(dirname "$0")/classifica_finding_fuzz.py" "${target}" \
         --uscita "${uscita}" \
-        --conserva "assurance/evidence/finding-fuzz"
-    case "$?" in
-        3) noti+=("${target}") ;;
+        --codice-uscita "${esito_corsa}" \
+        --radice-registry "${radice_registry}" \
+        --rustc-commit "${rustc_commit}" \
+        --conserva "assurance/evidence/finding-fuzz" \
+        --voce-nota "${voce_nota}" || codice=$?
+    case "${codice}" in
+        3)
+            noti+=("${target}")
+            voci+=("${target}=$(cat "${voce_nota}")")
+            ;;
+        4) illeggibili+=("${target}") ;;
         *) failed+=("${target}") ;;
     esac
 done
@@ -245,7 +298,7 @@ done
 finiti=()
 for target in "${targets[@]}"; do
     fermo=0
-    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"}; do
+    for gia in ${noti[@]+"${noti[@]}"} ${failed[@]+"${failed[@]}"} ${illeggibili[@]+"${illeggibili[@]}"}; do
         [ "${gia}" = "${target}" ] && fermo=1
     done
     if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
@@ -262,11 +315,18 @@ python3 "$(dirname "$0")/classifica_finding_fuzz.py" \
     --scrivi-verbale "${duration}" \
     --finiti ${finiti[@]+"${finiti[@]}"} \
     --fermati ${noti[@]+"${noti[@]}"} \
+    --voci ${voci[@]+"${voci[@]}"} \
     --falliti ${failed[@]+"${failed[@]}"} \
+    --illeggibili ${illeggibili[@]+"${illeggibili[@]}"} \
     --dichiarati ${dichiarati[@]+"${dichiarati[@]}"}
 
-if [ "${#failed[@]}" -ne 0 ]; then
-    echo "target con finding: ${failed[*]}" >&2
+if [ "${#failed[@]}" -ne 0 ] || [ "${#illeggibili[@]}" -ne 0 ]; then
+    if [ "${#failed[@]}" -ne 0 ]; then
+        echo "target con finding: ${failed[*]}" >&2
+    fi
+    if [ "${#illeggibili[@]}" -ne 0 ]; then
+        echo "target senza un esito leggibile: ${illeggibili[*]}" >&2
+    fi
     exit 1
 fi
 
@@ -275,8 +335,7 @@ if [ "${#noti[@]}" -ne 0 ]; then
     # La riga non puo' dire «completato»: i bersagli fermati a un finding noto
     # non hanno esplorato il tempo che restava, e una riga che li contasse fra
     # i completi direbbe di una campagna piu' di quanto sia successo.
-    finiti=$(( eseguiti - ${#noti[@]} ))
-    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (${noti[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
+    echo "smoke fuzz: ${#finiti[@]} target hanno finito il proprio tempo, ${#noti[@]} si sono fermati a un crash COMPATIBILE con un finding noto (bersaglio=voce: ${voci[*]}), ${skipped} in quarantena, comunque compilati. Chi si e' fermato NON ha esplorato il tempo restante, e il verbale in assurance/evidence/fuzz-smoke-ultima.json lo dice al gate della qualificazione."
     exit 0
 fi
 

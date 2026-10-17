@@ -103,7 +103,11 @@ fn cpu_ms() -> f64 {
     s(u.ru_utime) + s(u.ru_stime)
 }
 
+// Non `const`: la variante Unix chiama `getrusage` e non puo' esserlo, e le due
+// devono restare intercambiabili per il chiamante. Il job `rust` della CI gira
+// su Linux e questo ramo lo vede solo una compilazione su Windows.
 #[cfg(not(unix))]
+#[allow(clippy::missing_const_for_fn)]
 fn cpu_ms() -> f64 {
     // `getrusage` non è disponibile: la metrica resta esplicitamente n/a.
     0.0
@@ -651,7 +655,7 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
         match child.try_wait() {
             Ok(Some(_)) | Err(_) => break,
             Ok(None) => {
-                if start.elapsed() > deadline {
+                if start.elapsed() >= deadline {
                     child.kill().ok();
                     timed_out = true;
                     break;

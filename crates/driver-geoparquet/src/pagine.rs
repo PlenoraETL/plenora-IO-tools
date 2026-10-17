@@ -5,7 +5,9 @@
 //!
 //! `SerializedPageReader` decomprime una pagina allocando in un colpo solo la
 //! dimensione che l'**header di pagina** dichiara (parquet 59.1.0,
-//! `file/serialized_reader.rs:447`):
+//! `file/serialized_reader.rs:447`; invariato in 60.0.0, `:464`, dove il fork
+//! la lega ormai a `total_uncompressed_size` del chunk, che pero' e' anch'esso
+//! dichiarato):
 //!
 //! ```text
 //! let mut decompressed = Vec::with_capacity(uncompressed_page_size);

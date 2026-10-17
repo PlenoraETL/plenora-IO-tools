@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.check_action_pins import required_tool_input, validate_reference
+from scripts.check_action_pins import (
+    from_senza_digest,
+    required_tool_input,
+    validate_reference,
+)
 
 
 class ValidateReferenceTests(unittest.TestCase):
@@ -47,10 +51,39 @@ class ValidateReferenceTests(unittest.TestCase):
         lines = [
             f"      - uses: {reference}",
             "        with:",
-            "          tool: cargo-llvm-cov",
+            "          tool: cargo-llvm-cov@0.9.0",
             "      - name: Next step",
         ]
         self.assertIsNone(required_tool_input(reference, lines, 0))
+
+    def test_install_action_rejects_a_tool_without_exact_version(self) -> None:
+        # Il nome nudo installa l'ultima versione pubblicata: l'action e'
+        # fissata, cio' che installa no.
+        reference = "taiki-e/install-action@" + ("a" * 40)
+        for tool in ("cargo-audit", "cargo-audit@0.22", "cargo-audit@latest",
+                     "cargo-llvm-cov@0.9.0,cargo-audit"):
+            with self.subTest(tool=tool):
+                lines = [
+                    f"      - uses: {reference}",
+                    "        with:",
+                    f"          tool: {tool}",
+                ]
+                self.assertIsNotNone(required_tool_input(reference, lines, 0))
+
+    def test_dockerfile_from_requires_a_digest(self) -> None:
+        digest = "sha256:" + ("c" * 64)
+        righe = [
+            "FROM ubuntu:22.04",
+            f"FROM rust:1.98-slim-bookworm@{digest} AS costruzione",
+            "FROM costruzione",
+            "FROM scratch",
+            "from debian:12",
+            "FROM --platform=linux/amd64 alpine:3",
+            f"FROM ubuntu@{digest[:-1]}",
+        ]
+        self.assertEqual(
+            [numero for numero, _ in from_senza_digest(righe)], [1, 5, 6, 7]
+        )
 
     def test_other_actions_do_not_require_tool_input(self) -> None:
         reference = "actions/checkout@" + ("a" * 40)

@@ -448,7 +448,12 @@ impl FormatDriver for KmlDriver {
                 &PublicMessage::Curated("KML: un solo layer per file"),
             ));
         }
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let mut output = BufWriter::with_capacity(KML_IO_BUFFER_BYTES, staging.reopen()?);
         output.write_all(
             br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,

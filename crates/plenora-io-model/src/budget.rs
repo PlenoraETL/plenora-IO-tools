@@ -95,6 +95,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::clock::PipelineClock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::cancellation::CancellationToken;
@@ -149,7 +151,6 @@ const LIMIT_MUST_BE_POSITIVE: &str = "i limiti di pipeline devono essere maggior
 const CELL_BYTES_ABOVE_MEMORY: &str = "max_wkb_cell_bytes supera il budget di memoria";
 const CELL_BYTES_NOT_REPRESENTABLE: &str = "max_wkb_cell_bytes non rappresentabile in u64";
 const DEADLINE_BEYOND_INSTANT: &str = "deadline della pipeline oltre Instant";
-const DURATION_EXHAUSTED: &str = "durata della pipeline esaurita";
 const LEASE_MUST_BE_POSITIVE: &str = "una lease deve essere maggiore di zero";
 const MEMORY_EXHAUSTED: &str = "budget di memoria esaurito";
 const SPILL_EXHAUSTED: &str = "budget di spill esaurito";
@@ -1020,6 +1021,7 @@ impl SourceFootprintSnapshot {
 struct ContextInner {
     pipeline_id: u64,
     deadline: Instant,
+    clock: PipelineClock,
     cancellation: CancellationToken,
     limits: PipelineLimits,
     observation: Mutex<SourceObservation>,
@@ -1065,20 +1067,30 @@ impl PipelineContext {
 
     #[must_use]
     pub fn remaining_duration(&self) -> Option<Duration> {
-        self.inner.deadline.checked_duration_since(Instant::now())
+        self.inner
+            .deadline
+            .checked_duration_since(self.inner.clock.now())
     }
 
     /// Verifica che la pipeline sia ancora eseguibile.
     ///
     /// Le due condizioni non sono conflate: la cancellazione del chiamante
-    /// produce un errore `Cancelled`, la deadline scaduta un errore di
-    /// limite. Un consumer distingue "l'utente ha chiesto stop" da "il
+    /// produce un errore `cancelled`, la deadline scaduta un errore
+    /// `timeout`. Un consumer distingue "l'utente ha chiesto stop" da "il
     /// budget temporale e' finito".
+    ///
+    /// La deadline e' un `timeout` e non una quota (`resource_limit`):
+    /// PUBLIC-SURFACES-1.0 SURF-010 vuole la scadenza di una deadline
+    /// dichiarata osservabile come `timeout`, ed ERRORS-1.0 ERR-001 la
+    /// categoria piu' precisa. Fino alla 4.1.0 usciva `resource_limit` con
+    /// `LIMIT_EXCEEDED`.
     ///
     /// # Errors
     ///
-    /// Restituisce l'errore di cancellazione se il token e' cancellato, o
-    /// [`PlenoraIoError::LimitExceeded`] se la deadline e' passata.
+    /// Restituisce l'errore di cancellazione (categoria `cancelled`) se il
+    /// token e' cancellato dal chiamante, o l'errore di deadline (categoria
+    /// `timeout`) se il token e' scaduto per la propria scadenza o se la
+    /// durata della pipeline e' passata.
     pub fn ensure_active(&self) -> Result<()> {
         if let Some(ragione) = self.inner.cancellation.reason() {
             // La fase reale non e' nota al context: la porta l'`ErrorContext`
@@ -1093,8 +1105,17 @@ impl PipelineContext {
                 ragione == crate::CancellationReason::Deadline,
             ));
         }
-        if self.remaining_duration().is_none() {
-            return Err(limit_error(DURATION_EXHAUSTED));
+        // Allo scoccare esatto della scadenza il residuo e' zero, non assente:
+        // `checked_duration_since` rende `Some(0)`. La pipeline pero' e'
+        // scaduta, come il token, che scade a `now >= deadline`; prima i due
+        // confini differivano di quell'istante.
+        if self
+            .remaining_duration()
+            .is_none_or(|residuo| residuo.is_zero())
+        {
+            // Stessa fase, stesso effetto e stesso ritentativo della quota
+            // che sostituisce: cambia la sola categoria, e con lei il codice.
+            return Err(PlenoraIoError::cancelled(ErrorPhase::Validate, true));
         }
         Ok(())
     }
@@ -1489,6 +1510,7 @@ pub struct PipelineBudgetBuilder {
     limits: PipelineLimits,
     cancellation: CancellationToken,
     pool: Option<ResourcePool>,
+    clock: PipelineClock,
 }
 
 impl PipelineBudgetBuilder {
@@ -1501,6 +1523,15 @@ impl PipelineBudgetBuilder {
     #[must_use]
     pub fn cancellation(mut self, token: CancellationToken) -> Self {
         self.cancellation = token;
+        self
+    }
+
+    /// L'orologio da cui la pipeline calcola e verifica la propria scadenza.
+    /// Il default e' quello di sistema; un orologio manuale serve alle prove
+    /// che vogliono la scadenza in un punto preciso (vedi [`crate::clock`]).
+    #[must_use]
+    pub fn clock(mut self, clock: PipelineClock) -> Self {
+        self.clock = clock;
         self
     }
 
@@ -1524,7 +1555,9 @@ impl PipelineBudgetBuilder {
     pub fn build(self) -> Result<PipelineBundle> {
         let limits = self.limits;
         limits.validate()?;
-        let deadline = Instant::now()
+        let deadline = self
+            .clock
+            .now()
             .checked_add(Duration::from_millis(limits.duration_ms))
             .ok_or_else(|| limit_error(DEADLINE_BEYOND_INSTANT))?;
         let pipeline_id = allocate_pipeline_id(&NEXT_PIPELINE_ID)?;
@@ -1532,6 +1565,7 @@ impl PipelineBudgetBuilder {
             inner: Arc::new(ContextInner {
                 pipeline_id,
                 deadline,
+                clock: self.clock,
                 cancellation: self.cancellation,
                 limits,
                 observation: Mutex::new(SourceObservation::new()),

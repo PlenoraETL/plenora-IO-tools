@@ -6,6 +6,11 @@
 
 use super::*;
 
+mod buffer_ipc;
+mod layout_ipc;
+mod parametri_schema_ipc;
+mod schema_ipc;
+
 /// Opzioni di lettura sul modello unificato.
 ///
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
@@ -87,6 +92,50 @@ fn un_ipc_non_conforme_e_rifiutato_prima_di_arrow() {
     assert!(
         !errore.to_string().contains("in panico"),
         "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+}
+
+#[test]
+fn buffer_fuori_corpo_rifiutato_prima_di_arrow() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/buffer-fuori-corpo.arrow");
+
+    let errore = match IpcDriver.open(Source::Path(seme), opzioni_lettura()) {
+        Err(errore) => errore,
+        Ok(dataset) => {
+            let request = ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            };
+            match dataset.open_layer_reader(&request) {
+                Err(errore) => errore,
+                Ok(mut reader) => loop {
+                    match reader.next_batch() {
+                        Ok(Some(_)) => {}
+                        Ok(None) => panic!("il file doveva essere rifiutato"),
+                        Err(errore) => break errore,
+                    }
+                },
+            }
+        }
+    };
+    assert!(
+        !errore.to_string().contains("in panico"),
+        "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+    );
+    assert!(
+        errore
+            .message
+            .contains("buffer Arrow oltre la fine del corpo del messaggio"),
+        "{errore}"
     );
     assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
@@ -399,7 +448,48 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
             plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
             plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
         ))
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
+    );
+    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+    {
+        let file = File::create(&path).unwrap();
+        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(matches!(
+        &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
+        CrsResolution::Missing
+    ));
+}
+
+/// Il limite dichiarato in `docs/PRODUCT.md` («Limitazioni di prodotto», IPC):
+/// il CRS che un produttore `GeoArrow` mette **solo** in
+/// `ARROW:extension:metadata` non e' letto, e la geometria risulta senza CRS.
+///
+/// La prova fissa il comportamento di oggi perche' cambiarlo -- leggerlo, o
+/// rifiutare il file -- sia una decisione visibile e non una deriva: quando il
+/// limite rientra, questa prova cambia insieme alla riga del documento.
+#[test]
+fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crs-solo-geoarrow.arrow");
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+        [
+            (
+                plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (
+                "ARROW:extension:metadata".to_owned(),
+                r#"{"crs":"EPSG:4326","crs_type":"authority_code"}"#.to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -448,7 +538,7 @@ fn unresolved_authority_without_definition_is_preserved() {
             (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -503,7 +593,7 @@ fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
             (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -596,7 +686,7 @@ fn declared_unresolved_srid_only_with_axis_order_fails_at_open() {
             (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     let values = BinaryArray::from(vec![Some(
@@ -633,7 +723,7 @@ fn canonical_metadata_without_geoarrow_extension_is_geometry() {
             (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<arrow_schema::Metadata>(),
     );
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
@@ -667,7 +757,7 @@ fn incomplete_or_conflicting_canonical_identity_is_rejected() {
                 (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
             ]
             .into_iter()
-            .collect(),
+            .collect::<arrow_schema::Metadata>(),
         ),
         (
             "conflicting-extension",
@@ -715,7 +805,7 @@ fn multiple_geoarrow_fields_are_rejected() {
                 plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
                 plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
             ))
-            .collect(),
+            .collect::<arrow_schema::Metadata>(),
         )
     };
     let schema = Schema::new(vec![

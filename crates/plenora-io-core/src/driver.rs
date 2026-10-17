@@ -487,6 +487,34 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
     }
 }
 
+/// Una quota che si esaurisce **dopo** la scadenza e' una scadenza.
+///
+/// Dentro `next_batch()` o `write()` del driver il tempo passa: se la deadline
+/// scade li' e il batch supera la prenotazione, entrambe le condizioni sono
+/// vere, e la scadenza viene prima. Riportarla come `resource_limit` diceva al
+/// chiamante di alzare una quota quando era il tempo a mancare (SURF-010).
+///
+/// Solo una quota cede il posto: un errore di formato o di contratto resta
+/// quello che e', anche se nel frattempo il tempo e' finito.
+///
+/// Vale anche per la finalizzazione: il controllo dimensionale dell'output
+/// arriva dopo flush e chiusura del backend, e una scadenza passata li' viene
+/// prima di una quota superata.
+#[must_use]
+pub fn limite_o_scadenza(
+    contesto: &plenora_io_model::budget::PipelineContext,
+    errore: PlenoraIoError,
+    fase: ErrorPhase,
+) -> PlenoraIoError {
+    if errore.category != ErrorCategory::ResourceLimit {
+        return errore;
+    }
+    match contesto.ensure_active() {
+        Err(scadenza) => scadenza.during(fase),
+        Ok(()) => errore,
+    }
+}
+
 /// Frequenza comune dei controlli cooperativi nei loop che materializzano.
 /// È una potenza di due per mantenere trascurabile il costo del fast path.
 pub const CANCELLATION_CHECK_INTERVAL: usize = 1024;
@@ -549,9 +577,14 @@ pub fn check_cancelled_periodically(
 /// mestiere e promette una busta d'errore a quattro assi: la barriera
 /// ripristina il contratto, non lo aggira.
 ///
-/// Segnalato a monte: apache/arrow-rs#10575. Va rimossa quando quella issue e'
-/// chiusa e il pin di arrow sale a una versione che rende fallibile la
-/// conversione dello schema.
+/// Segnalato a monte: apache/arrow-rs#10575. Con arrow 60.0.0 i lettori
+/// convertono lo schema con `try_fb_to_schema`, che e' fallibile, e i metadati
+/// incompleti del footer sono un errore: quella parte del difetto e' chiusa.
+/// La barriera resta, perche' non copre solo lo schema: il decoder del corpo
+/// affetta il body con `Buffer::slice_with_length`, che in 60.0.0 **asserisce**
+/// ancora i limiti (`arrow-buffer/src/buffer/immutable.rs:299`), e i decoder di
+/// `parquet` passano dallo stesso bordo. Si toglie quando nessuno dei percorsi
+/// che avvolge puo' piu' panicare su un input, non quando ne guarisce uno.
 ///
 /// # Correttezza dell'unwind safety
 ///

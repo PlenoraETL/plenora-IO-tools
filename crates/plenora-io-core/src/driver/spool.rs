@@ -277,6 +277,19 @@ fn write_failure(guard: &Mutex<SpillGuard>) -> PlenoraIoError {
         .unwrap_or_else(|| spool_error(&PublicMessage::Curated(SPOOL_WRITE_FAILED)))
 }
 
+/// Come [`write_failure`], per la creazione del writer: l'errore della guardia
+/// se c'e', altrimenti quello di creazione.
+fn creation_failure(guard: &Mutex<SpillGuard>) -> PlenoraIoError {
+    // Non un ripiego: sono due cause distinte -- la guardia ha rifiutato,
+    // oppure il writer e' fallito per conto suo -- e ciascuna ha il proprio
+    // errore. Il lock si rilascia prima di costruire il secondo.
+    let rifiuto_della_guardia = guard_lock(guard).take_failure();
+    if let Some(errore) = rifiuto_della_guardia {
+        return errore;
+    }
+    spool_error(&PublicMessage::Curated(SPOOL_CREATE_FAILED))
+}
+
 fn guard_lock(guard: &Mutex<SpillGuard>) -> MutexGuard<'_, SpillGuard> {
     match guard.lock() {
         Ok(acquisito) => acquisito,
@@ -754,8 +767,14 @@ impl StagedSpool {
             inner: SpoolFile { inner: file },
             guard: Arc::clone(&guard),
         };
+        // Anche il messaggio di schema e' una scrittura sorvegliata: quando
+        // supera il buffer passa dal `GuardedWriter`, che puo' rifiutarla per
+        // quota o per scadenza. L'errore tipizzato sta nella guardia, come per
+        // le scritture dei batch; scartarlo lo trasformava in un errore di I/O
+        // (`SPOOL_CREATE_FAILED`), e una deadline scaduta qui usciva come `io`
+        // invece che come `timeout` (SURF-010).
         let mut writer = StreamWriter::try_new(BufWriter::new(guarded), self.schema.as_ref())
-            .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_CREATE_FAILED)))?;
+            .map_err(|_| creation_failure(&guard))?;
         for (batch, lease) in batches {
             // La migrazione di uno spool pieno e' una sequenza lunga di
             // scritture: va interrompibile come il resto della lettura.

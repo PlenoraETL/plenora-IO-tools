@@ -33,15 +33,11 @@ geo-types = "=0.7.20"
 # materializzato in un file temporaneo prima di raggiungerli.
 tempfile = "=3.27.0"
 
-[patch.crates-io]
-# Il workspace fuzz è intenzionalmente detached e non eredita le patch del
-# workspace principale: ogni fork governato va ripetuto qui. Un fork che
-# mancasse in questo elenco non darebbe un errore di risoluzione ma un target
-# costruito su **un altro codice** — e la profondità misurata sarebbe quella di
-# un binario che non spediamo.
-dxf = { path = "../vendor/dxf" }
-gdal = { path = "../vendor/gdal" }
-shapefile = { path = "../vendor/shapefile" }
+# Niente `[patch.crates-io]`. Il workspace fuzz e' detached e non eredita le
+# patch del principale: finche' i fork erano patch, ogni fork andava ripetuto
+# qui, e uno dimenticato dava un target costruito su un altro codice. Ora i
+# driver dipendono dai fork per percorso (`Cargo.toml` del workspace), e la
+# dipendenza arriva con loro.
 
 [[bin]]
 name = "from_wkb"

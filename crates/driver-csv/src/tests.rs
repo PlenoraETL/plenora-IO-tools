@@ -880,8 +880,14 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
     let guasto = RecordBatch::try_new(batch.schema(), colonne).unwrap();
 
     let destinazione = dir.path().join("uscita.csv");
-    let staging = plenora_io_core::publish::StagedFile::new(&destinazione, false, u64::MAX)
-        .expect("lo staging si crea");
+    let opzioni = opzioni_scrittura();
+    let staging = plenora_io_core::publish::StagedFile::new(
+        &destinazione,
+        false,
+        u64::MAX,
+        opzioni.budget().context(),
+    )
+    .expect("lo staging si crea");
     let writer = csv::WriterBuilder::new()
         .delimiter(b',')
         .from_writer(staging.reopen().expect("lo staging si riapre"));
@@ -918,5 +924,66 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         errore.remote_effect,
         plenora_io_model::RemoteEffect::None,
         "{errore}"
+    );
+}
+
+/// Una scadenza che arriva **dopo** il controllo d'ingresso di `finish` -- nel
+/// flush del writer CSV, nel caso reale -- non pubblica.
+///
+/// Il writer si costruisce a mano, senza `LimitedWriter`, per arrivare al
+/// `finish` del driver con il contesto gia' scaduto: e' la condizione in cui la
+/// scadenza passa fra il controllo di `LimitedWriter::finish` e il rename. La
+/// scadenza e' armata sul token, senza attese.
+#[test]
+fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
+    let dir = tempfile::tempdir().unwrap();
+    let destinazione = dir.path().join("uscita.csv");
+    let token = CancellationToken::new();
+    let opzioni = match plenora_io_model::budget::PipelineBudget::builder()
+        .cancellation(token.clone())
+        .build()
+    {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
+    };
+    let staging = plenora_io_core::publish::StagedFile::new(
+        &destinazione,
+        true,
+        u64::MAX,
+        opzioni.budget().context(),
+    )
+    .expect("lo staging si crea");
+    let percorso_staging = staging.path().expect("percorso").to_path_buf();
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(b',')
+        .from_writer(staging.reopen().expect("lo staging si riapre"));
+    writer.write_record(["id"]).expect("intestazione");
+    let sotto_prova = Box::new(CsvWriter {
+        staging,
+        writer: Some(writer),
+        xy: false,
+        header_written: true,
+        wkb_limits: WkbLimits::default(),
+    });
+
+    token.cancel_due_to_deadline();
+    let Err(errore) = sotto_prova.finish() else {
+        panic!("oltre la scadenza il CSV non si pubblica");
+    };
+
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore}"
+    );
+    assert_eq!(
+        errore.phase,
+        plenora_io_model::ErrorPhase::Finalize,
+        "{errore}"
+    );
+    assert!(!destinazione.exists(), "la destinazione non deve comparire");
+    assert!(
+        !percorso_staging.exists(),
+        "lo staging deve essere ripulito"
     );
 }

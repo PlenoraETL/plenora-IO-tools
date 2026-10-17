@@ -608,6 +608,11 @@ impl Entity {
                                     }));
                                 }
                                 None => {
+                                    // Una DIMENSION senza sottotipo riconosciuto:
+                                    // upstream la saltava. Si conta, perche' chi
+                                    // legge possa rifiutare il documento invece
+                                    // di perdere l'entita' in silenzio.
+                                    iter.segnala_entita_ignorata();
                                     continue 'new_entity;
                                 } // unsuccessful dimension match
                             }
@@ -639,7 +644,9 @@ impl Entity {
                                     return Ok(Some(entity));
                                 }
                                 None => {
-                                    // swallow unsupported entity
+                                    // swallow unsupported entity -- e contala: vedi
+                                    // `CodePairPutBack::segnala_entita_ignorata`.
+                                    iter.segnala_entita_ignorata();
                                     loop {
                                         match iter.next() {
                                             Some(Ok(pair @ CodePair { code: 0, .. })) => {
@@ -682,7 +689,7 @@ impl Entity {
                     &mut image.__clipping_vertices_y,
                     &mut image.clipping_vertices,
                     Point::new,
-                );
+                )?;
             }
             EntityType::Leader(ref mut leader) => {
                 combine_points_3(
@@ -691,7 +698,7 @@ impl Entity {
                     &mut leader.__vertices_z,
                     &mut leader.vertices,
                     Point::new,
-                );
+                )?;
             }
             EntityType::MLine(ref mut mline) => {
                 combine_points_3(
@@ -700,21 +707,21 @@ impl Entity {
                     &mut mline.__vertices_z,
                     &mut mline.vertices,
                     Point::new,
-                );
+                )?;
                 combine_points_3(
                     &mut mline.__segment_direction_x,
                     &mut mline.__segment_direction_y,
                     &mut mline.__segment_direction_z,
                     &mut mline.segment_directions,
                     Vector::new,
-                );
+                )?;
                 combine_points_3(
                     &mut mline.__miter_direction_x,
                     &mut mline.__miter_direction_y,
                     &mut mline.__miter_direction_z,
                     &mut mline.miter_directions,
                     Vector::new,
-                );
+                )?;
             }
             EntityType::Section(ref mut section) => {
                 combine_points_3(
@@ -723,14 +730,14 @@ impl Entity {
                     &mut section.__vertices_z,
                     &mut section.vertices,
                     Point::new,
-                );
+                )?;
                 combine_points_3(
                     &mut section.__back_line_vertices_x,
                     &mut section.__back_line_vertices_y,
                     &mut section.__back_line_vertices_z,
                     &mut section.back_line_vertices,
                     Point::new,
-                );
+                )?;
             }
             EntityType::Spline(ref mut spline) => {
                 combine_points_3(
@@ -739,14 +746,14 @@ impl Entity {
                     &mut spline.__control_point_z,
                     &mut spline.control_points,
                     Point::new,
-                );
+                )?;
                 combine_points_3(
                     &mut spline.__fit_point_x,
                     &mut spline.__fit_point_y,
                     &mut spline.__fit_point_z,
                     &mut spline.fit_points,
                     Point::new,
-                );
+                )?;
             }
             EntityType::DgnUnderlay(ref mut underlay) => {
                 combine_points_2(
@@ -754,7 +761,7 @@ impl Entity {
                     &mut underlay.__point_y,
                     &mut underlay.points,
                     Point::new,
-                );
+                )?;
             }
             EntityType::DwfUnderlay(ref mut underlay) => {
                 combine_points_2(
@@ -762,7 +769,7 @@ impl Entity {
                     &mut underlay.__point_y,
                     &mut underlay.points,
                     Point::new,
-                );
+                )?;
             }
             EntityType::PdfUnderlay(ref mut underlay) => {
                 combine_points_2(
@@ -770,7 +777,7 @@ impl Entity {
                     &mut underlay.__point_y,
                     &mut underlay.points,
                     Point::new,
-                );
+                )?;
             }
             EntityType::Wipeout(ref mut wo) => {
                 combine_points_2(
@@ -778,7 +785,7 @@ impl Entity {
                     &mut wo.__clipping_vertices_y,
                     &mut wo.clipping_vertices,
                     Point::new,
-                );
+                )?;
             }
             _ => (),
         }
@@ -1162,8 +1169,30 @@ impl Entity {
     ) -> DxfResult<bool> {
         let mut reading_column_data = false;
         let mut read_column_count = false;
+        // Il testo di un MTEXT e' fatto di gruppi `3` seguiti da un gruppo `1`
+        // finale. Gruppi `3` senza il `1` -- o un `3` dopo il `1`, o due `1` --
+        // davano un testo plausibile e troncato, o fuori ordine: si rifiuta.
+        let mut attende_gruppo_1 = false;
+        let mut letto_gruppo_1 = false;
+        let fine = |attende: bool, offset: usize| -> DxfResult<bool> {
+            if attende {
+                Err(DxfError::ParseError(offset))
+            } else {
+                Ok(true)
+            }
+        };
+        let mut ultimo_offset = 0;
         loop {
-            let pair = next_pair!(iter);
+            let pair = match iter.next() {
+                Some(Ok(pair @ CodePair { code: 0, .. })) => {
+                    iter.put_back(Ok(pair));
+                    return fine(attende_gruppo_1, ultimo_offset);
+                }
+                Some(Ok(pair)) => pair,
+                Some(Err(e)) => return Err(e),
+                None => return fine(attende_gruppo_1, ultimo_offset),
+            };
+            ultimo_offset = pair.offset;
             match pair.code {
                 10 => {
                     mtext.insertion_point.x = pair.assert_f64()?;
@@ -1193,9 +1222,25 @@ impl Entity {
                     );
                 }
                 3 => {
-                    mtext.extended_text.push(pair.assert_string()?);
+                    if letto_gruppo_1 {
+                        return Err(DxfError::ParseError(pair.offset));
+                    }
+                    attende_gruppo_1 = true;
+                    // Un frammento da 250 caratteri: il taglio puo' cadere dentro
+                    // una sequenza di escape, e la coda aperta si decodifica con
+                    // l'inizio del frammento seguente.
+                    let mut frammento = pair.assert_string()?;
+                    for _ in 0..iter.continua_frammento() {
+                        frammento.pop();
+                    }
+                    mtext.extended_text.push(frammento);
                 }
                 1 => {
+                    if letto_gruppo_1 {
+                        return Err(DxfError::ParseError(pair.offset));
+                    }
+                    letto_gruppo_1 = true;
+                    attende_gruppo_1 = false;
                     mtext.text = pair.assert_string()?;
                 }
                 7 => {

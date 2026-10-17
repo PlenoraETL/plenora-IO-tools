@@ -87,7 +87,13 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # **e'** l'oggetto -- `max_cell_bytes: 5` contro i ventuno byte di un Point --
 # e il default riempie gli altri campi, perche' stringere anche quelli
 # sposterebbe il rifiuto su un limite che la prova non sta esaminando.
-ATTESI = {"test": 88, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 88 a 90 con le due sonde SURF-010 della 4.1.1 sulla scadenza
+# in finalizzazione: `una_scadenza_durante_la_finalizzazione_non_pubblica`
+# (CSV) e `una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce`
+# (Shapefile). Costruiscono il contesto del writer a mano, e li' la quota WKB
+# e' contesto e non oggetto: cio' che si prova e' che la scadenza prevalga e
+# che nulla venga pubblicato.
+ATTESI = {"test": 90, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

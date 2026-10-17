@@ -97,7 +97,21 @@ def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
             if dipendenza["pkg"] not in visti:
                 da_visitare.append(dipendenza["pkg"])
 
-    nostri = {p["id"] for p in metadati["packages"] if p.get("source") is None}
+    # «Nostro» e' un membro del workspace, non «un pacchetto senza `source`».
+    # Un fork vendorizzato si risolve per percorso e non ha `source`, ma e'
+    # codice di terzi con la licenza di terzi: contarlo come nostro lo toglieva
+    # dall'SBOM e dagli identificatori di licenza dell'artefatto.
+    nostri = set(metadati.get("workspace_members", []))
+    vendor = (RADICE / "vendor").resolve()
+
+    def origine(pacchetto: dict) -> str:
+        if pacchetto.get("source"):
+            return pacchetto["source"]
+        manifesto = pathlib.Path(pacchetto["manifest_path"]).resolve()
+        if manifesto.is_relative_to(vendor):
+            return f"fork vendorizzato in {manifesto.parent.relative_to(RADICE).as_posix()}"
+        return "questo repository"
+
     return sorted(
         (
             {
@@ -105,13 +119,26 @@ def linkati(metadati: dict, radice: str = "plenora-io-tools") -> list[dict]:
                 "versione": per_id[i]["version"],
                 "licenza": per_id[i].get("license") or "",
                 "licenza_file": per_id[i].get("license_file") or "",
-                "origine": per_id[i].get("source") or "questo repository",
+                "origine": origine(per_id[i]),
                 "nostro": i in nostri,
+                # La cartella del pacchetto sul disco di chi costruisce: serve a
+                # `avvisi_crate.py` per copiarne i file di licenza, e non entra
+                # in nessun documento spedito (`pubblico` la toglie).
+                "cartella": (
+                    str(pathlib.Path(per_id[i]["manifest_path"]).parent)
+                    if per_id[i].get("manifest_path")
+                    else ""
+                ),
             }
             for i in visti
         ),
         key=lambda p: (p["nome"], p["versione"]),
     )
+
+
+def pubblico(pacchetto: dict) -> dict:
+    """Il pacchetto senza i campi che descrivono la macchina di chi costruisce."""
+    return {k: v for k, v in pacchetto.items() if k != "cartella"}
 
 
 def main() -> int:
@@ -132,7 +159,7 @@ def main() -> int:
         "profilo": arg.profilo,
         "crate_linkati": len(pacchetti),
         "di_terzi": len(di_terzi),
-        "pacchetti": pacchetti,
+        "pacchetti": [pubblico(p) for p in pacchetti],
     }
     if arg.uscita:
         arg.uscita.parent.mkdir(parents=True, exist_ok=True)
