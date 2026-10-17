@@ -994,24 +994,77 @@ fn i_campi_ammessi_sono_quelli_degli_schemi() {
                 .join("schemas")
                 .join(format!("{}.schema.json", descrittore.contratto_ingresso)),
         );
-        let proprieta: BTreeSet<String> = schema["properties"]
-            .as_object()
-            .map(|p| p.keys().cloned().collect())
-            .unwrap_or_default();
-        let richiesti: BTreeSet<String> = schema["required"]
-            .as_array()
-            .map(|r| {
-                r.iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let (proprieta, richiesti) = campi_dello_schema(&schema);
         let (ammessi, obbligatori) = campi_ammessi(descrittore.operazione);
         let ammessi: BTreeSet<String> = ammessi.iter().map(|s| (*s).to_owned()).collect();
         let obbligatori: BTreeSet<String> = obbligatori.iter().map(|s| (*s).to_owned()).collect();
         assert_eq!(ammessi, proprieta, "{}", descrittore.operazione);
         assert_eq!(obbligatori, richiesti, "{}", descrittore.operazione);
     }
+}
+
+fn campi_dello_schema(schema: &Value) -> (BTreeSet<String>, BTreeSet<String>) {
+    let proprieta = schema
+        .get("properties")
+        .map(|p| {
+            p.as_object()
+                .expect("properties e' un oggetto")
+                .keys()
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let richiesti = schema
+        .get("required")
+        .map(|r| {
+            r.as_array()
+                .expect("required e' un array")
+                .iter()
+                .map(|v| v.as_str().expect("required contiene stringhe").to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    (proprieta, richiesti)
+}
+
+#[test]
+fn i_default_dello_schema_non_nascondono_tipi_errati() {
+    assert_eq!(
+        campi_dello_schema(&json!({})),
+        (BTreeSet::new(), BTreeSet::new())
+    );
+    for schema in [
+        json!({"properties": null}),
+        json!({"properties": []}),
+        json!({"required": null}),
+        json!({"required": {}}),
+        json!({"required": [1]}),
+    ] {
+        assert!(std::panic::catch_unwind(|| campi_dello_schema(&schema)).is_err());
+    }
+}
+
+#[test]
+fn una_cancellazione_non_supportata_non_diventa_successo() {
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let deposito = Deposito::nuovo(temporanea.path());
+    for operazione in ["io.catalog", "capabilities"] {
+        let mut richiesta = per_operazione("io.catalog", json!({}));
+        richiesta.metadata.operazione = operazione.to_owned();
+        let token = CancellationToken::new();
+        token.cancel();
+        let risultato = binding(&deposito).invoca(&richiesta, token);
+        let errore = errore(&risultato);
+        assert_eq!(errore["code"], "RUNTIME_CONTROL_UNSUPPORTED");
+        assert_eq!(errore["category"], "unsupported");
+        assert_eq!(errore["phase"], "validate");
+        assert_eq!(errore["remote_effect"], "none");
+        assert_eq!(errore["retry"]["kind"], "never");
+        assert!(!binding(&deposito)
+            .invoca(&richiesta, CancellationToken::new())
+            .e_un_errore());
+    }
+    assert_eq!(deposito.chiamate.get(), 0);
 }
 
 /// Il documento capability runtime: forma, registro dei binding, catalogo.

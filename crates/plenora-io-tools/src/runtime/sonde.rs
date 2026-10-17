@@ -87,6 +87,30 @@ fn i_millisecondi_rimasti_arrotondano_per_difetto() {
 }
 
 #[test]
+fn una_durata_non_rappresentabile_non_diventa_il_massimo() {
+    use super::millisecondi_della_durata;
+    let massimo = Duration::from_millis(u64::MAX);
+    assert_eq!(
+        millisecondi_della_durata(massimo).expect("limite"),
+        u64::MAX
+    );
+    let errore = millisecondi_della_durata(massimo + Duration::from_millis(1))
+        .expect_err("nessuna saturazione");
+    assert_eq!(errore["code"], "RUNTIME_DEADLINE_INVALID");
+    assert_eq!(errore["category"], "invalid_configuration");
+    assert_eq!(errore["phase"], "validate");
+    assert_eq!(errore["remote_effect"], "none");
+    assert_eq!(errore["retry"]["kind"], "never");
+    assert!(!errore.to_string().contains(&u64::MAX.to_string()));
+    for durata in [Duration::ZERO, Duration::from_nanos(999_999)] {
+        assert_eq!(
+            millisecondi_della_durata(durata).expect_err("scaduta")["category"],
+            "timeout"
+        );
+    }
+}
+
+#[test]
 fn l_orologio_prima_dell_epoca_non_allenta_la_scadenza() {
     let prima = UNIX_EPOCH - Duration::from_secs(1);
     let errore = istante_della_scadenza("2030-01-01T00:00:00Z", prima)

@@ -334,7 +334,7 @@
   "rimisurazione_dovuta": {
     "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'. La PR #57 aggiorna inoltre zip diretto a 9.0.3 e i lockfile principale e fuzz: il perimetro cambia ancora. Rinvio riallineato all'albero corrente il 2026-10-16; nessuna nuova misura eseguita. La PR #58 corregge la prevalidazione dello schema e dei buffer IPC. Rinvio riallineato all'albero corrente il 2026-10-17; nessuna nuova misura eseguita. La revisione dei layout IPC della PR #58 aggiunge i controlli su viste, indici di dizionario, liste fisse e copertura logica dei run ends. Rinvio riallineato il 2026-10-17; nessuna nuova misura eseguita.",
     "impronta_della_misura": "e466b198db5fc5ee6ec3b3cf592ea117736094fb9b7f71ca02f977c335a4643f",
-    "impronta_attesa": "1fa5c594a3b3a7c41dbc832606b2b9c124e732f0c659e91c88284e92a52ef51a",
+    "impronta_attesa": "e7d6e1d9014515ec9770f1f9c88be7deb73188cd02a948eb60a743aadffe6499",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh shp_reader"

@@ -576,6 +576,11 @@ impl<'a> BindingRuntime<'a> {
     ) -> Result<(&'static DescrittoreRuntime, Carico), Value> {
         let ammessa = ammetti(documento, metadati)?;
         let descrittore = ammessa.descrittore;
+        if !descrittore.controlli && cancellazione.is_cancelled() {
+            return Err(errore_di_instradamento(
+                RifiutoDiInstradamento::Cancellazione,
+            ));
+        }
         // La scadenza diventa un `Instant` **adesso**, all'ammissione, e i
         // millisecondi rimasti si ricalcolano dopo il risolutore: il tempo che
         // l'applicazione impiega a materializzare gli artefatti consuma la
@@ -1474,11 +1479,25 @@ fn istante_della_scadenza(testo: &str, adesso: SystemTime) -> Result<Instant, Va
 ///
 /// [`errore_di_scadenza`] se non resta almeno un millisecondo.
 fn millisecondi_rimasti(istante: Instant) -> Result<u64, Value> {
-    let restano = istante
+    let durata = istante
         .checked_duration_since(Instant::now())
-        .map_or(0, |durata| {
-            u64::try_from(durata.as_millis()).unwrap_or(u64::MAX)
-        });
+        .ok_or_else(errore_di_scadenza)?;
+    millisecondi_della_durata(durata)
+}
+
+fn millisecondi_della_durata(durata: Duration) -> Result<u64, Value> {
+    let restano = u64::try_from(durata.as_millis()).map_err(|_| {
+        local_err_doc(
+            "RUNTIME_DEADLINE_INVALID",
+            ErrorCategory::InvalidConfiguration,
+            ErrorPhase::Validate,
+            &PublicMessage::Curated(
+                "la durata della scadenza supera i millisecondi rappresentabili dal binding",
+            ),
+        )
+        .1["error"]
+            .clone()
+    })?;
     if restano == 0 {
         return Err(errore_di_scadenza());
     }
@@ -1801,6 +1820,7 @@ enum RifiutoDiInstradamento {
     ContentType,
     Idempotenza,
     Scadenza,
+    Cancellazione,
 }
 
 fn errore_di_instradamento(rifiuto: RifiutoDiInstradamento) -> Value {
@@ -1855,6 +1875,11 @@ fn errore_di_instradamento(rifiuto: RifiutoDiInstradamento) -> Value {
             "RUNTIME_CONTROL_UNSUPPORTED",
             ErrorCategory::Unsupported,
             "io.catalog non ammette una scadenza: non apre nulla e non la osserverebbe",
+        ),
+        RifiutoDiInstradamento::Cancellazione => (
+            "RUNTIME_CONTROL_UNSUPPORTED",
+            ErrorCategory::Unsupported,
+            "l'operazione non ammette la cancellazione richiesta dal contesto runtime",
         ),
     };
     local_err_doc(

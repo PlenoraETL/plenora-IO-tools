@@ -86,12 +86,10 @@ runtime-tools o un'altra — consegna un'`Invocazione` serializzata e riceve un
 `Risultato` con la correlazione dell'invocazione:
 
 ```rust
-use plenora_io_tools::runtime::{BindingRuntime, CancellationToken, Invocazione};
+use plenora_io_tools::runtime::{BindingRuntime, CancellationToken};
 
-let risultato = match Invocazione::da_json(&messaggio) {
-    Ok(invocazione) => BindingRuntime::new(&risolutore).invoca(&invocazione, CancellationToken::new()),
-    Err(errore) => return rispondi_con(errore), // plenora-error-v1, senza dati dell'ingresso
-};
+let risultato = BindingRuntime::new(&risolutore)
+    .invoca_json(&messaggio, CancellationToken::new());
 ```
 
 - i payload sono quelli degli schemi `*-input-v1`, letti a campi chiusi;
