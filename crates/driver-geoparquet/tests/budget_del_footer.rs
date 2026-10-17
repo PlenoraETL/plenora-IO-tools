@@ -206,7 +206,7 @@ fn apri(byte: &[u8], opzioni: ArrowReaderOptions) -> Result<(), String> {
 }
 
 /// Indici di pagina chiesti con un tetto: un errore esplicito, prima di
-/// leggerli. Senza tetto si leggono come prima.
+/// leggerli. Senza tetto il fork li rifiuta come percorso non qualificato.
 ///
 /// Prima della correzione la lettura riusciva: gli indici passavano da
 /// `decode_column_index` e `decode_offset_index`, che non portano il tetto,
@@ -218,8 +218,8 @@ fn gli_indici_di_pagina_con_un_tetto_sono_rifiutati() {
         let senza_tetto = ArrowReaderOptions::new().with_page_index_policy(politica);
         assert_eq!(
             apri(&byte, senza_tetto),
-            Ok(()),
-            "senza tetto gli indici si leggono"
+            Err(format!("NYI: {}", parquet::basic::PAGE_INDEX_NOT_QUALIFIED)),
+            "senza tetto gli indici non sono qualificati"
         );
 
         let con_tetto = ArrowReaderOptions::new()
@@ -268,5 +268,10 @@ fn anche_il_lettore_seriale_rifiuta_gli_indici_con_un_tetto() {
         "{errore}"
     );
     let senza_tetto = ReadOptionsBuilder::new().with_page_index().build();
-    assert!(SerializedFileReader::new_with_options(apri_file(), senza_tetto).is_ok());
+    let errore = SerializedFileReader::new_with_options(apri_file(), senza_tetto)
+        .err()
+        .expect("indice non qualificato");
+    assert!(errore
+        .to_string()
+        .contains(parquet::basic::PAGE_INDEX_NOT_QUALIFIED));
 }

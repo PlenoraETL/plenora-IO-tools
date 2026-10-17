@@ -80,9 +80,8 @@ fn il_footer_della_4_1_1_e_un_errore_e_non_una_prenotazione() {
         Ok(Err(errore)) => {
             let testo = errore.to_string();
             assert!(
-                testo.contains("exceeds remaining input length"),
-                "il rifiuto atteso e' il limite di `read_thrift_vec` ai byte \
-                 residui, prima della prenotazione: {testo}"
+                testo.contains("footer field with a negative count, size or offset"),
+                "la base 6492733 rifiuta prima il campo negativo del footer: {testo}"
             );
         }
         Ok(Ok(())) => panic!("il footer del caso si legge senza errore"),
@@ -152,7 +151,10 @@ fn una_larghezza_zero_e_un_errore_e_non_una_divisione_per_zero() {
         FixedSizeBinaryArray::try_from_iter(vec![vec![7_u8]; 3].into_iter()).expect("colonna"),
     );
     for bss in [false, true] {
-        let mut proprieta = WriterProperties::builder().set_dictionary_enabled(false);
+        let mut proprieta = WriterProperties::builder()
+            .set_dictionary_enabled(false)
+            // Il controllo della larghezza delle statistiche ora precede il reader.
+            .set_statistics_enabled(parquet::file::properties::EnabledStatistics::None);
         if bss {
             proprieta = proprieta
                 .set_writer_version(WriterVersion::PARQUET_2_0)
