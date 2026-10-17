@@ -12,10 +12,12 @@
 //! convertono con `try_fb_to_schema`, fallibile (in `convert.rs` resta un solo
 //! `panic!`, fuori dal percorso di lettura), e i metadati del footer senza
 //! chiave o valore sono un `ParseError`. Le verifiche di schema e footer qui
-//! sotto restano come difesa in profondita' -- rifiutano solo input non
-//! conformi, e costano una visita dello schema --; quella dei buffer resta
-//! **necessaria**, perche' `read_buffer` affetta ancora il corpo con
-//! `slice_with_length`, che asserisce.
+//! sotto sono ancora **necessarie**: la conversione fallibile conserva
+//! parametri che `layout`, `new_empty_array` e `make_array` assumono validi.
+//! In particolare un dizionario senza `DictionaryBatch` sintetizza i valori
+//! vuoti, saltando la validazione fallibile dei dati. Anche i figli vanno
+//! verificati prima del decoder. La verifica dei buffer resta necessaria:
+//! `read_buffer` affetta il corpo con `slice_with_length`, che asserisce.
 //!
 //! I driver leggono file esterni non fidati per mestiere. Una barriera
 //! `catch_unwind` converte il panico in errore tipizzato e resta come difesa
@@ -1339,10 +1341,59 @@ fn valida_campo(
             ));
         }
     }
+    valida_parametri_strutturali(driver, &campo)?;
 
     if let Some(figli) = campo.children() {
         for indice in 0..figli.len() {
             valida_campo(driver, figli.get(indice), profondita + 1, visitati)?;
+        }
+    }
+    Ok(())
+}
+
+/// Invarianti usate anche dalla costruzione infallibile di valori vuoti.
+/// Il conteggio dei figli e' gia' verificato; non basta verificare il batch,
+/// perche' un dizionario senza `DictionaryBatch` non ha nodi per i valori.
+fn valida_parametri_strutturali(driver: &'static str, campo: &FbField<'_>) -> Result<()> {
+    if campo
+        .type_as_fixed_size_binary()
+        .is_some_and(|tipo| tipo.byteWidth() < 0)
+    {
+        return Err(errore(driver, "larghezza binaria fissa Arrow negativa"));
+    }
+    if campo
+        .type_as_fixed_size_list()
+        .is_some_and(|tipo| tipo.listSize() < 0)
+    {
+        return Err(errore(
+            driver,
+            "dimensione della lista fissa Arrow negativa",
+        ));
+    }
+    if campo.type_type() == Type::Union && campo.children().is_none_or(|f| f.is_empty()) {
+        return Err(errore(driver, "unione Arrow senza figli"));
+    }
+    if matches!(campo.type_type(), Type::Map | Type::RunEndEncoded) {
+        let figli = campo
+            .children()
+            .ok_or_else(|| errore(driver, "contenitore Arrow senza figli"))?;
+        let primo = figli.get(0);
+        if campo.type_type() == Type::Map {
+            if primo.type_type() != Type::Struct_
+                || primo.dictionary().is_some()
+                || primo.children().is_none_or(|f| f.len() != 2)
+            {
+                return Err(errore(
+                    driver,
+                    "entries della mappa Arrow non struct di due campi",
+                ));
+            }
+        } else if primo.dictionary().is_some()
+            || !primo
+                .type_as_int()
+                .is_some_and(|tipo| tipo.is_signed() && matches!(tipo.bitWidth(), 16 | 32 | 64))
+        {
+            return Err(errore(driver, "run ends Arrow non Int16, Int32 o Int64"));
         }
     }
     Ok(())

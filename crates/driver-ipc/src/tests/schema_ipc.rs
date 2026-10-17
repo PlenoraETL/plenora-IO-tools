@@ -228,7 +228,7 @@ fn dizionario_ombra_in_file_flussi_e_delta() {
                     assert_eq!(e.code, IoErrorCode::Format);
                     assert_eq!(e.phase, ErrorPhase::Read);
                     let motivo = if contenitore == Type::RunEndEncoded {
-                        "buffer degli identificatori di unione Arrow piu' corto"
+                        "run ends Arrow non Int16, Int32 o Int64"
                     } else {
                         "numero di figli non conforme"
                     };

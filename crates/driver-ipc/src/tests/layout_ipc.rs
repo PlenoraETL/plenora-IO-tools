@@ -7,12 +7,13 @@ use plenora_io_model::{ErrorPhase, IoErrorCode};
 
 use super::schema_ipc::incapsula;
 
-fn fixture(
+pub(super) fn fixture(
     tipo: DataType,
     nodi: &[FieldNode],
     lunghezze: &[i64],
     stream: bool,
     dizionario: Option<bool>,
+    ometti_dizionario: bool,
 ) -> Vec<u8> {
     let run_ends = matches!(tipo, DataType::RunEndEncoded(_, _));
     let tipo = if dizionario.is_some() {
@@ -57,7 +58,11 @@ fn fixture(
     }
     let buffers = b.create_vector(&buffers);
     let nodes = b.create_vector(nodi);
-    let variadici = b.create_vector(&[0_i64]);
+    let variadici = b.create_vector(if ometti_dizionario {
+        &[][..]
+    } else {
+        &[0_i64][..]
+    });
     let batch = RecordBatch::create(
         &mut b,
         &RecordBatchArgs {
@@ -68,7 +73,7 @@ fn fixture(
             ..Default::default()
         },
     );
-    let (header_type, header) = dizionario.map_or_else(
+    let (header_type, header) = dizionario.filter(|_| !ometti_dizionario).map_or_else(
         || (MessageHeader::RecordBatch, batch.as_union_value()),
         |delta| {
             let d = DictionaryBatch::create(
@@ -101,7 +106,7 @@ fn fixture(
             &mut byte,
             &schema,
             Block::new(offset, n, body_length),
-            dizionario.is_some(),
+            dizionario.is_some() && !ometti_dizionario,
         );
     }
     byte
@@ -154,7 +159,7 @@ fn termina_file(byte: &mut Vec<u8>, schema: &NativeSchema, blocco: Block, dizion
 fn verifica(tipo: &DataType, nodi: &[FieldNode], buffer: &[i64], motivo: Option<&str>) {
     for stream in [false, true] {
         for dizionario in [None, Some(false), Some(true)] {
-            let byte = fixture(tipo.clone(), nodi, buffer, stream, dizionario);
+            let byte = fixture(tipo.clone(), nodi, buffer, stream, dizionario, false);
             let file = tempfile::NamedTempFile::new().unwrap();
             std::fs::write(file.path(), byte).unwrap();
             let valida = if stream {
