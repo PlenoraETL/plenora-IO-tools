@@ -781,3 +781,41 @@ fn successo_ed_errore_di_ogni_operazione_coincidono() {
         "le sei operazioni del catalogo sono coperte tutte: {coperte:?}"
     );
 }
+
+/// Un percorso che non e' Unicode valido si rifiuta, invece di diventarne un
+/// altro nella conversione a testo.
+#[test]
+fn un_percorso_non_unicode_non_diventa_un_altro_percorso() {
+    #[cfg(unix)]
+    let storto = {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(b"destinazione-\xff.csv"))
+    };
+    #[cfg(windows)]
+    let storto = {
+        use std::os::windows::ffi::OsStringExt;
+        let mut unita: Vec<u16> = "destinazione-".encode_utf16().collect();
+        unita.push(0xD800);
+        unita.extend(".csv".encode_utf16());
+        PathBuf::from(std::ffi::OsString::from_wide(&unita))
+    };
+    assert!(
+        storto.to_str().is_none(),
+        "la sonda costruisce davvero un percorso non Unicode"
+    );
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let destinazione = temporanea.path().join(&storto);
+    let esito = operazioni::convert(
+        Richiesta::sulla_sorgente(fixture("canonico.geojson"))
+            .con_destinazione(&destinazione)
+            .con_formato_sorgente("geojson")
+            .con_formato_destinazione("csv"),
+    );
+    let busta = esito.expect_err("il percorso non Unicode si rifiuta");
+    assert_eq!(busta["error"]["code"], "CLI_USAGE");
+    assert_eq!(
+        std::fs::read_dir(temporanea.path()).expect("dir").count(),
+        0,
+        "nessun file pubblicato sotto un altro nome"
+    );
+}
