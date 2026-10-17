@@ -147,8 +147,8 @@ class SondeConsumatore(unittest.TestCase):
         self.assertNotIn("patch", manifesto)
         self.assertEqual(
             set(manifesto["dependencies"]),
-            {"plenora-io-tools"},
-            "il consumatore deve dichiarare solo la superficie, non i fork",
+            {"plenora-io-tools", "serde_json"},
+            "il consumatore dichiara la superficie e il JSON dei messaggi runtime, non i fork",
         )
 
 

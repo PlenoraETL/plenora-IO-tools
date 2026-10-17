@@ -64,6 +64,8 @@ const fn saturating_u64(value: usize) -> u64 {
 pub mod busta;
 /// La superficie Rust pubblica: le sei operazioni del catalogo, per nome.
 pub mod operazioni;
+/// La superficie runtime: Runtime Binding 1.0 per le sei operazioni.
+pub mod runtime;
 
 /// Il content type che `io.read` ha **prodotto**, non quello che di solito
 /// produce.

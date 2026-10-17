@@ -75,6 +75,34 @@
     {
       "export": "plenora_io_tools::operazioni::capabilities",
       "ruolo": "il documento capability dell'artefatto, `plenora-capabilities-v2`."
+    },
+    {
+      "export": "plenora_io_tools::runtime::BindingRuntime",
+      "ruolo": "il binding Runtime 1.0 delle sei operazioni: `BindingRuntime::new(&risolutore).invoca(&invocazione, cancellazione)` rende un `Risultato` con la correlazione dell'invocazione, mai un panico."
+    },
+    {
+      "export": "plenora_io_tools::runtime::Invocazione",
+      "ruolo": "l'invocazione serializzata: `content_type`, `metadata` con le chiavi riservate di RUNTIME-BINDING-1.0 e `payload` secondo lo schema `*-input-v1` dell'operazione. Si legge con serde, a campi chiusi e senza `null` come assenza."
+    },
+    {
+      "export": "plenora_io_tools::runtime::Carico",
+      "ruolo": "il payload di un risultato: `Json` per le operazioni che rendono JSON e per gli errori `plenora-error-v1`, `FlussoArrow` per `io.read`, con i byte del flusso e il documento `plenora-io-read-result-v1`."
+    },
+    {
+      "export": "plenora_io_tools::runtime::RisolutoreArtefatti",
+      "ruolo": "il confine con cui l'applicazione autorizza e risolve i riferimenti opachi ad artefatto in percorsi locali (RT-013, RT-015)."
+    },
+    {
+      "export": "plenora_io_tools::runtime::RifiutoArtefatto",
+      "ruolo": "il rifiuto del risolutore, senza testo: `NonTrovato` o `NonAutorizzato`."
+    },
+    {
+      "export": "plenora_io_tools::runtime::CancellationToken",
+      "ruolo": "il canale di cancellazione, riesportato perche' l'applicazione non dipenda da `plenora-io-model`."
+    },
+    {
+      "export": "plenora_io_tools::runtime::capacita",
+      "ruolo": "il documento capability della superficie runtime, `plenora.io-tools#capabilities@1`."
     }
   ],
   "che_cosa_questa_superficie_non_promette": {

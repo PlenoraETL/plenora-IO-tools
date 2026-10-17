@@ -1,0 +1,82 @@
+{
+  "$schema": "../schemas/public-catalog-v1.schema.json",
+  "schema_version": 1,
+  "contract": "plenora-public-catalog-v1",
+  "component": "plenora-io-tools",
+  "profile": "plenora-io-tools-profile-v1",
+  "status": "normative",
+  "target_surfaces": {
+    "rust": "required",
+    "cli": "required",
+    "python_sdk": "not_applicable",
+    "runtime": "conditional"
+  },
+  "operations": [
+    {
+      "id": "io.catalog",
+      "version": 1,
+      "requirement": "required",
+      "summary": "Return the formats and externally observable read, write, layer and fidelity capabilities of the artifact.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-catalog-query-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "output": {"contract": "plenora-io-catalog-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "side_effect": "none",
+      "controls": {"cancellation": false, "deadline": false, "idempotency_key": false}
+    },
+    {
+      "id": "io.inspect",
+      "version": 1,
+      "requirement": "required",
+      "summary": "Inspect an external dataset and return its declared format, layers, schemas and fidelity metadata.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-inspect-input-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "output": {"contract": "plenora-io-inspect-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "side_effect": "none",
+      "controls": {"cancellation": true, "deadline": true, "idempotency_key": false}
+    },
+    {
+      "id": "io.layers",
+      "version": 1,
+      "requirement": "required",
+      "summary": "List the addressable layers of an external dataset.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-layers-input-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "output": {"contract": "plenora-io-layers-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "side_effect": "none",
+      "controls": {"cancellation": true, "deadline": true, "idempotency_key": false}
+    },
+    {
+      "id": "io.read",
+      "version": 1,
+      "requirement": "required",
+      "summary": "Read a selected layer as an Arrow dataset plus structured fidelity evidence.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-read-input-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "output": {"contract": "plenora-io-read-result-v1", "content_types": ["application/vnd.apache.arrow.stream", "application/vnd.apache.arrow.file"], "interchange_contracts": ["plenora-arrow-interchange-v1"]},
+      "side_effect": "none",
+      "controls": {"cancellation": true, "deadline": true, "idempotency_key": false}
+    },
+    {
+      "id": "io.write",
+      "version": 1,
+      "requirement": "required",
+      "summary": "Publish an Arrow dataset to an explicit sink format and report fidelity and publication outcome.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-write-input-v1", "content_types": ["application/json", "application/vnd.apache.arrow.stream", "application/vnd.apache.arrow.file"], "interchange_contracts": ["plenora-arrow-interchange-v1"]},
+      "output": {"contract": "plenora-io-write-result-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "side_effect": "local",
+      "controls": {"cancellation": true, "deadline": true, "idempotency_key": false}
+    },
+    {
+      "id": "io.convert",
+      "version": 1,
+      "requirement": "required",
+      "summary": "Convert an external dataset between explicit formats and report read, write and combined fidelity.",
+      "surfaces": ["rust", "cli", "runtime"],
+      "input": {"contract": "plenora-io-convert-input-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "output": {"contract": "plenora-io-convert-v1", "content_types": ["application/json"], "interchange_contracts": []},
+      "side_effect": "local",
+      "controls": {"cancellation": true, "deadline": true, "idempotency_key": false}
+    }
+  ]
+}

@@ -14,13 +14,9 @@
 //! sistema, e nient'altro cambia; una prova ne costruisce uno manuale, lo fa
 //! avanzare quando vuole, e la scadenza scatta **esattamente** li'.
 //!
-//! # Che cosa non copre
-//!
-//! La scadenza **propria** di un [`crate::CancellationToken`]
-//! (`with_deadline`) resta sul tempo di sistema: e' un `Instant` che il
-//! chiamante sceglie, e un token non appartiene a una pipeline sola. Le prove
-//! che la esercitano usano una scadenza gia' passata (`Instant::now()`), che
-//! non dipende dai tempi.
+//! Anche [`crate::CancellationToken::with_clock`] accetta questo orologio:
+//! i figli lo condividono e osservano la scadenza dopo la fine della pipeline.
+//! I token costruiti con `new` o `with_deadline` usano il tempo di sistema.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};

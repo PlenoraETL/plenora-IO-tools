@@ -77,6 +77,57 @@ L'API Rust è **interna e instabile**: non porta garanzia semver e i crate non
 sono pubblicati. La superficie con garanzia di compatibilità è il JSON della
 CLI.
 
+## Uso come binding runtime
+
+`plenora_io_tools::runtime` è la superficie Runtime Binding 1.0 delle sei
+operazioni (`plenora.io-tools#io.*@1`, discovery
+`plenora.io-tools#capabilities@1`). L'applicazione che ospita il binding —
+runtime-tools o un'altra — consegna un'`Invocazione` serializzata e riceve un
+`Risultato` con la correlazione dell'invocazione:
+
+```rust
+use plenora_io_tools::runtime::{BindingRuntime, CancellationToken};
+
+let risultato = BindingRuntime::new(&risolutore)
+    .invoca_json(&messaggio, CancellationToken::new());
+```
+
+- i payload sono quelli degli schemi `*-input-v1`, letti a campi chiusi;
+  `source` e `destination` sono **riferimenti opachi** (`artifact://…`), che
+  l'applicazione risolve in percorsi locali con un `RisolutoreArtefatti`: un
+  percorso locale nel payload è rifiutato prima di raggiungerla, e il file
+  materializzato deve portare il nome dell'ultimo segmento del riferimento
+  (diversi formati ne derivano il nome del layer, che esce nei risultati);
+- `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
+  **nel risultato**, con il documento `plenora-io-read-result-v1` accanto
+  (`delivered` a `null`: nessuna destinazione è stata chiesta, e la
+  serializzazione la dice il content type del risultato), e su questa
+  superficie non scrive file del chiamante;
+- `io.write` con un artefatto Arrow stream restituisce
+  `input.content_type: application/vnd.apache.arrow.stream`: il risultato
+  non valida contro `plenora-io-write-result-v1`, che ammette solo il
+  contenitore. La deviazione runtime ? dichiarata nel manifesto di adozione
+  e nel registro dei limiti di `docs/PRODUCT.md`; rientra con `io.write@2`;
+- la discovery passa dalla stessa ammissione delle operazioni: selettore
+  `capabilities`, versione `1`, contratto d'ingresso
+  `plenora-io-catalog-query-v1`, payload `{}`; rende il documento
+  `plenora-capabilities-v2` della superficie runtime;
+- `plenora.execution.deadline` (ogni grafia RFC 3339 di UTC, frazioni di
+  qualunque lunghezza e `23:59:60` compresi, ricondotti per eccesso al
+  nanosecondo; uno scostamento diverso da zero o `-00:00` è rifiutato)
+  si misura dall'ammissione -- il tempo del risolutore la consuma -- e scade
+  come `timeout`, già passata o durante l'esecuzione; insieme a `deadline_ms`
+  nel payload è rifiutata. L'orologio si inietta con `con_orologio`. La chiave
+  d'idempotenza è rifiutata, perché nessuna operazione la ammette;
+- il risultato ha sempre un `plenora.message.id` nuovo, con la richiesta come
+  causa; i selettori della richiesta vi si riflettono solo se canonici;
+- un errore è un risultato `application/vnd.plenora.error+json` con i quattro
+  assi di `plenora-error-v1`, mai un panico.
+
+I vettori `io-read-*` del repository dei contratti girano in
+`crates/plenora-io-tools/tests/runtime_vettori.rs`; dove differiscono dal
+prodotto, la differenza è dichiarata nel manifesto di adozione.
+
 ## Uso come CLI
 
 ```
