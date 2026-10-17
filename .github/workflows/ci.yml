@@ -44,6 +44,9 @@ jobs:
           toolchain: "1.98.1"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Verify real feature-on FileGDB catalog evidence
@@ -57,6 +60,11 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_action_pins
           python3 scripts/check_action_pins.py
+      # La licenza del prodotto, detta allo stesso modo nel dato, nei metadati,
+      # nei crate e dentro i pacchetti: costa millisecondi, e prima della 4.1.1
+      # due di questi posti si contraddicevano.
+      - name: Probe the product license
+        run: python3 -m unittest scripts.test_licenza_del_prodotto
       - name: Verify unique public identities
         run: |
           python3 -m unittest scripts.test_check_public_identity
@@ -234,6 +242,29 @@ jobs:
           python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork
         run: python3 scripts/check_dxf_fork.py
+      - name: Verify governed shapefile and parquet forks
+        run: |
+          python3 scripts/check_shapefile_fork.py
+          python3 scripts/check_parquet_fork.py
+      # Le licenze che i fork ridistribuiscono, sui byte: dichiarate,
+      # versionate, con l'impronta registrata. L'audit riporta il resto e
+      # fallisce solo su queste: il fork di gdal ha ridistribuito codice MIT
+      # senza il suo testo fino alla 4.1.1, e nessun gate lo vedeva. Il
+      # confronto col `.crate` di crates.io si fa se la rete c'e'; senza, resta
+      # la verifica dell'impronta, che non ne ha bisogno.
+      - name: Le licenze dei fork
+        run: |
+          python3 -m unittest scripts.test_audit_fork_licenze
+          python3 scripts/audit-fork.py --scarico "$RUNNER_TEMP/crate-upstream"
+      # Gli avvisi di licenza crate per crate: ogni crate di terzi linkato nel
+      # binario, nei due profili, porta il proprio (il file del pacchetto, o un
+      # testo verificato del registro). Il testo generico per identificatore non
+      # porta l'avviso di copyright ne' il NOTICE di un crate. Il grafo e'
+      # quello del target Linux; il job Windows ripete la verifica sul suo.
+      - name: Gli avvisi di licenza dei crate
+        run: |
+          python3 -m unittest scripts.test_avvisi_crate scripts.test_licenze
+          python3 scripts/avvisi_crate.py
       # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
       # come prova dell'invariante `errori.static-non-promuovibile`: qui serve
       # la sua sonda, che e' l'unica cosa che verifica il gate invece del
@@ -323,17 +354,28 @@ jobs:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
+      # Versione esatta: senza, `install-action` installa l'ultima pubblicata, e
+      # lo stesso commit puo' passare o fallire secondo il giorno in cui gira.
+      # E' la versione che la CI usava gia' quando il pin mancava.
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.2
       # Gli ID ignorati vengono dal registro, non da un elenco scritto qui: due
       # elenchi divergono, e il secondo non porta la ragione dell'eccezione.
+      # cargo-audit 0.22.2 non ha ignore yanked per crate: il wrapper mantiene
+      # --deny warnings sugli advisory e controlla separatamente il JSON con
+      # yanked abilitato, ammettendo solo zip@8.6.0 dal registro. Ogni altro
+      # yanked in ciascun lockfile resta bloccante, anche fuori dal grafo deny.
+      #
+      # I lockfile sono due. `fuzz/` e' un workspace staccato con il proprio
+      # `Cargo.lock`, e quel grafo compila i driver contro input ostili: un
+      # advisory li' e' un advisory sul codice che il fuzz esercita, e
+      # auditarne uno solo lasciava l'altro senza nessuno che lo guardasse.
       - name: Audit locked dependencies
         run: |
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
-          # shellcheck disable=SC2046
-          cargo audit --deny warnings $(python3 scripts/audit_ignores.py)
+          python3 scripts/audit_ignores.py --esegui
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -382,6 +424,12 @@ jobs:
       # profondita' attraverso `fuzz/Cargo.lock`, che fissa `gdal-sys`.
       - name: Install distribution GDAL for the FileGDB target
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
+      # `llvm-symbolizer` serve al classificatore dei finding: lo stack di un
+      # esaurimento di memoria si legge solo simbolizzato, e senza nomi ogni
+      # esaurimento e' illeggibile, cioe' rosso. `fuzz-smoke.sh` lo cerca e dice
+      # quale usa.
+      - name: Install llvm-symbolizer for the crash classifier
+        run: sudo apt-get install --yes llvm
       # Costruisce TUTTI i target strumentati ed esegue quelli senza finding
       # aperti. I target elencati in fuzz/quarantine.txt restano compilati ma
       # non eseguiti: lo script li stampa a ogni run, così il debito resta
@@ -438,7 +486,28 @@ jobs:
           }
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
+      - name: Gli avvisi di licenza dei crate, sul grafo Windows
+        run: python scripts/avvisi_crate.py
       - run: cargo test --workspace --all-targets --locked
+      # L'SDK Python con l'extra `pyarrow`, su Windows. La matrice Python gira
+      # su Linux; su Windows l'adattatore Arrow era provato solo dallo smoke
+      # manuale di distribuzione. Una versione basta: cio' che cambia fra le
+      # piattaforme sono i file temporanei, la loro cancellazione e i percorsi,
+      # non la versione dell'interprete. pyarrow e' fissato alla versione
+      # esatta con cui si prova, e solo da ruote binarie.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: "3.12"
+      - name: SDK Python con pyarrow su Windows
+        shell: pwsh
+        run: |
+          python -m pip install --only-binary=":all:" pyarrow==25.0.1
+          $env:PYTHONPATH = "sdk/python/src"
+          $env:PLENORA_IO_BIN = (Resolve-Path target/debug/plenora-io.exe).Path
+          # Con pyarrow ogni punto dell'inventario dei confini deve avere una
+          # prova eseguita: un punto provato solo da test saltati e' rosso.
+          $env:PLENORA_INVENTARIO_STRETTO = "1"
+          python -m unittest discover -s sdk/python/tests -p "test_*.py"
 
   gdal-linux-matrix:
     strategy:
@@ -458,6 +527,9 @@ jobs:
         with:
           toolchain: "1.98.1"
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install distribution GDAL/OpenFileGDB
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Record native dependency and filesystem identities
@@ -529,6 +601,9 @@ jobs:
       # GDAL serve **alla misura**, non solo ai test: con `--all-features` la
       # copertura compila anche il percorso `gdal-backend` di driver-filegdb, e
       # senza la libreria non compilerebbe affatto.
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Measure coverage
@@ -673,7 +748,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: PlenoraETL/plenora-contracts
-          ref: 453c8d1ff2eb260840e6cedc033a2b76b58a0b9e
+          ref: 1e902dfaab5819c1d9ce785878d5b26dbeae48b3
           path: .plenora-contracts
 
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
@@ -696,6 +771,16 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_manifesto_adozione
           python3 scripts/check_manifesto_adozione.py --contracts .plenora-contracts --redatto
+
+      # Le prove Rust validano i documenti del prodotto con schemi del
+      # repository comune, letti da copie in `contracts/copie-dal-pin/`: il
+      # checkout fissato esiste solo qui. Questo passo e' cio' che impedisce a
+      # una copia di divergere dal pin -- per un cambio di pin dimenticato o per
+      # una modifica a mano che fa tornare un verde.
+      - name: Le copie dei contratti sono i byte del pin
+        run: |
+          python3 -m unittest scripts.test_check_copie_dal_pin
+          python3 scripts/check_copie_dal_pin.py --contracts .plenora-contracts
 
       # Qui la domanda e' «il codice di questo commit rispetta i contratti?», e
       # si interroga il binario appena costruito. L'altra domanda -- «l'artefatto
@@ -737,11 +822,16 @@ jobs:
         with:
           toolchain: "1.98.1"
 
+      # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
+      # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
+      # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Installa GDAL
         run: sudo apt-get update && sudo apt-get install -y libgdal-dev
 
       - name: La mappatura, il consumatore e l'archivio
-        run: python3 scripts/check_superficie_rust.py
+        run: |
+          python3 -m unittest scripts.test_check_superficie_rust
+          python3 scripts/check_superficie_rust.py
 
   python-sdk:
     runs-on: ubuntu-latest
@@ -770,6 +860,16 @@ jobs:
       - name: Installa, importa, e la suite in ambienti puliti
         run: bash scripts/smoke-pacchetto-python.sh dist
 
+      # L'extra `pyarrow` dell'SDK, nella versione esatta con cui si prova: le
+      # sonde dell'adattatore Arrow saltano senza, e qui devono girare. Il
+      # vincolo del pacchetto e' la serie `>=25,<26`; il pin esatto e' questo,
+      # lo stesso di plenora-data-tools (`requirements-sdk-tests.txt`), e solo
+      # ruote binarie: una build da sorgente di pyarrow non e' cio' che si
+      # prova. Lo smoke dalla sdist, piu' sopra, gira **senza**, ed e' li' che
+      # le stesse sonde saltano come il registro dichiara.
+      - name: Installa pyarrow per le sonde dell'adattatore Arrow
+        run: python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
+
       # Le sonde dell'SDK dal **repository**, dove le fixture e il contratto ci
       # sono: quelle dello smoke girano dalla sdist, e li' saltano cio' che non
       # e' applicabile. Le due corse coprono insiemi diversi, ed entrambe
@@ -777,6 +877,10 @@ jobs:
       - name: Le sonde dell'SDK, con il contratto e le fixture
         env:
           PYTHONPATH: sdk/python/src
+          # Con pyarrow ogni punto dell'inventario dei confini
+          # (`test_confini_esterni.PUNTI`) deve avere una prova eseguita e
+          # riuscita: un punto provato solo da test saltati e' rosso.
+          PLENORA_INVENTARIO_STRETTO: "1"
         run: python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
 
       - name: I modelli non divergono dal protocollo

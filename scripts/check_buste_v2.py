@@ -209,6 +209,46 @@ MATRICE: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "nome": "inspect-senza-geometria",
+        "busta": "plenora-io-inspect-v1",
+        "argomenti": ["inspect", "{canoniche}/canonico_senza_geometria.arrow"],
+        "perche": (
+            "un layer senza colonna geometrica: `layers[].geometry` e' `null`. "
+            "Senza questo caso il manifesto dichiarava `geometry` sempre un "
+            "oggetto, e l'SDK Python rifiutava con `ProtocolError` un layer che "
+            "il binario legge e scrive (suite di interoperabilita', lacuna "
+            "`io-sdk-senza-geometria`)."
+        ),
+    },
+    {
+        "nome": "inspect-senza-crs",
+        "busta": "plenora-io-inspect-v1",
+        "argomenti": ["inspect", "{canoniche}/canonico_senza_crs.arrow"],
+        "perche": (
+            "una geometria senza CRS: `crs` e' `null` e `crs_resolution` porta "
+            "il solo `status: missing`, come lo schema `plenora-io-inspect-v1` "
+            "ammette. Stessa lacuna del caso precedente."
+        ),
+    },
+    {
+        "nome": "layers-senza-crs",
+        "busta": "plenora-io-layers-v1",
+        "argomenti": ["layers", "{canoniche}/canonico_senza_crs.arrow"],
+        "perche": "il riassunto di un layer senza CRS: `geometry_crs` e' `null`.",
+    },
+    {
+        "nome": "read-senza-geometria",
+        "busta": "plenora-io-read-result-v1",
+        "argomenti": ["read", "{canoniche}/canonico_senza_geometria.arrow"],
+        "perche": "la lettura di un layer senza geometria: `layer.geometry` e' `null`.",
+    },
+    {
+        "nome": "read-senza-crs",
+        "busta": "plenora-io-read-result-v1",
+        "argomenti": ["read", "{canoniche}/canonico_senza_crs.arrow"],
+        "perche": "la lettura di una geometria senza CRS.",
+    },
+    {
         "nome": "layers-gpkg",
         "busta": "plenora-io-layers-v1",
         "argomenti": ["layers", "{canoniche}/canonico.gpkg"],
@@ -463,6 +503,49 @@ def esegui(percorso_binario: str, uscita: Path) -> list[dict[str, Any]]:
     return osservazioni
 
 
+def genitore(percorso: str) -> tuple[str, str]:
+    """Il percorso che contiene `percorso`, e il tipo che deve avere per contenerlo.
+
+    `.a[]` sta dentro l'array `.a`, `.a{}` dentro l'oggetto-mappa `.a`, `.a.b`
+    dentro l'oggetto `.a`. Il genitore di un campo di primo livello e' la
+    radice, `""`, che c'e' sempre.
+    """
+    if percorso.endswith("[]"):
+        return percorso[:-2], "array"
+    if percorso.endswith("{}"):
+        return percorso[:-2], "object"
+    return percorso[: percorso.rfind(".")], "object"
+
+
+def sempre_presenti(documenti: list[dict[str, set[str]]]) -> set[str]:
+    """I percorsi presenti in ogni busta in cui il loro **contenitore** c'e'.
+
+    `sempre` dice «quando il genitore c'e', c'e' anche questo campo». Senza la
+    condizione, un oggetto annullabile -- `layers[].geometry`, che e' `null`
+    per un layer senza geometria -- renderebbe opzionali tutti i suoi campi
+    solo perche' in quella busta non c'e' l'oggetto che li contiene, e un
+    modello che li pretende quando l'oggetto c'e' risulterebbe sbagliato.
+
+    Il genitore conta in una busta se vi compare **con il tipo che contiene**:
+    un oggetto per un campo, un array per i suoi elementi. Un array vuoto
+    conta -- l'elemento puo' mancare, e quel caso resta `sempre: false` come
+    prima --; un `null` al posto dell'oggetto no.
+    """
+    tutti: set[str] = set()
+    for documento in documenti:
+        tutti.update(documento)
+    sempre: set[str] = set()
+    for percorso in tutti:
+        padre, contenitore = genitore(percorso)
+        if all(
+            percorso in documento
+            for documento in documenti
+            if padre == "" or contenitore in documento.get(padre, set())
+        ):
+            sempre.add(percorso)
+    return sempre
+
+
 def raggruppa(osservazioni: list[dict[str, Any]]) -> tuple[dict[str, dict], list[str]]:
     """Le osservazioni per busta, con i percorsi visti e quelli visti sempre.
 
@@ -493,15 +576,17 @@ def raggruppa(osservazioni: list[dict[str, Any]]) -> tuple[dict[str, dict], list
                 )
             )
         stato = per_busta.setdefault(
-            nome, {"osservati": {}, "in_tutte": None, "casi": [], "flussi": set()}
+            nome,
+            {"osservati": {}, "in_tutte": None, "casi": [], "flussi": set(), "documenti": []},
         )
         stato["casi"].append(osservazione["caso"])
         stato["flussi"].add(osservazione["flusso"])
         percorsi = forma(documento)
         for percorso, tipi in percorsi.items():
             stato["osservati"].setdefault(percorso, set()).update(tipi)
-        visti = set(percorsi)
-        stato["in_tutte"] = visti if stato["in_tutte"] is None else stato["in_tutte"] & visti
+        stato["documenti"].append(percorsi)
+    for stato in per_busta.values():
+        stato["in_tutte"] = sempre_presenti(stato.pop("documenti"))
     return per_busta, problemi
 
 

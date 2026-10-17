@@ -21,8 +21,18 @@ plenora-fuzz         attrezzaggio di fuzzing, non spedito
 Le dipendenze vanno in una direzione sola: i driver dipendono da `core` e da
 `model`, mai fra loro. `model` non conosce i driver.
 
-`vendor/dxf` e `vendor/gdal` sono fork governati, risolti via
-`[patch.crates-io]` e fissati da un lock più un registro di provenienza.
+`vendor/dxf`, `vendor/gdal` e `vendor/shapefile` sono fork governati, fissati
+da un lock più un registro di provenienza. Entrano nel grafo come
+**dipendenze dirette per percorso con un nome di pacchetto proprio**
+(`plenora-fork-dxf`, `plenora-fork-gdal`, `plenora-fork-shapefile`), mentre il
+nome della libreria resta quello upstream. Fino alla 4.1.1 erano
+`[patch.crates-io]`, e una patch vale solo dal workspace radice: chi usava
+questi crate come dipendenza riceveva le versioni di crates.io senza i delta.
+Allora la compilazione falliva per coincidenza -- i driver chiamano API che
+solo i fork espongono --, non per costruzione. `scripts/fork_comune.py` vieta
+che una sezione `[patch]` ricompaia, e il consumatore esterno di
+`scripts/check_superficie_rust.py`, senza `[patch]`, prova che il grafo di chi
+dipende da noi contiene i fork e nessun crate upstream con lo stesso nome.
 
 Il lock ne fissa il **tree hash**, calcolato **esclusivamente sull'insieme che
 git traccia**. Un artefatto di build non può alterarlo — è il punto: un lock
@@ -158,6 +168,19 @@ WritePlan ──validate_write──> create ──> write_to_layer* ──> fin
 Il **capability-check** è fail-closed: ciò che il formato non dichiara di saper
 scrivere viene rifiutato. I driver possono aggiungere vincoli propri, mai
 rimuoverne.
+
+**EWKB in ingresso.** Prima del capability-check, `io.write` e `io.convert`
+portano a WKB ISO una geometria dichiarata `ewkb` quando il sink non la scrive
+(`plenora_io_core::ewkb`; oggi tutti tranne Arrow IPC). E' la forma che
+plenora-database-tools emette, e `ARROW-VOCABULARY-1.0` la ammette. La
+conversione conserva i valori delle coordinate bit per bit e scrive WKB ISO
+little-endian: da un EWKB little-endian cambiano solo la parola di tipo e lo
+SRID, da uno big-endian anche l'ordine dei byte (il valore si conserva, i byte
+no). Non perde il SRID in
+silenzio: e' ammessa solo se il SRID coincide con l'autorita' del CRS dei
+metadati, e ogni geometria del payload deve portare quel SRID o nessuno.
+Altrimenti e' un rifiuto `geometry_encoding` prima di creare la destinazione,
+o un errore WKB durante la scrittura, che non pubblica nulla.
 
 Il **publish** ha tre forme, e **due sole** sono crash-atomic: il rename di un
 file singolo e il rename di una directory-dataset. La terza — il set di file
@@ -569,7 +592,7 @@ preferenza: oggi la CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e
 *presente* su 24.04. È la distribuzione a decidere che cosa il prodotto sa
 fare, e un artefatto che eredita quella decisione non ha un'identità stabile.
 
-Perché 3.9 e non l'ultima: `gdal-sys 0.10.0` spedisce binding pre-costruiti
+Perché 3.9 e non l'ultima: `gdal-sys 0.12.0` spedisce binding pre-costruiti
 soltanto fino a 3.9, e su 3.10 la build si ferma da sola. Le due uscite da quel
 vicolo sono peggiori. La feature `bindgen` genera i binding a build time, e
 `bindgen` non è una libreria in più: è un **generatore di codice** che va
@@ -596,6 +619,30 @@ lo smoke, che su ogni piattaforma **crea** un FileGDB vero con l'artefatto
 installato, lo **rilegge**, e verifica schema, numero di righe e geometria.
 `catalog` dichiara ciò che il driver crede di poter fare; fra la dichiarazione
 e il fatto c'è la GDAL spedita.
+
+#### La GDAL della distribuzione nelle prove
+
+Il pin sopra vale per ciò che si **spedisce**. Le prove usano un'altra GDAL, e
+quella non è fissata: i job `rust`, `fuzz`, `gdal-linux-matrix`, `coverage` e
+`superficie-rust` della CI, la «Release checkout qualification» e
+l'immagine `Dockerfile.dev` installano `libgdal-dev` (e `gdal-bin`) con
+`apt-get` senza versione, cioè quella che la distribuzione del runner o Debian 12
+porta il giorno della corsa. Le immagini di base sono fissate per digest; i
+pacchetti apt installati sopra no.
+
+È una deviazione da «versioni pinnate esatte», ed è dichiarata così:
+
+- **regola**: ogni dipendenza ha una versione esatta;
+- **ambito**: la GDAL contro cui compilano e girano test, fuzz, copertura e la
+  sonda ASan della qualifica — non gli artefatti, che usano
+  `scripts/linux-gdal-lock.json` (Linux) e `scripts/windows-gdal-lock.json`;
+- **hazard**: un aggiornamento della distribuzione cambia la GDAL sotto prova
+  senza che il repository cambi, e un verde su una versione non prova l'altra.
+  `gdal-linux-matrix` lo rende visibile in un verso — misura FileGDB su 22.04 e
+  24.04, che portano GDAL diverse — ma non lo impedisce;
+- **condizione di rientro**: le prove materializzano la GDAL dal lock con
+  `scripts/install-linux-gdal.py`, come fa già la distribuzione, oppure apt
+  installa una versione fissata da uno snapshot dell'archivio.
 
 ### Che cosa si promette sulla risoluzione delle dipendenze
 

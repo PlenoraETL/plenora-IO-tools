@@ -64,8 +64,8 @@ ciò che installa — e non tutti girano fuori dal repository: quali saltano, e
 perché, è un elenco chiuso in
 [`assurance/registries/sonde-saltate-nella-sdist.json`](../assurance/registries/sonde-saltate-nella-sdist.json).
 
-`Requires-Python` è `>=3.11,<3.14`, e copre **soltanto** le versioni che la CI
-prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python
+`Requires-Python` è `>=3.10,<3.15`, e copre **soltanto** le versioni che la CI
+prova. Dichiarare `>=3.10` senza limite superiore prometterebbe ogni Python
 futuro, e una promessa del genere la si mantiene provandola.
 
 ## Come si ottiene, e sotto quali termini
@@ -76,18 +76,21 @@ pubblici, e il pacchetto Python porta nei metadati il classificatore
 `Private :: Do Not Upload`, che i servizi d'indice leggono per rifiutare il
 caricamento.
 
-Nessuna licenza first-party è dichiarata: dentro l'archivio non ci sono termini
-che concedano qualcosa, e la loro assenza non è un permesso. Ciò che è concesso
-lo stabilisce il contratto con cui l'artefatto è stato consegnato. In
-particolare, chi riceve un artefatto non è autorizzato a ridistribuirlo né a
-pubblicarlo.
+Il codice è sotto la licenza **proprietaria** del repository,
+[`LICENSE`](../LICENSE): «Copyright (c) Plenora ETL. All rights reserved.»,
+nessun diritto d'uso, copia, modifica, distribuzione o pubblicazione se non per
+accordo scritto con Plenora ETL. I crate la dichiarano con `license-file`, il
+pacchetto Python con `License: Proprietary`. Chi riceve un artefatto non è
+autorizzato a ridistribuirlo né a pubblicarlo.
 
-Il contratto di release lo registra nell'invariante
-`distribuzione.licenza-first-party` come **capacità differita** — perimetro
-dichiarato, non blocco chiuso — e
-[docs/RELEASE.md](RELEASE.md) ne riporta la riga con ciò che la 2.0.0 non
-promette. Una distribuzione pubblica richiederebbe una decisione separata del
-titolare.
+Lo stesso testo viaggia con ogni artefatto: `LICENSE` alla radice degli alberi
+nativi, `.dist-info/licenses/LICENSE` nella wheel, `LICENSE` alla radice della
+sdist; il referto `licenze-artefatto` lo dichiara (`licenza_first_party`) e la
+verifica lo pretende identico a quello del repository. Fino alla 4.1.0 nessuna
+licenza first-party era dichiarata, e il contratto di release lo registra
+nell'invariante `distribuzione.licenza-first-party` come **capacità differita**,
+con la riga in [docs/RELEASE.md](RELEASE.md): chiuderla è della registrazione
+della prossima release.
 
 Le licenze dei **componenti di terzi** sono un'altra cosa, e restano dovute:
 ogni artefatto nativo porta in `LICENSES/` il testo di ognuna, e un gate conta
@@ -161,6 +164,22 @@ proprio perché non c'è un comando da invocare al suo posto. Nel repository lo
 stesso controllo lo fa `scripts/check-digest-manifesto.py --albero <estratto>`,
 e la CI lo esegue su ogni artefatto costruito.
 
+Il manifesto dice che i file sono quelli dell'archivio; non dice da dove venga
+l'archivio. Per gli artefatti del canale `candidate` lo dice un'attestazione di
+provenienza **firmata** (GitHub attestations, Sigstore), scritta dal workflow
+`Distribuzione` sulla revisione da cui l'archivio è uscito. Si verifica
+sull'archivio scaricato, prima di estrarlo, e senza fidarsi di nessun file che
+lo accompagna:
+
+```
+gh attestation verify plenora-io-<versione>-linux-x86_64-base.tar.gz \
+  --repo PlenoraETL/plenora-IO-tools \
+  --signer-workflow PlenoraETL/plenora-IO-tools/.github/workflows/distribuzione.yml
+```
+
+Le `*.provenance.json` accanto agli archivi restano, e dicono di più -- il lock
+del runtime, gli strumenti -- ma le scrivono i nostri script e nessuno le firma.
+
 ### La prima prova
 
 ```
@@ -186,8 +205,15 @@ oppure, se si preferisce ricostruire dai sorgenti:
 pip install plenora_io-2.0.0.tar.gz
 ```
 
-L'installazione non scarica nient'altro: il pacchetto non ha dipendenze a
-runtime, e in particolare **non scarica il binario**. Un pacchetto Python che
+Con l'adattatore Arrow facoltativo (`read_table()`, `write()` da un oggetto
+PyArrow) si chiede l'extra, che installa `pyarrow>=25,<26`:
+
+```
+pip install "plenora_io-2.0.0-py3-none-any.whl[pyarrow]"
+```
+
+L'installazione non scarica nient'altro: il pacchetto non ha dipendenze
+obbligatorie, e in particolare **non scarica il binario**. Un pacchetto Python che
 tirasse giù un eseguibile sarebbe una via d'esecuzione di codice che nessun
 lockfile controlla, e chi lo installa non l'ha chiesta.
 

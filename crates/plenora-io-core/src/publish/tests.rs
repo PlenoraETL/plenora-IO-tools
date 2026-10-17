@@ -6,7 +6,22 @@
 
 use std::io::Write;
 
+use plenora_io_model::budget::PipelineBudget;
+use plenora_io_model::CancellationToken;
+
 use super::*;
+
+/// Un contesto attivo, senza scadenza raggiungibile durante la prova.
+fn attivo() -> PipelineContext {
+    contesto_con(CancellationToken::new())
+}
+
+fn contesto_con(token: CancellationToken) -> PipelineContext {
+    match PipelineBudget::builder().cancellation(token).build() {
+        Ok(bundle) => bundle.into_write_parts().into_budget().context().clone(),
+        Err(errore) => unreachable!("contesto di prova non costruibile: {errore:?}"),
+    }
+}
 
 fn expected_durable_outcome() -> PublishOutcome {
     if cfg!(unix) {
@@ -35,7 +50,7 @@ fn staging_helpers_use_destination_parent_and_requested_suffix() {
 fn staged_file_owns_publish_lifecycle() {
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("output.bin");
-    let mut staging = StagedFile::new(&destination, false, 16).unwrap();
+    let mut staging = StagedFile::new(&destination, false, 16, &attivo()).unwrap();
     let staging_path = staging.path().unwrap().to_owned();
     staging
         .as_file_mut()
@@ -65,7 +80,7 @@ fn staged_file_owns_publish_lifecycle() {
 fn staged_file_limit_failure_is_terminal_and_never_publishes() {
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("output.bin");
-    let mut staging = StagedFile::new(&destination, false, 7).unwrap();
+    let mut staging = StagedFile::new(&destination, false, 7, &attivo()).unwrap();
     staging
         .as_file_mut()
         .unwrap()
@@ -88,7 +103,7 @@ fn staged_file_limit_failure_is_terminal_and_never_publishes() {
 fn unpublished_staged_file_is_removed_on_drop() {
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("output.gpkg");
-    let staging = StagedFile::with_suffix(&destination, ".gpkg", false, 16).unwrap();
+    let staging = StagedFile::with_suffix(&destination, ".gpkg", false, 16, &attivo()).unwrap();
     let staging_path = staging.path().unwrap().to_owned();
     assert_eq!(
         staging_path.extension().and_then(|value| value.to_str()),
@@ -107,7 +122,7 @@ fn output_limit_is_checked_before_publish() {
     let destination = directory.path().join("output.bin");
     let mut temp = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
     temp.write_all(&[0_u8; 8]).unwrap();
-    let result = publish_file_atomic_limited(temp, &destination, false, 7);
+    let result = publish_file_atomic_limited(temp, &destination, false, 7, &attivo());
     assert!(
         matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded)
     );
@@ -129,7 +144,7 @@ fn directory_dataset_is_published_with_one_rename() {
     std::fs::write(staging.path().join("nested").join("index"), b"index").unwrap();
     let destination = root.path().join("dataset.shp.d");
 
-    let outcome = publish_dir_atomic(staging.path(), &destination, true).unwrap();
+    let outcome = publish_dir_atomic(staging.path(), &destination, true, &attivo()).unwrap();
 
     assert_eq!(outcome, expected_durable_outcome());
     assert_eq!(
@@ -151,7 +166,7 @@ fn directory_publish_is_no_clobber() {
     std::fs::create_dir(&destination).unwrap();
     std::fs::write(destination.join("sentinel"), b"existing").unwrap();
 
-    let result = publish_dir_atomic(staging.path(), &destination, false);
+    let result = publish_dir_atomic(staging.path(), &destination, false, &attivo());
 
     assert!(
         matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists)
@@ -221,7 +236,7 @@ fn directory_publish_rejects_symlinks_even_when_not_durable() {
     symlink(&target, staging.path().join("link")).unwrap();
     let destination = root.path().join("dataset");
 
-    let result = publish_dir_atomic(staging.path(), &destination, false);
+    let result = publish_dir_atomic(staging.path(), &destination, false, &attivo());
 
     assert!(matches!(
         result,
@@ -245,7 +260,7 @@ fn loose_set_preflight_fails_before_first_rename() {
         ),
     ];
 
-    assert!(publish_files_ordered_limited(&files, false, u64::MAX).is_err());
+    assert!(publish_files_ordered_limited(&files, false, u64::MAX, &attivo()).is_err());
     assert!(!root.path().join("data.dbf").exists());
     assert!(!root.path().join("data.shp").exists());
 }
@@ -283,7 +298,7 @@ fn loose_set_occupied_destination_fails_before_any_rename() {
         (source_dbf.clone(), destination_dbf.clone()),
         (source_shp.clone(), destination_shp),
     ];
-    let result = publish_files_ordered_limited(&files, false, u64::MAX);
+    let result = publish_files_ordered_limited(&files, false, u64::MAX, &attivo());
     let error = result.expect_err("il preflight deve fallire su destinazione occupata");
     // Nessun rename e' avvenuto: RemoteEffect resta None, i sorgenti
     // sono ancora nello staging, la prima destinazione non esiste.
@@ -337,7 +352,7 @@ fn loose_set_intermediate_rename_failure_rolls_back_and_reports_none() {
     let files = set_con_destinazione_duplicata(staging.path(), root.path());
     let destinazione = files[0].1.clone();
 
-    let error = publish_files_ordered_limited(&files, false, u64::MAX)
+    let error = publish_files_ordered_limited(&files, false, u64::MAX, &attivo())
         .expect_err("il secondo rename deve trovare la destinazione occupata");
 
     assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
@@ -405,7 +420,8 @@ fn loose_set_durable_publish_preserves_ordered_files() {
         (source_shp, destination_shp.clone()),
     ];
 
-    let (bytes, outcome) = publish_files_ordered_limited(&files, true, u64::MAX).unwrap();
+    let (bytes, outcome) =
+        publish_files_ordered_limited(&files, true, u64::MAX, &attivo()).unwrap();
 
     assert_eq!(bytes, 8);
     assert_eq!(outcome, expected_durable_outcome());
@@ -421,7 +437,7 @@ fn durable_file_publish_reports_unconfirmed_parent_directory() {
     let mut temp = NamedTempFile::new_in(root.path()).unwrap();
     temp.write_all(b"durable").unwrap();
 
-    let (_, outcome) = publish_file_atomic(temp, &destination, true).unwrap();
+    let (_, outcome) = publish_file_atomic(temp, &destination, true, &attivo()).unwrap();
 
     assert_eq!(outcome, PublishOutcome::PublishedButDurabilityUnconfirmed);
     assert_eq!(std::fs::read(destination).unwrap(), b"durable");
@@ -446,7 +462,8 @@ fn cross_filesystem_publish_is_rejected_before_any_output_is_visible() {
         .unwrap();
     std::fs::write(staging.path().join("data"), b"directory").unwrap();
     let directory_destination = destination_root.path().join("dataset");
-    let directory_result = publish_dir_atomic(staging.path(), &directory_destination, false);
+    let directory_result =
+        publish_dir_atomic(staging.path(), &directory_destination, false, &attivo());
     assert!(matches!(
         directory_result,
         Err(error)
@@ -459,7 +476,7 @@ fn cross_filesystem_publish_is_rejected_before_any_output_is_visible() {
     let mut temp = NamedTempFile::new_in(source_root.path()).unwrap();
     temp.write_all(b"single-file").unwrap();
     let file_destination = destination_root.path().join("output.bin");
-    let file_result = publish_file_atomic(temp, &file_destination, false);
+    let file_result = publish_file_atomic(temp, &file_destination, false, &attivo());
     assert!(matches!(
         file_result,
         Err(error)
@@ -475,6 +492,7 @@ fn cross_filesystem_publish_is_rejected_before_any_output_is_visible() {
         &[(loose_source.clone(), loose_destination.clone())],
         false,
         u64::MAX,
+        &attivo(),
     );
     assert!(matches!(
         loose_result,
@@ -484,4 +502,153 @@ fn cross_filesystem_publish_is_rejected_before_any_output_is_visible() {
     ));
     assert!(loose_source.exists());
     assert!(!loose_destination.exists());
+}
+
+// ---------------------------------------------------------------------------
+// L'ultimo controllo prima del rename (SURF-010).
+//
+// La scadenza arriva dopo che lo staging e' completo -- durante flush o
+// `fsync`, nel caso reale -- ed e' armata sul token senza attese: le prove non
+// dipendono dall'orologio. In ogni forma di pubblicazione: errore `timeout`,
+// destinazione assente, staging non rinominato.
+
+fn scaduto() -> PipelineContext {
+    let token = CancellationToken::new();
+    let contesto = contesto_con(token.clone());
+    token.cancel_due_to_deadline();
+    contesto
+}
+
+fn e_un_timeout_in_finalizzazione(errore: &PlenoraIoError) {
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Timeout,
+        "{errore:?}"
+    );
+    assert_eq!(errore.phase, ErrorPhase::Finalize, "{errore:?}");
+    assert_eq!(errore.remote_effect, RemoteEffect::None, "{errore:?}");
+}
+
+#[test]
+fn a_staged_file_past_its_deadline_is_not_published() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("output.bin");
+    let mut staging = StagedFile::new(&destination, true, 1024, &scaduto()).unwrap();
+    let staging_path = staging.path().unwrap().to_owned();
+    staging
+        .as_file_mut()
+        .unwrap()
+        .write_all(b"completo")
+        .unwrap();
+    let errore = staging
+        .publish()
+        .expect_err("oltre la scadenza non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    assert!(!destination.exists(), "la destinazione non deve comparire");
+    drop(staging);
+    assert!(!staging_path.exists(), "lo staging deve essere ripulito");
+}
+
+#[test]
+fn a_cancelled_publish_is_cancelled_not_published() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("output.bin");
+    let token = CancellationToken::new();
+    let mut staging =
+        StagedFile::new(&destination, false, 1024, &contesto_con(token.clone())).unwrap();
+    staging
+        .as_file_mut()
+        .unwrap()
+        .write_all(b"completo")
+        .unwrap();
+    token.cancel();
+    let errore = staging.publish().expect_err("annullata, non si pubblica");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
+    assert!(!destination.exists());
+}
+
+#[test]
+fn a_dataset_directory_past_its_deadline_is_not_published() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("dataset.gdb");
+    let staging = create_staged_dir(&destination).unwrap();
+    std::fs::write(staging.path().join("a.table"), b"tabella").unwrap();
+    let errore = publish_dir_atomic(staging.path(), &destination, true, &scaduto())
+        .expect_err("oltre la scadenza non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    assert!(!destination.exists());
+    let staging_path = staging.path().to_owned();
+    drop(staging);
+    assert!(
+        !staging_path.exists(),
+        "la directory di staging deve essere ripulita"
+    );
+}
+
+#[test]
+fn ordered_files_past_their_deadline_publish_none_of_them() {
+    let root = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir_in(root.path()).unwrap();
+    let mut files = Vec::new();
+    for (nome, contenuto) in [
+        ("data.dbf", b"dbf".as_slice()),
+        ("data.shp", b"shp".as_slice()),
+    ] {
+        let sorgente = staging.path().join(nome);
+        std::fs::write(&sorgente, contenuto).unwrap();
+        files.push((sorgente, root.path().join(nome)));
+    }
+    let errore = publish_files_ordered_limited(&files, true, u64::MAX, &scaduto())
+        .expect_err("oltre la scadenza nessun companion diventa visibile");
+    e_un_timeout_in_finalizzazione(&errore);
+    for (sorgente, destinazione) in &files {
+        assert!(!destinazione.exists(), "nessun companion pubblicato");
+        assert!(
+            sorgente.exists(),
+            "lo staging resta al chiamante, che lo ripulisce"
+        );
+    }
+}
+
+/// Lo staging oltre quota a scadenza passata: la quota si misura dopo la
+/// finalizzazione, e la scadenza viene prima (SURF-010).
+#[test]
+fn an_oversized_staged_file_past_its_deadline_is_a_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("output.bin");
+    let mut staging = StagedFile::new(&destination, false, 4, &scaduto()).unwrap();
+    staging
+        .as_file_mut()
+        .unwrap()
+        .write_all(b"oltre la quota")
+        .unwrap();
+    let errore = staging.publish().expect_err("non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    assert!(!destination.exists());
+}
+
+/// Lo stesso per il set di companion: oltre quota a scadenza passata e'
+/// `timeout`, nessuno diventa visibile, e lo staging -- del chiamante --
+/// sparisce con lui.
+#[test]
+fn oversized_ordered_files_past_their_deadline_vanish_with_their_staging() {
+    let root = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir_in(root.path()).unwrap();
+    let mut files = Vec::new();
+    for (nome, contenuto) in [
+        ("data.dbf", b"dbf".as_slice()),
+        ("data.shp", b"shp".as_slice()),
+    ] {
+        let sorgente = staging.path().join(nome);
+        std::fs::write(&sorgente, contenuto).unwrap();
+        files.push((sorgente, root.path().join(nome)));
+    }
+    let errore = publish_files_ordered_limited(&files, false, 2, &scaduto())
+        .expect_err("oltre quota e oltre la scadenza non si pubblica");
+    e_un_timeout_in_finalizzazione(&errore);
+    drop(staging);
+    for (sorgente, destinazione) in &files {
+        assert!(!destinazione.exists(), "nessun companion pubblicato");
+        assert!(!sorgente.exists(), "i companion spariscono con lo staging");
+    }
 }

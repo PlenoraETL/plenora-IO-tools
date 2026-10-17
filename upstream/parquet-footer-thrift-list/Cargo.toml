@@ -1,0 +1,11 @@
+[package]
+name = "parquet-footer-thrift-list"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Nessuna dipendenza dal workspace di plenora-IO-tools: il caso deve poter
+# essere compilato da chi non ha questo repository. 59.3.0 e' la versione
+# fissata dalla 4.1.1, ed e' quella su cui il caso riproduce.
+[dependencies]
+parquet = { version = "=59.3.0", default-features = false }

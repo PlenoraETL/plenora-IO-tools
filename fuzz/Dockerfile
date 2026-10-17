@@ -1,4 +1,10 @@
-FROM rust:1.98-slim-bookworm
+# L'immagine di base e' fissata per **digest**, non solo per tag: un tag di
+# Docker Hub si sposta a ogni ripubblicazione, e la stessa riga costruirebbe da
+# byte diversi senza che nessuna riga del repository cambi. Il digest e' quello
+# dell'indice multi-architettura letto dal registro il 2026-10-05; il tag resta
+# accanto perche' dice che cosa il digest e'. Aggiornarlo e' una decisione da
+# PR, come ogni altro pin.
+FROM rust:1.98-slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730
 
 # Tenuti allineati a scripts/toolchain-pins.env dal gate check_toolchain_pins.py.
 #

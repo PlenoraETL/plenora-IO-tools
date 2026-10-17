@@ -1,0 +1,965 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione `e0270b5`, la candidate 4.1.1 congelata (X'), da cui escono i sei archivi della distribuzione candidate 37918160541. Riqualifica del 2026-10-09 sulla VM 192.168.2.133, dopo il ritiro di `7131843`: i numeri vengono dai log della corsa, non dal sommario a schermo, e il manifesto impronta gli artefatti della corsa uno per uno.",
+  "status": "satisfied",
+  "release_authorized": false,
+  "open_blockers": [],
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b"
+    }
+  ],
+  "evidence": {
+    "status": "passed",
+    "scope": "Livello 2 sulla revisione congelata `e0270b5` in un clone pulito da GitHub, nel container `plenora-io-dev:riqualifica-e0270b5aa5ef`, con base differenziale `1d1b8d2`; poi i due soak da un'ora, i due casi OOM DXF sotto `ulimit -v`, e le misure di profondita' e del confine ASan rifatte e confrontate con quelle registrate. Integrita' dei sei archivi del run 37918160541 verificata con `check-deliverable.py --canale candidate --revisione e0270b5` e `gh attestation verify` su tutti e sei."
+  },
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "**nessuno**. Questa corsa qualifica tecnicamente una revisione; la registrazione della pubblicazione e' un commit a parte.",
+    "candidate": "congelata su `e0270b5`, che e' la revisione misurata da questa corsa, quella da cui escono i sei artefatti della distribuzione candidate e quella su cui hanno girato i due soak. Le tre coincidono.",
+    "che_cosa_e_provato": "il livello 2 sullo stesso albero, con impronta iniziale e finale identiche (i conteggi sono nella riconciliazione); replay e smoke su tutti i bersagli senza finding, nessun bersaglio fermato a un finding noto e nessuno illeggibile; copertura sopra soglia; due soak da un'ora, su `dxf_reader` e `shp_reader`, completi e senza finding; i due input DXF che esaurivano la memoria (235 e 218 byte) producono la busta d'errore sotto `ulimit -v` 4194304 KB; profondita' dei quattro bersagli e confine ASan riprodotti identici alle misure registrate.",
+    "criterio_d_uscita": "**soddisfatto**: il soak completo senza finding su `dxf_reader` e `shp_reader`, sullo SHA congelato, e' il criterio d'uscita della sezione 6 -- quello che la 4.1.0 non aveva soddisfatto (deviazione e della sua evidenza)."
+  },
+  "campagne_mirate": {
+    "soak": {
+      "eseguito": true,
+      "perche_si": "il criterio d'uscita in `docs/RELEASE.md` sezione 6 lo prescrive su `dxf_reader` e `shp_reader`, sullo SHA congelato.",
+      "ambiente": "VM 192.168.2.133, container `plenora-io-dev:riqualifica-e0270b5aa5ef`, i due soak in sequenza dopo il livello 2, con `scripts/soak_misurato.py`.",
+      "dxf_reader": {
+        "dove": "eseguito su questa revisione, `e0270b5`, nel container della riqualifica sulla VM 192.168.2.133",
+        "esito": "completo, nessun finding.",
+        "durata_misurata": {
+          "monotonic_s": 3602.2,
+          "boottime_s": 3602.2,
+          "parete_s": 3602.2,
+          "cpu_figli_s": 3598.2
+        },
+        "riepilogo_del_fuzzer": {
+          "esecuzioni": 16564128,
+          "secondi_dichiarati": 3601,
+          "media_al_secondo": 4599,
+          "unita_nuove": 67156,
+          "rss_massimo_mb": 761
+        },
+        "codice_uscita_campagna": 0,
+        "finding": 0,
+        "artefatti_di_crash_nuovi": 0,
+        "che_cosa_dimostra": "i tre orologi coincidono entro un decimo di secondo: nessuna sospensione rilevata dagli orologi usati.",
+        "log_sha256": "c0edf159cb60ab990508a2ed79686f5b395fd618677282ae3dbcaa0676216fb2",
+        "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+        "dove_sta_il_log": "sulla VM 192.168.2.133, `~/riqualifica-io/4.1.1-20261009T101111Z-e0270b5aa5ef/albero/.s9-checkpoint/soak-dxf-e0270b5aa5ef/` (referto e campagna.log); qui il digest."
+      },
+      "shp_reader": {
+        "dove": "eseguito su questa revisione, `e0270b5`, subito dopo quello di `dxf_reader`",
+        "esito": "completo, nessun finding.",
+        "durata_misurata": {
+          "monotonic_s": 3601.6,
+          "boottime_s": 3601.6,
+          "parete_s": 3601.6,
+          "cpu_figli_s": 3749.0
+        },
+        "riepilogo_del_fuzzer": {
+          "esecuzioni": 14905807,
+          "secondi_dichiarati": 3601,
+          "media_al_secondo": 4139,
+          "unita_nuove": 3923,
+          "rss_massimo_mb": 909
+        },
+        "codice_uscita_campagna": 0,
+        "finding": 0,
+        "artefatti_di_crash_nuovi": 0,
+        "che_cosa_dimostra": "i tre orologi coincidono entro un decimo di secondo: nessuna sospensione rilevata dagli orologi usati.",
+        "log_sha256": "8e2ad3d0ad2f8a182ebd8c4dc9324069955134df06b903949c9b23f7bfeb8076",
+        "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+        "dove_sta_il_log": "sulla VM 192.168.2.133, `~/riqualifica-io/4.1.1-20261009T101111Z-e0270b5aa5ef/albero/.s9-checkpoint/soak-shp-e0270b5aa5ef/` (referto e campagna.log); qui il digest."
+      }
+    },
+    "oom": {
+      "eseguito": true,
+      "perche_si": "la 4.1.1 esiste per correggere un esaurimento di memoria del lettore DXF; la riqualifica di `7131843` ne ha trovato un secondo.",
+      "esito": "i due semi `fuzz/seeds/dxf_reader/sectionsettings-senza-progresso.dxf` (235 byte) e `datatable-conteggio-negativo.dxf` (218 byte), con `inspect` e `read` del binario di rilascio sotto `ulimit -v 4194304`, escono con la busta JSON d'errore e un codice della tabella; le prove `dxf_che_non_avanza` e `driver-dxf` sono verdi."
+    }
+  },
+  "qualifica_esterna": {
+    "nota": "corse su GitHub, sulla stessa revisione. Non fanno parte del checkpoint.",
+    "ci": {
+      "corsa": 37916170046,
+      "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+      "job_verdi": 12,
+      "job_totali": 12,
+      "nota": "push su `candidate/4.1.1`, 2026-10-09. Verdi anche le corse su `rilascio/4.1.1` dello stesso SHA (push 37913518767 e pull request 37913526462, 12 su 12) e `supply-chain`."
+    },
+    "distribuzione": {
+      "corsa": 37918160541,
+      "revisione": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+      "canale": "candidate",
+      "versione": "4.1.1",
+      "artefatti_attesi": 6,
+      "artefatti_attesi_nota": "quattro nativi piu' i due Python-puri, che portano la versione del pacchetto, `4.1.1`"
+    }
+  },
+  "release_verification": {
+    "schema_version": 1,
+    "applicabile": true,
+    "eseguita_il": "2026-10-09",
+    "sui_byte": "scaricati dal run di distribuzione 37918160541 (canale candidate)",
+    "confronto": "sei archivi su sei con `check-deliverable.py --canale candidate --revisione e0270b5`; `gh attestation verify` su tutti e sei. Il confronto con la draft release riscaricata e' il passo successivo della sequenza 5-bis, e non e' ancora avvenuto.",
+    "distribution": {
+      "run_id": 37918160541,
+      "revision": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+      "channel": "candidate"
+    }
+  },
+  "resta_aperto": {
+    "le_deviazioni_del_manifesto": "cinque, registrate nel manifesto di adozione: `io.read` dichiara `side_effect: local`; la precondizione su `types_declaration: unresolved` non e' esprimibile in `io.catalog`; le buste di `read` e `write` con payload a flusso; l'abort senza busta sotto esaurimento di memoria.",
+    "qualifica_cross_component": "**differita**. La 4.1.1 non promette interoperabilita' verificata end-to-end con plenora-data-tools e plenora-database-tools.",
+    "parquet_a_monte": "il difetto in `parquet` (indice fuori dai limiti nel decoder BYTE_STREAM_SPLIT) resta aperto: apache/arrow-rs#11121.",
+    "geoparquet_footer": "un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 fino a circa 2,3 GB (`read_thrift_vec`): dichiarato, non corretto; correzione per la 4.2.0 (#38). In questa corsa lo smoke non si e' fermato su di lui.",
+    "corpus": "il corpus del replay resta quello dei semi versionati (deviazione b della 4.1.0): va ricostruito e conservato."
+  },
+  "non_significa": "non autorizza una release e non chiude alcun invariante. Qualifica **tecnicamente una revisione**, la candidate congelata, prima della draft. La decisione di rilascio e' `release_authorized`, che nessun gate deriva.",
+  "corsa": {
+    "revisione_iniziale": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+    "revisione_finale": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
+    "percorso_dei_log": ".s9-checkpoint/e0270b5aa5ef0c0908ccf1e7b119412679c92d9b-riqualifica"
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 111,
+    "eseguiti": 111,
+    "eseguiti_dichiarati_dalla_corsa": 111,
+    "verdi": 111,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa ha registrato in `risultato.json`, non contati a mano dal sommario a schermo",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_vendor",
+        "esito": "verde",
+        "log": "clippy_vendor.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_conversioni",
+        "esito": "verde",
+        "log": "sonde_conversioni.log"
+      },
+      {
+        "id": "check_conversioni",
+        "esito": "verde",
+        "log": "check_conversioni.log"
+      },
+      {
+        "id": "sonde_fixture_canoniche",
+        "esito": "verde",
+        "log": "sonde_fixture_canoniche.log"
+      },
+      {
+        "id": "check_fixture_canoniche",
+        "esito": "verde",
+        "log": "check_fixture_canoniche.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_buste_v2",
+        "esito": "verde",
+        "log": "sonde_buste_v2.log"
+      },
+      {
+        "id": "check_buste_v2",
+        "esito": "verde",
+        "log": "check_buste_v2.log"
+      },
+      {
+        "id": "sonde_sdk_python",
+        "esito": "verde",
+        "log": "sonde_sdk_python.log"
+      },
+      {
+        "id": "check_sdk_python",
+        "esito": "verde",
+        "log": "check_sdk_python.log"
+      },
+      {
+        "id": "costruisci_pacchetto_python",
+        "esito": "verde",
+        "log": "costruisci_pacchetto_python.log"
+      },
+      {
+        "id": "pacchetto_python_riproducibile",
+        "esito": "verde",
+        "log": "pacchetto_python_riproducibile.log"
+      },
+      {
+        "id": "smoke_pacchetto_python",
+        "esito": "verde",
+        "log": "smoke_pacchetto_python.log"
+      },
+      {
+        "id": "canale_privato",
+        "esito": "verde",
+        "log": "canale_privato.log"
+      },
+      {
+        "id": "check_requires_python",
+        "esito": "verde",
+        "log": "check_requires_python.log"
+      },
+      {
+        "id": "sonde_dettaglio_congelato",
+        "esito": "verde",
+        "log": "sonde_dettaglio_congelato.log"
+      },
+      {
+        "id": "check_dettaglio_congelato",
+        "esito": "verde",
+        "log": "check_dettaglio_congelato.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_finding_noti",
+        "esito": "verde",
+        "log": "sonde_finding_noti.log"
+      },
+      {
+        "id": "sonde_wrapper_campagna",
+        "esito": "verde",
+        "log": "sonde_wrapper_campagna.log"
+      },
+      {
+        "id": "sonde_riuso_evidenze",
+        "esito": "verde",
+        "log": "sonde_riuso_evidenze.log"
+      },
+      {
+        "id": "check_riuso_evidenze",
+        "esito": "verde",
+        "log": "check_riuso_evidenze.log"
+      },
+      {
+        "id": "sonde_registra_evidenza",
+        "esito": "verde",
+        "log": "sonde_registra_evidenza.log"
+      },
+      {
+        "id": "sonde_soak",
+        "esito": "verde",
+        "log": "sonde_soak.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "sonde_dependency_pins",
+        "esito": "verde",
+        "log": "sonde_dependency_pins.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_shapefile_fork",
+        "esito": "verde",
+        "log": "check_shapefile_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_manifesto_adozione",
+        "esito": "verde",
+        "log": "sonde_manifesto_adozione.log"
+      },
+      {
+        "id": "check_manifesto_adozione",
+        "esito": "verde",
+        "log": "check_manifesto_adozione.log"
+      },
+      {
+        "id": "sonde_commenti",
+        "esito": "verde",
+        "log": "sonde_commenti.log"
+      },
+      {
+        "id": "check_commenti",
+        "esito": "verde",
+        "log": "check_commenti.log"
+      },
+      {
+        "id": "sonde_disposizione_prove",
+        "esito": "verde",
+        "log": "sonde_disposizione_prove.log"
+      },
+      {
+        "id": "check_disposizione_prove",
+        "esito": "verde",
+        "log": "check_disposizione_prove.log"
+      },
+      {
+        "id": "sonde_dimensione",
+        "esito": "verde",
+        "log": "sonde_dimensione.log"
+      },
+      {
+        "id": "check_dimensione",
+        "esito": "verde",
+        "log": "check_dimensione.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "fuzz_campagna_completa",
+        "esito": "verde",
+        "log": "fuzz_campagna_completa.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 143,
+      "target": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`",
+      "target_totali": 15
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "finding": 0,
+      "quarantena": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_smoke`",
+      "target_totali": 15
+    },
+    "copertura": {
+      "lcov_percentuale": 86.93,
+      "lcov_righe_coperte": 25127,
+      "lcov_righe_strumentate": 28904,
+      "cargo_lines_percentuale": 84.53,
+      "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
+      "perche_due_numeri": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
+    },
+    "diagnostica_differenziale": {
+      "base": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
+      "esito": "73.54%",
+      "righe_cambiate_eseguibili": 393,
+      "coperte": 289,
+      "scoperte": 104,
+      "cambiate_non_eseguibili": 2689,
+      "righe_scoperte": [
+        "crates/driver-csv/src/lib.rs:426",
+        "crates/driver-dxf/src/geometry.rs:418",
+        "crates/driver-dxf/src/geometry.rs:546",
+        "crates/driver-dxf/src/geometry.rs:572",
+        "crates/driver-dxf/src/geometry.rs:580",
+        "crates/driver-dxf/src/lib.rs:598",
+        "crates/driver-dxf/src/lib.rs:1150",
+        "crates/driver-dxf/src/lib.rs:1151",
+        "crates/driver-dxf/src/lib.rs:1152",
+        "crates/driver-dxf/src/lib.rs:1648",
+        "crates/driver-dxf/src/lib.rs:1675",
+        "crates/driver-dxf/src/lib.rs:1697",
+        "crates/driver-filegdb/src/lib.rs:1303",
+        "crates/driver-geojson/src/lib.rs:236",
+        "crates/driver-geoparquet/src/lib.rs:1193",
+        "crates/driver-gpkg/src/lib.rs:401",
+        "crates/driver-ipc/src/lib.rs:380",
+        "crates/driver-kml/src/lib.rs:456",
+        "crates/driver-shp/src/lib.rs:1091",
+        "crates/driver-xls/src/lib.rs:947",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:190",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:191",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:192",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:193",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:255",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:256",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:257",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:258",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:289",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:290",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:291",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:292",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:299",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:300",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:301",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:302",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:309",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:310",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:311",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:312",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:330",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:331",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:332",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:333",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:334",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:335",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:343",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:344",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:345",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:346",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:347",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:348",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:385",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:386",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:387",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:388",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:392",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:393",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:394",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:395",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:426",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:427",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:428",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:429",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:446",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:447",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:448",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:449",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:457",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:458",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:459",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:460",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:466",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:467",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:468",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:469",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:470",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:471",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:502",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:503",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:504",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:505",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:506",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:507",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:508",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:509",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:510",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:511",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:518",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:519",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:520",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:521",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:535",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:536",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:537",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:538",
+        "crates/plenora-io-core/src/driver/spool.rs:289",
+        "crates/plenora-io-core/src/driver/spool.rs:290",
+        "crates/plenora-io-core/src/publish.rs:359",
+        "crates/plenora-io-core/src/publish.rs:360",
+        "crates/plenora-io-core/src/publish.rs:361",
+        "crates/plenora-io-core/src/publish.rs:362",
+        "crates/plenora-io-core/src/publish.rs:363",
+        "crates/plenora-io-core/src/publish.rs:364"
+      ],
+      "ragione": "misurata fra `1d1b8d2`, l'ultimo checkpoint superato e registrato, e `e0270b5`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; molte sono rami d'errore dei driver e degli adattatori di lettura in `plenora-io-core`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": ".s9-checkpoint/e0270b5aa5ef0c0908ccf1e7b119412679c92d9b-riqualifica",
+    "file": 116,
+    "digest_manifest": "d5ecdeef56b63b3947bc891ef5a96a0d677cd0ed19fd887b9410955e75260e4e",
+    "forma_del_manifest": "percorso relativo alla directory di corsa -> sha256 del contenuto; il digest e' `percorso NUL sha256 LF` concatenati in ordine di percorso, la stessa forma che il gate del contratto ricalcola",
+    "manifest": {
+      "assurance_fallbacks.log": "4b47b6e4a6430174dca367a84ea45066f14ad9e5b108cc8620cb805e33b3e6f8",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "87cf4bb3e2985e6135b3e0d4139d919217351984083e2912ac83c14578d85f1c",
+      "canale_privato.log": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+      "catalog.json": "abf7b18b98be44edd4174a0501f88980b2fff930101f158dc912bdcadd75d827",
+      "check_action_pins.log": "0f3d7069de8601c6cc3165f0751a5200d09ff3d9ac1a0ad837ace6c3b20a7317",
+      "check_buste_v2.log": "6485c9bbf8787ee6d57e09ee01b893c399b20e58703751749a2bc925c57627e4",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
+      "check_commenti.log": "0a0d7e03bc5a9fedbeba84d26045cfc859dcce11e1e3262843f06f4f70fd41d7",
+      "check_conversioni.log": "e1ff5d832014bba610cdeaddccaf916f9a3fd181b6a548bac5ae298c296a8808",
+      "check_coverage_exclusions.log": "fbc2f0c27359f3e268595cef7e5c8979bc85706e1d456671c188b2136d2ab7cf",
+      "check_dependency_pins.log": "75702ac40932e1fa63c1a819a5f2592981e473c64fcd5373285499a4b0040c6f",
+      "check_dettaglio_congelato.log": "4f0edef7277dec406a50186721c59ba0b53e39296420c01106784092c254b80f",
+      "check_dimensione.log": "3e9c93ef3dc7c7d02f1ee00f518b38ca442e87c96178a5e6ac1621229365d8f9",
+      "check_disposizione_prove.log": "1559da57507a3f3ca651729c526609ee7bfb9fa1c9bea80c91151636b2c7c836",
+      "check_docset.log": "f2d37773b3731a102dd60308d439e162176b9dd5c6364f7b8d33deb95e0df516",
+      "check_dxf_fork.log": "86035c499f3b649d08d7ca3add68d61a5994e18dfb78134e5f616e2bf8e07cfc",
+      "check_errori_redatti.log": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+      "check_filegdb_catalog.log": "b45eb8a08d237c28497cf4829f6d0100af3142a18bcd69b79700fac565ce167e",
+      "check_fixture_canoniche.log": "d214f4464f6fe249ae2429c14fcca295c9fcecf86e1514fcda33e14bee27bcbc",
+      "check_gdal_fork.log": "4998152518220b4890607c06ff9044082e2cdde399109a104610432b5e1d0a0e",
+      "check_identita.log": "3f218bf41e04030d89bc83622b27f4c324bb0211afb701772450c85367171074",
+      "check_manifesto_adozione.log": "96fa5ddfb9bc32cedddadabc2d3768a921c50696972d9a85ee21d2e0c8949325",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "6b6ea64bdd4ea8f95708652b434bf6125f1d1b877223a75f91160c38b9fe1450",
+      "check_protocollo_v2.log": "7ae1a689b4bace24eead9402b8cda9124dd3ed4404da499daafcae7824f31fae",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "493ebbd997d76e347eb1deeb07e3d785fbb74036a22cf15a67efa474ffc7d7be",
+      "check_release.log": "fbe21aeb1a0f14f4671a7e103db8e6064aedb05dc082914a24a1a8b899cf4315",
+      "check_requires_python.log": "5a9113449211c23ec19d998d6a46f161c12e05211d64563d38cb37277b74fe32",
+      "check_riuso_evidenze.log": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+      "check_schemi_geoparquet.log": "bfac41a937b4fe7c973850b8b5b0540951dacf083d80cbe9886d231a0d5c0d0f",
+      "check_sdk_python.log": "046a02db80c945dd8ba611a0ed169d9a2b12be28402c5c551588a3845d6af450",
+      "check_shapefile_fork.log": "49e25ab6126421ce6809ec1ee345a0f10acaec1a0379993fef0ba36cafb3122c",
+      "check_toolchain.log": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+      "check_wkb_limits.log": "26bd1feb5b9f4658e1c54358c8c692bf5d0a2af9eca169940b2c6af7fd0b503c",
+      "clippy.log": "b07c623633d460394da7d754f84c97942276594d3b3c2a80c552ed43534ba4b5",
+      "clippy_default.log": "a2d2e88e205169a8081f5d14346ef87421bf5af24d9f41a8055759f485cd03ff",
+      "clippy_sicurezza.log": "bfd2478dc37037dbe143e121b11e5a30d5f8d10043a60a853dd01e3e96ddf26b",
+      "clippy_vendor.log": "9d2fd6768f2d0f0f7ff7cf06ba480d010b5a57a84d650b2546219013f704aa1c",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "costruisci_pacchetto_python.log": "967def130ca545f6e6865c4aaca737035b6444ae29b383b01e1e7d65a49c374a",
+      "coverage_diff.log": "c39a1ec28dbc2e5faa096d84651acdb3bd3ec3b006c36ee7ce2a6b2f25168660",
+      "coverage_diff_cli.log": "823e375e324aa29c372b7a620ea98932309bbcebaff4307d5512abb505e9479c",
+      "coverage_export.log": "f299b3a6d1130d3ea542cefb7d5695174ed08b91b4e379b6a65469d4c24a808d",
+      "coverage_export_cli.log": "5dd1020d20f6b58b78374ec4e98c38eef5f479abd16db4607ecd2009e0b453ab",
+      "coverage_misura.log": "32aa14949a6e9627d6e6d55223e3c6f2d89789bc13e02171b676ccb7ce8d7347",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "73e3f3bfbeef7f897947487ab99dc819aa66b885e6a78cc94d9816c7dcf5e6c4",
+      "coverage_soglia_dal_report.log": "20dfec5b9ef08a101ef37ce356e0bcc956d7baea6521db3913d01f08e6f60ebd",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz-smoke-ultima.json": "729633616ed867800d3ffb35a343288bda212768b8fbeb489aba1e42b4c16989",
+      "fuzz_campagna_completa.log": "e14c5c826fda8ab1ec6e34a76eb5517f46d37140772b789a2f48fd06bd79ebf8",
+      "fuzz_replay.log": "7099bba5cf55ec26e23d7125d24d851ef70482a25a9606babd8268882f044161",
+      "fuzz_smoke.log": "82f60551bf2724086d4f65348ea1d14dbe948aa32eaf78f7367710af03f25d7f",
+      "lcov-completo.info": "a3f3450cfcfcbf6a6d20c35e996a1fbc47d5b6bbb08308416a051dbaed02a81a",
+      "lcov.info": "dddce5bd0e75368ebfa75694c14aa341677053eedd49895e97ebcc4b95ba50fd",
+      "pacchetto_python_riproducibile.log": "e4c1d7eb90cdd4cfb48524471a9d6016f87672e6fd66f45dcef8cbff271c5f79",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "10efc90f93ac6ce08286637a2d515af043e091f18939183dda04edd4c644e309",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "smoke_pacchetto_python.log": "4b928dd9845730841760f59d87d9fc0459d1b37acabf195f553dc63c86437dca",
+      "sonde_action_pins.log": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+      "sonde_assurance_n1.log": "affa32488c483b7c39559f052cca804be85fa0f4e3568546a7d7a49ac78f7284",
+      "sonde_assurance_n1_prove.log": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
+      "sonde_audit_ignores.log": "dcd2147edfda2291b456dfb6d9f3021f0fed07760d5a1c8869fc5446f30e28fe",
+      "sonde_buste_v2.log": "83dd27bb01193c720bf13bd4dc908cf8b9959f327e50c15b7f69218152ef202d",
+      "sonde_capability_ostile.log": "7f83986b16fc40dfa454d69a7aef2fe1780587caead8deab819efc26276228aa",
+      "sonde_categorie_di_perdita.log": "3dd73993684e08a19b6c7709f5540fe13dcf2ec5bab43e9d7e64ff655392cacb",
+      "sonde_checkpoint.log": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+      "sonde_commenti.log": "0a3bec739f38b2153d38be853a0ab1177cb39671d931dfe368a36d23b1f00ab8",
+      "sonde_conversioni.log": "fc924f6e1fea3cec579bda3420051891bdf01c960fe5ca7e49fdfc8005bd9c0c",
+      "sonde_coverage_excl.log": "e7a0081cb641ab52692694a7192383117901bdc9003861ab9cd02b787ab8272f",
+      "sonde_dependency_pins.log": "ff3b1438544d9aa2c552401f0123d54eac06b91b0295f3773671c14161e22544",
+      "sonde_dettaglio_congelato.log": "b43cec72e7ef4971e3144e0205d78cf8fef79cdb49fcf17fadcf92cfc7bce611",
+      "sonde_dimensione.log": "567ea1522c55ce7af4ede2f581b0acfc02708fbc5006736cad01b1a7d128fd61",
+      "sonde_disposizione_prove.log": "24a491c5786fcf0d8a243b799ac3f98f52eb94417d60d583aeaef9b84aba23e7",
+      "sonde_dist_completa.log": "b334634cc1d332204bc52bb2b7f43f69d49c1318ad2c0b9cf783d2680f158c0d",
+      "sonde_distribuzione.log": "5eed34b63f66fc967aa6d1f2daa9e088672cde9a256572b7d684f0057f435021",
+      "sonde_docset.log": "ca7e6933f62b5008974434a35a0d30dfd6c4c13dd3c5e355916d577f40a1cf1a",
+      "sonde_errori_redatti.log": "84d8772355e571485804666521d02c4d9d3dc524b3389ba7950c37dc4c70d799",
+      "sonde_fallback.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_filegdb.log": "8c4b1532288f3c2237a75b4778a19116380135ed2658033225c3d1a1a8446867",
+      "sonde_finding_noti.log": "7801ebea4e5b955b137dae0902848d6d6400e2a9c9c635435d33c326ad089a3d",
+      "sonde_fixture_canoniche.log": "6e2c2e2d0c5d4f2445feb5005937a4d47635379f8adf4113de6f692d171b2766",
+      "sonde_fork.log": "332e5d912372227b74591415649ef364e7077bac2fb1a902955ded7146e9bc7b",
+      "sonde_identita.log": "af55efa5c3ceb122f8184c380aa405d3f3b4e7e0c1e892773d0eff31d0645c8a",
+      "sonde_licenze.log": "1252f2de514636500f1748a13c1cf90f782ba03fdb70bb97d53ba116593b63c1",
+      "sonde_manifesto_adozione.log": "1ca0fda7d429d9545f5796cab895b6718dbab4b22be83c027286425d295e467d",
+      "sonde_metadati_geoparquet.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_niente_leak.log": "416bf32537d4ffc17e47fc9001e09449b734d88682763b59741e1f5b52a25f02",
+      "sonde_prevalidazione.log": "e00da7e465fbb1b007f5d736308609b32bb1a35656e71b4274a4472930943589",
+      "sonde_protocollo_v2.log": "11b90ecb88ef196bdc683b0a7ba636181aa9b7ddbc3abb984007d7bd4f580b56",
+      "sonde_quarantena.log": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+      "sonde_quartetto.log": "26e4fc70ea6b6384bf46375bf00ad2ce38024aabcad5482770bd95e72ba6bbc6",
+      "sonde_registra_evidenza.log": "57256a13cfbd13539b3f6c3a9bd6c4cd9c1a8f25a390d6295b563a1d8a31853d",
+      "sonde_release.log": "ab6cd24227a9dbfc860063914c01e691c20eb416ea934c79ad3cfeeeaec3c1a9",
+      "sonde_riuso_evidenze.log": "603db52fd0016ca5cdcf83b2588160ae92bde08c66ba4c61dfc8a2a74cdb95c9",
+      "sonde_sbom.log": "850b3e0f9af248612b1d3a0d007c5a6e3ae369aa7b41006e229ed8232a95ed0b",
+      "sonde_schemi_geoparquet.log": "e5625f689a91b21eae2b86cd49d11a179b775a6058eec6268524ff347be0bb17",
+      "sonde_sdk_python.log": "9d00442efdc517376b23287193edb17b17ffd690d0b2ed85ae37c3c8c622d3d8",
+      "sonde_semi_s12.log": "a4dfc6ba8d8ee7f993f00a450146247a1360e5c1204cf97b042c9525cb23198e",
+      "sonde_soak.log": "4e9583fbd8b7dfd17b1b52f963bca5e078ab351e78d6c9726b2c05ff184c10db",
+      "sonde_toolchain.log": "f22d232ed372ce48cfbdd7f8fb4c3086f2f7fbcc95f727f6333247c80bb11c38",
+      "sonde_verificatori_nativi.log": "b90ac736dd6effedae528bac8540b960c5af797ce4dc9907766a3e059c7e05e8",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "44da5ff3d8732677572559b618a09686fa21efd87af4d2b415dc65f98118d47f",
+      "sonde_wrapper_campagna.log": "e2e51f3c0eb9a15217aa03475ebc32b11b2f573d737da0719dacd73fe64e18e8",
+      "test.log": "b402d40ed5c8820da16ad3e9c05d795e091d4bb0144a65bf65f79c76eaf06b84",
+      "test_default.log": "cf9d644662d79d93b62a0571b49cbdc3d00d21aee39e9f0dab6e89ccbaed3407"
+    }
+  },
+  "esito": "S9 checkpoint level 2 passed"
+}

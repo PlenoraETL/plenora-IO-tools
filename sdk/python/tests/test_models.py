@@ -25,6 +25,7 @@ from plenora_io import (
     LayerSummary,
     Omissions,
     ProtocolError,
+    ResultLookupError,
     Validation,
     Version,
 )
@@ -33,7 +34,7 @@ from _repository import CONTRATTO, serve_il_repository
 
 
 def driver_sano(**modifiche):
-    documento = {campo: "x" for campo in Driver.OBBLIGATORI}
+    documento = {campo: "x" for campo in Driver._OBBLIGATORI}
     documento.update(
         {
             "id": "geojson",
@@ -114,7 +115,7 @@ class IlCatalogo(unittest.TestCase):
         self.assertEqual([d.id for d in catalogo.available], ["geojson"])
 
     def test_un_campo_di_primo_livello_mancante_e_un_errore(self) -> None:
-        for campo in Catalog.OBBLIGATORI:
+        for campo in Catalog._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = catalogo_sano()
                 del documento[campo]
@@ -122,7 +123,7 @@ class IlCatalogo(unittest.TestCase):
                     Catalog.from_json(documento)
 
     def test_un_campo_di_driver_mancante_e_un_errore(self) -> None:
-        for campo in Driver.OBBLIGATORI:
+        for campo in Driver._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = driver_sano()
                 del documento[campo]
@@ -148,8 +149,11 @@ class IlCatalogo(unittest.TestCase):
         la', dove il nome sbagliato non si vede piu'."""
         catalogo = Catalog.from_json(catalogo_sano())
         with self.assertRaises(KeyError) as preso:
-            catalogo.driver("gpkg")
-        self.assertIn("csv", str(preso.exception))
+            catalogo.driver("gpkg-cercato")
+        # Un errore non porta dati: ne' l'id cercato ne' quelli del catalogo.
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("csv", str(preso.exception))
+        self.assertNotIn("gpkg-cercato", str(preso.exception))
 
     def test_le_due_direzioni_derivate(self) -> None:
         self.assertTrue(Driver.from_json(driver_sano()).writable)
@@ -209,7 +213,7 @@ def strato_sano(**modifiche):
 
 
 def descrittore_sano(**modifiche):
-    documento = {campo: "x" for campo in FormatDescriptor.OBBLIGATORI}
+    documento = {campo: "x" for campo in FormatDescriptor._OBBLIGATORI}
     documento.update(
         {
             "id": "geojson",
@@ -278,7 +282,7 @@ class LaSezioneDiFedelta(unittest.TestCase):
     def test_le_quattro_omissioni_restano_separate(self) -> None:
         """Portano a decisioni diverse: chi ha perso categorie non conosce tutti
         i tipi di perdita, chi ha perso esempi li conosce e non ne ha campioni."""
-        for causa in Omissions.OBBLIGATORI:
+        for causa in Omissions._OBBLIGATORI:
             with self.subTest(causa=causa):
                 omesse = dict(fedelta_sana()["omesse"])
                 omesse[causa] = 3
@@ -300,7 +304,7 @@ class LaSezioneDiFedelta(unittest.TestCase):
         self.assertEqual((precisa.field_index, precisa.layer_index), (2, 0))
 
     def test_un_campo_mancante_e_un_errore(self) -> None:
-        for campo in Fidelity.OBBLIGATORI:
+        for campo in Fidelity._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = fedelta_sana()
                 del documento[campo]
@@ -325,20 +329,24 @@ class LaBustaDiInspect(unittest.TestCase):
         self.assertEqual([c.name for c in strato.attributes], ["codice"])
         self.assertEqual(len(strato.fields), 2)
 
-    def test_un_campo_che_non_c_e_solleva_ed_elenca_quelli_che_ci_sono(self) -> None:
+    def test_un_campo_che_non_c_e_solleva_senza_nomi(self) -> None:
         strato = Inspect.from_json(inspect_sano()).layers[0]
         with self.assertRaises(KeyError) as preso:
             strato.field("inesistente")
-        self.assertIn("codice", str(preso.exception))
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("codice", str(preso.exception))
+        self.assertNotIn("inesistente", str(preso.exception))
 
     def test_un_layer_che_non_c_e_solleva(self) -> None:
         esito = Inspect.from_json(inspect_sano())
         with self.assertRaises(KeyError) as preso:
-            esito.layer("altro")
-        self.assertIn("canonico", str(preso.exception))
+            esito.layer("altro-cercato")
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("canonico", str(preso.exception))
+        self.assertNotIn("altro-cercato", str(preso.exception))
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Inspect.OBBLIGATORI:
+        for campo in Inspect._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = inspect_sano()
                 del documento[campo]
@@ -349,11 +357,13 @@ class LaBustaDiInspect(unittest.TestCase):
         """Un campo mancante in fondo all'albero non deve produrre un messaggio
         che parla della busta intera: chi lo legge deve sapere dove guardare."""
         documento = inspect_sano()
-        del documento["layers"][0]["geometry"]["crs_resolution"]["axis_order"]
+        # `status` e' l'unico campo che `crs_resolution` porta sempre: gli
+        # altri mancano legittimamente a una geometria senza CRS.
+        del documento["layers"][0]["geometry"]["crs_resolution"]["status"]
         with self.assertRaises(ProtocolError) as preso:
             Inspect.from_json(documento)
         self.assertIn("crs_resolution", str(preso.exception))
-        self.assertIn("axis_order", str(preso.exception))
+        self.assertIn("status", str(preso.exception))
 
     def test_un_campo_in_piu_resta_leggibile(self) -> None:
         esito = Inspect.from_json(inspect_sano(campo_futuro=1))
@@ -383,7 +393,7 @@ class LaBustaDiLayers(unittest.TestCase):
         )
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Layers.OBBLIGATORI:
+        for campo in Layers._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = layers_sano()
                 del documento[campo]
@@ -465,7 +475,7 @@ class LaBustaDiValidate(unittest.TestCase):
         self.assertNotIn("rows", esito.raw)
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in Validation.OBBLIGATORI:
+        for campo in Validation._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = validazione_sana()
                 del documento[campo]
@@ -504,7 +514,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         senza gli script di questo repository.
         """
         attesi = {c for c, sempre in self.struttura(".result.drivers[]").items() if sempre}
-        self.assertEqual(set(FormatDescriptor.OBBLIGATORI) | set(Driver.PROPRI), attesi)
+        self.assertEqual(set(FormatDescriptor._OBBLIGATORI) | set(Driver._PROPRI), attesi)
 
     @serve_il_repository
     def test_il_descrittore_di_inspect_e_quello_del_catalogo(self) -> None:
@@ -529,16 +539,67 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
 
         del_catalogo = immediati("catalog", ".result.drivers[]")
         di_inspect = immediati("inspect", ".result.format")
-        self.assertEqual(del_catalogo - di_inspect, set(Driver.PROPRI))
-        self.assertEqual(di_inspect, set(FormatDescriptor.OBBLIGATORI))
+        self.assertEqual(del_catalogo - di_inspect, set(Driver._PROPRI))
+        self.assertEqual(di_inspect, set(FormatDescriptor._OBBLIGATORI))
 
     @serve_il_repository
     def test_il_catalogo_espone_i_campi_che_il_protocollo_dichiara(self) -> None:
         # `.result`: e' li' che il protocollo mette i dati dell'operazione, e
         # il modello descrive il risultato, non la busta che lo trasporta.
         attesi = {c for c, sempre in self.struttura(".result").items() if sempre}
-        self.assertEqual(set(Catalog.OBBLIGATORI), attesi)
+        self.assertEqual(set(Catalog._OBBLIGATORI), attesi)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StratiSenzaGeometriaOSenzaCrs(unittest.TestCase):
+    """Le forme che il binario emette e che il protocollo ammette.
+
+    `layers[].geometry` e' `null` per un layer senza geometria; `crs` e' `null`
+    e `crs_resolution` porta il solo `status` per una geometria senza CRS
+    (schema `plenora-io-inspect-v1`: `geometry` e' `object|null`,
+    `crs_resolution` pretende soltanto `status`). L'SDK alzava `ProtocolError`
+    su entrambe, mentre il binario le legge e le scrive. Trovato dalla suite di
+    interoperabilita' (`io-sdk-senza-geometria`); i documenti qui sono quelli
+    che `plenora-io inspect` rende sui vettori `tipi_comuni` e `geo_senza_crs`.
+    """
+
+    SENZA_GEOMETRIA = {"fields": [{"geometry": False, "name": "id", "nullable": False,
+                                   "type": "Int64"}],
+                       "geometry": None, "id": 0, "name": "tipi_comuni"}
+    SENZA_CRS = {"fields": [{"geometry": True, "name": "geom", "nullable": True,
+                             "type": "Binary"}],
+                 "geometry": {"crs": None, "crs_resolution": {"status": "missing"},
+                              "kind": "Unresolved", "name": "geom"},
+                 "id": 0, "name": "geo_senza_crs"}
+
+    def test_un_layer_senza_geometria_si_legge(self) -> None:
+        strato = Inspect.from_json(inspect_sano(layers=[self.SENZA_GEOMETRIA])).layers[0]
+        self.assertIsNone(strato.geometry)
+        self.assertEqual([c.name for c in strato.attributes], ["id"])
+
+    def test_una_geometria_senza_crs_si_legge(self) -> None:
+        strato = Inspect.from_json(inspect_sano(layers=[self.SENZA_CRS])).layers[0]
+        self.assertIsNone(strato.geometry.crs)
+        self.assertEqual(strato.geometry.crs_resolution.status, "missing")
+        self.assertIsNone(strato.geometry.crs_resolution.id)
+        self.assertIsNone(strato.geometry.crs_resolution.axis_order)
+
+    def test_un_riassunto_senza_crs_si_legge(self) -> None:
+        voce = {"id": 0, "name": "tipi_comuni", "field_count": 1, "geometry_crs": None}
+        self.assertIsNone(Layers.from_json(layers_sano(layers=[voce])).layers[0].geometry_crs)
+
+    def test_lo_stato_resta_obbligatorio(self) -> None:
+        """La tolleranza e' quella del protocollo, non di piu': senza `status`
+        i tre stati di ARROW-007 non si distinguono."""
+        senza_stato = {**self.SENZA_CRS, "geometry": {**self.SENZA_CRS["geometry"],
+                                                      "crs_resolution": {}}}
+        with self.assertRaises(ProtocolError):
+            Inspect.from_json(inspect_sano(layers=[senza_stato]))
+
+    def test_un_crs_di_tipo_sbagliato_resta_un_errore(self) -> None:
+        sbagliato = {**self.SENZA_CRS, "geometry": {**self.SENZA_CRS["geometry"], "crs": 4326}}
+        with self.assertRaises(ProtocolError):
+            Inspect.from_json(inspect_sano(layers=[sbagliato]))

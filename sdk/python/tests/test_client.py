@@ -38,7 +38,7 @@ from plenora_io import (
     ResourceLimitError,
     __version__,
 )
-from plenora_io.discovery import NOME, VARIABILE
+from plenora_io._discovery import NOME, VARIABILE
 
 from _nativo import client_di_prova, variante_nativa
 from _repository import RADICE, serve_le_fixture
@@ -385,7 +385,7 @@ class ContrIlBinarioVero(unittest.TestCase):
         # La classe viene dalla categoria, non dal testo: quale sia la
         # categoria lo decide il prodotto, e la sonda non la fissa -- verifica
         # che la classe sollevata sia **quella** che le compete.
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         attesa = errors.CATEGORIE[preso.exception.envelope.category]
         self.assertIs(type(preso.exception), attesa)
@@ -434,6 +434,10 @@ if __name__ == "__main__":
 # `_nativo.py`), piu' quella che solo la variante nativa puo' fare.
 @serve_le_fixture
 class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[misc]
+    def test_capabilities_dichiara_la_superficie_python(self) -> None:
+        capacita = self.nuovo_client().capabilities()
+        self.assertIn("python_sdk", capacita.operation("io.write").surfaces)
+
     def test_la_versione_e_quella_del_pacchetto(self) -> None:
         """Lo SDK e il prodotto che esegue escono con la stessa versione."""
         self.assertEqual(self.nuovo_client().version().version, __version__)
@@ -449,7 +453,7 @@ class ConIlModuloNativo(variante_nativa(ContrIlBinarioVero)):  # type: ignore[mi
         import signal
         import threading
 
-        class DalGestore(Exception):
+        class DalGestore(BaseException):
             pass
 
         def gestore(_numero, _quadro):
@@ -550,3 +554,50 @@ class IlRunnerNativo(unittest.TestCase):
         with self.assertRaises(CommandFailed):
             NativeRunner(finto).run(["read", "x"])
 
+
+
+class IlConfineNativo(unittest.TestCase):
+    def test_guasto_dopo_scrittura_senza_dati_ne_catena(self) -> None:
+        class Finto:
+            def esegui(self, argv, timeout):
+                raise ValueError("SEGRETO")
+        for argv, effetto in [(["convert", "SEGRETO"], "unknown"), (["catalog"], "none")]:
+            with self.subTest(argv=argv), self.assertRaises(ProtocolError) as preso:
+                NativeRunner(Finto()).run(argv)
+            self.assertEqual(preso.exception.remote_effect, effetto)
+            self.assertNotIn("SEGRETO", str(preso.exception))
+            self.assertIsNone(preso.exception.__context__)
+            self.assertIsNone(preso.exception.__cause__)
+
+    def test_interruzione_di_scrittura_annotata(self) -> None:
+        class Finto:
+            def esegui(self, argv, timeout):
+                raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt) as preso:
+            NativeRunner(Finto()).run(["write", "x"])
+        self.assertTrue(preso.exception.__notes__)
+
+    def test_scelta_backend_e_copia(self) -> None:
+        import copy
+        from unittest import mock
+        from plenora_io import UnexpectedError
+        finto = IlRunnerNativo.Finto(0, IlRunnerNativo.BUSTA_OK, False)
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch(
+            "plenora_io._client.modulo_nativo", return_value=finto
+        ) as scoperta:
+            client = Client()
+            self.assertEqual(client.backend, "native")
+            self.assertIsNone(client.binary)
+            self.assertEqual(copy.copy(client).backend, "native")
+            self.assertEqual(copy.copy(client._runner).run(["catalog"]), {"x": 1})
+            with mock.patch("plenora_io._client.trova_binario", return_value=Path("binario")), mock.patch(
+                "plenora_io._client.leggi_manifesto", return_value=None
+            ):
+                scoperta.reset_mock()
+                self.assertEqual(Client(binary="esplicito").backend, "process")
+                with mock.patch.dict(os.environ, {VARIABILE: "ambiente"}):
+                    self.assertEqual(Client().backend, "process")
+                scoperta.assert_not_called()
+            scoperta.side_effect = ImportError("SEGRETO")
+            with self.assertRaises(UnexpectedError):
+                Client()

@@ -29,6 +29,7 @@ a metapacchetto per farlo tacere.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -46,6 +47,20 @@ def verifica(albero: pathlib.Path) -> list[str]:
     for percorso in (manifesto_percorso, sbom_percorso, provenienza_percorso):
         if not percorso.is_file():
             return [f"{percorso.relative_to(albero)} assente: l'artefatto non e' completo"]
+
+    # La licenza del prodotto: alla radice, e la stessa del repository. Un
+    # artefatto che si dichiara proprietario senza il testo, o con un testo
+    # diverso, dice due cose.
+    licenza = albero / distribuzione.NOME_DEL_TESTO
+    if not licenza.is_file():
+        errori.append(
+            f"{distribuzione.NOME_DEL_TESTO} assente alla radice: la licenza del prodotto "
+            "e' dichiarata e il suo testo non viaggia con l'artefatto"
+        )
+    elif licenza.read_bytes() != distribuzione.testo_della_licenza():
+        errori.append(
+            f"{distribuzione.NOME_DEL_TESTO} alla radice diverso da quello del repository"
+        )
 
     manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
     sbom = json.loads(sbom_percorso.read_text(encoding="utf-8"))
@@ -148,6 +163,24 @@ def verifica(albero: pathlib.Path) -> list[str]:
                 "identificatori dichiarati da un crate e non consegnati: "
                 + ", ".join(f"{i} ({', '.join(n[:3])})" for i, n in sorted(scoperti.items()))
             )
+        # E ogni crate porta il **proprio** avviso -- l'avviso di copyright,
+        # il NOTICE -- non solo il testo generico dell'identificatore: e' cio'
+        # che MIT, BSD e Apache-2.0 chiedono di ridistribuire.
+        for componente in dichiarati["pacchetti"]:
+            etichetta = f"{componente['nome']}-{componente['versione']}"
+            elenco = componente.get("avvisi") or []
+            if not elenco:
+                errori.append(f"crate-rust: {etichetta} non ha un avviso di licenza proprio")
+                continue
+            for avviso in elenco:
+                file = albero / "LICENSES" / "crate-rust" / etichetta / avviso["file"]
+                if not file.is_file():
+                    errori.append(f"crate-rust: manca {etichetta}/{avviso['file']}")
+                elif (
+                    hashlib.sha256(file.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+                    != avviso["sha256"]
+                ):
+                    errori.append(f"crate-rust: {etichetta}/{avviso['file']} non e' quello dichiarato")
 
     licenze = manifesto.get("licenze", {})
     if licenze.get("senza_testo", 0) != 0:
@@ -197,13 +230,11 @@ def main() -> int:
             esito="verde" if not errori else "rosso",
             misure={
                 "componenti_con_testo": componenti,
-                # La licenza **first-party**, che non c'e'. Il conteggio qui
-                # sopra riguarda le licenze altrui, che sono un'altra domanda:
-                # un albero puo' portare quarantatre testi di terzi e non dire
-                # niente del proprio stato, ed e' cio' che faceva. Dichiararlo
-                # non e' un blocco -- la distribuzione privata non ne ha bisogno
-                # -- ma un artefatto che tace su questo lascia dedurre, e la
-                # deduzione piu' comoda e' che una licenza ci sia.
+                # La licenza **del prodotto**, proprietaria, con il testo alla
+                # radice (verificato sopra). Il conteggio qui sopra riguarda le
+                # licenze altrui, che sono un'altra domanda: un albero puo'
+                # portare quarantatre testi di terzi e non dire niente della
+                # propria, ed e' cio' che faceva.
                 "licenza_first_party": distribuzione.licenza_first_party(),
                 "crate_rust": len(
                     [

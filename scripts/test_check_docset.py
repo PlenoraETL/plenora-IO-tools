@@ -63,7 +63,7 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_sedici_voci(self) -> None:
+    def test_l_allowlist_ha_diciannove_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
         Cinque canonici e sette operativi. Sono cresciuti due volte il
@@ -118,10 +118,14 @@ class SondePerimetro(unittest.TestCase):
         tenerlo fuori dal repository lo lascerebbe dove nessun gate presiede.
         Come il piano, ha una scadenza: quando la segnalazione e' inviata e la
         issue registrata, resta finche' upstream non ha risposto.
+
+        Con la 4.2.0 entrano tre operativi della stessa famiglia dei fork: i
+        Markdown del pacchetto `parquet`, vendorizzato intero come nella base
+        di plenora-data-tools e verificato da `check_parquet_fork.py`.
         """
-        self.assertEqual(len(gate.AMMESSI), 16)
+        self.assertEqual(len(gate.AMMESSI), 19)
         self.assertEqual(len(gate.CANONICI), 8)
-        self.assertEqual(len(gate.OPERATIVI), 8)
+        self.assertEqual(len(gate.OPERATIVI), 11)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
         """Il falso positivo che l'SDK ha rivelato.

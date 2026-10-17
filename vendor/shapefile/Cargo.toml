@@ -11,7 +11,7 @@
 
 [package]
 edition = "2021"
-name = "shapefile"
+name = "plenora-fork-shapefile"
 version = "0.9.0"
 authors = ["tmontaigu <thomas.montaigu@laposte.net>"]
 build = false

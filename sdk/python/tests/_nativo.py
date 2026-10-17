@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 
 from plenora_io import Client
-from plenora_io.discovery import VARIABILE, modulo_nativo
+from plenora_io._discovery import VARIABILE, modulo_nativo
 
 #: Il segnaposto che le classi d'integrazione tengono in `binario` quando la
 #: variante e' quella nativa.

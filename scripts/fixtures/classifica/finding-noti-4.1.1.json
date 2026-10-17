@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "descrizione": "I finding del fuzz gia' noti, riconosciuti per famiglia e non per digest. Una voce qui non disabilita il bersaglio e non rende completa la campagna che si e' interrotta: dice soltanto che quel crash e' gia' tracciato altrove.",
+  "perche_non_una_lista_di_digest": "Il fuzzer rigenera lo stesso difetto da un input diverso, o ne produce una variante. Gli artefatti locali di `geoparquet_reader` lo mostrano: due misurano 3.966 byte, la stessa dimensione del seme del finding, con digest tutti diversi dal suo. Una lista di digest li riconoscerebbe uno per volta.",
+  "come_si_riconosce": "Tipo, modulo **e** forma del messaggio, congiunti, per il bersaglio dichiarato; per un esaurimento di memoria anche la funzione. Il modulo e' `crate/percorso` di una crate **nel registro di cargo dichiarato dallo smoke**, e la crate dev'essere fissata da `fuzz/Cargo.lock` una volta sola, da crates.io, alla stessa versione del percorso; e quella versione dev'essere fra le `versioni_rivalidate` della voce. Una copia locale, un altro registro, un'altra versione, due versioni nel lock, una sorgente git o path: non sono il finding registrato. Con un aggiornamento della crate la voce va rivalidata, aggiungendo la versione, invece di essere ereditata. La forma del messaggio ha le cifre ridotte a N. Il numero di riga non e' nella firma: e' registrato come dato e non come criterio. La firma resta stretta non perche' basti a identificare la causa, ma perche' allargarla aumenterebbe i crash nella stessa cesta senza aumentare cio' che si sa di loro.",
+  "finding": [
+    {
+      "id": "arrow-rs-byte-stream-split-oob",
+      "bersaglio": "geoparquet_reader",
+      "modulo": "parquet/src/encodings/decoding/byte_stream_split_decoder.rs",
+      "forma_del_messaggio": "index out of bounds: the len is N but the index is N",
+      "riga_osservata": "61",
+      "versioni_osservate": [
+        "59.3.0",
+        "60.0.0"
+      ],
+      "versioni_rivalidate": [
+        "59.3.0"
+      ],
+      "dove_e_tracciato": "Q2 del piano 4.1.0; caso minimo in `upstream/arrow-rs-byte-stream-split/`, segnalazione ad arrow-rs da inviare",
+      "non_promette": "Non e' affermato che `geoparquet_reader` sia libero da crash su GeoParquet malformato: questo difetto e' a monte, nel decoder BYTE_STREAM_SPLIT di `parquet`, e il nostro prodotto lo intercetta sulla superficie pubblica ma il target del fuzz non puo' osservarlo, perche' `libfuzzer-sys` chiama `abort()` prima dell'unwinding.",
+      "quando_si_toglie": "Quando la correzione upstream e' pubblicata e il pin di `parquet` la include. La prova che la voce e' ancora dovuta sta nel riproduttore: se smette di riprodurre, la voce va tolta invece di essere ereditata."
+    },
+    {
+      "id": "parquet-footer-lista-thrift-oom",
+      "tipo": "esaurimento-memoria",
+      "bersaglio": "geoparquet_reader",
+      "modulo": "parquet/src/parquet_thrift.rs",
+      "funzione": "read_thrift_vec",
+      "forma_del_messaggio": "out-of-memory (malloc(N))",
+      "riga_osservata": "724",
+      "versioni_osservate": [
+        "59.3.0"
+      ],
+      "versioni_rivalidate": [
+        "59.3.0"
+      ],
+      "dove_e_tracciato": "limite dichiarato nella deviazione CLI-2.0 sotto esaurimento di memoria (contracts/adozione-4.0.0.json) e in docs/PRODUCT.md; riproduzione in `upstream/parquet-footer-thrift-list/`; correzione pianificata per la 4.2.0 (parquet/arrow 60 piu' un controllo nostro su row_groups e sullo schema)",
+      "non_promette": "Non e' affermato che `geoparquet_reader` resista a un footer Parquet ostile: il decoder del footer di `parquet` 59.3 prenota ogni elenco Thrift dal conteggio dichiarato (`read_thrift_vec`, `Vec::with_capacity(list_ident.size)`), fino a circa 2,3 GB da 3966 byte, e il processo termina senza busta. La voce copre solo questo punto di allocazione: la stessa prenotazione dei row group (`with_capacity` direttamente in `parquet_metadata_from_bytes`), non ancora osservata, resta un finding nuovo.",
+      "quando_si_toglie": "Quando il pin di `parquet` limita gli elenchi del footer ai byte residui (60.0.0 lo fa in `read_thrift_vec`) e la riproduzione in `upstream/parquet-footer-thrift-list/` smette di riprodurre: il passo di CI che la classifica diventa rosso, e la voce va tolta invece di essere ereditata."
+    }
+  ],
+  "che_cosa_garantisce": "Di riconoscere un crash **compatibile** con una firma registrata. Non che sia lo stesso difetto: due difetti diversi possono produrre lo stesso errore d'indice nello stesso modulo, e la firma non li separa. «Noto» vuol dire «gia' visto qualcosa che si presenta cosi'», non «gia' capito».",
+  "percio_ogni_input_si_conserva": "In assurance/evidence/finding-fuzz/, insieme al referto che sostiene la classificazione, anche quando questa dice «noto». Se fosse identita' certa si potrebbe scartare il duplicato; essendo compatibilita', l'input e' l'unica cosa che permette di riesaminare la classificazione piu' tardi."
+}

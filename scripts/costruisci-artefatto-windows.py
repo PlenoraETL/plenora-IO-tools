@@ -72,6 +72,18 @@ def carica_costruttore_linux():
     return modulo
 
 
+def carica_avvisi_crate():
+    """`scripts/avvisi_crate.py`, gli avvisi di licenza crate per crate."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "avvisi_crate", pathlib.Path(__file__).resolve().parent / "avvisi_crate.py"
+    )
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
 def crate_linkati(profilo: str) -> list[dict]:
     """I crate Rust che finiscono dentro il binario.
 
@@ -125,6 +137,9 @@ def main() -> int:
     # dall'ambiente che un artefatto rilocabile non deve avere.
     for sotto in ("bin", "share", "LICENSES"):
         (albero / sotto).mkdir(parents=True, exist_ok=True)
+    # La licenza del prodotto, alla radice dell'albero: e' quella che regola
+    # l'uso di tutto il resto, e il manifesto la elenca con il proprio digest.
+    (albero / distribuzione.NOME_DEL_TESTO).write_bytes(distribuzione.testo_della_licenza())
 
     # =====================================================================
     # 1. IL PAYLOAD
@@ -362,6 +377,13 @@ def main() -> int:
                 identificatore, testi_esterni["identificatori"][identificatore], cache_licenze
             )
         )
+    # Gli avvisi di ciascun crate: i file di licenza, NOTICE e copyright del
+    # suo pacchetto (o, se il pacchetto non ne porta, i testi verificati di
+    # `assurance/registries/avvisi-crate.json`), in `<nome>-<versione>/`. Il
+    # testo per identificatore qui sopra e' quello generico; l'avviso di
+    # copyright di un crate MIT o BSD, e il NOTICE di un crate Apache, sono
+    # di quel crate.
+    pacchetti_pubblici = carica_avvisi_crate().pacchetti_con_avvisi(di_terzi, crate_licenze)
     (crate_licenze / "CRATE.json").write_text(
         json.dumps(
             {
@@ -373,7 +395,7 @@ def main() -> int:
                 "linkati": len(crate),
                 "di_terzi": len(di_terzi),
                 "identificatori": sorted(identificatori_dei_crate),
-                "pacchetti": di_terzi,
+                "pacchetti": pacchetti_pubblici,
             },
             ensure_ascii=False,
             indent=2,

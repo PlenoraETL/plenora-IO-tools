@@ -28,6 +28,7 @@ confonderebbe:
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import pathlib
 import shutil
@@ -42,6 +43,10 @@ COSTRUTTORE = RADICE / "scripts" / "costruisci-artefatto-linux.py"
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 TESTI_DI_LICENZA = RADICE / "scripts" / "testi-di-licenza.json"
 
+
+
+#: L'avviso di copyright del crate d'esempio, quello che il gate pretende.
+AVVISO_ESEMPIO = b"MIT License\nCopyright (c) 2020 Esempio\n"
 
 def carica(percorso: pathlib.Path):
     spec = importlib.util.spec_from_file_location(percorso.stem.replace("-", "_"), percorso)
@@ -108,6 +113,9 @@ def artefatto_finto(radice: pathlib.Path, componenti: dict[str, list[str]]) -> p
     crate = albero / "LICENSES" / "crate-rust"
     crate.mkdir(parents=True, exist_ok=True)
     (crate / "MIT.txt").write_text("testo MIT", encoding="utf-8")
+    # L'avviso del crate, accanto al testo generico dell'identificatore.
+    (crate / "esempio-1.0").mkdir()
+    (crate / "esempio-1.0" / "LICENSE").write_bytes(AVVISO_ESEMPIO)
     (crate / "CRATE.json").write_text(
         json.dumps(
             {
@@ -116,7 +124,19 @@ def artefatto_finto(radice: pathlib.Path, componenti: dict[str, list[str]]) -> p
                 "di_terzi": 1,
                 "identificatori": ["MIT"],
                 "pacchetti": [
-                    {"nome": "esempio", "versione": "1.0", "licenza": "MIT", "nostro": False}
+                    {
+                        "nome": "esempio",
+                        "versione": "1.0",
+                        "licenza": "MIT",
+                        "nostro": False,
+                        "avvisi": [
+                            {
+                                "file": "LICENSE",
+                                "sha256": hashlib.sha256(AVVISO_ESEMPIO).hexdigest(),
+                                "fonte": "pacchetto",
+                            }
+                        ],
+                    }
                 ],
             }
         ),
@@ -137,6 +157,8 @@ def artefatto_finto(radice: pathlib.Path, componenti: dict[str, list[str]]) -> p
         ),
         encoding="utf-8",
     )
+    # La licenza del prodotto, alla radice, identica a quella del repository.
+    (albero / "LICENSE").write_bytes((RADICE / "LICENSE").read_bytes())
     return albero
 
 
@@ -147,6 +169,15 @@ class SondeDelGate(unittest.TestCase):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.gate = carica(GATE)
+
+    def test_un_crate_senza_il_proprio_avviso_e_rifiutato(self) -> None:
+        """Prima: il solo testo per identificatore bastava al gate."""
+        import shutil
+
+        albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
+
+        shutil.rmtree(albero / "LICENSES" / "crate-rust" / "esempio-1.0")
+        self.assertTrue(any("manca esempio-1.0/LICENSE" in e for e in self.gate.verifica(albero)))
 
     def test_un_artefatto_completo_passa(self) -> None:
         albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"], "libbar": ["COPYING"]})
@@ -179,6 +210,20 @@ class SondeDelGate(unittest.TestCase):
         manifesto["licenze"]["senza_testo"] = 1
         (albero / "MANIFEST.json").write_text(json.dumps(manifesto), encoding="utf-8")
         self.assertTrue(self.gate.verifica(albero))
+
+    def test_senza_la_licenza_del_prodotto_e_rosso(self) -> None:
+        """La licenza e' dichiarata proprietaria: il testo deve viaggiare."""
+        albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
+        (albero / "LICENSE").unlink()
+        errori = self.gate.verifica(albero)
+        self.assertTrue(errori)
+        self.assertIn("LICENSE assente", " ".join(errori))
+
+    def test_una_licenza_del_prodotto_diversa_e_rossa(self) -> None:
+        albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
+        (albero / "LICENSE").write_text("MIT License\n", encoding="utf-8")
+        errori = self.gate.verifica(albero)
+        self.assertIn("diverso da quello del repository", " ".join(errori))
 
     def test_sbom_e_provenienza_devono_coincidere(self) -> None:
         """Sono due viste della stessa cosa: divergono solo se una mente."""

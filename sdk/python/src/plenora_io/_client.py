@@ -1,0 +1,729 @@
+"""Il client: la scoperta, il profilo, e i comandi che questo ciclo copre.
+
+# Che cosa sta qui e che cosa sta altrove
+
+Qui c'e' un metodo per comando, e ciascuno fa due cose: costruire la riga di
+argomenti e dire quale tipo si aspetta. L'esecuzione, la scelta del flusso e la
+decodifica stanno in `process.py`, perche' sono le stesse per tutti e cinque i
+comandi -- e perche' un difetto in quella catena si ripara in un posto solo.
+
+# Perche' nessun comando ha un timeout predefinito
+
+`convert` legge e scrive file, e quanto ci metta dipende da quanto sono grandi:
+un timeout scelto da noi sarebbe un limite arbitrario travestito da difesa, e
+scatterebbe sul lavoro grosso invece che sul guasto. Il parametro c'e', e chi
+sa quanto puo' durare il proprio lavoro lo imposta.
+
+# Perche' l'ambiente si passa intero
+
+`subprocess` eredita l'ambiente del processo, e va bene: la CLI ne legge poco e
+quel poco -- `PROJ_DATA`, per esempio -- e' quello che chi installa
+l'artefatto ha configurato. Ripulirlo qui romperebbe installazioni che
+funzionano, per una difesa che l'SDK non e' il posto giusto per fare.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from . import _argomenti as arg
+from . import _arrow as arrow
+from ._confine import nome_sdk
+from ._discovery import VARIABILE, modulo_nativo, Manifest, leggi_manifesto, trova_binario, verifica_profilo
+from ._errors import ProtocolError, _copia_json
+from ._errors import _dallo_sdk
+from ._contenitori import _memo, _protocollo
+from ._limits import Limits
+from ._models import (
+    Capabilities,
+    Catalog,
+    ConvertResult,
+    Inspect,
+    Layers,
+    Validation,
+    Version,
+    WriteResult,
+)
+from ._process import NativeRunner, Runner, _annota_interruzione, _dopo_l_avvio, scrive
+
+#: Da metodo pubblico a operazione del catalogo (PYTHON-SDK-1.0 §12).
+#:
+#: Ogni metodo che invoca una funzionalita' del dominio corrisponde a un
+#: identificatore che `capabilities()` annuncia, nella stessa versione. I nomi
+#: Python possono essere idiomatici -- `validate` e `read` sono due forme di
+#: `io.read`, e `read_table` ne e' l'adattatore Arrow -- ma la validazione, i
+#: default, il significato del risultato e gli effetti sono quelli
+#: dell'operazione. `version` e `capabilities` sono la scoperta, non
+#: operazioni del dominio, e per questo non compaiono.
+#:
+#: Una sonda confronta questa mappa con i metodi pubblici di `Client` e con il
+#: documento del binario vero: un metodo nuovo senza riga, o un'operazione che
+#: il binario non annuncia, e' rosso.
+OPERAZIONI: dict[str, str] = {
+    "catalog": "io.catalog",
+    "inspect": "io.inspect",
+    "layers": "io.layers",
+    "validate": "io.read",
+    "read": "io.read",
+    "read_table": "io.read",
+    "write": "io.write",
+    "convert": "io.convert",
+}
+
+
+#: L'interfaccia che l'SDK aggiunge al documento del binario.
+INTERFACCIA_PYTHON: dict[str, Any] = {
+    "kind": "python_sdk",
+    "contract": "plenora-python-sdk-v1",
+    "version": 1,
+    # Il nome della distribuzione, lo stesso di `plenora_io.DISTRIBUTION` (una
+    # prova lo confronta): importarlo da `__init__` sarebbe circolare.
+    "artifact": "plenora-io",
+}
+
+
+def con_superficie_python(documento: dict[str, Any]) -> dict[str, Any]:
+    """Il documento capabilities del binario con la superficie dell'SDK.
+
+    Una copia: il documento del binario resta quello che il binario ha scritto.
+    `python_sdk` entra solo sulle operazioni che un metodo dell'SDK chiama
+    davvero, e una volta sola anche se il binario la dichiarasse gia'.
+
+    Si chiama **dopo** `Capabilities.from_json` sul documento del binario, che
+    ne verifica la forma: prima, un `"operations": 1` o un `"id": []` davano
+    `TypeError` qui dentro, fuori dalla gerarchia. La copia e' `_copia_json`, che
+    traduce anche un annidamento troppo profondo; `deepcopy` non lo faceva.
+    """
+    copia = _copia_json(documento, "capabilities")
+    mappate = set(OPERAZIONI.values())
+    interfacce = copia.get("interfaces")
+    # Il documento e' una copia di `_copia_json`: tipi esatti, e si guardano per
+    # identita'.
+    if type(interfacce) is list and not any(
+        type(voce) is dict and voce.get("kind") == "python_sdk" for voce in interfacce
+    ):
+        interfacce.append(dict(INTERFACCIA_PYTHON))
+    for operazione in copia.get("operations") or []:
+        if type(operazione) is not dict or operazione.get("id") not in mappate:
+            continue
+        superfici = operazione.get("surfaces")
+        if type(superfici) is list and "python_sdk" not in superfici:
+            superfici.append("python_sdk")
+    return copia
+
+
+@dataclass(frozen=True)
+class TableRead:
+    """L'esito di `read_table()`: la tabella e la busta che la descrive.
+
+    La busta non e' un accessorio. Porta la fedelta' della lettura -- che cosa
+    il formato sorgente non ha potuto dare, e perche' -- e restituire la sola
+    tabella perderebbe quell'informazione in silenzio: una colonna ridotta o
+    una geometria omessa sarebbero indistinguibili da un file letto per intero.
+    """
+
+    table: Any
+    result: Validation
+
+
+
+def _ricrea_client(binario: Any, timeout: Any) -> "Client":
+    """Un `Client` ricostruito dai soli parametri del costruttore."""
+    return Client(binario, timeout=timeout)
+
+
+class Client:
+    """L'ingresso dell'SDK.
+
+    La scoperta avviene nel costruttore, non alla prima chiamata: un client che
+    esiste e' un client che ha trovato il proprio binario, e chi lo costruisce
+    scopre subito che manca invece di scoprirlo a meta' di un lavoro.
+    """
+
+    def __init__(
+        self,
+        binary: str | os.PathLike[str] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> None:
+        timeout = arg.timeout(timeout)
+        nativo = None
+        if binary is None and not os.environ.get(VARIABILE):
+            nativo = modulo_nativo()
+        self._runner: Runner
+        if nativo is not None:
+            self._runner = NativeRunner(nativo, timeout=timeout)
+            self._manifest: Manifest | None = None
+        else:
+            percorso = trova_binario(binary)
+            self._runner = Runner(percorso, timeout=timeout)
+            self._manifest = leggi_manifesto(percorso)
+
+
+    # Il protocollo di serializzazione: lo stato sono i soli parametri del
+    # costruttore -- il binario e il timeout -- e si ricostruisce chiamandolo,
+    # che ritrova il binario e rilegge il manifesto (ventesimo giro).
+
+    def __getstate__(self) -> dict[str, Any]:
+        runner = object.__getattribute__(self, "_runner")
+        return {"binary": None if runner.binary is None else str(runner.binary), "timeout": runner._timeout}
+
+    def __reduce__(self) -> Any:
+        stato = self.__getstate__()
+        return (_ricrea_client, (stato["binary"], stato["timeout"]))
+
+    def __reduce_ex__(self, protocollo: Any) -> Any:
+        _protocollo(protocollo)
+        return self.__reduce__()
+
+    def __copy__(self) -> "Client":
+        stato = self.__getstate__()
+        return _ricrea_client(stato["binary"], stato["timeout"])
+
+    def __deepcopy__(self, memo: Any = None) -> "Client":
+        _memo(memo)
+        return self.__copy__()
+
+    @property
+    def binary(self) -> Path | None:
+        return self._runner.binary
+
+    @property
+    def backend(self) -> str:
+        """`"native"` col modulo della wheel abi3, `"process"` col binario."""
+        return "native" if isinstance(self._runner, NativeRunner) else "process"
+
+    @property
+    def manifest(self) -> Manifest | None:
+        """Il manifesto dell'artefatto, o `None` se il binario non ne ha uno.
+
+        `None` non e' un guasto: un binario costruito da `cargo` e' usabile e
+        non porta un manifesto. Cio' che manca e' la capacita' di dire da quale
+        artefatto venga -- profilo, canale, revisione -- e i metodi che ne hanno
+        bisogno lo dicono invece di indovinare.
+        """
+        return self._manifest
+
+    def require_profile(self, profile: str) -> None:
+        """Solleva `ProfileError` se l'artefatto non ha quel profilo.
+
+        Da chiamare **prima** del lavoro. Il driver FileGDB vuole il profilo
+        `filegdb`, e scoprirlo dal fallimento di una conversione a meta' costa
+        un file di uscita parziale e un errore che parla di un driver invece che
+        di un pacchetto.
+        """
+        verifica_profilo(self._manifest, profile)
+
+    # --- le buste che l'SDK copre -----------------------------------------
+
+    def version(self) -> Version:
+        """La busta di bootstrap.
+
+        E' la prima chiamata che ha senso fare: dice che binario si ha in mano,
+        e lo dice senza pretendere di conoscere il protocollo.
+        """
+        return self._chiama(["--version"], Version)
+
+    def catalog(self) -> Catalog:
+        """Il catalogo dei driver di **questa** installazione."""
+        return self._chiama(["catalog"], Catalog)
+
+    def capabilities(self) -> Capabilities:
+        """Il documento `plenora-capabilities-v2` di **questo** binario.
+
+        E' la scoperta strutturata che PYTHON-SDK-1.0 §7 chiede prima di
+        un'operazione distruttiva: le operazioni, le versioni, le superfici, i
+        contratti, lo stato e i controlli, tipizzati. Lo si chiede al binario e
+        non lo si scrive nell'SDK, perche' un SDK puo' parlare con un binario
+        piu' vecchio o piu' nuovo di lui, e cio' che conta e' che cosa quello
+        espone.
+
+        # La superficie `python_sdk`
+
+        Il documento descrive **questo** artefatto, e l'artefatto che il
+        chiamante ha in mano e' l'SDK: PYTHON-SDK-1.0 §7 (con CAP-003 e
+        CAP-006) chiede che dichiari la propria superficie. Al documento del
+        binario si aggiungono percio' l'interfaccia `python_sdk`
+        (`plenora-python-sdk-v1`, artefatto `plenora-io`) e la superficie
+        `python_sdk` sulle operazioni che `OPERAZIONI` mappa su un metodo. Il
+        resto -- versioni, contratti, stato, controlli -- e' quello del
+        binario: l'SDK lo inoltra e non ha semantica propria.
+        """
+        documento = self._runner.run(["capabilities"])
+        # Prima si valida il documento del binario, poi lo si arricchisce: un
+        # documento malformato e' `ProtocolError` (effetto `none`, il comando
+        # legge soltanto), e l'arricchimento lavora su una forma nota.
+        argv = ["capabilities"]
+        self._decodifica(documento, Capabilities, argv)
+        return self._decodifica(con_superficie_python(documento), Capabilities, argv)
+
+    def inspect(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+    ) -> Inspect:
+        """Il descrittore del formato e i layer con il loro schema.
+
+        Costa piu' di `layers()`: per dire di che tipo e' ogni colonna il driver
+        deve inferire lo schema, e su un formato senza schema dichiarato -- CSV,
+        GeoJSON -- vuol dire leggere righe. Chi ha bisogno solo dei nomi dei
+        layer chieda `layers()`, che non paga quell'inferenza.
+
+        `assume_crs` non e' una preferenza: alcuni file dichiarano un CRS che
+        non si risolve, e il driver rifiuta chiuso invece di indovinare. Passarlo
+        e' dire «lo so io», e resta distinguibile nella busta -- `crs_resolution`
+        porta lo `status` che dice da dove il CRS viene.
+        """
+        return self._chiama(self._argomenti("inspect", source, assume_crs, options), Inspect)
+
+    def layers(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+    ) -> Layers:
+        """I layer riassunti: nome, conteggio delle colonne, CRS.
+
+        Non porta lo schema, ed e' il motivo per cui esiste accanto a
+        `inspect()`.
+        """
+        return self._chiama(self._argomenti("layers", source, assume_crs, options), Layers)
+
+    def validate(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        limit: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+    ) -> Validation:
+        """Legge il file per intero, conta, e **non restituisce le righe**.
+
+        E' il comando `read` della CLI, con il nome che dice che cosa fa: la
+        busta porta il conteggio delle righe, dei batch, il troncamento e la
+        fedelta', e non un solo valore dei dati. Chiamarlo `read()` avrebbe
+        promesso righe che non arrivano.
+
+        Serve a rispondere «questo file si legge?» pagando una lettura vera:
+        ogni geometria decodificata, ogni tetto applicato, ogni perdita
+        registrata. Un file che passa di qui e' un file che `convert` puo'
+        leggere, e le ragioni in `fidelity` dicono che cosa costerebbe.
+
+        `limit` e' un limite **per batch**, e questo e' il comportamento
+        misurato e non quello che il nome suggerisce: la lettura si ferma dopo
+        il primo batch che raggiunge o supera il limite, quindi `rows_read` puo'
+        essere maggiore di `limit`. Su un file di cinque righe lette in un
+        batch, `limit=1` restituisce cinque.
+
+        `truncated` dice che **la lettura si e' fermata per il limite**, non che
+        ci fossero altre righe: con `limit` pari al numero di righe del file
+        esce `True` pur avendole lette tutte. Chi vuole sapere se il file abbia
+        altro oltre quel punto non lo trova qui, e nessun campo della busta lo
+        dice.
+
+        Entrambe sono ora ratificate in `release/cli-protocol-v2.json`, sotto
+        `envelopes.read.semantica`, ciascuna con la sonda che la esercita: sono
+        clausole del contratto e non note di questo wrapper.
+
+        `limits` sono i tetti che il prodotto applica, `deadline` compresa. Non
+        vanno confusi con `Client(timeout=...)`, che uccide il processo da
+        fuori: il primo produce un errore tipizzato che descrive il lavoro
+        fatto, il secondo un `ProtocolError` che dice che non si sa.
+        """
+        argomenti = self._argomenti("read", source, assume_crs, options)
+        if layer is not None:
+            argomenti += ["--layer", arg.intero(layer, "layer")]
+        if limit is not None:
+            argomenti += ["--limit", arg.intero(limit, "limit")]
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, Validation)
+
+    def read(
+        self,
+        source: str | os.PathLike[str],
+        output: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+    ) -> Validation:
+        """Legge un layer e lo **consegna** come dataset Arrow.
+
+        # Perche' esiste, ora
+
+        Fino alla 3.0.0 questo metodo non c'era, e `validate()` portava il nome
+        che porta proprio per questo: il comando `read` della CLI leggeva il
+        file per intero e buttava via le righe, quindi chiamarlo `read()` avrebbe
+        promesso dati che non arrivavano. Ora arrivano, e il nome torna suo.
+
+        `validate()` resta, e non e' un residuo: leggere senza materializzare e'
+        il modo in cui si risponde a «questo file si legge?» su una sorgente
+        grande, pagando la lettura vera senza pagare il disco.
+
+        # Che cosa si ottiene
+
+        Lo stesso `Validation` di `validate()`, con `delivered` valorizzato: il
+        content type prodotto, il contratto d'interscambio, i byte scritti e
+        l'esito della pubblicazione. Il file e' Arrow IPC, e si apre con
+        qualunque libreria Arrow -- non serve questo SDK per rileggerlo, ed e'
+        il punto.
+
+        # `limit` non c'e', e non e' una dimenticanza
+
+        Il prodotto rifiuta `--limit` insieme alla consegna, ed e' una scelta
+        **scritta** invece che un obbligo del contratto: nessun requisito
+        fissato vieta una consegna parziale -- `SURF-014` vieta soltanto di
+        riportarla come successo pieno. La scelta e' che `io.read` non consegni
+        dataset parziali, e la ragione sta nella forma del risultato: porta un
+        totale **solo**, e con uno solo conservare quello della sorgente
+        consegna un file che non gli corrisponde mentre dichiarare quello
+        consegnato cancella l'unica informazione per cui il limite serviva.
+
+        Non e' un'impossibilita': un risultato che distinguesse le righe della
+        sorgente da quelle consegnate le direbbe entrambe, e allora il parametro
+        comparirebbe. Finche' il risultato ne porta uno, esporlo qui offrirebbe
+        una combinazione che fallisce sempre.
+        """
+        argomenti = self._argomenti("read", source, assume_crs, options)
+        argomenti += ["--output", arg.percorso(output, "output")]
+        if layer is not None:
+            argomenti += ["--layer", arg.intero(layer, "layer")]
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, Validation)
+
+    def read_table(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+        temp_dir: str | os.PathLike[str] | None = None,
+    ) -> TableRead:
+        """`read()` in un file temporaneo, restituito come `pa.Table`.
+
+        Vuole l'extra `plenora-io[pyarrow]`; senza, `OptionalDependencyError`
+        prima di eseguire. La consegna va in un file Arrow IPC dentro
+        `temp_dir` -- o nella directory temporanea del sistema -- e si legge
+        per intero in memoria con la serializzazione che la busta dichiara di
+        aver consegnato; il file si cancella al ritorno, riuscito o no.
+
+        La tabella sta in memoria per intero: e' cio' che `pa.Table` e'. Per un
+        dataset piu' grande della memoria la strada resta `read()` su un
+        percorso, letto poi a batch con `pa.ipc.open_file`.
+
+        Il ritorno porta anche la busta (`TableRead.result`), con la fedelta'
+        della lettura: senza, una perdita dichiarata dal prodotto arriverebbe
+        al chiamante come una tabella qualunque.
+        """
+        # Gli argomenti si normalizzano una volta sola, prima di tutto, e da li'
+        # si usano solo le copie: un argomento sbagliato non costa ne' l'import
+        # di pyarrow ne' una directory temporanea, e un `os.PathLike` o una
+        # `Mapping` che renderebbero un valore diverso a una seconda lettura
+        # non vengono riletti. Prima si normalizzava, si scartava il risultato
+        # e `read()` rileggeva gli originali.
+        testa = self._argomenti("read", source, assume_crs, options)
+        coda = [] if layer is None else ["--layer", arg.intero(layer, "layer")]
+        coda += arg.argv_dei_limiti(arg.limiti(limits))
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
+        arrow.pyarrow()
+        # `committed`: se la pulizia fallisce, il file che `read` ha consegnato
+        # nella directory temporanea resta sul disco.
+        with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
+            consegna = Path(cartella) / "consegna.arrow"
+            esito = self._chiama(
+                [*testa, "--output", arg.percorso(consegna, "output"), *coda], Validation
+            )
+            # Da qui `read` ha gia' scritto: una consegna non dichiarata o un
+            # file che non si legge come la busta dice sono `ProtocolError`
+            # con effetto `unknown`, non `none` -- il file consegnato c'e', o
+            # c'e' stato, e che cosa contenga non lo dice una risposta che non
+            # torna. Resta `unknown` anche se la pulizia fallisce: la
+            # cartella la segna con `cleanup_failed`, e non tocca l'effetto.
+            # Ogni guasto, non solo `ProtocolError`: leggere la consegna o
+            # costruire il risultato dopo che `read` ha scritto lascia un esito
+            # che non si conosce (diciannovesimo giro).
+            try:
+                if esito.delivered is None:
+                    raise _dallo_sdk(ProtocolError, "client.consegna_non_dichiarata")
+                tabella = arrow.leggi_ipc(consegna, esito.delivered.content_type)
+                letto = TableRead(table=tabella, result=esito)
+            except Exception as errore:  # noqa: BLE001 - dopo la scrittura, tutto e' protocollo
+                raise _dopo_l_avvio(
+                    errore, ["read", "--output"], "client.consegna_illeggibile") from None
+            except BaseException as interruzione:
+                _annota_interruzione(interruzione)
+                raise
+        return letto
+
+
+    def write(
+        self,
+        source: str | os.PathLike[str] | Any,
+        destination: str | os.PathLike[str],
+        *,
+        format: str,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        read_options: dict[str, str] | None = None,
+        write_options: dict[str, str] | None = None,
+        options: dict[str, str] | None = None,
+        durable: bool = False,
+        limits: Limits | None = None,
+        temp_dir: str | os.PathLike[str] | None = None,
+    ) -> WriteResult:
+        """Pubblica un dataset Arrow in un formato esplicito.
+
+        # L'inversa di `read()`
+
+        `source` e' un file Arrow IPC -- quello che `read()` consegna -- e non
+        una sorgente qualsiasi: per quella c'e' `convert()`. Le due operazioni
+        condividono `plenora-arrow-interchange-v1` proprio perche' l'uscita
+        dell'una deve poter essere l'ingresso dell'altra, ed e' la ragione per
+        cui un orchestratore puo' metterci in mezzo i propri passi.
+
+        # `format` e' obbligatorio, e non ha default
+
+        Non e' una scomodita': il profilo io-tools vieta di scegliere il
+        comportamento di un formato analizzando l'estensione quando
+        l'operazione richiede un formato esplicito, e questa lo richiede. Un
+        default qui -- «deducilo dal nome» -- reintrodurrebbe nell'SDK la
+        deduzione che il prodotto ha tolto, e lo farebbe nel punto in cui
+        nessuno la vedrebbe.
+
+        Il nome e' un `id` di `catalog()`, non un'estensione: `shp`, non
+        `shapefile` ne' `.shp`.
+
+        # Che cosa si ottiene
+
+        Un `WriteResult` con le tre fedelta' distinte, le due perdite,
+        `rows_written`, `bytes_written` e `publish_outcome`. Le eccezioni sono
+        quelle di sempre, tipizzate per categoria: un formato che non sa
+        esprimere questi dati fallisce, e il fallimento non lascia una
+        destinazione a meta'.
+
+        # Le tre famiglie di opzioni, come in `convert()`
+
+        `read_options` va al lettore del dataset Arrow (`--in-opt`),
+        `write_options` al sink (`--out-opt`), `options` a entrambi (`--opt`).
+
+        # Un oggetto Arrow al posto del percorso
+
+        Con l'extra `plenora-io[pyarrow]`, `source` puo' essere un oggetto che
+        espone `__arrow_c_stream__` -- `pa.Table`, `pa.RecordBatchReader` -- o
+        un `pa.RecordBatch`. Si scrive a batch in un file IPC temporaneo, in
+        `temp_dir` se indicata, e da li' la CLI lo legge come qualunque altro:
+        il contratto, la fedelta' e gli errori sono gli stessi. Il file si
+        cancella al ritorno, riuscito o no. Senza pyarrow la chiamata e'
+        `OptionalDependencyError` prima di eseguire; un oggetto che non e' ne'
+        un percorso ne' un produttore Arrow e' `InvalidArgumentError`.
+        """
+        # Tutto cio' che non e' la sorgente si verifica **prima** di scrivere
+        # il file temporaneo: un argomento sbagliato non costa una copia del
+        # dataset sul disco.
+        crs = self._crs(assume_crs)
+        coda = [arg.percorso(destination, "destination"), "--to", arg.testo(format, "format")]
+        if layer is not None:
+            coda += ["--layer", arg.intero(layer, "layer")]
+        if arg.booleano(durable, "durable"):
+            coda.append("--durable")
+        # `options` va a **entrambi** i driver (`--opt`), come in `convert()`.
+        # Fino alla 4.1.1 qui diventava `--in-opt`: lo stesso parametro aveva
+        # due significati nei due metodi, e una chiave del sink passata in
+        # `options` arrivava al solo lettore Arrow invece che anche al sink.
+        coda += self._tre_famiglie(options, read_options, write_options)
+        coda += arg.argv_dei_limiti(arg.limiti(limits))
+        temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
+        if not arrow.e_un_percorso(source):
+            # `committed`: se la pulizia fallisce, `write` ha gia' pubblicato.
+            with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
+                ingresso = arrow.scrivi_ipc(source, Path(cartella))
+                return self._chiama(
+                    ["write", arg.percorso(ingresso, "source"), *crs, *coda], WriteResult
+                )
+        return self._chiama(["write", arg.percorso(source, "source"), *crs, *coda], WriteResult)
+
+    def convert(
+        self,
+        source: str | os.PathLike[str],
+        target: str | os.PathLike[str],
+        *,
+        source_format: str,
+        target_format: str,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        read_options: dict[str, str] | None = None,
+        write_options: dict[str, str] | None = None,
+        options: dict[str, str] | None = None,
+        durable: bool = False,
+        limits: Limits | None = None,
+    ) -> ConvertResult:
+        """Converte un file in un altro formato, e dice che cosa e' costato.
+
+        # I due formati sono obbligatori dalla 4.0.0
+
+        Prima si deducevano dalle estensioni, e non era un default comodo: il
+        catalogo comune descrive `io.convert` come operazione «between
+        **explicit** formats», e il profilo io-tools vieta di scegliere il
+        comportamento specifico di un formato analizzando l'estensione quando
+        l'operazione lo richiede esplicito.
+
+        I nomi sono `id` di `catalog()` -- `shp`, `geoparquet`, `xls` -- non
+        estensioni. Un default qui («deducilo dal nome») reintrodurrebbe nello
+        SDK la deduzione che il prodotto ha tolto, e lo farebbe nel punto in cui
+        nessuno la vedrebbe.
+
+        Chi aggiorna da una versione precedente aggiunge due argomenti a ogni
+        chiamata; `docs/INSTALL.md` porta la corrispondenza fra le estensioni di
+        prima e gli identificatori di adesso.
+
+        # Le opzioni sono tre, e la distinzione non e' formale
+
+        `read_options` va al driver che **legge** (`--in-opt`), `write_options`
+        a quello che **scrive** (`--out-opt`), `options` a entrambi (`--opt`).
+        La stessa chiave puo' esistere per tutti e due con significati diversi
+        -- `delimiter` fra due CSV -- e un unico dizionario costringerebbe a
+        indovinare a chi vada, o a passarla a chi non la vuole.
+
+        # `durable`
+
+        Chiede che la pubblicazione sia durevole prima che il comando torni:
+        i dati sono sul dispositivo, non solo nella cache del sistema. Costa in
+        tempo, e la scelta e' di chi sa se un'interruzione dopo il ritorno sia
+        un problema.
+
+        # La cancellazione
+
+        Un Ctrl-C durante la conversione viene **inoltrato** al prodotto, che al
+        primo segnale arma un token cooperativo: la pipeline lo osserva ai propri
+        punti di verifica e torna un `CancelledError` con la destinazione
+        ripulita. Al secondo segnale il processo esce.
+
+        Fra due punti di verifica passa il tempo che passa, ed e' la ragione per
+        cui `Client(timeout=...)` resta una difesa diversa: quello uccide, e
+        quel che resta non e' descritto.
+
+        # Il successo non e' la pubblicazione
+
+        Il metodo torna anche quando `publish_outcome` non e' `published`: e' il
+        campo a dirlo, con il proprio vocabolario, e trattare ogni ritorno come
+        una pubblicazione perderebbe la differenza. `ConvertResult.published` la
+        legge.
+        """
+        argomenti = [
+            "convert",
+            arg.percorso(source, "source"),
+            arg.percorso(target, "target"),
+            "--from",
+            arg.testo(source_format, "source_format"),
+            "--to",
+            arg.testo(target_format, "target_format"),
+        ]
+        argomenti += self._crs(assume_crs)
+        if layer is not None:
+            argomenti += ["--layer", arg.intero(layer, "layer")]
+        if arg.booleano(durable, "durable"):
+            argomenti.append("--durable")
+        argomenti += self._tre_famiglie(options, read_options, write_options)
+        argomenti += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._chiama(argomenti, ConvertResult)
+
+    @property
+    def cancellable(self) -> bool:
+        """Un Ctrl-C durante un comando arriva al prodotto.
+
+        Falso da un thread secondario; su Windows e' disponibile solo col
+        backend nativo. Il comando
+        funziona lo stesso: cambia solo che non lo si puo' fermare con grazia,
+        e chi ha bisogno di saperlo lo chiede qui invece di scoprirlo.
+        """
+        return self._runner.sigint_forwarding_available
+
+    # --- l'esecuzione e la decodifica --------------------------------------
+
+    def _chiama(self, argv: list[str], modello: Any) -> Any:
+        """Esegue, e decodifica il risultato nel modello atteso.
+
+        La decodifica sta qui e non in ciascun metodo per una ragione: un
+        risultato che non si decodifica arriva **dopo** che il processo ha
+        finito, e se il comando scriveva il disco puo' essere cambiato.
+        `ProtocolError` allora porta `remote_effect: unknown`, come quando la
+        busta stessa non si legge.
+        """
+        return self._decodifica(self._runner.run(argv), modello, argv)
+
+    @staticmethod
+    def _decodifica(risultato: Any, modello: Any, argv: list[str]) -> Any:
+        """Il risultato nel modello, o `ProtocolError` (`unknown` se scrive).
+
+        I modelli rifiutano un documento sbagliato con `ProtocolError`, e
+        `test_confini_esterni.IModelli` lo prova campo per campo. Il ramo
+        `Exception` e' la difesa per cio' che quella prova non ha previsto:
+        un'eccezione di Python nata decodificando una risposta esterna e'
+        comunque una risposta che non rispetta il protocollo, e non attraversa
+        il confine con il proprio tipo.
+        """
+        try:
+            return modello.from_json(risultato)
+        except Exception as errore:  # noqa: BLE001 - il confine traduce tutto, apposta
+            raise _dopo_l_avvio(
+                errore, argv, "client.non_decodifica", modello=nome_sdk(modello)) from None
+        except BaseException as interruzione:
+            if scrive(argv):
+                _annota_interruzione(interruzione)
+            raise
+
+    # --- la riga di argomenti ---------------------------------------------
+
+    @staticmethod
+    def _crs(assume_crs: Any) -> list[str]:
+        if assume_crs is None:
+            return []
+        return ["--assume-crs", arg.testo(assume_crs, "assume_crs")]
+
+    @staticmethod
+    def _tre_famiglie(options: Any, read_options: Any, write_options: Any) -> list[str]:
+        """`--opt`, `--in-opt` e `--out-opt`, ciascuna una per coppia."""
+        argomenti: list[str] = []
+        for bandiera, nome, mappa in (
+            ("--opt", "options", options),
+            ("--in-opt", "read_options", read_options),
+            ("--out-opt", "write_options", write_options),
+        ):
+            argomenti += arg.righe_di_opzioni(bandiera, arg.opzioni(mappa, nome))
+        return argomenti
+
+    @staticmethod
+    def _argomenti(
+        comando: str,
+        source: str | os.PathLike[str],
+        assume_crs: str | None,
+        options: dict[str, str] | None,
+    ) -> list[str]:
+        """Gli argomenti, nell'ordine che la CLI attende.
+
+        Le opzioni si passano una `--in-opt` per coppia, e la chiave non viene
+        validata qui: il vocabolario delle opzioni lo dichiara il catalogo, per
+        driver, e duplicarlo nell'SDK produrrebbe due elenchi destinati a
+        divergere. Una chiave sconosciuta e' un rifiuto del prodotto, tipizzato
+        come tutti gli altri.
+
+        Quest'ultima frase era falsa fino alla 4.0.0, e il difetto stava nel
+        prodotto: `read`, `inspect` e `layers` accettavano `--in-opt` e la
+        **scartavano** -- solo `convert` la applicava -- quindi una chiave
+        sbagliata passava in silenzio. Ora il driver la vede, e
+        `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
+        """
+        argomenti = [comando, arg.percorso(source, "source"), *Client._crs(assume_crs)]
+        argomenti += arg.righe_di_opzioni("--in-opt", arg.opzioni(options, "options"))
+        return argomenti

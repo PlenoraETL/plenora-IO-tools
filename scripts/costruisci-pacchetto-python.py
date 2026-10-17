@@ -103,6 +103,41 @@ def classificatori() -> list[str]:
     return re.findall(r'^\s*"([^"]+)",', blocco.group(1), re.M)
 
 
+def extra() -> list[tuple[str, str]]:
+    """`(extra, requisito)` da `[project.optional-dependencies]`.
+
+    Letti dal `pyproject.toml` come gli altri campi, e non riscritti qui: la
+    sdist passa da setuptools, che legge quella tabella, e la wheel deve dire
+    la stessa cosa. Un extra nella sdist e non nella wheel sarebbe un pacchetto
+    diverso a seconda della strada.
+    """
+    testo = (SDK / "pyproject.toml").read_text(encoding="utf-8")
+    blocco = re.search(
+        r"^\[project\.optional-dependencies\]\n(.*?)(?=^\[|\Z)", testo, re.M | re.S
+    )
+    if blocco is None:
+        return []
+    fuori = []
+    for nome, elenco in re.findall(r"^(\w+) = \[(.*?)\]$", blocco.group(1), re.M):
+        for requisito in re.findall(r'"([^"]+)"', elenco):
+            fuori.append((nome, requisito))
+    return fuori
+
+
+def requires_dist(requisito: str, nome_extra: str) -> str:
+    """La riga `Requires-Dist` nella forma che setuptools scrive nella sdist.
+
+    Gli specificatori in ordine di testo e l'extra come marcatore: e' la
+    forma normalizzata di `packaging`, e scriverla uguale e' cio' che rende
+    confrontabili i metadati delle due strade.
+    """
+    nome = re.match(r"[A-Za-z0-9_.-]+", requisito).group(0)
+    specificatori = sorted(
+        s.strip() for s in requisito[len(nome):].split(",") if s.strip()
+    )
+    return f'{nome}{",".join(specificatori)}; extra == "{nome_extra}"'
+
+
 def sorgenti_del_modulo() -> list[pathlib.Path]:
     """I file del pacchetto, in ordine di nome.
 
@@ -127,9 +162,16 @@ def metadata(versione_pacchetto: str) -> str:
         "Summary: Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2",
         "Project-URL: Repository, https://github.com/PlenoraETL/plenora-IO-tools",
         f"Requires-Python: {requires_python()}",
+        # Lo stesso valore di `license` nel `pyproject.toml`: il repository e'
+        # proprietario (`LICENSE`), e la wheel lo dice a `pip show`.
+        "License: Proprietary",
         "Description-Content-Type: text/markdown",
     ]
     righe += [f"Classifier: {c}" for c in classificatori()]
+    for nome_extra in sorted({nome for nome, _ in extra()}):
+        righe.append(f"Provides-Extra: {nome_extra}")
+    for nome_extra, requisito in extra():
+        righe.append(f"Requires-Dist: {requires_dist(requisito, nome_extra)}")
     return "\n".join(righe) + "\n\n" + descrizione
 
 
@@ -158,6 +200,13 @@ def costruisci_wheel(uscita: pathlib.Path, versione_pacchetto: str) -> pathlib.P
 
     voci.append((f"{dist_info}/METADATA", metadata(versione_pacchetto).encode("utf-8")))
     voci.append((f"{dist_info}/WHEEL", wheel_metadata().encode("utf-8")))
+    # Il testo della licenza dove PEP 639 lo mette: `.dist-info/licenses/`.
+    voci.append(
+        (
+            f"{dist_info}/licenses/{distribuzione.NOME_DEL_TESTO}",
+            distribuzione.testo_della_licenza(),
+        )
+    )
     voci.sort()
 
     record = "".join(
@@ -208,7 +257,8 @@ def costruisci_sdist(uscita: pathlib.Path, versione_pacchetto: str) -> pathlib.P
     percorso = uscita / f"{radice}.tar.gz"
 
     voci: list[tuple[str, bytes]] = [
-        (f"{radice}/PKG-INFO", metadata(versione_pacchetto).encode("utf-8"))
+        (f"{radice}/PKG-INFO", metadata(versione_pacchetto).encode("utf-8")),
+        (f"{radice}/{distribuzione.NOME_DEL_TESTO}", distribuzione.testo_della_licenza()),
     ]
     for nome, sorgente in file_della_sdist():
         voci.append((f"{radice}/{nome}", sorgente.read_bytes()))
@@ -268,7 +318,9 @@ def sbom(versione_pacchetto: str, artefatti: list[pathlib.Path]) -> dict:
             "standard. Non e' un elenco che nessuno ha compilato -- e' un "
             "elenco che non ha voci, e il fatto da cui segue e' "
             "`dependencies = []` nel `pyproject.toml`, che lo smoke ricontrolla "
-            "sul pacchetto **installato**."
+            "sul pacchetto **installato**. L'extra `pyarrow` non cambia il "
+            "conto: e' facoltativo, non e' nei byte spediti, e chi lo chiede lo "
+            "installa dal proprio indice."
         ),
         "che_cosa_non_contiene": (
             "il binario `plenora-io`. La wheel e' `py3-none-any` e resta pura: "
@@ -283,16 +335,14 @@ def sbom(versione_pacchetto: str, artefatti: list[pathlib.Path]) -> dict:
 
 
 def licenze(versione_pacchetto: str) -> dict:
-    """Le licenze dei componenti spediti: nessuno, e la propria che manca ancora.
+    """Le licenze dei componenti spediti: nessuno di terzi, e la propria.
 
     Il primo numero e' zero perche' non si spedisce niente di terzi, e zero e'
     una misura come le altre.
 
-    Il secondo fatto e' che una licenza first-party **non e' dichiarata**, e per
-    questa distribuzione non serve: il pacchetto va a clienti autorizzati per un
-    canale riservato, dove i termini stanno nel contratto con loro. Non e' un
-    blocco e non e' una verifica: e' un perimetro, e il contratto di release lo
-    registra come tale.
+    Il secondo fatto e' la licenza del prodotto: proprietaria, con il testo
+    dentro il pacchetto (`.dist-info/licenses/LICENSE` nella wheel, `LICENSE`
+    alla radice della sdist) e `License: Proprietary` nei metadati.
 
     Il dato viene da `distribuzione.LICENZA_FIRST_PARTY`, che e' l'unica fonte:
     scritto qui e nel referto nativo, sarebbe divergiuto il giorno in cui lo

@@ -7,7 +7,7 @@
 girare. Non e' una stima ne' un augurio: e' un'affermazione, e chi la legge la
 usa per rifiutare un'installazione o per accettarla.
 
-Dichiarare `>=3.11` senza limite superiore prometterebbe **ogni** Python futuro,
+Dichiarare `>=3.10` senza limite superiore prometterebbe **ogni** Python futuro,
 compresi quelli che romperanno qualcosa. Dichiarare un limite piu' stretto delle
 versioni provate rifiuterebbe installazioni che funzionano. Le due sbagliano in
 direzioni opposte e nessuna delle due si vede provando su una versione sola.

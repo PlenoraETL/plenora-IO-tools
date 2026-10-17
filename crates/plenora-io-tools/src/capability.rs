@@ -117,13 +117,15 @@ fn descrittore_di_read() -> Value {
                 "application/vnd.apache.arrow.stream",
                 "application/vnd.apache.arrow.file",
             ],
-            // Il catalogo comune lo dichiara, e noi lo rispettiamo: le
-            // undici sonde di `metadati_arrow.rs` leggono dal file
-            // consegnato cio' che ARROW-001..012 pretende. Ometterlo
-            // qui diceva **meno** del vero -- un consumatore che
-            // cercasse il contratto d'interscambio non lo trovava, e
-            // avrebbe concluso che il payload non ne segue nessuno.
-            "interchange_contracts": ["plenora-arrow-interchange-v1"],
+            // Niente `interchange_contracts`, e non per omissione: il
+            // catalogo comune lo porta nelle voci delle operazioni, ma il
+            // payload di `capabilities-v2` e' chiuso (`contract` e
+            // `content_types`, `additionalProperties: false`), e un
+            // documento che lo aggiungeva era invalido contro lo schema
+            // che dichiara. Il contratto d'interscambio di `io.read` e'
+            // quello del catalogo, che il documento non deve duplicare;
+            // e i byte lo rispettano, come provano le sonde di
+            // `metadati_arrow.rs`.
         },
         "side_effect": "local",
         "controls": {
@@ -231,7 +233,7 @@ pub fn capabilities_document() -> Value {
                         "application/vnd.apache.arrow.stream",
                         "application/vnd.apache.arrow.file",
                     ],
-                    "interchange_contracts": ["plenora-arrow-interchange-v1"],
+                    // Niente `interchange_contracts`: vedi `descrittore_di_read`.
                 },
                 "output": {
                     "contract": "plenora-io-write-result-v1",

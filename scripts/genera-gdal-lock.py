@@ -73,8 +73,8 @@ VIRTUALI_PER_SUBDIR = {
         "CONDA_OVERRIDE_OSX": "15.0",
     },
 }
-# GDAL 3.9, e non l'ultima disponibile, perche' `gdal-sys 0.10.0` spedisce
-# binding pre-costruiti soltanto per 3.0-3.9. Su 3.10 la build si ferma da sola
+# GDAL 3.9, e non l'ultima disponibile, perche' `gdal-sys 0.12.0` spedisce
+# binding pre-costruiti soltanto per 3.5-3.9. Su 3.10 la build si ferma da sola
 # con «No pre-built bindings available», e le due uscite da quel vicolo sono
 # entrambe peggiori di scendere di una minore.
 #

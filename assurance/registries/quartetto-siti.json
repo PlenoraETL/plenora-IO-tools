@@ -532,6 +532,18 @@
       "esplicito/esplicito/Generic/esplicito"
     ]
   },
+  "crates/plenora-io-core/src/ewkb.rs": {
+    "converti": [
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "errore_payload": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "rifiuto": [
+      "Unsupported/Validate/Capability/Never"
+    ]
+  },
   "crates/plenora-io-core/src/publish.rs": {
     "ensure_destination_absent": [
       "Conflict/Commit/OutputExists/Never"
@@ -563,6 +575,11 @@
   },
   "crates/plenora-io-model/src/budget.rs": {
     "limit_error": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/clock.rs": {
+    "advance": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },

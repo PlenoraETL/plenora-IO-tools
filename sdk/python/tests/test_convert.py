@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 from plenora_io import (
+    ResultLookupError,
     Client,
     CommandFailed,
     ConflictError,
@@ -25,7 +26,7 @@ from plenora_io import (
     LossReport,
     ProtocolError,
 )
-from plenora_io.discovery import NOME, VARIABILE
+from plenora_io._discovery import NOME, VARIABILE
 
 from _nativo import client_di_prova, variante_nativa
 from _repository import CANONICHE, RADICE, serve_le_fixture
@@ -109,7 +110,7 @@ class LaBustaDiConvert(unittest.TestCase):
         """
         esito = ConvertResult.from_json(conversione_sana())
         self.assertEqual(esito.raw["from"], esito.from_)
-        self.assertEqual(set(ConvertResult.RINOMINATI), {"from"})
+        self.assertEqual(set(ConvertResult._RINOMINATI), {"from"})
         self.assertFalse(hasattr(esito, "from"))
 
     def test_la_durabilita_non_confermata_e_comunque_pubblicata(self) -> None:
@@ -144,18 +145,22 @@ class LaBustaDiConvert(unittest.TestCase):
         self.assertFalse(ConvertResult.from_json(conversione_sana()).lossless)
 
     def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
-        for campo in ConvertResult.OBBLIGATORI:
+        for campo in ConvertResult._OBBLIGATORI:
             with self.subTest(campo=campo):
                 documento = conversione_sana()
                 del documento[campo]
                 with self.assertRaises(ProtocolError):
                     ConvertResult.from_json(documento)
 
-    def test_un_layer_che_non_c_e_solleva_ed_elenca(self) -> None:
+    def test_un_layer_che_non_c_e_solleva_senza_nomi(self) -> None:
+        """Un errore non porta dati: ne' il nome cercato ne' quelli che ci
+        sono (erano nel messaggio fino alla 4.1.1). Resta un `KeyError`."""
         esito = ConvertResult.from_json(conversione_sana())
         with self.assertRaises(KeyError) as preso:
-            esito.layer("altro")
-        self.assertIn("canonico", str(preso.exception))
+            esito.layer("altro-cercato")
+        self.assertIsInstance(preso.exception, ResultLookupError)
+        self.assertNotIn("canonico", str(preso.exception))
+        self.assertNotIn("altro-cercato", str(preso.exception))
 
 
 class IlRapportoDiPerdita(unittest.TestCase):
@@ -332,7 +337,14 @@ class ControIlBinarioVero(unittest.TestCase):
         self.assertNotIn(",", intestazione)
 
     def test_durable_non_cambia_l_esito(self) -> None:
-        """Costa in tempo e non in significato: la busta e' la stessa."""
+        """Costa in tempo e non in significato: la pubblicazione avviene.
+
+        Su Windows il fsync della directory non esiste, e il prodotto lo
+        dichiara invece di tacerlo: `published_durability_unconfirmed`
+        (`plenora-io-core/src/publish.rs`, `sync_dir`). La prova lo pretende
+        li', e `published` altrove: un esito di durabilita' che cambiasse in
+        silenzio fra le piattaforme sarebbe rosso.
+        """
         esito = self.cliente.convert(
             CANONICHE / "canonico.geojson",
             self.tmp / "durevole.csv",
@@ -340,7 +352,10 @@ class ControIlBinarioVero(unittest.TestCase):
             target_format="csv",
             durable=True,
         )
-        self.assertTrue(esito.published)
+        if sys.platform == "win32":
+            self.assertEqual(esito.publish_outcome, "published_durability_unconfirmed")
+        else:
+            self.assertTrue(esito.published)
 
     def test_un_tetto_superato_ferma_la_conversione(self) -> None:
         uscita = self.tmp / "mai-scritta.csv"

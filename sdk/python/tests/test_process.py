@@ -20,9 +20,10 @@ from tempfile import TemporaryDirectory
 import json
 
 from plenora_io import CommandFailed, NotFoundError, ProtocolError
-from plenora_io.discovery import NOME
-from plenora_io.errors import comando, failure_from_envelope
-from plenora_io.process import NativeRunner, Runner
+from plenora_io._discovery import NOME
+from plenora_io._process import NativeRunner, Runner
+from plenora_io._process import _nome_del_comando as comando
+from plenora_io._errors import _failure_from_envelope as failure_from_envelope
 
 BUSTA_ERRORE = (
     '{"status": "error", "protocol_version": 1, '
@@ -138,7 +139,7 @@ class LEsecutore(unittest.TestCase):
             runner.run(["read", "x"])
         self.assertEqual(preso.exception.exit_code, 5)
         self.assertEqual(preso.exception.envelope.phase, "read")
-        self.assertEqual(preso.exception.argv, ["read", "x"])
+        self.assertEqual(preso.exception.command, "read")
 
     # --- le combinazioni che il protocollo non prevede ---------------------
 
@@ -290,7 +291,7 @@ class IMessaggiNonPortanoDati(unittest.TestCase):
         self.assertIn("plenora-io convert", str(preso.exception))
         self.assertSenzaDati(str(preso.exception))
         # Gli argomenti restano leggibili da chi li vuole, come attributo.
-        self.assertEqual(preso.exception.argv, self.ARGOMENTI)
+        self.assertEqual(preso.exception.command, "convert")
 
     def test_un_binario_che_non_si_esegue_non_dice_dove(self) -> None:
         with TemporaryDirectory(prefix="plenora-sdk-dati-") as cartella:
@@ -301,8 +302,8 @@ class IMessaggiNonPortanoDati(unittest.TestCase):
         self.assertIsNone(preso.exception.__cause__)
 
     def test_un_primo_argomento_ignoto_non_si_riporta(self) -> None:
-        self.assertEqual(comando(["/dati/clienti.csv"]), "<comando>")
-        self.assertEqual(comando([]), "<comando>")
+        self.assertEqual(comando(["/dati/clienti.csv"]), "?")
+        self.assertEqual(comando([]), "?")
         self.assertEqual(comando(["--version"]), "--version")
 
 
@@ -340,7 +341,7 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         return preso.exception
 
     def test_ogni_categoria_ha_la_propria_classe(self) -> None:
-        from plenora_io import errors
+        from plenora_io import _errors as errors
 
         for categoria, classe in errors.CATEGORIE.items():
             with self.subTest(categoria=categoria):

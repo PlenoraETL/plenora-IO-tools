@@ -170,36 +170,48 @@ pub(crate) fn uuid_string(u: &Uuid) -> String {
     format!("{u}")
 }
 
+/// Ricompone i punti dalle liste delle coordinate.
+///
+/// Upstream le univa con `zip`, che si ferma alla lista piu' corta: tre X,
+/// tre Y e due Z davano due punti, e il terzo spariva senza errore. Liste di
+/// lunghezza diversa non descrivono una sequenza di punti, e si rifiutano.
 pub(crate) fn combine_points_2<F, T>(
     v1: &mut Vec<f64>,
     v2: &mut Vec<f64>,
     result: &mut Vec<T>,
     comb: F,
-) where
+) -> DxfResult<()>
+where
     F: Fn(f64, f64, f64) -> T,
 {
+    if v1.len() != v2.len() {
+        return Err(DxfError::ParseError(0));
+    }
     for (x, y) in v1.drain(..).zip(v2.drain(..)) {
         result.push(comb(x, y, 0.0));
     }
-    v1.clear();
-    v2.clear();
+    Ok(())
 }
 
+/// Come `combine_points_2`, su tre liste: tutte della stessa lunghezza, o
+/// errore.
 pub(crate) fn combine_points_3<F, T>(
     v1: &mut Vec<f64>,
     v2: &mut Vec<f64>,
     v3: &mut Vec<f64>,
     result: &mut Vec<T>,
     comb: F,
-) where
+) -> DxfResult<()>
+where
     F: Fn(f64, f64, f64) -> T,
 {
+    if v1.len() != v2.len() || v1.len() != v3.len() {
+        return Err(DxfError::ParseError(0));
+    }
     for (x, (y, z)) in v1.drain(..).zip(v2.drain(..).zip(v3.drain(..))) {
         result.push(comb(x, y, z))
     }
-    v1.clear();
-    v2.clear();
-    v3.clear();
+    Ok(())
 }
 
 pub(crate) fn default_if_empty(val: &mut String, default: &str) {
@@ -234,9 +246,14 @@ pub(crate) fn bool_from_clipping(c: XrefClippingBoundaryVisibility) -> bool {
     c != XrefClippingBoundaryVisibility::NotDisplayedNotPlotted
 }
 
+/// Un reale del documento. `str::parse` accetta `NaN`, `inf` e `infinity`, e
+/// upstream li lasciava passare: un valore non finito arrivava al driver, che
+/// in qualche punto lo sostituiva con un default. Un reale DXF e' finito, e
+/// qui si rifiuta cio' che non lo e'.
 pub(crate) fn parse_f64(s: String, offset: usize) -> DxfResult<f64> {
     match s.trim().parse::<f64>() {
-        Ok(d) => Ok(d),
+        Ok(d) if d.is_finite() => Ok(d),
+        Ok(_) => Err(DxfError::ParseError(offset)),
         Err(e) => Err(DxfError::ParseFloatError(e, offset)),
     }
 }
@@ -482,7 +499,13 @@ pub(crate) fn read_f64<T: Read>(reader: &mut T) -> DxfResult<f64> {
     let f = try_from_option_io_result!(read_u8(reader));
     let g = try_from_option_io_result!(read_u8(reader));
     let h = try_from_option_io_result!(read_u8(reader));
-    Ok(LittleEndian::read_f64(&[a, b, c, d, e, f, g, h]))
+    // Come `parse_f64`: nel DXF binario un reale non finito e' un errore.
+    let valore = LittleEndian::read_f64(&[a, b, c, d, e, f, g, h]);
+    if valore.is_finite() {
+        Ok(valore)
+    } else {
+        Err(DxfError::ParseError(0))
+    }
 }
 
 pub(crate) fn parse_hex_string(data: &str, bytes: &mut Vec<u8>, offset: usize) -> DxfResult<()> {

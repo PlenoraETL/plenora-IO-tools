@@ -1,0 +1,740 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+use bytes::Bytes;
+
+use crate::basic::{Encoding, EncodingMask};
+use crate::data_type::DataType;
+use crate::encodings::{
+    decoding::{Decoder, DictDecoder, PlainDecoder, get_decoder},
+    rle::RleDecoder,
+};
+use crate::errors::{ParquetError, Result};
+use crate::schema::types::ColumnDescPtr;
+use crate::util::bit_util::num_required_bits;
+
+/// PLENORA: what the end of a data page may carry after its last level or
+/// value, declared deviations from an exact end, each for a writer and only
+/// in its exact form (`docs/limiti.md`, «Fine delle pagine Parquet»).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FinePagina {
+    /// Zero bytes after the stream (fastparquet, after the values of a v1
+    /// page: `CODA_FASTPARQUET`; 0 elsewhere).
+    pub coda_di_zeri: usize,
+    /// Whole groups of padding in a last bit-packed run of exactly
+    /// `BLOCCO_DUCKDB` groups, bit width above 0 (DuckDB, v1 pages).
+    pub blocco_duckdb: bool,
+}
+
+impl FinePagina {
+    /// An exact end: nothing after the last value.
+    pub const ESATTA: Self = Self {
+        coda_di_zeri: 0,
+        blocco_duckdb: false,
+    };
+
+    /// The end of a v1 data page: the padding of DuckDB, and the zero bytes
+    /// of fastparquet after the values.
+    pub const V1: Self = Self {
+        coda_di_zeri: crate::util::bit_util::CODA_FASTPARQUET,
+        blocco_duckdb: true,
+    };
+
+    /// The same end for a level stream: no zero bytes after it.
+    pub fn livelli(self) -> Self {
+        Self {
+            coda_di_zeri: 0,
+            ..self
+        }
+    }
+}
+
+/// Decodes level data
+pub trait ColumnLevelDecoder {
+    type Buffer;
+
+    /// Set data for this [`ColumnLevelDecoder`]
+    fn set_data(&mut self, encoding: Encoding, data: Bytes) -> Result<()>;
+
+    /// PLENORA: at the end of a page, after its last level, the level stream
+    /// is consumed exactly, up to `fine` (see `RleDecoder::fine_esatta`),
+    /// otherwise `PAGE_NOT_AS_DECLARED`.
+    fn verifica_fine_pagina(&self, fine: FinePagina) -> Result<()>;
+}
+
+pub trait RepetitionLevelDecoder: ColumnLevelDecoder {
+    /// Read up to `max_records` of repetition level data into `out` returning the number
+    /// of complete records and levels read
+    ///
+    /// A record only ends when the data contains a subsequent repetition level of 0,
+    /// it is therefore left to the caller to delimit the final record in a column
+    ///
+    /// # Panics
+    ///
+    /// Implementations may panic if `range` overlaps with already written data
+    fn read_rep_levels(
+        &mut self,
+        out: &mut Self::Buffer,
+        num_records: usize,
+        num_levels: usize,
+    ) -> Result<(usize, usize)>;
+
+    /// Skips over up to `num_levels` repetition levels corresponding to `num_records` records,
+    /// where a record is delimited by a repetition level of 0
+    ///
+    /// Returns the number of records skipped, and the number of levels skipped
+    ///
+    /// A record only ends when the data contains a subsequent repetition level of 0,
+    /// it is therefore left to the caller to delimit the final record in a column
+    fn skip_rep_levels(&mut self, num_records: usize, num_levels: usize) -> Result<(usize, usize)>;
+
+    /// Flush any partially read or skipped record
+    fn flush_partial(&mut self) -> bool;
+
+    /// PLENORA: the repetition levels 0 read since the page was set, the
+    /// rows that started in it (a v2 page declares them, `num_rows`).
+    fn righe_iniziate(&self) -> usize;
+
+    /// PLENORA: the first repetition level read since the page was set.
+    fn primo_livello(&self) -> Option<i16>;
+}
+
+pub trait DefinitionLevelDecoder: ColumnLevelDecoder {
+    /// Read up to `num_levels` definition levels into `out`.
+    ///
+    /// Returns the number of values read, and the number of levels read.
+    ///
+    /// # Panics
+    ///
+    /// Implementations may panic if `range` overlaps with already written data
+    fn read_def_levels(
+        &mut self,
+        out: &mut Self::Buffer,
+        num_levels: usize,
+    ) -> Result<(usize, usize)>;
+
+    /// Skips over `num_levels` definition levels.
+    ///
+    /// Returns the number of values skipped, and the number of levels skipped.
+    fn skip_def_levels(&mut self, num_levels: usize) -> Result<(usize, usize)>;
+}
+
+/// Decodes value data
+pub trait ColumnValueDecoder {
+    type Buffer;
+
+    /// Create a new [`ColumnValueDecoder`]
+    fn new(col: &ColumnDescPtr) -> Self;
+
+    /// Set the current dictionary page
+    fn set_dict(
+        &mut self,
+        buf: Bytes,
+        num_values: u32,
+        encoding: Encoding,
+        is_sorted: bool,
+    ) -> Result<()>;
+
+    /// Set the current data page
+    ///
+    /// - `encoding` - the encoding of the page
+    /// - `data` - a point to the page's uncompressed value data
+    /// - `num_levels` - the number of levels contained within the page, i.e. values including nulls
+    /// - `num_values` - the number of non-null values contained within the page (V2 page only)
+    ///
+    /// Note: data encoded with [`Encoding::RLE`] may not know its exact length, as the final
+    /// run may be zero-padded. As such if `num_values` is not provided (i.e. `None`),
+    /// subsequent calls to `ColumnValueDecoder::read` may yield more values than
+    /// non-null definition levels within the page
+    fn set_data(
+        &mut self,
+        encoding: Encoding,
+        data: Bytes,
+        num_levels: usize,
+        num_values: Option<usize>,
+    ) -> Result<()>;
+
+    /// Read up to `num_values` values into `out`
+    ///
+    /// # Panics
+    ///
+    /// Implementations may panic if `range` overlaps with already written data
+    ///
+    fn read(&mut self, out: &mut Self::Buffer, num_values: usize) -> Result<usize>;
+
+    /// Skips over `num_values` values
+    ///
+    /// Returns the number of values skipped
+    fn skip_values(&mut self, num_values: usize) -> Result<usize>;
+
+    /// PLENORA: at the end of a page, after its last value, the value stream
+    /// is consumed exactly: every byte of a `PLAIN` page, the dictionary
+    /// indices to the end of their stream, the `RLE` booleans to their
+    /// prefixed length. After it only what `fine` declares (the padding of
+    /// fastparquet and DuckDB in a v1 page). Otherwise
+    /// `PAGE_NOT_AS_DECLARED`.
+    fn verifica_fine_pagina(&self, fine: FinePagina) -> Result<()>;
+}
+
+/// PLENORA: the error of a page whose streams do not end with its values.
+pub(crate) fn pagina_non_come_dichiarata() -> ParquetError {
+    general_err!("{}", crate::basic::PAGE_NOT_AS_DECLARED)
+}
+
+/// PLENORA: `Ok` when `esatta`, otherwise `PAGE_NOT_AS_DECLARED`.
+pub(crate) fn fine_esatta(esatta: bool) -> Result<()> {
+    if esatta {
+        Ok(())
+    } else {
+        Err(pagina_non_come_dichiarata())
+    }
+}
+
+/// Bucket-based storage for decoder instances keyed by `Encoding`.
+///
+/// This replaces `HashMap` lookups with direct indexing to avoid hashing overhead in the
+/// hot decoding paths.
+const ENCODING_SLOTS: usize = Encoding::MAX_DISCRIMINANT as usize + 1;
+
+/// An implementation of [`ColumnValueDecoder`] for `[T::T]`
+pub struct ColumnValueDecoderImpl<T: DataType> {
+    descr: ColumnDescPtr,
+
+    current_encoding: Option<Encoding>,
+
+    /// Cache of decoders for existing encodings.
+    /// Uses `EncodingMask` and dense storage keyed by encoding discriminant.
+    decoder_mask: EncodingMask,
+    decoders: [Option<Box<dyn Decoder<T>>>; ENCODING_SLOTS],
+}
+
+impl<T: DataType> ColumnValueDecoder for ColumnValueDecoderImpl<T> {
+    type Buffer = Vec<T::T>;
+
+    fn new(descr: &ColumnDescPtr) -> Self {
+        Self {
+            descr: descr.clone(),
+            current_encoding: None,
+            decoder_mask: EncodingMask::default(),
+            decoders: std::array::from_fn(|_| None),
+        }
+    }
+
+    fn set_dict(
+        &mut self,
+        buf: Bytes,
+        num_values: u32,
+        mut encoding: Encoding,
+        _is_sorted: bool,
+    ) -> Result<()> {
+        // PLENORA: an excluded encoding has the text of every other rejection.
+        crate::basic::check_dictionary_page_encoding(encoding)?;
+        if encoding == Encoding::PLAIN || encoding == Encoding::PLAIN_DICTIONARY {
+            encoding = Encoding::RLE_DICTIONARY
+        }
+
+        if self.decoder_mask.is_set(encoding) {
+            return Err(general_err!("Column cannot have more than one dictionary"));
+        }
+
+        if encoding == Encoding::RLE_DICTIONARY {
+            let mut dictionary = PlainDecoder::<T>::new(self.descr.type_length());
+            dictionary.set_data(buf, num_values as usize)?;
+            // PLENORA: the dictionary holds exactly the values its header
+            // declares (the count was ignored, a short dictionary was kept).
+            let mut valori = vec![T::T::default(); num_values as usize];
+            let letti = dictionary.get(&mut valori)?;
+            if letti != valori.len() || !dictionary.tutto_consumato() {
+                return Err(general_err!("{}", crate::basic::DICTIONARY_NOT_AS_DECLARED));
+            }
+
+            let mut decoder = DictDecoder::new();
+            decoder.con_valori(valori);
+            self.decoders[encoding as usize] = Some(Box::new(decoder));
+            self.decoder_mask.insert(encoding);
+            Ok(())
+        } else {
+            Err(nyi_err!(
+                "Invalid/Unsupported encoding type for dictionary: {}",
+                encoding
+            ))
+        }
+    }
+
+    fn set_data(
+        &mut self,
+        mut encoding: Encoding,
+        data: Bytes,
+        num_levels: usize,
+        num_values: Option<usize>,
+    ) -> Result<()> {
+        if encoding == Encoding::PLAIN_DICTIONARY {
+            encoding = Encoding::RLE_DICTIONARY;
+        }
+        // PLENORA: only the qualified encodings are read, page by page.
+        crate::basic::check_qualified_value_encoding(encoding)?;
+
+        let decoder = if encoding == Encoding::RLE_DICTIONARY {
+            // PLENORA: a dictionary-encoded page in a column chunk with no
+            // dictionary page is an error, not a panic.
+            self.decoders[encoding as usize]
+                .as_mut()
+                .ok_or_else(|| general_err!("missing dictionary page for column"))?
+        } else {
+            let slot = encoding as usize;
+            if self.decoders[slot].is_none() {
+                let data_decoder = get_decoder::<T>(self.descr.clone(), encoding)?;
+                self.decoders[slot] = Some(data_decoder);
+                self.decoder_mask.insert(encoding);
+            }
+            self.decoders[slot]
+                .as_mut()
+                .expect("decoder should have been inserted")
+        };
+
+        decoder.set_data(data, num_values.unwrap_or(num_levels))?;
+        self.current_encoding = Some(encoding);
+        Ok(())
+    }
+
+    fn read(&mut self, out: &mut Self::Buffer, num_values: usize) -> Result<usize> {
+        let encoding = self
+            .current_encoding
+            .expect("current_encoding should be set");
+
+        let current_decoder = self.decoders[encoding as usize]
+            .as_mut()
+            .unwrap_or_else(|| panic!("decoder for encoding {encoding} should be set"));
+
+        // TODO: Push vec into decoder (#5177)
+        let start = out.len();
+        out.resize(start + num_values, T::T::default());
+        let read = current_decoder.get(&mut out[start..])?;
+        out.truncate(start + read);
+        Ok(read)
+    }
+
+    fn skip_values(&mut self, num_values: usize) -> Result<usize> {
+        let encoding = self
+            .current_encoding
+            .expect("current_encoding should be set");
+
+        let current_decoder = self.decoders[encoding as usize]
+            .as_mut()
+            .unwrap_or_else(|| panic!("decoder for encoding {encoding} should be set"));
+
+        current_decoder.skip(num_values)
+    }
+
+    fn verifica_fine_pagina(&self, fine: FinePagina) -> Result<()> {
+        let esatta = self
+            .current_encoding
+            .and_then(|encoding| self.decoders[encoding as usize].as_ref())
+            .is_some_and(|decoder| decoder.fine_esatta(fine));
+        fine_esatta(esatta)
+    }
+}
+
+const SKIP_BUFFER_SIZE: usize = 1024;
+
+// PLENORA: the `Packed` variant is gone with `BIT_PACKED` levels.
+enum LevelDecoder {
+    Rle(RleDecoder, i16),
+}
+
+impl LevelDecoder {
+    fn new(encoding: Encoding, data: Bytes, bit_width: u8, max_level: i16) -> Result<Self> {
+        match encoding {
+            Encoding::RLE => {
+                let mut decoder = RleDecoder::new(bit_width);
+                decoder.set_data(data)?;
+                Ok(Self::Rle(decoder, max_level))
+            }
+            // PLENORA: not qualified (wrong bit order, see `parse_v1_level`).
+            #[expect(deprecated)]
+            Encoding::BIT_PACKED => Err(nyi_err!(
+                "{}: BIT_PACKED levels",
+                crate::basic::ENCODING_NOT_QUALIFIED
+            )),
+            // PLENORA: an error, not `unreachable!`.
+            _ => Err(general_err!("invalid level encoding: {}", encoding)),
+        }
+    }
+
+    /// PLENORA: the level stream ends with the levels read, up to `fine`.
+    fn fine_esatta(&self, fine: FinePagina) -> bool {
+        match self {
+            Self::Rle(reader, _) => reader.fine_esatta(fine.livelli()),
+        }
+    }
+
+    fn read(&mut self, out: &mut [i16]) -> Result<usize> {
+        let (read, max_level) = match self {
+            Self::Rle(reader, max_level) => (reader.get_batch(out)?, *max_level),
+        };
+        // PLENORA: a level above the maximum fits the bit width but is no
+        // level of the column; it was counted as a null (definition) or as a
+        // level of its own (repetition) in silence.
+        if out[..read]
+            .iter()
+            .any(|level| *level < 0 || *level > max_level)
+        {
+            return Err(general_err!("level beyond the maximum of the column"));
+        }
+        Ok(read)
+    }
+}
+
+/// An implementation of [`DefinitionLevelDecoder`] for `[i16]`
+pub struct DefinitionLevelDecoderImpl {
+    decoder: Option<LevelDecoder>,
+    bit_width: u8,
+    max_level: i16,
+}
+
+impl DefinitionLevelDecoderImpl {
+    pub fn new(max_level: i16) -> Self {
+        let bit_width = num_required_bits(max_level as u64);
+        Self {
+            decoder: None,
+            bit_width,
+            max_level,
+        }
+    }
+}
+
+impl ColumnLevelDecoder for DefinitionLevelDecoderImpl {
+    type Buffer = Vec<i16>;
+
+    fn set_data(&mut self, encoding: Encoding, data: Bytes) -> Result<()> {
+        self.decoder = Some(LevelDecoder::new(
+            encoding,
+            data,
+            self.bit_width,
+            self.max_level,
+        )?);
+        Ok(())
+    }
+
+    fn verifica_fine_pagina(&self, fine: FinePagina) -> Result<()> {
+        fine_esatta(
+            self.decoder
+                .as_ref()
+                .is_some_and(|decoder| decoder.fine_esatta(fine)),
+        )
+    }
+}
+
+impl DefinitionLevelDecoder for DefinitionLevelDecoderImpl {
+    fn read_def_levels(
+        &mut self,
+        out: &mut Self::Buffer,
+        num_levels: usize,
+    ) -> Result<(usize, usize)> {
+        // TODO: Push vec into decoder (#5177)
+        let start = out.len();
+        out.resize(start + num_levels, 0);
+        let levels_read = self.decoder.as_mut().unwrap().read(&mut out[start..])?;
+        out.truncate(start + levels_read);
+
+        let iter = out.iter().skip(start);
+        let values_read = iter.filter(|x| **x == self.max_level).count();
+        Ok((values_read, levels_read))
+    }
+
+    fn skip_def_levels(&mut self, num_levels: usize) -> Result<(usize, usize)> {
+        let mut level_skip = 0;
+        let mut value_skip = 0;
+        let mut buf: Vec<i16> = vec![];
+        while level_skip < num_levels {
+            let remaining_levels = num_levels - level_skip;
+
+            let to_read = remaining_levels.min(SKIP_BUFFER_SIZE);
+            buf.resize(to_read, 0);
+            let (values_read, levels_read) = self.read_def_levels(&mut buf, to_read)?;
+            if levels_read == 0 {
+                // Reached end of page
+                break;
+            }
+
+            level_skip += levels_read;
+            value_skip += values_read;
+        }
+
+        Ok((value_skip, level_skip))
+    }
+}
+
+pub(crate) const REPETITION_LEVELS_BATCH_SIZE: usize = 1024;
+
+/// An implementation of [`RepetitionLevelDecoder`] for `[i16]`
+pub struct RepetitionLevelDecoderImpl {
+    decoder: Option<LevelDecoder>,
+    bit_width: u8,
+    max_level: i16,
+    buffer: Box<[i16; REPETITION_LEVELS_BATCH_SIZE]>,
+    buffer_len: usize,
+    buffer_offset: usize,
+    has_partial: bool,
+    /// PLENORA: the repetition levels 0 read since the page was set.
+    righe_iniziate: usize,
+    /// PLENORA: the first repetition level read since the page was set.
+    primo_livello: Option<i16>,
+}
+
+impl RepetitionLevelDecoderImpl {
+    pub fn new(max_level: i16) -> Self {
+        let bit_width = num_required_bits(max_level as u64);
+        Self {
+            decoder: None,
+            bit_width,
+            max_level,
+            buffer: Box::new([0; REPETITION_LEVELS_BATCH_SIZE]),
+            buffer_offset: 0,
+            buffer_len: 0,
+            has_partial: false,
+            righe_iniziate: 0,
+            primo_livello: None,
+        }
+    }
+
+    /// PLENORA: reads at most `livelli` levels, the levels left in the page:
+    /// a read ahead of the whole buffer decoded the padding of the last
+    /// bit-packed group as levels, and the end of the page could not tell
+    /// padding from levels in excess.
+    fn fill_buf(&mut self, livelli: usize) -> Result<()> {
+        let quanti = livelli.min(self.buffer.len());
+        let read = self
+            .decoder
+            .as_mut()
+            .unwrap()
+            .read(&mut self.buffer[..quanti])?;
+        self.buffer_offset = 0;
+        self.buffer_len = read;
+        if read > 0 {
+            self.primo_livello.get_or_insert(self.buffer[0]);
+        }
+        Ok(())
+    }
+
+    /// Inspects the buffered repetition levels in the range `self.buffer_offset..self.buffer_len`
+    /// and returns the number of "complete" records along with the corresponding number of values
+    ///
+    /// A "complete" record is one where the buffer contains a subsequent repetition level of 0
+    fn count_records(&self, records_to_read: usize, num_levels: usize) -> (bool, usize, usize) {
+        let mut records_read = 0;
+
+        let levels = num_levels.min(self.buffer_len - self.buffer_offset);
+        let buf = self.buffer.iter().skip(self.buffer_offset);
+        for (idx, item) in buf.take(levels).enumerate() {
+            if *item == 0 && (idx != 0 || self.has_partial) {
+                records_read += 1;
+
+                if records_read == records_to_read {
+                    return (false, records_read, idx);
+                }
+            }
+        }
+        // Either ran out of space in `num_levels` or data in `self.buffer`
+        (true, records_read, levels)
+    }
+}
+
+impl ColumnLevelDecoder for RepetitionLevelDecoderImpl {
+    type Buffer = Vec<i16>;
+
+    fn set_data(&mut self, encoding: Encoding, data: Bytes) -> Result<()> {
+        self.decoder = Some(LevelDecoder::new(
+            encoding,
+            data,
+            self.bit_width,
+            self.max_level,
+        )?);
+        self.buffer_len = 0;
+        self.buffer_offset = 0;
+        self.righe_iniziate = 0;
+        self.primo_livello = None;
+        Ok(())
+    }
+
+    fn verifica_fine_pagina(&self, fine: FinePagina) -> Result<()> {
+        fine_esatta(
+            self.buffer_offset == self.buffer_len
+                && self
+                    .decoder
+                    .as_ref()
+                    .is_some_and(|decoder| decoder.fine_esatta(fine)),
+        )
+    }
+}
+
+impl RepetitionLevelDecoder for RepetitionLevelDecoderImpl {
+    fn read_rep_levels(
+        &mut self,
+        out: &mut Self::Buffer,
+        num_records: usize,
+        num_levels: usize,
+    ) -> Result<(usize, usize)> {
+        let mut total_records_read = 0;
+        let mut total_levels_read = 0;
+
+        while total_records_read < num_records && total_levels_read < num_levels {
+            if self.buffer_len == self.buffer_offset {
+                self.fill_buf(num_levels - total_levels_read)?;
+                if self.buffer_len == 0 {
+                    break;
+                }
+            }
+
+            let (partial, records_read, levels_read) = self.count_records(
+                num_records - total_records_read,
+                num_levels - total_levels_read,
+            );
+
+            out.extend_from_slice(
+                &self.buffer[self.buffer_offset..self.buffer_offset + levels_read],
+            );
+            self.righe_iniziate += self.buffer
+                [self.buffer_offset..self.buffer_offset + levels_read]
+                .iter()
+                .filter(|livello| **livello == 0)
+                .count();
+
+            total_levels_read += levels_read;
+            total_records_read += records_read;
+            self.buffer_offset += levels_read;
+            self.has_partial = partial;
+        }
+        Ok((total_records_read, total_levels_read))
+    }
+
+    fn skip_rep_levels(&mut self, num_records: usize, num_levels: usize) -> Result<(usize, usize)> {
+        let mut total_records_read = 0;
+        let mut total_levels_read = 0;
+
+        while total_records_read < num_records && total_levels_read < num_levels {
+            if self.buffer_len == self.buffer_offset {
+                self.fill_buf(num_levels - total_levels_read)?;
+                if self.buffer_len == 0 {
+                    break;
+                }
+            }
+
+            let (partial, records_read, levels_read) = self.count_records(
+                num_records - total_records_read,
+                num_levels - total_levels_read,
+            );
+
+            total_levels_read += levels_read;
+            total_records_read += records_read;
+            self.buffer_offset += levels_read;
+            self.has_partial = partial;
+        }
+        Ok((total_records_read, total_levels_read))
+    }
+
+    fn flush_partial(&mut self) -> bool {
+        std::mem::take(&mut self.has_partial)
+    }
+
+    fn righe_iniziate(&self) -> usize {
+        self.righe_iniziate
+    }
+
+    fn primo_livello(&self) -> Option<i16> {
+        self.primo_livello
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encodings::rle::RleEncoder;
+    use crate::util::test_common::rng;
+    use rand::prelude::*;
+
+    #[test]
+    fn test_skip_padding() {
+        let mut encoder = RleEncoder::new(1, 1024);
+        encoder.put(0);
+        (0..3).for_each(|_| encoder.put(1));
+        let data = Bytes::from(encoder.consume());
+
+        let mut decoder = RepetitionLevelDecoderImpl::new(1);
+        decoder.set_data(Encoding::RLE, data.clone()).unwrap();
+        let (_, levels) = decoder.skip_rep_levels(100, 4).unwrap();
+        assert_eq!(levels, 4);
+
+        // The length of the final bit packed run is ambiguous, so without the correct
+        // levels limit, it will decode zero padding
+        let mut decoder = RepetitionLevelDecoderImpl::new(1);
+        decoder.set_data(Encoding::RLE, data).unwrap();
+        let (_, levels) = decoder.skip_rep_levels(100, 6).unwrap();
+        assert_eq!(levels, 6);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Takes too long
+    fn test_skip_rep_levels() {
+        for _ in 0..10 {
+            let mut rng = rng();
+            let total_len = 10000_usize;
+            let mut encoded: Vec<i16> = (0..total_len).map(|_| rng.random_range(0..5)).collect();
+            encoded[0] = 0;
+            let mut encoder = RleEncoder::new(3, 1024);
+            for v in &encoded {
+                encoder.put(*v as _)
+            }
+            let data = Bytes::from(encoder.consume());
+
+            let mut decoder = RepetitionLevelDecoderImpl::new(5);
+            decoder.set_data(Encoding::RLE, data).unwrap();
+
+            let total_records = encoded.iter().filter(|x| **x == 0).count();
+            let mut remaining_records = total_records;
+            let mut remaining_levels = encoded.len();
+            loop {
+                let skip = rng.random_bool(0.5);
+                let records = rng.random_range(1..=remaining_records.min(5));
+                let (records_read, levels_read) = if skip {
+                    decoder.skip_rep_levels(records, remaining_levels).unwrap()
+                } else {
+                    let mut decoded = Vec::new();
+                    let (records_read, levels_read) = decoder
+                        .read_rep_levels(&mut decoded, records, remaining_levels)
+                        .unwrap();
+
+                    assert_eq!(
+                        decoded,
+                        encoded[encoded.len() - remaining_levels..][..levels_read]
+                    );
+                    (records_read, levels_read)
+                };
+
+                remaining_levels = remaining_levels.checked_sub(levels_read).unwrap();
+                if remaining_levels == 0 {
+                    assert_eq!(records_read + 1, records);
+                    assert_eq!(records, remaining_records);
+                    break;
+                }
+                assert_eq!(records_read, records);
+                remaining_records -= records;
+                assert_ne!(remaining_records, 0);
+            }
+        }
+    }
+}

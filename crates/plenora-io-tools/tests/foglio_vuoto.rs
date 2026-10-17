@@ -69,8 +69,8 @@ fn xlsx_con(celle: &str) -> Vec<u8> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for (nome, testo) in parti.into_iter().chain(std::iter::once((
             "xl/worksheets/sheet1.xml",
             foglio.as_str(),

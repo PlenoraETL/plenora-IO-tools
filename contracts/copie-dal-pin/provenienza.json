@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "che_cosa_e": "copie byte per byte (`git show <revisione>:<percorso>`) dei documenti del repository dei contratti che le prove Rust leggono. Le prove Rust non possono leggere il checkout fissato, che esiste solo nel job `profilo-pubblico`; qui stanno le copie, e `scripts/check_copie_dal_pin.py` le confronta col checkout fissato a ogni corsa di quel job. Non si modificano a mano: un cambio di pin le ricopia.",
+  "revisione": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3",
+  "file": {
+    "capabilities-v2.schema.json": "schemas/capabilities-v2.schema.json"
+  }
+}

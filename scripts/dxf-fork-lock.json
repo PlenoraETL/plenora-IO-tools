@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "package": "dxf",
+  "fork_package": "plenora-fork-dxf",
   "version": "0.6.1",
   "source": "upstream_git_tag_and_crates_io_release",
   "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
@@ -9,12 +10,24 @@
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
   "file_count": 59,
-  "tree_sha256": "4119e0eb5d5520936f636b42940c6148760841e4b5fa514f033e99498892f053",
+  "tree_sha256": "5fe4e0a6893e11ab06e4876fab4e84435732198761357c4ad7b67809824a318b",
   "functional_delta_files": [
     "src/block.rs",
     "src/code_pair_iter.rs",
+    "src/code_pair_put_back.rs",
+    "src/code_pair_value.rs",
     "src/drawing.rs",
-    "src/lib.rs"
+    "src/dxb_reader.rs",
+    "src/entity.rs",
+    "src/entity_iter.rs",
+    "src/extension_data.rs",
+    "src/helper_functions.rs",
+    "src/lib.rs",
+    "src/object.rs",
+    "src/object_iter.rs",
+    "src/section_type_settings.rs",
+    "src/thumbnail.rs",
+    "src/x_data.rs"
   ],
   "packaging_delta_files": [
     "Cargo.toml"

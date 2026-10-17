@@ -23,9 +23,15 @@ readme = "README.md"
 # Il limite superiore non e' pessimismo: `Requires-Python` e' cio' che pip legge
 # per decidere se questo pacchetto puo' girare, e dichiarare `>=3.10` senza
 # limite prometterebbe ogni Python futuro. La matrice della CI prova dalla 3.10
-# alla 3.14, la stessa promessa della wheel nativa abi3
-# (`crates/plenora-io-py/pyproject.toml`); `scripts/check_requires_python.py`
-# lega le due righe e la matrice.
+# alla 3.14, come la wheel abi3 (crates/plenora-io-py/pyproject.toml),
+# verificata da scripts/check_requires_python.py; il giorno in cui ne provera' un'altra, questa riga si allarga
+# insieme a lei.
+#
+# Il minimo e' 3.10 perche' PYTHON-SDK-1.0 §2 lo pretende («MUST support Python
+# 3.10 or newer») ed e' quello delle altre librerie Plenora: un ambiente che le
+# usa insieme ha una sola intersezione, e la 3.11 di prima la restringeva per
+# tutti. Il codice non usa niente che 3.10 non abbia -- `kw_only` delle
+# dataclass e `types.UnionType` sono della 3.10 -- e la matrice lo prova.
 requires-python = ">=3.10,<3.15"
 
 # Nessuna dipendenza, ed e' una scelta.
@@ -55,22 +61,29 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# `license` non c'e', e la sua assenza e' **dichiarata**.
-#
-# Questo repository non dichiara una licenza propria: nessun `Cargo.toml` ha un
-# campo `license`, tutti hanno `publish = false`, e la sezione «Licenza» del
-# README parla soltanto dei fork vendorizzati, che portano la propria. La prima
-# stesura di questo file diceva `Apache-2.0`: era un'invenzione, e propagarla
-# nei metadati di un pacchetto installabile l'avrebbe fatta leggere come una
-# concessione che nessuno ha fatto.
-#
-# Il 2026-09-05 il titolare ha deciso di non produrre per ora un documento
-# legale first-party. Non e' un rinvio della pubblicazione: e' il perimetro. Il
-# pacchetto si consegna a clienti autorizzati per un canale riservato, dove i
-# termini stanno nel contratto con loro, e su nessun indice pubblico -- che e'
-# esattamente cio' che il classificatore qui sopra dichiara. Il contratto di
-# release lo registra nell'invariante `distribuzione.licenza-first-party`, e
+# La licenza e' quella del repository, `LICENSE` alla radice: proprietaria,
+# «Copyright (c) Plenora ETL. All rights reserved.», la stessa di
+# plenora-database-tools. Prima questo campo mancava di proposito, perche' il
+# titolare non aveva ancora fornito termini first-party; ora li ha forniti, e
+# il campo li dichiara invece di lasciarli dedurre. Il pacchetto resta fuori da
+# ogni indice pubblico -- il classificatore qui sopra -- e
 # `scripts/check_canale_privato.py` verifica che il canale resti chiuso.
+license = { text = "Proprietary" }
+
+# L'adattatore Arrow, **facoltativo**: `Client.read_table()` e `Client.write()`
+# da un oggetto Arrow (`plenora_io/_arrow.py`). Chi lavora per percorsi non lo
+# installa e non lo paga.
+#
+# La serie e' `>=25,<26`, la stessa che plenora-data-tools dichiara come
+# dipendenza: due librerie Plenora nello stesso ambiente devono poter stare
+# sulla stessa pyarrow, e una serie diversa qui renderebbe impossibile
+# installarle insieme. Un intervallo e non un pin esatto perche' e' un vincolo
+# di **installazione** per chi usa il pacchetto; il pin esatto, `25.0.1`, e'
+# quello con cui la CI prova (`.github/workflows/ci.yml`). Un'altra serie si
+# dichiara dopo averla provata, non prima, e `arrow.py` la rifiuta anche se
+# installata a mano accanto al vincolo.
+[project.optional-dependencies]
+pyarrow = ["pyarrow>=25,<26"]
 
 [project.urls]
 Repository = "https://github.com/PlenoraETL/plenora-IO-tools"

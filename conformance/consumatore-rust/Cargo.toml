@@ -19,24 +19,23 @@ publish = false
 [dependencies]
 plenora-io-tools = { path = "../../crates/plenora-io-tools" }
 
-# Le tre patch dei fork governati, e non e' un dettaglio di compilazione: e'
-# **cio' che un consumatore esterno deve sapere**. Il workspace di IO-tools
-# sostituisce `gdal`, `shapefile` e `dxf` con fork che espongono ciascuno un
-# comportamento che l'API upstream non sa esprimere -- la scrittura di un
-# record con geometria nulla, i campi ignorati di OGR, un reader fallibile di
-# entita' logiche. Un consumatore che non le applicasse non compilerebbe
-# affatto: `Cargo.lock` fissa versioni che su crates.io non esistono.
+# Niente `[patch]`, ed e' il punto. Fino alla 4.1.1 questo manifesto ripeteva
+# le tre patch dei fork governati (`gdal`, `shapefile`, `dxf`): il workspace le
+# applicava a se stesso, e Cargo non le propaga a chi lo usa come dipendenza.
+# Un consumatore che non le avesse copiate avrebbe ricevuto i crate di
+# crates.io, senza i delta -- oggi con un errore di compilazione, perche' i
+# driver chiamano API che solo i fork espongono, ma per coincidenza e non per
+# costruzione.
 #
-# La prima stesura di questo manifesto non le aveva, e il gate e' stato rosso
-# per la ragione giusta: «attempting to make an HTTP request, but --offline was
-# specified». Era la superficie che diceva a chi la usa una cosa incompleta.
-#
-# I percorsi li riscrive `scripts/check_superficie_rust.py` su quelli
-# dell'archivio estratto, come fa per la dipendenza principale.
-[patch.crates-io]
-gdal = { path = "../../vendor/gdal" }
-shapefile = { path = "../../vendor/shapefile" }
-dxf = { path = "../../vendor/dxf" }
+# Ora i driver dipendono dai fork per percorso, con un nome di pacchetto
+# proprio (`plenora-fork-*`), e il fork arriva con la dipendenza. Questo
+# consumatore e' la prova: dichiara solo `plenora-io-tools`, e
+# `scripts/check_superficie_rust.py` verifica che il grafo risolto contenga i
+# tre fork dall'archivio e nessun `gdal`, `shapefile` o `dxf` di crates.io.
+[features]
+# Il fork di `gdal` entra solo con il backend FileGDB: senza questa feature la
+# prova non compilerebbe mai il terzo fork.
+gdal-backend = ["plenora-io-tools/gdal-backend"]
 
 [[bin]]
 name = "consumatore-rust"

@@ -23,9 +23,9 @@ from plenora_io import (
     LayerSummary,
     ProtocolError,
 )
-from plenora_io import errors
-from plenora_io.errors import failure_from_envelope
-from plenora_io.models import FidelityReason, LossReport
+from plenora_io import _errors as errors
+from plenora_io._errors import failure_from_envelope
+from plenora_io._models import FidelityReason, LossReport
 
 
 def errore_sano(**campi):
@@ -253,7 +253,7 @@ class IModelliControllanoITipi(unittest.TestCase):
         sano = {"code": "c", "detail": "d"}
         self.assertIsNone(FidelityReason.from_json(sano).field_index)
         FidelityReason.from_json({**sano, "field_index": 0, "layer_index": 0})
-        for campo in FidelityReason.OPZIONALI:
+        for campo in FidelityReason._OPZIONALI:
             with self.subTest(campo=campo):
                 with self.assertRaises(ProtocolError):
                     FidelityReason.from_json({**sano, campo: None})

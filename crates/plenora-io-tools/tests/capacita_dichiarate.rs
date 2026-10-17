@@ -67,6 +67,37 @@ fn operazione(documento: &Value, id: &str) -> Value {
         .clone()
 }
 
+/// Il documento valida contro `capabilities-v2.schema.json` del pin.
+///
+/// Con un validatore JSON Schema vero, non con le sonde del verificatore del
+/// profilo, che guardano una proprieta' per volta e non pretendono la forma
+/// chiusa. Era il buco da cui e' passato `interchange_contracts`: il catalogo
+/// comune lo ammette nelle voci delle operazioni, `capabilities-v2` no --
+/// `additionalProperties: false` sul payload -- e il documento della 4.0.0 e
+/// della 4.1.0 lo portava in `io.read` e in `io.write`, invalido contro lo
+/// schema che dichiarava. Lo schema e' la copia byte per byte del checkout
+/// fissato (`contracts/copie-dal-pin/`, verificata nel job `profilo-pubblico`).
+#[test]
+fn il_documento_valida_contro_lo_schema_del_contratto() {
+    let percorso = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("contracts")
+        .join("copie-dal-pin")
+        .join("capabilities-v2.schema.json");
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(&percorso).expect("la copia dello schema c'e'"),
+    )
+    .expect("lo schema e' JSON");
+    let validatore = jsonschema::validator_for(&schema).expect("lo schema compila");
+    let documento = capacita();
+    let errori: Vec<String> = validatore
+        .iter_errors(&documento["result"])
+        .map(|e| format!("{}: {e}", e.instance_path()))
+        .collect();
+    assert!(errori.is_empty(), "capabilities-v2: {errori:?}");
+}
+
 /// Le due serializzazioni che il catalogo comune ammette sono annunciate.
 ///
 /// Erano una, e il restringimento era registrato come deviazione. Questa sonda

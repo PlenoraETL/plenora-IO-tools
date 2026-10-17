@@ -429,6 +429,7 @@ impl FormatDriver for XlsDriver {
                 batches: Vec::new(),
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -573,18 +574,23 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
     // una funzione il cui contratto dice che «non c'e' un ramo che, non
     // riuscendo a controllare, prosegua lo stesso», e il `by_name` che seguiva
     // non lo riparava, perche' cercava fra i nomi gia' filtrati.
-    let indici_nel_perimetro: Vec<usize> = (0..archive.len())
-        .filter(|indice| {
-            archive.name_for_index(*indice).is_some_and(|nome| {
-                let minuscolo = nome.to_ascii_lowercase();
-                let e_foglio = minuscolo.starts_with("xl/worksheets/")
-                    && std::path::Path::new(&minuscolo)
-                        .extension()
-                        .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
-                e_foglio || minuscolo == "xl/workbook.xml"
-            })
-        })
-        .collect();
+    let mut indici_nel_perimetro = Vec::new();
+    for indice in 0..archive.len() {
+        // zip 9 decodifica il nome in modo fallibile: un errore non deve
+        // escludere silenziosamente una parte dalla prevalidazione.
+        let nome = archive
+            .name_for_index(indice)
+            .ok_or_else(|| err(&PublicMessage::Curated("voce XLSX non valida")))?
+            .map_err(|_| err(&PublicMessage::Curated("nome della parte XLSX non valido")))?;
+        let minuscolo = nome.to_ascii_lowercase();
+        let e_foglio = minuscolo.starts_with("xl/worksheets/")
+            && std::path::Path::new(&minuscolo)
+                .extension()
+                .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
+        if e_foglio || minuscolo == "xl/workbook.xml" {
+            indici_nel_perimetro.push(indice);
+        }
+    }
 
     for indice in indici_nel_perimetro {
         budget.context().ensure_active()?;
@@ -775,6 +781,8 @@ struct XlsWriterState {
     batches: Vec<RecordBatch>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 // Usata come funzione in `map_err`: la firma per valore è imposta dal punto di
@@ -935,8 +943,13 @@ impl FormatWriter for XlsWriterState {
         let mut temp = create_staged_file(&self.path)?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = publish_file_atomic_limited(
+            temp,
+            &self.path,
+            self.durable,
+            self.max_output_bytes,
+            &self.contesto,
+        )?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

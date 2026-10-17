@@ -21,43 +21,43 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `6beb410` |
-| revisione misurata | `6beb410` |
-| passi del checkpoint | 104 |
-| passi verdi | 104 |
+| ultima qualificata | `e0270b5` |
+| revisione misurata | `e0270b5` |
+| passi del checkpoint | 111 |
+| passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 89 707 |
+| input di replay | 143 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,48% |
-| righe coperte LCOV | 24 720 |
-| righe strumentate LCOV | 28 584 |
-| copertura cargo | 84,03% |
+| copertura LCOV | 86,93% |
+| righe coperte LCOV | 25 127 |
+| righe strumentate LCOV | 28 904 |
+| copertura cargo | 84,53% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `28bf62c` |
-| esito differenziale | 94.04% |
+| baseline differenziale | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
+| esito differenziale | 73.54% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `6beb410` |
-| candidate, versione del manifesto | `4.1.0` |
-| candidate, stato | ritirata |
-| candidate, revisione congelata | `23df4d5a9e7accc4924cd8c958e821598360a623` |
-| candidate, versione del workspace | `4.1.0` |
-| candidate, artefatti congelati | non congelati |
-| candidate, tag previsto | `v4.1.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
+| S9, qualificato su | `e0270b5` |
+| candidate, versione del manifesto | `4.1.1` |
+| candidate, stato | pubblicata |
+| candidate, revisione congelata | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| candidate, versione del workspace | `4.1.1` |
+| candidate, artefatti congelati | 6 |
+| candidate, tag previsto | `v4.1.1` |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| candidate, tag sulla candidate | sì |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 3 |
+| release pubblicate | 4 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -74,7 +74,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
 | `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 4.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Che questo componente produca e accetti, alla 4.0.0, entrambe le serializzazioni Arrow che i quattro archi `direct` della matrice di composizione nominano riguarda la **condizione a nostro carico** su quei collegamenti: e' conformita' al contratto dichiarato, non interoperabilita' verificata con gli altri componenti, e non riduce di nulla cio' che questo rinvio lascia scoperto. |
-| `distribuzione.licenza-first-party` | differita: nessuna nuova licenza first-party; il titolare autorizza GitHub Releases nel repository attuale | La pubblicazione su GitHub Releases non aggiunge ai componenti first-party una licenza che il titolare non ha fornito. I termini first-party non sono inclusi negli archivi. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
+| `distribuzione.licenza-first-party` | differita: dalla 4.1.1 gli artefatti portano la licenza proprietaria decisa dal titolare; manca la sua conferma esterna | Fino alla 4.1.0 compresa gli archivi non portano termini first-party. Dalla 4.1.1 portano `LICENSE` con la licenza proprietaria; la prova esterna che questo invariante pretende -- `release/licenza-first-party.json`, la conferma del titolare del testo e della propria denominazione legale -- non c'e', e l'invariante resta differito e **non verificato**: il testo negli artefatti non dimostra da solo di essere l'atto del titolare. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
 
 <!-- generato da assurance/current-state.json: fine -->
 
@@ -625,7 +625,7 @@ python3 scripts/genera-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
 ```
 
 Rigenerarlo invalida ogni misura fatta sul precedente. La versione è 3.9 e non
-l'ultima disponibile: `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto
+l'ultima disponibile: `gdal-sys 0.12.0` spedisce binding pre-costruiti soltanto
 fino a 3.9, e le due alternative sono peggiori.
 
 La feature `bindgen` genera i binding a build time, e `bindgen` non è una
@@ -1004,6 +1004,52 @@ certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
 lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
 dopo la terminazione forzata.
 
+### Le licenze di terze parti negli artefatti
+
+**Che cosa coprono.** Gli archivi della CLI (Linux e Windows, profili `base`
+e `filegdb`) portano in `LICENSES/`:
+
+- per ogni componente nativo (il runtime GDAL e le sue librerie, dai pacchetti
+  conda): il testo di licenza del pacchetto, come gia' prima;
+- per ogni crate Rust di terzi linkato nel binario, **dalla 4.2.0**: i propri
+  file in `LICENSES/crate-rust/<nome>-<versione>/` -- licenza, `NOTICE`,
+  copyright, cioe' l'avviso di copyright di quel crate e il `NOTICE` di un
+  crate Apache-2.0 -- accanto al testo generico per identificatore
+  (`LICENSES/crate-rust/<id>.txt`), che resta perche' un'espressione
+  `MIT OR Apache-2.0` vuole entrambi i testi. `CRATE.json` elenca per ogni
+  crate i file e il loro sha256.
+
+I file vengono dai sorgenti dei crate che cargo ha verificato col checksum di
+`Cargo.lock` (`cargo metadata`, `scripts/avvisi_crate.py`). Quindici crate del
+grafo non portano un file di licenza nel pacchetto pubblicato (fra questi
+`rstar` in sei versioni, `flatbuffers`, `gdal-sys`, `geo-traits`): per loro il
+testo e' quello del repository upstream al commit di `.cargo_vcs_info.json`,
+versionato in `assurance/licenze-crate/` con sha256 e blob git
+(`assurance/registries/avvisi-crate.json`).
+
+**I gate.** `scripts/avvisi_crate.py` (CI, job `rust` sul grafo Linux e
+`windows` sul grafo Windows, entrambi i profili) fallisce se un crate linkato
+non ha un avviso proprio, se un testo del registro non ha l'impronta registrata
+o se una voce del registro non serve piu'. `check-licenze-artefatto.py`, sul
+pacchetto costruito, fallisce se un crate di `CRATE.json` non porta i propri
+file o se un file non e' quello dichiarato.
+
+**Che cosa non coprono, e perche'.**
+
+- `pdqselect` 0.1.0 (`Apache-2.0/MIT`) non ha un testo di licenza da nessuna
+  parte: ne' nel pacchetto, ne' in un repository (non ne dichiara uno), ne'
+  negli avvisi dei sorgenti. Porta un avviso generato dal suo manifesto (nome,
+  versione, autori, licenza) accanto ai testi canonici dei due identificatori.
+  Rientro: quando esce dal grafo o pubblica un testo.
+- Il pacchetto Python dell'SDK (wheel e sdist) non contiene codice di terzi:
+  nessun binario e nessuna dipendenza impacchettata; `pyarrow`, se installato,
+  porta le proprie licenze.
+- La valutazione di `cargo-about`: fa lo stesso lavoro, ma e' un binario in piu'
+  da fissare, e per i crate senza testo nel pacchetto lo cerca in rete al
+  momento della costruzione. La costruzione dipenderebbe da un servizio esterno
+  e il testo spedito non sarebbe fissato nel repository; qui i testi mancanti
+  sono versionati e verificati.
+
 ### L'attestazione del profilo pubblico
 
 Dalla 4.1.0 l'autorizzazione ha una condizione in piu', e comporta un passo
@@ -1250,7 +1296,278 @@ progressiva, e per GDAL la rilocabilità dei dati PROJ.
 **Criterio di chiusura, per ciascun fork:** modifiche accettate upstream,
 release ufficiale che le contiene, dipendenza e lock aggiornati in IO-tools,
 test dei driver e verifiche pertinenti superati senza la patch locale.
-Solo a quel punto si elimina il relativo `[patch.crates-io]`, la copia in
+Solo a quel punto la dipendenza torna al nome upstream su crates.io e si
+elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
+
+## Note della prossima release
+
+### Compatibilita' GeoParquet: codifiche e percorsi non qualificati
+
+Il riallineamento al fork comune con data-tools2 `6492733` restringe gli
+ingressi accettati: **anche file GeoParquet validi prima leggibili sono ora
+rifiutati**. Non e' soltanto una correzione dei file malformati.
+
+Sono escluse le codifiche `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`,
+`DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` (valori e livelli).
+Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY`
+(distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non
+rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime`
+(default senza schema Arrow incorporato), giorni o millisecondi non nulli con
+`YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre
+dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi
+Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso
+su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp
+locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla
+rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di
+rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY
+limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante;
+statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza
+esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine
+stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e
+fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di
+ogni rappresentazione permessa dal formato Parquet.
+
+Il fork rifiuta inoltre `INDEX_PAGE`, lettura di page index
+(`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati
+(selezioni/filtri di righe, offset, salto di record o pagine).
+IO non usa page index, bloom filter o questi salti: il pruning seleziona
+row group con `with_row_groups`, che resta consentito. La presenza nel file
+di indici o bloom filter non richiesti non implica da sola un rifiuto.
+
+Al confine del driver l'errore e' tipizzato: categoria `DataMapping`, fase
+`Read`, retry `Never`, effetto remoto `None`; per Dictionary FLBA il messaggio
+statico e' `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei
+batch il messaggio statico e' «batch Parquet non leggibile», senza dati del
+file. Non e' un panico ne' un risultato vuoto. Il fork segnala esplicitamente
+la codifica non qualificata (`Parquet encoding not qualified for reading`);
+IO non propaga il testo della dipendenza. Le prove con file validi DELTA e
+BYTE_STREAM_SPLIT e controprova PLAIN sono in
+`crates/driver-geoparquet/tests/byte_stream_split_sintetico.rs`, insieme alle
+controprove Dictionary FLBA e INTERVAL con geometria valida e attributi PLAIN.
+
+Motivo: questi decoder e percorsi non sono qualificati nel fork condiviso
+con data-tools2. **Rientro:** qualificazione dei singoli percorsi nel fork
+comune, incluse campagne fuzz dedicate e regressioni, adozione in IO della
+base qualificata e verifica al confine del driver. La campagna
+`geoparquet_reader` sul candidato resta da eseguire; questi test non la
+sostituiscono. Il limite e' riportato anche in
+[PRODUCT](PRODUCT.md#limitazioni-di-prodotto) e nel
+[registro del fork](../assurance/registries/vendor-parquet-fork.json).
+
+**Gli esaurimenti e i guasti dell'interprete sono fuori garanzia.** Regola:
+`MemoryError`, `RecursionError` interno, thread non avviabili e interruzioni
+asincrone nei meccanismi interni dell'SDK sono esclusi dalla garanzia: quasi
+ogni operazione Python alloca, quindi una protezione completa non e'
+dimostrabile. Ambito: la gestione del processo, compresi lettori, notifiche
+e pulizia. Hazard: con memoria esaurita o un guasto dell'interprete lo SDK
+puo' restituire `UnexpectedError` al posto dell'errore atteso, lasciare
+risorse non rilasciate o lasciare il figlio vivo. L'eccezione primaria
+dell'utente va preservata per quanto ottenibile senza nuovo codice
+speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
+dell'interprete e verificare e chiudere gli eventuali processi figli e le
+risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
+
+Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
+alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
+la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
+numero di versione, `__version__` e il README dell'SDK si allineano al momento
+del rilascio, non qui.
+
+### Cambiamenti incompatibili dell'SDK Python
+
+La policy della sezione «La candidate `1.0.1` non qualifica HEAD» vuole un
+major quando l'insieme degli ingressi accettati si restringe, anche se prima
+l'ingresso dava un risultato sbagliato. Le voci qui sotto lo restringono: la
+prossima release è percio' una **major** (5.0.0).
+
+- **Gli argomenti si verificano per tipo esatto.** `layer`, `limit` e i campi
+  di `Limits` sono `int` che non sono `bool`, entro 64 bit; `durable` è un
+  `bool`; i percorsi sono `str` o `os.PathLike[str]`; le opzioni sono un
+  dizionario di stringhe la cui chiave non contiene `=`; nessun argomento porta
+  un carattere NUL o un surrogato non codificabile. Prima `layer="1"` e
+  `durable=1` erano accettati (il secondo come vero, anche `durable="no"`);
+  ora sono `InvalidArgumentError` con effetto `none`, prima di eseguire.
+- **Le ricerche nei risultati** (`Inspect.layer`, `Layer.field`,
+  `Catalog.driver`, `Capabilities.operation`, `Layers.layer`,
+  `ConvertResult.layer`) sollevano `ResultLookupError`, che è anche un
+  `KeyError`: chi intercettava `KeyError` non cambia. Il messaggio non riporta
+  più il nome cercato né quelli presenti.
+- **`version()` senza metadati** solleva `PackageMetadataError` invece di
+  `importlib.metadata.PackageNotFoundError`.
+- **Nessuna eccezione esterna attraversa un metodo pubblico.** Una che nessun
+  punto traduce diventa `UnexpectedError` (`internal`), con effetto `none` prima
+  dell'avvio di un processo e `unknown` dopo l'avvio di un comando che scrive.
+- **I messaggi non portano dati.** `BinaryNotFound` nomina i posti in cui ha
+  cercato, non i percorsi né il `PATH`; `ManifestError` non riporta il percorso
+  del manifesto; `ProfileError` non riporta il profilo richiesto.
+- **`Limits(deadline=...)`** arriva alla CLI in millisecondi calcolati in
+  interi: una durata oltre 2^53 microsecondi perdeva i millisecondi.
+- **`Limits` si normalizza nel costruttore.** Un campo che non e' un intero
+  entro 64 bit (o una `timedelta` entro 64 bit di millisecondi) e'
+  `InvalidArgumentError` alla costruzione, non alla chiamata.
+- **`CommandFailed.argv` non c'e' piu'.** Conservava la riga di comando intera,
+  con percorsi e opzioni del chiamante; al suo posto `CommandFailed.command`,
+  il solo sottocomando da un elenco chiuso (`None` se non e' uno di quelli che
+  l'SDK chiama). `ProfileError.required` e `.actual` valgono `None` quando il
+  profilo non e' uno di quelli noti.
+- **I modelli normalizzano i propri campi nel costruttore** e sono immutabili
+  con un errore dell'SDK: un modello costruito a mano con un oggetto che un
+  risultato non porta e' `InvalidArgumentError`; assegnare un campo e'
+  `InvalidArgumentError` invece di `dataclasses.FrozenInstanceError`. Il loro
+  `hash` si calcola dalla forma canonica dei campi: prima sollevava `TypeError`.
+- **I campi elenco e oggetto dei modelli sono `FrozenList` e `FrozenDict`**,
+  contenitori immutabili su `collections.abc.Sequence` e `Mapping`, non piu'
+  `list` e `dict`: si leggono, si iterano e si confrontano con un documento
+  come prima, ma `isinstance(x, list)` e `isinstance(x, dict)` sono falsi e
+  `json.dumps` vuole `default=plenora_io.json_default` (o
+  `plenora_io.to_plain`). Modificarli (`raw["x"] = 1`, `drivers.clear()`) e'
+  `InvalidArgumentError`; un indice o una chiave assente e'
+  `ResultLookupError`, che e' anche `IndexError` e `KeyError`.
+- **`BinaryNotFound.searched`** porta solo i posti noti della ricerca; ogni
+  altro testo e' `?`.
+- **Le ricerche nei risultati** (`layer`, `field`, `driver`, `operation`)
+  vogliono una `str`: un altro tipo e' `InvalidArgumentError`.
+- **Gli errori dell'SDK costruiti a mano** normalizzano il messaggio
+  (`str` esatta) e l'effetto remoto (vocabolario chiuso);
+  `CommandFailed` vuole un `ErrorEnvelope` e un intero.
+- **La rete ricostruisce gli errori dell'SDK.** Un errore dell'SDK che
+  attraversa un metodo pubblico esce come istanza nuova della stessa classe,
+  ricostruita dallo stato fissato nel costruttore: `args` e `__notes__`
+  dell'oggetto ricevuto non escono, e il traceback comincia dalla rete. Un
+  `PlenoraError` costruito con il costruttore pubblico -- dal chiamante,
+  da una callback, da `map` o `functools.partial`, da `eval` -- o di una
+  sottoclasse del chiamante diventa `UnexpectedError`, senza il suo testo:
+  un errore conta come dell'SDK solo se nasce dalla fabbrica privata
+  dell'SDK. `errors.failure_from_envelope` da' ora un errore esterno (la
+  busta e' di chi chiama), `errors.ricostruito` non accetta sostituzioni di
+  stato, e `errors.copia_json`, `confine.confinato`, `confina_classe`,
+  `confina_esportati`, `registra_modelli` e il modulo `plenora_io.argomenti`
+  diventano privati (`_copia_json`, `_confinato`..., `plenora_io._argomenti`).
+  `str()` di `CommandFailed` si compone dalla busta fissata, come `message` e
+  `to_dict()`. `from_json` dei modelli legge lo schema dalla classe
+  dell'SDK, non da una sottoclasse: gli `_OBBLIGATORI` ridefiniti da una
+  sottoclasse non cambiano piu' ne' i campi pretesi ne' il messaggio.
+  I messaggi degli errori fidati dell'SDK vengono da un catalogo chiuso di
+  modelli (`errors.MESSAGGI`), e ogni parametro ha un tipo dichiarato per la
+  sua chiave (`errors.PARAMETRI`: un insieme chiuso specifico, o un intero in
+  un intervallo); fuori dal suo tipo si scrive `?`. Fanno eccezione, perche'
+  compongono il messaggio da se', gli errori della fabbrica strutturata
+  (`_dallo_sdk_strutturato`): `BinaryNotFound` dai posti di ricerca,
+  `ProfileError` dai profili noti, e `CommandFailed` con le sue sottoclassi,
+  il cui messaggio **viene dalla busta d'errore della CLI**. L'SDK ne
+  controlla soltanto la forma (stringa non vuota, campi e vocabolari della
+  busta) e lo riproduce: la garanzia che sia testo curato, senza dati, e'
+  della CLI -- il `PublicMessage` del prodotto, il cui solo testo di runtime
+  e' il token limitato di un'opzione rifiutata
+  (`PublicMessage::OpzioneRifiutata` in `plenora-io-model/src/error.rs`) --
+  e non dell'SDK. Il messaggio del timeout di `Runner` non riporta piu' il
+  valore scelto dal chiamante. `carica_json` copia il
+  testo in una `str` esatta prima del parser e ricalcola riga e colonna;
+  `leggi_manifesto` legge i byte da un percorso esatto. Alcuni messaggi cambiano di poco (per
+  esempio `plenora-io ?` quando l'argomento non e' un sottocomando noto). Un
+  metodo dell'SDK chiamato non legato su un oggetto di un'altra classe e'
+  `InvalidArgumentError` prima di eseguire. Cio' che esce
+  da un metodo pubblico ha `__context__` e `__cause__` a `None`, anche quando
+  il chiamante usa l'SDK dentro un proprio `except`.
+- **I moduli dell'SDK diventano privati.** `plenora_io.errors`,
+  `plenora_io.models`, `plenora_io.client`, `plenora_io.process`,
+  `plenora_io.discovery`, `plenora_io.arrow`, `plenora_io.confine`,
+  `plenora_io.contenitori` e `plenora_io.limits` si chiamano ora
+  `plenora_io._errors`, `_models`, `_client`, `_process`, `_discovery`,
+  `_arrow`, `_confine`, `_contenitori` e `_limits` (e `argomenti` era gia'
+  `_argomenti`). La superficie pubblica e' la radice: `from plenora_io import
+  ...` dei nomi di `__all__` non cambia, e ogni funzione e classe di
+  `__all__` passa dalla rete. Non sono piu' raggiungibili senza nomi privati,
+  fra gli altri: `errors.failure_from_envelope`, `errors.ricostruito`,
+  `errors.carica_json`, `errors.sottocomando`, `errors.classe_dell_sdk`,
+  `errors.costruito_dall_sdk`, `client.con_superficie_python`,
+  `client.OPERAZIONI`, `contenitori.json_default` e `contenitori.to_plain`
+  nella loro forma non avvolta (restano esportate dalla radice),
+  `discovery.trova_binario`, `discovery.leggi_manifesto`,
+  `discovery.verifica_profilo`, `models.tipi_json`, `process.comando`,
+  `process.scrive`, `process.sigint_inoltrabile`, `process.Completed`,
+  `arrow.cartella_temporanea`, `arrow.CartellaTemporanea`, `arrow.scrivi_ipc`,
+  `arrow.leggi_ipc`, `confine.registra_avvio`, `confine.nome_sdk`. E' un
+  cambiamento incompatibile della 5.0.0.
+- **Nessun attributo pubblico e' un contenitore di Python.** Gli schemi dei
+  modelli diventano privati (`OBBLIGATORI`, `PROPRI`, `OPZIONALI`,
+  `RINOMINATI`, `ANNULLABILI` -> `_OBBLIGATORI`...), come `Limits.DURATA`
+  (`_DURATA`). `PROFILES`, `retry` degli errori, `Catalog.available`,
+  `Layer.attributes` e `LossReport.categories` sono `FrozenList` o
+  `FrozenDict` invece di `tuple`, `list` e `dict`. `FrozenDict.get`, `keys`,
+  `items` e `values` sono dell'SDK; `keys`, `items` e `values` rendono
+  `FrozenList` (le coppie come `FrozenList` di due elementi) invece delle
+  viste di `Mapping`, e `get` rende il predefinito del chiamante identico.
+  `to_dict()` resta un `dict` nativo, con `retry` come `dict`.
+- **`Runner.run` rende un `FrozenDict`**, congelato in profondita', invece
+  del `dict` decodificato con le sue `list`: si legge e si confronta con un
+  `dict` come prima, ma non si modifica, e `json.dumps` vuole
+  `default=plenora_io.json_default` o `plenora_io.to_plain(...)`.
+  `to_plain` rende ora sempre una copia nuova, anche di un ingresso gia'
+  nativo. Ogni guasto dopo l'avvio di un comando che scrive -- anche il
+  congelamento della risposta o la lettura della consegna -- e'
+  `ProtocolError` con effetto `unknown`. Il protocollo di serializzazione
+  (`__reduce__`, `__reduce_ex__`, `__getstate__`, `__copy__`,
+  `__deepcopy__`) e' definito dall'SDK in ogni sua classe e valida gli
+  argomenti; `copy.copy` di `FrozenList` e `FrozenDict` non ricostruisce gli
+  elementi. Lo stato serializzato di un modello sono i soli campi dello
+  schema, e la copia o il `pickle` lo ricostruiscono dal costruttore; quello
+  di `Client` e `Runner` sono il binario e il timeout, e la ricostruzione
+  chiama il costruttore (per `Client`: ritrova il binario, rilegge il
+  manifesto). I modelli hanno un `__ne__` proprio.
+- **Dopo l'avvio di un processo, un solo gestore.** Ogni guasto dopo il
+  ritorno di `Popen` -- anche in `registra_avvio`, nella decodifica dei
+  flussi o in `Completed` -- e' `ProtocolError` (non piu' `UnexpectedError`),
+  con effetto `unknown` per un comando che scrive. `KeyboardInterrupt` e
+  `SystemExit` restano tali: l'SDK chiude il processo figlio prima di
+  rilanciarle e, per un comando che scrive, vi aggiunge una nota fissa che
+  dice che l'effetto remoto va considerato `unknown`.
+- **Il processo lo gestisce l'SDK.** `Runner` non usa piu' `with Popen` ne'
+  `communicate`: thread lettori propri, un'attesa con timeout, una chiusura
+  (`kill` ritentato, pipe, lettori) su ogni uscita che non solleva mai e non
+  sostituisce l'eccezione primaria. Un lettore che fallisce, o una chiusura
+  che fallisce dopo un esito, sono `ProtocolError` (`unknown` per una
+  scrittura), non un successo; un processo che non muore e'
+  `processo.non_terminato`. Solo il thread chiamante aspetta (a passi
+  brevi, guardando i lettori e la scadenza) e uccide il processo: un lettore
+  che fallisce lo segnala, non lo uccide. Se il processo resta vivo dopo
+  `kill`, `terminate` e `kill` l'SDK non aspetta oltre:
+  `processo.non_terminato`, e il processo puo' restare in esecuzione. Il
+  flusso di un lettore bloccato da un processo nipote si chiude solo con la
+  conferma che il lettore ha finito; altrimenti si lascia al lettore, che
+  scarta cio' che legge e libera il buffer: pipe e thread lettore restano
+  occupati finche' il nipote non chiude. Il flusso resta del lettore finche'
+  il chiamante non lo reclama e non conferma di averlo chiuso: un reclamo
+  interrotto non lascia il flusso senza padrone, e la conferma della
+  chiusura si scrive solo se `close()` e' tornata. Il lettore scarta solo a
+  run certamente finito: la conclusione impostata o il gettone del run (un
+  oggetto tenuto solo dal frame di `run`, di cui il lettore ha un
+  `weakref`) morto; nessun tempo fisso. Un'eccezione che interrompe `run`
+  prima di quel rilascio, se conservata con il traceback dal chiamante (o da
+  `logging` o da un debugger), tiene vivi gettone e lettori finche' vive; su
+  PyPy il rilascio via `weakref` puo' essere differito. Tutti gli oggetti
+  del run si costruiscono prima di `Popen`, e fra `Popen` e il blocco
+  protetto non c'e' nessuna istruzione (prova d'inventario sull'AST). Il `finally` di `run` fa sempre un
+  ultimo tentativo (`kill` e un'attesa di 1 s se il processo e' vivo); un
+  Ctrl-C proprio dentro quell'ultimo tentativo puo' lasciare il figlio
+  vivo. Un processo che resta vivo
+  prevale sull'errore che ha portato a chiuderlo, e la distinzione fra
+  timeout e guasto della comunicazione si perde.
+- **Lo stato delle eccezioni si fissa nel costruttore.** Assegnare,
+  cancellare o aggiungere un attributo a un errore dell'SDK (salvo
+  `__traceback__`, `__context__`, `__cause__`, `__suppress_context__`,
+  `__notes__` e `args`) e' `InvalidArgumentError`, e cosi' un secondo
+  `__init__`: `CommandFailed.envelope` non si sostituisce. `str(errore)` non
+  legge piu' `args`. `BinaryNotFound.searched` e' una `FrozenList`.
+- **`ErrorEnvelope.retry` e `.row_diagnostics` sono `FrozenDict`**, come i
+  campi oggetto degli altri modelli, non piu' `dict` ordinari: modificarli e'
+  `InvalidArgumentError`. `__post_init__` di un modello gira solo dal
+  costruttore; richiamato a mano e' `InvalidArgumentError`.
+- **`FrozenList` e `FrozenDict` si costruiscono con al piu' un argomento per
+  posizione**; gli indici, i componenti di uno slice e i limiti di
+  `FrozenList.index()` sono interi o `None` (un passo zero, un `float`, un
+  `bool` sono `InvalidArgumentError`), e un valore presente solo fuori
+  dall'intervallo di `index()` e' `ResultLookupError`.

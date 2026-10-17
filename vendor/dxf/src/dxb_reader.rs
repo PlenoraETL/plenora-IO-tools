@@ -296,9 +296,11 @@ impl<T: Read> DxbReader<T> {
         Ok(value)
     }
     fn read_f(&mut self) -> DxfResult<f64> {
-        let value = read_f64(&mut self.reader);
+        // Upstream: `unwrap_or(0.0)`, cioe' un reale illeggibile -- o, dal fork,
+        // non finito -- diventava zero. Ora l'errore si propaga.
+        let value = read_f64(&mut self.reader)?;
         self.advance_offset(8);
-        Ok(value.unwrap_or(0.0))
+        Ok(value)
     }
     fn read_n(&mut self) -> DxfResult<f64> {
         if self.is_integer_mode {

@@ -171,27 +171,21 @@ CAMPI_COMUNI_DEL_MANIFESTO = frozenset(
     }
 )
 
-#: La licenza first-party: non dichiarata, e fuori dal perimetro corrente.
+#: La licenza first-party: proprietaria, e il suo testo viaggia con l'artefatto.
 #:
 #: # Che cosa dice
 #:
-#: Che non c'e'. Questo repository non dichiara una licenza propria -- nessun
-#: `Cargo.toml` ha il campo, il `pyproject.toml` nemmeno -- e per la
-#: distribuzione che si sta facendo **non serve**: gli artefatti si consegnano
-#: a clienti autorizzati per un canale riservato, e i termini d'uso stanno nel
-#: rapporto con loro, non in un file dentro l'archivio.
+#: Che il prodotto e' proprietario di Plenora ETL: `LICENSE` alla radice del
+#: repository, `license-file` in ogni crate, `License: Proprietary` nei
+#: metadati del pacchetto Python. Lo stesso testo sta alla radice di ogni albero
+#: nativo e nel pacchetto Python (`.dist-info/licenses/` della wheel, radice
+#: della sdist), e `check-licenze-artefatto.py` lo pretende identico a quello
+#: del repository.
 #:
-#: # Che cosa non dice
-#:
-#: Non e' una verifica riuscita. Nessuno ha stabilito che l'assenza vada bene
-#: in generale: va bene **per questo perimetro**. Una distribuzione pubblica --
-#: un indice, un repository aperto, un artefatto scaricabile senza contratto --
-#: richiede una decisione separata, e quella decisione comprende il testo dei
-#: termini e la denominazione legale esatta del titolare.
-#:
-#: E non e' nemmeno un blocco. Trattarla come tale avrebbe fermato una
-#: distribuzione privata che non ne ha bisogno, per un documento che serve a
-#: un'altra cosa.
+#: Fino alla 4.1.0 questo dato diceva il contrario -- «non dichiarata, fuori dal
+#: perimetro» -- e il referto `licenze-artefatto` lo ripeteva accanto a una
+#: wheel che diceva `Proprietary`: due dichiarazioni opposte nello stesso
+#: deliverable.
 #:
 #: # Perche' un dato e non una riga di prosa
 #:
@@ -201,44 +195,47 @@ CAMPI_COMUNI_DEL_MANIFESTO = frozenset(
 #:
 #: A restare invariato e' cio' che riguarda i **terzi**: ogni componente che
 #: spedisce byte porta il testo della propria licenza, e `componenti_con_testo`
-#: lo conta. Sono due domande diverse, e l'assenza della prima non tocca la
-#: seconda.
+#: lo conta. Sono due domande diverse.
+TESTO_DELLA_LICENZA = pathlib.Path(__file__).resolve().parent.parent / "LICENSE"
+NOME_DEL_TESTO = "LICENSE"
 LICENZA_FIRST_PARTY = {
-    "dichiarata": False,
-    "stato": "fuori_dal_perimetro",
-    "registrata_il": "2026-09-05",
-    "identificatore_spdx": None,
-    "perche_non_dichiarata": (
-        "il repository non ne dichiara una, e per la distribuzione privata "
-        "corrente non serve: gli artefatti vanno a clienti autorizzati per un "
-        "canale riservato, e i termini d'uso stanno nel rapporto con loro."
+    "dichiarata": True,
+    "stato": "proprietaria",
+    "identificatore_spdx": "LicenseRef-Plenora-Proprietary",
+    "titolare": "Plenora ETL",
+    "testo": (
+        "`LICENSE` alla radice del repository; lo stesso file alla radice di ogni "
+        "albero nativo, in `.dist-info/licenses/LICENSE` della wheel e alla radice "
+        "della sdist"
     ),
-    "non_e_una_verifica": (
-        "l'assenza non e' stata verificata accettabile in generale, ma per "
-        "questo perimetro. Chiamarla verde direbbe che qualcuno ha guardato e "
-        "approvato, e nessuno l'ha fatto."
-    ),
-    "che_cosa_richiederebbe_una_distribuzione_pubblica": (
-        "una decisione separata del titolare, che comprende il testo integrale "
-        "dei termini e la denominazione legale esatta con cui compaiono. "
-        "Nessuno dei due si scrive qui: la prima stesura del `pyproject.toml` "
-        "diceva `Apache-2.0` -- una concessione che nessuno aveva fatto -- ed e' "
-        "precisamente l'errore che questa struttura esiste per non ripetere."
-    ),
+    "metadati_python": "License: Proprietary",
     "canale": "riservato a clienti autorizzati; nessun indice pubblico",
     "licenze_di_terzi": (
         "invariate e obbligatorie: ogni componente che spedisce byte porta il "
         "testo della propria licenza, e il conteggio `componenti_con_testo` lo "
-        "misura. L'assenza di una licenza first-party non tocca questo."
+        "misura."
     ),
     "forma_leggibile": (
         "wheel e sdist sono Python puro: contengono i `.py` cosi' come sono "
-        "scritti, e la sdist anche i test. Chi li riceve legge il sorgente. Non "
-        "e' una svista: nessuna riservatezza del codice e' stata promessa, e "
-        "ottenerla richiederebbe un SDK compilato -- un altro prodotto, con "
-        "un'altra qualifica."
+        "scritti, e la sdist anche i test. Chi li riceve legge il sorgente; la "
+        "licenza ne regola l'uso, non lo nasconde."
     ),
 }
+
+
+def testo_della_licenza() -> bytes:
+    """I byte di `LICENSE`, o un errore se il file manca o e' vuoto.
+
+    Un artefatto che dichiara una licenza proprietaria senza poterne consegnare
+    il testo e' la contraddizione che questo dato esiste per evitare.
+    """
+    try:
+        dati = TESTO_DELLA_LICENZA.read_bytes()
+    except OSError:
+        raise SystemExit("LICENSE assente alla radice del repository") from None
+    if not dati.strip():
+        raise SystemExit("LICENSE vuoto alla radice del repository")
+    return dati
 
 
 def licenza_first_party() -> dict:

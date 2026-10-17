@@ -798,6 +798,7 @@ impl FormatDriver for ShpDriver {
                 input_total: None,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
+                contesto: opts.budget().context().clone(),
             }),
             self.descriptor(),
             plan,
@@ -914,6 +915,8 @@ struct ShpWriter {
     input_total: Option<u64>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
+    /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
+    contesto: plenora_io_model::budget::PipelineContext,
 }
 
 impl FormatWriter for ShpWriter {
@@ -1048,19 +1051,24 @@ impl FormatWriter for ShpWriter {
             .collect::<std::io::Result<Vec<_>>>()?;
         let staged_bytes = byte_dello_staging(dimensioni)?;
         if staged_bytes > self.max_output_bytes {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
+            // Misurata dopo la chiusura dei file: una scadenza passata li'
+            // viene prima della quota.
+            return Err(plenora_io_core::driver::limite_o_scadenza(
+                &self.contesto,
+                PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
                     "output Shapefile da",
                     NumeroStrutturale::Conteggio(staged_bytes),
                     "byte oltre il limite di",
                     NumeroStrutturale::Limite(self.max_output_bytes),
-                ),
+                )),
+                plenora_io_model::ErrorPhase::Finalize,
             ));
         }
 
         let (bytes, outcome) = match self.publish_mode {
             ShapefilePublishMode::DirectoryDataset => {
-                let outcome = publish_dir_atomic(staging.path(), &self.dest, self.durable)?;
+                let outcome =
+                    publish_dir_atomic(staging.path(), &self.dest, self.durable, &self.contesto)?;
                 (staged_bytes, outcome)
             }
             ShapefilePublishMode::LooseSet => {
@@ -1075,7 +1083,12 @@ impl FormatWriter for ShpWriter {
                     })
                     .filter(|(source, _)| source.exists())
                     .collect::<Vec<_>>();
-                publish_files_ordered_limited(&files, self.durable, self.max_output_bytes)?
+                publish_files_ordered_limited(
+                    &files,
+                    self.durable,
+                    self.max_output_bytes,
+                    &self.contesto,
+                )?
             }
         };
         Ok(Published {

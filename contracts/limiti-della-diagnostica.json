@@ -4,7 +4,7 @@
   "che_cosa_e": "il confronto, asse per asse, fra i limiti che ERRORS-1.0 impone a un errore pubblico e quelli che il prodotto applica alla propria diagnostica. Chiude la riga BB4 del piano 4.0.0: i due sistemi esistevano entrambi e nessuno li aveva messi uno accanto all'altro, quindi non si sapeva se i nostri fossero piu' stretti o piu' larghi.",
   "perche_i_numeri_del_contratto_stanno_qui": "perche' ERRORS-1.0 li pubblica come prosa, e un gate che leggesse la prosa di una specifica sarebbe la stessa dipendenza che `check_docset.py` vieta per i nostri documenti -- con in piu' il fatto che quella prosa non e' nostra. Sono ricopiati una volta, con la citazione accanto, e la sonda `errore.limiti-dichiarati` confronta il prodotto con questa copia. Il giorno in cui il repository comune li pubblicasse come dato macchina, questa copia sparirebbe: e' la stessa richiesta gia' registrata come HB2 per la proiezione dei codici d'uscita.",
   "fonte": {
-    "revisione": "453c8d1ff2eb260840e6cedc033a2b76b58a0b9e",
+    "revisione": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3",
     "documento": "specs/errors/ERRORS-1.0.md",
     "requisiti": [
       "ERR-011",

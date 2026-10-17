@@ -418,7 +418,12 @@ impl FormatDriver for CsvDriver {
                 ));
             }
         };
-        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
+        let staging = StagedFile::new(
+            &path,
+            opts.durable,
+            opts.max_output_bytes(),
+            opts.budget().context(),
+        )?;
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?)
             .from_writer(staging.reopen()?);

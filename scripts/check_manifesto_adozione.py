@@ -193,6 +193,65 @@ def digest(percorso: pathlib.Path) -> str:
     return f"sha256:{impronta.hexdigest()}"
 
 
+def riferimenti_incrociati(manifesto: dict) -> list[str]:
+    """I controlli incrociati che ADOPTION.md aggiunge alla forma (dal pin 1e902df).
+
+    Lo schema v4 non cambia, e queste regole non stanno nello schema: un
+    manifesto puo' validare e dire due cose incompatibili. ADOPTION.md, «A
+    manifest is an unambiguous declaration», le elenca:
+
+    * lo stesso contratto non e' insieme `conforming` e `not_applicable`;
+    * lo stesso nome d'artefatto non descrive due artefatti diversi (le voci
+      ripetute che differiscono solo per `verification` restano ammesse);
+    * una deviazione che nomina un artefatto nomina un artefatto dichiarato,
+      e se porta anche `surface` la superficie e' quella dell'artefatto. Una
+      deviazione con la sola superficie resta ammessa: descrive una superficie
+      che puo' non esistere affatto.
+
+    Sono le stesse regole di `tools/conformance_checks.py` del repository dei
+    contratti, riscritte qui perche' questo gate non importa codice dal
+    checkout: lo legge come dato.
+    """
+    errori: list[str] = []
+    stati: dict[str, str] = {}
+    for contratto in manifesto.get("contracts", []):
+        precedente = stati.get(contratto["id"])
+        if precedente is not None and precedente != contratto["status"]:
+            errori.append(
+                f"«{contratto['id']}» compare con due stati, «{precedente}» e "
+                f"«{contratto['status']}»: un manifesto e' una dichiarazione univoca"
+            )
+        stati.setdefault(contratto["id"], contratto["status"])
+
+    def identita(voce: dict) -> dict:
+        return {chiave: valore for chiave, valore in voce.items() if chiave != "verification"}
+
+    artefatti: dict[str, dict] = {}
+    for voce in manifesto.get("artifacts", []):
+        precedente = artefatti.get(voce["name"])
+        if precedente is not None and identita(precedente) != identita(voce):
+            errori.append(
+                f"il nome d'artefatto «{voce['name']}» descrive due artefatti diversi"
+            )
+        artefatti.setdefault(voce["name"], voce)
+
+    for deviazione in manifesto.get("deviations", []):
+        nome = deviazione.get("artifact")
+        if nome is None:
+            continue
+        artefatto = artefatti.get(nome)
+        if artefatto is None:
+            errori.append(
+                f"una deviazione nomina l'artefatto «{nome}», che il manifesto non dichiara"
+            )
+        elif "surface" in deviazione and deviazione["surface"] != artefatto["surface"]:
+            errori.append(
+                f"una deviazione su «{nome}» dichiara la superficie "
+                f"«{deviazione['surface']}», e l'artefatto e' «{artefatto['surface']}»"
+            )
+    return errori
+
+
 def verifica(
     manifesto: dict, contracts: pathlib.Path, artefatti: dict[str, pathlib.Path]
 ) -> list[str]:
@@ -221,6 +280,8 @@ def verifica(
             f"{taciuti}. Un contratto applicabile e non nominato e' conformita' "
             "parziale che non si vede."
         )
+
+    errori.extend(riferimenti_incrociati(manifesto))
 
     for deviazione in manifesto.get("deviations", []):
         for identificatore, voce in dichiarati.items():

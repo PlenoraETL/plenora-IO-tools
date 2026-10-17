@@ -443,8 +443,8 @@ fn xlsx_con_una_parte_non_apribile(corrompi: bool) -> Vec<u8> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for nome in ["xl/worksheets/sheet1.xml", "xl/workbook.xml"] {
             scrittore.start_file(nome, opzioni).unwrap();
             std::io::Write::write_all(&mut scrittore, b"<x r=\"A1\"/>").unwrap();
@@ -498,7 +498,7 @@ fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
 
 /// Un archivio con `quante` voci vuote e nomi **realmente distinti**.
 ///
-/// I nomi devono essere unici: `zip` 8.6 conserva le voci in una mappa
+/// I nomi devono essere unici: `zip` conserva le voci in una mappa
 /// indicizzata per nome, e due voci omonime si sovrascrivono invece di
 /// contarsi due volte. Una fixture con nomi ripetuti proverebbe un tetto
 /// piu' basso di quello dichiarato.
@@ -506,8 +506,8 @@ fn xlsx_con_parti(quante: usize) -> Vec<u8> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for indice in 0..quante {
             scrittore
                 .start_file(format!("parte{indice}.bin"), opzioni)
@@ -1004,11 +1004,11 @@ fn xlsx_con_foglio(dir: &std::path::Path, nome: &str, foglio_xml: &str) -> std::
     let mut sostituite = 0usize;
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for indice in 0..archivio.len() {
             let mut membro = archivio.by_index(indice).unwrap();
-            let parte = membro.name().to_owned();
+            let parte = membro.name().unwrap().into_owned();
             scrittore.start_file(parte.clone(), opzioni).unwrap();
             if parte == "xl/worksheets/sheet1.xml" {
                 sostituite += 1;
@@ -1949,6 +1949,7 @@ fn scrittore(percorso: &std::path::Path, xy: bool, lotti: Vec<RecordBatch>) -> B
         batches: lotti,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     })
 }
 
@@ -3258,8 +3259,8 @@ fn xlsx_con_dimension(dichiarata: Option<&str>) -> Vec<u8> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for (nome, testo) in [
             ("[Content_Types].xml", tipi),
             ("_rels/.rels", rels),
@@ -3334,8 +3335,8 @@ fn xlsx_senza_dimension_con(celle: &str) -> Vec<u8> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut scrittore = zip::ZipWriter::new(&mut buffer);
-        let opzioni: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opzioni: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         for (nome, testo) in [
             ("[Content_Types].xml", tipi),
             ("_rels/.rels", rels),
@@ -3580,6 +3581,7 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
         batches: Vec::new(),
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
+        contesto: opzioni_scrittura().budget().context().clone(),
     });
 
     // `write` accumula soltanto: qui non puo' fallire, ed e' il motivo per cui
