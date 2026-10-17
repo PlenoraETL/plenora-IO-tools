@@ -797,8 +797,20 @@ fn trova_campo_del_dizionario(
         return None;
     }
     let figli = campo.children()?;
-    (0..figli.len())
-        .find_map(|indice| trova_campo_del_dizionario(figli.get(indice), id, profondita + 1))
+    // Arrow 60: Field::_fields scende nei valori dei dizionari, ma per
+    // RunEndEncoded esclude run_ends. Gli scalari non hanno figli convertiti.
+    let mut intervallo = match campo.type_type() {
+        Type::Struct_ | Type::Union => 0..figli.len(),
+        Type::List
+        | Type::LargeList
+        | Type::ListView
+        | Type::LargeListView
+        | Type::FixedSizeList
+        | Type::Map => 0..figli.len().min(1),
+        Type::RunEndEncoded => 1..figli.len().min(2),
+        _ => 0..0,
+    };
+    intervallo.find_map(|indice| trova_campo_del_dizionario(figli.get(indice), id, profondita + 1))
 }
 
 /// Verifica un batch: la passeggiata sullo schema consuma nodi e buffer nello
@@ -1259,7 +1271,8 @@ fn valida_campo(
         | Type::FixedSizeList
         | Type::Map => Some(1),
         Type::RunEndEncoded => Some(2),
-        _ => None,
+        Type::Struct_ | Type::Union => None,
+        _ => Some(0),
     };
     if let Some(attesi) = attesi {
         if figli != attesi {
@@ -1403,11 +1416,24 @@ fn valida_unione(driver: &'static str, campo: &FbField<'_>) -> Result<bool> {
                 "unione Arrow con identificatori e figli in numero diverso",
             ));
         }
+        let mut visti = 0_u128;
         for indice in 0..identificatori.len() {
-            if i8::try_from(identificatori.get(indice)).is_err() {
+            let id = identificatori.get(indice);
+            if !(0..=127).contains(&id) {
                 return Err(errore(driver, "identificatore di unione Arrow fuori da i8"));
             }
+            let maschera = 1_u128 << id;
+            if visti & maschera != 0 {
+                return Err(errore(driver, "identificatore di unione Arrow duplicato"));
+            }
+            visti |= maschera;
         }
+    } else if campo.children().is_some_and(|figli| figli.len() > 128) {
+        // convert.rs usa UnionFields::from_fields, che panica dal 129esimo.
+        return Err(errore(
+            driver,
+            "unione Arrow con troppi identificatori impliciti",
+        ));
     }
     Ok(true)
 }
