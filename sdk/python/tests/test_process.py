@@ -240,6 +240,27 @@ class LEsecutore(unittest.TestCase):
             runner.run(["convert"])
         self.assertIn("non si sa", str(preso.exception))
 
+    def test_un_processo_finito_oltre_la_scadenza_e_un_timeout(self) -> None:
+        """Come il backend nativo: un risultato arrivato tardi non si accetta.
+
+        L'orologio e' controllato: il processo finisce subito, ma quando
+        `wait()` torna la scadenza e' gia' passata.
+        """
+        from plenora_io import _process
+
+        orologio = iter([0.0, 0.0])
+        originale = _process._adesso
+        _process._adesso = lambda: next(orologio, 2.0)
+        try:
+            runner = self.runner(
+                'print(json.dumps({"status": "ok", "result": {}}))\n', timeout=1.0
+            )
+            with self.assertRaises(ProtocolError) as preso:
+                runner.run(["catalog"])
+        finally:
+            _process._adesso = originale
+        self.assertIn("non si sa", str(preso.exception))
+
     def test_un_binario_che_non_si_esegue(self) -> None:
         runner = Runner(self.tmp / "non-esiste")
         with self.assertRaises(ProtocolError) as preso:

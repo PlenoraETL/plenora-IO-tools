@@ -882,7 +882,6 @@ class Runner:
                     durata = max(0.0, min(_PASSO, scadenza - _adesso()))
                 try:
                     processo.wait(timeout=durata)
-                    break
                 except subprocess.TimeoutExpired:
                     pass
                 except OSError:
@@ -890,6 +889,15 @@ class Runner:
                         ProtocolError, "processo.comunicazione",
                         comando=_nome_del_comando(argv),
                     ) from None
+                else:
+                    # Un processo finito puo' esserlo oltre la scadenza: come
+                    # nel backend nativo, il risultato non si accetta.
+                    if scadenza is not None and _adesso() >= scadenza:
+                        raise _dallo_sdk(
+                            ProtocolError, "processo.timeout",
+                            comando=_nome_del_comando(argv),
+                        )
+                    break
                 if guasto.is_set():
                     raise _dallo_sdk(
                         ProtocolError, "processo.comunicazione",
