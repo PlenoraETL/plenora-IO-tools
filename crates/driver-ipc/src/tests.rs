@@ -6,6 +6,11 @@
 
 use super::*;
 
+mod buffer_ipc;
+mod layout_ipc;
+mod parametri_schema_ipc;
+mod schema_ipc;
+
 /// Opzioni di lettura sul modello unificato.
 ///
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
@@ -87,6 +92,50 @@ fn un_ipc_non_conforme_e_rifiutato_prima_di_arrow() {
     assert!(
         !errore.to_string().contains("in panico"),
         "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+}
+
+#[test]
+fn buffer_fuori_corpo_rifiutato_prima_di_arrow() {
+    let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fuzz/seeds/ipc_reader/buffer-fuori-corpo.arrow");
+
+    let errore = match IpcDriver.open(Source::Path(seme), opzioni_lettura()) {
+        Err(errore) => errore,
+        Ok(dataset) => {
+            let request = ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            };
+            match dataset.open_layer_reader(&request) {
+                Err(errore) => errore,
+                Ok(mut reader) => loop {
+                    match reader.next_batch() {
+                        Ok(Some(_)) => {}
+                        Ok(None) => panic!("il file doveva essere rifiutato"),
+                        Err(errore) => break errore,
+                    }
+                },
+            }
+        }
+    };
+    assert!(
+        !errore.to_string().contains("in panico"),
+        "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
+    );
+    assert!(
+        errore
+            .message
+            .contains("buffer Arrow oltre la fine del corpo del messaggio"),
+        "{errore}"
     );
     assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);

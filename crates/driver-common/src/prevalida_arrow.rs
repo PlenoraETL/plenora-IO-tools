@@ -12,10 +12,12 @@
 //! convertono con `try_fb_to_schema`, fallibile (in `convert.rs` resta un solo
 //! `panic!`, fuori dal percorso di lettura), e i metadati del footer senza
 //! chiave o valore sono un `ParseError`. Le verifiche di schema e footer qui
-//! sotto restano come difesa in profondita' -- rifiutano solo input non
-//! conformi, e costano una visita dello schema --; quella dei buffer resta
-//! **necessaria**, perche' `read_buffer` affetta ancora il corpo con
-//! `slice_with_length`, che asserisce.
+//! sotto sono ancora **necessarie**: la conversione fallibile conserva
+//! parametri che `layout`, `new_empty_array` e `make_array` assumono validi.
+//! In particolare un dizionario senza `DictionaryBatch` sintetizza i valori
+//! vuoti, saltando la validazione fallibile dei dati. Anche i figli vanno
+//! verificati prima del decoder. La verifica dei buffer resta necessaria:
+//! `read_buffer` affetta il corpo con `slice_with_length`, che asserisce.
 //!
 //! I driver leggono file esterni non fidati per mestiere. Una barriera
 //! `catch_unwind` converte il panico in errore tipizzato e resta come difesa
@@ -260,7 +262,7 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
     }
 
     let mut messaggi = 0_usize;
-    let mut schema_visto = false;
+    let mut byte_schema: Option<Vec<u8>> = None;
     let mut posizione = 0_u64;
 
     loop {
@@ -319,21 +321,41 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 
         if let Some(schema) = messaggio.header_as_schema() {
             valida_schema(driver, schema)?;
-            schema_visto = true;
+            // Il decoder conserva lo schema iniziale anche nei messaggi successivi.
+            if byte_schema.is_none() {
+                byte_schema = Some(byte.clone());
+            }
         }
 
         let corpo = messaggio.bodyLength();
         let corpo = u64::try_from(corpo)
             .map_err(|_| errore(driver, "lunghezza del corpo Arrow negativa"))?;
-        // I metadati sono allineati a otto byte prima del corpo.
+        let schema_serializzato = byte_schema
+            .as_deref()
+            .ok_or_else(|| errore(driver, "flusso Arrow senza messaggio di schema"))?;
+        let schema = root_as_message(schema_serializzato)
+            .map_err(|_| errore(driver, "messaggio Arrow non decodificabile"))?
+            .header_as_schema()
+            .ok_or_else(|| errore(driver, "flusso Arrow senza messaggio di schema"))?;
+        // La lunghezza incapsulata include gia' il padding: come StreamReader,
+        // non arrotondiamo separatamente la posizione del messaggio successivo.
         let dopo_i_metadati = inizio_metadati + lunghezza_metadati as u64;
-        let allineata = dopo_i_metadati.next_multiple_of(8);
-        let termine = allineata
+        let termine = dopo_i_metadati
             .checked_add(corpo)
             .ok_or_else(|| errore(driver, "corpo Arrow oltre la dimensione rappresentabile"))?;
         if termine > dimensione {
             return Err(errore(driver, "corpo Arrow oltre la fine del flusso"));
         }
+        valida_corpo(
+            driver,
+            schema,
+            messaggio,
+            corpo,
+            &mut Corpo {
+                file: &mut file,
+                inizio: inizio_metadati + lunghezza_metadati as u64,
+            },
+        )?;
         posizione = termine;
 
         messaggi += 1;
@@ -342,7 +364,7 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
         }
     }
 
-    if !schema_visto {
+    if byte_schema.is_none() {
         return Err(errore(driver, "flusso Arrow senza messaggio di schema"));
     }
     Ok(())
@@ -350,7 +372,7 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 
 /// Verifica un file Arrow IPC: schema del footer e coerenza di ogni messaggio.
 ///
-/// Legge solo i metadati — footer e intestazioni dei messaggi — mai il corpo.
+/// Legge i metadati — footer e intestazioni dei messaggi — e l'ultimo run end (al massimo 8 byte) dei campi `RunEndEncoded`.
 ///
 /// # Errors
 ///
@@ -498,6 +520,26 @@ fn valida_blocco(
         valida_schema(driver, schema_del_messaggio)?;
     }
 
+    valida_corpo(
+        driver,
+        schema,
+        messaggio,
+        lunghezza_corpo,
+        &mut Corpo {
+            file,
+            inizio: offset + lunghezza_metadati as u64,
+        },
+    )
+}
+
+/// Un solo controllo per file, flussi, dizionari completi e delta.
+fn valida_corpo(
+    driver: &'static str,
+    schema: FbSchema<'_>,
+    messaggio: arrow_ipc::Message<'_>,
+    lunghezza_corpo: u64,
+    corpo: &mut Corpo<'_>,
+) -> Result<()> {
     // Un corpo compresso non e' ispezionabile qui, ed e' irrilevante: la
     // versione pinnata di `arrow-ipc` e' compilata senza `lz4` e senza `zstd`
     // (`default = []`), quindi rifiuta il codec con un errore prima di
@@ -510,7 +552,8 @@ fn valida_blocco(
         if batch.compression().is_some() {
             return Err(errore(driver, "corpo Arrow compresso non verificabile"));
         }
-        valida_batch(driver, schema, batch, versione_v4, lunghezza_corpo)?;
+        valida_buffer(driver, batch, lunghezza_corpo)?;
+        valida_batch(driver, schema, batch, versione_v4, lunghezza_corpo, corpo)?;
     }
     if let Some(dizionario) = messaggio.header_as_dictionary_batch() {
         // `data` e' facoltativo nella grammatica flatbuffer e obbligatorio nel
@@ -532,6 +575,7 @@ fn valida_blocco(
             batch,
             versione_v4,
             lunghezza_corpo,
+            corpo,
         )?;
     }
     Ok(())
@@ -604,7 +648,7 @@ enum Layout {
     Unione { densa: bool },
     /// Indici: validita' + dati. I valori arrivano dal messaggio dizionario,
     /// quindi i figli non vengono attraversati qui.
-    Dizionario,
+    Dizionario { larghezza: u64 },
 }
 
 impl Layout {
@@ -615,7 +659,9 @@ impl Layout {
     /// nel messaggio del dizionario. Per quelli serve [`Self::per_valore`].
     fn per_campo(campo: &FbField<'_>) -> Option<Self> {
         if campo.dictionary().is_some() {
-            return Some(Self::Dizionario);
+            return Some(Self::Dizionario {
+                larghezza: u64::try_from(campo.dictionary()?.indexType()?.bitWidth()).ok()? / 8,
+            });
         }
         Self::per_valore(campo)
     }
@@ -666,7 +712,7 @@ impl Layout {
             | Self::Primitiva
             | Self::Binaria { .. }
             | Self::Vista
-            | Self::Dizionario => 0,
+            | Self::Dizionario { .. } => 0,
             Self::ListaOffset { .. } | Self::ListaVista { .. } | Self::ListaFissa => 1,
             Self::SequenzeRipetute => 2,
             Self::Struttura | Self::Unione { .. } => dichiarati,
@@ -674,9 +720,15 @@ impl Layout {
     }
 }
 
-/// Stato della passeggiata: dove siamo nei vettori di nodi, buffer e
-/// conteggi variadici che il messaggio dichiara.
-struct Cursori {
+/// Accesso puntuale al corpo, senza allocarlo o decodificarlo.
+struct Corpo<'a> {
+    file: &'a mut std::fs::File,
+    inizio: u64,
+}
+
+/// Posizioni nei vettori di nodi, buffer e conteggi variadici.
+struct Cursori<'a, 'b> {
+    corpo: &'a mut Corpo<'b>,
     nodo: usize,
     buffer: usize,
     variadico: usize,
@@ -727,6 +779,7 @@ fn valida_batch_del_dizionario(
     batch: arrow_ipc::RecordBatch<'_>,
     versione_v4: bool,
     lunghezza_corpo: u64,
+    corpo: &mut Corpo<'_>,
 ) -> Result<()> {
     let campi = schema
         .fields()
@@ -742,6 +795,7 @@ fn valida_batch_del_dizionario(
     let layout = Layout::per_valore(&dichiarante)
         .ok_or_else(|| errore(driver, "campo Arrow con tipo non decodificabile"))?;
     let mut cursori = Cursori {
+        corpo,
         nodo: 0,
         buffer: 0,
         variadico: 0,
@@ -775,8 +829,20 @@ fn trova_campo_del_dizionario(
         return None;
     }
     let figli = campo.children()?;
-    (0..figli.len())
-        .find_map(|indice| trova_campo_del_dizionario(figli.get(indice), id, profondita + 1))
+    // Arrow 60: Field::_fields scende nei valori dei dizionari, ma per
+    // RunEndEncoded esclude run_ends. Gli scalari non hanno figli convertiti.
+    let mut intervallo = match campo.type_type() {
+        Type::Struct_ | Type::Union => 0..figli.len(),
+        Type::List
+        | Type::LargeList
+        | Type::ListView
+        | Type::LargeListView
+        | Type::FixedSizeList
+        | Type::Map => 0..figli.len().min(1),
+        Type::RunEndEncoded => 1..figli.len().min(2),
+        _ => 0..0,
+    };
+    intervallo.find_map(|indice| trova_campo_del_dizionario(figli.get(indice), id, profondita + 1))
 }
 
 /// Verifica un batch: la passeggiata sullo schema consuma nodi e buffer nello
@@ -786,9 +852,8 @@ fn trova_campo_del_dizionario(
 /// severo di cio' che `arrow` stesso pretende:
 ///
 /// * la bitmap di validita' deve bastare alla lunghezza dichiarata quando ci
-///   sono null. `ArrayData::try_new` lo verifica e restituisce `Err`, ma
-///   `create_struct_array` costruisce `BooleanBuffer::new` **prima** di
-///   passare dal costruttore fallibile, e li' l'assert diventa un panico;
+///   sono null. `ArrayDataBuilder::build` e `create_struct_array` costruiscono
+///   `BooleanBuffer::new` prima della validazione fallibile;
 /// * gli identificatori di tipo di un'unione vengono affettati a `len` byte e
 ///   gli offset densi a `len * 4` senza controlli, con una moltiplicazione che
 ///   trabocca prima ancora di affettare;
@@ -806,11 +871,13 @@ fn valida_batch(
     batch: arrow_ipc::RecordBatch<'_>,
     versione_v4: bool,
     lunghezza_corpo: u64,
+    corpo: &mut Corpo<'_>,
 ) -> Result<()> {
     let campi = schema
         .fields()
         .ok_or_else(|| errore(driver, "schema Arrow senza vettore dei campi"))?;
     let mut cursori = Cursori {
+        corpo,
         nodo: 0,
         buffer: 0,
         variadico: 0,
@@ -835,7 +902,7 @@ fn valida_campo_del_batch(
     batch: arrow_ipc::RecordBatch<'_>,
     versione_v4: bool,
     lunghezza_corpo: u64,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<()> {
     let layout = Layout::per_campo(&campo)
         .ok_or_else(|| errore(driver, "campo Arrow con tipo non decodificabile"))?;
@@ -862,7 +929,7 @@ fn valida_campo_con_layout(
     batch: arrow_ipc::RecordBatch<'_>,
     versione_v4: bool,
     lunghezza_corpo: u64,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<()> {
     if cursori.profondita > MAX_PROFONDITA {
         return Err(errore(driver, "schema Arrow annidato oltre il tetto"));
@@ -875,14 +942,31 @@ fn valida_campo_con_layout(
         let quanti = conteggio
             .checked_add(2)
             .ok_or_else(|| errore(driver, "conteggio variadico Arrow non rappresentabile"))?;
-        for _ in 0..quanti {
+        let (_, validita) = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
+        let (_, viste) = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
+        verifica_buffer_tipizzato(driver, viste, 16)?;
+        for _ in 2..quanti {
             let _ = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
         }
-        let _ = preleva_nodo(driver, batch, cursori)?;
+        let (lunghezza, conteggio_null) = preleva_nodo(driver, batch, cursori)?;
+        verifica_validita(driver, validita, lunghezza, conteggio_null)?;
         return Ok(());
     }
 
     let (lunghezza, conteggio_null) = preleva_nodo(driver, batch, cursori)?;
+
+    // ArrayData::validate_child_data usa checked_mul(...).expect per FSL.
+    if matches!(layout, Layout::ListaFissa) {
+        let dimensione = campo.type_as_fixed_size_list().map_or(0, |t| t.listSize());
+        if let Ok(dimensione) = u64::try_from(dimensione) {
+            if lunghezza.checked_mul(dimensione).is_none() {
+                return Err(errore(
+                    driver,
+                    "dimensione della lista fissa Arrow non rappresentabile",
+                ));
+            }
+        }
+    }
 
     consuma_buffer(
         driver,
@@ -895,6 +979,9 @@ fn valida_campo_con_layout(
         cursori,
     )?;
 
+    if matches!(layout, Layout::SequenzeRipetute) {
+        verifica_estensione_run_ends(driver, campo, batch, lunghezza, lunghezza_corpo, cursori)?;
+    }
     let dichiarati = campo.children().map_or(0, |figli| figli.len());
     let da_attraversare = layout.figli_attraversati(dichiarati);
     if da_attraversare > dichiarati {
@@ -920,6 +1007,9 @@ fn valida_campo_con_layout(
     Ok(())
 }
 
+mod run_ends;
+use run_ends::verifica_estensione_run_ends;
+
 /// Consuma i buffer che la classe di layout prevede, applicando a ognuno la
 /// propria regola.
 ///
@@ -934,14 +1024,17 @@ fn consuma_buffer(
     lunghezza_corpo: u64,
     lunghezza: u64,
     conteggio_null: u64,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<()> {
     match layout {
         Layout::Nulla | Layout::SequenzeRipetute => {}
-        Layout::Primitiva | Layout::Dizionario => {
+        Layout::Primitiva | Layout::Dizionario { .. } => {
             let (_, validita) = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
             verifica_validita(driver, validita, lunghezza, conteggio_null)?;
-            let _ = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
+            let (_, dati) = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
+            if let Layout::Dizionario { larghezza } = layout {
+                verifica_buffer_tipizzato(driver, dati, larghezza)?;
+            }
         }
         Layout::Binaria { larghezza } => {
             let (_, validita) = preleva_buffer(driver, batch, lunghezza_corpo, cursori)?;
@@ -1063,7 +1156,7 @@ fn verifica_buffer_tipizzato(driver: &'static str, lunghezza: u64, larghezza: u6
 fn preleva_nodo(
     driver: &'static str,
     batch: arrow_ipc::RecordBatch<'_>,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<(u64, u64)> {
     let nodi = batch
         .nodes()
@@ -1092,7 +1185,7 @@ fn preleva_buffer(
     driver: &'static str,
     batch: arrow_ipc::RecordBatch<'_>,
     lunghezza_corpo: u64,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<(u64, u64)> {
     let buffer = batch
         .buffers()
@@ -1137,7 +1230,7 @@ fn preleva_buffer(
 fn conteggio_variadico(
     driver: &'static str,
     batch: arrow_ipc::RecordBatch<'_>,
-    cursori: &mut Cursori,
+    cursori: &mut Cursori<'_, '_>,
 ) -> Result<u64> {
     let conteggi = batch
         .variadicBufferCounts()
@@ -1237,7 +1330,8 @@ fn valida_campo(
         | Type::FixedSizeList
         | Type::Map => Some(1),
         Type::RunEndEncoded => Some(2),
-        _ => None,
+        Type::Struct_ | Type::Union => None,
+        _ => Some(0),
     };
     if let Some(attesi) = attesi {
         if figli != attesi {
@@ -1247,10 +1341,59 @@ fn valida_campo(
             ));
         }
     }
+    valida_parametri_strutturali(driver, &campo)?;
 
     if let Some(figli) = campo.children() {
         for indice in 0..figli.len() {
             valida_campo(driver, figli.get(indice), profondita + 1, visitati)?;
+        }
+    }
+    Ok(())
+}
+
+/// Invarianti usate anche dalla costruzione infallibile di valori vuoti.
+/// Il conteggio dei figli e' gia' verificato; non basta verificare il batch,
+/// perche' un dizionario senza `DictionaryBatch` non ha nodi per i valori.
+fn valida_parametri_strutturali(driver: &'static str, campo: &FbField<'_>) -> Result<()> {
+    if campo
+        .type_as_fixed_size_binary()
+        .is_some_and(|tipo| tipo.byteWidth() < 0)
+    {
+        return Err(errore(driver, "larghezza binaria fissa Arrow negativa"));
+    }
+    if campo
+        .type_as_fixed_size_list()
+        .is_some_and(|tipo| tipo.listSize() < 0)
+    {
+        return Err(errore(
+            driver,
+            "dimensione della lista fissa Arrow negativa",
+        ));
+    }
+    if campo.type_type() == Type::Union && campo.children().is_none_or(|f| f.is_empty()) {
+        return Err(errore(driver, "unione Arrow senza figli"));
+    }
+    if matches!(campo.type_type(), Type::Map | Type::RunEndEncoded) {
+        let figli = campo
+            .children()
+            .ok_or_else(|| errore(driver, "contenitore Arrow senza figli"))?;
+        let primo = figli.get(0);
+        if campo.type_type() == Type::Map {
+            if primo.type_type() != Type::Struct_
+                || primo.dictionary().is_some()
+                || primo.children().is_none_or(|f| f.len() != 2)
+            {
+                return Err(errore(
+                    driver,
+                    "entries della mappa Arrow non struct di due campi",
+                ));
+            }
+        } else if primo.dictionary().is_some()
+            || !primo
+                .type_as_int()
+                .is_some_and(|tipo| tipo.is_signed() && matches!(tipo.bitWidth(), 16 | 32 | 64))
+        {
+            return Err(errore(driver, "run ends Arrow non Int16, Int32 o Int64"));
         }
     }
     Ok(())
@@ -1381,11 +1524,24 @@ fn valida_unione(driver: &'static str, campo: &FbField<'_>) -> Result<bool> {
                 "unione Arrow con identificatori e figli in numero diverso",
             ));
         }
+        let mut visti = 0_u128;
         for indice in 0..identificatori.len() {
-            if i8::try_from(identificatori.get(indice)).is_err() {
+            let id = identificatori.get(indice);
+            if !(0..=127).contains(&id) {
                 return Err(errore(driver, "identificatore di unione Arrow fuori da i8"));
             }
+            let maschera = 1_u128 << id;
+            if visti & maschera != 0 {
+                return Err(errore(driver, "identificatore di unione Arrow duplicato"));
+            }
+            visti |= maschera;
         }
+    } else if campo.children().is_some_and(|figli| figli.len() > 128) {
+        // convert.rs usa UnionFields::from_fields, che panica dal 129esimo.
+        return Err(errore(
+            driver,
+            "unione Arrow con troppi identificatori impliciti",
+        ));
     }
     Ok(true)
 }

@@ -605,6 +605,7 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "driver-common",
+ "flatbuffers",
  "geo-types",
  "plenora-io-core",
  "plenora-io-model",
