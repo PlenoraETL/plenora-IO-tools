@@ -33,6 +33,12 @@ yanked = "deny"
 # coincidano: due elenchi divergono, e qui la ragione non c'e'.
 ignore = [
     { id = "RUSTSEC-2023-0089", reason = "atomic-polyfill: vedi assurance/registries/dependency-exceptions.json" },
+    # cargo-deny 0.20.2: IgnoreId accetta solo id/reason, non crate/versione.
+    # Ambito dichiarato: solo zip 8.6.0 transitivo, lettura in memoria;
+    # evidenze, hazard, rientro e riesame nel registro (regola 4, 2026-10-17).
+    { id = "RUSTSEC-2026-0367", reason = "Solo zip 8.6.0 transitivo; nessuna estrazione su disco raggiungibile da IO. Vedi assurance/registries/dependency-exceptions.json" },
+    { id = "RUSTSEC-2026-0368", reason = "Solo zip 8.6.0 transitivo; nessuna estrazione su disco raggiungibile da IO. Vedi assurance/registries/dependency-exceptions.json" },
+    { id = "RUSTSEC-2026-0369", reason = "Solo zip 8.6.0 transitivo; nessuna estrazione su disco raggiungibile da IO. Vedi assurance/registries/dependency-exceptions.json" },
     # PackageSpec esatto: nessuna altra versione di zip e nessun advisory.
     # cargo-deny 0.20.2 non limita i parent di un ignore yanked: il gate
     # check_cargo_deny.py verifica entrambi i lockfile (anche fuzz/).
