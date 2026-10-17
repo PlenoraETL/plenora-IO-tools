@@ -1915,3 +1915,53 @@ fn lo_sha256_di_prova_rende_i_valori_noti() {
         "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
     );
 }
+
+#[test]
+fn write_runtime_a_flusso_e_la_deviazione_dichiarata() {
+    let temporanea = tempfile::tempdir().expect("tempdir");
+    let mut deposito = Deposito::nuovo(temporanea.path());
+    let stream = temporanea.path().join("flusso.arrows");
+    operazioni::read(
+        Richiesta::sulla_sorgente(fixture("canonico.geojson"))
+            .con_destinazione(&stream)
+            .con_opzione_di_scrittura("serialization", "stream"),
+    )
+    .expect("ingresso stream");
+    deposito
+        .ingressi
+        .push(("artifact://input/flusso.arrows", stream));
+    let risultato = binding(&deposito).invoca(
+        &per_operazione(
+            "io.write",
+            json!({
+                "source": "artifact://input/flusso.arrows",
+                "destination": "artifact://output/scritto.csv",
+                "format": "csv"
+            }),
+        ),
+        CancellationToken::new(),
+    );
+    let documento = successo_json(&risultato);
+    assert_eq!(
+        documento["input"]["content_type"],
+        CONTENT_TYPE_FLUSSO_ARROW
+    );
+    let schema = schema_nostro("plenora-io-write-result-v1");
+    let errori: Vec<_> = schema.iter_errors(documento).collect();
+    assert_eq!(errori.len(), 1, "{errori:?}");
+    assert_eq!(errori[0].instance_path().to_string(), "/input/content_type");
+    let mut contenitore = documento.clone();
+    contenitore["input"]["content_type"] = json!("application/vnd.apache.arrow.file");
+    assert!(schema.is_valid(&contenitore));
+    let adozione = documento_adozione();
+    assert!(adozione["deviations"]
+        .as_array()
+        .expect("deviazioni")
+        .iter()
+        .any(|voce| voce["surface"] == "runtime"
+            && voce["rule"] == "plenora-io-write-result-v1 (input.content_type)"));
+}
+
+fn documento_adozione() -> Value {
+    documento(&radice().join("contracts/adozione-4.0.0.json"))
+}

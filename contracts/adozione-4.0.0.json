@@ -167,6 +167,13 @@
       "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare. Caso noto a monte: un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 ~2,3 GB da 3966 byte.",
       "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato; GeoParquet: chiuso nella 4.2.0, vedi docs/PRODUCT.md",
       "detectable_before_invocation": false
+    },
+    {
+      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "surface": "runtime",
+      "observed_behavior": "io.write accetta un artefatto Arrow stream e restituisce direttamente la busta dell'operazione: input.content_type vale application/vnd.apache.arrow.stream, ma plenora-io-write-result-v1 ammette solo application/vnd.apache.arrow.file. Hazard: il consumatore che valida v1 rifiuta il risultato anche dopo la pubblicazione locale riuscita. Il contenitore resta conforme; la serializzazione vera non viene mascherata.",
+      "tracking": "Regola 4: deviazione dichiarata nel binding runtime e nel registro dei limiti docs/PRODUCT.md. Rientro con plenora-io-write-result-v2 sotto io.write@2 nel catalogo comune; v1 non si allarga. Prova: write_runtime_a_flusso_e_la_deviazione_dichiarata.",
+      "detectable_before_invocation": true
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",

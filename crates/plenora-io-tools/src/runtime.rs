@@ -49,6 +49,7 @@
 //! CLI e la superficie Rust consegnano su file.
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -614,10 +615,11 @@ impl<'a> BindingRuntime<'a> {
         // (PUBLIC-SURFACES-1.0 SURF-010), non come una quota di risorse
         // esaurita. Il tetto di durata qui sopra resta oltre la scadenza, cosi'
         // da non arrivare prima di lei.
-        richiesta = richiesta.con_cancellazione(match scadenza {
+        let cancellazione = match scadenza {
             Some(istante) => cancellazione.child_token_with_deadline(Some(istante)),
             None => cancellazione,
-        });
+        };
+        richiesta = richiesta.con_cancellazione(cancellazione.clone());
         let esito = match descrittore.operazione {
             "io.catalog" => return Ok((descrittore, Carico::Json(operazioni::catalog()))),
             OPERAZIONE_SCOPERTA => return Ok((descrittore, Carico::Json(capacita()))),
@@ -627,13 +629,17 @@ impl<'a> BindingRuntime<'a> {
                 return consegna_in_flusso(richiesta, self.directory_temporanea.as_deref())
                     .map(|carico| (descrittore, carico))
             }
+            // Deviazione, regola 4: un ingresso stream rende input.content_type
+            // stream, escluso da write-result-v1. Non mascheriamo i byte reali.
+            // Hazard e rientro (io.write@2): docs/PRODUCT.md e manifesto adozione.
             "io.write" => operazioni::write(richiesta),
             "io.convert" => operazioni::convert(richiesta),
             _ => return Err(errore_di_instradamento(RifiutoDiInstradamento::Operazione)),
         };
-        esito
-            .map(|documento| (descrittore, Carico::Json(documento)))
-            .map_err(errore_della_busta)
+        let documento = esito.map_err(errore_della_busta)?;
+        // Anche la costruzione della busta consuma il tempo dell'invocazione.
+        finalizza_carico(Carico::Json(documento), &cancellazione)
+            .map(|carico| (descrittore, carico))
     }
 
     /// La [`Richiesta`] dai campi del payload, con gli artefatti risolti.
@@ -713,27 +719,74 @@ fn consegna_in_flusso(richiesta: Richiesta, genitore: Option<&Path>) -> Result<C
     let richiesta = richiesta
         .con_destinazione(&file)
         .con_opzione_di_scrittura("serialization", "stream");
-    let esito = operazioni::read(richiesta)
-        .map_err(errore_della_busta)
-        .and_then(|mut rapporto| {
-            // `delivered` descrive una consegna **in una destinazione chiesta
-            // dall'ingresso**, e qui l'ingresso non ne ha chiesta nessuna: il
-            // file privato e' un dettaglio di questo processo, e il suo esito di
-            // pubblicazione non dice niente al chiamante. `null`, come per una
-            // lettura senza `destination` (`plenora-io-read-input-v1`). Serve
-            // anche alla validita': v1 fissa `delivered.content_type` al
-            // contenitore, e qui i byte sono il flusso -- lo dice il content
-            // type del risultato.
-            rapporto["delivered"] = Value::Null;
-            std::fs::read(&file)
-                .map(|byte| Carico::FlussoArrow { byte, rapporto })
-                .map_err(|_| errore_della_consegna(Consegna::Lettura))
-        });
+    let cancellazione = richiesta.cancellation.clone();
+    let esito = operazioni::read(richiesta).map_err(errore_della_busta);
+    completa_flusso(privata, esito, &cancellazione)
+}
+
+fn completa_flusso(
+    privata: tempfile::TempDir,
+    esito: Result<Value, Value>,
+    cancellazione: &CancellationToken,
+) -> Result<Carico, Value> {
+    let esito = esito.and_then(|mut rapporto| {
+        // `delivered` descrive una consegna **in una destinazione chiesta
+        // dall'ingresso**, e qui l'ingresso non ne ha chiesta nessuna: il
+        // file privato e' un dettaglio di questo processo, e il suo esito di
+        // pubblicazione non dice niente al chiamante. `null`, come per una
+        // lettura senza `destination` (`plenora-io-read-input-v1`). Serve
+        // anche alla validita': v1 fissa `delivered.content_type` al
+        // contenitore, e qui i byte sono il flusso -- lo dice il content
+        // type del risultato.
+        rapporto["delivered"] = Value::Null;
+        verifica_controlli(cancellazione, ErrorPhase::Read)?;
+        let file = std::fs::File::open(privata.path().join("consegna.arrows"))
+            .map_err(|_| errore_della_consegna(Consegna::Lettura))?;
+        let byte = leggi_flusso(file, cancellazione)?;
+        Ok(Carico::FlussoArrow { byte, rapporto })
+    });
     let rimossa = privata.close();
     match (esito, rimossa) {
         (_, Err(_)) => Err(errore_della_consegna(Consegna::Rimozione)),
-        (esito, Ok(())) => esito,
+        (Ok(carico), Ok(())) => finalizza_carico(carico, cancellazione),
+        (Err(errore), Ok(())) => Err(errore),
     }
+}
+
+/// Un blocco alla volta: nessun successo con un flusso parziale, e il chiamante
+/// esegue il cleanup anche quando questo controllo interrompe la lettura.
+fn leggi_flusso(mut file: impl Read, cancellazione: &CancellationToken) -> Result<Vec<u8>, Value> {
+    let mut byte = Vec::new();
+    let mut blocco = vec![0; 64 * 1024].into_boxed_slice();
+    loop {
+        verifica_controlli(cancellazione, ErrorPhase::Read)?;
+        let letti = file
+            .read(&mut blocco)
+            .map_err(|_| errore_della_consegna(Consegna::Lettura))?;
+        verifica_controlli(cancellazione, ErrorPhase::Read)?;
+        if letti == 0 {
+            return Ok(byte);
+        }
+        byte.extend_from_slice(&blocco[..letti]);
+    }
+}
+
+// Comune alle cinque operazioni controllabili, dopo costruzione del carico
+// e cleanup. Catalogo e discovery non dichiarano questi controlli.
+fn finalizza_carico(carico: Carico, cancellazione: &CancellationToken) -> Result<Carico, Value> {
+    verifica_controlli(cancellazione, ErrorPhase::Finalize)?;
+    Ok(carico)
+}
+
+fn verifica_controlli(cancellazione: &CancellationToken, fase: ErrorPhase) -> Result<(), Value> {
+    if let Some(motivo) = cancellazione.reason() {
+        let errore = plenora_io_model::PlenoraIoError::cancelled(
+            fase,
+            motivo == plenora_io_model::CancellationReason::Deadline,
+        );
+        return Err(errore_della_busta(crate::map_err(errore).1));
+    }
+    Ok(())
 }
 
 fn tetti(campi: &Campi, scadenza_ms: Option<u64>) -> PipelineLimits {

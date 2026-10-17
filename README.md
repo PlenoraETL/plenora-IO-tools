@@ -103,6 +103,11 @@ let risultato = BindingRuntime::new(&risolutore)
   (`delivered` a `null`: nessuna destinazione è stata chiesta, e la
   serializzazione la dice il content type del risultato), e su questa
   superficie non scrive file del chiamante;
+- `io.write` con un artefatto Arrow stream restituisce
+  `input.content_type: application/vnd.apache.arrow.stream`: il risultato
+  non valida contro `plenora-io-write-result-v1`, che ammette solo il
+  contenitore. La deviazione runtime ? dichiarata nel manifesto di adozione
+  e nel registro dei limiti di `docs/PRODUCT.md`; rientra con `io.write@2`;
 - la discovery passa dalla stessa ammissione delle operazioni: selettore
   `capabilities`, versione `1`, contratto d'ingresso
   `plenora-io-catalog-query-v1`, payload `{}`; rende il documento

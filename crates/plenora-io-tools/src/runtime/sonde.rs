@@ -175,3 +175,112 @@ fn gli_spazi_sono_quelli_di_ecma() {
         assert!(!spazio_ecma(non_spazio), "{non_spazio:?}");
     }
 }
+
+#[test]
+fn interruzione_dopo_la_produzione_del_file_rimuove_la_directory() {
+    for scadenza in [false, true] {
+        let privata = tempfile::tempdir().expect("directory privata");
+        let percorso = privata.path().to_path_buf();
+        let sorgente = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/canoniche/canonico.geojson");
+        let rapporto = crate::operazioni::read(
+            crate::operazioni::Richiesta::sulla_sorgente(sorgente)
+                .con_destinazione(percorso.join("consegna.arrows"))
+                .con_opzione_di_scrittura("serialization", "stream"),
+        )
+        .expect("file Arrow prodotto prima dell'interruzione");
+        assert!(percorso.join("consegna.arrows").is_file());
+        let token = super::CancellationToken::new();
+        if scadenza {
+            token.cancel_due_to_deadline();
+        } else {
+            token.cancel();
+        }
+        let errore = super::completa_flusso(privata, Ok(rapporto), &token)
+            .expect_err("nessun successo dopo l'interruzione");
+        assert_eq!(
+            errore["category"],
+            if scadenza { "timeout" } else { "cancelled" }
+        );
+        assert_eq!(
+            errore["code"],
+            if scadenza {
+                "DEADLINE_EXCEEDED"
+            } else {
+                "CANCELLED"
+            }
+        );
+        assert_eq!(errore["phase"], "read");
+        assert_eq!(errore["remote_effect"], "none");
+        assert_eq!(errore["retry"]["kind"], "never");
+        assert!(!percorso.exists(), "cleanup anche con token interrotto");
+    }
+}
+
+#[test]
+fn interruzione_durante_un_blocco_o_eof_non_restituisce_byte() {
+    struct Lettore {
+        token: super::CancellationToken,
+        scadenza: bool,
+        letti: usize,
+    }
+    impl std::io::Read for Lettore {
+        fn read(&mut self, byte: &mut [u8]) -> std::io::Result<usize> {
+            if self.scadenza {
+                self.token.cancel_due_to_deadline();
+            } else {
+                self.token.cancel();
+            }
+            byte[..self.letti].fill(42);
+            Ok(self.letti)
+        }
+    }
+    for scadenza in [false, true] {
+        for letti in [0, 64 * 1024] {
+            let token = super::CancellationToken::new();
+            let errore = super::leggi_flusso(
+                Lettore {
+                    token: token.clone(),
+                    scadenza,
+                    letti,
+                },
+                &token,
+            )
+            .expect_err("interruzione osservata anche dopo EOF");
+            assert_eq!(
+                errore["category"],
+                if scadenza { "timeout" } else { "cancelled" }
+            );
+        }
+    }
+}
+
+#[test]
+fn interruzione_alla_restituzione_non_rende_un_carico_gia_completo() {
+    for scadenza in [false, true] {
+        let token = super::CancellationToken::new();
+        let byte = super::leggi_flusso(std::io::Cursor::new([42; 8]), &token)
+            .expect("lettura terminata prima dell'interruzione");
+        if scadenza {
+            token.cancel_due_to_deadline();
+        } else {
+            token.cancel();
+        }
+        for carico in [
+            super::Carico::Json(json!({})),
+            super::Carico::FlussoArrow {
+                byte,
+                rapporto: json!({}),
+            },
+        ] {
+            let errore = super::finalizza_carico(carico, &token).expect_err("controllo finale");
+            assert_eq!(
+                errore["category"],
+                if scadenza { "timeout" } else { "cancelled" }
+            );
+            assert_eq!(errore["phase"], "finalize");
+            assert_eq!(errore["remote_effect"], "none");
+            assert_eq!(errore["retry"]["kind"], "never");
+        }
+    }
+}
