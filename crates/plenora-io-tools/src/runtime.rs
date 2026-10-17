@@ -591,6 +591,8 @@ impl<'a> BindingRuntime<'a> {
             .scadenza
             .map(|istante| istante_della_scadenza(istante, (self.orologio)()))
             .transpose()?;
+        // Regola 4, io-read-request: la fixture usa campi estranei allo schema
+        // IO. Rifiuto prima del risolutore; hazard e rientro in docs/PRODUCT.md.
         let campi = campi_del_payload(descrittore, ammessa.payload)?;
         if scadenza.is_some() && campi.deadline_ms.is_some() {
             // RT-023: la scadenza sul runtime viaggia solo nei metadati, e un
@@ -717,6 +719,10 @@ fn consegna_in_flusso(richiesta: Richiesta, genitore: Option<&Path>) -> Result<C
         .con_opzione_di_scrittura("serialization", "stream");
     let cancellazione = richiesta.cancellation.clone();
     let esito = operazioni::read(richiesta).map_err(errore_della_busta);
+    #[cfg(test)]
+    {
+        sonde::al_passaggio("dopo_pipeline");
+    }
     completa_flusso(privata, esito, &cancellazione)
 }
 
@@ -759,6 +765,10 @@ fn leggi_flusso(mut file: impl Read, cancellazione: &CancellationToken) -> Resul
         let letti = file
             .read(&mut blocco)
             .map_err(|_| errore_della_consegna(Consegna::Lettura))?;
+        #[cfg(test)]
+        {
+            sonde::al_passaggio("durante_lettura");
+        }
         verifica_controlli(cancellazione, ErrorPhase::Read)?;
         if letti == 0 {
             return Ok(byte);
@@ -770,6 +780,10 @@ fn leggi_flusso(mut file: impl Read, cancellazione: &CancellationToken) -> Resul
 // Comune alle cinque operazioni controllabili, dopo costruzione del carico
 // e cleanup. Catalogo e discovery non dichiarano questi controlli.
 fn finalizza_carico(carico: Carico, cancellazione: &CancellationToken) -> Result<Carico, Value> {
+    #[cfg(test)]
+    {
+        sonde::al_passaggio("finalizzazione");
+    }
     verifica_controlli(cancellazione, ErrorPhase::Finalize)?;
     Ok(carico)
 }
@@ -2036,6 +2050,9 @@ fn errore_della_consegna(passo: Consegna) -> Value {
 /// Le operazioni rendono la busta del protocollo CLI, che avvolge l'errore
 /// comune con `status`, `protocol_version` e `contract`: quei campi sono del
 /// binding di processo, e il binding runtime porta soltanto l'errore.
+// Regola 4, io-read-cancelled-error: conserviamo gli assi delle operazioni
+// (CANCELLED, probe, never per il token gia' cancellato), diversi dal vettore.
+// Conseguenze, hazard e rientro: docs/PRODUCT.md e manifesto di adozione.
 fn errore_della_busta(busta: Value) -> Value {
     match busta {
         Value::Object(mut campi) if campi.get("error").is_some_and(Value::is_object) => {

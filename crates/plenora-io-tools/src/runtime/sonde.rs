@@ -285,68 +285,206 @@ fn interruzione_alla_restituzione_non_rende_un_carico_gia_completo() {
     }
 }
 
-// La stessa preparazione del binding: il payload governa sia i tetti sia
-// il token conservato. Solo l'orologio avanza, mai una cancellazione esplicita.
-fn richiesta_con_deadline(
-    sorgente: &std::path::Path,
-) -> (
-    crate::operazioni::Richiesta,
-    plenora_io_model::PipelineClock,
-) {
-    let orologio = plenora_io_model::PipelineClock::manual(Instant::now());
-    let campi = campi(json!({"deadline_ms": 60_000}));
-    let token = super::token_della_richiesta(
-        super::CancellationToken::with_clock(orologio.clone()),
-        None,
-        campi.deadline_ms,
-    )
-    .expect("scadenza relativa rappresentabile");
-    let richiesta = crate::operazioni::Richiesta::sulla_sorgente(sorgente)
-        .con_tetti(tetti(&campi, None))
-        .con_cancellazione(token);
-    (richiesta, orologio)
+// Gancio locale al thread, consumato una sola volta e rimosso anche su panic.
+// Non modifica token o richieste del binding: muove soltanto l'orologio
+// condiviso col token pubblico, oppure cancella il token del chiamante.
+type Gancio = (&'static str, Box<dyn FnOnce()>);
+thread_local! {
+    static GANCIO: std::cell::RefCell<Option<Gancio>> = const { std::cell::RefCell::new(None) };
 }
 
-fn verifica_timeout(errore: &serde_json::Value, fase: &str) {
-    assert_eq!(errore["code"], "DEADLINE_EXCEEDED");
-    assert_eq!(errore["category"], "timeout");
-    assert_eq!(errore["phase"], fase);
+pub(super) fn al_passaggio(passo: &str) {
+    let azione = GANCIO.with(|g| {
+        let mut g = g.borrow_mut();
+        if g.as_ref().is_some_and(|(atteso, _)| *atteso == passo) {
+            g.take()
+        } else {
+            None
+        }
+    });
+    if let Some((_, azione)) = azione {
+        azione();
+    }
+}
+
+struct RipristinaGancio;
+impl Drop for RipristinaGancio {
+    fn drop(&mut self) {
+        GANCIO.with(|g| g.borrow_mut().take());
+    }
+}
+
+struct ArtefattiDiProva {
+    sorgente: PathBuf,
+    destinazione: PathBuf,
+}
+impl super::RisolutoreArtefatti for ArtefattiDiProva {
+    fn sorgente(&self, _: &str) -> Result<PathBuf, super::RifiutoArtefatto> {
+        Ok(self.sorgente.clone())
+    }
+    fn destinazione(&self, _: &str) -> Result<PathBuf, super::RifiutoArtefatto> {
+        Ok(self.destinazione.clone())
+    }
+}
+
+fn invocazione(operazione: &str) -> super::Invocazione {
+    let descrittore = super::OPERAZIONI
+        .iter()
+        .find(|d| d.operazione == operazione)
+        .expect("operazione");
+    let mut payload = json!({"source": "artifact://input/canonico", "deadline_ms": 60_000});
+    if operazione == "io.write" || operazione == "io.convert" {
+        payload["destination"] = json!("artifact://output/uscita.geojson");
+        payload["format"] = json!("geojson");
+    }
+    if operazione == "io.convert" {
+        payload.as_object_mut().expect("oggetto").remove("format");
+        payload["source_format"] = json!("geojson");
+        payload["target_format"] = json!("geojson");
+    }
+    serde_json::from_value(json!({
+        "content_type": "application/json",
+        "metadata": {
+            "plenora.message.id": "018f3d84-7b2c-7f00-8000-0000000000a1",
+            "plenora.capability.name": super::NOME_CAPACITA,
+            "plenora.capability.version": "1",
+            "plenora.capability.operation": operazione,
+            "plenora.operation.version": "1",
+            "plenora.input.contract": descrittore.contratto_ingresso,
+            "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000a2"
+        },
+        "payload": payload
+    }))
+    .expect("invocazione")
+}
+
+fn prova_interruzione_binding(operazione: &str, passo: &'static str, scadenza: bool) {
+    let deposito = tempfile::tempdir().expect("deposito");
+    let consegne = tempfile::tempdir().expect("consegne private");
+    let sorgente =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.geojson");
+    let sorgente = if operazione == "io.write" {
+        let arrow = deposito.path().join("canonico.arrow");
+        crate::operazioni::read(
+            crate::operazioni::Richiesta::sulla_sorgente(sorgente).con_destinazione(&arrow),
+        )
+        .expect("dataset per write");
+        arrow
+    } else {
+        sorgente
+    };
+    let artefatti = ArtefattiDiProva {
+        sorgente,
+        destinazione: deposito.path().join("uscita.geojson"),
+    };
+    let binding = super::BindingRuntime::new(&artefatti).con_directory_temporanea(consegne.path());
+    let richiesta = invocazione(operazione);
+    // Controllo positivo attraverso lo stesso entry point, senza interruzioni.
+    assert!(
+        !binding
+            .invoca(&richiesta, super::CancellationToken::new())
+            .e_un_errore(),
+        "{operazione}"
+    );
+    if artefatti.destinazione.exists() {
+        std::fs::remove_file(&artefatti.destinazione).expect("nuova destinazione");
+    }
+    let orologio = plenora_io_model::PipelineClock::manual(Instant::now());
+    let token = super::CancellationToken::with_clock(orologio.clone());
+    let chiamante = token.clone();
+    let directory = consegne.path().to_path_buf();
+    GANCIO.with(|g| {
+        *g.borrow_mut() = Some((
+            passo,
+            Box::new(move || {
+                assert!(
+                    !chiamante.is_cancelled(),
+                    "interruzione solo dopo la pipeline"
+                );
+                let private: Vec<_> = std::fs::read_dir(directory).expect("directory").collect();
+                if passo == "finalizzazione" {
+                    assert!(private.is_empty(), "cleanup gia' completato");
+                } else {
+                    assert_eq!(private.len(), 1);
+                    assert!(private[0]
+                        .as_ref()
+                        .expect("privata")
+                        .path()
+                        .join("consegna.arrows")
+                        .is_file());
+                }
+                if scadenza {
+                    orologio.advance(Duration::from_secs(60)).expect("scade");
+                } else {
+                    chiamante.cancel();
+                }
+            }),
+        ));
+    });
+    let _ripristina = RipristinaGancio;
+    let risultato = binding.invoca(&richiesta, token);
+    GANCIO.with(|g| assert!(g.borrow().is_none(), "gancio raggiunto"));
+    verifica_interruzione(risultato, operazione, passo, scadenza);
+    assert_eq!(
+        std::fs::read_dir(consegne.path()).expect("cleanup").count(),
+        0
+    );
+}
+
+fn verifica_interruzione(
+    risultato: super::Risultato,
+    operazione: &str,
+    passo: &str,
+    scadenza: bool,
+) {
+    assert!(risultato.e_un_errore(), "{operazione}: {passo}");
+    assert_eq!(risultato.metadata.contratto_uscita, super::CONTRATTO_ERRORE);
+    assert_eq!(
+        risultato.metadata.id_causa.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000a1")
+    );
+    assert_eq!(
+        risultato.metadata.id_correlazione.as_deref(),
+        Some("018f3d84-7b2c-7f00-8000-0000000000a2")
+    );
+    let super::Carico::Json(errore) = risultato.payload else {
+        panic!("nessun byte Arrow")
+    };
+    assert_eq!(
+        errore["code"],
+        if scadenza {
+            "DEADLINE_EXCEEDED"
+        } else {
+            "CANCELLED"
+        }
+    );
+    assert_eq!(
+        errore["category"],
+        if scadenza { "timeout" } else { "cancelled" }
+    );
+    assert_eq!(
+        errore["phase"],
+        if passo == "finalizzazione" {
+            "finalize"
+        } else {
+            "read"
+        }
+    );
     assert_eq!(errore["remote_effect"], "none");
     assert_eq!(errore["retry"]["kind"], "never");
 }
 
 #[test]
-fn deadline_del_payload_dopo_il_file_arrow_impedisce_la_consegna() {
-    let privata = tempfile::tempdir().expect("directory privata");
-    let percorso = privata.path().to_path_buf();
-    let sorgente =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.geojson");
-    let (richiesta, orologio) = richiesta_con_deadline(&sorgente);
-    let token = richiesta.cancellation.clone();
-    let rapporto = crate::operazioni::read(
-        richiesta
-            .con_destinazione(percorso.join("consegna.arrows"))
-            .con_opzione_di_scrittura("serialization", "stream"),
-    )
-    .expect("produzione completata prima della scadenza");
-    assert!(percorso.join("consegna.arrows").is_file());
-    assert!(!token.is_cancelled());
-    orologio.advance(Duration::from_secs(60)).expect("scade");
-    let errore = super::completa_flusso(privata, Ok(rapporto), &token)
-        .expect_err("il token sopravvive al PipelineContext");
-    verifica_timeout(&errore, "read");
-    assert!(!percorso.exists(), "cleanup dopo il timeout");
+fn binding_interruzione_dopo_pipeline_e_durante_consegna() {
+    for passo in ["dopo_pipeline", "durante_lettura"] {
+        for scadenza in [false, true] {
+            prova_interruzione_binding("io.read", passo, scadenza);
+        }
+    }
 }
 
 #[test]
-fn deadline_del_payload_alla_finalizzazione_delle_cinque_operazioni() {
-    use crate::operazioni;
-    let sorgente =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.geojson");
-    let deposito = tempfile::tempdir().expect("deposito");
-    let arrow = deposito.path().join("input.arrow");
-    operazioni::read(operazioni::Richiesta::sulla_sorgente(&sorgente).con_destinazione(&arrow))
-        .expect("dataset per io.write");
+fn binding_interruzione_finale_delle_cinque_operazioni() {
     for operazione in [
         "io.inspect",
         "io.layers",
@@ -354,54 +492,8 @@ fn deadline_del_payload_alla_finalizzazione_delle_cinque_operazioni() {
         "io.write",
         "io.convert",
     ] {
-        let privata = tempfile::tempdir().expect("directory privata");
-        let percorso = privata.path().to_path_buf();
-        let (richiesta, orologio) = richiesta_con_deadline(if operazione == "io.write" {
-            &arrow
-        } else {
-            &sorgente
-        });
-        let token = richiesta.cancellation.clone();
-        let carico = if operazione == "io.read" {
-            let rapporto = operazioni::read(
-                richiesta
-                    .con_destinazione(percorso.join("consegna.arrows"))
-                    .con_opzione_di_scrittura("serialization", "stream"),
-            )
-            .expect("file prodotto");
-            assert!(percorso.join("consegna.arrows").is_file());
-            let byte = super::leggi_flusso(
-                std::fs::File::open(percorso.join("consegna.arrows")).expect("file"),
-                &token,
-            )
-            .expect("byte letti prima della scadenza");
-            super::Carico::FlussoArrow { byte, rapporto }
-        } else {
-            let documento = match operazione {
-                "io.inspect" => operazioni::inspect(richiesta),
-                "io.layers" => operazioni::layers(richiesta),
-                "io.write" => operazioni::write(
-                    richiesta
-                        .con_destinazione(percorso.join("uscita.geojson"))
-                        .con_formato_destinazione("geojson"),
-                ),
-                "io.convert" => operazioni::convert(
-                    richiesta
-                        .con_formato_sorgente("geojson")
-                        .con_destinazione(percorso.join("uscita.geojson"))
-                        .con_formato_destinazione("geojson"),
-                ),
-                _ => unreachable!(),
-            }
-            .expect(operazione);
-            super::Carico::Json(documento)
-        };
-        assert!(!token.is_cancelled(), "{operazione}: produzione completata");
-        // La scadenza arriva soltanto nel cleanup, dopo file e carico completo.
-        privata.close().expect("cleanup");
-        orologio.advance(Duration::from_secs(60)).expect("scade");
-        let errore = super::finalizza_carico(carico, &token).expect_err(operazione);
-        verifica_timeout(&errore, "finalize");
-        assert!(!percorso.exists());
+        for scadenza in [false, true] {
+            prova_interruzione_binding(operazione, "finalizzazione", scadenza);
+        }
     }
 }
