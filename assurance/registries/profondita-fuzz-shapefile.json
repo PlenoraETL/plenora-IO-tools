@@ -332,11 +332,11 @@
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
   },
   "rimisurazione_dovuta": {
-    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'. La PR #57 aggiorna inoltre zip diretto a 9.0.3 e i lockfile principale e fuzz: il perimetro cambia ancora. Rinvio riallineato all'albero corrente il 2026-10-16; nessuna nuova misura eseguita. La PR #58 corregge la prevalidazione dello schema e dei buffer IPC. Rinvio riallineato all'albero corrente il 2026-10-17; nessuna nuova misura eseguita. La revisione dei layout IPC della PR #58 aggiunge i controlli su viste, indici di dizionario, liste fisse e copertura logica dei run ends. Rinvio riallineato il 2026-10-17; nessuna nuova misura eseguita.",
+    "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'. La PR #57 aggiorna inoltre zip diretto a 9.0.3 e i lockfile principale e fuzz: il perimetro cambia ancora. Rinvio riallineato all'albero corrente il 2026-10-16; nessuna nuova misura eseguita. La PR #58 corregge la prevalidazione dello schema e dei buffer IPC. Rinvio riallineato all'albero corrente il 2026-10-17; nessuna nuova misura eseguita. La revisione dei layout IPC della PR #58 aggiunge i controlli su viste, indici di dizionario, liste fisse e copertura logica dei run ends. Rinvio riallineato il 2026-10-17; nessuna nuova misura eseguita. Il bump a 5.0.0 aggiorna entrambi i lock: rinvio riallineato il 2026-10-18; nessuna nuova misura eseguita.",
     "impronta_della_misura": "e466b198db5fc5ee6ec3b3cf592ea117736094fb9b7f71ca02f977c335a4643f",
-    "impronta_attesa": "c3afb5ae83a16cf12af70b229014d21ad1e706a90ca85c4f7afc757db4482a4a",
+    "impronta_attesa": "80939275f4ef9e376282996bb027f4aa52c2857d6a9446dbedd7b8acfde0ff3f",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
-    "quando": "sul candidato finale della 4.2.0, prima del rilascio",
+    "quando": "sulla VM sul commit della candidate iniziale 5.0.0, prima del congelamento e del rilascio",
     "comando": "scripts/fuzz-profondita.sh shp_reader"
   }
 }
