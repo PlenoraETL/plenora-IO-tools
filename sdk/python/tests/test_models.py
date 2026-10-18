@@ -40,6 +40,7 @@ def driver_sano(**modifiche):
             "id": "geojson",
             "available": True,
             "required_feature": None,
+            "requires_declared_geometry_types": True,
             "direction": "bidirectional",
             "multi_layer": False,
             "multi_file": False,

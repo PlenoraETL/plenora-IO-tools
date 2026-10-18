@@ -349,7 +349,7 @@ fn invocazione(operazione: &str) -> super::Invocazione {
             "plenora.capability.name": super::NOME_CAPACITA,
             "plenora.capability.version": "1",
             "plenora.capability.operation": operazione,
-            "plenora.operation.version": "1",
+            "plenora.operation.version": descrittore.versione.to_string(),
             "plenora.input.contract": descrittore.contratto_ingresso,
             "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000a2"
         },

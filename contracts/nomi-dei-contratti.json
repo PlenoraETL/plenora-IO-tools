@@ -2,11 +2,11 @@
   "schema_version": 1,
   "component": "plenora-io-tools",
   "che_cosa_e": "il nome che ciascuna busta annuncia nel campo `contract`, e da dove quel nome viene. CLI-2.0 §5 chiama quel campo «operation-specific, namespaced contract identifier» e §10 esige che il contratto d'uscita resti equivalente fra le superfici: quindi il nome non e' nostro da scegliere dove un contratto fissato lo assegna gia'.",
-  "perche_un_registro_e_non_una_costante": "perche' il confronto con la fonte dev'essere eseguibile. Un nome scritto solo nel codice si allinea per somiglianza -- `-v2` diventa `-v1` e sembra giusto -- e due dei nove qui sotto smentiscono proprio quella somiglianza: `io.read` rende `plenora-io-read-result-v1` e non `plenora-io-read-v1`, e l'errore e' `plenora-error-v1` senza `io`. Il gate `profilo-pubblico` confronta questa tabella col checkout fissato, voce per voce.",
+  "perche_un_registro_e_non_una_costante": "perche' il confronto con la fonte dev'essere eseguibile. Un nome scritto solo nel codice si allinea per somiglianza -- `-v2` diventa `-v1` e sembra giusto -- e due dei nove qui sotto smentiscono proprio quella somiglianza: `io.read` rende `plenora-io-read-result-v2` e non `plenora-io-read-v1`, e l'errore e' `plenora-error-v1` senza `io`. Il gate `profilo-pubblico` confronta questa tabella col checkout fissato, voce per voce.",
   "buste": [
     {
       "comando": "catalog",
-      "contratto": "plenora-io-catalog-v1",
+      "contratto": "plenora-io-catalog-v2",
       "fonte": "catalogo comune, operations[io.catalog].output.contract",
       "prima_della_4_0_0": "plenora-io-catalog-v2"
     },
@@ -24,14 +24,14 @@
     },
     {
       "comando": "read",
-      "contratto": "plenora-io-read-result-v1",
+      "contratto": "plenora-io-read-result-v2",
       "fonte": "catalogo comune, operations[io.read].output.contract",
       "prima_della_4_0_0": "plenora-io-read-v2",
       "nota": "`-result-`, non `plenora-io-read-v1`. E' la voce che una sostituzione per somiglianza avrebbe sbagliato: il catalogo distingue il contratto d'ingresso `plenora-io-read-input-v1` da quello d'uscita, e il segmento serve a quello."
     },
     {
       "comando": "write",
-      "contratto": "plenora-io-write-result-v1",
+      "contratto": "plenora-io-write-result-v2",
       "fonte": "catalogo comune, operations[io.write].output.contract",
       "prima_della_4_0_0": null,
       "nota": "nata gia' allineata: l'operazione e' della 4.0.0 e non aveva consumatori da migrare."

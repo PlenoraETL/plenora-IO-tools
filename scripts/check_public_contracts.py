@@ -250,7 +250,7 @@ class Vocabolario:
             )
         )
         self.catalogo = json.loads(
-            (contratti / "catalogs" / "io-tools-v1.json").read_text(encoding="utf-8")
+            (contratti / "catalogs" / "io-tools-v3.json").read_text(encoding="utf-8")
         )
 
     @staticmethod
@@ -954,7 +954,7 @@ def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> 
     confrontava.
 
     Confrontare a mano e' il modo di sbagliare: due nomi su nove smentiscono la
-    somiglianza. `io.read` rende `plenora-io-read-result-v1` e non
+    somiglianza. `io.read` rende `plenora-io-read-result-v2` e non
     `plenora-io-read-v1` -- il catalogo distingue l'ingresso dall'uscita -- e la
     busta d'errore e' `plenora-error-v1` **senza** `io`, perche' SURF-015 mappa
     i fallimenti sul contratto d'errore comune. Una sostituzione meccanica
@@ -969,7 +969,7 @@ def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> 
         return Esito(False, "il registro dei nomi non c'e'")
     registro = json.loads(registro_percorso.read_text(encoding="utf-8"))
 
-    catalogo_percorso = vocabolario.contracts / "catalogs" / "io-tools-v1.json"
+    catalogo_percorso = vocabolario.contracts / "catalogs" / "io-tools-v3.json"
     if not catalogo_percorso.is_file():
         return Esito(False, "il catalogo io-tools non e' nel pin")
     catalogo = json.loads(catalogo_percorso.read_text(encoding="utf-8"))

@@ -399,6 +399,24 @@
       "schema": "plenora-io-convert-v1",
       "atteso": "invalido",
       "perche": "un esito di pubblicazione fuori dal vocabolario dichiarato. Un valore nuovo e' un cambio di contratto, non un dettaglio."
+    },
+    {
+      "file": "validi/io-catalog-v2.json",
+      "schema": "plenora-io-catalog-v2",
+      "atteso": "valido",
+      "perche": "Profilo v3: catalogo e serializzazione espliciti."
+    },
+    {
+      "file": "validi/io-read-result-v2.json",
+      "schema": "plenora-io-read-result-v2",
+      "atteso": "valido",
+      "perche": "Profilo v3: catalogo e serializzazione espliciti."
+    },
+    {
+      "file": "validi/io-write-result-v2.json",
+      "schema": "plenora-io-write-result-v2",
+      "atteso": "valido",
+      "perche": "Profilo v3: catalogo e serializzazione espliciti."
     }
   ]
 }

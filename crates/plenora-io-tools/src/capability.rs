@@ -44,7 +44,7 @@ use crate::{usage_err, COMPONENTE, FLAG_FORMATO, FORMATO_JSON};
 ///
 /// # Perche' i contratti dicono `-v2`
 ///
-/// Il catalogo comune fissa `plenora-io-catalog-v1` e le altre undici forme; il
+/// Il catalogo comune fissa `plenora-io-catalog-v2` e le altre undici forme; il
 /// binario emette `-v2`. Qui si dichiara cio' che **esce davvero**: un documento
 /// capability che nominasse i contratti del catalogo mentre il binario ne emette
 /// altri sarebbe falso proprio nel punto in cui un consumatore si fida. La
@@ -69,7 +69,7 @@ fn operazione_esposta(
 ) -> Value {
     json!({
         "id": id,
-        "version": 1,
+        "version": if id == "io.catalog" { 2 } else { 1 },
         "status": "available",
         "surfaces": ["cli", "rust"],
         "input": { "contract": ingresso, "content_types": ["application/json"] },
@@ -100,7 +100,7 @@ fn descrittore_di_read() -> Value {
     // non quello del caso migliore.
     json!({
         "id": "io.read",
-        "version": 1,
+        "version": 2,
         "status": "available",
         "surfaces": ["cli", "rust"],
         "input": {
@@ -108,7 +108,7 @@ fn descrittore_di_read() -> Value {
             "content_types": ["application/json"],
         },
         "output": {
-            "contract": "plenora-io-read-result-v1",
+            "contract": "plenora-io-read-result-v2",
             // Le due serializzazioni che Arrow IPC registra, e che
             // questa superficie ora produce entrambe. L'ordine segue
             // il catalogo comune; il default resta il contenitore, e
@@ -193,7 +193,7 @@ pub fn capabilities_document() -> Value {
             operazione_esposta(
                 "io.catalog",
                 "plenora-io-catalog-query-v1",
-                "plenora-io-catalog-v1",
+                "plenora-io-catalog-v2",
                 "none",
                 false,
             ),
@@ -220,7 +220,7 @@ pub fn capabilities_document() -> Value {
             // stdin a un solo documento non basta a portare i due.
             json!({
                 "id": "io.write",
-                "version": 1,
+                "version": 2,
                 "status": "available",
                 "surfaces": ["cli", "rust"],
                 "input": {
@@ -236,7 +236,7 @@ pub fn capabilities_document() -> Value {
                     // Niente `interchange_contracts`: vedi `descrittore_di_read`.
                 },
                 "output": {
-                    "contract": "plenora-io-write-result-v1",
+                    "contract": "plenora-io-write-result-v2",
                     "content_types": ["application/json"],
                 },
                 "side_effect": "local",
@@ -287,6 +287,11 @@ pub fn catalog_document_con(filegdb_available: bool) -> Value {
             let mut document = serde_json::to_value(descriptor).unwrap_or(Value::Null);
             let is_filegdb = descriptor.id() == "filegdb";
             if let Some(fields) = document.as_object_mut() {
+                // IO-CAT-001: tutti i sink restringono i tipi geometrici.
+                fields.insert(
+                    "requires_declared_geometry_types".to_owned(),
+                    Value::Bool(true),
+                );
                 fields.insert(
                     "available".to_owned(),
                     Value::Bool(!is_filegdb || filegdb_available),

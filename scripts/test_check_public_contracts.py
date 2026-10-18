@@ -119,7 +119,7 @@ class ArtefattoFinto:
             "protocol_version": 2,
             "component": "plenora-io-tools",
             "component_version": "4.0.0",
-            "contract": "plenora-io-read-result-v1",
+            "contract": "plenora-io-read-result-v2",
             "command": "read",
             "result": {
                 "format": "geojson",
@@ -292,7 +292,7 @@ class ArtefattoFinto:
             "protocol_version": 2,
             "component": "plenora-io-tools",
             "component_version": "4.0.0",
-            "contract": "plenora-io-write-result-v1",
+            "contract": "plenora-io-write-result-v2",
             "command": "write",
             "result": {
                 "format": formato,
@@ -320,7 +320,7 @@ BUSTA_CONFORME = json.dumps(
         "protocol_version": 2,
         "component": "plenora-io-tools",
         "component_version": "4.0.0",
-        "contract": "plenora-io-catalog-v1",
+        "contract": "plenora-io-catalog-v2",
         "command": "catalog",
         # Due driver e non zero: `sonda_vincoli_del_percorso` deve vedere sia il
         # caso libero sia quello vincolato, altrimenti passerebbe a vuoto su un
@@ -385,7 +385,7 @@ CAPABILITY_CONFORME = {
     "operations": [
         {
             "id": "io.catalog",
-            "version": 1,
+            "version": 2,
             "status": "available",
             "surfaces": [
                 "cli"
@@ -397,7 +397,7 @@ CAPABILITY_CONFORME = {
                 ]
             },
             "output": {
-                "contract": "plenora-io-catalog-v1",
+                "contract": "plenora-io-catalog-v2",
                 "content_types": [
                     "application/json"
                 ]
@@ -463,7 +463,7 @@ CAPABILITY_CONFORME = {
         },
         {
             "id": "io.read",
-            "version": 1,
+            "version": 2,
             "status": "available",
             "surfaces": [
                 "cli"
@@ -489,7 +489,7 @@ CAPABILITY_CONFORME = {
         },
         {
             "id": "io.write",
-            "version": 1,
+            "version": 2,
             "status": "available",
             "surfaces": [
                 "cli"

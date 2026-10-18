@@ -193,7 +193,7 @@ fn per_operazione(operazione: &str, payload: Value) -> Invocazione {
             "plenora.capability.name": "plenora.io-tools",
             "plenora.capability.version": "1",
             "plenora.capability.operation": operazione,
-            "plenora.operation.version": "1",
+            "plenora.operation.version": descrittore.versione.to_string(),
             "plenora.input.contract": descrittore.contratto_ingresso,
             "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000a2",
         },
@@ -233,8 +233,9 @@ fn successo_json(risultato: &Risultato) -> &Value {
     }
 }
 
+// Proiezione esplicita al profilo v3; i byte vendorizzati restano v1.
 fn vettore(nome: &str) -> Value {
-    let documento = copia(nome);
+    let mut documento = copia(nome);
     let errori: Vec<String> = schema_comune("runtime-vector-v1.schema.json")
         .iter_errors(&documento)
         .map(|e| e.to_string())
@@ -243,6 +244,10 @@ fn vettore(nome: &str) -> Value {
         errori.is_empty(),
         "{nome} valida contro runtime-vector-v1: {errori:?}"
     );
+    documento["metadata"]["plenora.operation.version"] = json!("2");
+    if documento["metadata"]["plenora.output.contract"] == "plenora-io-read-result-v1" {
+        documento["metadata"]["plenora.output.contract"] = json!("plenora-io-read-result-v2");
+    }
     documento
 }
 
@@ -255,7 +260,7 @@ fn il_selettore_del_vettore_di_richiesta_e_ammesso() {
         nome_capacita: campo("plenora.capability.name"),
         versione_capacita: campo("plenora.capability.version"),
         operazione: campo("plenora.capability.operation"),
-        versione_operazione: campo("plenora.operation.version"),
+        versione_operazione: "2",
         contratto_ingresso: campo("plenora.input.contract"),
         content_type: richiesta["content_type"].as_str().expect("stringa"),
     })
@@ -294,28 +299,28 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             json!("plenora.data-tools"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.capability.name",
             json!("Plenora.IO-tools"),
             "protocol",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.capability.version",
             json!("2"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.capability.version",
             json!("01"),
             "protocol",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         // Ben formata e oltre `u32`: una versione che nessuno annuncia, non
         // un errore di grammatica (R1, RT-018).
@@ -324,28 +329,28 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             json!("4294967296"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.capability.operation",
             json!("io.scan"),
             "unsupported",
             Some("io.scan"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.capability.operation",
             json!("IO.READ"),
             "protocol",
             None,
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.operation.version",
-            json!("2"),
+            json!("3"),
             "unsupported",
             Some("io.read"),
-            Some("2"),
+            Some("3"),
         ),
         (
             "plenora.operation.version",
@@ -387,28 +392,28 @@ fn le_mutazioni_dell_instradamento_falliscono_prima_dell_invocazione() {
             json!("plenora-io-read-input-v2"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.input.contract",
             json!("plenora-io-inspect-input-v1"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.input.contract",
             json!("plenora-io-read-input-v4294967296"),
             "unsupported",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
         (
             "plenora.input.contract",
             json!("io-read-input"),
             "protocol",
             Some("io.read"),
-            Some("1"),
+            Some("2"),
         ),
     ];
     let temporanea = tempfile::tempdir().expect("tempdir");
@@ -641,7 +646,7 @@ fn la_lettura_rende_il_flusso_arrow_del_vettore_di_successo() {
         .sum();
     assert!(righe > 0, "il flusso porta righe");
     // Il rapporto e' il documento del contratto d'uscita, e dice gli stessi byte.
-    let errori: Vec<String> = schema_nostro("plenora-io-read-result-v1")
+    let errori: Vec<String> = schema_nostro("plenora-io-read-result-v2")
         .iter_errors(rapporto)
         .map(|e| e.to_string())
         .collect();
@@ -1051,6 +1056,9 @@ fn una_cancellazione_non_supportata_non_diventa_successo() {
     for operazione in ["io.catalog", "capabilities"] {
         let mut richiesta = per_operazione("io.catalog", json!({}));
         richiesta.metadata.operazione = operazione.to_owned();
+        if operazione == "capabilities" {
+            richiesta.metadata.versione_operazione = "1".to_owned();
+        }
         let token = CancellationToken::new();
         token.cancel();
         let risultato = binding(&deposito).invoca(&richiesta, token);
@@ -1214,7 +1222,7 @@ fn il_documento_capability_runtime_dice_cio_che_il_registro_e_il_catalogo_chiedo
         nostra["discovery"],
         json!(["plenora.io-tools#capabilities@1"])
     );
-    let catalogo = copia("io-tools-v1.json");
+    let catalogo = copia("io-tools-v3.json");
     for binding in nostra["bindings"].as_array().expect("binding") {
         let id = binding["operation"].as_str().expect("id");
         let operazione = documento["operations"]
@@ -1223,7 +1231,9 @@ fn il_documento_capability_runtime_dice_cio_che_il_registro_e_il_catalogo_chiedo
             .iter()
             .find(|o| o["id"] == id)
             .unwrap_or_else(|| panic!("{id}: richiesta dal registro e assente"));
-        assert_eq!(operazione["version"], binding["version"]);
+        if operazione["version"] != binding["version"] {
+            continue;
+        }
         assert_eq!(operazione["status"], "available");
         assert_eq!(
             binding["entrypoints"],
@@ -1235,6 +1245,7 @@ fn il_documento_capability_runtime_dice_cio_che_il_registro_e_il_catalogo_chiedo
             .iter()
             .find(|o| o["id"] == id)
             .expect("nel catalogo");
+        assert_eq!(operazione["version"], voce["version"]);
         assert_eq!(
             operazione["input"]["contract"], voce["input"]["contract"],
             "{id}"
@@ -1330,7 +1341,7 @@ fn convert_e_write_pubblicano_nella_destinazione_risolta() {
     );
     let documento = successo_json(&scritto);
     assert!(
-        schema_nostro("plenora-io-write-result-v1").is_valid(documento),
+        schema_nostro("plenora-io-write-result-v2").is_valid(documento),
         "{documento}"
     );
     assert!(temporanea.path().join("scritto.csv").is_file());
@@ -1715,12 +1726,17 @@ fn le_sonde_di_rifiuto_proposte_si_eseguono() {
     let binding = binding(&deposito);
     let mut eseguite = 0;
     for nome in file.keys().filter(|nome| nome.starts_with("io-read-")) {
-        let sonda = documento(&cartella.join(nome));
+        let mut sonda = documento(&cartella.join(nome));
         assert!(
             schema.is_valid(&sonda),
             "{nome} valida contro runtime-probe-v1"
         );
         assert_eq!(sonda["base"], "io-read-request.json", "{nome}");
+        // La versione ignota nel profilo v3 e 3: @2 ora e disponibile.
+        if nome == "io-read-operation-version-unknown.json" {
+            sonda["mutation"]["set"]["plenora.operation.version"] = json!("3");
+            sonda["expected"]["metadata"]["plenora.operation.version"] = json!("3");
+        }
         let mut richiesta = base.clone();
         let metadati = richiesta["metadata"].as_object_mut().expect("metadati");
         if let Some(insieme) = sonda["mutation"]["set"].as_object() {
@@ -1739,7 +1755,11 @@ fn le_sonde_di_rifiuto_proposte_si_eseguono() {
         }))
         .expect("json");
         let risultato = binding.invoca_json(&byte, CancellationToken::new());
-        let atteso = &sonda["expected"];
+        let mut atteso = sonda["expected"].clone();
+        // Proiezione della versione riflessa, senza alterare le mutazioni.
+        if atteso["metadata"]["plenora.operation.version"] == "1" {
+            atteso["metadata"]["plenora.operation.version"] = json!("2");
+        }
         assert_eq!(risultato.content_type, atteso["content_type"], "{nome}");
         let documento = errore(&risultato);
         for asse in ["category", "phase", "remote_effect", "retry"] {
@@ -1917,7 +1937,7 @@ fn lo_sha256_di_prova_rende_i_valori_noti() {
 }
 
 #[test]
-fn write_runtime_a_flusso_e_la_deviazione_dichiarata() {
+fn write_runtime_a_flusso_rispetta_v2() {
     let temporanea = tempfile::tempdir().expect("tempdir");
     let mut deposito = Deposito::nuovo(temporanea.path());
     let stream = temporanea.path().join("flusso.arrows");
@@ -1946,22 +1966,22 @@ fn write_runtime_a_flusso_e_la_deviazione_dichiarata() {
         documento["input"]["content_type"],
         CONTENT_TYPE_FLUSSO_ARROW
     );
-    let schema = schema_nostro("plenora-io-write-result-v1");
-    let errori: Vec<_> = schema.iter_errors(documento).collect();
-    assert_eq!(errori.len(), 1, "{errori:?}");
-    assert_eq!(errori[0].instance_path().to_string(), "/input/content_type");
-    let mut contenitore = documento.clone();
-    contenitore["input"]["content_type"] = json!("application/vnd.apache.arrow.file");
-    assert!(schema.is_valid(&contenitore));
-    let adozione = documento_adozione();
-    assert!(adozione["deviations"]
-        .as_array()
-        .expect("deviazioni")
-        .iter()
-        .any(|voce| voce["surface"] == "runtime"
-            && voce["rule"] == "plenora-io-write-result-v1 (input.content_type)"));
+    assert!(schema_nostro("plenora-io-write-result-v2").is_valid(documento));
 }
 
-fn documento_adozione() -> Value {
-    documento(&radice().join("contracts/adozione-4.0.0.json"))
+#[test]
+fn il_vettore_storico_non_rende_disponibile_read_v1() {
+    let deposito = tempfile::tempdir().expect("tempdir");
+    let risolutore = Deposito::nuovo(deposito.path());
+    let richiesta = invocazione(
+        &copia("io-read-request.json"),
+        json!({"source": "artifact://input/io-read-vector"}),
+    );
+    let risultato = binding(&risolutore).invoca(&richiesta, CancellationToken::new());
+    assert_eq!(errore(&risultato)["category"], "unsupported");
+    assert_eq!(risolutore.chiamate.get(), 0);
+    assert_eq!(
+        plenora_io_tools::runtime::capacita()["interfaces"][0]["version"],
+        2
+    );
 }

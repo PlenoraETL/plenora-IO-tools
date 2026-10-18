@@ -161,7 +161,7 @@ def forma(valore: Any, prefisso: str = "", out: dict[str, set[str]] | None = Non
 MATRICE: tuple[dict[str, Any], ...] = (
     {
         "nome": "catalogo",
-        "busta": "plenora-io-catalog-v1",
+        "busta": "plenora-io-catalog-v2",
         "argomenti": ["catalog"],
         "perche": "l'unica busta del comando: non prende argomenti.",
     },
@@ -238,13 +238,13 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-senza-geometria",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": ["read", "{canoniche}/canonico_senza_geometria.arrow"],
         "perche": "la lettura di un layer senza geometria: `layer.geometry` e' `null`.",
     },
     {
         "nome": "read-senza-crs",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": ["read", "{canoniche}/canonico_senza_crs.arrow"],
         "perche": "la lettura di una geometria senza CRS.",
     },
@@ -262,13 +262,13 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-geojson",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": ["read", "{canoniche}/canonico.geojson"],
         "perche": "una lettura intera: `truncated` falso.",
     },
     {
         "nome": "read-con-consegna",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": [
             "read",
             "{canoniche}/canonico.geojson",
@@ -284,7 +284,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-troncato",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": ["read", "{canoniche}/canonico.geojson", "--limit", "1"],
         "perche": (
             "`truncated` vero. E' l'unico caso che lo porta: senza, il campo "
@@ -293,13 +293,13 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "read-parquet",
-        "busta": "plenora-io-read-result-v1",
+        "busta": "plenora-io-read-result-v2",
         "argomenti": ["read", "{canoniche}/canonico_pieno.parquet"],
         "perche": "uno schema piu' ricco, e un CRS risolto per identificatore.",
     },
     {
         "nome": "write-csv",
-        "busta": "plenora-io-write-result-v1",
+        "busta": "plenora-io-write-result-v2",
         "argomenti": [
             "write",
             "{uscita}/consegnato.arrow",
@@ -318,7 +318,7 @@ MATRICE: tuple[dict[str, Any], ...] = (
     },
     {
         "nome": "write-geojson",
-        "busta": "plenora-io-write-result-v1",
+        "busta": "plenora-io-write-result-v2",
         "argomenti": [
             "write",
             "{uscita}/consegnato.arrow",

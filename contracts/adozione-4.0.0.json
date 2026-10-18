@@ -3,10 +3,10 @@
   "che_cosa_e": "la parte **redatta** del manifesto di adozione: i contratti adottati con il loro stato, le deviazioni, e i comandi che verificano ciascuna cosa. Non porta i digest degli artefatti, che non esistono finche' gli artefatti non sono costruiti: quelli li aggiunge `scripts/costruisci-manifesto-adozione.py`, che legge i file veri e scrive `contracts/adoption-manifest.json`.",
   "perche_due_file": "perche' due cose diverse cambiano in due momenti diversi. Che cosa dichiariamo di rispettare, e dove non lo rispettiamo, si decide scrivendolo e si rilegge in revisione. L'identita' degli artefatti si misura **dopo** il congelamento, sui byte che si spediscono, e non deve poter essere scritta a mano: un digest battuto a tastiera e' un numero, non una prova.",
   "component": "plenora-io-tools",
-  "profile": "plenora-io-tools-profile-v1",
+  "profile": "plenora-io-tools-profile-v3",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3"
+    "revision": "3aec9f724f5a0ad21366f293895b4d0dbcd0aad1"
   },
   "contracts": [
     {
@@ -78,7 +78,7 @@
       ]
     },
     {
-      "id": "plenora-public-catalog-v1",
+      "id": "plenora-public-catalog-v2",
       "status": "conforming",
       "verification": [
         "python3 scripts/check_public_contracts.py --contracts <checkout> --cli <binario>",
@@ -104,7 +104,7 @@
       ]
     },
     {
-      "id": "plenora-runtime-binding-v1",
+      "id": "plenora-runtime-binding-v2",
       "status": "conforming",
       "verification": [
         "cargo test -p plenora-io-tools --test runtime_vettori",
@@ -115,9 +115,16 @@
     {
       "id": "plenora-python-sdk-v1",
       "status": "not_applicable"
+    },
+    {
+      "id": "plenora-arrow-vocabulary-v1",
+      "status": "conforming",
+      "verification": [
+        "cargo test -p plenora-io-tools --test metadati_arrow --test provenienza_crs"
+      ]
     }
   ],
-  "perche_not_applicable_non_e_una_deviazione": "una deviazione dice «il requisito si applica e non lo soddisfo». `not_applicable` dice «il requisito non si applica», e le due cose non vanno mescolate perche' un lettore ne trae conclusioni opposte. `plenora-python-sdk-v1`: il profilo dice «Python SDK: not required by this profile». Lo SDK esiste e viene spedito, ma non pretende la conformita' a quel contratto; e' una comodita' di questo repository, non una superficie dichiarata. `plenora-runtime-binding-v1` era `not_applicable` fino alla 4.1.0, con la ragione che nessuna operazione fosse selezionata per l'orchestrazione: il registro comune `bindings/runtime-v1.json` dichiara invece `required` tutte e sei le operazioni io.*, e la superficie runtime ora esiste.",
+  "perche_not_applicable_non_e_una_deviazione": "Python SDK non richiesto dal profilo v3; la wheel resta verificata ma non dichiara la superficie comune della bozza #32. Runtime conditional: essendo esposto, adotta 2.0 con le deviazioni elencate.",
   "deviations": [
     {
       "rule": "catalogo io-tools (io.read.side_effect)",
@@ -125,13 +132,6 @@
       "observed_behavior": "il catalogo dichiara `side_effect: none` per `io.read`; il documento capability della CLI, che vale anche per la superficie Rust, dichiara `local`: con una destinazione l'operazione scrive un file. La superficie runtime non devia: consegna il flusso nel risultato e dichiara `none`. Per il consumatore CLI o Rust: chi orchestra legge un valore diverso da quello del catalogo, piu' cauto ma non conforme.",
       "tracking": "docs/PIANO-4.0.0.md riga B10; PR #6 di plenora-contracts (HB3: l'effetto della consegna appartiene al binding della superficie), aperta.",
       "detectable_before_invocation": true
-    },
-    {
-      "rule": "profilo io-tools (plenora-io-catalog-v1 fonte normativa delle publish guarantees)",
-      "surface": "cli",
-      "observed_behavior": "un dataset Arrow con `types_declaration: unresolved` e' rifiutato da tutti e dieci i sink: nessuno dichiara i sedici tipi geometrici canonici, il massimo e' sette. La regola «un sink che restringe i tipi pretende che la sorgente li dichiari» non compare nel risultato di `io.catalog`, che il profilo designa come fonte normativa unica delle publish guarantees. Per il consumatore: il rifiuto e' tipizzato e mai silenzioso, ma non e' predicibile leggendo il catalogo.",
-      "tracking": "docs/PIANO-4.0.0.md riga B12c; la meta' locale e' chiusa (`scansione_completa` distingue l'assenza accertata dall'ignoranza), quella sul filo dipende dal vocabolario successore -- decisione 0006 del repository dei contratti",
-      "detectable_before_invocation": false
     },
     {
       "rule": "RUNTIME-VECTORS-1.0 §5 (payload di io-read-request)",
@@ -148,20 +148,6 @@
       "detectable_before_invocation": false
     },
     {
-      "rule": "plenora-io-read-result-v1 (delivered.content_type)",
-      "surface": "cli",
-      "observed_behavior": "con `--out-opt serialization=stream` `read` consegna il flusso Arrow e la busta dice `delivered.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera; chi valida contro v1 la rifiuta. Senza quell'opzione la busta e' valida.",
-      "tracking": "si chiude con `plenora-io-read-result-v2` sotto `io.read@2` nel catalogo comune: v1 non si allarga sul posto (COMPATIBILITY.md). Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
-      "detectable_before_invocation": true
-    },
-    {
-      "rule": "plenora-io-write-result-v1 (input.content_type)",
-      "surface": "cli",
-      "observed_behavior": "con un payload Arrow a flusso `write` lo legge e la busta dice `input.content_type: application/vnd.apache.arrow.stream`, che lo schema v1 non ammette (fissa il contenitore): la busta e' invalida su quel solo campo, dalla 4.0.0, anche sulla superficie Rust. Il valore dice la serializzazione vera del payload. Con un payload a contenitore la busta e' valida.",
-      "tracking": "si chiude con `plenora-io-write-result-v2` sotto `io.write@2` nel catalogo comune, come la deviazione di read. Prova: `le_buste_a_flusso_sono_la_deviazione_dichiarata`.",
-      "detectable_before_invocation": true
-    },
-    {
       "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
       "surface": "cli",
       "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare. Caso noto a monte: un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 ~2,3 GB da 3966 byte.",
@@ -169,13 +155,104 @@
       "detectable_before_invocation": false
     },
     {
-      "rule": "plenora-io-write-result-v1 (input.content_type)",
+      "rule": "IO-NULL-001",
+      "surface": "cli",
+      "observed_behavior": "Regola 4; ambito risultati CLI/Rust/runtime: non e completata la qualifica del significato di ogni campo nullable. Gli schemi legacy e le prove di forma non dimostrano che null significhi sempre non applicabile e mai ignoto. Hazard: il consumatore del profilo v3 potrebbe interpretare come non applicabile un valore non qualificato. Non si afferma una violazione osservata per ogni null; la garanzia uniforme IO-NULL-001 non e rivendicata.",
+      "tracking": "Rientro: censire ogni campo nullable e rappresentare lo stato ignoto con un membro tipizzato o errore; registro docs/PRODUCT.md.",
+      "detectable_before_invocation": false
+    },
+    {
+      "rule": "RT-024",
       "surface": "runtime",
-      "observed_behavior": "io.write accetta un artefatto Arrow stream e restituisce direttamente la busta dell'operazione: input.content_type vale application/vnd.apache.arrow.stream, ma plenora-io-write-result-v1 ammette solo application/vnd.apache.arrow.file. Hazard: il consumatore che valida v1 rifiuta il risultato anche dopo la pubblicazione locale riuscita. Il contenitore resta conforme; la serializzazione vera non viene mascherata.",
-      "tracking": "Regola 4: deviazione dichiarata nel binding runtime e nel registro dei limiti docs/PRODUCT.md. Rientro con plenora-io-write-result-v2 sotto io.write@2 nel catalogo comune; v1 non si allarga. Prova: write_runtime_a_flusso_e_la_deviazione_dichiarata.",
+      "observed_behavior": "Regola 4; il flusso Arrow usa max_output_bytes della pipeline, senza successi troncati, ma manca un tetto uniforme per la materializzazione JSON e una prenotazione fallibile del Vec Arrow. Hazard: allocazione abortita invece del resource_limit tipizzato. Nessuna conformita completa a RT-024 e rivendicata.",
+      "tracking": "Rientro: budget uniforme e allocazioni fallibili prima della materializzazione, prove al limite con assi coerenti dopo pubblicazione. Limiti di trasporto a carico host; docs/PRODUCT.md.",
+      "detectable_before_invocation": false
+    },
+    {
+      "rule": "RUNTIME-VECTORS-1.0 sezione 5 (versioni operative storiche)",
+      "surface": "runtime",
+      "observed_behavior": "Regola 4; i vettori io-read-v1 fissano io.read@1 (il registro runtime-v1 include anche @2); il profilo v3 serve io.read@2. Gli originali restano immutati: @1 e rifiutato unsupported; i test applicano esplicitamente @2 e il contratto risultato v2 ai casi di esecuzione. Hazard: copiare il selettore storico impedisce la lettura.",
+      "tracking": "Rientro: vettori successori del catalogo v3 in contracts; prove runtime_vettori e docs/PRODUCT.md.",
       "detectable_before_invocation": true
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
-  "che_cosa_e_stato_chiuso_e_come": "tre deviazioni su cinque, e tutte e tre dalla stessa capacita': il driver IPC produce e legge entrambe le serializzazioni che ARROW-INTERCHANGE-1.0 §1 registra. La scelta e' un'opzione di formato del catalogo -- `serialization`, valori `file` e `stream`, default `file` -- e non un campo nuovo di uno schema d'ingresso pubblicato.\n\nChiuderle ha richiesto il percorso **intero**, non la sola opzione di scrittura: produrre un flusso non serve se chi lo riceve non puo' consumarlo. Il riconoscimento guarda i byte -- il contenitore porta `ARROW1` in testa, il flusso no -- e non il nome del file, che resta del chiamante; la prevalidazione del flusso ha gli stessi tetti di quella del contenitore, perche' una porta meno sorvegliata e' il modo normale in cui una difesa si aggira; e `io.write` accetta il payload in entrambe le forme.\n\nLa **consegna resta atomica**, ed e' la proprieta' che questa capacita' non doveva intaccare: i byte si scrivono per intero nello staging e la pubblicazione e' l'ultima operazione, in tutt'e due le serializzazioni. Uno stream e' una disposizione dei byte, non un permesso di esporre batch prima che l'operazione sia finita.\n\nSulla composizione va detto che cosa questa chiusura significa e che cosa no. I quattro archi `direct` della matrice rivista nominano `application/vnd.apache.arrow.stream`, e questo artefatto ora lo produce e lo accetta: la condizione che **ci riguarda** e' soddisfatta. Non e' interoperabilita' verificata con data-tools o database-tools -- quella e' una qualifica cross-component, resta differita, e nessuna prova di questo repository la tocca."
+  "che_cosa_e_stato_chiuso_e_come": "IO-SER-001: nuovi schemi read/write-result-v2 per entrambe le serializzazioni, v1 immutati. IO-CAT-001: ogni sink dichiara requires_declared_geometry_types=true. La qualifica cross-component non e eseguita.",
+  "requisiti_3aec9f7": [
+    {
+      "regola": "CAT-001",
+      "stato": "implementato",
+      "motivo": "Discovery dichiara solo superfici CLI/Rust/runtime reali, nessun marker planned."
+    },
+    {
+      "regola": "CAT-002",
+      "stato": "implementato",
+      "motivo": "Runtime conditional esposto e dichiarato 2.0; la disponibilita viene dalle capabilities."
+    },
+    {
+      "regola": "CAT-003",
+      "stato": "non_applicabile",
+      "motivo": "Il profilo IO v3 non elenca assenze intenzionali normative; DB-ABS e DT-ABS appartengono ad altri componenti. Python non richiesto, bozza #32 esclusa."
+    },
+    {
+      "regola": "IO-SER-001",
+      "stato": "implementato",
+      "motivo": "read/write@2, schemi nuovi con stream e file; byte effettivi conservati."
+    },
+    {
+      "regola": "IO-CAT-001",
+      "stato": "implementato",
+      "motivo": "Catalogo v2 dichiara il rifiuto unresolved per tutti i sink."
+    },
+    {
+      "regola": "IO-NULL-001",
+      "stato": "deviazione",
+      "motivo": "Qualifica semantica dei nullable incompleta, distinta dalla validazione di forma: vedi deviations."
+    },
+    {
+      "regola": "RT-024",
+      "stato": "deviazione",
+      "motivo": "Materializzazione non completamente delimitata: vedi deviations."
+    },
+    {
+      "regola": "RT-025 / RT-018",
+      "stato": "implementato",
+      "motivo": "Contratto runtime v2/version 2; wire 1. Wire 2 rifiutato unsupported."
+    },
+    {
+      "regola": "RT-026",
+      "stato": "non_applicabile",
+      "motivo": "Solo destinazione, nessun mittente o selettore di destinazione; responsabilita host."
+    },
+    {
+      "regola": "RT-027",
+      "stato": "non_applicabile",
+      "motivo": "Nessun ingresso di trasporto, forwarding o archivio di accettazione; responsabilita host fuori busta."
+    },
+    {
+      "regola": "INTEROP-001..005 / GEO-000..020 / REJ-001..004",
+      "stato": "non_applicabile",
+      "motivo": "Contratti opt-in non rivendicati: questa adozione non qualifica interoperabilita o semantica geometrica 1.0."
+    },
+    {
+      "regola": "ERR-016",
+      "stato": "non_applicabile",
+      "motivo": "IO pubblica file locali; nessun commit remoto inviato con conferma perduta. I vettori database commit-timeout/io sono di database-tools; non si rimappano assi IO."
+    },
+    {
+      "regola": "contracts #39 / decisione 0021",
+      "stato": "implementato",
+      "motivo": "Il gate comune viene eseguito dalla copia locale fissata con i messaggi senza dati di quella revisione."
+    },
+    {
+      "regola": "contracts #40",
+      "stato": "non_applicabile",
+      "motivo": "Cache fuzz del tooling contracts, nessuna cache vendorizzata o modifica del protocollo IO."
+    },
+    {
+      "regola": "contracts #32",
+      "stato": "non_applicabile",
+      "motivo": "Bozza SDK non adottata; Python non diventa superficie dichiarata."
+    }
+  ]
 }
