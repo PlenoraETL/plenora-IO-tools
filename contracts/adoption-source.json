@@ -3,13 +3,13 @@
   "component": "plenora-io-tools",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "1e902dfaab5819c1d9ce785878d5b26dbeae48b3"
+    "revision": "3aec9f724f5a0ad21366f293895b4d0dbcd0aad1"
   },
-  "profile": "plenora-io-tools-profile-v1",
-  "perche_questa_revisione": "e' la revisione comune che tutte le librerie Plenora adottano insieme (plenora-contracts `main` dopo la PR #16). Rispetto al pin precedente, `453c8d1`, non cambia nessun documento che governa questo componente: profilo e catalogo io-tools, ERRORS-1.0 e `error-v1`, CLI-2.0, CAPABILITY-DISCOVERY-2.0, `capabilities-v2`, `adoption-manifest-v4` e i vettori `io-read-*` sono identici byte per byte. Cambiano ADOPTION.md, che aggiunge i controlli incrociati del manifesto (stati in conflitto, artefatti ambigui, deviazioni con artefatto e superficie coerenti) e che `scripts/check_manifesto_adozione.py` ora applica, e i profili e i vettori degli altri componenti. La revisione precedente era la prima in cui il profilo nominava la 4.0.0 come release del cutover (PR #5 di plenora-contracts); quella ragione resta vera anche qui, perche' il profilo non e' cambiato.",
+  "profile": "plenora-io-tools-profile-v3",
+  "perche_questa_revisione": "Adozione locale di 3aec9f7: Public Catalogs 2.0, profilo io-tools v3, Runtime Binding 2.0. Le versioni operative di catalog/read/write diventano 2; wire runtime e discovery restano 1. Non si adotta la bozza SDK #32.",
   "contracts": [
     "plenora-public-surfaces-v1",
-    "plenora-public-catalog-v1",
+    "plenora-public-catalog-v2",
     "plenora-capabilities-v2",
     "plenora-error-v1",
     "plenora-public-security-v1",
@@ -18,7 +18,8 @@
     "plenora-cli-v2",
     "plenora-surface-bindings-v1",
     "plenora-composition-v1",
-    "plenora-runtime-binding-v1"
+    "plenora-runtime-binding-v2",
+    "plenora-arrow-vocabulary-v1"
   ],
   "not_applicable": {
     "plenora-python-sdk-v1": "il profilo io-tools dichiara `python_sdk: not_applicable`, e il contratto comune fissa le distribuzioni per database-tools e rest-tools. Lo SDK Python di IO-tools resta e viene spedito, ma non reclama questo contratto: e' verificato come artefatto nostro, dalla wheel installata, perche' avvolge il CLI e deve restare coerente con la sua busta."
@@ -41,7 +42,9 @@
     "runtime": {
       "stato": "adottata",
       "canale": "il modulo `plenora_io_tools::runtime` dell'archivio sorgente, lo stesso artefatto della superficie Rust",
-      "nota": "Runtime Binding 1.0 per le sei operazioni del registro comune (`bindings/runtime-v1.json`), con discovery `plenora.io-tools#capabilities@1` e consegna in-process del flusso Arrow per `io.read`. Il binding non dipende da runtime-tools (RT-015): l'applicazione lo ospita e fornisce il risolutore degli artefatti. I vettori `io-read-*` del pin girano in `tests/runtime_vettori.rs`; dove le fixture e il prodotto differiscono, la deviazione e' nel manifesto."
+      "nota": "Destinazione Runtime Binding 2.0 con deviazione RT-024 dichiarata; wire 1, discovery capabilities@1, catalog/read/write@2 e inspect/layers/convert@1. Negoziazione e limiti del trasporto competono all?host."
     }
-  }
+  },
+  "catalog": "catalogs/io-tools-v3.json",
+  "profile_source": "profiles/io-tools-v3.md"
 }

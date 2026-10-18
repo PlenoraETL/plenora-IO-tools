@@ -18,7 +18,7 @@
 //! # Che cosa questa superficie **non** promette
 //!
 //! Un risultato tipizzato. Ogni operazione rende il documento JSON del proprio
-//! contratto d'uscita — `plenora-io-read-result-v1` e compagni — e non una
+//! contratto d'uscita — `plenora-io-read-result-v2` e compagni — e non una
 //! struct Rust.
 //!
 //! È una scelta, e ha un costo: chi consuma da Rust legge `Value` e non campi.

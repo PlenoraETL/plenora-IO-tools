@@ -358,7 +358,7 @@ class FormatDescriptor:
 
 @dataclass(frozen=True, kw_only=True)
 class Driver(FormatDescriptor):
-    """Un elemento di `catalog.drivers`: il descrittore, piu' due campi suoi.
+    """Un elemento di `catalog.drivers`: il descrittore e i campi del catalogo v2.
 
     `available` e `required_feature` non stanno nel descrittore che `inspect`
     restituisce: sono del catalogo, e dicono se **questo** binario possa usare
@@ -368,10 +368,11 @@ class Driver(FormatDescriptor):
 
     available: bool
     required_feature: str | None
+    requires_declared_geometry_types: bool
 
-    #: I due campi che il catalogo aggiunge. Il gate li somma a quelli del
+    #: I campi che il catalogo aggiunge. Il gate li somma a quelli del
     #: descrittore e confronta il totale con `.drivers[]`.
-    _PROPRI = ("available", "required_feature")
+    _PROPRI = ("available", "required_feature", "requires_declared_geometry_types")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Driver":

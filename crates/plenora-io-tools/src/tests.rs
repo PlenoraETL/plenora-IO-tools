@@ -958,7 +958,7 @@ fn zero_read_limit_keeps_the_frozen_summary_without_observing_tail() {
     // Il contratto sta nella **busta**, non nel corpo.
     assert_eq!(
         busta_di_successo("read", summary)["contract"],
-        "plenora-io-read-result-v1"
+        "plenora-io-read-result-v2"
     );
 }
 
@@ -1851,7 +1851,7 @@ fn catalog_fields_have_exact_types_and_semantics_for_every_driver() {
 /// Snapshot **del solo legacy**: `read_mode`, driver per driver.
 ///
 /// Sta da solo, separato da quello della tripla, perché prova una cosa
-/// diversa: che S8 **non abbia toccato** un campo che `plenora-io-catalog-v1`
+/// diversa: che S8 **non abbia toccato** un campo che `plenora-io-catalog-v2`
 /// emette da sempre. Se i due snapshot fossero uno, una modifica al legacy
 /// mascherata da aggiornamento della tripla passerebbe in una diff sola.
 ///

@@ -49,7 +49,7 @@ SORGENTE_DEL_PIN = RADICE / "contracts" / "adoption-source.json"
 
 #: I contratti che il profilo dichiara applicabili, letti dal profilo stesso
 #: del checkout fissato: l'elenco non si ricopia qui.
-PROFILO = "profiles/io-tools.md"
+PROFILO = "profiles/io-tools-v3.md"
 
 
 def contratti_del_profilo(contracts: pathlib.Path) -> set[str]:

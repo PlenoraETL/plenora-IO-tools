@@ -528,7 +528,7 @@ fn gli_adattamenti_del_binding_di_processo_sono_quelli_dichiarati() {
 
     assert_eq!(busta["component"], "plenora-io-tools");
     assert_eq!(busta["command"], "read");
-    assert_eq!(busta["contract"], "plenora-io-read-result-v1");
+    assert_eq!(busta["contract"], "plenora-io-read-result-v2");
     assert_eq!(busta["protocol_version"], 2);
     assert!(
         busta["component_version"]

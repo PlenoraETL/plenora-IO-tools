@@ -1,8 +1,8 @@
-//! La superficie runtime: Runtime Binding 1.0 per le sei operazioni.
+//! La superficie runtime: Runtime Binding 2.0 per le sei operazioni.
 //!
 //! # Che cosa e', e che cosa non e'
 //!
-//! Il confine **neutrale rispetto al trasporto** che RUNTIME-BINDING-1.0
+//! Il confine **neutrale rispetto al trasporto** che RUNTIME-BINDING-2.0
 //! descrive: un'invocazione serializzata entra -- metadati d'instradamento,
 //! content type, payload JSON -- e un risultato serializzato esce, con il
 //! contratto d'uscita e la correlazione dell'invocazione. Code, worker,
@@ -71,10 +71,10 @@ use crate::{local_err_doc, COMPONENTE};
 
 /// L'identita' della capacita' runtime (RT-001).
 pub const NOME_CAPACITA: &str = "plenora.io-tools";
-/// La versione del binding runtime (RT-002), indipendente dalla release.
+/// La versione wire (RT-025), indipendente dal contratto 2.0 e dalla release.
 pub const VERSIONE_BINDING: u32 = 1;
 /// Il contratto che l'interfaccia runtime dichiara nel documento capability.
-pub const CONTRATTO_BINDING: &str = "plenora-runtime-binding-v1";
+pub const CONTRATTO_BINDING: &str = "plenora-runtime-binding-v2";
 /// Il content type dei payload JSON, in ingresso e in uscita.
 pub const CONTENT_TYPE_JSON: &str = "application/json";
 /// Il content type del flusso Arrow che `io.read` consegna.
@@ -131,7 +131,7 @@ pub struct DescrittoreRuntime {
 }
 
 const fn descrittore(
-    operazione: &'static str,
+    identita: (&'static str, u32),
     contratto_ingresso: &'static str,
     contratto_uscita: &'static str,
     content_type_uscita: &'static str,
@@ -140,8 +140,8 @@ const fn descrittore(
     controlli: bool,
 ) -> DescrittoreRuntime {
     DescrittoreRuntime {
-        operazione,
-        versione: 1,
+        operazione: identita.0,
+        versione: identita.1,
         contratto_ingresso,
         contratto_uscita,
         content_type_uscita,
@@ -154,16 +154,16 @@ const fn descrittore(
 /// Le sei operazioni, nell'ordine del catalogo comune.
 pub const OPERAZIONI: [DescrittoreRuntime; 6] = [
     descrittore(
-        "io.catalog",
+        ("io.catalog", 2),
         "plenora-io-catalog-query-v1",
-        "plenora-io-catalog-v1",
+        "plenora-io-catalog-v2",
         CONTENT_TYPE_JSON,
         "none",
         Artefatti::Nessuno,
         false,
     ),
     descrittore(
-        "io.inspect",
+        ("io.inspect", 1),
         "plenora-io-inspect-input-v1",
         "plenora-io-inspect-v1",
         CONTENT_TYPE_JSON,
@@ -172,7 +172,7 @@ pub const OPERAZIONI: [DescrittoreRuntime; 6] = [
         true,
     ),
     descrittore(
-        "io.layers",
+        ("io.layers", 1),
         "plenora-io-layers-input-v1",
         "plenora-io-layers-v1",
         CONTENT_TYPE_JSON,
@@ -181,25 +181,25 @@ pub const OPERAZIONI: [DescrittoreRuntime; 6] = [
         true,
     ),
     descrittore(
-        "io.read",
+        ("io.read", 2),
         "plenora-io-read-input-v1",
-        "plenora-io-read-result-v1",
+        "plenora-io-read-result-v2",
         CONTENT_TYPE_FLUSSO_ARROW,
         "none",
         Artefatti::Sorgente,
         true,
     ),
     descrittore(
-        "io.write",
+        ("io.write", 2),
         "plenora-io-write-input-v1",
-        "plenora-io-write-result-v1",
+        "plenora-io-write-result-v2",
         CONTENT_TYPE_JSON,
         "local",
         Artefatti::SorgenteEDestinazione,
         true,
     ),
     descrittore(
-        "io.convert",
+        ("io.convert", 1),
         "plenora-io-convert-input-v1",
         "plenora-io-convert-v1",
         CONTENT_TYPE_JSON,
@@ -286,13 +286,13 @@ impl Invocazione {
     }
 }
 
-/// I metadati riservati di una richiesta (RUNTIME-BINDING-1.0 §3 e §4).
+/// I metadati riservati di una richiesta (RUNTIME-BINDING-2.0 §3 e §4).
 ///
 /// Le chiavi facoltative assenti restano assenti; presenti con `null` sono
 /// **rifiutate**, perche' leggere `null` come assenza farebbe partire senza
 /// scadenza una richiesta che ne dichiarava una. Le chiavi che il binding 1.0
 /// non riserva -- comprese le `plenora.*` sconosciute -- sono **ignorate**:
-/// e' la regola dei membri facoltativi sconosciuti (RUNTIME-BINDING-1.0 §9),
+/// e' la regola dei membri facoltativi sconosciuti (RUNTIME-BINDING-2.0 §9),
 /// e un controllo che il binding conosce e l'operazione non supporta si
 /// rifiuta per RT-006, non qui.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -345,7 +345,7 @@ pub struct MetadatiRichiesta {
     pub id_correlazione: String,
 }
 
-/// I metadati di un risultato (RUNTIME-BINDING-1.0 §6 e §7).
+/// I metadati di un risultato (RUNTIME-BINDING-2.0 §6 e §7).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 ///
@@ -356,7 +356,7 @@ pub struct MetadatiRichiesta {
 /// valore normalizzato, mai un segnaposto come `"0"` o `io.unknown`.
 pub struct MetadatiRisultato {
     /// L'identita' di **questo** messaggio: sempre nuova, UUID v4 canonico
-    /// (RUNTIME-BINDING-1.0 §3, «unique message identity»).
+    /// (RUNTIME-BINDING-2.0 §3, «unique message identity»).
     #[serde(rename = "plenora.message.id")]
     pub id_messaggio: String,
     /// La causa diretta del risultato, cioe' il `plenora.message.id` della
@@ -405,7 +405,7 @@ pub enum Carico {
     /// errore `plenora-error-v1`.
     Json(Value),
     /// Il flusso Arrow consegnato da `io.read`, con il documento
-    /// `plenora-io-read-result-v1` che lo descrive: fedelta', perdite, righe.
+    /// `plenora-io-read-result-v2` che lo descrive: fedelta', perdite, righe.
     /// `delivered` vale `null`: l'ingresso non ha chiesto una destinazione, e
     /// la serializzazione dei byte la dice il content type del risultato.
     FlussoArrow {
@@ -480,6 +480,10 @@ pub trait RisolutoreArtefatti {
 }
 
 /// Il binding, legato al risolutore dell'applicazione.
+// Regola 4, RT-024: il flusso ha il budget della pipeline, ma manca un
+// tetto per i risultati JSON e una prenotazione fallibile del Vec. Hazard:
+// OOM prima del rifiuto tipizzato. Rientro: budget uniforme di materializzazione;
+// ambito e stato nel registro dei limiti docs/PRODUCT.md. Nessuna troncatura.
 pub struct BindingRuntime<'a> {
     artefatti: &'a dyn RisolutoreArtefatti,
     orologio: fn() -> SystemTime,
@@ -627,9 +631,6 @@ impl<'a> BindingRuntime<'a> {
                 return consegna_in_flusso(richiesta, self.directory_temporanea.as_deref())
                     .map(|carico| (descrittore, carico))
             }
-            // Deviazione, regola 4: un ingresso stream rende input.content_type
-            // stream, escluso da write-result-v1. Non mascheriamo i byte reali.
-            // Hazard e rientro (io.write@2): docs/PRODUCT.md e manifesto adozione.
             "io.write" => operazioni::write(richiesta),
             "io.convert" => operazioni::convert(richiesta),
             _ => return Err(errore_di_instradamento(RifiutoDiInstradamento::Operazione)),
@@ -1188,7 +1189,7 @@ struct Ammessa<'a> {
     payload: &'a Value,
 }
 
-/// Le chiavi riservate obbligatorie della richiesta (RUNTIME-BINDING-1.0 §3).
+/// Le chiavi riservate obbligatorie della richiesta (RUNTIME-BINDING-2.0 §3).
 const OBBLIGATORIE: [&str; 7] = [
     "plenora.message.id",
     "plenora.trace.correlation_id",
@@ -2124,7 +2125,7 @@ pub fn capacita() -> Value {
         "interfaces": [{
             "kind": "runtime",
             "contract": CONTRATTO_BINDING,
-            "version": VERSIONE_BINDING,
+            "version": 2,
             "artifact": NOME_CAPACITA,
         }],
         "operations": operazioni,

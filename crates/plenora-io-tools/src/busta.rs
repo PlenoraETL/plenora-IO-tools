@@ -1,3 +1,6 @@
+// Regola 4, IO-NULL-001: la semantica di tutti i nullable non e qualificata.
+// Ambito CLI/Rust/runtime; hazard: null letto come non applicabile senza prova.
+// Rientro: stati tipizzati per ogni nullable; registro docs/PRODUCT.md.
 //! I tetti della diagnostica nella busta, e il troncamento che li dichiara.
 //!
 //! # Perche' esistono
@@ -239,7 +242,7 @@ pub const PROTOCOLLO: u64 = 2;
 /// smentiscono la somiglianza dei nomi, ed e' esattamente il caso in cui una
 /// sostituzione meccanica avrebbe sbagliato:
 ///
-/// * `read` rende `plenora-io-read-result-v1` e non `plenora-io-read-v1`: il
+/// * `read` rende `plenora-io-read-result-v2` e non `plenora-io-read-v1`: il
 ///   catalogo distingue l'ingresso `…-read-input-v1` dall'uscita, e il
 ///   segmento `result` serve a quello;
 /// * l'errore e' `plenora-error-v1` **senza** `io`, perche' SURF-015 dice che
@@ -254,11 +257,11 @@ pub const PROTOCOLLO: u64 = 2;
 #[must_use]
 pub fn contratto(nome: &str) -> String {
     match nome {
-        "catalog" => "plenora-io-catalog-v1".to_owned(),
+        "catalog" => "plenora-io-catalog-v2".to_owned(),
         "inspect" => "plenora-io-inspect-v1".to_owned(),
         "layers" => "plenora-io-layers-v1".to_owned(),
-        "read" => "plenora-io-read-result-v1".to_owned(),
-        "write" => "plenora-io-write-result-v1".to_owned(),
+        "read" => "plenora-io-read-result-v2".to_owned(),
+        "write" => "plenora-io-write-result-v2".to_owned(),
         "convert" => "plenora-io-convert-v1".to_owned(),
         // Condiviso, non nostro: lo emettono anche gli altri componenti.
         "capabilities" => "plenora-capabilities-v2".to_owned(),

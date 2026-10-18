@@ -14,7 +14,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.catalog = {
             "status": "ok",
             "protocol_version": 2,
-            "contract": "plenora-io-catalog-v1",
+            "contract": "plenora-io-catalog-v2",
             "determinism": "byte_for_byte",
             "drivers": [
                 {
@@ -23,6 +23,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                     "hostile_input_hardened": False,
                     "spec_version_supported": None,
                     "required_feature": None,
+                    "requires_declared_geometry_types": True,
                 },
                 {
                     "id": "filegdb",
@@ -30,6 +31,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                     "hostile_input_hardened": False,
                     "spec_version_supported": None,
                     "required_feature": "gdal-backend",
+                    "requires_declared_geometry_types": True,
                 },
             ],
         }
@@ -67,6 +69,10 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
             ("available", "true"),
             ("required_feature", "gdal"),
             ("required_feature", None),
+            # IO-CAT-001 e' un booleano: un 1 o un "true" sono la stessa
+            # scorciatoia di serializzazione che `available` gia' rifiuta.
+            ("requires_declared_geometry_types", 1),
+            ("requires_declared_geometry_types", "true"),
         ):
             with self.subTest(field=field, value=value):
                 catalog = copy.deepcopy(self.catalog)
@@ -87,8 +93,10 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
             ("status", "error"),
             # Valori **sbagliati** sotto il protocollo corrente: la sonda
             # verifica il rifiuto, quindi devono restare diversi da quelli
-            # buoni. Erano 2 e `-v2` quando il corrente era il v1.
+            # buoni. Erano 2 e `-v2` quando il corrente era il v1; il `-v1`
+            # ora e' il contratto superato, e va rifiutato come gli altri.
             ("protocol_version", 3),
+            ("contract", "plenora-io-catalog-v1"),
             ("contract", "plenora-io-catalog-v3"),
             ("determinism", "best_effort"),
         ):
@@ -116,8 +124,10 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         for driver_index, field in (
             (0, "available"),
             (0, "required_feature"),
+            (0, "requires_declared_geometry_types"),
             (1, "available"),
             (1, "required_feature"),
+            (1, "requires_declared_geometry_types"),
         ):
             with self.subTest(driver_index=driver_index, field=field):
                 catalog = copy.deepcopy(self.catalog)

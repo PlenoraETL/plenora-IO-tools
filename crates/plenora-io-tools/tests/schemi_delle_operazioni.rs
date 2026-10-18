@@ -158,7 +158,7 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
     );
 
     let casi: Vec<(&str, Vec<String>)> = vec![
-        ("plenora-io-catalog-v1", vec!["catalog".to_owned()]),
+        ("plenora-io-catalog-v2", vec!["catalog".to_owned()]),
         (
             "plenora-io-inspect-v1",
             vec![
@@ -188,14 +188,14 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
             ],
         ),
         (
-            "plenora-io-read-result-v1",
+            "plenora-io-read-result-v2",
             vec![
                 "read".to_owned(),
                 fixture("canonico.geojson").display().to_string(),
             ],
         ),
         (
-            "plenora-io-read-result-v1",
+            "plenora-io-read-result-v2",
             vec![
                 "read".to_owned(),
                 fixture("canonico.geojson").display().to_string(),
@@ -204,7 +204,7 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
             ],
         ),
         (
-            "plenora-io-write-result-v1",
+            "plenora-io-write-result-v2",
             vec![
                 "write".to_owned(),
                 arrow.display().to_string(),
@@ -214,7 +214,7 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
             ],
         ),
         (
-            "plenora-io-write-result-v1",
+            "plenora-io-write-result-v2",
             vec![
                 "write".to_owned(),
                 arrow.display().to_string(),
@@ -290,24 +290,9 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
     );
 }
 
-/// Le due buste che `v1` non sa esprimere: la deviazione dichiarata.
-///
-/// `plenora-io-read-result-v1` fissa `delivered.content_type` al contenitore e
-/// `plenora-io-write-result-v1` fissa `input.content_type` allo stesso; il
-/// prodotto consegna anche il flusso (`--out-opt serialization=stream`) e
-/// legge anche un payload a flusso, e lo dice -- dire `file` sarebbe falso. Le
-/// due buste escono quindi invalide contro lo schema che nominano, dalla 4.0.0.
-///
-/// Lo schema pubblicato non si allarga sul posto (COMPATIBILITY.md di
-/// plenora-contracts: cambierebbe quali istanze validano), e togliere il flusso
-/// riaprirebbe le tre deviazioni che la 4.0.0 ha chiuso con lui. Lo stato e'
-/// percio' una deviazione dichiarata nel manifesto di adozione, e questa prova
-/// la fissa nei due versi: le buste sono invalide **solo** su quel campo, e il
-/// manifesto lo dichiara. Quando la chiusura arriva -- un contratto d'uscita
-/// `v2` sotto una versione nuova dell'operazione -- la prova diventa rossa e la
-/// deviazione va tolta.
+/// IO-SER-001: i risultati stream validano contro v2; gli schemi v1 restano congelati.
 #[test]
-fn le_buste_a_flusso_sono_la_deviazione_dichiarata() {
+fn le_buste_a_flusso_rispettano_v2() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
     let flusso = temporanea.path().join("consegnata.arrows");
     let csv = temporanea.path().join("pubblicata.csv");
@@ -337,12 +322,12 @@ fn le_buste_a_flusso_sono_la_deviazione_dichiarata() {
     for (busta, schema, campo) in [
         (
             &lettura,
-            "plenora-io-read-result-v1",
+            "plenora-io-read-result-v2",
             "/delivered/content_type",
         ),
         (
             &scrittura,
-            "plenora-io-write-result-v1",
+            "plenora-io-write-result-v2",
             "/input/content_type",
         ),
     ] {
@@ -354,8 +339,8 @@ fn le_buste_a_flusso_sono_la_deviazione_dichiarata() {
             .collect();
         assert_eq!(
             errori,
-            vec![campo.to_owned()],
-            "{schema}: la busta a flusso deve deviare soltanto su {campo}"
+            Vec::<String>::new(),
+            "{schema}: la busta a flusso deve rispettare v2"
         );
         assert_eq!(
             busta["result"].pointer(campo),
@@ -372,12 +357,12 @@ fn le_buste_a_flusso_sono_la_deviazione_dichiarata() {
         .filter_map(|d| d["rule"].as_str())
         .collect();
     for regola in [
-        "plenora-io-read-result-v1 (delivered.content_type)",
-        "plenora-io-write-result-v1 (input.content_type)",
+        "plenora-io-read-result-v2 (delivered.content_type)",
+        "plenora-io-write-result-v2 (input.content_type)",
     ] {
         assert!(
-            regole.contains(&regola),
-            "il manifesto deve dichiarare la deviazione «{regola}»: {regole:?}"
+            !regole.contains(&regola),
+            "il manifesto non deve conservare la deviazione «{regola}»: {regole:?}"
         );
     }
 }
@@ -489,4 +474,24 @@ fn il_manifesto_e_la_directory_coincidono() {
         dichiarati, trovati,
         "gli esempi dichiarati e quelli sul disco devono coincidere"
     );
+}
+
+/// IO-CAT-001: presenza obbligatoria e tipo booleano, anche per un sink non disponibile.
+#[test]
+fn il_catalogo_v2_rende_predicibile_il_rifiuto_dei_tipi_ignoti() {
+    let busta = Command::new(BINARIO).arg("catalog").output().expect("CLI");
+    let documento: Value = serde_json::from_slice(&busta.stdout).expect("JSON");
+    let schema = compila("plenora-io-catalog-v2");
+    let risultato = &documento["result"];
+    for driver in risultato["drivers"].as_array().expect("drivers") {
+        assert_eq!(driver["requires_declared_geometry_types"], true);
+    }
+    let mut mancante = risultato.clone();
+    mancante["drivers"][0]
+        .as_object_mut()
+        .expect("driver")
+        .remove("requires_declared_geometry_types");
+    assert!(!schema.is_valid(&mancante));
+    mancante["drivers"][0]["requires_declared_geometry_types"] = Value::from("true");
+    assert!(!schema.is_valid(&mancante));
 }

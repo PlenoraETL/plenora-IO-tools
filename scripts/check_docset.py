@@ -113,6 +113,15 @@ OPERATIVI = {
         "sta in `docs/` -- ed e' scritto in inglese perche' il destinatario e' "
         "un progetto di terzi."
     ),
+    "contracts/copie-dal-pin/io-tools-v3.md": (
+        "copia verbatim del profilo `profiles/io-tools-v3.md` dal pin di "
+        "plenora-contracts, il primo profilo che il pin pubblica in Markdown "
+        "(il v1 era JSON). L'integrita' e' del digest sha256 in "
+        "`contracts/copie-dal-pin/provenienza.json`, come per le altre copie. "
+        "Non e' documentazione del prodotto -- quella sta in `docs/` -- ma il "
+        "testo del contratto adottato, fissato qui perche' chi legge "
+        "l'adozione non debba un checkout dei contratti."
+    ),
     "sdk/python/README.md": (
         "`pyproject.toml` lo dichiara `readme`, e finisce nei metadati del "
         "pacchetto: e' la stessa convenzione di percorso dei fork Cargo. Non "

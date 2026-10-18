@@ -23,7 +23,7 @@
       "export": "plenora_io_tools::operazioni::catalog",
       "firma": "fn() -> serde_json::Value",
       "contratto_ingresso": "plenora-io-catalog-query-v1",
-      "contratto_uscita": "plenora-io-catalog-v1",
+      "contratto_uscita": "plenora-io-catalog-v2",
       "nota": "nessun ingresso: il contratto d'ingresso e' vuoto perche' l'operazione descrive l'artefatto che sta rispondendo."
     },
     {
@@ -45,14 +45,14 @@
       "export": "plenora_io_tools::operazioni::read",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-read-input-v1",
-      "contratto_uscita": "plenora-io-read-result-v1"
+      "contratto_uscita": "plenora-io-read-result-v2"
     },
     {
       "operazione": "io.write",
       "export": "plenora_io_tools::operazioni::write",
       "firma": "fn(Richiesta) -> Result<serde_json::Value, serde_json::Value>",
       "contratto_ingresso": "plenora-io-write-input-v1",
-      "contratto_uscita": "plenora-io-write-result-v1"
+      "contratto_uscita": "plenora-io-write-result-v2"
     },
     {
       "operazione": "io.convert",
@@ -86,7 +86,7 @@
     },
     {
       "export": "plenora_io_tools::runtime::Carico",
-      "ruolo": "il payload di un risultato: `Json` per le operazioni che rendono JSON e per gli errori `plenora-error-v1`, `FlussoArrow` per `io.read`, con i byte del flusso e il documento `plenora-io-read-result-v1`."
+      "ruolo": "il payload di un risultato: `Json` per le operazioni che rendono JSON e per gli errori `plenora-error-v1`, `FlussoArrow` per `io.read`, con i byte del flusso e il documento `plenora-io-read-result-v2`."
     },
     {
       "export": "plenora_io_tools::runtime::RisolutoreArtefatti",
