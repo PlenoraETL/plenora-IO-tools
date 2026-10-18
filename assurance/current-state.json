@@ -414,8 +414,10 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate **iniziale**: la 5.0.0 segue la 4.1.1. La PR #60 adotta plenora-contracts 3aec9f7, catalogo e profilo io-tools v3: io.catalog, io.read e io.write passano alla versione operativa 2. E' un cambiamento del contratto pubblico, e per questo la versione e' major. Entrano anche #44 (SDK come superficie e capabilities), #50 (wheel nativa abi3), #53 (errori del decoder Parquet come data), #57 (zip 9), #58 (prevalidazione dei buffer IPC) e #59 (eccezione per l'advisory di zip). L'albero non e' ancora congelato e le misure finali non sono state eseguite: finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata. Il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso.\n\nIl cambio dei due lock invalida le impronte di profondita' dei quattro target e il confine ASan: le rimisure si fanno sulla VM sul commit della candidate iniziale, e il commit che le porta e' la revisione di contenuto da congelare."
+      "stato": "attiva",
+      "nota": "Candidate **attiva**, congelata su `92782e6`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`) e le misure del perimetro rifatte su di esso: profondita' dei quattro bersagli -- 35, 12, 9 e 9 requisiti, invariati -- e confine ASan, 169722 contatori su un modulo e zero simboli del runtime in `libgdal.so.32`. Le misure stanno **dentro** la revisione congelata: e' la lezione di `7746b1f`, ritirata perche' misurarla cambiava un file del suo stesso perimetro.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44 (SDK come superficie, capabilities), #50 (wheel nativa abi3), #53 (fork Parquet allineato), #57 (zip 9.0.3), #58 (prevalidazione IPC), #59 (eccezione advisory zip dichiarata).\n\n**Che cosa resta, intero.** La qualifica di questa candidate, nell'ordine della sezione 5-bis: Distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.",
+      "revisione_candidate": "92782e65bb75a627b6bda914649c06c8a2b4dd31",
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {
