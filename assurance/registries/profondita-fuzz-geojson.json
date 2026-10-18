@@ -113,7 +113,7 @@
   "rimisurazione_dovuta": {
     "perche": "Il perimetro e' cambiato nella 4.2.0: i fork come dipendenze dirette (#43), arrow 60 e il fork di parquet (#46), plenora-io-core con il modulo ewkb (#48), e l'orologio della pipeline in plenora-io-model. La misura si rifa'. La PR #57 aggiorna inoltre zip diretto a 9.0.3 e i lockfile principale e fuzz: il perimetro cambia ancora. Rinvio riallineato all'albero corrente il 2026-10-16; nessuna nuova misura eseguita. La PR #58 corregge la prevalidazione dello schema e dei buffer IPC. Rinvio riallineato all'albero corrente il 2026-10-17; nessuna nuova misura eseguita.",
     "impronta_della_misura": "b1cedf705f8a6ab937b63c013183b79355cf6fd75fa13c8d192d2c01086d70a7",
-    "impronta_attesa": "dfe583d4e6c59cfeadf27d5c60a26ced164aa1143d5f4ca2c5cc64ec93b9332b",
+    "impronta_attesa": "cb29b8217db7ba3d167522f0a50bfd5aa8099f415a8987857d8fdc0d75f8d12c",
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sul candidato finale della 4.2.0, prima del rilascio",
     "comando": "scripts/fuzz-profondita.sh geojson_reader"

@@ -109,6 +109,15 @@ def _tipi_degli_elementi(annotazione: Any) -> frozenset[str] | None:
     return None
 
 
+ESITI_DI_PUBBLICAZIONE = ("published", "published_durability_unconfirmed")
+
+
+def _esito_di_pubblicazione(valore: Any, dove: str) -> str:
+    if type(valore) is not str or valore not in ESITI_DI_PUBBLICAZIONE:
+        raise _dallo_sdk(ProtocolError, "pubblicazione.esito")
+    return valore
+
+
 def _schema(classe: Any) -> Any:
     """La prima classe del modello dell'SDK nell'MRO di `classe`, per identita'.
 
@@ -825,7 +834,9 @@ class Delivered:
             content_type=documento["content_type"],
             interchange_contract=documento["interchange_contract"],
             bytes_written=documento["bytes_written"],
-            publish_outcome=documento["publish_outcome"],
+            publish_outcome=_esito_di_pubblicazione(
+                documento["publish_outcome"], "read.delivered"
+            ),
             raw=dict(documento),
         )
 
@@ -1111,7 +1122,9 @@ class ConvertResult:
             layers=[ConvertedLayer.from_json(v) for v in elenco],
             total_rows=documento["total_rows"],
             bytes_written=documento["bytes_written"],
-            publish_outcome=documento["publish_outcome"],
+            publish_outcome=_esito_di_pubblicazione(
+                documento["publish_outcome"], "convert"
+            ),
             read_fidelity=Fidelity.from_json(documento["read_fidelity"]),
             write_fidelity=Fidelity.from_json(documento["write_fidelity"]),
             conversion_fidelity=Fidelity.from_json(documento["conversion_fidelity"]),
@@ -1124,11 +1137,19 @@ class ConvertResult:
     def published(self) -> bool:
         """La destinazione e' stata pubblicata.
 
-        Non e' un sinonimo di «riuscito»: una conversione puo' riuscire e non
-        pubblicare -- e' `publish_outcome` a dirlo, con il proprio vocabolario --
-        e leggere il successo dal solo codice d'uscita perderebbe la differenza.
+        Vero per **entrambi** gli esiti del protocollo: `published` e
+        `published_durability_unconfirmed` dicono tutti e due che la
+        destinazione c'e'. Valeva solo per il primo, e una conversione con
+        `durable=True` su un sistema che non conferma il fsync della directory
+        -- Windows -- risultava «non pubblicata» con il file al suo posto.
+        L'incertezza sulla durabilita' la dice `durability_unconfirmed`.
         """
-        return self.publish_outcome == "published"
+        return self.publish_outcome in ESITI_DI_PUBBLICAZIONE
+
+    @property
+    def durability_unconfirmed(self) -> bool:
+        """Pubblicata, ma il sistema non ha confermato che sopravviva a un'interruzione."""
+        return self.publish_outcome == "published_durability_unconfirmed"
 
     @property
     def lossless(self) -> bool:
@@ -1233,7 +1254,9 @@ class WriteResult:
             layers=[ConvertedLayer.from_json(v) for v in elenco],
             rows_written=documento["rows_written"],
             bytes_written=documento["bytes_written"],
-            publish_outcome=documento["publish_outcome"],
+            publish_outcome=_esito_di_pubblicazione(
+                documento["publish_outcome"], "write"
+            ),
             fidelity=Fidelity.from_json(documento["fidelity"]),
             input_fidelity=Fidelity.from_json(documento["input_fidelity"]),
             write_fidelity=Fidelity.from_json(documento["write_fidelity"]),

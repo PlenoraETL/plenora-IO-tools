@@ -1,25 +1,34 @@
 # plenora-io — SDK Python
 
-Un wrapper Python puro sopra la CLI `plenora-io`. Non un binding: nessun codice
-nativo, nessuna estensione compilata, nessuna `cffi`. L'SDK trova un binario che
-esiste gia' sulla macchina, lo esegue e decodifica le buste JSON che il
-protocollo v2 dichiara.
+Un client Python del **protocollo v2** della CLI `plenora-io`: costruisce gli
+argomenti di un comando, ne decodifica le buste JSON, e solleva gli errori per
+categoria. Il protocollo e' il confine pubblico -- `release/cli-protocol-v2.json`
+lo ratifica campo per campo -- e lo SDK non ne usa altri.
 
-## Perche' un wrapper e non un binding
+## Due wheel, un pacchetto
 
-Il confine pubblico di questo prodotto e' **la busta JSON**, non l'API Rust:
-`release/cli-protocol-v2.json` la ratifica campo per campo, e
-`rust_api.status` dice `internal_unstable`. Un binding legherebbe l'SDK a una
-superficie che nessuno si e' impegnato a mantenere, e costringerebbe a
-distribuire ruote compilate per ogni combinazione di piattaforma e versione di
-Python. Un wrapper si appoggia alla sola cosa che il progetto promette.
+* **La wheel nativa** (`cp310-abi3`, Linux manylinux 2_34 e Windows x86_64) porta
+  il modulo `plenora_io._native`, costruito con PyO3 da `crates/plenora-io-py`.
+  Il comando gira **nel processo**: il modulo esegue lo stesso dispatch del
+  binario -- le stesse funzioni Rust, non una copia -- e rende lo stesso codice
+  d'uscita e la stessa busta. Non serve un binario installato. Una sola wheel per
+  piattaforma copre Python 3.10-3.14, e la CI la prova su tutte e cinque le
+  versioni e sui due sistemi.
+* **La wheel pura** (`py3-none-any`) e' lo stesso pacchetto senza il modulo, ed
+  esegue un binario `plenora-io` che trova sulla macchina. Resta la strada per le
+  piattaforme senza wheel nativa e per chi vuole un binario preciso.
 
-Il prezzo e' un processo per chiamata, ed e' accettabile per il lavoro che
-questi comandi fanno: leggono e scrivono file, e il costo sta li'.
+`Client()` sceglie da se': un `binary=` esplicito o `PLENORA_IO_BIN` vincono, poi
+il modulo nativo se c'e', poi il binario accanto al pacchetto o nel `PATH`.
+`Client.backend` dice quale strada ha preso (`"native"` o `"process"`), e
+`Client.binary` e' `None` quando il comando gira nel processo.
+
+La versione dello SDK e' quella del workspace, cioe' del CLI:
+`scripts/check_sdk_python.py` verifica che coincidano.
 
 ## Che cosa c'e' oggi
 
-* la scoperta del binario, **fail-closed**;
+* la scoperta del binario, **fail-closed**, e il modulo nativo quando c'e';
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
 * `version()` del pacchetto e `Client.capabilities()` del binario;
@@ -90,7 +99,7 @@ tiene fuori dal profilo.
 | 3 | PEP 561, nomi pubblici intenzionali, risultati strutturati | conforme: `py.typed`, `__all__`, dataclass |
 | 3 | Arrow al confine tabellare (SHOULD) | conforme: file Arrow IPC, e oggetti PyArrow con l'extra |
 | 4 | parita' sync/async | solo sync, nessun metodo asincrono nominale; `api_modes: ["sync"]` quando l'artefatto entrera' nel manifesto |
-| 5 | ciclo di vita | non applicabile: `Client` non tiene risorse aperte, ogni chiamata e' un processo atteso fino alla fine |
+| 5 | ciclo di vita | non applicabile: `Client` non tiene risorse aperte, ogni chiamata attende fino alla fine il processo o il worker nativo |
 | 6 | radice `PlenoraError`, cinque assi su ogni eccezione | conforme dalla 4.2.0: prima li portava solo `CommandFailed` |
 | 6 | redazione dei segreti | non applicabile: nessuna credenziale; i messaggi non riportano contenuti dei documenti |
 | 7 | scoperta strutturata, fail-closed | conforme: `capabilities()` rende il documento del binario con l'interfaccia e la superficie `python_sdk` (CAP-003, CAP-006) |
@@ -122,6 +131,14 @@ un thread secondario o su Windows si ferma solo con `Client(timeout=...)`, che
 uccide il processo e rende `ProtocolError` con `remote_effect: unknown` se il
 comando scriveva. Rientro: un token di cancellazione dell'SDK inoltrato al
 processo su entrambe le piattaforme.
+
+Con `backend == "native"`, Ctrl-C e' raccolto dal thread principale anche
+su Windows: annulla cooperativamente e attende il worker Rust. Anche il
+timeout annulla e attende; non e' un limite rigido al tempo di ritorno. Se
+la scadenza e' trascorsa al ritorno, anche un successo diventa timeout. Un timeout o un guasto
+dopo l'avvio di una scrittura porta effetto `unknown`, come nel backend di
+processo. Le esclusioni per memoria esaurita, guasti dell'interprete e
+interruzioni asincrone nei meccanismi interni valgono per entrambi i backend.
 
 **Un errore di protocollo dopo una scrittura dice `unknown`.** Non e' una
 deviazione ma una scelta da conoscere: se il processo e' partito e il comando
@@ -344,7 +361,8 @@ ritentativo cieco e' escluso.
 
 **Le interruzioni restano interruzioni.** `KeyboardInterrupt`, `SystemExit` e
 le altre `BaseException` che non sono `Exception` attraversano l'SDK senza
-diventare un `PlenoraError`: un Ctrl-C deve fermare chi chiama. Prima di
+diventare un `PlenoraError`. Questo riguarda le eccezioni asincrone generiche,
+non il SIGINT raccolto dal gestore cooperativo durante il comando. Prima di
 rilanciarle, se il processo e' partito, l'SDK lo chiude (lo termina e ne
 raccoglie i flussi); per un comando che scrive vi aggiunge una nota fissa,
 senza dati (`add_note`, o `__notes__` su Python 3.10), che dice che l'effetto
@@ -538,14 +556,33 @@ scorciatoia, non l'unica informazione.
 
 ## Un Ctrl-C ferma la conversione con grazia
 
-Il segnale viene **inoltrato** al prodotto, che al primo arma un token
-cooperativo: la pipeline lo osserva ai propri punti di verifica e torna un
-`CancelledError` con la destinazione ripulita. Al secondo, il processo esce.
+Nel thread principale, durante un comando, il backend nativo e quello di
+processo su Unix sospendono il gestore SIGINT dell'applicazione e lo
+ripristinano all'uscita. Il primo SIGINT richiede la cancellazione cooperativa:
+lo SDK attende l'arresto e traduce la busta del comando in `CancelledError`,
+anziche' sollevare `KeyboardInterrupt`. Un comando gia' concluso puo' ancora
+restituire il proprio esito. I gestori personalizzati non vengono chiamati
+in questo intervallo: vale sia per quelli che ritornano normalmente, sia per
+quelli che solleverebbero `Exception` o `BaseException`. Nel nativo ulteriori
+SIGINT mantengono la richiesta; il processo Unix conserva il comportamento
+del CLI al secondo segnale (uscita immediata).
 
-Il gestore vive per la durata della singola esecuzione e viene rimesso com'era:
-una libreria non e' padrona del gestore dei segnali di chi la ospita. Fuori dal
-thread principale, e su Windows, l'inoltro non si arma e il comando funziona lo
-stesso -- `Client.cancellable` lo dice.
+Su Windows il nativo offre la stessa cancellazione cooperativa. Il backend di
+processo non puo' inoltrare SIGINT al figlio senza coinvolgere il processo
+ospite: mantiene il gestore dell'applicazione. Se questo solleva, lo SDK
+termina e attende il figlio; un'eccezione ordinaria viene redatta nel consueto
+errore SDK, mentre `KeyboardInterrupt` e le altre `BaseException` risalgono.
+Se il gestore ritorna, il comando continua. Non si promette in questo caso
+il cleanup cooperativo dello staging. Fuori dal thread principale non si
+installano gestori. Restano fuori garanzia le interruzioni asincrone generiche
+(#44); le eccezioni ordinarie attraversano sempre il confine di redazione,
+mentre le `BaseException` conservano la loro identita'.
+
+Il timeout del client limita ciascuna attesa al tempo residuo. Anche un risultato
+ricevuto dopo la scadenza produce l'errore SDK di timeout (`ProtocolError`);
+il nativo cancella cooperativamente e attende l'arresto, mentre il backend di
+processo termina il figlio. Non e' la deadline governata del motore, che ha
+una propria busta `TimeoutError`.
 
 ## `validate()` conta, non consegna
 

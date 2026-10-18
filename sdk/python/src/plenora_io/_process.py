@@ -142,6 +142,40 @@ def _inoltra_sigint(processo: "subprocess.Popen[str]"):
                 raise
 
 
+@contextlib.contextmanager
+def _sigint_nativo():
+    """Come l'inoltro POSIX: sospende il gestore utente, poi lo ripristina.
+
+    Il callback non solleva: Rust cancella e attende il comando. Funziona
+    anche su Windows, dove non occorre inoltrare un segnale a un figlio.
+    """
+    richiesta = False
+
+    def registra(numero, frame):
+        nonlocal richiesta
+        richiesta = True
+
+    def interrotto():
+        return richiesta
+
+    if threading.current_thread() is not threading.main_thread():
+        yield interrotto
+        return
+    precedente = signal.signal(signal.SIGINT, registra)
+    primaria = False
+    try:
+        yield interrotto
+    except BaseException:
+        primaria = True
+        raise
+    finally:
+        try:
+            signal.signal(signal.SIGINT, precedente)
+        except BaseException:
+            if not primaria:
+                raise
+
+
 def sigint_inoltrabile() -> bool:
     """L'inoltro del segnale e' possibile in questo contesto.
 
@@ -848,7 +882,6 @@ class Runner:
                     durata = max(0.0, min(_PASSO, scadenza - _adesso()))
                 try:
                     processo.wait(timeout=durata)
-                    break
                 except subprocess.TimeoutExpired:
                     pass
                 except OSError:
@@ -856,6 +889,15 @@ class Runner:
                         ProtocolError, "processo.comunicazione",
                         comando=_nome_del_comando(argv),
                     ) from None
+                else:
+                    # Un processo finito puo' esserlo oltre la scadenza: come
+                    # nel backend nativo, il risultato non si accetta.
+                    if scadenza is not None and _adesso() >= scadenza:
+                        raise _dallo_sdk(
+                            ProtocolError, "processo.timeout",
+                            comando=_nome_del_comando(argv),
+                        )
+                    break
                 if guasto.is_set():
                     raise _dallo_sdk(
                         ProtocolError, "processo.comunicazione",
@@ -977,3 +1019,64 @@ class Runner:
                 tipo=_tipo(documento),
             )
         return documento
+
+
+def _ricrea_nativo(timeout: Any) -> "NativeRunner":
+    from ._discovery import modulo_nativo
+
+    return NativeRunner(modulo_nativo(), timeout=timeout)
+
+
+class NativeRunner(Runner):
+    """Lo stesso protocollo di Runner, dal dispatch Rust nel processo.
+
+    Il timeout annulla cooperativamente e aspetta il termine del comando.
+    Le interruzioni Python risalgono solo dopo che il worker si e' fermato.
+    """
+
+    def __init__(self, nativo: Any, *, timeout: float | None = None) -> None:
+        self._timeout = timeout_valido(timeout)
+        self._nativo = nativo
+
+    @property
+    def binary(self) -> None:
+        return None
+
+    @property
+    def sigint_forwarding_available(self) -> bool:
+        return threading.current_thread() is threading.main_thread()
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {"timeout": self._timeout}
+
+    def __reduce__(self) -> Any:
+        return (_ricrea_nativo, (self._timeout,))
+
+    def __copy__(self) -> "NativeRunner":
+        return NativeRunner(self._nativo, timeout=self._timeout)
+
+    def __deepcopy__(self, memo: Any = None) -> "NativeRunner":
+        _memo(memo)
+        return self.__copy__()
+
+    def run(self, argv: list[str]) -> FrozenDict:
+        argv = _argv_esatto(argv)
+        try:
+            registra_avvio(argv)
+            with _sigint_nativo() as interrotto:
+                codice, stdout, scaduto = self._nativo.esegui(list(argv), self._timeout, interrotto)
+            if scaduto:
+                raise _dallo_sdk(
+                    ProtocolError, "nativo.timeout", comando=_nome_del_comando(argv)
+                )
+            completed = Completed(argv=list(argv), exit_code=codice, stdout=stdout, stderr="")
+            if codice == 0:
+                return FrozenDict(self._success(completed))
+            errore = _failure_from_envelope(self._failure(completed), codice, argv)
+        except Exception as errore:
+            raise _dopo_l_avvio(errore, argv) from None
+        except BaseException as errore:
+            if scrive(argv):
+                _annota_interruzione(errore)
+            raise
+        raise errore

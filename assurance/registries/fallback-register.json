@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 171,
+  "totale": 172,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -90,6 +90,10 @@
     "plenora-io-model": {
       "conteggio": 2,
       "ragione": "metadato GeoArrow assente significa “non è un campo geometrico”; l'identità dichiarata di una colonna geometrica ripiega sulla sua posizione fisica quando la sorgente non ne dichiara una. Non è un default di comodo: prima della separazione fra `identita_dichiarata` e `field_id` i due significati erano lo stesso campo, e un file conforme con identità diversa dall'indice veniva rifiutato in lettura."
+    },
+    "plenora-io-py": {
+      "conteggio": 1,
+      "ragione": "unwrap_or_else sul catch_unwind del worker traduce un panico nella stessa uscita strutturata del binario (uscita_del_panico); nessun successo o valore di dati sintetico."
     }
   }
 }

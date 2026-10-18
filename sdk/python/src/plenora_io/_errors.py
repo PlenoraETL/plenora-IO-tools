@@ -547,6 +547,8 @@ MESSAGGI: dict[str, str] = {
         "la chiusura del processo di `plenora-io {comando}` non e' riuscita: "
         "l'esito non si conosce."
     ),
+    "pubblicazione.esito": "Esito di pubblicazione fuori dal vocabolario del protocollo v2.",
+    "nativo.timeout": "`plenora-io {comando}` non ha risposto entro il timeout ed e' stato annullato.",
     "processo.timeout": (
         "`plenora-io {comando}` non ha risposto entro il tempo massimo del client "
         "ed e' stato terminato. Il timeout lo sceglie chi chiama, e questo errore non dice "
@@ -1304,13 +1306,13 @@ def _classi_dell_sdk() -> frozenset[str]:
     """I nomi delle classi dell'SDK, per identita' degli oggetti classe."""
     from ._client import Client  # noqa: PLC0415 - il client importa questo modulo
     from ._confine import MODELLI  # noqa: PLC0415 - confine importa questo modulo
-    from ._process import Runner  # noqa: PLC0415 - process importa questo modulo
+    from ._process import NativeRunner, Runner  # noqa: PLC0415 - process importa questo modulo
 
     classi = [
         classe for classe in list(globals().values())
         if type(classe) is type and issubclass(classe, PlenoraError)
     ]
-    classi += [*MODELLI, FrozenList, FrozenDict, Client, Runner]
+    classi += [*MODELLI, FrozenList, FrozenDict, Client, Runner, NativeRunner]
     return frozenset(type.__dict__["__name__"].__get__(c, type) for c in classi)
 
 
@@ -1453,6 +1455,8 @@ PARAMETRI: dict[str, dict[str, Any]] = {
     "processo.chiusura": {"comando": _COMANDO},
     # Senza il valore del timeout: e' un numero scelto da chi chiama, e un
     # decimale scritto per intero e' un dato (quindicesimo giro).
+    "pubblicazione.esito": {},
+    "nativo.timeout": {"comando": _COMANDO},
     "processo.timeout": {"comando": _COMANDO},
     "processo.comunicazione": {"comando": _COMANDO},
     "processo.non_utf8": {"comando": _COMANDO, "flusso": _FLUSSO, "byte": _CONTEGGIO},
