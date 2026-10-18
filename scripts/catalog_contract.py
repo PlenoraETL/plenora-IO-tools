@@ -88,6 +88,13 @@ def validate_catalog_producer(
                     )
         if "available" in driver and type(driver["available"]) is not bool:
             errors.append(f"catalog producer: driver {index} available is not boolean")
+        if "requires_declared_geometry_types" in driver and (
+            type(driver["requires_declared_geometry_types"]) is not bool
+        ):
+            errors.append(
+                f"catalog producer: driver {index} "
+                "requires_declared_geometry_types is not boolean"
+            )
         if "required_feature" in driver:
             feature = driver["required_feature"]
             if driver.get("id") == "filegdb":

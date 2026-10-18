@@ -391,6 +391,7 @@
         "available",
         "hostile_input_hardened",
         "required_feature",
+        "requires_declared_geometry_types",
         "spec_version_supported"
       ],
       "current_producer": {
@@ -398,6 +399,7 @@
           "available",
           "hostile_input_hardened",
           "required_feature",
+          "requires_declared_geometry_types",
           "spec_version_supported"
         ]
       },
@@ -405,6 +407,12 @@
         "available": {
           "type": "boolean",
           "true_when": "runtime_probe_satisfies_descriptor"
+        },
+        "requires_declared_geometry_types": {
+          "type": "boolean",
+          "true_when": "unresolved_types_declaration_is_rejected_before_publication",
+          "nota": "IO-CAT-001: il produttore corrente lo emette true per ogni driver -- tutti i sink restringono i tipi geometrici. Un referto storico non porta il campo, e un referto non si riscrive.",
+          "verificata_da": "scripts/catalog_contract.py"
         },
         "required_feature": {
           "type": [
