@@ -63,7 +63,7 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_diciannove_voci(self) -> None:
+    def test_l_allowlist_ha_venti_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
         Cinque canonici e sette operativi. Sono cresciuti due volte il
@@ -122,10 +122,16 @@ class SondePerimetro(unittest.TestCase):
         Con la 4.2.0 entrano tre operativi della stessa famiglia dei fork: i
         Markdown del pacchetto `parquet`, vendorizzato intero come nella base
         di plenora-data-tools e verificato da `check_parquet_fork.py`.
+
+        Con l'adozione del catalogo io-tools v3 (2026-10-18) entra il
+        dodicesimo operativo: `contracts/copie-dal-pin/io-tools-v3.md`, la
+        copia verbatim del profilo dal pin di plenora-contracts -- il primo
+        profilo che il pin pubblica in Markdown. L'integrita' e' del digest
+        sha256 in `provenienza.json`, come per le altre copie dal pin.
         """
-        self.assertEqual(len(gate.AMMESSI), 19)
+        self.assertEqual(len(gate.AMMESSI), 20)
         self.assertEqual(len(gate.CANONICI), 8)
-        self.assertEqual(len(gate.OPERATIVI), 11)
+        self.assertEqual(len(gate.OPERATIVI), 12)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
         """Il falso positivo che l'SDK ha rivelato.

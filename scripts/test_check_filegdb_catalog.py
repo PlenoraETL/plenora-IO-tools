@@ -14,7 +14,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.catalog = {
             "status": "ok",
             "protocol_version": 2,
-            "contract": "plenora-io-catalog-v1",
+            "contract": "plenora-io-catalog-v2",
             "determinism": "byte_for_byte",
             "drivers": [
                 {
@@ -87,8 +87,10 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
             ("status", "error"),
             # Valori **sbagliati** sotto il protocollo corrente: la sonda
             # verifica il rifiuto, quindi devono restare diversi da quelli
-            # buoni. Erano 2 e `-v2` quando il corrente era il v1.
+            # buoni. Erano 2 e `-v2` quando il corrente era il v1; il `-v1`
+            # ora e' il contratto superato, e va rifiutato come gli altri.
             ("protocol_version", 3),
+            ("contract", "plenora-io-catalog-v1"),
             ("contract", "plenora-io-catalog-v3"),
             ("determinism", "best_effort"),
         ):
