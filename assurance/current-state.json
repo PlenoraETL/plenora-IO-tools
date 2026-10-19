@@ -8,7 +8,7 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "e0270b5",
+      "sha": "a70501e",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
@@ -42,27 +42,27 @@
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "1d1b8d2a607970ea2f24359f9c7f345a1f8418c5",
-      "esito": "73.54%",
-      "righe_cambiate_eseguibili": 393,
-      "coperte": 289,
-      "scoperte": 104,
-      "cambiate_non_eseguibili": 2689,
-      "ragione": "misurata fra `1d1b8d2`, l'ultimo checkpoint superato e registrato, e `e0270b5`, nel perimetro di libreria.",
-      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; molte sono rami d'errore dei driver e degli adattatori di lettura in `plenora-io-core`. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
+      "baseline": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
+      "esito": "87.88%",
+      "righe_cambiate_eseguibili": 2128,
+      "coperte": 1870,
+      "scoperte": 258,
+      "cambiate_non_eseguibili": 11672,
+      "ragione": "misurata fra `e0270b5`, l'ultimo checkpoint superato e registrato, e `a70501e`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; comprendono la prevalidazione Arrow, EWKB e il runtime. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
     }
   },
   "ultima_campagna_fuzz": {
     "sha": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
+    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- Â«e' il verbale di questa corsa?Â» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "e0270b5"
+      "qualificato_su": "a70501e"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -410,12 +410,12 @@
       "versione_manifesto": "5.0.0",
       "versione_workspace": "5.0.0",
       "tag_previsto": "v5.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": true,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.\n\n**Artefatti fissati** dalla provenance della distribuzione candidate 39228154975, eseguita sul ref distribuzione/5.0.0-candidate con head uguale alla revisione congelata: i digest qui sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.0 a gate verdi il 2026-10-19 («autorizzo la 5.0.0»): release_authorized registra quella decisione e non la deriva da niente. Il livello 2 e' verde 111/111 su a70501e, i sei artefatti sono fissati dalla provenance della distribuzione candidate 39228154975, le attestazioni del profilo pubblico (32 requisiti su 32, esigente) coprono i quattro archivi CLI, e la draft e' stata riscaricata e verificata: 6/6 byte-identici ai fissati. release_action_allowed e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione. Il tag annotato v5.0.0 va su a70501e, la revisione congelata.",
+      "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.\n\n**Artefatti fissati** dalla provenance della distribuzione candidate 39228154975, eseguita sul ref distribuzione/5.0.0-candidate con head uguale alla revisione congelata: i digest qui sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.0 a gate verdi il 2026-10-19 (Â«autorizzo la 5.0.0Â»): release_authorized registra quella decisione e non la deriva da niente. Il livello 2 e' verde 111/111 su a70501e, i sei artefatti sono fissati dalla provenance della distribuzione candidate 39228154975, le attestazioni del profilo pubblico (32 requisiti su 32, esigente) coprono i quattro archivi CLI, e la draft e' stata riscaricata e verificata: 6/6 byte-identici ai fissati. release_action_allowed e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione. Il tag annotato v5.0.0 va su a70501e, la revisione congelata.",
       "revisione_candidate": "a70501edee79e57a7db2af8e361f34b8f55a1674",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -455,7 +455,8 @@
           "dimensione": 48692672,
           "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
         }
-      ]
+      ],
+      "tag_revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
     }
   },
   "docset": {
