@@ -456,7 +456,8 @@
           "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
         }
       ],
-      "tag_revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+      "tag_revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674",
+      "commit_di_assurance": "c9926a6e1e1645f445c84ae14ede02d0fc804cc8"
     }
   },
   "docset": {
