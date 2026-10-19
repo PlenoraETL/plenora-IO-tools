@@ -109,13 +109,5 @@
       "perche": "in GeoJSON i membri di un MULTIPOINT non hanno un oggetto proprio: sono le posizioni stesse. Senza questa riga il conteggio sarebbe la meta' di quello del bordo, ed e' il difetto che le sonde hanno trovato confrontando i due numeri."
     }
   ],
-  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
-  "rimisurazione_dovuta": {
-    "perche": "La PR #62 chiude la classe delle chiavi JSON duplicate: nuovo modulo del rifiuto ricorsivo in plenora-io-model (json.rs), lettori di documenti di controllo instradati e Cargo.lock aggiornato per la dipendenza di prova tempfile. Il perimetro dei target cambia. Rinvio dichiarato il 2026-10-19; nessuna nuova misura eseguita.",
-    "impronta_della_misura": "f4dc20158d526948345dc52ba75f759bd092b9dee2ef5f0eed621c53c768265a",
-    "impronta_attesa": "85900659c1e0e2fe5eae36aa3df58869f70c6d4b82eeed05982a475ab4db85b2",
-    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
-    "quando": "sulla VM, prima del congelamento della prossima release",
-    "comando": "scripts/fuzz-profondita.sh geojson_reader"
-  }
+  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`."
 }
