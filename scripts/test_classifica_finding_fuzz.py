@@ -1231,7 +1231,7 @@ class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
         (radice / "scripts").mkdir()
         (radice / "assurance" / "registries").mkdir(parents=True)
         (radice / "fuzz").mkdir()
-        for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
+        for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py", "strict_json.py"):
             shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
         shutil.copy(REGISTRO_STORICO, radice / "assurance" / "registries" / REGISTRO_VERO.name)
         shutil.copy(LOCK_STORICO, radice / "fuzz" / "Cargo.lock")
