@@ -9,19 +9,25 @@ perche' una verifica che non sa dire di no non verifica niente.
 
 from __future__ import annotations
 
-try:
-    from . import strict_json
-except ImportError:
-    import strict_json
-
 import importlib.util
 import json
 import pathlib
+import sys
 import subprocess
 import tarfile
 import tempfile
 import unittest
 from unittest import mock
+
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
+
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
 
 _SPEC = importlib.util.spec_from_file_location(
     "check_superficie_rust",

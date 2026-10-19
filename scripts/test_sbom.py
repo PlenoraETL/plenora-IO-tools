@@ -29,9 +29,16 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import sys
 import shutil
 import tempfile
 import unittest
+
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
+
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 

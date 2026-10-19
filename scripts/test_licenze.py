@@ -42,6 +42,12 @@ import sys
 import tempfile
 import unittest
 
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
+
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 GATE = RADICE / "scripts" / "check-licenze-artefatto.py"
 COSTRUTTORE = RADICE / "scripts" / "costruisci-artefatto-linux.py"

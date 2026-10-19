@@ -26,5 +26,13 @@
     "copre_gli_errori_dell_allocatore": "`malloc` e `free` passano dal runtime del sanitizer anche quando a chiamarli e' codice non strumentato: doppia liberazione, liberazione di un puntatore non allocato e dimensioni assurde restano osservabili.",
     "copre_le_funzioni_intercettate": "dentro `memcpy`, `strcpy` e le altre funzioni intercettate a controllare gli argomenti e' l'interceptor del runtime, non il codice chiamante: li' un errore di GDAL viene visto.",
     "non_guida_le_mutazioni_dentro_gdal": "`libgdal.so` non porta contatori di copertura -- proprieta' distinta dalla strumentazione del sanitizer -- quindi il fuzzer e' cieco dentro di essa: le mutazioni sono guidate dalla copertura del percorso Rust."
+  },
+  "rimisurazione_asan_dovuta": {
+    "perche": "La PR #62 chiude la classe delle chiavi JSON duplicate: nuovo modulo del rifiuto ricorsivo in plenora-io-model (json.rs), lettori di documenti di controllo instradati e Cargo.lock aggiornato per la dipendenza di prova tempfile. Il perimetro del target cambia. Rinvio dichiarato il 2026-10-19; nessuna nuova misura eseguita.",
+    "impronta_della_misura": "f7129314b63d7e25d5a1c994046ca082483fca08227a73a8b598420a1dbe7e91",
+    "impronta_attesa": "fa445b1a748087c60fcba351fe59aef8349b21f3be367f157ebc6e181dcf4b35",
+    "non_promette": "Nessun confine ASan e' affermato sull'albero corrente: i fatti registrati valgono per l'albero su cui la misura e' girata, e non su questo.",
+    "quando": "sulla VM, prima del congelamento della prossima release",
+    "comando": "bash scripts/asan-filegdb.sh"
   }
 }
