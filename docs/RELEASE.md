@@ -21,43 +21,43 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `e0270b5` |
-| revisione misurata | `e0270b5` |
+| ultima qualificata | `a70501e` |
+| revisione misurata | `a70501e` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 143 |
+| input di replay | 144 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,93% |
-| righe coperte LCOV | 25 127 |
-| righe strumentate LCOV | 28 904 |
-| copertura cargo | 84,53% |
+| copertura LCOV | 87,44% |
+| righe coperte LCOV | 27 051 |
+| righe strumentate LCOV | 30 936 |
+| copertura cargo | 85,12% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `1d1b8d2a607970ea2f24359f9c7f345a1f8418c5` |
-| esito differenziale | 73.54% |
+| baseline differenziale | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| esito differenziale | 87.88% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `e0270b5` |
-| candidate, versione del manifesto | `4.1.1` |
+| S9, qualificato su | `a70501e` |
+| candidate, versione del manifesto | `5.0.0` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
-| candidate, versione del workspace | `4.1.1` |
+| candidate, revisione congelata | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
+| candidate, versione del workspace | `5.0.0` |
 | candidate, artefatti congelati | 6 |
-| candidate, tag previsto | `v4.1.1` |
+| candidate, tag previsto | `v5.0.0` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
+| candidate, revisione del tag | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 4 |
+| release pubblicate | 5 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
