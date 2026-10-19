@@ -498,7 +498,7 @@ fn il_catalogo_v2_rende_predicibile_il_rifiuto_dei_tipi_ignoti() {
 }
 
 #[test]
-fn loader_documenti_rifiuta_duplicati() {
+fn il_loader_degli_schemi_delle_operazioni_rifiuta_duplicati() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("documento.json");
     for text in [r#"{"a":1,"a":2}"#, r#"{"a":[{"b":1,"b":2}]}"#] {

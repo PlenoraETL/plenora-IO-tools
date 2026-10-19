@@ -1988,7 +1988,7 @@ fn il_vettore_storico_non_rende_disponibile_read_v1() {
 }
 
 #[test]
-fn loader_documenti_rifiuta_duplicati() {
+fn il_loader_dei_vettori_runtime_rifiuta_duplicati() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("documento.json");
     for text in [r#"{"a":1,"a":2}"#, r#"{"a":[{"b":1,"b":2}]}"#] {
