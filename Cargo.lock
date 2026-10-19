@@ -1495,6 +1495,7 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1572,6 +1573,7 @@ dependencies = [
  "geojson",
  "plenora-io-model",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -763,7 +763,7 @@ fn nessuna_categoria_proietta_il_successo() {
 /// protocollo da cercare altrove, e' un difetto.
 fn assert_candidate_envelope(name: &str, corpo_o_busta: &Value) {
     let manifest: Value =
-        serde_json::from_str(include_str!("../../../release/cli-protocol-v2.json")).unwrap();
+        leggi_protocollo(include_str!("../../../release/cli-protocol-v2.json")).unwrap();
     // I comandi rendono il **corpo**, e `main` lo avvolge. Le sonde possono
     // passare l'uno o l'altra: avvolgere qui cio' che non e' gia' avvolto
     // evita di riscrivere venti chiamate per una differenza che non stanno
@@ -2356,4 +2356,18 @@ fn senza_cardinalita_accettata_il_trasferimento_fallisce_chiuso() {
     // Nessuna dichiarazione e nessuna scrittura: la sola lettura è quella
     // che conclude l'esame dello scope.
     assert_eq!(diario.eventi(), vec![Evento::Lettura]);
+}
+
+fn leggi_protocollo(testo: &str) -> Result<Value, &'static str> {
+    plenora_io_model::json::from_str(testo)
+}
+
+#[test]
+fn documento_incorporato_rifiuta_duplicati() {
+    for testo in [
+        r#"{"segreto":1,"segreto":2}"#,
+        r#"{"a":[{"segreto":1,"segreto":2}]}"#,
+    ] {
+        assert!(leggi_protocollo(testo).is_err());
+    }
 }

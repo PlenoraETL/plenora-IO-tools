@@ -761,7 +761,7 @@ fn percent_change(before: f64, after: f64) -> f64 {
 fn compare_baselines(before_path: &Path, after_path: &Path) -> std::result::Result<(), String> {
     let load = |path: &Path| {
         let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-        serde_json::from_slice::<serde_json::Value>(&bytes)
+        plenora_io_model::json::from_slice::<serde_json::Value>(&bytes)
             .map_err(|error| format!("{}: {error}", path.display()))
     };
     let before = load(before_path)?;
@@ -989,5 +989,25 @@ mod tests {
             bench_contract("csv").geometry.unwrap().crs.id(),
             Some("EPSG:4326")
         );
+    }
+}
+
+#[test]
+fn baseline_rifiuta_duplicati_before_e_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let before = dir.path().join("before.json");
+    let after = dir.path().join("after.json");
+    for text in [
+        r#"{"segreto":1,"segreto":2}"#,
+        r#"{"a":[{"segreto":1,"segreto":2}]}"#,
+    ] {
+        for bad in [&before, &after] {
+            std::fs::write(&before, r#"{"contract":"plenora-io-baseline-v1"}"#).unwrap();
+            std::fs::write(&after, r#"{"contract":"plenora-io-baseline-v1"}"#).unwrap();
+            std::fs::write(bad, text).unwrap();
+            let error = compare_baselines(&before, &after).unwrap_err();
+            assert!(error.contains("membri duplicati"));
+            assert!(!error.contains("segreto"));
+        }
     }
 }

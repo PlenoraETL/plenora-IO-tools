@@ -425,3 +425,25 @@ fn il_rifiuto_non_dice_niente_del_documento() {
     assert!(!errore.message.contains("colonna-riservata-del-cliente"));
     assert!(errore.message.contains("schema ufficiale"));
 }
+
+#[test]
+fn schemi_incorporati_rifiutano_duplicati() {
+    let originali = [
+        super::PROJJSON_0_5,
+        super::PROJJSON_0_7,
+        super::GEOPARQUET_1_0_0,
+        super::GEOPARQUET_1_1_0,
+    ];
+    assert!(super::compila_documenti(originali).is_ok());
+    for index in 0..4 {
+        for membri in [
+            r#""estensione_segreta":1,"estensione_segreta":2,"#,
+            r#""estensione_segreta":[{"a":1,"a":2}],"#,
+        ] {
+            let alterato = originali[index].replacen('{', &format!("{{{membri}"), 1);
+            let mut schemi = originali;
+            schemi[index] = &alterato;
+            assert!(super::compila_documenti(schemi).is_err());
+        }
+    }
+}

@@ -497,3 +497,30 @@ fn binding_interruzione_finale_delle_cinque_operazioni() {
         }
     }
 }
+
+#[test]
+fn metadati_ignoti_non_nascondono_duplicati() {
+    let originale = invocazione("io.catalog");
+    let testo = serde_json::to_string(&originale).unwrap();
+    let errore_atteso = super::Invocazione::da_json(b"{").unwrap_err();
+    for membri in [
+        r#""segreto":1,"segreto":2,"#,
+        r#""segreto":{"privato":1,"privato":2},"#,
+        r#""segreto":[{"privato":1,"privato":2}],"#,
+    ] {
+        let alterato = testo.replace("\"metadata\":{", &format!("\"metadata\":{{{membri}"));
+        assert_ne!(alterato, testo);
+        assert_eq!(
+            super::Invocazione::da_json(alterato.as_bytes()).unwrap_err(),
+            errore_atteso
+        );
+    }
+    let valido = testo.replace(
+        "\"metadata\":{",
+        r#""metadata":{"segreto":[{"privato":1}],"#,
+    );
+    assert_eq!(
+        super::Invocazione::da_json(valido.as_bytes()).unwrap(),
+        originale
+    );
+}
