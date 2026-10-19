@@ -99,6 +99,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_profondita_fuzz import (  # noqa: E402
@@ -494,7 +499,7 @@ def main(argv: list[str] | None = None) -> int:
     opzioni = argomenti.parse_args(argv)
 
     if opzioni.registra:
-        grezza = json.loads(opzioni.registra.read_text(encoding="utf-8"))
+        grezza = strict_json.loads(opzioni.registra.read_text(encoding="utf-8"))
         registro = leggi_registro(BERSAGLIO)
         percorsi, problemi = percorsi_del_perimetro(BERSAGLIO, registro)
         if problemi:
@@ -576,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     try:
-        misura = json.loads(ARTEFATTO.read_text(encoding="utf-8"))
+        misura = strict_json.loads(ARTEFATTO.read_text(encoding="utf-8"))
     except json.JSONDecodeError as errore:
         print(f"assurance/asan-filegdb.json: non e' JSON leggibile ({errore})", file=sys.stderr)
         return 1

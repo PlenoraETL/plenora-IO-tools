@@ -39,6 +39,11 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_prove_di_confine import esegui as esegui_i_test  # noqa: E402
@@ -115,7 +120,7 @@ PROVE_DI_COMPATIBILITA = (
 
 
 def lock() -> dict:
-    return json.loads(LOCK.read_text(encoding="utf-8"))
+    return strict_json.loads(LOCK.read_text(encoding="utf-8"))
 
 
 def schemi_fissati(registro: dict | None = None) -> tuple[dict[str, dict], list[str]]:
@@ -152,7 +157,7 @@ def schemi_fissati(registro: dict | None = None) -> tuple[dict[str, dict], list[
                 "un'autorita' che dice cio' che vogliamo noi."
             )
         try:
-            documento = json.loads(grezzo)
+            documento = strict_json.loads(grezzo)
         except json.JSONDecodeError as errore:
             errori.append(f"{voce['percorso']}: non e' JSON ({errore})")
             continue
@@ -430,7 +435,7 @@ def perimetro_esteso_misurato(registro: dict | None = None) -> list[str]:
 
 
 def _censimento() -> dict:
-    return json.loads(CENSIMENTO.read_text(encoding="utf-8"))
+    return strict_json.loads(CENSIMENTO.read_text(encoding="utf-8"))
 
 
 def censimento_della_closure(
@@ -450,7 +455,7 @@ def censimento_della_closure(
     """
     if not CENSIMENTO.is_file():
         return [f"{CENSIMENTO.name}: censimento della closure assente"]
-    registro = json.loads(CENSIMENTO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(CENSIMENTO.read_text(encoding="utf-8"))
     dichiarate = {(voce["crate"], voce["versione"]) for voce in registro["crate"]}
 
     if coppie is None:

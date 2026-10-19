@@ -39,6 +39,15 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = RADICE / "assurance" / "registries" / "conversioni-cross-format.json"
 SUITE = RADICE / "crates" / "plenora-io-tools" / "tests" / "conversioni.rs"
@@ -206,7 +215,7 @@ def _ogni_fixture_e_dichiarata(registro: dict) -> list[str]:
         return [f"{FIXTURE.relative_to(RADICE).as_posix()}: registro delle fixture assente"]
     dichiarate = {
         voce.get("percorso")
-        for voce in json.loads(FIXTURE.read_text(encoding="utf-8")).get("fixture", [])
+        for voce in strict_json.loads(FIXTURE.read_text(encoding="utf-8")).get("fixture", [])
         if isinstance(voce, dict)
     }
     errori: list[str] = []
@@ -309,7 +318,7 @@ def copertura(registro: dict) -> tuple[dict, list[str]]:
 def verifica() -> tuple[dict, list[str]]:
     if not REGISTRO.exists():
         return {}, [f"{REGISTRO.relative_to(RADICE).as_posix()}: registro assente"]
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
 
     errori: list[str] = []
     if registro.get("schema_version") != 2:

@@ -53,6 +53,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 # NB: `sorgenti` e' condivisa con il censimento, e questo gate ne eredita il
@@ -242,7 +247,7 @@ def main() -> int:
         print(f"{SNAPSHOT}: snapshot assente. Genera con --aggiorna.", file=sys.stderr)
         return 2
 
-    atteso = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    atteso = strict_json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     errori = confronta(atteso, trovato)
     for messaggio in errori:
         print(messaggio, file=sys.stderr)

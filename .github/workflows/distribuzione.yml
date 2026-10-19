@@ -310,10 +310,24 @@ jobs:
         id: contratto
         shell: bash
         run: |
-          if python -c "import json,sys; d=json.load(open('scripts/windows-gdal-lock.json')); sys.exit(0 if 'contratto_di_verifica' in d else 1)"; then
-            echo "presente=si" >> "$GITHUB_OUTPUT"
-          else
-            echo "presente=no" >> "$GITHUB_OUTPUT"
+          presente="$(python - <<'PYTHON'
+          import json
+
+          def unique_pairs(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise json.JSONDecodeError("chiave JSON duplicata", "", 0)
+                  result[key] = value
+              return result
+
+          with open('scripts/windows-gdal-lock.json', encoding='utf-8') as handle:
+              lock = json.load(handle, object_pairs_hook=unique_pairs)
+          print('si' if 'contratto_di_verifica' in lock else 'no')
+          PYTHON
+          )"
+          echo "presente=${presente}" >> "$GITHUB_OUTPUT"
+          if [ "$presente" = no ]; then
             echo "Il lock non porta ancora un contratto di verifica: la scoperta e' la sola fase possibile."
           fi
 

@@ -18,6 +18,11 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fork_comune import (  # noqa: E402
@@ -38,7 +43,7 @@ def fail(message: str) -> None:
 
 
 def main() -> None:
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK_PATH.read_text(encoding="utf-8"))
     expected_keys = {
         "schema_version",
         "package",
@@ -89,7 +94,7 @@ def main() -> None:
     if problemi:
         fail("; ".join(problemi))
 
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     provenienza = json.dumps(registro, ensure_ascii=False)
     for valore in (lock["crate_sha256"], lock["base"]["revisione"]):
         if valore not in provenienza:

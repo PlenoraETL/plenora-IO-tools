@@ -46,6 +46,15 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Le righe di riepilogo che i passi stampano alla fine del proprio log.
@@ -331,7 +340,7 @@ def pubblica_verbale(corsa: pathlib.Path, risultato: dict) -> list[str]:
             "smoke della corsa, e senza non esiste una campagna da registrare."
         ]
     try:
-        verbale = json.loads(sorgente.read_text(encoding="utf-8"))
+        verbale = strict_json.loads(sorgente.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as guasto:
         return [f"{sorgente}: il verbale non si legge ({guasto})"]
     if not isinstance(verbale, dict):
@@ -373,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     argomenti.add_argument("--uscita", required=True, type=pathlib.Path)
     opzioni = argomenti.parse_args(argv)
 
-    risultato = json.loads(
+    risultato = strict_json.loads(
         (opzioni.corsa / "risultato.json").read_text(encoding="utf-8")
     )
     if risultato.get("esito") == "in_corso":
@@ -391,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    giudizio = json.loads(opzioni.giudizio.read_text(encoding="utf-8"))
+    giudizio = strict_json.loads(opzioni.giudizio.read_text(encoding="utf-8"))
     # La prosa che **accompagna** una misura -- come e' stata presa, che cosa
     # significa un numero -- non si estrae da un log: la scrive chi registra. Si
     # fonde qui invece di stare in una sezione a parte perche' il gate confronta

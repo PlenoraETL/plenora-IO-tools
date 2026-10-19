@@ -42,6 +42,15 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -72,7 +81,7 @@ def perimetro() -> tuple[tuple[str, ...], dict[str, dict]]:
     scritta. Una che non stia in nessuna delle due ferma il gate: significa che
     e' uscita senza che nessuno lo dicesse.
     """
-    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    matrice = strict_json.loads(MATRICE.read_text(encoding="utf-8"))
     distribuite = tuple(p["id"] for p in matrice["piattaforme"])
     fuori = {p["id"]: p for p in matrice.get("piattaforme_non_distribuite", [])}
 
@@ -270,7 +279,7 @@ def carica_referti(directory: pathlib.Path) -> tuple[dict, list[str]]:
     errori: list[str] = []
     for percorso in sorted(directory.rglob("*.json")):
         try:
-            d = json.loads(percorso.read_text(encoding="utf-8"))
+            d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             errori.append(f"{percorso.name}: non e' JSON ({e})")
             continue
@@ -435,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         piattaforme = distribuite
 
-    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    matrice = strict_json.loads(MATRICE.read_text(encoding="utf-8"))
     dichiarate = classi(matrice)
     artefatti = artefatti_attesi(matrice, piattaforme)
     # Il numero non e' scritto: e' la somma degli obblighi di ciascun artefatto,

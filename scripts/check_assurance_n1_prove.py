@@ -51,6 +51,11 @@ import re
 import subprocess
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "assurance-n1-copertura-negativa.json"
 
@@ -290,7 +295,7 @@ def misura(
 
 def main() -> int:
     argparse.ArgumentParser(description=__doc__).parse_args()
-    gruppi = json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
+    gruppi = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
 
     coppie = coppie_da_misurare(gruppi)
     elenchi, errori = misura(coppie)

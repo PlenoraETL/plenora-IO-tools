@@ -22,6 +22,11 @@ import pathlib
 import subprocess
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "dependency-exceptions.json"
 
@@ -100,7 +105,7 @@ def main() -> int:
     parser.add_argument("--esegui", action="store_true", help="audita entrambi i lockfile")
     opzioni = parser.parse_args()
     try:
-        registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
         if opzioni.esegui:
             return esegui(registro)
         print(" ".join(flag(registro)))

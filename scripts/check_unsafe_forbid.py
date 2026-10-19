@@ -36,6 +36,11 @@ import re
 import sys
 import tomllib
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = RADICE / "assurance" / "registries" / "dependency-exceptions.json"
 
@@ -73,7 +78,7 @@ def problemi(radice: pathlib.Path) -> list[str]:
             f"Cargo.toml: `unsafe_code` del workspace e' {livello!r}, non \"forbid\""
         )
 
-    registro = json.loads((radice / REGISTRO.relative_to(RADICE)).read_text(encoding="utf-8"))
+    registro = strict_json.loads((radice / REGISTRO.relative_to(RADICE)).read_text(encoding="utf-8"))
     registrati = {voce.get("crate_del_workspace") for voce in registro.get("unsafe_nelle_dipendenze", [])}
     derogati = {voce.get("crate_del_workspace") for voce in registro.get("deroghe_al_forbid", [])}
 

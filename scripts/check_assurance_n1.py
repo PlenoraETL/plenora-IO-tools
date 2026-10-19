@@ -63,6 +63,11 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import perimetro_dei_sorgenti as perimetro  # noqa: E402
@@ -104,7 +109,7 @@ def carica() -> list[dict]:
     if not REGISTRO.exists():
         print(f"{REGISTRO}: registro assente.", file=sys.stderr)
         raise SystemExit(2)
-    return json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
+    return strict_json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
 
 
 def integrita(gruppi: list[dict]) -> list[str]:

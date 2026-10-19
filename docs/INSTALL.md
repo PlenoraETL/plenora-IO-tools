@@ -146,8 +146,20 @@ sull'albero estratto, che è dove i file possono essere cambiati o spariti:
 ```
 python3 - <<'FINE'
 import hashlib, json, pathlib
+
+def unique_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError("chiave JSON duplicata", "", 0)
+        result[key] = value
+    return result
+
 radice = pathlib.Path(".")
-manifesto = json.loads((radice / "MANIFEST.json").read_text(encoding="utf-8"))
+manifesto = json.loads(
+    (radice / "MANIFEST.json").read_text(encoding="utf-8"),
+    object_pairs_hook=unique_pairs,
+)
 for voce in manifesto["file"]:
     # I percorsi del manifesto costruito su Windows usano il separatore di lì.
     percorso = radice / voce["percorso"].replace("\\", "/")

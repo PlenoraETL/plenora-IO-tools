@@ -11,6 +11,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "fuzz" / "shared-corpus"
@@ -327,7 +332,7 @@ def verify_corpus(output: Path) -> list[str]:
     errors: list[str] = []
     manifest_path = output / "manifest.json"
     try:
-        actual_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        actual_manifest = strict_json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f"manifest non leggibile: {exc}"]
     revisions = actual_manifest.get("producer_revisions", {})

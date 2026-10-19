@@ -7,6 +7,11 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fork_comune import (  # noqa: E402
@@ -26,7 +31,7 @@ def fail(message: str) -> None:
 
 
 def main() -> None:
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK_PATH.read_text(encoding="utf-8"))
     expected_keys = {
         "schema_version",
         "package",
@@ -103,7 +108,7 @@ def main() -> None:
     # Registro di provenienza **strutturato**. Era un Markdown letto come
     # database: un gate non deve dipendere dalla prosa, che nessuno puo'
     # validare e che si riscrive senza accorgersene.
-    registro = json.loads(
+    registro = strict_json.loads(
         (ROOT / "assurance" / "registries" / "vendor-dxf-fork.json").read_text(
             encoding="utf-8"
         )

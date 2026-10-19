@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 try:  # importable as `scripts.check_filegdb_catalog` and as a plain script
     from scripts.catalog_contract import validate_catalog_producer
 except ImportError:  # pragma: no cover - taken when run as scripts/<file>.py
@@ -25,7 +30,7 @@ CLI_PROTOCOL = ROOT / "release" / "cli-protocol-v2.json"
 
 def load_protocol(path: Path = CLI_PROTOCOL) -> dict[str, Any]:
     """Load the frozen v1 CLI protocol manifest the evidence is judged against."""
-    document = json.loads(path.read_text(encoding="utf-8"))
+    document = strict_json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"{path}: root JSON is not an object")
     return document
@@ -87,7 +92,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.catalog is not None
             else sys.stdin.read()
         )
-        document = json.loads(source)
+        document = (
+            strict_json.loads(source)
+            if arguments.catalog is not None
+            else json.loads(source)
+        )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"FileGDB catalog evidence failed: {error}", file=sys.stderr)
         return 1

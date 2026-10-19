@@ -126,9 +126,17 @@ insieme_dei_passi_dichiarato() {
     programma="$(cat <<'PYTHON'
 import json, sys
 
+def unique_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError("chiave JSON duplicata", "", 0)
+        result[key] = value
+    return result
+
 dichiarati = [
     voce["id"]
-    for voce in json.load(open(sys.argv[1], encoding="utf-8"))["passi"]
+    for voce in json.load(open(sys.argv[1], encoding="utf-8"), object_pairs_hook=unique_pairs)["passi"]
 ]
 eseguiti = [riga.split("|", 1)[0] for riga in sys.stdin.read().splitlines() if riga]
 

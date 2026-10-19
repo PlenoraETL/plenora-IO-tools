@@ -35,6 +35,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Il renderer del blocco di stato. Vive separato perche' non legge il
@@ -390,8 +395,8 @@ def stato_coerente() -> list[str]:
     if not STATO.exists():
         return [f"{STATO}: fonte strutturata dello stato assente"]
     atteso, errori = stato_release.blocco(
-        json.loads(STATO.read_text(encoding="utf-8")),
-        json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
+        strict_json.loads(STATO.read_text(encoding="utf-8")),
+        strict_json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
     )
     if errori:
         return errori
@@ -469,8 +474,8 @@ def riscrivi_stato() -> int:
     il JSON**, che e' esattamente cio' che il controllo pretende.
     """
     atteso, errori = stato_release.blocco(
-        json.loads(STATO.read_text(encoding="utf-8")),
-        json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
+        strict_json.loads(STATO.read_text(encoding="utf-8")),
+        strict_json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
     )
     if errori:
         for messaggio in errori:

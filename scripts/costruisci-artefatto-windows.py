@@ -41,6 +41,15 @@ import subprocess
 import sys
 import zipfile
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -120,7 +129,7 @@ def main() -> int:
     a.add_argument("--salta-build", action="store_true")
     arg = a.parse_args()
 
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK.read_text(encoding="utf-8"))
     linux = carica_costruttore_linux()
     identificatori_spdx = linux.identificatori_spdx
     procurati_testo = linux.procurati_testo
@@ -246,13 +255,13 @@ def main() -> int:
     con_testo_proprio = 0
     con_testo_canonico: list[dict] = []
     senza_testo_fissato: list[tuple[str, int, list[str]]] = []
-    testi_esterni = json.loads(
+    testi_esterni = strict_json.loads(
         (RADICE / "scripts" / "testi-di-licenza.json").read_text(encoding="utf-8")
     )
     cache_licenze = uscita / ".testi-di-licenza"
 
     for documento in sorted(meta.glob("*.json")):
-        d = json.loads(documento.read_text(encoding="utf-8"))
+        d = strict_json.loads(documento.read_text(encoding="utf-8"))
         contribuiti = [
             f for f in d.get("files", []) if pathlib.PurePath(f).name.lower() in nomi_spediti
         ]

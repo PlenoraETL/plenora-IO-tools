@@ -44,6 +44,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "sdk" / "python" / "pyproject.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -126,7 +131,7 @@ def problemi() -> list[str]:
                 "essere usato, e questo non ha un uso legittimo qui."
             )
 
-    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    matrice = strict_json.loads(MATRICE.read_text(encoding="utf-8"))
     pubblicazione = matrice.get("pubblicazione", {})
     canale = pubblicazione.get("canale_del_pacchetto_python", {})
     if not canale.get("riservato"):

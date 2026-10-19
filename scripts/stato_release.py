@@ -52,6 +52,11 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STATO = ROOT / "assurance" / "current-state.json"
 REGISTRO = ROOT / "assurance" / "registries" / "release-contract-current.json"
@@ -352,8 +357,8 @@ def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.parse_args(argv)
     testo, errori = blocco(
-        json.loads(STATO.read_text(encoding="utf-8")),
-        json.loads(REGISTRO.read_text(encoding="utf-8")),
+        strict_json.loads(STATO.read_text(encoding="utf-8")),
+        strict_json.loads(REGISTRO.read_text(encoding="utf-8")),
     )
     for messaggio in errori:
         print(messaggio, file=sys.stderr)

@@ -52,6 +52,15 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = RADICE / "assurance" / "registries" / "fixture-canoniche.json"
 FIXTURE = RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
@@ -136,7 +145,7 @@ def _voci_ben_formate(dichiarate: object) -> tuple[dict[str, dict], list[str]]:
 def verifica() -> list[str]:
     if not REGISTRO.exists():
         return [f"{_mostra(REGISTRO)}: registro assente"]
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
 
     errori: list[str] = []
     if registro.get("schema_version") != 1:

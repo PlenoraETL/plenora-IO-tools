@@ -47,6 +47,11 @@ import tarfile
 import tempfile
 import tomllib
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAPPATURA = ROOT / "contracts" / "superficie-rust.json"
 CONSUMATORE = ROOT / "conformance" / "consumatore-rust"
@@ -169,7 +174,7 @@ def compila_dall_archivio(lavoro: pathlib.Path) -> list[str]:
         check=True,
         capture_output=True,
     )
-    manifesto = json.loads((uscita / "MANIFEST-sorgente.json").read_text(encoding="utf-8"))
+    manifesto = strict_json.loads((uscita / "MANIFEST-sorgente.json").read_text(encoding="utf-8"))
     tar = uscita / manifesto["artefatto"]
 
     estratto = lavoro / "estratto"
@@ -354,7 +359,7 @@ def main() -> int:
     )
     opzioni = parser.parse_args()
 
-    mappatura = json.loads(MAPPATURA.read_text(encoding="utf-8"))
+    mappatura = strict_json.loads(MAPPATURA.read_text(encoding="utf-8"))
     problemi = coerenza(mappatura)
 
     if not opzioni.solo_coerenza:

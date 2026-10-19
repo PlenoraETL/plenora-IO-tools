@@ -48,6 +48,11 @@ import typing
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 SDK = ROOT / "sdk" / "python" / "src" / "plenora_io"
@@ -525,7 +530,7 @@ def versione_allineata() -> list[str]:
 
 
 def main() -> int:
-    manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(CONTRATTO.read_text(encoding="utf-8"))
     obbligatori = tuple_dichiarate(MODELLI, "_OBBLIGATORI")
     opzionali = tuple_dichiarate(MODELLI, "_OPZIONALI")
     propri = tuple_dichiarate(MODELLI, "_PROPRI")

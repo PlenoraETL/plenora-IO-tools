@@ -34,6 +34,27 @@ export S9_CHECKPOINT_SOLO_FUNZIONI
 # shellcheck source=/dev/null
 . "${RADICE}/scripts/s9-checkpoint.sh"
 
+# Tutte le letture JSON delle sonde usano lo stesso hook locale.
+python_json_strict() {
+    local programma="$1"
+    shift
+    local hook
+    hook="$(cat <<'PYTHON'
+import json
+
+def unique_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError("chiave JSON duplicata", "", 0)
+        result[key] = value
+    return result
+PYTHON
+)"
+    python3 -c "${hook}
+${programma}" "$@"
+}
+
 sonde=0
 rosse=0
 USCITA="${S9_CHECKPOINT_LOG_DIR}/.uscita"
@@ -506,13 +527,13 @@ scrivi_risultato non_superato
 verifica "scrivere il risultato riesce" "0" "$?"
 verifica "il risultato esiste su disco" "si" "$([ -f "${RISULTATO}" ] && echo si || echo no)"
 verifica "e' JSON leggibile" "ok" \
-    "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "${RISULTATO}" 2>&1 | tail -1)"
+    "$(python_json_strict 'import json,sys;json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs);print("ok")' "${RISULTATO}" 2>&1 | tail -1)"
 verifica "porta l'esito della corsa" "non_superato" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["esito"])' "${RISULTATO}")"
 verifica "porta i passi ricostruiti" "7 5 2" \
-    "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["passi"],d["verdi"],d["omessi"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;d=json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs);print(d["passi"],d["verdi"],d["omessi"])' "${RISULTATO}")"
 verifica "porta i nomi dei passi rossi" "alfa beta" \
-    "$(python3 -c 'import json,sys;print(" ".join(json.load(open(sys.argv[1]))["falliti"]))' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(" ".join(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["falliti"]))' "${RISULTATO}")"
 verifica "non lascia file parziali" "0" \
     "$(find "${RISULTATI}" -name '*.parziale.*' | wc -l | tr -d ' ')"
 
@@ -523,19 +544,19 @@ verifica "non lascia file parziali" "0" \
 # 57/57, perche' nulla legava i due. L'elenco porta l'identita' di ogni passo
 # con il proprio esito e il proprio log, e da li' il legame diventa possibile.
 verifica "l'elenco porta un passo per ogni identita'" "3" \
-    "$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["elenco_dei_passi"]))' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(len(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["elenco_dei_passi"]))' "${RISULTATO}")"
 verifica "con id, esito e log di ciascuno" "alfa verde alfa.log" \
-    "$(python3 -c 'import json,sys;v=json.load(open(sys.argv[1]))["elenco_dei_passi"][0];print(v["id"],v["esito"],v["log"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;v=json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["elenco_dei_passi"][0];print(v["id"],v["esito"],v["log"])' "${RISULTATO}")"
 verifica "e log nullo per i passi in linea" "None" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["elenco_dei_passi"][2]["log"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["elenco_dei_passi"][2]["log"])' "${RISULTATO}")"
 verifica "un passo rosso resta nell'elenco" "rosso" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["elenco_dei_passi"][1]["esito"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["elenco_dei_passi"][1]["esito"])' "${RISULTATO}")"
 
 # Una seconda scrittura sostituisce la prima: il file dice l'ultimo stato noto
 # della corsa, non il primo.
 scrivi_risultato superato
 verifica "una scrittura successiva sostituisce" "superato" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["esito"])' "${RISULTATO}")"
 
 # La sonda dell'atomicita': se la produzione del JSON si interrompe a meta', la
 # destinazione deve conservare il **contenuto precedente completo**. Scrivere
@@ -567,10 +588,10 @@ verifica "una destinazione impossibile e' rossa" "1" "$?"
 # cio' che esiste. Chiuderlo da un lato solo lascerebbe passare una rimozione
 # coordinata dall'altro.
 tutti_i_passi() {
-    python3 -c "
+    python_json_strict "
 import json
 percorso = 'assurance/registries/passi-del-checkpoint.json'
-for voce in json.load(open(percorso, encoding='utf-8'))['passi']:
+for voce in json.load(open(percorso, encoding='utf-8'), object_pairs_hook=unique_pairs)['passi']:
     print(voce['id'] + '|verde|')
 "
 }
@@ -634,12 +655,12 @@ RISULTATO="${RISULTATI}/terminale.json"
 ( concludi albero_sporco 2 ) > /dev/null 2>&1
 verifica "un'uscita terminale esce con il proprio codice" "2" "$?"
 verifica "e registra un esito terminale, non «in_corso»" "albero_sporco" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["esito"])' "${RISULTATO}")"
 
 ( concludi superato 0 ) > /dev/null 2>&1
 verifica "e il codice 0 quando la corsa e' passata" "0" "$?"
 verifica "con l'esito della corsa" "superato" \
-    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+    "$(python_json_strict 'import json,sys;print(json.load(open(sys.argv[1]), object_pairs_hook=unique_pairs)["esito"])' "${RISULTATO}")"
 
 # Nessuna `exit` fuori da `concludi`, e la regola e' **strutturale**.
 #

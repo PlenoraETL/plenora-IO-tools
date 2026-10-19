@@ -40,6 +40,15 @@ import zipfile
 
 import avvisi_crate
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 CRATE = RADICE / "crates" / "plenora-io-py"
 SORGENTE = RADICE / "sdk" / "python" / "src" / "plenora_io"
@@ -104,7 +113,7 @@ def verifica_licenze(archivio: zipfile.ZipFile) -> list[str]:
     if elenco not in nomi:
         return errori + ["manca l'elenco degli avvisi dei crate"]
     try:
-        dichiarati = json.loads(archivio.read(elenco))["pacchetti"]
+        dichiarati = strict_json.loads(archivio.read(elenco))["pacchetti"]
         dichiarazione = {
             (c["nome"], c["versione"]): c["avvisi"] for c in dichiarati
         }

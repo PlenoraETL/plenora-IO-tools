@@ -43,6 +43,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 MANIFESTO = RADICE / "contracts" / "adoption-manifest.json"
 SORGENTE_DEL_PIN = RADICE / "contracts" / "adoption-source.json"
@@ -260,9 +265,9 @@ def verifica(
     schema_percorso = contracts / "schemas" / "adoption-manifest-v4.schema.json"
     if not schema_percorso.is_file():
         return [f"lo schema «{schema_percorso.name}» non e' nel checkout fissato"]
-    errori.extend(valida_forma(manifesto, json.loads(schema_percorso.read_text("utf-8"))))
+    errori.extend(valida_forma(manifesto, strict_json.loads(schema_percorso.read_text("utf-8"))))
 
-    pin = json.loads(SORGENTE_DEL_PIN.read_text(encoding="utf-8"))
+    pin = strict_json.loads(SORGENTE_DEL_PIN.read_text(encoding="utf-8"))
     atteso = (pin.get("contracts_source") or {}).get("revision")
     dichiarato = manifesto.get("contracts_source", {}).get("revision")
     if atteso and dichiarato != atteso:
@@ -333,7 +338,7 @@ def verifica_redatto(redatto: dict, contracts: pathlib.Path) -> list[str]:
         "deviations": redatto["deviations"],
     }
     schema_percorso = contracts / "schemas" / "adoption-manifest-v4.schema.json"
-    schema = json.loads(schema_percorso.read_text("utf-8"))
+    schema = strict_json.loads(schema_percorso.read_text("utf-8"))
     # `artifacts` ha `minItems: 1`, e qui e' vuoto per costruzione: l'errore
     # corrispondente e' atteso e si toglie, gli altri no.
     errori = [
@@ -369,7 +374,7 @@ def main() -> int:
     opzioni = argomenti.parse_args()
 
     if opzioni.redatto:
-        redatto = json.loads(
+        redatto = strict_json.loads(
             (RADICE / "contracts" / "adozione-4.0.0.json").read_text(encoding="utf-8")
         )
         errori = verifica_redatto(redatto, pathlib.Path(opzioni.contracts))
@@ -398,7 +403,7 @@ def main() -> int:
 
     artefatti = {pathlib.Path(a).name: pathlib.Path(a) for a in opzioni.artefatto}
     errori = verifica(
-        json.loads(percorso.read_text(encoding="utf-8")),
+        strict_json.loads(percorso.read_text(encoding="utf-8")),
         pathlib.Path(opzioni.contracts),
         artefatti,
     )
@@ -407,7 +412,7 @@ def main() -> int:
             print(uno, file=sys.stderr)
         return 1
 
-    manifesto = json.loads(percorso.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(percorso.read_text(encoding="utf-8"))
     conformi = sum(1 for c in manifesto["contracts"] if c["status"] == "conforming")
     print(
         f"manifesto di adozione verificato: {len(manifesto['artifacts'])} artefatti con "

@@ -29,6 +29,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRO = ROOT / "assurance" / "registries" / "riuso-delle-evidenze.json"
 
@@ -103,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{REGISTRO}: registro assente", file=sys.stderr)
         return 2
     try:
-        documento = json.loads(REGISTRO.read_text(encoding="utf-8"))
+        documento = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     except json.JSONDecodeError as guasto:
         print(f"{REGISTRO}: non e' JSON leggibile ({guasto})", file=sys.stderr)
         return 2

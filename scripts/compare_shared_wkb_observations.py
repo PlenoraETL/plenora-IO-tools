@@ -10,9 +10,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 
 def load_object(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = strict_json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path}: radice non object")
     return value

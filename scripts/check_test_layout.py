@@ -43,6 +43,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import perimetro_dei_sorgenti as perimetro  # noqa: E402
@@ -107,7 +112,7 @@ def scansiona() -> tuple[list[str], int, int]:
 
 def main() -> int:
     violazioni, superstiti, file_di_prove = scansiona()
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     atteso = registro["attributi_su_singoli_elementi"]["quanti"]
 
     if superstiti != atteso:

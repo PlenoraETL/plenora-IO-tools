@@ -82,7 +82,21 @@ BINARIO="${RADICE}/bin/plenora-io"
 # funziona spostato, e «funziona» significa cose diverse per i due profili:
 # scrivere un FileGDB e' la promessa del profilo pieno, e pretenderla dal base
 # lo farebbe fallire per una capability che non ha mai promesso.
-PROFILO="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['profilo'])" "${RADICE}/MANIFEST.json")"
+PROFILO="$(python3 - "${RADICE}/MANIFEST.json" <<'PYTHON'
+import json, sys
+
+def unique_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError("chiave JSON duplicata", "", 0)
+        result[key] = value
+    return result
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle, object_pairs_hook=unique_pairs)['profilo'])
+PYTHON
+)"
 echo "   profilo: ${PROFILO}"
 [ -x "${BINARIO}" ] || { echo "ROSSO: ${BINARIO} non e' eseguibile" >&2; exit 1; }
 echo "   ${RADICE}"

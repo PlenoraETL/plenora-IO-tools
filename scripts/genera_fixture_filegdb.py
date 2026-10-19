@@ -68,6 +68,11 @@ import pathlib
 import struct
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCHIVIO = ROOT / "fuzz" / "fixtures" / "filegdb" / "citta.gdb.bundle"
 # La **sorgente** da cui GDAL produce la fixture. Sta nel verbale perche' e' un
@@ -325,7 +330,7 @@ def verifica_forma() -> int:
         print(messaggio, file=sys.stderr)
     if errori:
         return 1
-    prova = json.loads(PROVA.read_text(encoding="utf-8"))
+    prova = strict_json.loads(PROVA.read_text(encoding="utf-8"))
     print(
         f"fixture FileGDB verificata: {len(contenuti)} parti, "
         f"{sum(len(v) for v in contenuti.values())} byte di contenuto; "
@@ -362,7 +367,7 @@ def _prova_legata_alla_fixture(contenuti: dict[str, bytes]) -> list[str]:
             "GDAL produce: si genera con `bash scripts/genera-fixture-filegdb.sh`."
         ]
     try:
-        prova = json.loads(PROVA.read_text(encoding="utf-8"))
+        prova = strict_json.loads(PROVA.read_text(encoding="utf-8"))
     except json.JSONDecodeError as errore:
         return [f"{PROVA.name}: non e' JSON leggibile ({errore})"]
 

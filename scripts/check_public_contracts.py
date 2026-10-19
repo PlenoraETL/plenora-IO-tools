@@ -85,6 +85,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = Path(__file__).resolve().parents[1]
 ADOZIONE = ROOT / "contracts" / "adoption-source.json"
 REGISTRO = ROOT / "contracts" / "requisiti-pubblici.json"
@@ -237,19 +242,19 @@ class Vocabolario:
         #: Il checkout fissato, per le sonde che leggono uno schema invece di
         #: ricopiarne i requisiti.
         self.contracts = contratti
-        schema = json.loads(
+        schema = strict_json.loads(
             (contratti / "schemas" / "error-v1.schema.json").read_text(encoding="utf-8")
         )
         self.categorie = frozenset(self._enum(schema, "category"))
         self.fasi = frozenset(self._enum(schema, "phase"))
         self.effetti = frozenset(self._enum(schema, "remote_effect"))
         self.codici_di_uscita = self._tabella_dei_codici(contratti, self.categorie)
-        self.capability = json.loads(
+        self.capability = strict_json.loads(
             (contratti / "schemas" / "capabilities-v2.schema.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.catalogo = json.loads(
+        self.catalogo = strict_json.loads(
             (contratti / "catalogs" / "io-tools-v3.json").read_text(encoding="utf-8")
         )
 
@@ -298,7 +303,7 @@ class Vocabolario:
         La duplicazione finisce quando la proiezione sara' pubblicata in forma
         macchina nel repository comune. E' la riga HB2 del piano 4.0.0.
         """
-        documento = json.loads(PROIEZIONE.read_text(encoding="utf-8"))
+        documento = strict_json.loads(PROIEZIONE.read_text(encoding="utf-8"))
         tabella = {
             nome: int(codice) for nome, codice in documento["proiezione"].items()
         }
@@ -792,9 +797,9 @@ def sonda_limiti_della_diagnostica(
     registro_percorso = ROOT / "contracts" / "limiti-della-diagnostica.json"
     if not registro_percorso.is_file():
         return Esito(False, "il registro dei limiti non c'e'")
-    registro = json.loads(registro_percorso.read_text(encoding="utf-8"))
+    registro = strict_json.loads(registro_percorso.read_text(encoding="utf-8"))
 
-    adozione = json.loads(
+    adozione = strict_json.loads(
         (ROOT / "contracts" / "adoption-source.json").read_text(encoding="utf-8")
     )
     pin = adozione["contracts_source"]["revision"]
@@ -879,7 +884,7 @@ def sonda_dettagli_dell_errore(artefatto: Artefatto, vocabolario: Vocabolario) -
     schema = ROOT / "contracts" / "schemas" / "plenora-io-error-details-v1.schema.json"
     if not schema.is_file():
         return Esito(False, "lo schema dei dettagli non e' pubblicato")
-    forma = json.loads(schema.read_text(encoding="utf-8"))
+    forma = strict_json.loads(schema.read_text(encoding="utf-8"))
     ammesse = set(forma.get("properties") or {})
     if not ammesse:
         return Esito(False, "lo schema non dichiara proprieta'")
@@ -967,12 +972,12 @@ def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> 
     registro_percorso = ROOT / "contracts" / "nomi-dei-contratti.json"
     if not registro_percorso.is_file():
         return Esito(False, "il registro dei nomi non c'e'")
-    registro = json.loads(registro_percorso.read_text(encoding="utf-8"))
+    registro = strict_json.loads(registro_percorso.read_text(encoding="utf-8"))
 
     catalogo_percorso = vocabolario.contracts / "catalogs" / "io-tools-v3.json"
     if not catalogo_percorso.is_file():
         return Esito(False, "il catalogo io-tools non e' nel pin")
-    catalogo = json.loads(catalogo_percorso.read_text(encoding="utf-8"))
+    catalogo = strict_json.loads(catalogo_percorso.read_text(encoding="utf-8"))
     dal_catalogo = {
         voce["id"]: voce["output"]["contract"] for voce in catalogo["operations"]
     }
@@ -1087,7 +1092,7 @@ def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) ->
     )
     if not schema_percorso.is_file():
         return Esito(False, f"lo schema «{schema_percorso.name}» non e' nel pin")
-    schema = json.loads(schema_percorso.read_text(encoding="utf-8"))
+    schema = strict_json.loads(schema_percorso.read_text(encoding="utf-8"))
     obbligatori = schema.get("required") or []
     if not obbligatori:
         return Esito(False, "lo schema del pin non dichiara campi obbligatori")
@@ -1514,7 +1519,7 @@ def esegui(
     *,
     referto: dict[str, Any] | None = None,
 ) -> int:
-    adozione = json.loads(ADOZIONE.read_text(encoding="utf-8"))
+    adozione = strict_json.loads(ADOZIONE.read_text(encoding="utf-8"))
     atteso = adozione["contracts_source"]["revision"]
     corrente = subprocess.run(
         ["git", "-c", f"safe.directory={contratti.as_posix()}", "rev-parse", "HEAD"],
@@ -1536,7 +1541,7 @@ def esegui(
     if referto is not None:
         referto["contratti"] = {"pin": corrente}
 
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     guasti = registro_coerente(registro)
     if guasti:
         for messaggio in guasti:

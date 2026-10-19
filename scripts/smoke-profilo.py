@@ -38,6 +38,15 @@ import pathlib
 import subprocess
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -202,7 +211,7 @@ def main() -> int:
     manifesto_percorso = albero / "MANIFEST.json"
     if not manifesto_percorso.is_file():
         sys.exit(f"{manifesto_percorso} assente: senza manifesto non si sa che cosa promette")
-    manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(manifesto_percorso.read_text(encoding="utf-8"))
     profilo = manifesto["profilo"]
 
     binario = albero / "bin" / ("plenora-io.exe" if os.name == "nt" else "plenora-io")

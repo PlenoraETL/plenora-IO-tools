@@ -35,6 +35,11 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRO = ROOT / "assurance" / "registries" / "sonde-saltate-nella-sdist.json"
 
@@ -49,8 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     opzioni = argomenti.parse_args(argv)
 
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
-    misurato = json.loads(opzioni.misurato.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
+    misurato = strict_json.loads(opzioni.misurato.read_text(encoding="utf-8"))
     problemi: list[str] = []
 
     if misurato["fallite"]:
