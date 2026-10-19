@@ -48,7 +48,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | S9, qualificato su | `e0270b5` |
 | candidate, versione del manifesto | `5.0.0` |
 | candidate, stato | attiva |
-| candidate, revisione congelata | `92782e65bb75a627b6bda914649c06c8a2b4dd31` |
+| candidate, revisione congelata | `42ca6936b0c972b21fbfe1cabbaf03b2b7db1ed4` |
 | candidate, versione del workspace | `5.0.0` |
 | candidate, artefatti congelati | non congelati |
 | candidate, tag previsto | `v5.0.0` |
