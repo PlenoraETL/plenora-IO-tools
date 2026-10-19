@@ -36,6 +36,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import perimetro_dei_sorgenti as perimetro  # noqa: E402
@@ -135,7 +140,7 @@ def main() -> int:
     opzioni = argomenti.parse_args()
 
     corrente = misura()
-    registro = json.loads(BUDGET.read_text(encoding="utf-8"))
+    registro = strict_json.loads(BUDGET.read_text(encoding="utf-8"))
 
     if opzioni.aggiorna:
         registro["misura_corrente"] = corrente

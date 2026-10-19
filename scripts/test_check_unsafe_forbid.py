@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import json
 import pathlib
 import tempfile
@@ -76,7 +81,7 @@ class IlGate(unittest.TestCase):
 
     def test_una_deroga_dichiarata_e_non_pubblicabile(self) -> None:
         registro = self.radice / "assurance" / "registries" / "dependency-exceptions.json"
-        dati = json.loads(registro.read_text(encoding="utf-8"))
+        dati = strict_json.loads(registro.read_text(encoding="utf-8"))
         dati["deroghe_al_forbid"] = [{"crate_del_workspace": "plenora-bench"}]
         registro.write_text(json.dumps(dati), encoding="utf-8")
         crate = self.radice / "crates" / "plenora-bench"

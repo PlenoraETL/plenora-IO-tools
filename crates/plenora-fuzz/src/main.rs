@@ -263,7 +263,7 @@ fn replay_shared_corpus(root: &Path) -> Result<serde_json::Value, String> {
     let manifest_path = root.join("manifest.json");
     let manifest_text = std::fs::read_to_string(&manifest_path)
         .map_err(|error| format!("lettura {}: {error}", manifest_path.display()))?;
-    let manifest: serde_json::Value = serde_json::from_str(&manifest_text)
+    let manifest: serde_json::Value = plenora_io_model::json::from_str(&manifest_text)
         .map_err(|error| format!("manifest condiviso non valido: {error}"))?;
     let cases = manifest
         .get("cases")
@@ -955,5 +955,19 @@ mod shared_corpus_tests {
         if let Err(error) = replay_shared_corpus(&root) {
             panic!("replay corpus condiviso fallito: {error}");
         }
+    }
+}
+
+#[test]
+fn manifest_corpus_rifiuta_duplicati() {
+    let dir = tempfile::tempdir().unwrap();
+    for text in [
+        r#"{"cases":[],"cases":[]}"#,
+        r#"{"cases":[],"a":[{"segreto":1,"segreto":2}]}"#,
+    ] {
+        std::fs::write(dir.path().join("manifest.json"), text).unwrap();
+        let error = replay_shared_corpus(dir.path()).unwrap_err();
+        assert!(error.contains("membri duplicati"));
+        assert!(!error.contains("segreto"));
     }
 }

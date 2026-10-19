@@ -141,6 +141,11 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRO = ROOT / "assurance" / "registries" / "finding-noti-fuzz.json"
 
@@ -872,7 +877,7 @@ def verifica_campagna(
             "l'assenza di un verbale non e' una campagna riuscita"
         ]
     try:
-        documento = json.loads(percorso.read_text(encoding="utf-8"))
+        documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as guasto:
         return [f"{percorso.name}: non si legge ({guasto})"]
 
@@ -1254,7 +1259,7 @@ def main(argv: list[str] | None = None) -> int:
     if not REGISTRO.exists():
         print(f"{REGISTRO}: registro assente", file=sys.stderr)
         return 2
-    documento = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    documento = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     motivi = registro_ben_formato(documento)
     if motivi:
         for motivo in motivi:

@@ -31,6 +31,15 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -116,7 +125,7 @@ def verifica(albero: pathlib.Path) -> tuple[list[str], dict]:
     manifesto_percorso = albero / "MANIFEST.json"
     if not manifesto_percorso.is_file():
         return ([f"{manifesto_percorso} assente"], {})
-    manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(manifesto_percorso.read_text(encoding="utf-8"))
 
     dichiarati = manifesto.get("file") or []
     errori: list[str] = list(_contratto_del_manifesto(manifesto))
@@ -200,7 +209,7 @@ def main() -> int:
         print(f"  {chiave}: {valore}")
 
     if arg.referto and (albero / "MANIFEST.json").is_file():
-        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifesto = strict_json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
         distribuzione.scrivi_referto(
             arg.referto,
             verifica="digest-manifesto",

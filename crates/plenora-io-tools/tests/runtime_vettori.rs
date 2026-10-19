@@ -47,7 +47,8 @@ fn radice() -> PathBuf {
 fn documento(percorso: &Path) -> Value {
     let testo = std::fs::read_to_string(percorso)
         .unwrap_or_else(|e| panic!("{} si legge: {e}", percorso.display()));
-    serde_json::from_str(&testo).unwrap_or_else(|e| panic!("{} e' JSON: {e}", percorso.display()))
+    plenora_io_model::json::from_str(&testo)
+        .unwrap_or_else(|e| panic!("{} e' JSON: {e}", percorso.display()))
 }
 
 fn copia(nome: &str) -> Value {
@@ -1984,4 +1985,14 @@ fn il_vettore_storico_non_rende_disponibile_read_v1() {
         plenora_io_tools::runtime::capacita()["interfaces"][0]["version"],
         2
     );
+}
+
+#[test]
+fn il_loader_dei_vettori_runtime_rifiuta_duplicati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("documento.json");
+    for text in [r#"{"a":1,"a":2}"#, r#"{"a":[{"b":1,"b":2}]}"#] {
+        std::fs::write(&path, text).unwrap();
+        assert!(std::panic::catch_unwind(|| documento(&path)).is_err());
+    }
 }

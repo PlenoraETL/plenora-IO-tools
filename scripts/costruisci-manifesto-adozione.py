@@ -52,6 +52,15 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 REDATTO = RADICE / "contracts" / "adozione-4.0.0.json"
 USCITA = RADICE / "contracts" / "adoption-manifest.json"
@@ -115,7 +124,7 @@ def main() -> int:
     argomenti.add_argument("--uscita", default=str(USCITA))
     opzioni = argomenti.parse_args()
 
-    redatto = json.loads(REDATTO.read_text(encoding="utf-8"))
+    redatto = strict_json.loads(REDATTO.read_text(encoding="utf-8"))
     versione = versione_del_workspace()
 
     manifesto = {

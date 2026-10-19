@@ -1,7 +1,11 @@
 """Regressioni della misura del soak, senza campagne lunghe o attese reali."""
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import hashlib
-import json
 import pathlib
 import subprocess
 import tempfile
@@ -25,8 +29,8 @@ class SondeGiudizio(unittest.TestCase):
         return soak.giudica("dxf_reader", 3600, codice, TEMPI | tempi, log)
 
     def test_cpu_bassa_conserva_originale_e_giudizio_corretto(self):
-        originale = json.loads((FIXTURE / "referto-originale.json").read_text(encoding="utf-8"))
-        corretto = json.loads((FIXTURE / "giudizio-corretto.json").read_text(encoding="utf-8"))
+        originale = strict_json.loads((FIXTURE / "referto-originale.json").read_text(encoding="utf-8"))
+        corretto = strict_json.loads((FIXTURE / "giudizio-corretto.json").read_text(encoding="utf-8"))
         for nome, digest in corretto["sha256_originali"].items():
             self.assertEqual(hashlib.sha256((FIXTURE / nome).read_bytes()).hexdigest(), digest)
         self.assertFalse(originale["durata_dimostrata"])
@@ -110,7 +114,7 @@ class SondeRaccolta(unittest.TestCase):
             self.assertEqual(referto["codice_uscita_campagna"], 137)
             self.assertEqual(referto["log_sha256"], hashlib.sha256(LOG.encode()).hexdigest())
             scritto = (cartella / "referto.json").read_bytes()
-            self.assertEqual(json.loads(scritto), referto)
+            self.assertEqual(strict_json.loads(scritto), referto)
             with self.assertRaises(FileExistsError):
                 soak.misura("dxf_reader", 3600, cartella)
             self.assertEqual((cartella / "referto.json").read_bytes(), scritto)

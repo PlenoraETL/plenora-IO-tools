@@ -12,6 +12,11 @@ di un'altra fixture, o senza i fatti che lo rendono un verbale, e' rosso.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import hashlib
 import io
 import json
@@ -73,7 +78,7 @@ class SondeDelVerbale(unittest.TestCase):
         povero di quello che il gate pretende non prova il gate.
         """
         contenuti = gate.spacchetta(gate.ARCHIVIO.read_bytes())
-        vero = json.loads(gate.PROVA_VERA.read_text(encoding="utf-8"))
+        vero = strict_json.loads(gate.PROVA_VERA.read_text(encoding="utf-8"))
         base = {
             "schema_version": 1,
             "versione_gdal": "GDAL 3.6.2, released 2023/01/02",
@@ -275,14 +280,14 @@ class SondaDelVerbaleVero(unittest.TestCase):
         self.assertEqual(codice, 0, errori.getvalue())
 
     def test_il_verbale_dice_come_e_stato_ottenuto(self) -> None:
-        prova = json.loads(gate.PROVA.read_text(encoding="utf-8"))
+        prova = strict_json.loads(gate.PROVA.read_text(encoding="utf-8"))
         self.assertIn("come_e_stata_ottenuta", prova)
         self.assertIn("due rigenerazioni", prova["come_e_stata_ottenuta"])
 
     def test_il_verbale_riconcilia_i_tre_conteggi(self) -> None:
         """Elenco, conteggio per parte e totale sono tre modi di dire la stessa
         cosa: se divergessero, uno dei tre sarebbe inventato."""
-        prova = json.loads(gate.PROVA.read_text(encoding="utf-8"))
+        prova = strict_json.loads(gate.PROVA.read_text(encoding="utf-8"))
         for nome, elenco in prova["offset_coniati"].items():
             self.assertEqual(len(elenco), prova["byte_coniati_per_parte"][nome], nome)
         self.assertEqual(
@@ -291,7 +296,7 @@ class SondaDelVerbaleVero(unittest.TestCase):
         )
 
     def test_il_verbale_lega_la_sorgente(self) -> None:
-        prova = json.loads(gate.PROVA.read_text(encoding="utf-8"))
+        prova = strict_json.loads(gate.PROVA.read_text(encoding="utf-8"))
         import hashlib as _h
 
         self.assertEqual(
@@ -303,7 +308,7 @@ class SondaDelVerbaleVero(unittest.TestCase):
         """Quarantotto byte per tabella di metadati: tre identificatori da
         sedici. Se il numero cambiasse, cambierebbe cio' che GDAL conia, e la
         prosa che lo descrive andrebbe riletta."""
-        prova = json.loads(gate.PROVA.read_text(encoding="utf-8"))
+        prova = strict_json.loads(gate.PROVA.read_text(encoding="utf-8"))
         for nome, quanti in prova["byte_coniati_per_parte"].items():
             with self.subTest(nome):
                 self.assertEqual(quanti % 16, 0, "i GUID sono da sedici byte")

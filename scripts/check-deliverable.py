@@ -10,6 +10,15 @@ import sys
 import tarfile
 import zipfile
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402
 
@@ -64,7 +73,7 @@ def revisione_del_manifesto(
     except (KeyError, OSError, tarfile.TarError, zipfile.BadZipFile) as errore:
         return None, f"MANIFEST.json non leggibile dentro l'archivio: {errore}"
     try:
-        manifesto = json.loads(crudo.decode("utf-8"))
+        manifesto = strict_json.loads(crudo.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as errore:
         return None, f"MANIFEST.json non e' JSON leggibile: {errore}"
     if "revisione" not in manifesto:
@@ -111,8 +120,8 @@ def verifica_python(
 
     attesi.update({"MANIFEST.json", "provenance.json", "sbom.json", "licenze.json"})
     try:
-        manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
-        provenance = json.loads(provenance_percorso.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(manifesto_percorso.read_text(encoding="utf-8"))
+        provenance = strict_json.loads(provenance_percorso.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f"python: documento non leggibile: {exc}"], attesi
 
@@ -197,7 +206,7 @@ def verifica(
     canale: str,
     revisione: str,
 ) -> list[str]:
-    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    matrice = strict_json.loads(MATRICE.read_text(encoding="utf-8"))
     piattaforme = [p["id"] for p in matrice["piattaforme"]]
     profili = [p["id"] for p in matrice["profili"]]
     errori: list[str] = []
@@ -230,7 +239,7 @@ def verifica(
                 )
 
             try:
-                prova = json.loads(provenance.read_text(encoding="utf-8"))
+                prova = strict_json.loads(provenance.read_text(encoding="utf-8"))
             except (OSError, UnicodeError, json.JSONDecodeError) as exc:
                 errori.append(f"{prefisso}: provenance non leggibile: {exc}")
                 continue
@@ -363,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     errori = verifica(arg.directory, arg.versione, arg.canale, arg.revisione)
     congelati = 0
     if arg.contro_la_candidate is not None:
-        stato = json.loads(arg.contro_la_candidate.read_text(encoding="utf-8"))
+        stato = strict_json.loads(arg.contro_la_candidate.read_text(encoding="utf-8"))
         candidate = stato.get("aperto", {}).get("candidate_release", {})
         artefatti = candidate.get("artefatti") or []
         congelati = len(artefatti)

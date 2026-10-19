@@ -27,6 +27,11 @@ confonderebbe:
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import importlib.util
 import hashlib
 import json
@@ -36,6 +41,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
+
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 GATE = RADICE / "scripts" / "check-licenze-artefatto.py"
@@ -206,7 +217,7 @@ class SondeDelGate(unittest.TestCase):
     def test_un_manifesto_che_dichiara_senza_testo_fa_rosso(self) -> None:
         """Dichiararlo evitava il silenzio; non consegnava la licenza."""
         albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
-        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifesto = strict_json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
         manifesto["licenze"]["senza_testo"] = 1
         (albero / "MANIFEST.json").write_text(json.dumps(manifesto), encoding="utf-8")
         self.assertTrue(self.gate.verifica(albero))
@@ -228,7 +239,7 @@ class SondeDelGate(unittest.TestCase):
     def test_sbom_e_provenienza_devono_coincidere(self) -> None:
         """Sono due viste della stessa cosa: divergono solo se una mente."""
         albero = artefatto_finto(self.tmp, {"libfoo": ["LICENSE"]})
-        sbom = json.loads((albero / "SBOM.spdx.json").read_text(encoding="utf-8"))
+        sbom = strict_json.loads((albero / "SBOM.spdx.json").read_text(encoding="utf-8"))
         sbom["packages"].append({"name": "libfantasma"})
         (albero / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
         self.assertTrue(self.gate.verifica(albero))
@@ -362,7 +373,7 @@ class SondeDelCostruttore(unittest.TestCase):
             with self.subTest(lock=nome):
                 self.assertNotIn(
                     "testi_di_licenza_esterni",
-                    json.loads(percorso.read_text(encoding="utf-8")),
+                    strict_json.loads(percorso.read_text(encoding="utf-8")),
                 )
 
     def test_gli_identificatori_mancanti_si_elencano_tutti(self) -> None:
@@ -408,7 +419,7 @@ class SondeDelCostruttore(unittest.TestCase):
         piattaforma, e tenerne una copia per lock vorrebbe dire due digest per
         lo stesso file. Il difetto si e' visto costruendo su Windows, dove il
         lock non li aveva affatto."""
-        testi = json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
+        testi = strict_json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
         self.assertTrue(testi["identificatori"])
         for identificatore, fonte in testi["identificatori"].items():
             with self.subTest(identificatore=identificatore):

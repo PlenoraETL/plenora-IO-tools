@@ -77,6 +77,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 FIXTURE = ROOT / "crates" / "plenora-io-tools" / "tests" / "fixtures"
@@ -728,7 +733,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         return 0
 
-    manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(CONTRATTO.read_text(encoding="utf-8"))
     dichiarate = {
         voce["contract"]: voce
         for voce in manifesto.get("envelopes", {}).values()

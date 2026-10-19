@@ -89,10 +89,19 @@ fn non_conforme(messaggio: &PublicMessage) -> PlenoraIoError {
 
 /// Costruisce i due validator, con il registro dei PROJJSON in memoria.
 fn compila() -> Result<Validatori, &'static str> {
-    let projjson_0_5: Value =
-        serde_json::from_str(PROJJSON_0_5).map_err(|_| "PROJJSON 0.5 incorporato non e' JSON")?;
-    let projjson_0_7: Value =
-        serde_json::from_str(PROJJSON_0_7).map_err(|_| "PROJJSON 0.7 incorporato non e' JSON")?;
+    compila_documenti([
+        PROJJSON_0_5,
+        PROJJSON_0_7,
+        GEOPARQUET_1_0_0,
+        GEOPARQUET_1_1_0,
+    ])
+}
+
+fn compila_documenti(schemi: [&str; 4]) -> Result<Validatori, &'static str> {
+    let projjson_0_5: Value = plenora_io_model::json::from_str(schemi[0])
+        .map_err(|_| "PROJJSON 0.5 incorporato non e' JSON")?;
+    let projjson_0_7: Value = plenora_io_model::json::from_str(schemi[1])
+        .map_err(|_| "PROJJSON 0.7 incorporato non e' JSON")?;
 
     // Il registro e' **l'unica** via con cui un `$ref` puo' essere risolto: la
     // crate e' compilata senza i resolver HTTP e filesystem, quindi un `$ref`
@@ -109,7 +118,7 @@ fn compila() -> Result<Validatori, &'static str> {
         .map_err(|_| "il registro degli schemi non si prepara")?;
 
     let compila_uno = |testo: &str, nome: &'static str| -> Result<Validator, &'static str> {
-        let documento: Value = serde_json::from_str(testo).map_err(|_| nome)?;
+        let documento: Value = plenora_io_model::json::from_str(testo).map_err(|_| nome)?;
         jsonschema::options()
             .with_draft(Draft::Draft7)
             .with_registry(&registro)
@@ -118,15 +127,9 @@ fn compila() -> Result<Validatori, &'static str> {
     };
 
     Ok(Validatori {
-        v1_0_0: compila_uno(
-            GEOPARQUET_1_0_0,
-            "lo schema GeoParquet 1.0.0 non si compila",
-        )?,
-        v1_1_0: compila_uno(
-            GEOPARQUET_1_1_0,
-            "lo schema GeoParquet 1.1.0 non si compila",
-        )?,
-        projjson: compila_uno(PROJJSON_0_7, "lo schema PROJJSON 0.7 non si compila")?,
+        v1_0_0: compila_uno(schemi[2], "lo schema GeoParquet 1.0.0 non si compila")?,
+        v1_1_0: compila_uno(schemi[3], "lo schema GeoParquet 1.1.0 non si compila")?,
+        projjson: compila_uno(schemi[1], "lo schema PROJJSON 0.7 non si compila")?,
     })
 }
 

@@ -40,6 +40,15 @@ import tarfile
 import tomllib
 import urllib.request
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fork_comune  # noqa: E402
@@ -280,10 +289,10 @@ def delta_reale(vendor: pathlib.Path, crate: pathlib.Path) -> dict[str, list[str
 
 
 def audita(nome: str, scarico: pathlib.Path | None) -> dict:
-    lock = json.loads(
+    lock = strict_json.loads(
         (ROOT / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8")
     )
-    registro = json.loads(
+    registro = strict_json.loads(
         (ROOT / "assurance" / "registries" / f"vendor-{nome}-fork.json").read_text(
             encoding="utf-8"
         )
@@ -433,10 +442,10 @@ def main(argv: list[str] | None = None) -> int:
     rilievi: list[str] = []
     licenze: list[str] = []
     for nome in FORK:
-        lock = json.loads(
+        lock = strict_json.loads(
             (ROOT / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8")
         )
-        registro = json.loads(
+        registro = strict_json.loads(
             (ROOT / "assurance" / "registries" / f"vendor-{nome}-fork.json").read_text(
                 encoding="utf-8"
             )

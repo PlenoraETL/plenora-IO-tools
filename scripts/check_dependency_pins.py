@@ -11,6 +11,11 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCY_TABLES = {
@@ -153,7 +158,7 @@ def censimento_riconciliato(registro: dict | None = None) -> list[str]:
     """
     if registro is None:
         with CENSIMENTO.open("rb") as stream:
-            registro = json.load(stream)
+            registro = strict_json.load(stream)
 
     with (ROOT / "Cargo.toml").open("rb") as stream:
         radice = tomllib.load(stream)

@@ -7,7 +7,11 @@ costruiscono i file di cui si conosce la risposta.
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import pathlib
 import sys
 import tempfile
@@ -105,16 +109,16 @@ class IlPerimetro(unittest.TestCase):
 class IlBudget(unittest.TestCase):
     def test_il_tetto_porta_la_sua_ragione(self) -> None:
         """Un numero senza ragione si alza senza pensarci."""
-        registro = json.loads(gate.BUDGET.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.BUDGET.read_text(encoding="utf-8"))
         self.assertGreater(registro["tetto"]["righe_di_prodotto"], 0)
         self.assertGreater(len(registro["tetto"]["perche_questo_numero"]), 120)
 
     def test_la_misura_registrata_e_quella_vera(self) -> None:
-        registro = json.loads(gate.BUDGET.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.BUDGET.read_text(encoding="utf-8"))
         self.assertEqual(registro["misura_corrente"]["prodotto"], gate.misura()["prodotto"])
 
     def test_il_prodotto_sta_nel_tetto(self) -> None:
-        registro = json.loads(gate.BUDGET.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.BUDGET.read_text(encoding="utf-8"))
         self.assertLessEqual(
             gate.misura()["prodotto"], registro["tetto"]["righe_di_prodotto"]
         )

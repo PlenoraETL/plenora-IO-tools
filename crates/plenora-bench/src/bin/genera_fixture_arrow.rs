@@ -468,7 +468,7 @@ fn projjson(radice: &std::path::Path) -> serde_json::Value {
         panic!("registro {REGISTRO} leggibile dalla radice del repository")
     };
     let registro: serde_json::Value =
-        serde_json::from_str(&registro).expect("il registro e' JSON valido");
+        plenora_io_model::json::from_str(&registro).expect("il registro e' JSON valido");
     let projjson = registro["provenienza"]["crs_proiettato"]["projjson"].clone();
     assert!(
         projjson.is_object(),
@@ -598,4 +598,25 @@ fn main() {
     println!("  canonico_senza_geometria.arrow");
     println!("5 fixture generate in {}", destinazione.display());
     println!("Ora aggiorna il registro: scripts/check-fixture-canoniche.py --mostra-manifesto");
+}
+
+#[test]
+fn registro_fixture_rifiuta_duplicati_e_projjson_stringa() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(REGISTRO);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for text in [
+        r#"{"provenienza":{"crs_proiettato":{"projjson":{}}},"a":1,"a":2}"#,
+        r#"{"provenienza":{"crs_proiettato":{"projjson":{"a":1,"a":2}}}}"#,
+        r#"{"provenienza":{"crs_proiettato":{"projjson":"{\"a\":1,\"a\":2}"}}}"#,
+    ] {
+        std::fs::write(&path, text).unwrap();
+        assert!(std::panic::catch_unwind(|| projjson(dir.path())).is_err());
+    }
+    std::fs::write(
+        &path,
+        r#"{"provenienza":{"crs_proiettato":{"projjson":{"a":1}}}}"#,
+    )
+    .unwrap();
+    assert!(projjson(dir.path()).is_object());
 }

@@ -42,6 +42,15 @@ import subprocess
 import sys
 import tarfile
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
@@ -91,7 +100,7 @@ def main() -> int:
     argomenti.add_argument("--lavoro", required=True, type=pathlib.Path)
     opzioni = argomenti.parse_args()
 
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK.read_text(encoding="utf-8"))
     if lock["schema_version"] != 1:
         sys.exit(f"lock con schema {lock['schema_version']}, non supportato")
 

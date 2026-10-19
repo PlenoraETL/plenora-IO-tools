@@ -6,9 +6,15 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import sys
 import tempfile
 import unittest
 from unittest import mock
+
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
 
 QUI = pathlib.Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("avvisi_crate", QUI / "avvisi_crate.py")

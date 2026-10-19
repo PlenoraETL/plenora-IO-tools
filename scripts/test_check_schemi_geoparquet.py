@@ -13,8 +13,12 @@ dello schema, e la dipendenza che si riprende i resolver.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import copy
-import json
 import re
 import unittest
 from unittest import mock
@@ -43,13 +47,13 @@ class SondeDelGate(unittest.TestCase):
     def test_uno_schema_modificato_in_casa_e_rosso(self) -> None:
         """Un'autorita' che dice cio' che vogliamo noi non e' un'autorita'."""
         vero = gate.LOCK.read_bytes()
-        registro = json.loads(vero)
+        registro = strict_json.loads(vero)
         registro["schemi"][0]["sha256"] = "0" * 64
         _, errori = gate.schemi_fissati(registro)
         self.assertTrue(any("sha256" in e for e in errori), errori)
 
     def test_una_dimensione_diversa_dal_lock_e_rossa(self) -> None:
-        registro = json.loads(gate.LOCK.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.LOCK.read_text(encoding="utf-8"))
         registro["schemi"][0]["byte"] = 7
         _, errori = gate.schemi_fissati(registro)
         self.assertTrue(any("byte" in e for e in errori), errori)
@@ -57,7 +61,7 @@ class SondeDelGate(unittest.TestCase):
     def test_un_draft_diverso_e_rosso(self) -> None:
         """Il validatore e' compilato per Draft 7: un altro draft si legge con
         regole che non sono le sue."""
-        registro = json.loads(gate.LOCK.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.LOCK.read_text(encoding="utf-8"))
         registro["schemi"][0]["draft"] = "http://json-schema.org/draft-04/schema#"
         _, errori = gate.schemi_fissati(registro)
         self.assertTrue(any("draft" in e for e in errori), errori)
@@ -65,7 +69,7 @@ class SondeDelGate(unittest.TestCase):
     def test_un_id_projjson_diverso_e_rosso(self) -> None:
         """E' con quell'URI che il registro in memoria lo indicizza: se non
         combacia, il `$ref` non si risolve e la compilazione fallisce."""
-        registro = json.loads(gate.LOCK.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.LOCK.read_text(encoding="utf-8"))
         for voce in registro["schemi"]:
             if voce["famiglia"] == "projjson":
                 voce["id"] = "https://esempio.invalido/projjson.json"
@@ -261,7 +265,7 @@ class SondeDelGate(unittest.TestCase):
         non spediamo. Sono due domande diverse, e il censimento risponde a
         quella che il suo titolo promette.
         """
-        matrice = json.loads(
+        matrice = strict_json.loads(
             (gate.ROOT / "assurance/registries/distribuzione-matrice.json").read_text(
                 encoding="utf-8"
             )
@@ -279,14 +283,14 @@ class SondeDelGate(unittest.TestCase):
     def test_il_perimetro_esteso_e_piu_largo_e_dichiarato_tale(self) -> None:
         """Il registro non presenta i due perimetri come equivalenti."""
         self.assertEqual(gate.perimetro_esteso_misurato(), [])
-        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
         self.assertGreater(
             registro["perimetro_esteso"]["coppie"], len(registro["crate"])
         )
         self.assertTrue(registro["perimetro_esteso"]["non_e_equivalente"])
 
     def test_un_perimetro_esteso_ricordato_male_e_rosso(self) -> None:
-        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
         registro["perimetro_esteso"]["coppie"] = 1
         errori = gate.perimetro_esteso_misurato(registro)
         self.assertTrue(any("perimetro esteso" in e for e in errori), errori)
@@ -295,7 +299,7 @@ class SondeDelGate(unittest.TestCase):
 
     def test_le_origini_reali_sono_misurate(self) -> None:
         self.assertEqual(gate.origini_misurate(), [])
-        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
         origini = {v["origine"] for v in registro["crate"]}
         self.assertEqual(origini, {"prodotto", "build"})
         # Entrambe popolate: se una fosse vuota il campo distinguerebbe nulla.
@@ -308,7 +312,7 @@ class SondeDelGate(unittest.TestCase):
         """La distinzione serve a chi guarda una licenza: una crate che finisce
         nel binario e una che serve solo a costruirlo non pongono la stessa
         domanda."""
-        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
         vittima = next(v for v in registro["crate"] if v["origine"] == "build")
         vittima["origine"] = "prodotto"
         errori = gate.origini_misurate(registro)
@@ -377,7 +381,7 @@ class SondeDelGate(unittest.TestCase):
 
     def test_il_censimento_registra_la_variazione_e_le_licenze(self) -> None:
         """Non soltanto un numero: quali crate e con quale licenza."""
-        registro = json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.CENSIMENTO.read_text(encoding="utf-8"))
         variazione = registro["variazione_s10"]
         self.assertEqual(len(variazione["elenco"]), variazione["nuove"])
         self.assertGreater(variazione["nuove"], 0)

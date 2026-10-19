@@ -330,5 +330,13 @@
     "errore_di_ambiente": "la riga che trasforma un errore di scrittura in errore tipizzato resta a **zero**, ed e' giusto: durante la misura l'ambiente non ha fallito. E' provata da una sonda del driver, non da qui, perche' pretenderla coperta significherebbe pretendere che il filesystem si rompa durante una misura.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Â«non raggiuntoÂ» da Â«raggiuntoÂ»; la seconda meta' la verificano le sonde di `driver-shp`.",
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
+  },
+  "rimisurazione_dovuta": {
+    "perche": "La PR #62 chiude la classe delle chiavi JSON duplicate: nuovo modulo del rifiuto ricorsivo in plenora-io-model (json.rs), lettori di documenti di controllo instradati e Cargo.lock aggiornato per la dipendenza di prova tempfile. Il perimetro dei target cambia. Rinvio dichiarato il 2026-10-19; nessuna nuova misura eseguita. Rinvio riallineato all'albero corrente il 2026-10-19 (spostamento delle sonde di json.rs e rinomina di due test); nessuna nuova misura eseguita.",
+    "impronta_della_misura": "80939275f4ef9e376282996bb027f4aa52c2857d6a9446dbedd7b8acfde0ff3f",
+    "impronta_attesa": "119ebfe9f4a8a658a591652b723f2be483f11e000ddb2bf6111030fa8c6ccf21",
+    "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
+    "quando": "sulla VM, prima del congelamento della prossima release",
+    "comando": "scripts/fuzz-profondita.sh shp_reader"
   }
 }

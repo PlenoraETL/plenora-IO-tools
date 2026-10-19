@@ -94,6 +94,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Lo stesso lettore che usa ASSURANCE-N1: due definizioni di «test
@@ -1120,7 +1125,7 @@ def esegui(documento: dict[str, Any]) -> list[str]:
         if funzione is None:
             errori.append(f"{voce['id']}: la funzione «{prova['funzione']}» non esiste")
             continue
-        documento_artefatto = json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
+        documento_artefatto = strict_json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
         errori.extend(f"{voce['id']}: {m}" for m in funzione(documento_artefatto))
 
     return errori
@@ -1143,7 +1148,7 @@ def _stato_corrente() -> tuple[dict[str, Any] | None, list[str]]:
             f"{STATO_CORRENTE.relative_to(ROOT).as_posix()}: fonte strutturata "
             "dello stato assente"
         ]
-    return json.loads(STATO_CORRENTE.read_text(encoding="utf-8")), []
+    return strict_json.loads(STATO_CORRENTE.read_text(encoding="utf-8")), []
 
 
 def _git(*argomenti: str) -> str | None:
@@ -1233,7 +1238,7 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
     if not percorso.exists():
         return "assente", [f"{relativo}: artefatto della prova esterna assente"]
     try:
-        documento = json.loads(percorso.read_text(encoding="utf-8"))
+        documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
     except json.JSONDecodeError as errore:
         return "illeggibile", [f"{relativo}: non e' JSON leggibile ({errore})"]
 
@@ -1456,7 +1461,7 @@ def artefatti_attesi(versione: str, versione_python: str | None = None) -> list[
     la versione da sostituire e' quella del **pacchetto**, non quella passata a
     questa funzione.
     """
-    matrice = json.loads(
+    matrice = strict_json.loads(
         (ROOT / "assurance" / "registries" / "distribuzione-matrice.json").read_text(
             encoding="utf-8"
         )
@@ -1758,7 +1763,7 @@ def _attestazioni_lette() -> tuple[dict[str, dict[str, Any]], list[str]]:
     for percorso in sorted(ATTESTAZIONI.glob("*.json")):
         relativo = _mostra(percorso)
         try:
-            documento = json.loads(percorso.read_text(encoding="utf-8"))
+            documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as guasto:
             motivi.append(f"{relativo}: non si legge come JSON ({guasto})")
             continue
@@ -1872,7 +1877,7 @@ def condizione_profilo_pubblico_attestato(documento: dict[str, Any]) -> list[str
             "niente a cui legare una verifica."
         ]
     try:
-        manifesto = json.loads(MANIFESTO.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(MANIFESTO.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as guasto:
         return [f"manifesto illeggibile: {guasto}"]
 
@@ -2233,7 +2238,7 @@ def _evidenza(relativo: str) -> dict[str, Any]:
     lascerebbe un file non tracciato, e l'impronta dell'albero lo vedrebbe
     proprio mentre il checkpoint la misura.
     """
-    return json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+    return strict_json.loads((ROOT / relativo).read_text(encoding="utf-8"))
 
 
 # L'impronta dell'albero e' uno sha256 in minuscolo.
@@ -2397,7 +2402,7 @@ def registro_dal_testo(
     except UnicodeDecodeError as errore:
         return (), frozenset(), f"il registro dei passi {dove} non e' UTF-8: {errore}"
     try:
-        documento = json.loads(testo)
+        documento = strict_json.loads(testo)
     except json.JSONDecodeError as errore:
         return (), frozenset(), f"il registro dei passi {dove} non e' JSON: {errore}"
     if not isinstance(documento, dict):
@@ -3376,7 +3381,7 @@ def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
                 "di una release pubblicata dev'essere ancora leggibile"
             )
         else:
-            misurata = json.loads(
+            misurata = strict_json.loads(
                 (ROOT / relativo).read_text(encoding="utf-8")
             ).get("corsa", {}).get("revisione_iniziale")
             if revisione_risolta(misurata) != congelata:
@@ -3881,7 +3886,7 @@ def _registro_legato(stato: dict[str, Any]) -> list[str]:
     dire il contrario e nessuno le confrontava.
     """
     errori: list[str] = []
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     stato_di = {v.get("id"): v.get("stato") for v in registro.get("invarianti", [])}
     blocca = {
         identita: valore == "release_blocking" for identita, valore in stato_di.items()
@@ -4069,7 +4074,7 @@ def _profondita_legata(stato: dict[str, Any]) -> list[str]:
         return ["`chiuso.fuzz_reader_shapefile` assente"]
 
     try:
-        registro = json.loads(REGISTRO_DI_PROFONDITA.read_text(encoding="utf-8"))
+        registro = strict_json.loads(REGISTRO_DI_PROFONDITA.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as errore:
         return [f"{REGISTRO_DI_PROFONDITA.name}: non leggibile ({errore})"]
 
@@ -4084,7 +4089,7 @@ def _profondita_legata(stato: dict[str, Any]) -> list[str]:
         return errori
 
     try:
-        misura = json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+        misura = strict_json.loads((ROOT / relativo).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as errore:
         return [f"{relativo}: non leggibile ({errore})"]
 
@@ -4114,7 +4119,7 @@ def _profondita_filegdb_legata(stato: dict[str, Any]) -> list[str]:
 
     errori: list[str] = []
     try:
-        registro = json.loads(
+        registro = strict_json.loads(
             REGISTRO_DI_PROFONDITA_FILEGDB.read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError) as errore:
@@ -4127,7 +4132,7 @@ def _profondita_filegdb_legata(stato: dict[str, Any]) -> list[str]:
             f"registro dei requisiti dichiara «{relativo}»"
         ]
     try:
-        misura = json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+        misura = strict_json.loads((ROOT / relativo).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as errore:
         return [f"{relativo}: non leggibile ({errore})"]
 
@@ -4148,7 +4153,7 @@ def _profondita_filegdb_legata(stato: dict[str, Any]) -> list[str]:
         )
         return errori
     try:
-        asan = json.loads(MISURA_ASAN_FILEGDB.read_text(encoding="utf-8"))
+        asan = strict_json.loads(MISURA_ASAN_FILEGDB.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as errore:
         return errori + [f"{atteso_asan}: non leggibile ({errore})"]
 
@@ -4255,7 +4260,7 @@ def _campagna_legata_al_verbale(stato: dict[str, Any]) -> list[str]:
             "esiste: una campagna citata e assente non e' piu' leggibile"
         ]
     try:
-        verbale = json.loads(percorso.read_text(encoding="utf-8"))
+        verbale = strict_json.loads(percorso.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as guasto:
         return [f"{relativo}: non si legge ({guasto})"]
     if not isinstance(verbale, dict):
@@ -4539,7 +4544,7 @@ def main(argv: list[str] | None = None) -> int:
     if not REGISTRO.exists():
         print(f"{REGISTRO}: registro assente.", file=sys.stderr)
         return 2
-    documento = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    documento = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
 
     # `completezza` viene per prima: se il registro e' vuoto o mutilato, gli
     # errori delle singole voci descriverebbero cio' che resta invece della

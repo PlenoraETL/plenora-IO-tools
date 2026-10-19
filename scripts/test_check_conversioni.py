@@ -14,6 +14,11 @@ conversione non e' avvenuta.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import copy
 import importlib.util
 import json
@@ -36,7 +41,7 @@ def carica():
 class SondeDelGate(unittest.TestCase):
     def setUp(self) -> None:
         self.gate = carica()
-        self.registro = json.loads(self.gate.REGISTRO.read_text(encoding="utf-8"))
+        self.registro = strict_json.loads(self.gate.REGISTRO.read_text(encoding="utf-8"))
 
     def copertura(self, registro: dict) -> list[str]:
         _, motivi = self.gate.copertura(registro)

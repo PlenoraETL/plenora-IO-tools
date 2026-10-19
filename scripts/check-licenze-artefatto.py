@@ -34,6 +34,15 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -62,9 +71,9 @@ def verifica(albero: pathlib.Path) -> list[str]:
             f"{distribuzione.NOME_DEL_TESTO} alla radice diverso da quello del repository"
         )
 
-    manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
-    sbom = json.loads(sbom_percorso.read_text(encoding="utf-8"))
-    provenienza = json.loads(provenienza_percorso.read_text(encoding="utf-8"))
+    manifesto = strict_json.loads(manifesto_percorso.read_text(encoding="utf-8"))
+    sbom = strict_json.loads(sbom_percorso.read_text(encoding="utf-8"))
+    provenienza = strict_json.loads(provenienza_percorso.read_text(encoding="utf-8"))
 
     # L'SBOM dev'essere leggibile come SPDX 2.3, e non solo esistere.
     try:
@@ -133,7 +142,7 @@ def verifica(albero: pathlib.Path) -> list[str]:
                 "SBOM che non li nomina descrive un artefatto diverso da quello che si spedisce."
             )
     else:
-        dichiarati = json.loads(elenco_crate.read_text(encoding="utf-8"))
+        dichiarati = strict_json.loads(elenco_crate.read_text(encoding="utf-8"))
         nomi_dichiarati = {c["nome"] for c in dichiarati["pacchetti"]}
         if nomi_dichiarati != crate_nel_sbom:
             errori.append(
@@ -220,7 +229,7 @@ def main() -> int:
     print(f"componenti con testo di licenza: {componenti}")
 
     if opzioni.referto:
-        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifesto = strict_json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
         distribuzione.scrivi_referto(
             opzioni.referto,
             verifica="licenze-artefatto",
@@ -239,7 +248,7 @@ def main() -> int:
                 "crate_rust": len(
                     [
                         p
-                        for p in json.loads(
+                        for p in strict_json.loads(
                             (albero / "SBOM.spdx.json").read_text(encoding="utf-8")
                         )["packages"]
                         if "crate" in (p.get("comment") or "")

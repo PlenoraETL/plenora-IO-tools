@@ -38,6 +38,11 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 # Lo stesso lettore di ASSURANCE-N1 e del contratto corrente.
@@ -141,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     if not REGISTRO.exists():
         print(f"{REGISTRO}: registro assente.", file=sys.stderr)
         return 2
-    gruppi = json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
+    gruppi = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))["gruppi"]
     if not gruppi:
         print(
             "registro vuoto: senza sonde dichiarate non c'e' niente che tenga "

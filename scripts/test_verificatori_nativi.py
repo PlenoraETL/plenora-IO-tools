@@ -28,6 +28,11 @@ decisione che l'ha resa tale.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import importlib.util
 import pathlib
 import shutil
@@ -35,6 +40,12 @@ import struct
 import sys
 import tempfile
 import unittest
+
+_QUI_SCRIPTS = str(pathlib.Path(__file__).resolve().parent)
+if _QUI_SCRIPTS not in sys.path:
+    # i gate caricati via spec importano strict_json dalla directory degli script
+    sys.path.insert(0, _QUI_SCRIPTS)
+
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 
@@ -312,7 +323,7 @@ class SondeDellaScoperta(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        return esito, json.loads(rilievo.read_text(encoding="utf-8"))
+        return esito, strict_json.loads(rilievo.read_text(encoding="utf-8"))
 
     def test_la_scoperta_termina_rossa(self) -> None:
         """Il rosso non e' un difetto trovato: e' l'assenza di una revisione
@@ -476,7 +487,7 @@ class SondeSulPerimetro(unittest.TestCase):
             if not percorso.exists():
                 continue
             with self.subTest(lock=nome):
-                lock = json.loads(percorso.read_text(encoding="utf-8"))
+                lock = strict_json.loads(percorso.read_text(encoding="utf-8"))
                 contratto = lock.get("contratto_di_verifica")
                 if contratto is None:
                     continue  # non ancora misurato: e' il blocco registrato
@@ -500,7 +511,7 @@ class SondeSulPerimetro(unittest.TestCase):
         import json
 
         percorso = RADICE / "scripts" / "windows-gdal-lock.json"
-        contratto = json.loads(percorso.read_text(encoding="utf-8")).get("contratto_di_verifica")
+        contratto = strict_json.loads(percorso.read_text(encoding="utf-8")).get("contratto_di_verifica")
         if contratto is None:
             self.skipTest("il contratto non e' ancora stato scritto")
         attese = contratto["dll_di_sistema_attese"]

@@ -15,6 +15,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -31,7 +36,7 @@ def rilettura(percorso: pathlib.Path, profilo: str = "filegdb") -> int:
     PROJ, e pretenderlo da lui sarebbe chiedergli una capability che non ha mai
     promesso.
     """
-    testo = json.dumps(json.loads(percorso.read_text(encoding="utf-8")), ensure_ascii=False)
+    testo = json.dumps(strict_json.loads(percorso.read_text(encoding="utf-8")), ensure_ascii=False)
     mancanti = [atteso for atteso in ("nome", "geometry") if atteso not in testo]
     if mancanti:
         print(f"ROSSO: assenti dallo schema riletto: {mancanti}", file=sys.stderr)
@@ -88,7 +93,7 @@ def librerie(mappa: pathlib.Path, albero: str, referto: pathlib.Path | None = No
     ]
     dall_albero = [p for p in sorted(caricate) if p.startswith(albero)]
     if referto is not None:
-        manifesto = json.loads(
+        manifesto = strict_json.loads(
             (pathlib.Path(albero) / "MANIFEST.json").read_text(encoding="utf-8")
         )
         distribuzione.scrivi_referto(

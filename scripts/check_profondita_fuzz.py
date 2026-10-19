@@ -98,6 +98,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fork_comune import fini_riga_divergenti_fra  # noqa: E402
@@ -291,7 +296,7 @@ class RegistroMalformato(Exception):
 def leggi_registro(bersaglio: Bersaglio) -> dict[str, Any]:
     percorso = bersaglio.registro
     try:
-        documento = json.loads(percorso.read_text(encoding="utf-8"))
+        documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
     except FileNotFoundError as errore:
         raise RegistroMalformato(f"{percorso}: registro assente") from errore
     except json.JSONDecodeError as errore:
@@ -875,7 +880,7 @@ def registra(
             print(messaggio, file=sys.stderr)
         return 1
 
-    export = json.loads(export_json.read_text(encoding="utf-8"))
+    export = strict_json.loads(export_json.read_text(encoding="utf-8"))
     lcov = lcov_file.read_text(encoding="utf-8")
     osservazioni, errori = osserva(bersaglio, registro, export, lcov)
     if errori:
@@ -996,7 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     try:
-        misura = json.loads(artefatto.read_text(encoding="utf-8"))
+        misura = strict_json.loads(artefatto.read_text(encoding="utf-8"))
     except json.JSONDecodeError as errore:
         print(f"{registro.get('artefatto')}: non e' JSON leggibile ({errore})", file=sys.stderr)
         return 1

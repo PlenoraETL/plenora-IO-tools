@@ -33,6 +33,11 @@ import subprocess
 import sys
 import tomllib
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 POLITICA = ROOT / "deny.toml"
 REGISTRO = ROOT / "assurance" / "registries" / "dependency-exceptions.json"
@@ -154,7 +159,7 @@ def main() -> int:
     opzioni = argomenti.parse_args()
 
     politica = tomllib.loads(POLITICA.read_text(encoding="utf-8"))
-    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
     errori = coerenza(politica, registro)
     for lockfile in (ROOT / "Cargo.lock", ROOT / "fuzz" / "Cargo.lock"):
         lock = tomllib.loads(lockfile.read_text(encoding="utf-8"))

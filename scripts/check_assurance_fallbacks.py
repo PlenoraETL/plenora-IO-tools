@@ -37,6 +37,11 @@ import json
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from check_errori_redatti import spoglia  # noqa: E402
@@ -53,7 +58,7 @@ CHIAMATA = re.compile(r"\bunwrap_or(?:_else|_default)?\s*\(")
 # numero stava qui e la ragione in un Markdown, ed erano due fonti che
 # potevano divergere senza che nulla lo dicesse.
 REGISTRO = ROOT / "assurance" / "registries" / "fallback-register.json"
-_registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+_registro = strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
 ATTESI: dict[str, int] = {
     crate: voce["conteggio"] for crate, voce in _registro["per_crate"].items()
 }

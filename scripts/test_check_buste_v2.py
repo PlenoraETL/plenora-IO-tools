@@ -15,7 +15,11 @@ il manifesto sia ben formato -- che non costano una compilazione.
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import unittest
 
 from scripts import check_buste_v2 as gate
@@ -240,7 +244,7 @@ class SondeDellaMatrice(unittest.TestCase):
                             self.assertTrue(percorso.exists(), percorso)
 
     def test_ogni_busta_attesa_e_dichiarata_dal_manifesto(self) -> None:
-        manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
         dichiarate = {
             voce["contract"] for voce in manifesto["envelopes"].values()
         }
@@ -250,7 +254,7 @@ class SondeDellaMatrice(unittest.TestCase):
 
     def test_ogni_busta_dichiarata_e_prodotta_da_un_caso(self) -> None:
         """Il verso inverso: una busta descritta e mai esercitata."""
-        manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
         dichiarate = {voce["contract"] for voce in manifesto["envelopes"].values()}
         prodotte = {caso["busta"] for caso in gate.MATRICE}
         self.assertEqual(dichiarate - prodotte, set())
@@ -258,7 +262,7 @@ class SondeDellaMatrice(unittest.TestCase):
 
 class SondeDelManifesto(unittest.TestCase):
     def strutture(self):
-        manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
         # Tutte in `envelopes`, errore e `version` compresi: stavano fuori
         # perche' erano speciali -- la prima riusata dal v1, la seconda senza
         # contratto -- e hanno smesso di esserlo.
@@ -348,7 +352,7 @@ class SondeDelBootstrap(unittest.TestCase):
 
     def test_lo_schema_reale_e_coerente(self) -> None:
         """La controprova positiva, sul manifesto vero."""
-        manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = strict_json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
         chiusi = [
             voce
             for voce in manifesto["envelopes"].values()

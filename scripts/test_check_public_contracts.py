@@ -9,6 +9,11 @@ regole mordono davvero, e ciascuna ha la propria controprova positiva -- senza,
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import contextlib
 import copy
 import hashlib
@@ -711,7 +716,7 @@ class SondeRegistro(unittest.TestCase):
 
     def test_il_registro_reale_e_coerente(self) -> None:
         """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
-        reale = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        reale = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         self.assertEqual(gate.registro_coerente(reale), [])
 
     def test_ogni_sonda_ha_una_voce_e_viceversa(self) -> None:
@@ -721,7 +726,7 @@ class SondeRegistro(unittest.TestCase):
         una voce senza sonda e' una dichiarazione che nessuno misura. Sono due
         modi diversi di avere un requisito che non protegge niente.
         """
-        reale = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        reale = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         self.assertEqual(
             sorted(v["id"] for v in reale["requisiti"]), sorted(gate.SONDE)
         )
@@ -771,7 +776,7 @@ class SondeDelleTreRegole(unittest.TestCase):
                 return gate.esegui(self.contratti, pathlib.Path("finto"), esigente)
 
     def registro_reale(self) -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     def tutti(self, stato: str) -> dict:
         registro = self.registro_reale()
@@ -1007,7 +1012,7 @@ class SondeDeiGuasti(unittest.TestCase):
         cls.contratti = trovato
 
     def esegui(self, artefatto, stato: str = "non_ancora") -> int:
-        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         for voce in registro["requisiti"]:
             voce["stato"] = stato
             if stato == "non_ancora":
@@ -1076,7 +1081,7 @@ class SondeDelPin(unittest.TestCase):
     """Verificare contro una revisione diversa da quella fissata non vale."""
 
     def test_il_pin_reale_e_quaranta_esadecimali(self) -> None:
-        adozione = json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
+        adozione = strict_json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
         revisione = adozione["contracts_source"]["revision"]
         self.assertRegex(revisione, r"^[0-9a-f]{40}$")
 
@@ -1084,7 +1089,7 @@ class SondeDelPin(unittest.TestCase):
         trovato = contratti()
         if trovato is None or not (trovato / ".git").exists():
             self.skipTest("nessun checkout git dei contratti")
-        adozione = json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
+        adozione = strict_json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
         adozione["contracts_source"]["revision"] = "0" * 40
         with tempfile.TemporaryDirectory() as temporanea:
             percorso = pathlib.Path(temporanea) / "adozione.json"
@@ -1095,7 +1100,7 @@ class SondeDelPin(unittest.TestCase):
 
     def test_il_checkout_reale_coincide_col_pin(self) -> None:
         """Il pin nomina una revisione che esiste davvero sul remoto."""
-        adozione = json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
+        adozione = strict_json.loads(gate.ADOZIONE.read_text(encoding="utf-8"))
         trovato = contratti()
         if trovato is None or not (trovato / ".git").exists():
             self.skipTest("nessun checkout git dei contratti")
@@ -1324,7 +1329,7 @@ class SondeAttestazione(unittest.TestCase):
             pathlib.Path("."), archivio, destinazione
         )
         self.assertEqual(codice, 2)
-        documento = json.loads(destinazione.read_text(encoding="utf-8"))
+        documento = strict_json.loads(destinazione.read_text(encoding="utf-8"))
         self.assertFalse(documento["conforme"])
         self.assertIn("errore", documento)
         self.assertEqual(

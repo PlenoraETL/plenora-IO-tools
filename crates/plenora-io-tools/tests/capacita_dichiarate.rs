@@ -85,10 +85,9 @@ fn il_documento_valida_contro_lo_schema_del_contratto() {
         .join("contracts")
         .join("copie-dal-pin")
         .join("capabilities-v2.schema.json");
-    let schema: Value = serde_json::from_str(
-        &std::fs::read_to_string(&percorso).expect("la copia dello schema c'e'"),
-    )
-    .expect("lo schema e' JSON");
+    let schema: Value =
+        leggi_schema(&std::fs::read_to_string(&percorso).expect("la copia dello schema c'e'"))
+            .expect("lo schema e' JSON");
     let validatore = jsonschema::validator_for(&schema).expect("lo schema compila");
     let documento = capacita();
     let errori: Vec<String> = validatore
@@ -243,5 +242,19 @@ fn ogni_operazione_dichiara_le_due_superfici() {
             serde_json::json!(["cli", "rust"]),
             "`{id}`: le superfici dichiarate non sono quelle che esistono"
         );
+    }
+}
+
+fn leggi_schema(testo: &str) -> Result<Value, &'static str> {
+    plenora_io_model::json::from_str(testo)
+}
+
+#[test]
+fn documento_incorporato_rifiuta_duplicati() {
+    for testo in [
+        r#"{"segreto":1,"segreto":2}"#,
+        r#"{"a":[{"segreto":1,"segreto":2}]}"#,
+    ] {
+        assert!(leggi_schema(testo).is_err());
     }
 }

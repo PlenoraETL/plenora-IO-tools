@@ -26,6 +26,11 @@ import json
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 COPIE = RADICE / "contracts" / "copie-dal-pin"
 PIN = RADICE / "contracts" / "adoption-source.json"
@@ -33,7 +38,7 @@ PIN = RADICE / "contracts" / "adoption-source.json"
 
 def verifica(copie: pathlib.Path, contracts: pathlib.Path, pin: str) -> list[str]:
     errori: list[str] = []
-    provenienza = json.loads((copie / "provenienza.json").read_text(encoding="utf-8"))
+    provenienza = strict_json.loads((copie / "provenienza.json").read_text(encoding="utf-8"))
     if provenienza.get("revisione") != pin:
         errori.append(
             f"le copie vengono da «{provenienza.get('revisione')}» e il pin e' «{pin}»"
@@ -58,7 +63,7 @@ def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--contracts", required=True)
     opzioni = argomenti.parse_args()
-    pin = json.loads(PIN.read_text(encoding="utf-8"))["contracts_source"]["revision"]
+    pin = strict_json.loads(PIN.read_text(encoding="utf-8"))["contracts_source"]["revision"]
     errori = verifica(COPIE, pathlib.Path(opzioni.contracts), pin)
     for errore in errori:
         print(errore, file=sys.stderr)

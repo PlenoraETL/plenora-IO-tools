@@ -21,6 +21,7 @@ pub mod diagnostics;
 pub mod error;
 pub mod format_options;
 pub mod geometry;
+pub mod json;
 pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;

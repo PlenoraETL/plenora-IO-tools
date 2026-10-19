@@ -270,7 +270,7 @@ impl Invocazione {
     ///
     /// Il documento `plenora-error-v1` se i byte non sono un'invocazione.
     pub fn da_json(byte: &[u8]) -> Result<Self, Value> {
-        serde_json::from_slice(byte).map_err(|_| {
+        plenora_io_model::json::from_slice(byte).map_err(|_| {
             local_err_doc(
                 "RUNTIME_INVOCATION_INVALID",
                 ErrorCategory::Protocol,

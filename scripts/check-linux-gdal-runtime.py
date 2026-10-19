@@ -41,6 +41,15 @@ import re
 import subprocess
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -186,7 +195,7 @@ def main() -> int:
     opzioni = argomenti.parse_args()
 
     prefisso: pathlib.Path = opzioni.prefisso.resolve()
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK.read_text(encoding="utf-8"))
     contratto = lock["contratto_di_verifica"]
     errori: list[str] = []
 
@@ -207,7 +216,7 @@ def main() -> int:
     # dove non c'e' un manifesto -- la domanda e' quella del profilo completo.
     profilo = "filegdb"
     if manifesto.is_file():
-        profilo = json.loads(manifesto.read_text(encoding="utf-8")).get("profilo", "filegdb")
+        profilo = strict_json.loads(manifesto.read_text(encoding="utf-8")).get("profilo", "filegdb")
     attese = set(contratto["dipendenze_esterne_attese"][profilo])
     print(f"profilo verificato: {profilo}")
     fuori_politica = sorted(esterne - POLITICA_ABI)
@@ -280,7 +289,7 @@ def main() -> int:
     # stesso, che e' il caso del runtime appena materializzato.
     dal_manifesto = None
     if manifesto.is_file():
-        dal_manifesto = json.loads(manifesto.read_text(encoding="utf-8")).get(
+        dal_manifesto = strict_json.loads(manifesto.read_text(encoding="utf-8")).get(
             "prefisso_di_costruzione"
         )
     if opzioni.prefisso_di_costruzione:
@@ -381,7 +390,7 @@ def main() -> int:
     # questo porta i pochi numeri che il gate confronta, nella forma che le tre
     # piattaforme hanno in comune.
     if opzioni.referto and manifesto.is_file():
-        dichiarazione = json.loads(manifesto.read_text(encoding="utf-8"))
+        dichiarazione = strict_json.loads(manifesto.read_text(encoding="utf-8"))
         distribuzione.scrivi_referto(
             opzioni.referto,
             verifica="runtime",

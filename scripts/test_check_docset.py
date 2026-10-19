@@ -20,7 +20,11 @@ nulla appaia accanto ai sorgenti.
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import pathlib
 import subprocess
 import tempfile
@@ -278,10 +282,10 @@ class SondeStatoGenerato(unittest.TestCase):
     """Il blocco di stato e' reso dalla fonte, non riscritto a mano."""
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO.read_text(encoding="utf-8"))
 
     def registro(self) -> dict:
-        return json.loads(stato_release.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(stato_release.REGISTRO.read_text(encoding="utf-8"))
 
     def documento(self) -> str:
         return (gate.ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")

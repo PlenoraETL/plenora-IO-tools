@@ -8,6 +8,11 @@ la rende invisibile in CI.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import json
 import unittest
 import subprocess
@@ -28,7 +33,7 @@ COMPLETA = {
 
 class SondeFlag(unittest.TestCase):
     def test_il_registro_reale_produce_i_flag(self) -> None:
-        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         prodotti = gate.flag(registro)
         self.assertEqual(len(prodotti) % 2, 0, "i flag vanno a coppie")
         self.assertEqual(set(prodotti[::2]), {"--ignore"})

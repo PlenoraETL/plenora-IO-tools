@@ -38,6 +38,11 @@ import re
 import pathlib
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import perimetro_dei_sorgenti as perimetro  # noqa: E402
@@ -99,7 +104,7 @@ METODO_CHIUSO = re.compile(
 def registro(testo: str | None = None) -> dict:
     """Il registro, iniettabile perche' le sonde ne costruiscano di storti."""
     grezzo = REGISTRO.read_text(encoding="utf-8") if testo is None else testo
-    return json.loads(grezzo)
+    return strict_json.loads(grezzo)
 
 
 def confine_delle_prove(righe: list[str]) -> int:

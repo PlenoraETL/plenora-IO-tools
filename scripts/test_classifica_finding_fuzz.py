@@ -8,6 +8,11 @@ nasconderebbe un finding nuovo dietro uno noto.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import contextlib
 import io
 import json
@@ -81,7 +86,7 @@ CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 
 
 def registro() -> dict:
-    return json.loads(REGISTRO_STORICO.read_text(encoding="utf-8"))
+    return strict_json.loads(REGISTRO_STORICO.read_text(encoding="utf-8"))
 
 
 class SondeDellaFirma(unittest.TestCase):
@@ -189,7 +194,7 @@ class SondeDellaFirma(unittest.TestCase):
 
 class SondeDelRegistro(unittest.TestCase):
     def test_il_registro_vero_e_ben_formato(self) -> None:
-        vero = json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
+        vero = strict_json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
         self.assertEqual(gate.registro_ben_formato(vero), [])
 
     def test_il_registro_storico_e_ben_formato(self) -> None:
@@ -200,7 +205,7 @@ class SondeDelRegistro(unittest.TestCase):
         """Un crash nel fork vendorizzato e' codice di questo repository: si
         corregge, non si registra. Nessuna voce puo' nominare un modulo che il
         lock del fuzz risolve per percorso."""
-        vero = json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
+        vero = strict_json.loads(REGISTRO_VERO.read_text(encoding="utf-8"))
         per_percorso = {
             nome
             for nome, coppie in _VOCI_DEL_LOCK_VERE(gate.LOCK_DEL_FUZZ).items()
@@ -334,7 +339,7 @@ class SondeDellaConservazione(unittest.TestCase):
 
     def test_il_referto_dice_che_e_compatibile_non_identico(self) -> None:
         _, cartella = self._corsa(self.CON_ARTEFATTO)
-        referto = json.loads(
+        referto = strict_json.loads(
             next(cartella.glob("*.json")).read_text(encoding="utf-8")
         )
         self.assertEqual(referto["classificazione"], "noto")
@@ -357,7 +362,7 @@ class SondeDellaConservazione(unittest.TestCase):
         # corsa quando due girano vicine. Senza la riga della corsa, il referto
         # dichiara di non avere l'input invece di indovinarlo.
         _, cartella = self._corsa(CRASH)
-        referto = json.loads(
+        referto = strict_json.loads(
             next(cartella.glob("*.json")).read_text(encoding="utf-8")
         )
         self.assertIsNone(referto["input_conservato"])
@@ -489,7 +494,7 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
         from scripts import check_release_contract as contratto
 
         self.assertIn("campagna-fuzz-completa", contratto.CONDIZIONI_OBBLIGATORIE)
-        registro = json.loads(
+        registro = strict_json.loads(
             (
                 gate.ROOT
                 / "assurance"
@@ -557,7 +562,7 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
             fuori = pathlib.Path(temporanea) / "corsa" / "fuzz-smoke-ultima.json"
             self._scrivi(fuori)
             self.assertTrue(fuori.is_file(), "il verbale non e' stato scritto fuori")
-            documento = json.loads(fuori.read_text(encoding="utf-8"))
+            documento = strict_json.loads(fuori.read_text(encoding="utf-8"))
             self.assertEqual(documento["hanno_finito"], ["shp_reader"])
 
     def test_l_albero_resta_invariato(self) -> None:
@@ -1123,7 +1128,7 @@ class SondeDelleVociNelVerbale(unittest.TestCase):
                     ]
                 )
             self.assertEqual(codice, 0)
-            verbale = json.loads(destinazione.read_text(encoding="utf-8"))
+            verbale = strict_json.loads(destinazione.read_text(encoding="utf-8"))
         self.assertEqual(
             verbale["voci_dei_fermati"],
             {"geoparquet_reader": "parquet-footer-lista-thrift-oom"},
@@ -1226,7 +1231,7 @@ class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
         (radice / "scripts").mkdir()
         (radice / "assurance" / "registries").mkdir(parents=True)
         (radice / "fuzz").mkdir()
-        for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py"):
+        for nome in ("fuzz-smoke.sh", "classifica_finding_fuzz.py", "strict_json.py"):
             shutil.copy(gate.ROOT / "scripts" / nome, radice / "scripts" / nome)
         shutil.copy(REGISTRO_STORICO, radice / "assurance" / "registries" / REGISTRO_VERO.name)
         shutil.copy(LOCK_STORICO, radice / "fuzz" / "Cargo.lock")
@@ -1280,7 +1285,7 @@ class SondaDellIntegrazioneDelloSmoke(unittest.TestCase):
         return esito, radice, temporanea
 
     def _verbale(self, radice: pathlib.Path) -> dict:
-        return json.loads(
+        return strict_json.loads(
             (radice / "assurance" / "evidence" / "fuzz-smoke-ultima.json").read_text(
                 encoding="utf-8"
             )

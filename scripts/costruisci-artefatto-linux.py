@@ -39,6 +39,15 @@ import subprocess
 import sys
 import tarfile
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
@@ -262,7 +271,7 @@ def mappa_dei_pacchetti(prefisso: pathlib.Path) -> dict[str, dict]:
             "e senza il registro del link la provenienza dei file sarebbe una congettura"
         )
     for documento in sorted(meta.glob("*.json")):
-        d = json.loads(documento.read_text(encoding="utf-8"))
+        d = strict_json.loads(documento.read_text(encoding="utf-8"))
         identita = {
             "nome": d["name"],
             "versione": d["version"],
@@ -299,7 +308,7 @@ def main() -> int:
                    help="riusa il binario gia' compilato, per iterare sull'assemblaggio")
     arg = a.parse_args()
 
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    lock = strict_json.loads(LOCK.read_text(encoding="utf-8"))
     prefisso = arg.prefisso.resolve()
     uscita = arg.uscita.resolve()
     nome = distribuzione.nome_archivio(arg.versione, "linux-x86_64", arg.profilo)
@@ -501,7 +510,7 @@ def main() -> int:
     print("1e. licenze e SBOM sui file spediti", flush=True)
     crate = crate_linkati(arg.profilo)
     mappa = mappa_dei_pacchetti(prefisso)
-    testi_esterni = json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
+    testi_esterni = strict_json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
     cache_licenze = uscita / ".testi-di-licenza"
     pacchetti: dict[str, dict] = {}
     per_pacchetto: dict[str, list[str]] = {}

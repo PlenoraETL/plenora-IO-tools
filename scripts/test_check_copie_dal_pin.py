@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import json
 import pathlib
 import sys
@@ -64,7 +69,7 @@ class LeCopie(unittest.TestCase):
         contratti = gate.RADICE / ".plenora-contracts"
         if not contratti.is_dir():
             self.skipTest("il checkout fissato esiste solo nel job profilo-pubblico")
-        pin = json.loads(gate.PIN.read_text(encoding="utf-8"))["contracts_source"]["revision"]
+        pin = strict_json.loads(gate.PIN.read_text(encoding="utf-8"))["contracts_source"]["revision"]
         self.assertEqual(gate.verifica(gate.COPIE, contratti, pin), [])
 
 

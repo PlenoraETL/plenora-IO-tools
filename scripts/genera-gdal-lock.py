@@ -39,6 +39,15 @@ import subprocess
 import sys
 from collections import defaultdict
 
+try:
+    from . import strict_json
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
@@ -313,7 +322,7 @@ def main() -> int:
         "pacchetti": pacchetti,
     }
 
-    esistente = json.loads(LOCK.read_text(encoding="utf-8")) if LOCK.exists() else {}
+    esistente = strict_json.loads(LOCK.read_text(encoding="utf-8")) if LOCK.exists() else {}
     if "misure_alla_creazione" in esistente:
         # Le misure sono di **quella** chiusura: rigenerandola vanno rifatte, e
         # tenerle sarebbe attribuire a byte nuovi una verifica vecchia.

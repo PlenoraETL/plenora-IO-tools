@@ -13,7 +13,11 @@ senza provare nulla di piu': il gate la esegue davvero quando gira.
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import unittest
 from unittest import mock
 
@@ -140,7 +144,7 @@ class SondeEsecuzione(unittest.TestCase):
 
 class SondeRegistroReale(unittest.TestCase):
     def registro(self) -> list[dict]:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))["gruppi"]
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))["gruppi"]
 
     def test_il_registro_reale_e_ben_formato(self) -> None:
         self.assertEqual(gate.struttura(self.registro()), [])

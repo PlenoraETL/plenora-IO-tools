@@ -40,6 +40,11 @@ import pathlib
 import re
 import sys
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 RADICE = pathlib.Path(__file__).resolve().parents[1]
 REGISTRO = RADICE / "assurance" / "registries" / "avvisi-crate.json"
 TESTI = RADICE / "assurance" / "licenze-crate"
@@ -61,7 +66,7 @@ def _dipendenze_rust():
 
 
 def registro() -> dict:
-    return json.loads(REGISTRO.read_text(encoding="utf-8"))
+    return strict_json.loads(REGISTRO.read_text(encoding="utf-8"))
 
 
 def file_del_pacchetto(cartella: pathlib.Path, license_file: str) -> list[pathlib.Path]:
