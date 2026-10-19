@@ -14,8 +14,8 @@
     }
   },
   "ultima_misura": {
-    "sha": "e0270b5",
-    "evidenza": "assurance/evidence/checkpoint-e0270b5.json",
+    "sha": "a70501e",
+    "evidenza": "assurance/evidence/checkpoint-a70501e.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 143,
+      "replay_input": 144,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,10 +33,10 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.93,
-      "lcov_righe_coperte": 25127,
-      "lcov_righe_strumentate": 28904,
-      "cargo_lines_percentuale": 84.53,
+      "lcov_percentuale": 87.44,
+      "lcov_righe_coperte": 27051,
+      "lcov_righe_strumentate": 30936,
+      "cargo_lines_percentuale": 85.12,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
