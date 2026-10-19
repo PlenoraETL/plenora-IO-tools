@@ -415,9 +415,47 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.",
+      "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.\n\n**Artefatti fissati** dalla provenance della distribuzione candidate 39228154975, eseguita sul ref distribuzione/5.0.0-candidate con head uguale alla revisione congelata: i digest qui sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati.",
       "revisione_candidate": "a70501edee79e57a7db2af8e361f34b8f55a1674",
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-5.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "ade127d93adc9e32c732251c60b21023f7f7230fb33908b9563edebcad824d59",
+          "dimensione": 8848859,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        },
+        {
+          "nome": "plenora-io-5.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "f83dbace467c79e907b9f654daba53adbc024c65676d28efb90725e2ea93a211",
+          "dimensione": 64687370,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        },
+        {
+          "nome": "plenora_io-5.0.0-py3-none-any.whl",
+          "sha256": "eeda4d17cc20ee5b3a430b8012e8962167ef7172bffa1799e9a094cd0d86af32",
+          "dimensione": 114516,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        },
+        {
+          "nome": "plenora_io-5.0.0.tar.gz",
+          "sha256": "c147f1f68c9f7ed363f27c7e0314a0a458b5101673a906741eab2a5cd29012c3",
+          "dimensione": 209759,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        },
+        {
+          "nome": "plenora-io-5.0.0-windows-x86_64-base.zip",
+          "sha256": "2b3abb520efe5b49c3c0ae4c9b3a7a1dc607b3610326b0e6e5f98d8e53934ede",
+          "dimensione": 9632241,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        },
+        {
+          "nome": "plenora-io-5.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "3d172cb37375e00a70911d52f1cd0a23cdf191cd7c26bb29a0dcfe66e5c71d41",
+          "dimensione": 48692672,
+          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+        }
+      ]
     }
   },
   "docset": {

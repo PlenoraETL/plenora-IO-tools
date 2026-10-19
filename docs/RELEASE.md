@@ -50,7 +50,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, stato | attiva |
 | candidate, revisione congelata | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
 | candidate, versione del workspace | `5.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 6 |
 | candidate, tag previsto | `v5.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
