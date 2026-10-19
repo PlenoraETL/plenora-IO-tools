@@ -414,10 +414,11 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "attiva",
-      "nota": "Candidate **attiva**, ricongelata su `42ca693` dopo il primo livello 2 rosso su `92782e6`: le sonde del contratto di release hanno trovato, a ragione, le dichiarazioni di rimisurazione non ritirate dopo la rimisura e il contatore legato del confine ASan fermo al perimetro vecchio. La correzione tocca solo assurance: registri e stato, nessun codice e nessuna misura nuova.\n\nLa revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`) e il ritiro delle dichiarazioni. Le misure stanno dentro la revisione congelata, e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate, nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.",
+      "stato": "ritirata",
+      "nota": "Candidate **ritirata** in attesa del ricongelamento sul contenuto che porta i ritiri dei rinvii e il contatore legato corretto, sopra le misure gia' valide (profondita' 35, 12, 9, 9; confine ASan 169722 contatori). Che cosa resta, intero: il nuovo congelamento e la qualifica 5-bis completa.",
       "revisione_candidate": "42ca6936b0c972b21fbfe1cabbaf03b2b7db1ed4",
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": false,
+      "motivo_del_ritiro": "Il primo livello 2 su 92782e6 e' rosso nelle sonde di coerenza dei rinvii, a ragione: le dichiarazioni di rimisurazione (quattro di profondita' e quella ASan, che vive nel registro di filegdb) non erano state ritirate con la rimisura, e il contatore legato del confine ASan era fermo al perimetro vecchio. I ritiri sono correzioni di registri: stanno fuori dall'allowlist del congelamento, quindi la candidate si ritira e si ricongela sul contenuto corretto."
     }
   },
   "docset": {
