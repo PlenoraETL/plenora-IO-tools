@@ -144,5 +144,13 @@
     "non_promette": "Nessuna profondita' e' affermata sull'albero corrente: i requisiti elencati restano raggiunti sull'albero su cui la campagna e' girata, e non su questo.",
     "quando": "sulla VM, prima del congelamento della prossima release",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
+  },
+  "rimisurazione_asan_dovuta": {
+    "perche": "La PR #62 chiude la classe delle chiavi JSON duplicate: nuovo modulo del rifiuto ricorsivo in plenora-io-model (json.rs), lettori di documenti di controllo instradati e Cargo.lock aggiornato per la dipendenza di prova tempfile. Il perimetro del target cambia. Rinvio dichiarato il 2026-10-19; nessuna nuova misura eseguita.",
+    "impronta_della_misura": "f7129314b63d7e25d5a1c994046ca082483fca08227a73a8b598420a1dbe7e91",
+    "impronta_attesa": "fa445b1a748087c60fcba351fe59aef8349b21f3be367f157ebc6e181dcf4b35",
+    "non_promette": "Nessun confine ASan e' affermato sull'albero corrente: i fatti registrati valgono per l'albero su cui la misura e' girata, e non su questo.",
+    "quando": "sulla VM, prima del congelamento della prossima release",
+    "comando": "bash scripts/asan-filegdb.sh"
   }
 }
