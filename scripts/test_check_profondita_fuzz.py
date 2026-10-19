@@ -21,9 +21,13 @@ valgono e' piu' largo.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import contextlib
 import io
-import json
 import pathlib
 import tempfile
 import unittest
@@ -805,7 +809,6 @@ class SondeQualificaDellaProfondita(unittest.TestCase):
     def test_i_registri_reali_dichiarano_il_rinvio_come_deve(self) -> None:
         # Non su un registro finto: su quelli veri, cosi' una dichiarazione
         # scritta male nel repository e' rossa qui e non solo al rilascio.
-        import json
 
         for nome, bersaglio in sorted(gate.BERSAGLI.items()):
             registro = gate.leggi_registro(bersaglio)
@@ -813,7 +816,7 @@ class SondeQualificaDellaProfondita(unittest.TestCase):
             if rinvio is None:
                 continue
             with self.subTest(bersaglio=nome):
-                misura = json.loads(
+                misura = strict_json.loads(
                     (gate.ROOT / registro["artefatto"]).read_text(encoding="utf-8")
                 )
                 motivi = gate.rimisurazione_ben_dichiarata(
@@ -826,14 +829,13 @@ class SondeQualificaDellaProfondita(unittest.TestCase):
     def test_la_condizione_di_rilascio_e_fra_quelle_obbligatorie(self) -> None:
         # Senza, la via piu' breve al verde sarebbe togliere la condizione dal
         # registro e lasciare il rinvio a durare per sempre.
-        import json
 
         from scripts import check_release_contract as contratto
 
         self.assertIn(
             "profondita-fuzz-rimisurata", contratto.CONDIZIONI_OBBLIGATORIE
         )
-        registro = json.loads(
+        registro = strict_json.loads(
             (
                 gate.ROOT
                 / "assurance"
@@ -909,7 +911,7 @@ class SondeDelRinvioSuUnRegistroCostruito(unittest.TestCase):
     def setUp(self) -> None:
         bersaglio = gate.BERSAGLI[self.BERSAGLIO]
         registro = gate.leggi_registro(bersaglio)
-        misura = json.loads(
+        misura = strict_json.loads(
             (gate.ROOT / registro["artefatto"]).read_text(encoding="utf-8")
         )
         # Il rinvio dev'essere **ben dichiarato**, o il gate lo rifiuterebbe per

@@ -14,6 +14,11 @@ confrontato da qualcosa che diventa rosso quando divergono.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import json
 import pathlib
 import re
@@ -39,7 +44,7 @@ RADICI_RS = RADICE / "crates" / "plenora-io-core" / "src" / "radici.rs"
 
 
 def carica(percorso: pathlib.Path) -> dict:
-    return json.loads(percorso.read_text(encoding="utf-8"))
+    return strict_json.loads(percorso.read_text(encoding="utf-8"))
 
 
 def docset() -> list[pathlib.Path]:
@@ -196,7 +201,7 @@ class SondeMatrice(unittest.TestCase):
         testo = (RADICE / "Cargo.lock").read_text(encoding="utf-8")
         # Il fork entra nel grafo con il nome che il suo lock dichiara: dalla
         # 4.2.0 un nome proprio (`fork_package`), prima quello upstream.
-        fork = json.loads(
+        fork = strict_json.loads(
             (RADICE / "scripts" / "gdal-fork-lock.json").read_text(encoding="utf-8")
         )
         nome_gdal = fork.get("fork_package", fork["package"])
@@ -759,9 +764,8 @@ class SondeMatrice(unittest.TestCase):
         spec.loader.exec_module(gate)
         # Il profilo base e' un artefatto **nativo**, e la sua classe pretende
         # la chiusura come l'altro: e' la classe a decidere, non il profilo.
-        import json as _json
 
-        matrice = _json.loads(gate.MATRICE.read_text(encoding="utf-8"))
+        matrice = strict_json.loads(gate.MATRICE.read_text(encoding="utf-8"))
         self.assertIn(
             "runtime", gate.attese_per("base", "nativo", gate.classi(matrice))
         )

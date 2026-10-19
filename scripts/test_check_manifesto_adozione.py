@@ -9,8 +9,12 @@ costruiscono percio' i documenti storti uno per uno.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import hashlib
-import json
 import pathlib
 import sys
 import tempfile
@@ -21,7 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import check_manifesto_adozione as gate  # noqa: E402
 
 CONTRATTI = gate.RADICE / ".plenora-contracts"
-SCHEMA = json.loads(
+SCHEMA = strict_json.loads(
     (CONTRATTI / "schemas" / "adoption-manifest-v4.schema.json").read_text("utf-8")
 )
 
@@ -204,7 +208,7 @@ class IRiferimentiIncrociati(unittest.TestCase):
     def test_gli_esempi_invalidi_dei_contratti_si_rifiutano(self) -> None:
         for nome, frammento in self.ESEMPI.items():
             with self.subTest(esempio=nome):
-                documento = json.loads(
+                documento = strict_json.loads(
                     (CONTRATTI / "examples" / "invalid" / nome).read_text("utf-8")
                 )
                 # Validi nella forma: e' il motivo per cui servono questi
@@ -214,7 +218,7 @@ class IRiferimentiIncrociati(unittest.TestCase):
                 self.assertTrue(any(frammento in e for e in errori), errori)
 
     def test_l_esempio_valido_non_ha_contraddizioni(self) -> None:
-        documento = json.loads(
+        documento = strict_json.loads(
             (CONTRATTI / "examples" / "valid" / "adoption-manifest-v4.json").read_text("utf-8")
         )
         self.assertEqual(gate.riferimenti_incrociati(documento), [])
@@ -274,7 +278,7 @@ class IlProfiloComeFonte(unittest.TestCase):
         percorso = gate.RADICE / "contracts" / "adoption-manifest.json"
         if not percorso.is_file():
             self.skipTest("il manifesto non e' stato ancora prodotto")
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         taciuti = gate.contratti_del_profilo(CONTRATTI) - {c["id"] for c in d["contracts"]}
         self.assertEqual(taciuti, set())
 

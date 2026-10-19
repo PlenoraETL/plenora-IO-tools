@@ -8,7 +8,6 @@ nessuno la riconosce piu'.
 
 from __future__ import annotations
 
-import json
 import unittest
 from plenora_io import (
     Catalog,
@@ -30,7 +29,7 @@ from plenora_io import (
     Version,
 )
 
-from _repository import CONTRATTO, serve_il_repository
+from _repository import CONTRATTO, leggi_json_controllo, serve_il_repository
 
 
 def driver_sano(**modifiche):
@@ -493,7 +492,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
     """
 
     def struttura(self, prefisso: str) -> dict[str, bool]:
-        manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = leggi_json_controllo(CONTRATTO)
         struttura = manifesto["envelopes"]["catalog"]["struttura"]
         fuori = {}
         for percorso, voce in struttura.items():
@@ -525,7 +524,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         modello unico direbbe una cosa falsa: sarebbero due tipi diversi con lo
         stesso nome.
         """
-        manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
+        manifesto = leggi_json_controllo(CONTRATTO)
 
         def immediati(busta: str, prefisso: str) -> set[str]:
             struttura = manifesto["envelopes"][busta]["struttura"]

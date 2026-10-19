@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import pathlib
 import sys
 import tomllib
@@ -100,7 +104,7 @@ class LaVersione(unittest.TestCase):
 class IlRepositoryReale(unittest.TestCase):
     def test_deny_toml_e_il_registro_coincidono(self) -> None:
         politica_reale = tomllib.loads(gate.POLITICA.read_text(encoding="utf-8"))
-        registro_reale = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        registro_reale = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         self.assertEqual(gate.coerenza(politica_reale, registro_reale), [])
 
     def test_il_pin_esiste(self) -> None:

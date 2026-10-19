@@ -24,6 +24,7 @@ sbagliato.
 
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
@@ -44,6 +45,20 @@ def radice() -> Path | None:
 
 RADICE = radice()
 CONTRATTO = RADICE / MARCATORE if RADICE else None
+
+
+def leggi_json_controllo(percorso: Path):
+    """Legge i documenti del repository con il suo lettore JSON rigoroso."""
+    if RADICE is None:
+        raise unittest.SkipTest("serve il repository per leggere documenti di controllo")
+    sys.path.insert(0, str(RADICE / "scripts"))
+    try:
+        import strict_json
+    finally:
+        sys.path.pop(0)
+    return strict_json.loads(percorso.read_text(encoding="utf-8"))
+
+
 CANONICHE = (
     RADICE / "crates" / "plenora-io-tools" / "tests" / "fixtures" / "canoniche"
     if RADICE

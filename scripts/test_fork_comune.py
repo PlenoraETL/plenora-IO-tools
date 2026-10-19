@@ -11,7 +11,11 @@ provenienza di un pacchetto ridistribuito sarebbe stata falsata da un residuo.
 
 from __future__ import annotations
 
-import json
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import shutil
 import subprocess
 import sys
@@ -201,7 +205,7 @@ class SondeRisoluzione(unittest.TestCase):
             destinazione.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(calcolo.ROOT / relativo, destinazione)
         self.lock = {
-            nome: json.loads(
+            nome: strict_json.loads(
                 (calcolo.ROOT / "scripts" / f"{nome}-fork-lock.json").read_text(
                     encoding="utf-8"
                 )

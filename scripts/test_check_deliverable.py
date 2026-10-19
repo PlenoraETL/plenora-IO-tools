@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import importlib.util
 import io
 import json
@@ -118,7 +123,7 @@ class SondeDeliverable(unittest.TestCase):
             f"{digesto}  {archivio.name}\n", encoding="utf-8"
         )
         percorso = self.tmp / f"{archivio.name}.provenance.json"
-        prova = json.loads(percorso.read_text(encoding="utf-8"))
+        prova = strict_json.loads(percorso.read_text(encoding="utf-8"))
         prova["sha256"] = digesto
         prova["dimensione"] = archivio.stat().st_size
         percorso.write_text(json.dumps(prova), encoding="utf-8")
@@ -249,14 +254,14 @@ class SondeDeliverable(unittest.TestCase):
 
     def test_la_provenance_deve_nominare_quegli_stessi_byte(self) -> None:
         percorso = next(self.tmp.glob("*.provenance.json"))
-        prova = json.loads(percorso.read_text(encoding="utf-8"))
+        prova = strict_json.loads(percorso.read_text(encoding="utf-8"))
         prova["sha256"] = "0" * 64
         percorso.write_text(json.dumps(prova), encoding="utf-8")
         self.assertIn("provenance.sha256", " ".join(self.errori()))
 
     def test_la_revisione_del_deliverable_non_e_libera(self) -> None:
         percorso = next(self.tmp.glob("*.provenance.json"))
-        prova = json.loads(percorso.read_text(encoding="utf-8"))
+        prova = strict_json.loads(percorso.read_text(encoding="utf-8"))
         prova["revisione"] = "b" * 40
         percorso.write_text(json.dumps(prova), encoding="utf-8")
         self.assertIn("provenance.revisione", " ".join(self.errori()))

@@ -8,6 +8,11 @@ fissano i quattro casi su un fork finto, senza rete e senza toccare `vendor/`.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import hashlib
 import importlib.util
 import pathlib
@@ -88,12 +93,11 @@ class UnFork(unittest.TestCase):
 
 class IRegistriVeri(unittest.TestCase):
     def test_i_quattro_fork_del_repository_non_hanno_rilievi_di_licenza(self) -> None:
-        import json
 
         radice = QUI.parent
         for nome in audit.FORK:
-            lock = json.loads((radice / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8"))
-            registro = json.loads(
+            lock = strict_json.loads((radice / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8"))
+            registro = strict_json.loads(
                 (radice / "assurance" / "registries" / f"vendor-{nome}-fork.json").read_text(
                     encoding="utf-8"
                 )

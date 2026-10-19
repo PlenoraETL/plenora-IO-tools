@@ -3,17 +3,21 @@
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import contextlib
 import copy
 import io
-import json
 import unittest
 
 from scripts import check_riuso_evidenze as gate
 
 
 def registro() -> dict:
-    return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+    return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
 
 class SondeDelRegistroDelRiuso(unittest.TestCase):

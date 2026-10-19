@@ -24,6 +24,11 @@ coperta.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import contextlib
 import io
 import json
@@ -683,7 +688,7 @@ class SondeDifferita(unittest.TestCase):
                 esito = gate.main([])
         self.assertEqual(esito, 0)
         righe = riportato.getvalue()
-        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         verificati = sum(
             1 for v in registro["invarianti"] if v["stato"] == "verified"
         )
@@ -701,7 +706,7 @@ class SondeDifferita(unittest.TestCase):
         etichette = dict(gate.ETICHETTE_DELLO_STATO)
         senza = {s: p for s, p in parole.items() if s != "differita"}
         etichette[percorso] = (identita, senza)
-        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        stato = strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
         with mock.patch.object(gate, "ETICHETTE_DELLO_STATO", etichette):
             errori = gate.validate_stato_corrente(stato)
         self.assertTrue(
@@ -719,7 +724,7 @@ class SondeCompletezza(unittest.TestCase):
     """
 
     def registro(self) -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     def test_il_registro_reale_e_completo(self) -> None:
         """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
@@ -830,7 +835,7 @@ class SondeCondizioni(unittest.TestCase):
     """Ogni condizione e' **eseguita**, e nessuna si legge da se stessa."""
 
     def registro(self) -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     def test_un_bloccante_nega_la_prima_condizione(self) -> None:
         """Il caso si **costruisce**: nel registro corrente non ce ne sono piu'.
@@ -897,7 +902,7 @@ class SondeCondizioni(unittest.TestCase):
         """
         radice = gate._git("rev-list", "--max-parents=0", "HEAD")
         self.assertTrue(radice, "la storia deve avere una radice")
-        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        stato = strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
         # `stato` a «attiva»: queste due sonde descrivono una candidate che
         # **dichiara** un congelamento, e nel modello a due release quello
         # e' lo stato `attiva`. Su una `iniziale` la revisione congelata non
@@ -918,7 +923,7 @@ class SondeCondizioni(unittest.TestCase):
         `revisione_manifesto = ""` e' prefisso di HEAD, quindi la candidate
         risultava coerente con la revisione corrente.
         """
-        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        stato = strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
         # `stato` a «attiva»: queste due sonde descrivono una candidate che
         # **dichiara** un congelamento, e nel modello a due release quello
         # e' lo stato `attiva`. Su una `iniziale` la revisione congelata non
@@ -1063,10 +1068,10 @@ class SondeCongelamento(unittest.TestCase):
     ASSURANCE = "2" * 40
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def registro(self) -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     def candidate_finta(self, **modifiche) -> dict:
         attesi = gate.artefatti_attesi("2.0.0")
@@ -1342,7 +1347,7 @@ class SondeCandidateRitirata(unittest.TestCase):
     """
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def candidate(self, stato: dict) -> dict:
         return stato["aperto"]["candidate_release"]
@@ -1516,7 +1521,7 @@ class SondeFontiLegate(unittest.TestCase):
     """
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def test_lo_stato_reale_coincide_con_le_proprie_fonti(self) -> None:
         self.assertEqual(gate.validate_stato_corrente(self.stato()), [])
@@ -1774,7 +1779,7 @@ class SondeFontiLegate(unittest.TestCase):
         rilascio riuscito, e' la condizione normale.
         """
         percorso, bersaglio = next(iter(gate.BLOCCANTI_DELLO_STATO.items()))
-        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        registro = strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
         for invariante in registro["invarianti"]:
             if invariante["id"] == bersaglio:
                 invariante["stato"] = "release_blocking"
@@ -1934,7 +1939,7 @@ class SondeFontiLegate(unittest.TestCase):
         mano ogni volta invece di seguire la fonte.
         """
         relativo = self.stato()["ultima_misura"]["evidenza"]
-        documento = json.loads((gate.ROOT / relativo).read_text(encoding="utf-8"))
+        documento = strict_json.loads((gate.ROOT / relativo).read_text(encoding="utf-8"))
         documento.update(extra)
         return documento
 
@@ -2079,7 +2084,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     """
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def evidenza(self) -> dict:
         return gate._evidenza(self.stato()["ultima_misura"]["evidenza"])
@@ -3139,7 +3144,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     # --- due release: una corrente, una in archivio -------------------------
 
     def stato_reale(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def test_l_archivio_reale_e_verificato(self) -> None:
         """La 2.0.0 resta verificabile mentre la 3.0.0 avanza.
@@ -3514,7 +3519,7 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
     """
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def test_l_albero_reale_contiene_esattamente_le_riferite(self) -> None:
         """Non piu' «una sola»: **quelle riferite**, quante che siano.
@@ -3807,7 +3812,7 @@ class SondePercorsiCanonici(unittest.TestCase):
     """
 
     def stato(self) -> dict:
-        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
     def test_riconosce_i_relativi_canonici(self) -> None:
         for buono in ("fmt.log", "a/b.log", "assurance/evidence/x.json"):
@@ -3855,7 +3860,7 @@ class SondePercorsiCanonici(unittest.TestCase):
 
 class SondeRegistroReale(unittest.TestCase):
     def registro(self) -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     def test_il_registro_reale_e_ben_formato(self) -> None:
         self.assertEqual(gate.struttura(self.registro()), [])
@@ -3869,7 +3874,7 @@ class SondeProtocolloCli(unittest.TestCase):
     """Il protocollo CLI resta verificato **nel merito**, non solo nominato."""
 
     def documento_valido(self) -> dict:
-        return json.loads(gate.CLI_PROTOCOL_V1.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.CLI_PROTOCOL_V1.read_text(encoding="utf-8"))
 
     def test_il_manifesto_reale_e_valido(self) -> None:
         self.assertEqual(gate.validate_cli_protocol_v1(self.documento_valido()), [])
@@ -4537,7 +4542,7 @@ class SondeProfiloPubblicoAttestato(unittest.TestCase):
         self.assertIn("profilo-pubblico-attestato", gate.CONDIZIONI_OBBLIGATORIE)
 
     def test_il_registro_reale_la_dichiara_con_la_funzione_giusta(self) -> None:
-        registro = json.loads(
+        registro = strict_json.loads(
             (
                 pathlib.Path(gate.__file__).resolve().parents[1]
                 / "assurance"
@@ -4590,7 +4595,7 @@ class SondeRinvioControQualificazione(unittest.TestCase):
 
     @staticmethod
     def _registro() -> dict:
-        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        return strict_json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
 
     @staticmethod
     def _rinvio_dichiarato(identita: str) -> bool:

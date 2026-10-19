@@ -19,8 +19,12 @@ per volta, cosi' un gate che tornasse a confonderle diventerebbe rosso.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import io
-import json
 import pathlib
 import shutil
 import tempfile
@@ -312,7 +316,7 @@ class SondeDellaMisuraDiretta(unittest.TestCase):
     """
 
     def test_il_nostro_binario_strumentato_porta_simboli_del_runtime(self) -> None:
-        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        misura = strict_json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
         self.assertGreater(
             misura["simboli_asan_nel_binario"],
             100,
@@ -350,7 +354,7 @@ class SondaDellaMisuraVera(unittest.TestCase):
         self.assertEqual(codice, 0, errori.getvalue())
 
     def test_la_misura_porta_tutte_le_affermazioni(self) -> None:
-        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        misura = strict_json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
         for affermazione in gate.AFFERMAZIONI:
             self.assertIn(affermazione, misura["che_cosa_significa"])
             self.assertGreater(len(misura["che_cosa_significa"][affermazione]), 40)
@@ -361,7 +365,7 @@ class SondaDellaMisuraVera(unittest.TestCase):
         compilatore, e codice non strumentato non consulta la shadow memory."""
         testo = gate.ARTEFATTO.read_text(encoding="utf-8").lower()
         self.assertNotIn("redzone", testo)
-        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        misura = strict_json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
         self.assertIn(
             "non consultano la shadow memory",
             misura["che_cosa_significa"]["non_copre_gli_accessi_dentro_gdal"],
@@ -370,7 +374,7 @@ class SondaDellaMisuraVera(unittest.TestCase):
     def test_la_misura_dice_come_e_stata_presa(self) -> None:
         """Un numero di cui non si sa come e' stato ottenuto non si puo'
         ricontrollare, e ricontrollarlo e' l'unico modo di fidarsene."""
-        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        misura = strict_json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
         self.assertIn("come_sono_stati_contati", misura)
         self.assertIn("come_e_stata_misurata", misura["libreria_collegata"])
         # Il metodo deve nominare la misura diretta, non i contatori.

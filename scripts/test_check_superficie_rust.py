@@ -9,6 +9,11 @@ perche' una verifica che non sa dire di no non verifica niente.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import importlib.util
 import json
 import pathlib
@@ -83,7 +88,7 @@ class SondeGrafo(unittest.TestCase):
         radice = pathlib.Path(__file__).resolve().parents[1]
         dai_lock = {}
         for nome in ("gdal", "shapefile", "dxf", "parquet"):
-            lock = json.loads(
+            lock = strict_json.loads(
                 (radice / "scripts" / f"{nome}-fork-lock.json").read_text(encoding="utf-8")
             )
             dai_lock[lock["fork_package"]] = lock["package"]

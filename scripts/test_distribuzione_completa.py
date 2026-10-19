@@ -13,6 +13,11 @@ sbagliati, uno sbaglio alla volta.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import importlib.util
 import json
 import pathlib
@@ -44,7 +49,7 @@ class ConGliArtefattiAttesi:
     """
 
     def matrice(self) -> dict:
-        return json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        return strict_json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
 
     def attesi(self, piattaforme=("linux-x86_64",)):
         matrice = self.matrice()
@@ -158,7 +163,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
         condizione mai vera."""
         self.serie_completa()
         percorso = self.tmp / "linux-x86_64-filegdb-runtime.json"
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         del d["misure"]["binari_spediti"]
         percorso.write_text(json.dumps(d), encoding="utf-8")
         errori = self.esegui()
@@ -173,7 +178,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
         direbbe."""
         self.serie_completa()
         percorso = self.tmp / "linux-x86_64-base-smoke-profilo.json"
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         d["misure"]["filegdb_assente"] = False
         percorso.write_text(json.dumps(d), encoding="utf-8")
         errori = self.esegui()
@@ -187,7 +192,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
         distinguere una revisione assente da una sbagliata."""
         self.serie_completa()
         percorso = self.tmp / "linux-x86_64-filegdb-provenance.json"
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         d["misure"]["revisione"] = None
         percorso.write_text(json.dumps(d), encoding="utf-8")
         self.assertEqual(self.esegui(canale="prova"), [])
@@ -198,7 +203,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
         checksum."""
         self.serie_completa(canale="candidate")
         percorso = self.tmp / "linux-x86_64-filegdb-provenance.json"
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         d["misure"]["revisione"] = None
         percorso.write_text(json.dumps(d), encoding="utf-8")
         errori = self.esegui(canale="candidate")
@@ -221,7 +226,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
     def test_due_referti_per_la_stessa_verifica_fanno_rosso(self) -> None:
         """Sceglierne uno sarebbe una decisione presa in silenzio."""
         self.serie_completa()
-        d = json.loads(
+        d = strict_json.loads(
             (self.tmp / "linux-x86_64-base-licenze-artefatto.json").read_text(encoding="utf-8")
         )
         (self.tmp / "un-altro-nome.json").write_text(json.dumps(d), encoding="utf-8")
@@ -230,7 +235,7 @@ class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
     def test_un_referto_di_un_altro_schema_non_si_riconta(self) -> None:
         self.serie_completa()
         percorso = self.tmp / "linux-x86_64-filegdb-runtime.json"
-        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d = strict_json.loads(percorso.read_text(encoding="utf-8"))
         d["schema_referto"] = 99
         percorso.write_text(json.dumps(d), encoding="utf-8")
         self.assertTrue(self.esegui())
@@ -398,7 +403,7 @@ class SondeDelPerimetro(unittest.TestCase):
         ridurrebbe gli artefatti attesi esattamente come la decisione, e il
         conteggio tornerebbe. Non deve tornare: il gate si ferma e dice che
         manca una decisione."""
-        matrice = json.loads(self.originale)
+        matrice = strict_json.loads(self.originale)
         del matrice["piattaforme_non_distribuite"]
         self.scrivi(matrice)
         with self.assertRaises(SystemExit) as contesto:
@@ -411,7 +416,7 @@ class SondeDelPerimetro(unittest.TestCase):
         non prendere la decisione facendo finta di averla presa."""
         for campo in ("decisione", "perche", "che_cosa_la_ribalterebbe"):
             with self.subTest(campo=campo):
-                matrice = json.loads(self.originale)
+                matrice = strict_json.loads(self.originale)
                 matrice["piattaforme_non_distribuite"][0][campo] = ""
                 self.scrivi(matrice)
                 with self.assertRaises(SystemExit) as contesto:
@@ -433,7 +438,7 @@ class SondeDelPerimetro(unittest.TestCase):
         stessa fonte per un verso diverso.
         """
         distribuite, _ = self.gate.perimetro()
-        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        matrice = strict_json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
         artefatti = self.gate.artefatti_attesi(matrice, distribuite)
 
         nativi = [a for a in artefatti if a[2] == "nativo"]
@@ -449,7 +454,7 @@ class SondeDelPerimetro(unittest.TestCase):
         non deciderebbe niente: documenterebbe quello che il gate fa gia'.
         """
         distribuite, _ = self.gate.perimetro()
-        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        matrice = strict_json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
         prima = len(self.gate.artefatti_attesi(matrice, distribuite))
 
         matrice["artefatti_python"]["elenco"].append(
@@ -465,7 +470,7 @@ class SondeDelPerimetro(unittest.TestCase):
         un documento che parla di ELF dove non ce ne sono: un **falso referto**,
         che e' peggio di uno mancante perche' il gate lo conta.
         """
-        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        matrice = strict_json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
         dichiarate = self.gate.classi(matrice)
 
         pura = self.gate.attese_per("wheel", "python-puro", dichiarate)
@@ -486,7 +491,7 @@ class SondeDelPerimetro(unittest.TestCase):
     def test_una_classe_che_pretende_una_verifica_ignota_ferma_il_gate(self) -> None:
         """Un obbligo che nessuno sa ricontare non e' un obbligo, e la matrice
         non dev'essere il posto dove si promette senza conseguenze."""
-        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        matrice = strict_json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
         matrice["classi_di_artefatto"]["python-puro"]["obblighi"].append("inventata")
         with self.assertRaises(SystemExit) as preso:
             self.gate.classi(matrice)
@@ -699,7 +704,7 @@ class SondeDelRuntimeNativo(unittest.TestCase):
         registro che descriveva un altro nome. Non fa rosso da nessuna parte:
         l'artefatto si costruisce, il gate lo trova, e solo una persona che
         legga il registro e poi la directory si accorge dello scarto."""
-        matrice = json.loads(
+        matrice = strict_json.loads(
             (
                 RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
             ).read_text(encoding="utf-8")
@@ -723,7 +728,7 @@ class SondeDelRuntimeNativo(unittest.TestCase):
     def test_la_matrice_non_torna_a_un_booleano(self) -> None:
         """La matrice portava `contiene_runtime_nativo`, con lo stesso difetto
         del manifesto e nello stesso verso."""
-        matrice = json.loads(
+        matrice = strict_json.loads(
             (
                 RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
             ).read_text(encoding="utf-8")

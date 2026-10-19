@@ -20,6 +20,11 @@ controllata.
 
 from __future__ import annotations
 
+try:
+    from . import strict_json
+except ImportError:
+    import strict_json
+
 import hashlib
 import importlib.util
 import json
@@ -215,7 +220,7 @@ class SondeDeiDigest(unittest.TestCase):
     def albero_candidate(self, **modifiche) -> pathlib.Path:
         """Un albero di canale `candidate`, con i campi comuni al completo."""
         albero = self.albero()
-        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifesto = strict_json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
         manifesto.update(
             {
                 "nome": "plenora-io-2.0.0-linux-x86_64-base",
