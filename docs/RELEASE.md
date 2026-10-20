@@ -10,6 +10,21 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 
 ---
 
+## Perimetro del sorgente congelato
+
+Se la candidate dichiara `plenora-io-<versione>-src.tar.gz` fra gli artefatti,
+anche il sorgente entra nella qualifica: nome, digest, dimensione e revisione
+sono verificati dal gate e il preparatore lo include nel manifesto pubblico.
+I due pacchetti Python restano parte della qualifica degli artefatti.
+
+L'omissione del sorgente fallisce quando il workflow `distribuzione.yml` alla
+`revisione_candidate` contiene la costruzione dell'archivio sorgente. Il gate
+e il preparatore leggono quel workflow da Git; una lettura fallita blocca.
+Non e' prevista un'esclusione implicita di un artefatto che la distribuzione
+produce. I verbali storici senza sorgente restano validi se il loro workflow
+congelato precede questa costruzione: il workflow corrente non estende il
+perimetro passato e nessun digest viene inventato retroattivamente.
+
 ## Stato
 
 <!-- generato da assurance/current-state.json: inizio -->

@@ -1440,7 +1440,8 @@ def versione_del_pacchetto_python() -> str:
     return trovato.group(1)
 
 
-def artefatti_attesi(versione: str, versione_python: str | None = None) -> list[str]:
+def artefatti_attesi(versione: str, versione_python: str | None = None,
+                    *, candidate: dict[str, Any] | None = None) -> list[str]:
     """I nomi degli artefatti del perimetro, derivati dalla matrice.
 
     Il perimetro viene da `perimetro.distribuite` e dalle classi dichiarate, non
@@ -1483,7 +1484,31 @@ def artefatti_attesi(versione: str, versione_python: str | None = None) -> list[
         voce["nome"].replace("<versione>", versione_python)
         for voce in matrice.get("artefatti_python", {}).get("elenco", [])
     ]
-    return sorted(nativi + python)
+    sorgente = f"plenora-io-{versione}-src.tar.gz"
+    fissati = candidate.get("artefatti") if candidate is not None else None
+    include_sorgente = isinstance(fissati, list) and any(
+        isinstance(voce, dict) and voce.get("nome") == sorgente
+        for voce in fissati
+    )
+    return sorted(nativi + python + ([sorgente] if include_sorgente else []))
+
+
+def _assenza_sorgente(candidate: dict[str, Any], versione: str) -> list[str]:
+    """Il perimetro storico resta quello congelato, senza omissioni nuove.
+
+    Il workflow si legge al commit della candidate, mai da HEAD: i verbali
+    anteriori al job sorgente non acquistano un obbligo retroattivo.
+    """
+    nome = f"plenora-io-{versione}-src.tar.gz"
+    if any(isinstance(v, dict) and v.get("nome") == nome
+           for v in candidate.get("artefatti", []) or []):
+        return []
+    workflow = _git("show", f"{candidate.get('revisione_candidate')}:.github/workflows/distribuzione.yml")
+    if workflow is None:
+        return ["impossibile verificare il perimetro sorgente alla revisione congelata"]
+    if "scripts/costruisci-archivio-sorgente.py" in workflow:
+        return [f"«{nome}» non congelato: la distribuzione della candidate produce il sorgente"]
+    return []
 
 
 def _tag_sulla_candidate(
@@ -1518,7 +1543,7 @@ def _artefatti_fissati(
     versione: str,
     versione_python: str | None = None,
 ) -> list[str]:
-    """I quattro archivi congelati: nomi del perimetro, digest, revisione.
+    """Gli archivi congelati: nomi del perimetro, digest, revisione.
 
     Fissare i digest e' cio' che rende verificabile la promessa piu' difficile
     della release -- che i byte pubblicati siano **quelli** misurati, non una
@@ -1529,7 +1554,7 @@ def _artefatti_fissati(
     visibile invece che opinabile.
     """
     fissati = candidate.get("artefatti")
-    attesi = artefatti_attesi(versione, versione_python)
+    attesi = artefatti_attesi(versione, versione_python, candidate=candidate)
     if not isinstance(fissati, list) or not fissati:
         return [
             "la candidate non fissa nessun artefatto. Un elenco vuoto non e' "
@@ -1537,7 +1562,7 @@ def _artefatti_fissati(
             "digest e la revisione da cui escono."
         ]
 
-    errori: list[str] = []
+    errori: list[str] = _assenza_sorgente(candidate, versione)
     per_nome: dict[str, dict[str, Any]] = {}
     for voce in fissati:
         if not isinstance(voce, dict) or not isinstance(voce.get("nome"), str):

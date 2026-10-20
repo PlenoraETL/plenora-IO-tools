@@ -126,9 +126,60 @@ class Preparazione(unittest.TestCase):
         self.candidate["artefatti"].pop(); self.salva_stato()
         self.manifesto["artifacts"].pop()
         self.release = None
-        prepara.prepara("owner/repo", "123")
+        with patch.object(prepara.gate, "_git", return_value="jobs: {}"):
+            prepara.prepara("owner/repo", "123")
         risultato = json.loads((self.root / "contracts/adoption-manifest.json").read_text())
         self.assertEqual(len(risultato["artifacts"]), 4)
+
+    def candidate_completa(self):
+        # Anche i due Python partecipano alla qualifica, pur non essendo
+        # superfici del manifesto pubblico. Ogni archivio ha byte distinti.
+        nomi = prepara.gate.artefatti_attesi("9.0.0", candidate=self.candidate)
+        self.candidate["artefatti"] = [
+            {"nome": n, "sha256": hashlib.sha256(n.encode()).hexdigest(),
+             "dimensione": len(n), "revisione": "a" * 40} for n in nomi]
+        for voce in self.manifesto["artifacts"]:
+            voce["digest"] = "sha256:" + hashlib.sha256(voce["name"].encode()).hexdigest()
+        self.salva_stato()
+
+    def test_candidate_con_sorgente_preparatore_e_gate_verdi(self):
+        self.candidate_completa()
+        prepara.prepara("owner/repo")
+        self.assertEqual(prepara.gate._artefatti_fissati(self.candidate, "a" * 40, "9.0.0"), [])
+        self.candidate.update(stato="attiva", release_action_allowed=True)
+        with patch.object(prepara.gate, "_stato_corrente", return_value=({"aperto": {"candidate_release": self.candidate}}, [])), \
+             patch.object(prepara.gate, "versione_workspace", return_value="9.0.0"), \
+             patch.object(prepara.gate, "revisione_risolta", return_value="a" * 40):
+            self.assertEqual(prepara.gate.condizione_candidate_coerente({}), [])
+        risultato = json.loads((self.root / "contracts/adoption-manifest.json").read_text())
+        self.assertIn("plenora-io-9.0.0-src.tar.gz", {v["name"] for v in risultato["artifacts"]})
+
+    def test_sorgente_congelato_invalido_blocca_entrambi(self):
+        self.candidate_completa()
+        sorgente = next(v for v in self.candidate["artefatti"] if v["nome"].endswith("-src.tar.gz"))
+        for campo, valore in (("sha256", "errato"), ("dimensione", 0), ("revisione", "b" * 40)):
+            with self.subTest(campo=campo), patch.dict(sorgente, {campo: valore}):
+                self.assertTrue(prepara.gate._artefatti_fissati(self.candidate, "a" * 40, "9.0.0"))
+                with self.assertRaises(prepara.PreparazioneError):
+                    prepara.attesi(self.candidate)
+
+    def test_senza_sorgente_storico_o_nuovo_o_non_verificabile(self):
+        self.candidate_completa()
+        self.candidate["artefatti"] = [v for v in self.candidate["artefatti"]
+                                      if not v["nome"].endswith("-src.tar.gz")]
+        self.salva_stato()
+        self.manifesto["artifacts"].pop()
+        for workflow in ("jobs: {}", "run: python3 scripts/costruisci-archivio-sorgente.py", None):
+            with self.subTest(workflow=workflow), patch.object(prepara.gate, "_git", return_value=workflow) as git:
+                errori = prepara.gate._artefatti_fissati(self.candidate, "a" * 40, "9.0.0")
+                if workflow == "jobs: {}":
+                    self.assertEqual(errori, [])
+                    prepara.prepara("owner/repo")
+                else:
+                    self.assertTrue(errori)
+                    with self.assertRaisesRegex(prepara.PreparazioneError, "sorgente"):
+                        prepara.prepara("owner/repo")
+                git.assert_any_call("show", "a" * 40 + ":.github/workflows/distribuzione.yml")
 
     def test_candidate_di_altro_checkout_blocca(self):
         self.legame.return_value = ["fuori allowlist"]

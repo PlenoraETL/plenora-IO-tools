@@ -42,13 +42,16 @@ def api(repo: str, endpoint: str):
 
 def attesi(candidate: dict) -> dict:
     versione = candidate["versione_manifesto"]
+    errori = gate._assenza_sorgente(candidate, versione)
+    if errori:
+        raise PreparazioneError("; ".join(errori))
     nomi = {f"plenora-io-{versione}-{piattaforma}-{profilo}.{estensione}": "cli"
             for piattaforma, estensione in (("linux-x86_64", "tar.gz"), ("windows-x86_64", "zip"))
             for profilo in ("base", "filegdb")}
     # I verbali precedenti a #42 fissano soltanto i sei archivi nativi/Python.
     # Non inventare un digest sorgente per completarli retroattivamente.
     sorgente = f"plenora-io-{versione}-src.tar.gz"
-    if any(v.get("nome") == sorgente for v in candidate.get("artefatti", [])):
+    if sorgente in gate.artefatti_attesi(versione, candidate=candidate):
         nomi[sorgente] = "rust"
     fissati = {}
     for voce in candidate.get("artefatti", []):
