@@ -75,6 +75,37 @@ env:
   REVISIONE: ${{ inputs.revisione }}
 
 jobs:
+  # Il sorgente usa la versione del workspace, come il pacchetto Python.
+  # MANIFEST-sorgente e' la sua provenance: revisione, sha256 e byte misurati.
+  sorgente:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ inputs.revisione }}
+      - name: La revisione e' quella chiesta, non quella che main ha adesso
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$REVISIONE" ]]; then
+            echo "HEAD $head non e' la revisione attesa $REVISIONE" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: gli artefatti non sarebbero same-SHA" >&2
+            exit 1
+          fi
+          echo "revisione verificata: $head"
+      - name: Costruisci l'archivio sorgente dalla stessa revisione
+        run: python3 scripts/costruisci-archivio-sorgente.py --uscita "$RUNNER_TEMP/sorgente"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: deliverable-sorgente-${{ env.VERSIONE }}
+          path: ${{ runner.temp }}/sorgente/
+          if-no-files-found: error
+
   linux:
     # Ubuntu 22.04, che porta glibc 2.35: e' la soglia dichiarata nella matrice.
     # Costruire su una base piu' recente darebbe un artefatto che non gira sulla
@@ -577,9 +608,10 @@ jobs:
   #
   # Ricalcola il perimetro dalla matrice, non da cio' che ha ricevuto: il numero
   # degli artefatti discende dalle classi dichiarate -- quattro nativi, due
-  # Python -- non dal fatto che tre job siano stati scritti.
+  # Python -- non dal fatto che tre job siano stati scritti. Il sorgente viene
+  # verificato separatamente, sui byte e sulla provenance riscaricati.
   gate:
-    needs: [linux, windows, python]
+    needs: [linux, windows, python, sorgente]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -610,7 +642,8 @@ jobs:
           echo "linux:   ${{ needs.linux.result }}"
           echo "windows: ${{ needs.windows.result }}"
           echo "python:  ${{ needs.python.result }}"
-          if [ "${{ needs.linux.result }}" != "success" ] || [ "${{ needs.windows.result }}" != "success" ] || [ "${{ needs.python.result }}" != "success" ]; then
+          echo "sorgente: ${{ needs.sorgente.result }}"
+          if [ "${{ needs.sorgente.result }}" != "success" ] || [ "${{ needs.linux.result }}" != "success" ] || [ "${{ needs.windows.result }}" != "success" ] || [ "${{ needs.python.result }}" != "success" ]; then
             echo "Un costruttore non e' verde: il conteggio dei referti qui sotto dira' che"
             echo "cosa manca, ma questa corsa non distribuisce niente."
             exit 1
@@ -633,7 +666,7 @@ jobs:
       - name: Verifica i deliverable dopo l'upload
         run: python3 scripts/check-deliverable.py
           --directory deliverable --versione "$VERSIONE" --canale "$CANALE"
-          --revisione "$GITHUB_SHA"
+          --revisione "$REVISIONE"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: always()
         with:
@@ -671,6 +704,7 @@ jobs:
           pattern: deliverable-*
           path: deliverable
           merge-multiple: true
+      # Il glob tar.gz include anche il sorgente, gia' verificato dal gate.
       - name: Attesta la provenienza di archivi e pacchetti
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:

@@ -128,8 +128,38 @@ class SondeDeliverable(unittest.TestCase):
         prova["dimensione"] = archivio.stat().st_size
         percorso.write_text(json.dumps(prova), encoding="utf-8")
 
+    def crea_sorgente(self):
+        import re
+        versione = re.search(r'^version\s*=\s*"([^"]+)"', (RADICE / "Cargo.toml").read_text(encoding="utf-8"), re.M).group(1)
+        nome = f"plenora-io-{versione}-src.tar.gz"
+        self.sorgente = self.tmp / nome
+        self.sorgente.write_bytes(b"sorgente congelato")
+        digest = self.d.sha256(self.sorgente)
+        (self.tmp / f"{nome}.sha256").write_text(f"{digest}  {nome}\n", encoding="utf-8")
+        (self.tmp / "MANIFEST-sorgente.json").write_text(json.dumps({
+            "component": "plenora-io-tools", "artefatto": nome, "versione": versione,
+            "revisione": self.REVISIONE, "sha256": digest, "byte": self.sorgente.stat().st_size,
+        }), encoding="utf-8")
+
+    def test_sorgente_assente_non_passato(self):
+        self.sorgente.unlink()
+        self.assertTrue(self.gate.verifica(self.tmp, self.VERSIONE, "prova", self.REVISIONE))
+
+    def test_sorgente_modificato_non_passato(self):
+        self.sorgente.write_bytes(b"altri byte")
+        self.assertTrue(self.gate.verifica_sorgente(self.tmp, self.REVISIONE)[0])
+
+    def test_provenance_sorgente_rifiuta_revisione_dimensione_digest(self):
+        percorso = self.tmp / "MANIFEST-sorgente.json"
+        originale = json.loads(percorso.read_text())
+        for campo, valore in (("revisione", "b" * 40), ("byte", 0), ("sha256", "0" * 64)):
+            with self.subTest(campo=campo):
+                percorso.write_text(json.dumps(dict(originale, **{campo: valore})))
+                self.assertTrue(self.gate.verifica_sorgente(self.tmp, self.REVISIONE)[0])
+
     def crea_serie(self) -> None:
         self.crea_python()
+        self.crea_sorgente()
         for piattaforma in ("linux-x86_64", "windows-x86_64"):
             for profilo in ("base", "filegdb"):
                 nome = self.d.nome_archivio(self.VERSIONE, piattaforma, profilo)

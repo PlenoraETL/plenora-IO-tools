@@ -7,12 +7,17 @@ on:
         description: Exact 40-character commit SHA to qualify
         required: true
         type: string
+      distribution_run_id:
+        description: "Run di Distribuzione con i byte congelati, se il manifesto non e' nella release/draft"
+        required: false
+        type: string
   push:
     tags:
       - "v*"
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   functional-gates:
@@ -30,6 +35,31 @@ jobs:
           # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
           # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+      - name: Leggi il pin dei contratti dal checkout qualificato
+        id: contracts-pin
+        run: |
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          from scripts import strict_json
+          source = strict_json.loads(Path("contracts/adoption-source.json").read_text(encoding="utf-8"))["contracts_source"]
+          if source["repository"] != "https://github.com/PlenoraETL/plenora-contracts.git" or not re.fullmatch(r"[0-9a-f]{40}", source["revision"]):
+              raise SystemExit("pin dei contratti non valido")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("revision=" + source["revision"] + "\n")
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          repository: PlenoraETL/plenora-contracts
+          ref: ${{ steps.contracts-pin.outputs.revision }}
+          path: .plenora-contracts
+      # La versione non basta a scegliere un manifesto: il preparatore lega
+      # release/draft e digest alla candidate, conservando le due revisioni.
+      - name: Materializza il manifesto della candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISTRIBUTION_RUN_ID: ${{ inputs.distribution_run_id }}
+        run: python3 scripts/prepara_manifesto_release.py
       # `--release` **riesegue** la prova di ogni invariante, e una di esse --
       # `check_asan_filegdb.py` -- rimisura la `libgdal` di questa macchina.
       # Non e' un dettaglio del gate: rileggere l'artefatto direbbe soltanto che
