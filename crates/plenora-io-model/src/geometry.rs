@@ -318,7 +318,9 @@ pub fn with_geometry_contract_metadata(
             PLENORA_TYPES_DECLARATION_KEY.to_owned(),
             declaration_name.to_owned(),
         );
-        if contract.types_declaration == TypesDeclaration::Unresolved {
+        if contract.types_declaration == TypesDeclaration::Unresolved
+            || contract.geometry_types.is_empty()
+        {
             metadata.remove(PLENORA_GEOMETRY_TYPES_KEY);
         } else {
             metadata.insert(

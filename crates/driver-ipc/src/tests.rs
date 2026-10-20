@@ -10,6 +10,7 @@ mod buffer_ipc;
 mod layout_ipc;
 mod parametri_schema_ipc;
 mod schema_ipc;
+mod tipi_geometrici;
 
 /// Opzioni di lettura sul modello unificato.
 ///
