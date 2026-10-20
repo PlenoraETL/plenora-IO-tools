@@ -79,6 +79,25 @@ fn invalid_srid_and_geometry_types_are_rejected() {
 }
 
 #[test]
+fn empty_type_list_removes_previous_metadata() {
+    for declaration in [TypesDeclaration::Mixed, TypesDeclaration::Unresolved] {
+        let mut geometry = contract();
+        geometry.types_declaration = declaration;
+        for previous in ["", "point"] {
+            let field = with_geometry_contract_metadata(
+                &field_with(PLENORA_GEOMETRY_TYPES_KEY, previous),
+                &geometry,
+            );
+            assert!(!field.metadata().contains_key(PLENORA_GEOMETRY_TYPES_KEY));
+            let mut decoded = contract();
+            read_geometry_contract_metadata(&field, &mut decoded).unwrap();
+            assert_eq!(decoded.types_declaration, declaration);
+            assert!(decoded.geometry_types.is_empty());
+        }
+    }
+}
+
+#[test]
 fn geometry_type_metadata_uses_canonical_names_without_separators() {
     let mut geometry = contract();
     geometry.types_declaration = TypesDeclaration::Exact;
