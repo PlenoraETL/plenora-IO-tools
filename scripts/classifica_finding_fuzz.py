@@ -260,7 +260,7 @@ LOCK_DEL_FUZZ = ROOT / "fuzz" / "Cargo.lock"
 
 #: Il riepilogo con cui libFuzzer chiude una corsa che ha finito il tempo.
 CONCLUSIONE = re.compile(r"^Done (?P<esecuzioni>\d+) runs in \d+ second\(s\)$")
-STATISTICHE = re.compile(r"^stat::number_of_executed_units: *\d+$")
+STATISTICHE = re.compile(r"^stat::number_of_executed_units: *(?P<esecuzioni>\d+)$")
 
 #: Segmenti che dicono «codice di questo repository»: un frame che li porta
 #: ferma sempre lo skip, qualunque nome abbia.
@@ -460,10 +460,16 @@ def conclusione_regolare(testo: str) -> bool:
     righe = [riga.rstrip("\r") for riga in testo.splitlines()]
     conclusioni = [CONCLUSIONE.match(riga) for riga in righe]
     conclusioni = [trovata for trovata in conclusioni if trovata is not None]
+    statistiche = [STATISTICHE.match(riga) for riga in righe]
+    statistiche = [trovata for trovata in statistiche if trovata is not None]
     return (
         len(conclusioni) == 1
         and int(conclusioni[0].group("esecuzioni")) > 0
-        and sum(1 for riga in righe if STATISTICHE.match(riga)) == 1
+        and len(statistiche) == 1
+        # Il riepilogo e il contatore interno devono raccontare la stessa
+        # corsa: se divergono, l'uscita e' cucita da corse diverse o troncata.
+        and int(statistiche[0].group("esecuzioni"))
+        == int(conclusioni[0].group("esecuzioni"))
         and not any(MARCATORE.match(riga) for riga in righe)
         and PANICO.search(testo) is None
     )
