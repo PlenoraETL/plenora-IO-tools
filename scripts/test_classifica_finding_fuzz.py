@@ -980,6 +980,11 @@ class SondeDellEsaurimento(unittest.TestCase):
         self.assertFalse(gate.conclusione_regolare(""))
         self.assertFalse(gate.conclusione_regolare("Done 100 runs in 60 second(s)\n"))
         self.assertFalse(gate.conclusione_regolare(conclusa + conclusa))
+        cucita = conclusa.replace(
+            "stat::number_of_executed_units: 100",
+            "stat::number_of_executed_units: 99",
+        )
+        self.assertFalse(gate.conclusione_regolare(cucita))
 
     # --- il quarto giro della revisione ---------------------------------------
 
