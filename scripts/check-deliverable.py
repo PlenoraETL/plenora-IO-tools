@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 import tarfile
 import zipfile
@@ -200,6 +201,30 @@ def verifica_python(
     return errori, attesi
 
 
+def verifica_sorgente(directory: pathlib.Path, revisione: str) -> tuple[list[str], set[str]]:
+    """Ricalcola la provenance del costruttore sorgente sui byte scaricati."""
+    attesi = {"MANIFEST-sorgente.json"}
+    try:
+        manifesto = strict_json.loads((directory / "MANIFEST-sorgente.json").read_text(encoding="utf-8"))
+        # La versione viene dal checkout, non da un nome scelto dal documento.
+        versione = re.search(r'^version\s*=\s*"([^"]+)"', (RADICE / "Cargo.toml").read_text(encoding="utf-8"), re.M).group(1)
+        nome = f"plenora-io-{versione}-src.tar.gz"
+        archivio = directory / nome
+        checksum = directory / f"{nome}.sha256"
+        attesi.update((nome, checksum.name))
+        reale = distribuzione.sha256(archivio)
+        pretese = {"artefatto": nome, "versione": versione, "revisione": revisione,
+                   "sha256": reale, "byte": archivio.stat().st_size,
+                   "component": "plenora-io-tools"}
+        errori = [f"sorgente: provenance.{campo} non corrisponde" for campo, valore in pretese.items()
+                  if manifesto.get(campo) != valore]
+        if _sidecar(checksum, archivio) != reale:
+            errori.append("sorgente: checksum diverso dai byte scaricati")
+        return errori, attesi
+    except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
+        return ["sorgente: archivio, checksum o provenance assenti o non validi"], attesi
+
+
 def verifica(
     directory: pathlib.Path,
     versione: str,
@@ -276,6 +301,10 @@ def verifica(
     errori_python, attesi_python = verifica_python(directory, canale, revisione)
     errori.extend(errori_python)
     attesi.update(attesi_python)
+
+    errori_sorgente, attesi_sorgente = verifica_sorgente(directory, revisione)
+    errori.extend(errori_sorgente)
+    attesi.update(attesi_sorgente)
 
     presenti = {
         str(p.relative_to(directory)).replace("\\", "/")

@@ -1067,6 +1067,15 @@ class SondeCongelamento(unittest.TestCase):
     CONGELATA = "1" * 40
     ASSURANCE = "2" * 40
 
+    def setUp(self):
+        # Questa fixture descrive una distribuzione precedente al job sorgente.
+        originale = gate._git
+        patcher = mock.patch.object(gate, "_git", side_effect=lambda *args:
+            "jobs: {}" if args[0] == "show" and args[1].endswith(":.github/workflows/distribuzione.yml")
+            else originale(*args))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def stato(self) -> dict:
         return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
@@ -3920,6 +3929,15 @@ class SondeDelGateDiRilascioSuFixture(unittest.TestCase):
     ALTRA = "b" * 40
     VERSIONE = "2.0.0"
 
+    def setUp(self):
+        # Questa fixture descrive una distribuzione precedente al job sorgente.
+        originale = gate._git
+        patcher = mock.patch.object(gate, "_git", side_effect=lambda *args:
+            "jobs: {}" if args[0] == "show" and args[1].endswith(":.github/workflows/distribuzione.yml")
+            else originale(*args))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def artefatti(self, revisione=None) -> list:
         """I sei artefatti del perimetro, ciascuno con un digest suo."""
         revisione = revisione or self.CONGELATA
@@ -4100,6 +4118,15 @@ class SondeDellaReleasePubblicata(unittest.TestCase):
     REGISTRAZIONE = "d" * 40
     DOPO = "e" * 40
     VERSIONE = "2.0.0"
+
+    def setUp(self):
+        # Questa fixture descrive una distribuzione precedente al job sorgente.
+        originale = gate._git
+        patcher = mock.patch.object(gate, "_git", side_effect=lambda *args:
+            "jobs: {}" if args[0] == "show" and args[1].endswith(":.github/workflows/distribuzione.yml")
+            else originale(*args))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def artefatti(self, revisione=None) -> list:
         revisione = revisione or self.QUALIFICATA
@@ -4304,6 +4331,15 @@ class SondeDelCongelamentoAncoraAttivo(unittest.TestCase):
     CONGELATA = "a" * 40
     HEAD = "b" * 40
     VERSIONE = "2.0.0"
+
+    def setUp(self):
+        # Questa fixture descrive una distribuzione precedente al job sorgente.
+        originale = gate._git
+        patcher = mock.patch.object(gate, "_git", side_effect=lambda *args:
+            "jobs: {}" if args[0] == "show" and args[1].endswith(":.github/workflows/distribuzione.yml")
+            else originale(*args))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def candidate(self, **cambi) -> dict:
         voce = {

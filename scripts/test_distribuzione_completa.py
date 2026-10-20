@@ -529,7 +529,7 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
     def test_il_gate_aspetta_entrambi_i_costruttori(self) -> None:
         """Un gate che girasse prima conterebbe i referti di una corsa a
         meta', e li troverebbe mancanti per la ragione sbagliata."""
-        self.assertIn("needs: [linux, windows, python]", self.testo)
+        self.assertIn("needs: [linux, windows, python, sorgente]", self.testo)
 
     def test_un_costruttore_rosso_non_diventa_una_distribuzione_verde(self) -> None:
         """`if: always()` serve a far parlare il gate anche quando qualcosa e'
@@ -538,6 +538,9 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         per cui esiste."""
         self.assertIn("needs.linux.result", self.testo)
         self.assertIn("needs.windows.result", self.testo)
+        self.assertIn("needs.sorgente.result", self.testo)
+        self.assertIn("scripts/costruisci-archivio-sorgente.py", self.testo)
+        self.assertIn("name: deliverable-sorgente-", self.testo)
 
     def test_i_referti_arrivano_tutti_al_gate(self) -> None:
         """Il pattern deve prendere ogni artefatto di referti: prenderne una
@@ -564,7 +567,7 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         self.assertIn("scripts/check-deliverable.py", self.testo)
         # Ricalcolare sul runner produttore non verifica il trasporto: il gate
         # deve legare i byte riscaricati allo SHA del checkout.
-        self.assertIn('--revisione "$GITHUB_SHA"', self.testo)
+        self.assertIn('--revisione "$REVISIONE"', self.testo)
 
     def test_il_workflow_non_chiede_materiale_di_firma(self) -> None:
         for token in (
