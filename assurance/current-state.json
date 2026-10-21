@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -375,6 +375,61 @@
         "versione_pacchetto_python": "4.1.1",
         "evidenza": "assurance/evidence/checkpoint-e0270b5.json",
         "perche_e_qui": "La 4.1.1 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 5.0.0. Lo spostamento non ne allenta niente: i campi restano quelli della registrazione pubblicata, e il gate rilegge dall'archivio le stesse domande."
+      },
+      {
+        "versione_manifesto": "5.0.0",
+        "tag_previsto": "v5.0.0",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.\n\n**Artefatti fissati** dalla provenance della distribuzione candidate 39228154975, eseguita sul ref distribuzione/5.0.0-candidate con head uguale alla revisione congelata: i digest qui sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.0 a gate verdi il 2026-10-19 (Â«autorizzo la 5.0.0Â»): release_authorized registra quella decisione e non la deriva da niente. Il livello 2 e' verde 111/111 su a70501e, i sei artefatti sono fissati dalla provenance della distribuzione candidate 39228154975, le attestazioni del profilo pubblico (32 requisiti su 32, esigente) coprono i quattro archivi CLI, e la draft e' stata riscaricata e verificata: 6/6 byte-identici ai fissati. release_action_allowed e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione. Il tag annotato v5.0.0 va su a70501e, la revisione congelata.\n\n**Pubblicata il 2026-10-19** alle 09:57:19Z, dalla draft immutata, come release v5.0.0 (latest, 20 asset). Il gate check_release_contract.py --release e' stato eseguito verde sul commit e0c50ce, sulla VM 192.168.2.133, con il manifesto d'adozione costruito dagli artefatti fissati e i contratti al pin: 37 invarianti, nessun blocco, 9 condizioni verificate, i due rinvii dichiarati (sistema.qualifica-cross-component e distribuzione.licenza-first-party). Il permesso operativo release_action_allowed e' speso e torna false.\n\n**Verifica dopo la pubblicazione** (passo 13): i sei artefatti riscaricati dalla release pubblicata coincidono byte per byte coi fissati.",
+        "revisione_candidate": "a70501edee79e57a7db2af8e361f34b8f55a1674",
+        "assurance_entro_l_allowlist": true,
+        "artefatti": [
+          {
+            "nome": "plenora-io-5.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "ade127d93adc9e32c732251c60b21023f7f7230fb33908b9563edebcad824d59",
+            "dimensione": 8848859,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          },
+          {
+            "nome": "plenora-io-5.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "f83dbace467c79e907b9f654daba53adbc024c65676d28efb90725e2ea93a211",
+            "dimensione": 64687370,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          },
+          {
+            "nome": "plenora_io-5.0.0-py3-none-any.whl",
+            "sha256": "eeda4d17cc20ee5b3a430b8012e8962167ef7172bffa1799e9a094cd0d86af32",
+            "dimensione": 114516,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          },
+          {
+            "nome": "plenora_io-5.0.0.tar.gz",
+            "sha256": "c147f1f68c9f7ed363f27c7e0314a0a458b5101673a906741eab2a5cd29012c3",
+            "dimensione": 209759,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          },
+          {
+            "nome": "plenora-io-5.0.0-windows-x86_64-base.zip",
+            "sha256": "2b3abb520efe5b49c3c0ae4c9b3a7a1dc607b3610326b0e6e5f98d8e53934ede",
+            "dimensione": 9632241,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          },
+          {
+            "nome": "plenora-io-5.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "3d172cb37375e00a70911d52f1cd0a23cdf191cd7c26bb29a0dcfe66e5c71d41",
+            "dimensione": 48692672,
+            "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
+          }
+        ],
+        "tag_revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674",
+        "commit_di_assurance": "c9926a6e1e1645f445c84ae14ede02d0fc804cc8",
+        "release_action_allowed": false,
+        "versione_pacchetto_python": "5.0.0",
+        "evidenza": "assurance/evidence/checkpoint-a70501e.json",
+        "perche_e_qui": "La 5.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 5.0.1. Lo spostamento non ne allenta niente: i campi restano quelli della registrazione pubblicata, e il gate rilegge dall'archivio le stesse domande."
       }
     ]
   },
@@ -407,57 +462,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "5.0.0",
-      "versione_workspace": "5.0.0",
-      "tag_previsto": "v5.0.0",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "5.0.1",
+      "versione_workspace": "5.0.1",
+      "tag_previsto": "v5.0.1",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "Candidate **attiva**, congelata su `a70501e`. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La revisione congelata porta il cambio di versione (`0f61807`), le misure del perimetro rifatte su di esso (profondita' 35, 12, 9 e 9 requisiti, invariati; confine ASan 169722 contatori, zero simboli del runtime in `libgdal.so.32`), il ritiro delle dichiarazioni di rimisurazione -- quattro di profondita' e quella ASan -- il contatore legato corretto e il ritiro formale della candidate precedente su `42ca693`, bocciata dal primo livello 2 proprio per quelle incoerenze. Le misure stanno dentro la revisione congelata e il loro perimetro non comprende assurance: valgono invariate.\n\nLa 5.0.0 e' una major: l'adozione di plenora-contracts `3aec9f7` (#60) porta io.catalog, io.read e io.write alla versione operativa 2. Entrano #44, #50, #53, #57, #58, #59.\n\n**Che cosa resta, intero.** La qualifica di questa candidate nell'ordine della sezione 5-bis: distribuzione in canale candidate su questa revisione, livello 2 sulla stessa, artefatti fissati dalla provenance, draft release riscaricata e verificata, attestazioni del profilo pubblico, autorizzazione, tag `v5.0.0` su questa revisione.\n\n**Artefatti fissati** dalla provenance della distribuzione candidate 39228154975, eseguita sul ref distribuzione/5.0.0-candidate con head uguale alla revisione congelata: i digest qui sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.0 a gate verdi il 2026-10-19 (Â«autorizzo la 5.0.0Â»): release_authorized registra quella decisione e non la deriva da niente. Il livello 2 e' verde 111/111 su a70501e, i sei artefatti sono fissati dalla provenance della distribuzione candidate 39228154975, le attestazioni del profilo pubblico (32 requisiti su 32, esigente) coprono i quattro archivi CLI, e la draft e' stata riscaricata e verificata: 6/6 byte-identici ai fissati. release_action_allowed e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione. Il tag annotato v5.0.0 va su a70501e, la revisione congelata.\n\n**Pubblicata il 2026-10-19** alle 09:57:19Z, dalla draft immutata, come release v5.0.0 (latest, 20 asset). Il gate check_release_contract.py --release e' stato eseguito verde sul commit e0c50ce, sulla VM 192.168.2.133, con il manifesto d'adozione costruito dagli artefatti fissati e i contratti al pin: 37 invarianti, nessun blocco, 9 condizioni verificate, i due rinvii dichiarati (sistema.qualifica-cross-component e distribuzione.licenza-first-party). Il permesso operativo release_action_allowed e' speso e torna false.\n\n**Verifica dopo la pubblicazione** (passo 13): i sei artefatti riscaricati dalla release pubblicata coincidono byte per byte coi fissati.",
-      "revisione_candidate": "a70501edee79e57a7db2af8e361f34b8f55a1674",
-      "assurance_entro_l_allowlist": true,
-      "artefatti": [
-        {
-          "nome": "plenora-io-5.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "ade127d93adc9e32c732251c60b21023f7f7230fb33908b9563edebcad824d59",
-          "dimensione": 8848859,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        },
-        {
-          "nome": "plenora-io-5.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "f83dbace467c79e907b9f654daba53adbc024c65676d28efb90725e2ea93a211",
-          "dimensione": 64687370,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        },
-        {
-          "nome": "plenora_io-5.0.0-py3-none-any.whl",
-          "sha256": "eeda4d17cc20ee5b3a430b8012e8962167ef7172bffa1799e9a094cd0d86af32",
-          "dimensione": 114516,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        },
-        {
-          "nome": "plenora_io-5.0.0.tar.gz",
-          "sha256": "c147f1f68c9f7ed363f27c7e0314a0a458b5101673a906741eab2a5cd29012c3",
-          "dimensione": 209759,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        },
-        {
-          "nome": "plenora-io-5.0.0-windows-x86_64-base.zip",
-          "sha256": "2b3abb520efe5b49c3c0ae4c9b3a7a1dc607b3610326b0e6e5f98d8e53934ede",
-          "dimensione": 9632241,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        },
-        {
-          "nome": "plenora-io-5.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "3d172cb37375e00a70911d52f1cd0a23cdf191cd7c26bb29a0dcfe66e5c71d41",
-          "dimensione": 48692672,
-          "revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674"
-        }
-      ],
-      "tag_revisione": "a70501edee79e57a7db2af8e361f34b8f55a1674",
-      "commit_di_assurance": "c9926a6e1e1645f445c84ae14ede02d0fc804cc8"
+      "stato": "iniziale",
+      "nota": "Candidate **iniziale**: la 5.0.1 segue la 5.0.0. Patch: i pin di famiglia (#68, uuid 1.26.1 con i lock del workspace e del fuzz), la correzione del registro shp dopo il merge #67+#68 (#69) e il ritiro dei cinque rinvii fuzz/ASan con le rimisure vere. Le rimisure sono GIA' eseguite su quest'albero, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica: profondita' 9/9, 35/35, 9/9 e 12/12 requisiti; confine ASan 170038 contatori, zero simboli del runtime in libgdal.so.32. L'albero non e' ancora congelato: finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata. Il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso."
     }
   },
   "docset": {
