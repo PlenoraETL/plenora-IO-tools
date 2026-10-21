@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "5.0.0",
+      "versione": "5.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "5.0.0",
+      "versione": "5.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "5.0.0",
+      "versione": "5.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "5.0.0",
+      "versione": "5.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1439,5 +1439,29 @@
       "plenora-io-model 5.0.0: interna-al-workspace"
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 4.1.1 a 5.0.0 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 4.1.1, ed e' registrata perche' il gate confronta le versioni e non i nomi."
+  },
+  "variazione_versione_5_0_1": {
+    "quando": "2026-10-21, portando il workspace da 5.0.0 a 5.0.1",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "driver-common 5.0.1",
+      "driver-geoparquet 5.0.1",
+      "plenora-io-core 5.0.1",
+      "plenora-io-model 5.0.1"
+    ],
+    "uscite": [
+      "driver-common 5.0.0",
+      "driver-geoparquet 5.0.0",
+      "plenora-io-core 5.0.0",
+      "plenora-io-model 5.0.0"
+    ],
+    "licenze_riverificate": [
+      "driver-common 5.0.1: interna-al-workspace",
+      "driver-geoparquet 5.0.1: interna-al-workspace",
+      "plenora-io-core 5.0.1: interna-al-workspace",
+      "plenora-io-model 5.0.1: interna-al-workspace"
+    ],
+    "perche": "Le quattro crate del workspace nella closure passano da 5.0.0 a 5.0.1 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 5.0.0, ed e' registrata perche' il gate confronta le versioni e non i nomi."
   }
 }

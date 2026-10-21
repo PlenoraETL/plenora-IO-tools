@@ -136,21 +136,5 @@
   "non_e_qui": {
     "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
-  },
-  "rimisurazione_dovuta": {
-    "perche": "Allineamento del pin di famiglia uuid da 1.24.0 a 1.26.1: aggiornati Cargo.lock e fuzz/Cargo.lock. Il nuovo grafo invalida la misura archiviata; il replay strumentato non e' stato rieseguito in questo worktree Windows.",
-    "impronta_della_misura": "fa445b1a748087c60fcba351fe59aef8349b21f3be367f157ebc6e181dcf4b35",
-    "impronta_attesa": "bc9c7e66cdacb7b347177335cedd0869ca662e5a426f36b9340e56a4c46503d1",
-    "non_promette": "La misura archiviata non dimostra la profondita' del grafo aggiornato.",
-    "quando": "prima della qualificazione del candidato finale",
-    "comando": "bash scripts/fuzz-profondita.sh filegdb_reader"
-  },
-  "rimisurazione_asan_dovuta": {
-    "perche": "Allineamento del pin di famiglia uuid da 1.24.0 a 1.26.1: aggiornati Cargo.lock e fuzz/Cargo.lock. Il nuovo grafo invalida la misura archiviata; il replay strumentato non e' stato rieseguito in questo worktree Windows.",
-    "impronta_della_misura": "fa445b1a748087c60fcba351fe59aef8349b21f3be367f157ebc6e181dcf4b35",
-    "impronta_attesa": "bc9c7e66cdacb7b347177335cedd0869ca662e5a426f36b9340e56a4c46503d1",
-    "non_promette": "La misura archiviata non attesta il confine AddressSanitizer del grafo aggiornato.",
-    "quando": "prima della qualificazione del candidato finale",
-    "comando": "bash scripts/asan-filegdb.sh"
   }
 }
