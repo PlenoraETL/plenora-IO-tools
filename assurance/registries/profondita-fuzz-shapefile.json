@@ -4,9 +4,9 @@
   "target": "shp_reader",
   "artefatto": "assurance/profondita-fuzz-shapefile.json",
   "rimisurazione_dovuta": {
-    "perche": "Il rientro dell'issue #66 modifica la serializzazione del contratto geometrico nel modello condiviso e aggiunge la regressione sull'elenco vuoto, dentro il perimetro Shapefile.",
+    "perche": "Due cause cumulate: il rientro dell'issue #66 (serializzazione del contratto geometrico nel modello condiviso, con la regressione sull'elenco vuoto) e l'allineamento del pin di famiglia uuid da 1.24.0 a 1.26.1 (Cargo.lock e fuzz/Cargo.lock). Entrambe dentro il perimetro Shapefile.",
     "impronta_della_misura": "119ebfe9f4a8a658a591652b723f2be483f11e000ddb2bf6111030fa8c6ccf21",
-    "impronta_attesa": "03f8495fa7f5b8a3a65db6b2ffbb092e3a2e72d125104218ff7b69992d2cb3a7",
+    "impronta_attesa": "4eb33024429b73497b455071ebc797dbc6e2f10b936ca8e6d546e703122056fa",
     "non_promette": "Questo e' un riallineamento del registro, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del prossimo candidato che include il rientro #66.",
     "comando": "scripts/fuzz-profondita.sh shp_reader"
@@ -338,13 +338,5 @@
     "errore_di_ambiente": "la riga che trasforma un errore di scrittura in errore tipizzato resta a **zero**, ed e' giusto: durante la misura l'ambiente non ha fallito. E' provata da una sonda del driver, non da qui, perche' pretenderla coperta significherebbe pretendere che il filesystem si rompa durante una misura.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Â«non raggiuntoÂ» da Â«raggiuntoÂ»; la seconda meta' la verificano le sonde di `driver-shp`.",
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
-  },
-  "rimisurazione_dovuta": {
-    "perche": "Allineamento del pin di famiglia uuid da 1.24.0 a 1.26.1: aggiornati Cargo.lock e fuzz/Cargo.lock. Il nuovo grafo invalida la misura archiviata; il replay strumentato non e' stato rieseguito in questo worktree Windows.",
-    "impronta_della_misura": "119ebfe9f4a8a658a591652b723f2be483f11e000ddb2bf6111030fa8c6ccf21",
-    "impronta_attesa": "5ad1e57c17d8deeffb7acec810677281e2e2b5610b64b2427fed8ecbf006669b",
-    "non_promette": "La misura archiviata non dimostra la profondita' del grafo aggiornato.",
-    "quando": "prima della qualificazione del candidato finale",
-    "comando": "bash scripts/fuzz-profondita.sh shp_reader"
   }
 }
