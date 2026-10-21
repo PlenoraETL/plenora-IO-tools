@@ -112,7 +112,7 @@ atomicwrites = "=0.4.4"
 # canonico, RUNTIME-BINDING-1.0 §3). E' gia' nel grafo del prodotto con la
 # feature `v4` -- la porta il fork di `dxf` --, quindi entra come dipendenza
 # diretta senza aggiungere un crate.
-uuid = { version = "=1.24.0", features = ["v4"] }
+uuid = { version = "=1.26.1", features = ["v4"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

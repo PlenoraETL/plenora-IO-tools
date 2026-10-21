@@ -109,5 +109,13 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
+  "rimisurazione_dovuta": {
+    "perche": "Allineamento del pin di famiglia uuid da 1.24.0 a 1.26.1: aggiornati Cargo.lock e fuzz/Cargo.lock. Il nuovo grafo invalida la misura archiviata; il replay strumentato non e' stato rieseguito in questo worktree Windows.",
+    "impronta_della_misura": "6b667bbd8a34a9a3a6ac30e648b36bd1ac06bf728ca5b93d82caeaf5e90546be",
+    "impronta_attesa": "710000c85f44957e9599cc05c522ed3a851646b7455a442bcaf768667ba639a3",
+    "non_promette": "La misura archiviata non dimostra la profondita' del grafo aggiornato.",
+    "quando": "prima della qualificazione del candidato finale",
+    "comando": "bash scripts/fuzz-profondita.sh wkt_parse"
+  }
 }
