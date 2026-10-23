@@ -447,6 +447,19 @@ C/C++ compaiono nei dati di copertura.
 Una campagna verde dice che il percorso Rust regge input ostili e che GDAL non è
 stato portato a un crash **osservabile**. Non dice che GDAL sia stato esplorato.
 
+Lo stesso confine vale per `gpkg_reader` e il `SQLite` incluso in
+`libsqlite3-sys`: il C è compilato dal crate `cc` senza i flag del sanitizer,
+quindi la tabella sopra si legge con `SQLite` al posto di GDAL. Il 2026-10-23
+lo smoke del livello 2 sulla candidate 5.0.1 ha visto un SEGV dentro
+`sqlite3VdbeExec` e nessun referto d'accesso: un errore di memoria interno al
+motore resta invisibile fino al crash, e l'input che lo provoca può non essere
+quello che libFuzzer conserva (non si è riprodotto né da solo né col seme). Il
+lettore apre perciò ogni `GeoPackage` con le difese che `SQLite` raccomanda per
+i database ostili (`apri_in_lettura` in `driver-gpkg`), che sono mitigazioni e
+non una prova di sicurezza della memoria del motore. Condizione di rientro:
+strumentare anche il C incluso (ASan e copertura) e far girare `gpkg_reader`
+con il feedback dentro `SQLite`.
+
 `shp_reader` è arrivato dopo, e la ragione dice qualcosa sul metodo. Uno
 Shapefile non è un file: il driver riceve il `.shp` e risale ai fratelli
 cambiando estensione. Un target che consegni al fuzzer un solo blob non apre
