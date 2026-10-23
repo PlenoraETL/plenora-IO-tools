@@ -469,7 +469,7 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "attiva",
+      "stato": "ritirata",
       "nota": "Candidate **attiva**, congelata su `30dc486`: il merge della PR #70, che porta il bump a 5.0.1, le rimisure sul candidato e il ritiro dei cinque rinvii fuzz/ASan. Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli (9/9 geojson, 35/35 shp, 9/9 wkt, 12/12 filegdb) e confine ASan (170038 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32) misurate nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica, dentro la revisione congelata; il loro perimetro non comprende assurance, quindi valgono invariate.\n\n**I sette artefatti sono fissati dalla provenance della distribuzione candidate 39694894223**, canale candidate su questa revisione: i sei della 5.0.0 piu' l'archivio sorgente, che dal #65 la distribuzione produce e quindi entra nel perimetro congelato. Il gate finale dei referti (check-distribuzione-completa, 32 referti) e' verde.\n\n**Che cosa resta, intero.** Livello 2 sulla stessa revisione, draft release riscaricata e verificata, attestazioni del profilo pubblico, decisione di rilascio del titolare (release_authorized resta false finche' non e' registrata), tag v5.0.1 sulla candidate, pubblicazione dalla draft immutata e verifica post-pubblicazione.",
       "revisione_candidate": "30dc4863e207001e6defbdfd495daebbf78424f8",
       "artefatti": [
@@ -516,7 +516,8 @@
           "revisione": "30dc4863e207001e6defbdfd495daebbf78424f8"
         }
       ],
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": false,
+      "motivo_del_ritiro": "Il livello 2 su 30dc486 ha chiuso 108/111: lo smoke di gpkg_reader ha prodotto un SEGV di AddressSanitizer dentro il SQLite incluso, non riproducibile, e la correzione del difetto di classe (apertura dei GeoPackage ricevuti come file non fidati, #72) cambia codice di prodotto dopo il congelamento. Codice fuori dall'allowlist: la candidate si ritira e si ricongela sulla revisione che porta la correzione, con rimisure, distribuzione e livello 2 nuovi."
     }
   },
   "docset": {
