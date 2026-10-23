@@ -42,14 +42,14 @@
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "e0270b5aa5ef0c0908ccf1e7b119412679c92d9b",
-      "esito": "87.88%",
-      "righe_cambiate_eseguibili": 2128,
-      "coperte": 1870,
-      "scoperte": 258,
-      "cambiate_non_eseguibili": 11672,
-      "ragione": "misurata fra `e0270b5`, l'ultimo checkpoint superato e registrato, e `a70501e`, nel perimetro di libreria.",
-      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza; comprendono la prevalidazione Arrow, EWKB e il runtime. `cargo llvm-cov` non gira sui fuzzer: scoperta significa non esercitata dai test, non mai eseguita."
+      "baseline": "a70501edee79e57a7db2af8e361f34b8f55a1674",
+      "esito": "88.59%",
+      "righe_cambiate_eseguibili": 149,
+      "coperte": 132,
+      "scoperte": 17,
+      "cambiate_non_eseguibili": 471,
+      "ragione": "misurata fra `a70501e`, l'ultimo checkpoint superato e registrato, e `732fba3`, nel perimetro di libreria.",
+      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza. `cargo llvm-cov` non gira sui fuzzer: scoperta si legge come non provata dai test, non come non raggiunta dal fuzzing."
     }
   },
   "ultima_campagna_fuzz": {

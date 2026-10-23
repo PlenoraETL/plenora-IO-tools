@@ -54,8 +54,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | righe strumentate LCOV | 31 067 |
 | copertura cargo | 85,12% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
-| esito differenziale | 87.88% |
+| baseline differenziale | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
+| esito differenziale | 88.59% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
