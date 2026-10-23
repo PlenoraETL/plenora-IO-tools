@@ -1569,8 +1569,8 @@ fn una_lettura_non_modifica_il_file_ricevuto_nemmeno_con_un_journal_caldo() {
     scrivi_punti(&origine, 2_000);
 
     // Una transazione interrotta: con la cache di una pagina il motore
-    // riversa le pagine nel file dopo averle salvate nel journal, e la
-    // copia fatta a transazione aperta e' un database con journal caldo.
+    // riversa le pagine nel file dopo averle salvate nel journal, e le
+    // copie fatte a transazione aperta sono database con journal caldo.
     let conn = Connection::open(&origine).unwrap();
     conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA cache_size = 1; BEGIN;")
         .unwrap();
@@ -1578,15 +1578,56 @@ fn una_lettura_non_modifica_il_file_ricevuto_nemmeno_con_un_journal_caldo() {
         .unwrap();
     let copia = dir.path().join("copia.gpkg");
     let journal = dir.path().join("copia.gpkg-journal");
-    std::fs::copy(&origine, &copia).unwrap();
-    std::fs::copy(dir.path().join("origine.gpkg-journal"), &journal).unwrap();
+    let controllo = dir.path().join("controllo.gpkg");
+    let journal_controllo = dir.path().join("controllo.gpkg-journal");
+    for (file, accanto) in [(&copia, &journal), (&controllo, &journal_controllo)] {
+        std::fs::copy(&origine, file).unwrap();
+        std::fs::copy(dir.path().join("origine.gpkg-journal"), accanto).unwrap();
+    }
     conn.execute_batch("ROLLBACK").unwrap();
     drop(conn);
-    // Precondizione: il journal copiato non e' vuoto, cioe' e' caldo.
-    assert!(std::fs::metadata(&journal).unwrap().len() > 0);
+
+    // Precondizione, provata e non presunta: il file copiato e' a meta'
+    // della transazione (letto cosi' com'e', porta valori gia' modificati)
+    // e il journal e' caldo (una connessione scrivibile lo riapplica,
+    // riporta i valori originali e lo chiude). Fatto sulla copia di
+    // controllo, per non toccare quella sotto prova.
+    let massimo_grezzo = |path: &std::path::Path| -> i64 {
+        let uri = format!("file:{}?immutable=1", path.display()).replace('\\', "/");
+        let grezza = Connection::open_with_flags(
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        grezza
+            .query_row("SELECT max(id) FROM features", [], |row| row.get(0))
+            .unwrap()
+    };
+    assert!(
+        massimo_grezzo(&copia) >= 1_000_000,
+        "il file non e' a meta' transazione"
+    );
+    let riparata = Connection::open(&controllo).unwrap();
+    let massimo: i64 = riparata
+        .query_row("SELECT max(id) FROM features", [], |row| row.get(0))
+        .unwrap();
+    drop(riparata);
+    assert!(massimo < 1_000_000, "il journal non e' stato riapplicato");
+    assert!(!journal_controllo.exists(), "il journal non era caldo");
 
     let file_prima = std::fs::read(&copia).unwrap();
     let journal_prima = std::fs::read(&journal).unwrap();
+    // Il rifiuto e' quello del rollback impossibile in sola lettura.
+    let errore = apri_in_lettura(&copia)
+        .unwrap()
+        .query_row("SELECT count(*) FROM features", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_err();
+    assert_eq!(
+        errore.sqlite_error().map(|e| e.extended_code),
+        Some(rusqlite::ffi::SQLITE_READONLY_ROLLBACK)
+    );
     let esito = GpkgDriver.open(Source::Path(copia.clone()), opzioni_lettura());
     assert!(
         esito.is_err(),

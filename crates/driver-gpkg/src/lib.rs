@@ -73,16 +73,17 @@ fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
 
 /// Apre in lettura un `GeoPackage` ricevuto, cioe' un file non fidato.
 ///
-/// Un `GeoPackage` e' un database `SQLite` costruito da altri: `Connection::open`
-/// lo apriva in lettura-scrittura con creazione e senza difese, quindi una
-/// pagina b-tree manipolata poteva far leggere fuori dai limiti durante la
-/// decodifica dei record, e un journal caldo accanto al file veniva riapplicato
-/// modificando l'ingresso dell'utente durante una lettura. Qui valgono le
-/// misure che `SQLite` stesso prescrive per i database ostili: sola lettura,
-/// configurazione difensiva, schema non fidato (nessuna funzione con effetti
-/// da viste o trigger del file), verifica delle celle a ogni pagina letta e
-/// niente mmap, che mapperebbe il file senza quei controlli. Un file che le
-/// difese non ammettono e' un errore esplicito, mai una lettura parziale.
+/// Un `GeoPackage` e' un database `SQLite` costruito da altri: aprirlo in
+/// lettura-scrittura senza difese lo trattava come fidato, e un journal caldo
+/// accanto al file veniva riapplicato modificando l'ingresso dell'utente
+/// durante una lettura. Qui valgono le misure che `SQLite` raccomanda per i
+/// database ostili: sola lettura, configurazione difensiva, schema non fidato
+/// (le viste e i trigger del file non chiamano funzioni non innocue), verifica
+/// della dimensione delle celle alle pagine lette e mmap spento. Sono
+/// mitigazioni, non una prova di sicurezza della memoria del motore: il C di
+/// `SQLite` non e' strumentato dal fuzzing. Un file che non si apre con queste
+/// difese e' un errore esplicito all'apertura; un errore emerso durante la
+/// lettura interrompe il layer dopo i batch gia' consegnati.
 fn apri_in_lettura(path: &std::path::Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(
         path,
