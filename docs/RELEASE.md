@@ -62,7 +62,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `732fba3` |
 | candidate, versione del manifesto | `5.0.1` |
-| candidate, stato | attiva |
+| candidate, stato | pubblicata |
 | candidate, revisione congelata | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
 | candidate, versione del workspace | `5.0.1` |
 | candidate, artefatti congelati | 7 |
@@ -71,7 +71,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, revisione del tag | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
+| candidate, release_action consentita | no |
 | release pubblicate | 6 |
 | release_authorized | `true` |
 
