@@ -517,7 +517,8 @@
         }
       ],
       "assurance_entro_l_allowlist": true,
-      "tag_revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+      "tag_revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+      "commit_di_assurance": "0fd44a85bb60c5dd810fea4f117d3171aad72108"
     }
   },
   "docset": {
