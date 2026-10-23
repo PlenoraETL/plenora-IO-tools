@@ -62,7 +62,7 @@
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "a70501e"
+      "qualificato_su": "732fba3"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -465,8 +465,8 @@
       "versione_manifesto": "5.0.1",
       "versione_workspace": "5.0.1",
       "tag_previsto": "v5.0.1",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": true,
       "release_blocking": false,
       "stato": "attiva",
@@ -516,7 +516,8 @@
           "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
         }
       ],
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": true,
+      "tag_revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
     }
   },
   "docset": {
