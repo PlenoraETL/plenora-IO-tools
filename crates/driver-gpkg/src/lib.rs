@@ -24,8 +24,9 @@ use arrow_array::{
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use std::collections::BTreeSet;
 
+use rusqlite::config::DbConfig;
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, Statement};
+use rusqlite::{Connection, OpenFlags, Statement};
 
 use driver_common::{geometry_field, geometry_index};
 use plenora_io_core::descriptor::{
@@ -68,6 +69,33 @@ fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
         "errore sqlite:",
         classe_sqlite(&e),
     ))
+}
+
+/// Apre in lettura un `GeoPackage` ricevuto, cioe' un file non fidato.
+///
+/// Un `GeoPackage` e' un database `SQLite` costruito da altri: `Connection::open`
+/// lo apriva in lettura-scrittura con creazione e senza difese, quindi una
+/// pagina b-tree manipolata poteva far leggere fuori dai limiti durante la
+/// decodifica dei record, e un journal caldo accanto al file veniva riapplicato
+/// modificando l'ingresso dell'utente durante una lettura. Qui valgono le
+/// misure che `SQLite` stesso prescrive per i database ostili: sola lettura,
+/// configurazione difensiva, schema non fidato (nessuna funzione con effetti
+/// da viste o trigger del file), verifica delle celle a ogni pagina letta e
+/// niente mmap, che mapperebbe il file senza quei controlli. Un file che le
+/// difese non ammettono e' un errore esplicito, mai una lettura parziale.
+fn apri_in_lettura(path: &std::path::Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(sql_err)?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
+        .map_err(sql_err)?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)
+        .map_err(sql_err)?;
+    conn.execute_batch("PRAGMA cell_size_check = ON; PRAGMA mmap_size = 0;")
+        .map_err(sql_err)?;
+    Ok(conn)
 }
 
 /// Classe statica di un errore `rusqlite`, per i messaggi pubblici.
@@ -240,7 +268,7 @@ impl FormatDriver for GpkgDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
-        let conn = Connection::open(&path).map_err(sql_err)?;
+        let conn = apri_in_lettura(&path)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
             return Err(err(&PublicMessage::Curated(
@@ -505,7 +533,7 @@ impl OpenDatasetHandle for GpkgDataset {
                 ))
             })?;
         let m = &self.metas[idx];
-        let conn = Connection::open(&self.path).map_err(sql_err)?;
+        let conn = apri_in_lettura(&self.path)?;
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let (selected, schema, layer) = project_gpkg_layer(m, &self.layers[idx], request)?;
         let attr_cols: Vec<String> = selected

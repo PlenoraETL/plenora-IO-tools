@@ -1478,3 +1478,140 @@ fn round_trip_non_wgs84_crs() {
     let crs = ds.layers()[0].contract.geometry.as_ref().unwrap().crs.id();
     assert_eq!(crs, Some("EPSG:3857"));
 }
+
+/// Un `GeoPackage` minimo con `righe` punti, scritto dal driver stesso.
+fn scrivi_punti(path: &std::path::Path, righe: i64) {
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let geometry = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let geometrie: Vec<Option<&[u8]>> = (0..righe).map(|_| Some(geometry.as_slice())).collect();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(geometrie)),
+            Arc::new(Int64Array::from((0..righe).collect::<Vec<_>>())),
+        ],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "features".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+}
+
+/// Le righe lette dal primo layer, attraverso il driver.
+fn righe_lette(path: &std::path::Path) -> usize {
+    let dataset = GpkgDriver
+        .open(Source::Path(path.to_path_buf()), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let mut totale = 0;
+    while let Some(batch) = reader.next_batch().unwrap() {
+        totale += batch.num_rows();
+    }
+    totale
+}
+
+/// L'apertura in lettura porta le difese che `SQLite` prescrive per i
+/// database ostili, e le porta davvero: si leggono dal motore, non si
+/// deducono dal codice che le imposta.
+#[test]
+fn l_apertura_in_lettura_porta_le_difese_per_i_file_non_fidati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("difese.gpkg");
+    scrivi_punti(&path, 3);
+
+    let conn = apri_in_lettura(&path).unwrap();
+    let intero = |pragma: &str| -> i64 {
+        conn.query_row(&format!("PRAGMA {pragma}"), [], |row| row.get(0))
+            .unwrap()
+    };
+    assert_eq!(intero("cell_size_check"), 1);
+    assert_eq!(intero("trusted_schema"), 0);
+    assert_eq!(intero("mmap_size"), 0);
+    assert!(conn.db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE).unwrap());
+    assert!(conn.is_readonly(rusqlite::MAIN_DB).unwrap());
+    // Sola lettura: una scrittura e' un errore, non un effetto sul file.
+    assert!(conn.execute_batch("CREATE TABLE intrusa (a)").is_err());
+}
+
+/// Una lettura non modifica mai il file ricevuto. Con un journal caldo
+/// accanto, l'apertura in lettura-scrittura lo riapplicava al file
+/// dell'utente; ora il rollback non e' possibile e la lettura si rifiuta
+/// con un errore esplicito, lasciando file e journal come erano.
+#[test]
+fn una_lettura_non_modifica_il_file_ricevuto_nemmeno_con_un_journal_caldo() {
+    let dir = tempfile::tempdir().unwrap();
+    let origine = dir.path().join("origine.gpkg");
+    scrivi_punti(&origine, 2_000);
+
+    // Una transazione interrotta: con la cache di una pagina il motore
+    // riversa le pagine nel file dopo averle salvate nel journal, e la
+    // copia fatta a transazione aperta e' un database con journal caldo.
+    let conn = Connection::open(&origine).unwrap();
+    conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA cache_size = 1; BEGIN;")
+        .unwrap();
+    conn.execute("UPDATE features SET id = id + 1000000", [])
+        .unwrap();
+    let copia = dir.path().join("copia.gpkg");
+    let journal = dir.path().join("copia.gpkg-journal");
+    std::fs::copy(&origine, &copia).unwrap();
+    std::fs::copy(dir.path().join("origine.gpkg-journal"), &journal).unwrap();
+    conn.execute_batch("ROLLBACK").unwrap();
+    drop(conn);
+    // Precondizione: il journal copiato non e' vuoto, cioe' e' caldo.
+    assert!(std::fs::metadata(&journal).unwrap().len() > 0);
+
+    let file_prima = std::fs::read(&copia).unwrap();
+    let journal_prima = std::fs::read(&journal).unwrap();
+    let esito = GpkgDriver.open(Source::Path(copia.clone()), opzioni_lettura());
+    assert!(
+        esito.is_err(),
+        "un database da riparare non si legge in sola lettura"
+    );
+    assert_eq!(std::fs::read(&copia).unwrap(), file_prima);
+    assert_eq!(std::fs::read(&journal).unwrap(), journal_prima);
+}
+
+/// La sola lettura non esclude i `GeoPackage` in modalita' WAL chiusi
+/// regolarmente: l'intestazione dice WAL, i file accessori non ci sono, e
+/// il file si legge per intero.
+#[test]
+fn un_geopackage_in_modalita_wal_si_legge_in_sola_lettura() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wal.gpkg");
+    scrivi_punti(&path, 5);
+    let conn = Connection::open(&path).unwrap();
+    let modo: String = conn
+        .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(modo, "wal");
+    conn.execute("UPDATE features SET id = id + 1", []).unwrap();
+    drop(conn);
+    assert!(!dir.path().join("wal.gpkg-wal").exists());
+
+    assert_eq!(righe_lette(&path), 5);
+}
