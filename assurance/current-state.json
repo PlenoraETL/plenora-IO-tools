@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "a70501e",
+      "sha": "732fba3",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "a70501e",
-    "evidenza": "assurance/evidence/checkpoint-a70501e.json",
+    "sha": "732fba3",
+    "evidenza": "assurance/evidence/checkpoint-732fba3.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -33,9 +33,9 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.44,
-      "lcov_righe_coperte": 27051,
-      "lcov_righe_strumentate": 30936,
+      "lcov_percentuale": 87.43,
+      "lcov_righe_coperte": 27163,
+      "lcov_righe_strumentate": 31067,
       "cargo_lines_percentuale": 85.12,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",

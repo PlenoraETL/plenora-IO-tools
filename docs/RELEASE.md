@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `a70501e` |
-| revisione misurata | `a70501e` |
+| ultima qualificata | `732fba3` |
+| revisione misurata | `732fba3` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,9 +49,9 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,44% |
-| righe coperte LCOV | 27 051 |
-| righe strumentate LCOV | 30 936 |
+| copertura LCOV | 87,43% |
+| righe coperte LCOV | 27 163 |
+| righe strumentate LCOV | 31 067 |
 | copertura cargo | 85,12% |
 | soglia di copertura | 80,00% |
 | baseline differenziale | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
