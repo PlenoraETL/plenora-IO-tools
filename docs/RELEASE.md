@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `a70501e` |
-| revisione misurata | `a70501e` |
+| ultima qualificata | `732fba3` |
+| revisione misurata | `732fba3` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,31 +49,31 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,44% |
-| righe coperte LCOV | 27 051 |
-| righe strumentate LCOV | 30 936 |
+| copertura LCOV | 87,43% |
+| righe coperte LCOV | 27 163 |
+| righe strumentate LCOV | 31 067 |
 | copertura cargo | 85,12% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `e0270b5aa5ef0c0908ccf1e7b119412679c92d9b` |
-| esito differenziale | 87.88% |
+| baseline differenziale | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
+| esito differenziale | 88.59% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `a70501e` |
+| S9, qualificato su | `732fba3` |
 | candidate, versione del manifesto | `5.0.1` |
-| candidate, stato | attiva |
+| candidate, stato | pubblicata |
 | candidate, revisione congelata | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
 | candidate, versione del workspace | `5.0.1` |
 | candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v5.0.1` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 6 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
