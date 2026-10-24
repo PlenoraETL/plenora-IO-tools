@@ -2215,6 +2215,147 @@ fn le_colonne_geometriche_secondarie_sono_nominate_dal_contratto() {
     );
 }
 
+// --- piu' colonne geometriche: GEO-012 ----------------------------------
+
+/// Il documento con due colonne geometriche, `geometry` primaria e `altra`.
+const GEO_DUE_GEOMETRIE: &str = concat!(
+    r#"{"version":"1.1.0","primary_column":"geometry","columns":{"#,
+    r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
+    r#""altra":{"encoding":"WKB","geometry_types":[]}}}"#,
+);
+
+/// La richiesta che proietta i campi dati, in modalita' `Required`.
+fn richiesta_proiettata(campi: &[u32]) -> ReadRequest {
+    ReadRequest {
+        projected_fields: Some(campi.iter().copied().map(FieldId).collect()),
+        projection_mode: ProjectionMode::Required,
+        ..richiesta_semplice()
+    }
+}
+
+/// L'esito di `open_layer_reader`, ridotto al codice d'errore e al messaggio.
+fn esito_lettura(
+    dataset: &dyn OpenDatasetHandle,
+    richiesta: &ReadRequest,
+) -> Option<(plenora_io_model::IoErrorCode, String)> {
+    match dataset.open_layer_reader(richiesta) {
+        Ok(_) => None,
+        Err(errore) => Some((errore.code, errore.message)),
+    }
+}
+
+#[test]
+fn due_geometrie_senza_selezione_sono_rifiutate_come_non_supportate() {
+    // Il difetto: la primaria diventava la geometria e `altra` usciva come un
+    // binario qualunque, nominata solo in un metadato nativo. GEO-012 vieta
+    // proprio questo -- degradare un campo geometrico a binario o sceglierne
+    // uno -- e chiede il rifiuto `unsupported` prima di ogni effetto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("la scoperta resta possibile: e' li' che il limite si vede");
+    let Some((codice, messaggio)) = esito_lettura(dataset.as_ref(), &richiesta_semplice()) else {
+        panic!("una lettura con due geometrie non deve degradarne una a binario");
+    };
+    assert_eq!(codice, plenora_io_model::IoErrorCode::Unsupported);
+    // Errori senza dati: il nome della colonna viene dal file.
+    assert!(!messaggio.contains("altra"), "{messaggio}");
+}
+
+#[test]
+fn una_projection_che_tiene_entrambe_le_geometrie_e_rifiutata() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[0, 1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_secondaria_e_rifiutata() {
+    // Senza la primaria `altra` sarebbe l'unica colonna, ma il contratto
+    // geometrico e' quello della primaria: uscirebbe binaria, cioe' degradata.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_primaria_resta_leggibile() {
+    // Leggere cio' che si e' chiesto non e' scegliere al posto di qualcuno:
+    // la geometria che esce e' una sola, e porta il proprio contratto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let mut lettore = dataset
+        .open_layer_reader(&richiesta_proiettata(&[0, 2]))
+        .expect("la sola primaria si legge");
+    let geometria = lettore
+        .contract()
+        .contract
+        .geometry
+        .clone()
+        .expect("la primaria porta il contratto geometrico");
+    assert_eq!(geometria.name, "geometry");
+    let batch = lettore.next_batch().expect("batch").expect("una riga");
+    assert_eq!(batch.num_columns(), 2);
+    assert!(batch.schema().index_of("altra").is_err());
+}
+
+#[test]
+fn un_campo_geoarrow_non_dichiarato_da_geo_e_rifiutato() {
+    // Lo schema Arrow incorporato puo' marcare `geoarrow.wkb` una colonna che
+    // il documento `geo` non nomina. Passava con l'estensione e senza alcun
+    // contratto: una seconda geometria che nessuno validava.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("estensione_su_altra.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let estensione = HashMap::from([(
+        ARROW_EXTENSION_NAME_KEY.to_owned(),
+        GEOARROW_WKB_EXTENSION.to_owned(),
+    )]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geometry", DataType::Binary, true),
+        Field::new("altra", DataType::Binary, true).with_metadata(estensione),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
+    writer.close().unwrap();
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_semplice());
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
 // --- il metadato confrontato col file ---------------------------------
 
 /// Il documento con una colonna secondaria dichiarata sul nome dato.

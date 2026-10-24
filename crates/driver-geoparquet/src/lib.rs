@@ -1155,6 +1155,11 @@ impl FormatDriver for GeoParquetDriver {
         // autoritativi; anche i batch runtime devono essere retaggati con
         // quello stesso schema, non con la versione intermedia.
         let out_schema = contract.schema.clone();
+        let altre_geometrie = indici_delle_altre_geometrie(
+            &out_schema,
+            contract.geometry.as_ref().map(|g| g.name.as_str()),
+            geo.as_ref(),
+        );
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -1171,6 +1176,7 @@ impl FormatDriver for GeoParquetDriver {
                 out_schema,
                 bbox_covering,
                 visible_to_physical,
+                altre_geometrie,
                 layers: vec![layer],
                 tetto_pagina: tetto_pagina(opts.budget().context()),
             }),
@@ -1408,6 +1414,11 @@ struct GeoParquetDataset {
     /// sbagliate o errore di schema. Ora la mappa e' calcolata una volta
     /// all'apertura e ogni projection la usa per tradurre.
     visible_to_physical: Vec<usize>,
+    /// Gli indici logici, nello schema esposto, delle colonne geometriche che
+    /// non sono la primaria: le secondarie del documento `geo` e i campi che
+    /// lo schema Arrow incorporato marca come geometria. Vedi
+    /// [`rifiuta_le_altre_geometrie`].
+    altre_geometrie: Vec<usize>,
     layers: Vec<LayerContract>,
     /// Il tetto per una singola pagina non compressa, derivato all'apertura.
     ///
@@ -1499,6 +1510,8 @@ impl OpenDatasetHandle for GeoParquetDataset {
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        // Prima di riaprire il file: il rifiuto viene prima di ogni effetto.
+        rifiuta_le_altre_geometrie(&self.altre_geometrie, request.projected_fields.as_deref())?;
         let (sorgente, builder) = self.apri_verificato()?;
 
         // Projection pushdown (Fase 2C): se richiesto, leggi SOLO quelle colonne.
@@ -2166,7 +2179,9 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
     }
     // Le altre colonne geometriche del file. Un GeoParquet puo' averne piu' di
     // una, e finora il contratto non nominava quelle che non erano la primaria:
-    // un consumatore non aveva modo di sapere che esistessero.
+    // un consumatore non aveva modo di sapere che esistessero. Nominarle e' cio'
+    // che rende il limite prevedibile dalla scoperta (GEO-012): una lettura che
+    // le tocca e' rifiutata, vedi `rifiuta_le_altre_geometrie`.
     if !geo.secondarie.is_empty() {
         let altre: Vec<&str> = geo.secondarie.keys().map(String::as_str).collect();
         contract
@@ -2232,6 +2247,73 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
         .id()
         .and_then(|id| id.strip_prefix("EPSG:"))
         .and_then(|code| code.parse().ok());
+}
+
+/// Gli indici, nello schema esposto, delle colonne geometriche diverse dalla
+/// primaria.
+///
+/// Due fonti, e ne basta una: il documento `geo` che dichiara una colonna fra
+/// le `columns`, oppure lo schema Arrow incorporato che marca il campo come
+/// geometria (estensione `geoarrow.wkb` o chiavi canoniche). Il secondo caso
+/// non e' teorico: un file scritto da chi conosce `GeoArrow` ma non nomina la
+/// colonna nel documento la porterebbe fuori con l'estensione e senza alcun
+/// contratto.
+fn indici_delle_altre_geometrie(
+    schema: &Schema,
+    primaria: Option<&str>,
+    geo: Option<&MetadatiGeo>,
+) -> Vec<usize> {
+    schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, campo)| Some(campo.name().as_str()) != primaria)
+        .filter(|(_, campo)| {
+            geo.is_some_and(|g| g.secondarie.contains_key(campo.name()))
+                || plenora_io_model::geometry::is_geometry_field(campo)
+        })
+        .map(|(indice, _)| indice)
+        .collect()
+}
+
+/// Rifiuta una lettura che porterebbe fuori una colonna geometrica che non e'
+/// la primaria.
+///
+/// Il modello di questo componente porta **un** contratto geometrico per
+/// layer, quello della primaria. Una seconda colonna geometrica uscirebbe come
+/// binario qualunque, o con un'estensione senza contratto: e' il degrado che
+/// GEO-012 vieta, insieme alla scelta di una colonna al posto di chi legge.
+/// Prima questo driver lo faceva, nominando le altre solo in
+/// `native_metadata["geoparquet.altre_colonne"]`.
+///
+/// Una projection che seleziona la sola primaria -- o nessuna geometria -- e'
+/// un'altra cosa: lo schema che esce ha al piu' una geometria, ed e' quella
+/// che il chiamante ha chiesto. Si rifiuta solo cio' che la richiesta lascia
+/// passare senza averlo scelto da sola: nessuna projection, o una projection
+/// che comprende una delle altre colonne geometriche.
+///
+/// # Errors
+///
+/// `Unsupported` se la selezione comprende una colonna geometrica diversa
+/// dalla primaria. Il messaggio non nomina la colonna: il nome viene dal file.
+fn rifiuta_le_altre_geometrie(altre: &[usize], selezione: Option<&[FieldId]>) -> Result<()> {
+    // Senza projection esce tutto lo schema; con una projection, cio' che
+    // nomina.
+    let toccata = selezione.map_or(!altre.is_empty(), |campi| {
+        campi
+            .iter()
+            .any(|campo| altre.contains(&(campo.0 as usize)))
+    });
+    if toccata {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoParquet: la lettura comprende una colonna geometrica che non e' la primaria, \
+                 e il componente porta una sola geometria per layer (GEO-012); proiettare la \
+                 sola primaria, o nessuna geometria",
+            ),
+        ));
+    }
+    Ok(())
 }
 
 // --- bbox covering (spatial pruning, 2C) -----------------------------------

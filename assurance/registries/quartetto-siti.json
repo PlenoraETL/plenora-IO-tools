@@ -205,6 +205,9 @@
     ],
     "geometry_type_label": [
       "Unsupported/Validate/Unsupported/Never"
+    ],
+    "rifiuta_le_altre_geometrie": [
+      "Unsupported/Validate/Unsupported/Never"
     ]
   },
   "crates/driver-geoparquet/src/livelli.rs": {
@@ -602,6 +605,32 @@
     ],
     "validate_contract_version": [
       "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/vocabolario.rs": {
+    "crs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_schema": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "vocabolario": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-model/src/wkb_lossless.rs": {
