@@ -1410,6 +1410,9 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
 - **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
   con `crs` invece di essere scritto come 4326.
+- **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
+  la sua riga in `gpkg_geometry_columns` rende il file `data_mapping`
+  all'apertura; prima quel layer spariva dall'elenco.
 - **Membri di altre dimensioni (GEO-011).** Un aggregato WKB con un membro di
   dimensioni diverse dal contenitore si rifiuta nel codec, con `data_mapping`,
   in decodifica, ispezione e codifica.

@@ -1355,6 +1355,34 @@ fn due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiu
     }
 }
 
+/// Una feature table di `gpkg_contents` senza la sua riga in
+/// `gpkg_geometry_columns` (requisito 22) spariva dall'elenco dei layer: il
+/// join la lasciava cadere e il file sembrava avere un layer in meno.
+#[test]
+fn una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("feature-senza-geometria.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE seconda (fid INTEGER PRIMARY KEY, geom BLOB);
+         INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', data_type, 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("un layer dichiarato e non elencabile non deve sparire"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+            assert!(!errore.message.contains("seconda"), "{}", errore.message);
+        }
+    }
+}
+
 /// Un nome di colonna geometrica dichiarato con maiuscole diverse da quelle
 /// della tabella. `SQLite` risolve i nomi di colonna senza distinzione di
 /// maiuscole ASCII: `GEOM` e' la colonna `geom`. Il confronto esatto la

@@ -1312,6 +1312,26 @@ fn sqlite_table_exists(conn: &Connection, table: &str) -> Result<bool> {
 }
 
 fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
+    // Una riga `features` di `gpkg_contents` senza la sua riga in
+    // `gpkg_geometry_columns` (GPKG 1.3, requisito 22) e' un layer che il
+    // join sotto lascerebbe cadere: il file sembrerebbe avere un layer in
+    // meno. Si rifiuta il file invece di elencarlo incompleto.
+    let senza_geometria: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM gpkg_contents c
+             WHERE c.data_type = 'features' AND NOT EXISTS (
+                 SELECT 1 FROM gpkg_geometry_columns g
+                 WHERE g.table_name = c.table_name COLLATE NOCASE)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(sql_err)?;
+    if senza_geometria > 0 {
+        return Err(err(&PublicMessage::Curated(
+            "GeoPackage: una feature table di gpkg_contents non ha la sua riga in \
+             gpkg_geometry_columns",
+        )));
+    }
     let mut out = Vec::new();
     let mut stmt = conn
         .prepare(
