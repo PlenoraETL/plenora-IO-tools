@@ -190,6 +190,13 @@
       "observed_behavior": "Uno schema Arrow senza `plenora.contract.version` e senza chiavi `plenora.` (di schema o di campo) e' letto come sorgente esterna e accettato; il contratto lo rifiuta con `schema`. Con una qualunque chiave `plenora.` vale REJ-001 per intero. Hazard: un produttore Plenora che omettesse tutte le chiavi sarebbe trattato come esterno; le sue geometrie senza tipi dichiarati sono rifiutate in scrittura (`unsupported`), non perse.",
       "tracking": "Rientro: regola di profilo IO-ARROW-001 proposta in plenora-contracts (accettazione di profilo ammessa da GEO-000); la deviazione si ritira all'adozione del pin che la contiene.",
       "detectable_before_invocation": true
+    },
+    {
+      "rule": "ARROW-VOCABULARY-1.0 / GEO-005 (definizione CRS oltre 1 MiB)",
+      "surface": "cli",
+      "observed_behavior": "Una `plenora.geometry.crs_definition` (o una definizione da formato nativo) oltre 1 MiB si rifiuta con `limit_exceeded`, anche quando e' ben formata: il contratto non fissa un tetto. Il tetto limita memoria e tempo del lettore stretto (un PROJJSON di 8 MiB arrivava a ~700 MB). Hazard: un ingresso conforme con una definizione enorme non si legge; nessun valore sbagliato.",
+      "tracking": "Rientro: un tetto di contratto per la definizione CRS in plenora-contracts, o un lettore a memoria costante; docs/PRODUCT.md riga «tutti: tetto della definizione».",
+      "detectable_before_invocation": true
     }
   ],
   "che_cosa_questo_documento_non_dice": "che i requisiti deviati siano soddisfatti. ADOPTION.md e' esplicito -- «a deviation does not redefine the common contract and does not count as conformance for that requirement» -- e le due liste vanno lette insieme: `contracts` dice quali contratti sono stati adottati e verificati, `deviations` sottrae da quella dichiarazione le regole che non valgono. Uno stato `conforming` accanto a un contratto che compare anche fra le deviazioni significa «adottato e verificato, tranne le regole elencate li'», non «tutto soddisfatto».",
