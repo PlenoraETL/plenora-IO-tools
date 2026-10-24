@@ -366,6 +366,10 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         )));
+        // Guardia del produttore: lo schema porta la versione, quindi vale la
+        // verifica di `open` (REJ-001/002), qui prima dello staging: un file che
+        // IO stesso rifiuterebbe in lettura non si produce in silenzio.
+        plenora_io_model::vocabolario::verifica_schema(schema.as_ref())?;
         // La serializzazione richiesta. Il valore e' gia' stato validato da
         // `validate_write` contro lo schema delle opzioni -- `Enumerato(&["file",
         // "stream"])` -- quindi qui l'unico caso da decidere e' l'assenza, che
