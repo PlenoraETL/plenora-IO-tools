@@ -49,35 +49,28 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
                 crs_id,
                 crs_definition,
             };
+            let dove = Posizione {
+                layer_index,
+                field_index: indice_della_geometria(layer, &geometry.name),
+                type_class: None,
+            };
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
                 stato_dell_identificatore(&capabilities.crs_representations, &fonti, grammatica),
             );
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::Srid,
                 geometry.srid.map(|srid| srid.to_string().len()),
                 stato_per_il_piano(capabilities.crs_representations.srid, &fonti),
             );
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
                 // La grammatica decide se `Preserved` regge: un writer che
@@ -89,6 +82,7 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
                     &fonti,
                 ),
             );
+            record_coordinate_epoch_loss(&mut loss, descriptor.id(), geometry, dove);
         }
 
         let geometry_name = layer
@@ -260,6 +254,43 @@ const SRID_NOT_PRESERVED_ABSENT: &str = "srid_not_preserved_absent";
 const SRID_NOT_PRESERVED_DERIVED: &str = "srid_not_preserved_derived";
 const CRS_DEFINITION_NOT_PRESERVED_ABSENT: &str = "crs_definition_not_preserved_absent";
 const CRS_DEFINITION_NOT_PRESERVED_DERIVED: &str = "crs_definition_not_preserved_derived";
+
+/// L'epoca delle coordinate di un CRS dinamico (`GeoParquet` 1.1, `epoch`), come
+/// il contratto la porta: un metadato nativo, perche' il vocabolario Arrow non
+/// ha una chiave per lei (rilettura 13).
+const EPOCA_DELLE_COORDINATE: &str = "geoparquet.epoch";
+
+/// I formati che scrivono l'epoca: `GeoParquet` nel campo `epoch` della
+/// colonna, Arrow IPC nella chiave nativa del campo. Gli altri non hanno dove
+/// metterla, e senza l'epoca le coordinate di un CRS dinamico si leggono a
+/// un'altra data: la perdita si dichiara (`crs_coordinate_epoch_not_preserved`).
+/// Fino alla rilettura 13 spariva in una conversione `lossless`.
+const PORTANO_L_EPOCA: [&str; 2] = ["geoparquet", "ipc"];
+
+const CRS_COORDINATE_EPOCH_NOT_PRESERVED: &str = "crs_coordinate_epoch_not_preserved";
+
+pub fn record_coordinate_epoch_loss(
+    loss: &mut LossReport,
+    formato: &str,
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+    dove: Posizione,
+) {
+    let Some(epoca) = geometry.native_metadata.get(EPOCA_DELLE_COORDINATE) else {
+        return;
+    };
+    if PORTANO_L_EPOCA.contains(&formato) {
+        return;
+    }
+    loss.record(CRS_COORDINATE_EPOCH_NOT_PRESERVED, 1);
+    loss.add_example(LossExample {
+        category: CRS_COORDINATE_EPOCH_NOT_PRESERVED.to_owned(),
+        posizione: dove,
+        context: format!(
+            "representation=coordinate_epoch value_bytes={}",
+            epoca.len()
+        ),
+    });
+}
 
 /// L'indice della colonna geometrica in `schema.fields()`.
 ///

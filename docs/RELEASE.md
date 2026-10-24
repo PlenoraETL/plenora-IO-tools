@@ -1601,6 +1601,30 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   - verso GeoPackage un identificatore con l'autorità minuscola (`epsg:4326`)
     dichiara `crs_id_not_preserved_derived`: si rilegge `EPSG:4326` (prima
     dichiarato conservato).
+- **L'epoca delle coordinate e i `geo` discordi (rilettura 13)**
+  ([PRODUCT](PRODUCT.md#lepoca-delle-coordinate-e-i-geo-discordi-rilettura-13)).
+  Cambiano, rispetto a b988e7f:
+  - il writer GeoParquet scrive l'`epoch` della colonna quando il contratto la
+    porta (da un GeoParquet, o dalla chiave nativa
+    `plenora.geometry.native.geoparquet.epoch` di un Arrow IPC), byte per byte;
+    un valore che non è un numero JSON è `schema`. Prima l'epoca spariva in una
+    conversione `lossless`;
+  - **categoria di perdita nuova** sul filo, `crs_coordinate_epoch_not_preserved`
+    (ragione `native_metadata_loss`): la dichiarano tutti i bersagli che non
+    portano l'epoca (tutti tranne GeoParquet e Arrow IPC), e il livello diventa
+    `approximating`;
+  - il valore delle chiavi native `geoparquet.epoch` e `geoparquet.column` è
+    il testo del file, non più riscritto da `serde_json::Value` (`2.0215E3`
+    resta `2.0215E3`, le chiavi della colonna restano nel loro ordine);
+  - il writer GeoParquet non copia nello schema incorporato le chiavi native
+    `geoparquet.*` della sorgente, e il lettore non le prende dallo schema
+    incorporato: le dice solo il `geo` del file;
+  - **ingressi ristretti**: un GeoParquet il cui `geo` dello schema incorporato
+    differisce da quello del footer (come quelli scritti da IO fino a
+    777c5a1), che ha un `geo` solo nello schema incorporato, o che ripete la
+    chiave `geo` con valori diversi, si rifiuta (`crs` se discordano nel CRS
+    della colonna primaria, `schema` altrimenti). Prima si leggeva il footer in
+    silenzio, mentre pyarrow e geopandas leggono l'altro.
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è

@@ -590,7 +590,7 @@ fn epoch_assente_o_numerico_e_accettato() {
         .is_none());
     assert_eq!(
         accettato(&con_campo("epoch", json!(2021.5))).primaria.epoch,
-        Some(2021.5)
+        Some("2021.5".to_owned())
     );
 }
 

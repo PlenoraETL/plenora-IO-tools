@@ -32,7 +32,14 @@
 //! 9. un `GeoParquet` scritto porta in `ARROW:schema`, che e' cio' che pyarrow
 //!    rende e dove geopandas cerca, il `geo` del footer, identico; un Arrow IPC
 //!    scritto da un'altra sorgente non porta un `geo` di schema. Da IPC a IPC il
-//!    `geo` passa tale e quale (ARROW-010), limite dichiarato.
+//!    `geo` passa tale e quale (ARROW-010), limite dichiarato;
+//! 10. l'epoca delle coordinate (`epoch` di `GeoParquet` 1.1) si rilegge uguale,
+//!     byte per byte, o la perdita `crs_coordinate_epoch_not_preserved` e'
+//!     dichiarata; nessun file ne porta una che la sorgente non aveva.
+//!
+//! Una perdita `crs_id_not_preserved_*` dichiarata non spegne la regola 1: il
+//! file si rilegge senza identificatore, o con uno equivalente per GEO-005 o per
+//! l'elenco chiuso [`EQUIVALENTI`].
 //!
 //! La sorgente e' cio' che `io.inspect` ne legge, non cio' che la prova crede di
 //! averci scritto: cosi' la stessa regola vale ai passaggi successivi, dai file
@@ -61,6 +68,11 @@
 //! geopandas) e ha un terzo passaggio sulle catene di [`TERZO_PASSAGGIO`]. Su
 //! `777c5a1` fallisce in tutti e tre i passaggi, e su `c5abbdb` (lo schema
 //! incorporato senza `geo`) anche: un `GeoParquet` di IO, per pyarrow, non lo era.
+//!
+//! La rilettura 13 ha trovato l'epoca di un CRS dinamico persa in conversioni
+//! `lossless` (`GeoParquet` verso `GeoParquet`, IPC verso `GeoParquet`, verso
+//! `GeoPackage`): la regola 10 la segue dalle sorgenti `p_*_epoca` e
+//! `4326_pj_epoca`. Su `b988e7f` fallisce in tutti e tre i passaggi.
 //!
 //! `FileGDB` resta fuori: scrive solo con `gdal-backend`.
 
@@ -110,6 +122,12 @@ fn pj_numeri() -> String {
         )
 }
 
+/// ITRF2014, un sistema dinamico: le coordinate valgono alla loro epoca.
+const PJ_ITRF2014: &str = r#"{"$schema":"https://proj.org/schemas/v0.7/projjson.schema.json","type":"GeographicCRS","name":"ITRF2014","datum":{"type":"DynamicGeodeticReferenceFrame","name":"International Terrestrial Reference Frame 2014","frame_reference_epoch":2010,"ellipsoid":{"name":"GRS 1980","semi_major_axis":6378137,"inverse_flattening":298.257222101}},"coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"},{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"}]},"id":{"authority":"IGNF","code":"ITRF2014G"}}"#;
+
+/// La chiave nativa dell'epoca delle coordinate in un Arrow IPC.
+const CHIAVE_EPOCA: &str = "plenora.geometry.native.geoparquet.epoch";
+
 /// Un `EngineeringCRS` con `id` EPSG:4326: genere contraddetto.
 const PJ_ENG_4326: &str = r#"{"$schema":"https://proj.org/schemas/v0.7/projjson.schema.json","type":"EngineeringCRS","name":"x","datum":{"name":"d"},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"X","abbreviation":"X","direction":"east","unit":"metre"},{"name":"Y","abbreviation":"Y","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":4326}}"#;
 
@@ -135,6 +153,8 @@ struct Caso {
     srid: Option<&'static str>,
     /// Un `geo` nei metadati di schema.
     geo_di_schema: bool,
+    /// L'epoca delle coordinate, nella chiave nativa del campo.
+    epoca: Option<&'static str>,
 }
 
 impl Caso {
@@ -145,6 +165,11 @@ impl Caso {
 
     const fn con_geo_di_schema(mut self) -> Self {
         self.geo_di_schema = true;
+        self
+    }
+
+    const fn con_epoca(mut self, epoca: &'static str) -> Self {
+        self.epoca = Some(epoca);
         self
     }
 }
@@ -165,6 +190,7 @@ fn risolto(
         punto,
         srid: None,
         geo_di_schema: false,
+        epoca: None,
     }
 }
 
@@ -298,6 +324,7 @@ fn casi() -> Vec<Caso> {
             punto: GEO,
             srid: None,
             geo_di_schema: false,
+            epoca: None,
         },
         // Rilettura 12: identificatori minuscoli, definizioni con i bordi, un
         // ordine `other`, l'SRID, un `geo` di schema, una sorgente non risolta.
@@ -353,6 +380,16 @@ fn casi() -> Vec<Caso> {
             UTM,
         )
         .con_geo_di_schema(),
+        // Rilettura 13: l'epoca delle coordinate, con un decimale che `f64`
+        // non rappresenta.
+        risolto(
+            "4326_pj_epoca",
+            Some("EPSG:4326"),
+            Some((PJ_4326, "projjson")),
+            "lon_lat",
+            GEO,
+        )
+        .con_epoca("2021.50000000000000001"),
         Caso {
             nome: "non_risolto_wkt",
             risoluzione: "declared_unresolved",
@@ -362,6 +399,7 @@ fn casi() -> Vec<Caso> {
             punto: UTM,
             srid: None,
             geo_di_schema: false,
+            epoca: None,
         },
     ]
 }
@@ -408,6 +446,9 @@ fn sorgente_ipc(dir: &Path, caso: &Caso) -> PathBuf {
     }
     if let Some(srid) = caso.srid {
         geometria.insert("plenora.geometry.srid".to_owned(), srid.to_owned());
+    }
+    if let Some(epoca) = caso.epoca {
+        geometria.insert(CHIAVE_EPOCA.to_owned(), epoca.to_owned());
     }
     let mut metadati = HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]);
     if caso.geo_di_schema {
@@ -552,12 +593,25 @@ fn shp_nativo(dir: &Path, nome: &str, prj: &str, (x, y): (f64, f64)) -> PathBuf 
 /// Un `GeoParquet` come lo scrive pyarrow per geopandas: `geo` nel footer e
 /// nei metadati dello schema incorporato.
 fn geoparquet_nativo(dir: &Path, nome: &str, crs: Option<&str>, punto: (f64, f64)) -> PathBuf {
+    geoparquet_nativo_con(dir, nome, crs, punto, None)
+}
+
+/// Come [`geoparquet_nativo`], con l'`epoch` della colonna (`GeoParquet` 1.1).
+fn geoparquet_nativo_con(
+    dir: &Path,
+    nome: &str,
+    crs: Option<&str>,
+    punto: (f64, f64),
+    epoca: Option<&str>,
+) -> PathBuf {
     use arrow_array::{ArrayRef, BinaryArray, RecordBatch, StringArray};
     use arrow_schema::{DataType, Field, Schema};
 
-    let campo_crs = crs.map_or_else(String::new, |crs| format!(r#", "crs": {crs}"#));
+    let campo_crs = crs.map_or_else(String::new, |crs| format!(r#", "crs": {crs}"#))
+        + &epoca.map_or_else(String::new, |epoca| format!(r#", "epoch": {epoca}"#));
+    let versione = if epoca.is_some() { "1.1.0" } else { "1.0.0" };
     let geo = format!(
-        r#"{{"primary_column": "geometry", "columns": {{"geometry": {{"encoding": "WKB", "geometry_types": ["Point"]{campo_crs}}}}}, "version": "1.0.0"}}"#
+        r#"{{"primary_column": "geometry", "columns": {{"geometry": {{"encoding": "WKB", "geometry_types": ["Point"]{campo_crs}}}}}, "version": "{versione}"}}"#
     );
     let schema = Arc::new(Schema::new_with_metadata(
         vec![
@@ -696,6 +750,28 @@ fn sorgenti_native(dir: &Path) -> Vec<(String, PathBuf, &'static str)> {
             geoparquet_nativo(dir, "p_nullo", Some("null"), GEO),
             "geoparquet",
         ),
+        // Rilettura 13: l'epoca di un CRS dinamico, e su CRS statici.
+        (
+            "p_itrf_epoca",
+            geoparquet_nativo_con(dir, "p_itrf_epoca", Some(PJ_ITRF2014), GEO, Some("2021.5")),
+            "geoparquet",
+        ),
+        (
+            "p_crs84_epoca",
+            geoparquet_nativo_con(dir, "p_crs84_epoca", None, GEO, Some("2021.5")),
+            "geoparquet",
+        ),
+        (
+            "p_4326_epoca",
+            geoparquet_nativo_con(
+                dir,
+                "p_4326_epoca",
+                Some(&alla_geopandas(PJ_4326)),
+                GEO,
+                Some("2.0215E3"),
+            ),
+            "geoparquet",
+        ),
     ];
     sorgenti
         .into_iter()
@@ -734,15 +810,17 @@ const RILETTI: [&str; 5] = ["geoparquet", "gpkg", "shp", "dxf", "geojson"];
 /// Le catene del terzo passaggio: il formato del primo file e quello del
 /// secondo. Sono le catene dei rilievi delle riletture 11 e 12 (il `GeoPackage`
 /// che riscrive la definizione, lo Shapefile e il DXF che la portano nel solo
-/// WKT, `GeoParquet` che la porta nel solo PROJJSON); tutte e venticinque
-/// moltiplicherebbero per cinque il tempo della prova.
-const TERZO_PASSAGGIO: [(&str, &str); 6] = [
+/// WKT, `GeoParquet` che la porta nel solo PROJJSON) e, dalla rilettura 13,
+/// quella dell'epoca che passa da `GeoParquet` ad Arrow IPC e torna; tutte e
+/// venticinque moltiplicherebbero per cinque il tempo della prova.
+const TERZO_PASSAGGIO: [(&str, &str); 7] = [
     ("gpkg", "shp"),
     ("geoparquet", "gpkg"),
     ("shp", "gpkg"),
     ("gpkg", "dxf"),
     ("dxf", "geoparquet"),
     ("shp", "dxf"),
+    ("geoparquet", "ipc"),
 ];
 
 /// I bersagli il cui ordine degli assi e' fissato dal formato, l'est per primo:
@@ -770,6 +848,8 @@ struct Crs {
     formato: Option<String>,
     assi: Option<String>,
     srid: Option<String>,
+    /// L'`epoch` di un `GeoParquet`, la chiave nativa di un Arrow IPC.
+    epoca: Option<String>,
 }
 
 /// L'SRID di un Arrow IPC, dal campo geometria: `io.inspect` non lo rende.
@@ -798,7 +878,43 @@ fn crs_letto(percorso: &Path, opzioni: &[&str]) -> Result<Crs, String> {
         formato: testo(&risoluzione["definition_format"]),
         assi: testo(&risoluzione["axis_order"]),
         srid: srid_ipc(percorso),
+        epoca: epoca_del_file(percorso),
     })
+}
+
+/// L'epoca delle coordinate che il file porta, com'e' scritta: nel `geo` di un
+/// `GeoParquet`, nella chiave nativa del campo di un Arrow IPC. Gli altri
+/// formati non hanno dove portarla.
+fn epoca_del_file(percorso: &Path) -> Option<String> {
+    match percorso.extension()?.to_str()? {
+        "arrow" => {
+            let file = std::fs::File::open(percorso).ok()?;
+            let lettore = arrow_ipc::reader::FileReader::try_new(file, None).ok()?;
+            let schema = lettore.schema();
+            let campo = schema.field_with_name("geometry").ok()?;
+            campo.metadata().get(CHIAVE_EPOCA).cloned()
+        }
+        "parquet" => {
+            use parquet::file::reader::FileReader as _;
+            let file = std::fs::File::open(percorso).ok()?;
+            let lettore = parquet::file::reader::SerializedFileReader::new(file).ok()?;
+            let geo = lettore
+                .metadata()
+                .file_metadata()
+                .key_value_metadata()?
+                .iter()
+                .find(|voce| voce.key == "geo")?
+                .value
+                .clone()?;
+            // Il testo del numero, non il suo `f64`: una colonna sola, e il
+            // valore finisce alla prima virgola o graffa.
+            let (_, dopo) = geo.split_once("\"epoch\"")?;
+            let valore = dopo.trim_start().strip_prefix(':')?.trim_start();
+            let termine = valore.find([',', '}'])?;
+            Some(valore[..termine].trim_end().to_owned())
+        }
+        _ => None,
+    }
 }
 
 /// Le perdite CRS dichiarate, e la busta per la diagnostica.
@@ -838,6 +954,48 @@ fn stesso_identificatore(a: &str, b: &str) -> bool {
     match (a.split_once(':'), b.split_once(':')) {
         (Some((aa, ca)), Some((ab, cb))) => aa.eq_ignore_ascii_case(ab) && ca == cb,
         _ => false,
+    }
+}
+
+/// Le coppie di identificatori diversi che indicano lo **stesso** CRS
+/// memorizzato, con l'ordine degli assi riletto che lo garantisce. Un elenco
+/// chiuso: `EPSG:4326` e `OGC:CRS84` differiscono solo nell'ordine degli assi
+/// del registro, e con le coordinate memorizzate longitudine prima (il riletto
+/// lo dichiara) sono le stesse coordinate. `GeoJSON` e `KML` rileggono
+/// `OGC:CRS84` per costruzione; `GeoParquet` rilegge `OGC:CRS84` per un campo
+/// `crs` omesso. Nient'altro: una forma ESRI (`GCS_WGS_1984`) e' una
+/// definizione, non un identificatore, e si rilegge `EPSG:4326` o niente.
+const EQUIVALENTI: [(&str, &str, &str); 2] = [
+    ("EPSG:4326", "OGC:CRS84", "longitude_latitude"),
+    ("OGC:CRS84", "EPSG:4326", "longitude_latitude"),
+];
+
+fn equivalenti(sorgente: &str, riletto: &str, assi: Option<&str>) -> bool {
+    EQUIVALENTI.iter().any(|(da, a, ordine)| {
+        stesso_identificatore(sorgente, da)
+            && stesso_identificatore(riletto, a)
+            && assi == Some(*ordine)
+    })
+}
+
+/// La regola 10: l'epoca delle coordinate si rilegge uguale, byte per byte, o
+/// la sua perdita e' dichiarata; e nessun file ne porta una che la sorgente
+/// non aveva.
+fn violazioni_dell_epoca(
+    sorgente: &Crs,
+    uscita: &Path,
+    dichiara: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    let riletta = epoca_del_file(uscita);
+    match &sorgente.epoca {
+        Some(_) if dichiara("crs_coordinate_epoch_not_preserved") => Vec::new(),
+        Some(epoca) if riletta.as_ref() != Some(epoca) => vec![format!(
+            "epoca {epoca} non dichiarata perduta e riletta {riletta:?}"
+        )],
+        None if riletta.is_some() => {
+            vec![format!("un'epoca che la sorgente non aveva: {riletta:?}")]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -945,6 +1103,20 @@ fn violazioni_dell_identificatore(
             riletto.id
         ));
     }
+    // Dichiarato perduto non vuol dire libero: il file si rilegge senza
+    // identificatore, o con uno equivalente per GEO-005 o per l'elenco chiuso
+    // [`EQUIVALENTI`]. Fino alla rilettura 13 la dichiarazione spegneva la
+    // regola per prefisso, e un `EPSG:4326` riletto `EPSG:3857` sarebbe passato.
+    if let Some(letto) = riletto.id.as_deref() {
+        if dichiara("crs_id_not_preserved")
+            && !stesso_identificatore(letto, id)
+            && !equivalenti(id, letto, riletto.assi.as_deref())
+        {
+            errori.push(format!(
+                "identificatore dichiarato perduto e riletto come un altro: {letto}"
+            ));
+        }
+    }
     if dichiara("crs_id_not_preserved_derived")
         && !riletto
             .id
@@ -1013,7 +1185,7 @@ fn violazioni(
     verso: &str,
 ) -> Vec<String> {
     let dichiara = |prefisso: &str| perdite.iter().any(|p| p.starts_with(prefisso));
-    let mut errori = Vec::new();
+    let mut errori = violazioni_dell_epoca(sorgente, uscita, &dichiara);
     if SENZA_CRS.contains(&verso) {
         if sorgente.id.is_some() && !dichiara("crs_id_not_preserved_absent") {
             errori.push("identificatore non scritto e non dichiarato perduto".to_owned());

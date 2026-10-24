@@ -193,8 +193,10 @@ pub struct ColonnaGeo {
     /// Il documento JSON della colonna, conservato per `geoparquet.column`.
     ///
     /// E' una superficie di contratto gia' pubblicata: la validazione la
-    /// verifica, non la riscrive.
-    pub grezza: serde_json::Value,
+    /// verifica, non la riscrive. E' il testo del file: fino alla rilettura 13
+    /// passava da `serde_json::Value`, con le chiavi riordinate e i numeri
+    /// riscritti da `f64`.
+    pub grezza: String,
     /// I tipi dichiarati. Puo' essere vuoto: la specifica lo ammette, e vuol
     /// dire «non vincolato», non «nessuna geometria».
     pub tipi: Vec<(GeometryType, CoordinateDimensions)>,
@@ -203,7 +205,8 @@ pub struct ColonnaGeo {
     pub bordi: Bordi,
     pub orientamento: Option<Orientamento>,
     pub bbox: Option<Vec<f64>>,
-    pub epoch: Option<f64>,
+    /// Il numero, com'era scritto nel documento.
+    pub epoch: Option<String>,
     /// I quattro **percorsi di colonna** del `covering.bbox`, in ordine
     /// `xmin, ymin, xmax, ymax`.
     ///
@@ -299,7 +302,7 @@ fn leggi(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     versione: &'static str,
     conformita: Conformita,
-    testi: &BTreeMap<String, String>,
+    testi: &BTreeMap<String, TestiGrezzi>,
 ) -> Result<MetadatiGeo> {
     let colonna_primaria = stringa_obbligatoria(oggetto, "primary_column")?;
 
@@ -328,7 +331,7 @@ fn leggi(
         grezza_primaria,
         versione,
         conformita,
-        testi.get(&colonna_primaria).map(String::as_str),
+        testi.get(&colonna_primaria),
     )?;
 
     let mut secondarie = BTreeMap::new();
@@ -338,12 +341,7 @@ fn leggi(
         }
         secondarie.insert(
             nome.clone(),
-            colonna(
-                grezza,
-                versione,
-                conformita,
-                testi.get(nome).map(String::as_str),
-            )?,
+            colonna(grezza, versione, conformita, testi.get(nome))?,
         );
     }
 
@@ -356,14 +354,25 @@ fn leggi(
     })
 }
 
-/// Il testo del campo `crs` di ogni colonna, com'e' nel documento.
+/// I testi di `crs` e `epoch` di una colonna, com'erano nel documento.
+#[derive(Default)]
+struct TestiGrezzi {
+    colonna: String,
+    crs: Option<String>,
+    /// Il numero dell'epoca, byte per byte: da `f64` un decimale oltre la sua
+    /// precisione usciva riscritto (rilettura 13), come i numeri del PROJJSON
+    /// fino alla rilettura 11.
+    epoch: Option<String>,
+}
+
+/// I testi dei campi `crs` ed `epoch` di ogni colonna, com'e' nel documento.
 ///
 /// Si legge con `RawValue`, che conserva i byte del valore: chiavi, spazi e
 /// numeri restano quelli del file. Le chiavi ripetute valgono come in
 /// `serde_json::Value` (l'ultima), cosi' il testo e il valore che si leggono
 /// sono dello stesso campo. Un documento che non si legge cosi' non ha testi:
 /// la validazione lo rifiuta comunque, e qui non si decide niente.
-fn testi_dei_crs(grezzo: &str) -> BTreeMap<String, String> {
+fn testi_dei_crs(grezzo: &str) -> BTreeMap<String, TestiGrezzi> {
     use serde_json::value::RawValue;
     let mut testi = BTreeMap::new();
     let Ok(radice) = serde_json::from_str::<BTreeMap<String, &RawValue>>(grezzo) else {
@@ -379,11 +388,28 @@ fn testi_dei_crs(grezzo: &str) -> BTreeMap<String, String> {
         let Ok(campi) = serde_json::from_str::<BTreeMap<String, &RawValue>>(colonna.get()) else {
             continue;
         };
-        if let Some(crs) = campi.get("crs") {
-            testi.insert(nome, crs.get().to_owned());
-        }
+        let del_campo = |campo: &str| campi.get(campo).map(|valore| valore.get().to_owned());
+        testi.insert(
+            nome,
+            TestiGrezzi {
+                colonna: colonna.get().to_owned(),
+                crs: del_campo("crs"),
+                epoch: del_campo("epoch"),
+            },
+        );
     }
     testi
+}
+
+/// Il testo del `crs` della colonna primaria di un documento `geo`, per
+/// confrontare due documenti: vuoto se la colonna lo omette (nessun valore JSON
+/// e' vuoto), `None` se il documento non si legge.
+pub fn crs_della_primaria(grezzo: &str) -> Option<String> {
+    use serde_json::value::RawValue;
+    let radice = serde_json::from_str::<BTreeMap<String, &RawValue>>(grezzo).ok()?;
+    let primaria: String = serde_json::from_str(radice.get("primary_column")?.get()).ok()?;
+    let testi = testi_dei_crs(grezzo);
+    Some(testi.get(&primaria)?.crs.clone().unwrap_or_default())
 }
 
 /// La forma storica **esatta** che questo repository scriveva nel campo `crs`.
@@ -481,7 +507,7 @@ fn colonna(
     grezza: &serde_json::Value,
     versione: &'static str,
     conformita: Conformita,
-    testo_crs: Option<&str>,
+    testi: Option<&TestiGrezzi>,
 ) -> Result<ColonnaGeo> {
     let oggetto = grezza.as_object().ok_or_else(|| {
         non_conforme(&PublicMessage::Curated(
@@ -491,15 +517,26 @@ fn colonna(
 
     encoding(oggetto, versione)?;
     let tipi = geometry_types(oggetto)?;
-    let crs = crs(oggetto, conformita, testo_crs)?;
+    let crs = crs(
+        oggetto,
+        conformita,
+        testi.and_then(|testi| testi.crs.as_deref()),
+    )?;
     let bordi = bordi(oggetto)?;
     let orientamento = orientamento(oggetto)?;
     let bbox = bbox(oggetto)?;
-    let epoch = epoch(oggetto)?;
+    let epoch = epoch(oggetto, testi.and_then(|testi| testi.epoch.as_deref()))?;
     let covering = covering(oggetto, versione)?;
+    // Il testo c'e' sempre: un documento che `Value` legge con la colonna come
+    // oggetto lo legge anche `RawValue`. La guardia resta un rifiuto.
+    let grezza = testi.map(|testi| testi.colonna.clone()).ok_or_else(|| {
+        non_conforme(&PublicMessage::Curated(
+            "colonna GeoParquet che non si legge come testo",
+        ))
+    })?;
 
     Ok(ColonnaGeo {
-        grezza: grezza.clone(),
+        grezza,
         tipi,
         crs,
         bordi,
@@ -740,17 +777,25 @@ fn bbox(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<V
     Ok(Some(numeri))
 }
 
-/// L'epoca delle coordinate.
-fn epoch(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<f64>> {
+/// L'epoca delle coordinate: un numero, restituito con il suo testo.
+fn epoch(
+    oggetto: &serde_json::Map<String, serde_json::Value>,
+    testo: Option<&str>,
+) -> Result<Option<String>> {
     let Some(valore) = oggetto.get("epoch") else {
         return Ok(None);
     };
-    valore.as_f64().map(Some).ok_or_else(|| {
-        non_conforme(&PublicMessage::CuratedPair(
-            "colonna GeoParquet con un campo che non e' un numero",
-            "epoch",
-        ))
-    })
+    valore
+        .is_number()
+        .then_some(testo)
+        .flatten()
+        .map(|testo| Some(testo.to_owned()))
+        .ok_or_else(|| {
+            non_conforme(&PublicMessage::CuratedPair(
+                "colonna GeoParquet con un campo che non e' un numero",
+                "epoch",
+            ))
+        })
 }
 
 /// Il `covering.bbox`, come lo schema 1.1.0 lo definisce.

@@ -47,8 +47,8 @@ const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
 // Quattro elementi sono usciti con l'estrazione di `perdita_pianificata`:
 // le prove li raggiungono dove sono andati, e restano le stesse.
 use super::perdita_pianificata::{
-    record_crs_representation_loss, stato_dell_identificatore, stato_per_il_piano, FontiDelPiano,
-    RappresentazioneDelCrs,
+    record_coordinate_epoch_loss, record_crs_representation_loss, stato_dell_identificatore,
+    stato_per_il_piano, FontiDelPiano, RappresentazioneDelCrs,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -1080,6 +1080,60 @@ fn write_loss_names_each_non_preserved_crs_representation_and_state() {
     assert!(loss
         .esempi_canonici()
         .any(|example| example.context.contains("value_bytes=9")));
+}
+
+/// Rilettura 13: l'epoca delle coordinate di un CRS dinamico. Su b988e7f
+/// nessun bersaglio la dichiarava perduta, e la conversione era `lossless`.
+#[test]
+fn l_epoca_delle_coordinate_perduta_si_dichiara() {
+    let dove = Posizione {
+        layer_index: Some(0),
+        field_index: Some(0),
+        type_class: None,
+    };
+    let mut con_epoca = xy_contract(true);
+    con_epoca
+        .native_metadata
+        .insert("geoparquet.epoch".to_owned(), "2021.5".to_owned());
+    for (formato, perduta) in [
+        ("geoparquet", false),
+        ("ipc", false),
+        ("gpkg", true),
+        ("shp", true),
+        ("csv", true),
+        ("prova-con-perdite", true),
+    ] {
+        let mut loss = LossReport::default();
+        record_coordinate_epoch_loss(&mut loss, formato, &con_epoca, dove);
+        assert_eq!(
+            loss.counts.get("crs_coordinate_epoch_not_preserved"),
+            perduta.then_some(&1),
+            "{formato}"
+        );
+        // Senza epoca non c'e' niente da perdere.
+        let mut senza = LossReport::default();
+        record_coordinate_epoch_loss(&mut senza, formato, &xy_contract(true), dove);
+        assert!(senza.is_empty(), "{formato}");
+    }
+    // E dal piano, attraverso `planned_write_loss`.
+    let piano = WritePlan {
+        layers: vec![crate::request::WriteLayer {
+            name: "l".to_owned(),
+            contract: plenora_io_model::contract::DataContract {
+                schema: Arc::new(Schema::new(vec![Field::new(
+                    "geometry",
+                    DataType::Binary,
+                    true,
+                )])),
+                geometry: Some(con_epoca),
+            },
+        }],
+    };
+    let loss = planned_write_loss(&descrittore_che_dichiara_perdite(), &piano);
+    assert_eq!(
+        loss.counts.get("crs_coordinate_epoch_not_preserved"),
+        Some(&1)
+    );
 }
 
 fn geometry_batch(bytes: Option<&[u8]>) -> RecordBatch {

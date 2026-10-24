@@ -824,6 +824,7 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> R
     let Some(chiavi) = metadati.file_metadata().key_value_metadata() else {
         return Ok(());
     };
+    let mut incorporati = Vec::new();
     for voce in chiavi {
         if voce.key != CHIAVE {
             continue;
@@ -840,9 +841,60 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> R
                     "ARROW:schema non decodificabile da base64",
                 ))
             })?;
-        driver_common::prevalida_arrow::valida_messaggio_schema("parquet", &byte)?;
+        incorporati.extend(driver_common::prevalida_arrow::valori_dello_schema(
+            "parquet",
+            &byte,
+            plenora_io_model::geometry::GEO_METADATA_KEY,
+        )?);
     }
-    Ok(())
+    let del_footer: Vec<Option<&str>> = chiavi
+        .iter()
+        .filter(|voce| voce.key == plenora_io_model::geometry::GEO_METADATA_KEY)
+        .map(|voce| voce.value.as_deref())
+        .collect();
+    geo_concordi(&del_footer, &incorporati)
+}
+
+/// Il `geo` del footer e quello dello schema incorporato dicono la stessa cosa.
+///
+/// Questo lettore legge il footer (`arrow-rs` vi fa vincere le sue chiavi);
+/// pyarrow, e geopandas con lui, rende i metadati dello schema incorporato. Un
+/// file che li porta diversi -- come quelli che IO scriveva fino a `777c5a1`,
+/// con il `geo` stantio della sorgente in `ARROW:schema` -- si legge in due
+/// modi, e il file non dice quale valga. Due dichiarazioni discordi si
+/// rifiutano, come due `GEODATA` DXF: con `crs` se discordano nel `crs` della
+/// colonna primaria (la classe CRS di REJ-001), con `schema` per ogni altra
+/// differenza, o per un `geo` che c'e' solo nello schema incorporato (la classe
+/// del vocabolario: per pyarrow il file e' `GeoParquet`, per il footer no). Il
+/// confronto e' byte per byte: documenti identici, o un `geo` solo nel footer,
+/// passano; una chiave ripetuta con valori diversi e' la stessa discordia.
+fn geo_concordi(del_footer: &[Option<&str>], incorporati: &[String]) -> Result<()> {
+    if del_footer.is_empty() && !incorporati.is_empty() {
+        return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "GeoParquet con un metadato `geo` nello schema Arrow incorporato e non nel footer",
+        )));
+    }
+    let mut documenti: Vec<Option<&str>> = del_footer.to_vec();
+    documenti.extend(incorporati.iter().map(|testo| Some(testo.as_str())));
+    documenti.sort_unstable();
+    documenti.dedup();
+    if documenti.len() <= 1 {
+        return Ok(());
+    }
+    let mut crs: Vec<Option<String>> = documenti
+        .iter()
+        .map(|documento| documento.and_then(metadati::crs_della_primaria))
+        .collect();
+    crs.sort_unstable();
+    crs.dedup();
+    if crs.len() > 1 && crs.iter().all(Option::is_some) {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "GeoParquet con metadati `geo` discordi nel CRS della colonna primaria: footer e schema Arrow incorporato si leggono con CRS diversi",
+        )));
+    }
+    Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+        "GeoParquet con metadati `geo` discordi fra footer e schema Arrow incorporato",
+    )))
 }
 
 /// Mappa ogni campo esposto sulla sua posizione nello schema Parquet fisico.
@@ -1267,6 +1319,7 @@ impl FormatDriver for GeoParquetDriver {
         // scrivibile in modo conforme, e' meglio saperlo prima di aver scritto
         // un file intero.
         let crs_meta = crs_da_scrivere(layer.contract.geometry.as_ref(), legacy_crs_meta)?;
+        let epoca = epoca_da_scrivere(layer.contract.geometry.as_ref())?;
         // Schema di scrittura = utente + la colonna struct `bbox` del covering.
         //
         // Una colonna sola, con quattro figli: e' la forma che il covering
@@ -1313,6 +1366,7 @@ impl FormatDriver for GeoParquetDriver {
                 geom_idx,
                 geom_name,
                 crs_meta,
+                epoca,
                 geometry_types: BTreeSet::new(),
                 wkb_limits: opts.wkb_limits(),
                 geometria_nullable,
@@ -1375,10 +1429,45 @@ fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
         })
 }
 
+/// La chiave nativa dell'epoca delle coordinate, `epoch` della colonna.
+const CHIAVE_EPOCA: &str = "geoparquet.epoch";
+
+/// Il campo geometria senza il CRS `GeoArrow` e senza le chiavi native
+/// `geoparquet.*` della sorgente: descrivono il suo `geo`, che il footer
+/// sostituisce. Copiate nello schema incorporato, pyarrow vi leggeva un'epoca o
+/// una colonna che il `geo` del file non dichiara (rilettura 13).
 fn senza_crs_geoarrow(campo: &Field) -> Field {
     let mut metadati = campo.metadata().clone();
     metadati.remove(CHIAVE_ESTENSIONE_GEOARROW);
+    let nativo = format!(
+        "{}geoparquet.",
+        plenora_io_model::geometry::PLENORA_NATIVE_PREFIX
+    );
+    metadati.retain(|chiave, _| !chiave.starts_with(&nativo));
     campo.clone().with_metadata(metadati)
+}
+
+/// L'epoca delle coordinate che il contratto porta, se e' un numero JSON.
+///
+/// Arriva come testo (da un `GeoParquet` riletto, o dalla chiave nativa di un
+/// Arrow IPC che chiunque puo' scrivere), e si incorpora tale e quale: un
+/// testo che non e' un numero, o che ha spazi ai bordi, non e' l'`epoch` che
+/// lo schema `GeoParquet` ammette. Si rifiuta con `schema`, come ogni valore di
+/// metadato di campo fuori dalla sua grammatica (REJ-001): ometterla perderebbe
+/// l'epoca in silenzio.
+fn epoca_da_scrivere(geometry: Option<&GeometryColumnContract>) -> Result<Option<String>> {
+    let Some(testo) = geometry.and_then(|g| g.native_metadata.get(CHIAVE_EPOCA)) else {
+        return Ok(None);
+    };
+    let numero = serde_json::from_str::<serde_json::Value>(testo)
+        .is_ok_and(|valore| valore.is_number())
+        && testo.trim() == testo;
+    if !numero {
+        return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "epoca delle coordinate nel contratto che non e' un numero JSON: GeoParquet non la scrive",
+        )));
+    }
+    Ok(Some(testo.clone()))
 }
 
 /// Che cosa il writer mette nel campo `crs` della colonna.
@@ -1885,6 +1974,8 @@ struct GeoParquetWriter {
     geom_idx: usize,
     geom_name: String,
     crs_meta: CrsDaScrivere,
+    /// Il testo dell'epoca delle coordinate, gia' verificato come numero JSON.
+    epoca: Option<String>,
     geometry_types: BTreeSet<(GeometryType, CoordinateDimensions)>,
     wkb_limits: WkbLimits,
     /// La nullabilita' della geometria, che la colonna `bbox` segue.
@@ -1923,7 +2014,12 @@ impl FormatWriter for GeoParquetWriter {
                 "writer Parquet non disponibile al finish",
             ))
         })?;
-        let geo = build_geo_metadata(&self.geom_name, &self.geometry_types, &self.crs_meta)?;
+        let geo = build_geo_metadata(
+            &self.geom_name,
+            &self.geometry_types,
+            &self.crs_meta,
+            self.epoca.as_deref(),
+        )?;
 
         // Ultimo cancello prima della pubblicazione, e lo tiene l'autorita'.
         //
@@ -2390,7 +2486,7 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
     let colonna = &geo.primaria;
     contract
         .native_metadata
-        .insert("geoparquet.column".to_owned(), colonna.grezza.to_string());
+        .insert("geoparquet.column".to_owned(), colonna.grezza.clone());
     // La versione che il documento dichiara, validata: e' l'informazione che
     // dice a valle con quali regole quel metadato va letto, e non c'era.
     contract
@@ -2437,10 +2533,10 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
             .native_metadata
             .insert("geoparquet.bbox".to_owned(), numeri.join(","));
     }
-    if let Some(epoca) = colonna.epoch {
+    if let Some(epoca) = &colonna.epoch {
         contract
             .native_metadata
-            .insert("geoparquet.epoch".to_owned(), epoca.to_string());
+            .insert(CHIAVE_EPOCA.to_owned(), epoca.clone());
     }
     let mut dimensions = BTreeSet::new();
     // I tipi arrivano gia' validati: un'etichetta fuori dalla specifica ha
@@ -3105,8 +3201,11 @@ fn retag_schema(
         .filter(|f| !is_internal(f.name()))
         .map(|f| {
             if f.name() == geom_name {
-                let mut md = f.metadata().clone();
-                md.remove(CHIAVE_ESTENSIONE_GEOARROW);
+                // Le chiavi native `geoparquet.*` le detta il `geo` del file:
+                // quelle dello schema incorporato (le scriveva IO fino a
+                // b988e7f) portavano nel contratto un'epoca che il `geo` non
+                // dichiara (rilettura 13).
+                let mut md = senza_crs_geoarrow(f).metadata().clone();
                 md.insert(
                     ARROW_EXTENSION_NAME_KEY.to_owned(),
                     GEOARROW_WKB_EXTENSION.to_owned(),
@@ -3224,6 +3323,7 @@ fn build_geo_metadata(
     geom_name: &str,
     types: &BTreeSet<(GeometryType, CoordinateDimensions)>,
     crs: &CrsDaScrivere,
+    epoca: Option<&str>,
 ) -> Result<String> {
     let mut geometry_types = types
         .iter()
@@ -3253,16 +3353,19 @@ fn build_geo_metadata(
             }
         },
     });
-    match crs {
+    let documento = match crs {
         // Assente: la specifica dice CRS84, ed e' cio' che intendiamo.
-        CrsDaScrivere::Omesso => {}
+        CrsDaScrivere::Omesso => None,
         // Presente e nullo: dichiariamo di non avere un CRS.
         CrsDaScrivere::Nullo => {
             column["crs"] = serde_json::Value::Null;
+            None
         }
-        CrsDaScrivere::Documento(testo) => {
-            return geo_con_documento(geom_name, &column, testo);
-        }
+        CrsDaScrivere::Documento(testo) => Some(testo.as_str()),
+    };
+    // L'epoca, come il documento, entra con i suoi byte.
+    if documento.is_some() || epoca.is_some() {
+        return geo_con_documento(geom_name, &column, documento, epoca);
     }
     let mut columns = HashMap::new();
     columns.insert(geom_name.to_owned(), column);
@@ -3290,7 +3393,8 @@ fn build_geo_metadata(
 fn geo_con_documento(
     geom_name: &str,
     senza_crs: &serde_json::Value,
-    testo: &str,
+    documento: Option<&str>,
+    epoca: Option<&str>,
 ) -> Result<String> {
     use serde_json::value::RawValue;
     use std::collections::BTreeMap;
@@ -3307,15 +3411,20 @@ fn geo_con_documento(
             campi.insert(chiave.clone(), grezzo(valore.to_string())?);
         }
     }
-    let documento = grezzo(testo.to_owned())?;
     // `from_string` toglie gli spazi ai bordi: il chiamante li ha gia'
     // rifiutati, e qui si verifica che il valore sia il testo intero.
-    if documento.get() != testo {
-        return Err(fmt_err(&PublicMessage::Curated(
-            "definizione PROJJSON che non si incorpora byte per byte",
-        )));
+    for (campo, testo) in [("crs", documento), ("epoch", epoca)] {
+        let Some(testo) = testo else {
+            continue;
+        };
+        let valore = grezzo(testo.to_owned())?;
+        if valore.get() != testo {
+            return Err(fmt_err(&PublicMessage::Curated(
+                "valore del metadato `geo` che non si incorpora byte per byte",
+            )));
+        }
+        campi.insert(campo.to_owned(), valore);
     }
-    campi.insert("crs".to_owned(), documento);
     let testo_di = |valore: &BTreeMap<String, Box<RawValue>>| {
         serde_json::to_string(valore).map_err(|_| {
             fmt_err(&PublicMessage::Curated(

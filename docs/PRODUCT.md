@@ -430,6 +430,90 @@ del footer; su c5abbdb fallisce in tutti e tre i passaggi, 140 violazioni);
 `le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato`,
 `il_geo_letto_non_resta_nei_metadati_del_contratto` (in `driver-geoparquet`).
 
+#### L'epoca delle coordinate e i `geo` discordi (rilettura 13)
+
+Un CRS dinamico (ITRF2014, un `DynamicGeodeticReferenceFrame`) dà alle
+coordinate un significato solo insieme all'**epoca** a cui valgono: GeoParquet
+1.1 la porta nel campo `epoch` della colonna, un numero (anno decimale). Fino a
+b988e7f il lettore la validava e la metteva nel contratto
+(`geoparquet.epoch`), il writer GeoParquet non la scriveva, e nessun bersaglio
+ne dichiarava la perdita: GeoParquet→GeoParquet, IPC→GeoParquet e verso
+GeoPackage l'epoca spariva in conversioni `lossless` (o con le sole perdite
+dell'identificatore). Arrow Vocabulary 1.0 e Arrow Geometry Semantics 1.0 non
+hanno una chiave per l'epoca (GEO-019 rende «indecidibile» il frame dinamico,
+che passa tale e quale): il contratto la porta nella chiave nativa
+`plenora.geometry.native.geoparquet.epoch`, e non se ne inventa una nel
+vocabolario. Ora:
+
+| bersaglio | l'epoca |
+|---|---|
+| GeoParquet | si scrive nel campo `epoch` della colonna **byte per byte**, con il testo che il file sorgente portava (`2021.50000000000000001`, `2.0215E3` restano tali: da `f64` uscivano riscritti, come i numeri del PROJJSON fino alla rilettura 11); un testo che non è un numero JSON, o con spazi ai bordi, è `schema` all'apertura del writer, mai omesso |
+| Arrow IPC | passa nella chiave nativa del campo; un consumatore generico che ignora le chiavi native ignora anche l'epoca (limite dichiarato: il vocabolario comune non la nomina) |
+| GeoPackage, Shapefile, DXF, GeoJSON, KML, CSV, XLSX, FileGDB | non hanno dove portarla: la perdita `crs_coordinate_epoch_not_preserved` è dichiarata in `write_loss`, e il livello non è più `lossless` |
+
+L'elenco dei formati che la portano è chiuso, nel codice
+(`perdita_pianificata::PORTANO_L_EPOCA`): un driver nuovo dichiara la perdita
+finché non entra nell'elenco. La chiave nativa dell'epoca **cambia valore**: era
+il `f64` riscritto (`2021.5` per `2.0215E3`), ora è il testo del file. Lo stesso
+vale per `geoparquet.column`, il documento della colonna: passava da
+`serde_json::Value`, con le chiavi riordinate e i numeri (anche quelli del
+PROJJSON e l'epoca) riscritti da `f64`, e ora è il testo del file.
+
+Le chiavi native `geoparquet.*` (`column`, `version`, `edges`, `orientation`,
+`bbox`, `epoch`) descrivono il `geo` della sorgente, e il `geo` del file scritto
+le sostituisce: il writer GeoParquet non le copia più nello schema incorporato
+(fino a b988e7f pyarrow vi leggeva un'epoca o una colonna che il footer non
+dichiarava), e il lettore GeoParquet non le prende dallo schema incorporato di
+un file (un'epoca nativa lì, senza `epoch` nel `geo`, entrava nel contratto e
+da IPC sarebbe tornata nel `geo` di un GeoParquet). Degli altri membri della
+colonna nessuno è una perdita silenziosa, ed è una decisione: `edges` è sempre
+`planar` (lo sferico si rifiuta in lettura), cioè il default; `bbox` e
+`orientation` sono affermazioni **sui valori** — ricavabili dalle geometrie, che
+non cambiano — e riscriverle da un contratto che ha attraversato altri passaggi
+affermerebbe un ingombro o un verso degli anelli che nessuno ha verificato,
+mentre la loro assenza non afferma niente; il `covering` lo ricalcola il writer
+per ogni riga; `creator` (al livello del documento) è la provenienza di chi ha
+scritto il file, e non si eredita. L'epoca è l'unico membro che dice che cosa
+le coordinate **significano**.
+
+**`geo` del footer contro `geo` dello schema incorporato.** Il lettore legge il
+`geo` del footer (in `arrow-rs` le chiavi del footer vincono); pyarrow, e
+geopandas con lui, rende quello dello schema incorporato (`ARROW:schema`). Un
+file che li porta diversi — come quelli che IO scriveva fino a 777c5a1, con il
+`geo` stantio della sorgente — si legge in due modi, e il file non dice quale
+valga: fino a b988e7f il lettore usava il footer in silenzio. Ora si rifiuta,
+come due `GEODATA` DXF discordi: `crs` quando i documenti discordano nel `crs`
+della colonna primaria (la classe CRS di REJ-001: il file dichiara due CRS),
+`schema` per ogni altra differenza, per un `geo` presente solo nello schema
+incorporato (per pyarrow il file è un GeoParquet, per il footer no) e per una
+chiave `geo` ripetuta con valori diversi (la classe del vocabolario: due
+dichiarazioni dello stesso documento). Il confronto è byte per byte; documenti
+identici, o un `geo` solo nel footer, passano. È un restringimento degli
+ingressi accettati.
+
+Prove: `rilettura_dei_crs.rs` (regola 10: l'epoca si rilegge uguale, byte per
+byte, o la perdita è dichiarata, e nessun file ne porta una che la sorgente non
+aveva; sorgenti `p_itrf_epoca`, `p_crs84_epoca`, `p_4326_epoca`,
+`4326_pj_epoca`; terza catena GeoParquet→IPC; su b988e7f fallisce in tutti e
+tre i passaggi); `l_epoca_si_scrive_byte_per_byte_e_si_rilegge_uguale`,
+`un_epoca_che_non_e_un_numero_si_rifiuta`,
+`le_chiavi_native_geoparquet_non_passano_nello_schema_scritto`,
+`l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto`,
+`i_geo_di_footer_e_schema_incorporato_devono_concordare`,
+`un_geoparquet_con_il_geo_stantio_nello_schema_si_rifiuta` (in
+`driver-geoparquet`); `l_epoca_delle_coordinate_perduta_si_dichiara` (in
+`plenora-io-core`).
+
+La regola 1 della prova si è stretta: una perdita `crs_id_not_preserved_*`
+dichiarata la spegneva per prefisso, e un file che si rileggeva con un
+**altro** identificatore passava. Ora il file si rilegge senza identificatore,
+con uno uguale per GEO-005, o con uno dell'elenco chiuso `EQUIVALENTI`:
+`EPSG:4326` e `OGC:CRS84`, nei due versi, quando il riletto dichiara
+`longitude_latitude` (le coordinate memorizzate sono le stesse). Le forme ESRI
+(`GCS_WGS_1984`) non entrano: sono definizioni, non identificatori, e si
+rileggono `EPSG:4326` o senza identificatore. Sulla matrice attuale nessuna
+scrittura viola la regola stretta.
+
 #### Il vocabolario CRS del catalogo
 
 `io.catalog` pubblica per ogni writer due capability CRS, enumerate dalla
