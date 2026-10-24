@@ -1310,7 +1310,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1322,7 +1325,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1334,7 +1340,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1346,7 +1355,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1358,7 +1370,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1370,7 +1385,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1382,7 +1400,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1394,7 +1415,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1406,7 +1430,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1418,7 +1445,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1430,7 +1460,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1442,7 +1475,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1454,7 +1490,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1466,7 +1505,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1478,7 +1520,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1490,7 +1535,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1502,7 +1550,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1514,7 +1565,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1526,7 +1580,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1538,7 +1595,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1550,7 +1610,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1562,7 +1625,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1574,7 +1640,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1586,7 +1655,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1598,7 +1670,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1610,7 +1685,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1622,7 +1700,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1634,7 +1715,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1646,7 +1730,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1658,7 +1745,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1670,7 +1760,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1682,7 +1775,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1694,7 +1790,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1706,7 +1805,10 @@
       "osservato": {
         "exit": 3,
         "category": "crs",
-        "code": "CRS_REQUIRED"
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1718,7 +1820,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1730,7 +1835,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1742,7 +1850,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1754,7 +1865,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1766,7 +1880,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1778,7 +1895,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1790,7 +1910,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1802,7 +1925,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1814,7 +1940,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "rifiuto-di-supporto"
     },
@@ -1826,7 +1955,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "rifiuto-di-supporto"
     },
@@ -1838,7 +1970,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1850,7 +1985,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1862,7 +2000,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1874,7 +2015,10 @@
       "osservato": {
         "exit": 3,
         "category": "schema",
-        "code": "CONTRACT"
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1886,7 +2030,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1898,7 +2045,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1910,7 +2060,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1922,7 +2075,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1934,7 +2090,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1946,7 +2105,10 @@
       "osservato": {
         "exit": 3,
         "category": "data_mapping",
-        "code": "FORMAT_ERROR"
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "conforme"
     },
@@ -1958,7 +2120,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "rifiuto-di-supporto"
     },
@@ -1970,7 +2135,10 @@
       "osservato": {
         "exit": 3,
         "category": "unsupported",
-        "code": "UNSUPPORTED"
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
       },
       "verdetto": "rifiuto-di-supporto"
     },

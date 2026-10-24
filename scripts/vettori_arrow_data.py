@@ -18,6 +18,12 @@ prima del valore.
     python scripts/vettori_arrow_data.py --contracts .plenora-contracts \\
         --cli target/release/plenora-io --referto vettori-arrow-data.json
 
+Ogni rifiuto si legge anche con REJ-003: exit 3, `remote_effect: none`,
+`retry.kind: never`, fase `validate` per le classi che decide lo schema (il
+limite di supporto compreso) e `read` per le due classi di valore, che IO
+incontra leggendo il proprio ingresso in entrambe le operazioni. La classe la
+decide l'oracolo dei contratti (`schema_verdict`), non questo script.
+
 Il referto elenca per vettore e per operazione l'esito osservato e quello
 atteso; l'uscita e' 0 solo se ogni vettore ha il verdetto del contratto.
 """
@@ -62,9 +68,12 @@ def esegui(cli: Path, operazione: str, ingresso: Path, uscita: Path) -> dict:
     except json.JSONDecodeError:
         return {"exit": esito.returncode, "category": None, "busta": "illeggibile"}
     errore = busta.get("error") if isinstance(busta, dict) else None
-    return {"exit": esito.returncode,
-            "category": errore.get("category") if isinstance(errore, dict) else None,
-            "code": errore.get("code") if isinstance(errore, dict) else None}
+    if not isinstance(errore, dict):
+        return {"exit": esito.returncode, "category": None, "code": None}
+    retry = errore.get("retry")
+    return {"exit": esito.returncode, "category": errore.get("category"), "code": errore.get("code"),
+            "phase": errore.get("phase"), "remote_effect": errore.get("remote_effect"),
+            "retry": retry.get("kind") if isinstance(retry, dict) else None}
 
 
 def piu_geometrie(vettore: dict) -> bool:
@@ -73,21 +82,33 @@ def piu_geometrie(vettore: dict) -> bool:
                for c in vettore["fields"]) > 1
 
 
-def verdetto(vettore: dict, osservato: dict) -> str:
+def rej_003(osservato: dict, di_valore: bool) -> bool:
+    """Gli assi del rifiuto che REJ-003 fissa, per la classe del rifiuto."""
+    return (osservato["exit"] == 3 and osservato.get("remote_effect") == "none"
+            and osservato.get("retry") == "never"
+            and osservato.get("phase") == ("read" if di_valore else "validate"))
+
+
+def verdetto(vettore: dict, osservato: dict, oracolo) -> str:
     accettato = osservato["exit"] == 0
     supporto = osservato["category"] == "unsupported" and piu_geometrie(vettore)
     if vettore["expect"] == "valid":
         if accettato:
             return "conforme"
-        return "rifiuto-di-supporto" if supporto else "rifiuto-indebito"
+        if not supporto:
+            return "rifiuto-indebito"
+        return "rifiuto-di-supporto" if rej_003(osservato, False) else "assi-del-rifiuto"
     if accettato:
         return "accettazione-indebita"
-    if osservato["category"] == vettore["category"]:
-        return "conforme"
-    # REJ-002: un limite di supporto si riporta prima di un valore invalido; il
-    # vettore porta il verdetto di conformita' dell'ingresso, non quello di un
-    # componente con quel limite.
-    return "rifiuto-di-supporto" if supporto and vettore["category"] == "data_mapping" else "categoria-sbagliata"
+    if supporto and vettore["category"] == "data_mapping":
+        # REJ-002: un limite di supporto si riporta prima di un valore invalido;
+        # il vettore porta il verdetto di conformita' dell'ingresso, non quello
+        # di un componente con quel limite.
+        return "rifiuto-di-supporto" if rej_003(osservato, False) else "assi-del-rifiuto"
+    if osservato["category"] != vettore["category"]:
+        return "categoria-sbagliata"
+    di_valore = oracolo.schema_verdict(vettore) is None
+    return "conforme" if rej_003(osservato, di_valore) else "assi-del-rifiuto"
 
 
 def main() -> int:
@@ -96,6 +117,9 @@ def main() -> int:
     argomenti.add_argument("--cli", type=Path, required=True)
     argomenti.add_argument("--referto", type=Path, required=True)
     opzioni = argomenti.parse_args()
+
+    sys.path.insert(0, str(opzioni.contracts / "tools"))
+    import arrow_data as oracolo
 
     cartella = opzioni.contracts / "vectors" / "arrow-data-v1"
     vettori = sorted(cartella.glob("*.json"))
@@ -113,7 +137,7 @@ def main() -> int:
                 w.write_table(t)
             for operazione in OPERAZIONI:
                 osservato = esegui(opzioni.cli, operazione, ingresso, lavoro / f"{percorso.stem}-{operazione}.arrow")
-                v = verdetto(vettore, osservato)
+                v = verdetto(vettore, osservato, oracolo)
                 conteggi[v] = conteggi.get(v, 0) + 1
                 righe.append({"vettore": percorso.stem, "operazione": operazione,
                               "atteso": vettore["expect"], "categoria_attesa": vettore.get("category"),
