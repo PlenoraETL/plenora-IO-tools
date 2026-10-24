@@ -179,3 +179,53 @@ fn precedenza_versione_vocabolario_crs_supporto() {
     );
     assert_eq!(categoria(&due), Some(ErrorCategory::Unsupported));
 }
+
+/// GEO-016: il codice di `crs_id` non ha spazi nel senso di `\s` di Python, che
+/// comprende U+001C..U+001F; un carattere che Python non conta fra gli spazi
+/// (U+200B, U+FEFF, U+180E) resta un carattere del codice.
+#[test]
+fn crs_id_con_gli_spazi_di_python() {
+    for spazio in [
+        '\u{1c}', '\u{1d}', '\u{1e}', '\u{1f}', '\u{85}', '\u{a0}', '\u{3000}',
+    ] {
+        let id = format!("EPSG:4326{spazio}");
+        assert_eq!(
+            categoria(&con(&[("plenora.geometry.crs_id", Some(&id))])),
+            Some(ErrorCategory::Crs),
+            "U+{:04X}",
+            u32::from(spazio)
+        );
+    }
+    for carattere in ['\u{200b}', '\u{feff}', '\u{180e}'] {
+        let id = format!("EPSG:4326{carattere}");
+        assert_eq!(
+            categoria(&con(&[("plenora.geometry.crs_id", Some(&id))])),
+            None,
+            "U+{:04X}",
+            u32::from(carattere)
+        );
+    }
+}
+
+/// Una definizione WKT con U+001F fra i token e' ben formata per l'oracolo, e
+/// un PROJJSON con un numero oltre `f64` pure (GEO-005).
+#[test]
+fn definizioni_ben_formate_per_l_oracolo() {
+    for (definizione, formato) in [
+        ("GEOGCS[\"x\",\u{1f}AUTHORITY[\"EPSG\",4326]]", "wkt"),
+        (
+            r#"{"type":"GeographicCRS","x":1e400,"id":{"authority":"EPSG","code":4326}}"#,
+            "projjson",
+        ),
+        (
+            r#"{"type":"GeographicCRS","name":"\ud800","id":{"authority":"EPSG","code":4326}}"#,
+            "projjson",
+        ),
+    ] {
+        let schema = con(&[
+            ("plenora.geometry.crs_definition", Some(definizione)),
+            ("plenora.geometry.crs_definition_format", Some(formato)),
+        ]);
+        assert_eq!(categoria(&schema), None, "{definizione:.60}");
+    }
+}

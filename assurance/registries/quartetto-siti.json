@@ -274,7 +274,7 @@
       "DataMapping/Read/Format/Never"
     ],
     "open": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "open_layer_reader": [
       "InvalidPlan/Validate/Contract/Never"
@@ -401,7 +401,7 @@
   },
   "crates/plenora-io-core/src/driver.rs": {
     "geometry_contracts_for_validation": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "leggendo_arrow": [
       "DataMapping/Read/Format/Never"
@@ -601,10 +601,11 @@
       "Crs/Validate/Crs/Never"
     ],
     "invalid_metadata": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Schema/Validate/Schema/Never"
     ],
     "validate_contract_version": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never",
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-model/src/vocabolario.rs": {

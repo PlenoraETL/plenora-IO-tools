@@ -2249,7 +2249,8 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
         .crs
         .id()
         .and_then(|id| id.strip_prefix("EPSG:"))
-        .and_then(|code| code.parse().ok());
+        // Solo un codice canonico: `EPSG:04326` non ha lo SRID 4326 (GEO-005).
+        .and_then(plenora_io_model::crs::codice_intero_canonico);
 }
 
 /// Gli indici, nello schema esposto, delle colonne geometriche diverse dalla

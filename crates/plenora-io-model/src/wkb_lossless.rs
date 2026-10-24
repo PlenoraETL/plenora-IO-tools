@@ -5,7 +5,7 @@ use geo_types::{
 
 use crate::contract::{CoordinateDimensions, GeometryType};
 use crate::error::{PlenoraIoError, PublicMessage, Result};
-use crate::limits::WkbLimits;
+use crate::limits::{WkbLimits, PROFONDITA_WKB_CONTRATTO};
 
 /// Un errore WKB redatto.
 ///
@@ -458,6 +458,88 @@ fn child_type_allowed(parent_base: u32, child: GeometryType) -> bool {
     }
 }
 
+// --- GEO-011: la forma dei conteggi e degli anelli --------------------------
+//
+// Arrow Geometry Semantics 1.0, GEO-011: «a linestring has zero or at least two
+// points, a circular string zero or an odd number of at least three, a linear
+// ring of a polygon or triangle at least four points with the last equal to the
+// first, and a triangle at most one ring». Le regole sono quelle di
+// `arrow_data.py` (`_geometry`), lette dal codice dell'oracolo e non dalla
+// prosa: l'anello vuoto e' malformato (meno di quattro punti), la chiusura e'
+// l'uguaglianza dei **byte** del primo e dell'ultimo punto, Z e M comprese, e
+// gli anelli di una `curvepolygon` non sono anelli lineari.
+//
+// Valgono per ogni WKB che IO decodifica, ispeziona o codifica, non solo per
+// l'ingresso Arrow: un valore che un componente del contratto rifiuterebbe non
+// esce da IO, da qualunque formato venga.
+
+/// Il numero di punti ammesso per il codice base che porta una sequenza.
+const fn punti_ammessi(base: u32, punti: usize) -> bool {
+    match base {
+        2 => punti != 1,
+        8 => punti == 0 || (punti >= 3 && punti % 2 == 1),
+        _ => true,
+    }
+}
+
+fn verifica_punti(base: u32, punti: usize) -> Result<()> {
+    if punti_ammessi(base, punti) {
+        Ok(())
+    } else if base == 8 {
+        Err(error(&PublicMessage::Curated(
+            "circularstring WKB senza un numero dispari di almeno tre punti (GEO-011)",
+        )))
+    } else {
+        Err(error(&PublicMessage::Curated(
+            "linestring WKB di un solo punto (GEO-011)",
+        )))
+    }
+}
+
+/// Un triangolo ha al piu' un anello.
+fn verifica_anelli(base: u32, anelli: usize) -> Result<()> {
+    if base == 17 && anelli > 1 {
+        return Err(error(&PublicMessage::Curated(
+            "triangolo WKB con piu' di un anello (GEO-011)",
+        )));
+    }
+    Ok(())
+}
+
+/// Un anello lineare: almeno quattro punti, l'ultimo uguale al primo.
+fn verifica_anello(punti: usize, chiuso: bool) -> Result<()> {
+    if punti < 4 || !chiuso {
+        return Err(error(&PublicMessage::Curated(
+            "anello WKB non chiuso o di meno di quattro punti (GEO-011)",
+        )));
+    }
+    Ok(())
+}
+
+/// Lo stesso confronto dei byte, sull'AST: i bit di ogni ordinata.
+fn stessi_bit(primo: &WkbCoordinate, ultimo: &WkbCoordinate) -> bool {
+    let bit = |valore: Option<f64>| valore.map(f64::to_bits);
+    primo.x.to_bits() == ultimo.x.to_bits()
+        && primo.y.to_bits() == ultimo.y.to_bits()
+        && bit(primo.z) == bit(ultimo.z)
+        && bit(primo.m) == bit(ultimo.m)
+}
+
+fn anello_chiuso(anello: &[WkbCoordinate]) -> bool {
+    match (anello.first(), anello.last()) {
+        (Some(primo), Some(ultimo)) => stessi_bit(primo, ultimo),
+        _ => false,
+    }
+}
+
+fn verifica_poligono(base: u32, anelli: &[Vec<WkbCoordinate>]) -> Result<()> {
+    verifica_anelli(base, anelli.len())?;
+    for anello in anelli {
+        verifica_anello(anello.len(), anello_chiuso(anello))?;
+    }
+    Ok(())
+}
+
 fn coordinate_size(dimensions: CoordinateDimensions) -> Result<usize> {
     let (z, m) = dimension_flags(dimensions)?;
     Ok(16 + usize::from(z) * 8 + usize::from(m) * 8)
@@ -521,14 +603,24 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
 
     let value = match base {
         1 => WkbValue::Point(read_coordinate(reader, little_endian, dimensions)?),
-        2 => WkbValue::LineString(read_coordinates(reader, little_endian, dimensions)?),
-        8 => WkbValue::CircularString(read_coordinates(reader, little_endian, dimensions)?),
+        2 | 8 => {
+            let coordinates = read_coordinates(reader, little_endian, dimensions)?;
+            verifica_punti(base, coordinates.len())?;
+            if base == 2 {
+                WkbValue::LineString(coordinates)
+            } else {
+                WkbValue::CircularString(coordinates)
+            }
+        }
         3 | 17 => {
             let ring_count = reader.u32(little_endian)?;
             let ring_count = reader.ensure_count(ring_count, 4)?;
+            verifica_anelli(base, ring_count)?;
             let mut rings = Vec::with_capacity(ring_count);
             for _ in 0..ring_count {
-                rings.push(read_coordinates(reader, little_endian, dimensions)?);
+                let ring = read_coordinates(reader, little_endian, dimensions)?;
+                verifica_anello(ring.len(), anello_chiuso(&ring))?;
+                rings.push(ring);
             }
             if base == 3 {
                 WkbValue::Polygon(rings)
@@ -589,11 +681,13 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
     })
 }
 
-fn skip_coordinates(
-    reader: &mut Reader,
+/// Salta una sequenza di coordinate e ne restituisce il numero e i byte, cosi'
+/// che chi la salta possa verificarne la forma (GEO-011) senza decodificarla.
+fn skip_coordinates<'a>(
+    reader: &mut Reader<'a>,
     little_endian: bool,
     dimensions: CoordinateDimensions,
-) -> Result<()> {
+) -> Result<(usize, &'a [u8])> {
     let count = reader.u32(little_endian)?;
     let coordinate_bytes = coordinate_size(dimensions)?;
     let count = reader.ensure_count(count, coordinate_bytes)?;
@@ -603,8 +697,17 @@ fn skip_coordinates(
             "overflow nella dimensione delle coordinate WKB",
         ))
     })?;
-    let _ = reader.take(bytes)?;
-    Ok(())
+    let byte = reader.take(bytes)?;
+    Ok((count, byte))
+}
+
+/// Il primo e l'ultimo punto di una sequenza hanno gli stessi byte, come in
+/// `arrow_data.py` (`data[:width] != data[-width:]`). I due punti stanno nello
+/// stesso ordine dei byte, quindi l'uguaglianza dei byte e' quella dei bit.
+fn byte_chiusi(byte: &[u8], larghezza: usize) -> bool {
+    larghezza > 0
+        && byte.len() >= larghezza
+        && byte.get(..larghezza) == byte.get(byte.len() - larghezza..)
 }
 
 fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> {
@@ -633,12 +736,18 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
             reader.charge_coordinate()?;
             let _ = reader.take(coordinate_size(dimensions)?)?;
         }
-        2 | 8 => skip_coordinates(reader, little_endian, dimensions)?,
+        2 | 8 => {
+            let (punti, _) = skip_coordinates(reader, little_endian, dimensions)?;
+            verifica_punti(base, punti)?;
+        }
         3 | 17 => {
             let ring_count = reader.u32(little_endian)?;
             let ring_count = reader.ensure_count(ring_count, 4)?;
+            verifica_anelli(base, ring_count)?;
+            let larghezza = coordinate_size(dimensions)?;
             for _ in 0..ring_count {
-                skip_coordinates(reader, little_endian, dimensions)?;
+                let (punti, byte) = skip_coordinates(reader, little_endian, dimensions)?;
+                verifica_anello(punti, byte_chiusi(byte, larghezza))?;
             }
         }
         4..=7 | 9..=12 | 15..=16 => {
@@ -681,6 +790,12 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
     })
 }
 
+/// Il tetto di annidamento richiesto, mai oltre quello di GEO-011: una
+/// configurazione puo' stringerlo, non allargarlo.
+fn profondita_effettiva(limits: &WkbLimits) -> usize {
+    limits.max_depth.min(PROFONDITA_WKB_CONTRATTO)
+}
+
 /// Valida e ispeziona WKB/EWKB senza allocare l'AST lossless.
 ///
 /// # Errors
@@ -700,7 +815,7 @@ pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
         bytes,
         pos: 0,
         components_left: limits.max_components,
-        max_depth: limits.max_depth,
+        max_depth: profondita_effettiva(limits),
     };
     let inspection = inspect_geometry(&mut reader, 0)?;
     if reader.pos != bytes.len() {
@@ -729,7 +844,7 @@ pub fn decode_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbGeometry> {
         bytes,
         pos: 0,
         components_left: limits.max_components,
-        max_depth: limits.max_depth,
+        max_depth: profondita_effettiva(limits),
     };
     let geometry = read_geometry(&mut reader, 0)?;
     if reader.pos != bytes.len() {
@@ -865,6 +980,30 @@ fn write_geometry(
     geometry: &WkbGeometry,
     flavor: WkbFlavor,
 ) -> Result<()> {
+    write_geometry_at(output, geometry, flavor, 0)
+}
+
+/// Codifica una geometria al livello `depth`: l'encoder rifiuta le stesse forme
+/// che il decoder rifiuterebbe (GEO-011), annidamento compreso, cosi' che IO
+/// non emetta mai un valore che un componente del contratto respinge.
+fn write_geometry_at(
+    output: &mut BoundedSink<'_>,
+    geometry: &WkbGeometry,
+    flavor: WkbFlavor,
+    depth: usize,
+) -> Result<()> {
+    if depth > PROFONDITA_WKB_CONTRATTO {
+        return Err(error(&PublicMessage::Curated(
+            "WKB annidato troppo in profondità",
+        )));
+    }
+    match &geometry.value {
+        WkbValue::LineString(coordinates) => verifica_punti(2, coordinates.len())?,
+        WkbValue::CircularString(coordinates) => verifica_punti(8, coordinates.len())?,
+        WkbValue::Polygon(rings) => verifica_poligono(3, rings)?,
+        WkbValue::Triangle(rings) => verifica_poligono(17, rings)?,
+        _ => {}
+    }
     let (z, m) = dimension_flags(geometry.dimensions)?;
     let type_code = match flavor {
         WkbFlavor::Iso => {
@@ -932,7 +1071,7 @@ fn write_geometry(
             }
             output.extend_from_slice(&count_u32(values.len())?.to_le_bytes())?;
             for value in values {
-                write_geometry(output, value, flavor)?;
+                write_geometry_at(output, value, flavor, depth + 1)?;
             }
         }
     }

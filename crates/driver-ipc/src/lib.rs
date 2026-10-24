@@ -222,25 +222,21 @@ impl FormatDriver for IpcDriver {
         validate_contract_version(schema.as_ref())?;
         let canonical_version_present =
             schema.metadata().contains_key(PLENORA_CONTRACT_VERSION_KEY);
-        let mut geometry_fields = schema
+        let geometry_fields: Vec<(usize, &arrow_schema::FieldRef)> = schema
             .fields()
             .iter()
             .enumerate()
-            .filter(|(_, field)| is_geometry_field(field));
-        let geometry = match geometry_fields.next() {
-            None => None,
-            Some((i, field)) => {
-                validate_geometry_field_identity(field, canonical_version_present)?;
-                // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di
-                // prodotto»): una sola colonna geometrica. Il contratto comune
-                // non la impone; e' il modello di questo componente, un
-                // `GeometryColumnContract` per layer. La seconda colonna non si
-                // ignora: si rifiuta il file, prima di leggere una riga.
-                if geometry_fields.next().is_some() {
-                    return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
-                        "Arrow IPC contiene più colonne GeoArrow nel contratto v1",
-                    )));
-                }
+            .filter(|(_, field)| is_geometry_field(field))
+            .collect();
+        // REJ-002: i difetti di vocabolario di **ogni** campo geometria prima
+        // del limite di supporto, che non deve coprirli.
+        for (_, field) in &geometry_fields {
+            validate_geometry_field_identity(field, canonical_version_present)?;
+        }
+        let geometry = match geometry_fields.as_slice() {
+            [] => None,
+            [(i, _)] => {
+                let i = *i;
                 let f = schema.field(i);
                 // Il CRS si legge dalla chiave `crs` e poi dal blocco
                 // `plenora.geometry.*`, non da `ARROW:extension:metadata`: un
@@ -282,6 +278,21 @@ impl FormatDriver for IpcDriver {
                 // alla nostra enumerazione: il numero del payload non indicizza
                 // piu' niente, quindi non c'e' piu' niente da difendere.
                 Some(contract)
+            }
+            // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di prodotto»):
+            // una sola colonna geometrica. Il contratto comune ne ammette piu'
+            // (GEO-012); e' il modello di questo componente, un
+            // `GeometryColumnContract` per layer. La seconda colonna non si
+            // ignora: si rifiuta il file, prima di leggere una riga, con
+            // `unsupported` (GEO-012, REJ-001) anche quando lo schema e'
+            // esterno, senza versione ne' chiavi `plenora.*`, e il vocabolario
+            // non lo ha gia' fatto.
+            _ => {
+                return Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated(
+                        "Arrow IPC con più colonne GeoArrow: questo componente ne rappresenta una (GEO-012)",
+                    ),
+                ));
             }
         };
         let name = path

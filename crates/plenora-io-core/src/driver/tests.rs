@@ -1442,14 +1442,20 @@ fn ambiguous_or_invalid_legacy_geometry_metadata_is_rejected() {
     ]);
     let invalid = legacy_plan(vec![geoarrow_field("geometry", Some("future"))]);
 
-    assert!(matches!(
-        geometry_contracts_for_validation(&ambiguous),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
-    ));
-    assert!(matches!(
-        geometry_contracts_for_validation(&invalid),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
-    ));
+    // REJ-001: due campi geometria sono un limite di supporto (GEO-012), un
+    // valore fuori dall'insieme chiuso un difetto di vocabolario; nessuno dei
+    // due e' `invalid_plan`, anche quando lo schema arriva da un piano.
+    let Err(errore) = geometry_contracts_for_validation(&ambiguous) else {
+        panic!("due campi geometria devono essere rifiutati");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    let Err(errore) = geometry_contracts_for_validation(&invalid) else {
+        panic!("dimensioni fuori dall'insieme chiuso devono essere rifiutate");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Schema);
 }
 
 // ---- Le opzioni sul modello unificato (Lotto 0, S4.e) ----

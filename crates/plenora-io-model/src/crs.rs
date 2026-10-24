@@ -160,13 +160,40 @@ pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
 ///
 /// Gli altri namespace non sono interpretati come SRID: una loro eventuale
 /// equivalenza richiede un resolver CRS, non una regola sintattica al bordo.
+///
+/// Solo da un codice **canonico** (`0|[1-9][0-9]*`): GEO-005 confronta i
+/// codici come testo, e `EPSG:04326` o `EPSG:+4326` non sono `EPSG:4326`.
+/// `str::parse` li accetterebbe entrambi, e uno SRID 4326 ricavato da loro
+/// farebbe passare per la stessa un'identita' diversa.
 #[must_use]
 pub fn authority_srid(value: &str) -> Option<u32> {
     let (authority, code) = value.split_once(':')?;
     authority
         .eq_ignore_ascii_case("EPSG")
-        .then(|| code.parse::<u32>().ok())
+        .then(|| codice_intero_canonico(code))
         .flatten()
+        .and_then(|codice| u32::try_from(codice).ok())
+}
+
+/// Il valore di un codice scritto come intero decimale canonico.
+///
+/// La grammatica e' quella dello SRID di Arrow Vocabulary 1.0,
+/// `0|-?[1-9][0-9]*`, nei 32 bit con segno; `None` per ogni altra scrittura,
+/// zeri iniziali, segno `+`, `-0` e spazi compresi.
+///
+/// E' la sola via per portare il codice testuale di un `crs_id` in un campo
+/// intero di un formato (il `srs_id` di un `GeoPackage`): un codice che non e'
+/// canonico non ha un intero che lo rappresenti senza cambiarne l'identita'.
+#[must_use]
+pub fn codice_intero_canonico(code: &str) -> Option<i32> {
+    let cifre = code.strip_prefix('-').unwrap_or(code);
+    let canonico = code == "0"
+        || (cifre
+            .bytes()
+            .next()
+            .is_some_and(|b| (b'1'..=b'9').contains(&b))
+            && cifre.bytes().all(|b| b.is_ascii_digit()));
+    canonico.then(|| code.parse().ok()).flatten()
 }
 
 /// Estrae l'identificatore EPSG della definizione CRS soltanto quando è
@@ -186,6 +213,8 @@ pub fn definition_authority_srid(definition: &str, format: CrsDefinitionFormat) 
     }
 }
 
+// Limite dichiarato (docs/PRODUCT.md, «CRS: PROJJSON»): `serde_json` non legge
+// ogni PROJJSON che l'oracolo legge; per quelli lo SRID non si ricava (`None`).
 fn projjson_root_epsg(definition: &str) -> Option<u32> {
     let value: serde_json::Value = serde_json::from_str(definition).ok()?;
     let id = value.as_object()?.get("id")?.as_object()?;
@@ -255,13 +284,23 @@ fn parse_epsg_wkt_identifier(tail: &str) -> Option<u32> {
     if !authority.eq_ignore_ascii_case("EPSG") {
         return None;
     }
-    let code = parts
-        .next()?
-        .trim()
-        .trim_matches(['"', '\''])
-        .split(|character: char| !character.is_ascii_digit())
-        .next()?;
-    code.parse().ok()
+    // Il codice finisce alla chiusura del nodo. Un codice **stringa** e' testo
+    // (GEO-005): `"04326"` non e' 4326, e si legge solo se canonico. Un codice
+    // **numerico** e' un intero, come per l'oracolo (`str(int(...))`): zeri
+    // iniziali e `+` non contano, una frazione lo rende illeggibile.
+    let campo = parts.next()?.split(']').next()?.trim();
+    let virgolette = ['"', '\''];
+    if let Some(interno) = campo
+        .strip_prefix(virgolette)
+        .and_then(|resto| resto.strip_suffix(virgolette))
+    {
+        return codice_intero_canonico(interno).and_then(|codice| u32::try_from(codice).ok());
+    }
+    let cifre = campo.strip_prefix('+').unwrap_or(campo);
+    if cifre.is_empty() || !cifre.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    cifre.parse().ok()
 }
 
 /// Rappresentazione CRS presente nella sorgente ma non risolta in modo

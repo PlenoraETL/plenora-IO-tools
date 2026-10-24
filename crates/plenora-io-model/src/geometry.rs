@@ -84,10 +84,11 @@ pub fn has_canonical_geometry_metadata(field: &arrow_schema::Field) -> bool {
 ///
 /// # Errors
 ///
-/// Restituisce [`PlenoraIoError::Contract`] se manca la versione di contratto
-/// sullo schema, se manca una delle chiavi canoniche obbligatorie, se
+/// Un errore `schema` (REJ-001, classe del vocabolario) se manca la versione di
+/// contratto sullo schema, se manca una delle chiavi canoniche obbligatorie, se
 /// l'estensione Arrow contraddice `geoarrow.wkb` o se il tipo Arrow del campo
-/// non è binario.
+/// non è binario: anche per uno schema esterno, senza versione ne' chiavi
+/// `plenora.*`, con `geoarrow.wkb` su una colonna non binaria.
 pub fn validate_geometry_field_identity(
     field: &arrow_schema::Field,
     schema_contract_version_present: bool,
@@ -145,14 +146,27 @@ pub fn with_contract_version(schema: arrow_schema::SchemaRef) -> arrow_schema::S
 ///
 /// # Errors
 ///
-/// Restituisce [`PlenoraIoError::Contract`] se lo schema dichiara una versione
-/// diversa da [`PLENORA_CONTRACT_VERSION`]. L'assenza della chiave è ammessa.
+/// Un errore `schema` se la versione non e' un intero decimale ben formato
+/// (ARROW-001), `unsupported` se e' ben formata e diversa da
+/// [`PLENORA_CONTRACT_VERSION`] (ARROW-002): le classi di REJ-001, mai
+/// `invalid_plan`. L'assenza della chiave è ammessa.
 pub fn validate_contract_version(schema: &arrow_schema::Schema) -> Result<()> {
     match schema.metadata().get(PLENORA_CONTRACT_VERSION_KEY) {
         None => Ok(()),
         Some(version) if version == PLENORA_CONTRACT_VERSION => Ok(()),
-        Some(_) => Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
-            "versione del protocollo metadati non supportata",
+        Some(version)
+            if version
+                .bytes()
+                .next()
+                .is_some_and(|b| (b'1'..=b'9').contains(&b))
+                && version.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("versione del protocollo metadati non supportata"),
+            ))
+        }
+        Some(_) => Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "versione del protocollo metadati non ben formata",
         ))),
     }
 }
@@ -403,7 +417,10 @@ pub fn with_geometry_contract_metadata(
     field.clone().with_metadata(metadata)
 }
 
-/// Un metadato di campo non valido.
+/// Un metadato di campo non valido che non e' una chiave CRS: categoria
+/// `schema` (REJ-001, classe del vocabolario), mai `invalid_plan`, che descrive
+/// la richiesta e non l'ingresso. Fino alla 5.x era `invalid_plan`; le chiavi
+/// CRS passano da [`crs_metadata`].
 ///
 /// Il **messaggio** arriva gia' fatto dal chiamante come costante: e' l'unico
 /// modo di nominare la chiave senza costruire testo a runtime, e le chiavi sono
@@ -414,7 +431,7 @@ pub fn with_geometry_contract_metadata(
 /// contesto e non nel testo: sara' il DTO a decidere se emetterlo. Qui va nel
 /// campo `field`, dove stava anche prima.
 fn invalid_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> PlenoraIoError {
-    let mut errore = PlenoraIoError::contratto_redatto(message);
+    let mut errore = PlenoraIoError::schema_redatto(message);
     errore.field = Some(field.name().clone());
     errore
 }
@@ -603,7 +620,7 @@ pub fn read_geometry_contract_metadata(
                 "wkt" => Ok(CrsDefinitionFormat::Wkt),
                 "wkt2" => Ok(CrsDefinitionFormat::Wkt2),
                 "projjson" => Ok(CrsDefinitionFormat::Projjson),
-                _ => Err(invalid_metadata(
+                _ => Err(crs_metadata(
                     field,
                     &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
                 )),
@@ -618,11 +635,11 @@ pub fn read_geometry_contract_metadata(
                 "northing_easting" => Ok(AxisOrder::NorthingEasting),
                 "other" => Ok(AxisOrder::Other),
                 "unknown" => Ok(AxisOrder::Unknown),
-                _ => Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO)),
+                _ => Err(crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO)),
             })
             .transpose()?;
         if definition.is_some() != definition_format.is_some() {
-            return Err(invalid_metadata(
+            return Err(crs_metadata(
                 field,
                 &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
             ));
@@ -652,10 +669,10 @@ pub fn read_geometry_contract_metadata(
         parsed.crs = match resolution.as_str() {
             "resolved" => {
                 if id.is_none() && definition.is_none() {
-                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
+                    return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
                 let axis_order = axis_order
-                    .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
+                    .ok_or_else(|| crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
                 let kind = match axis_order {
                     AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => {
                         crate::crs::CrsKind::Geographic
@@ -673,14 +690,14 @@ pub fn read_geometry_contract_metadata(
             "declared_unresolved" => {
                 let has_structured_representation = id.is_some() || definition.is_some();
                 if !has_structured_representation && parsed.srid.is_none() {
-                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
+                    return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
                 if !has_structured_representation && axis_order.is_some() {
-                    return Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO));
+                    return Err(crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO));
                 }
                 let axis_order = if has_structured_representation {
                     axis_order
-                        .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?
+                        .ok_or_else(|| crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?
                 } else {
                     AxisOrder::Unknown
                 };
@@ -699,7 +716,7 @@ pub fn read_geometry_contract_metadata(
             {
                 CrsResolution::Missing
             }
-            _ => return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
+            _ => return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
         };
     }
     for (key, value) in metadata {

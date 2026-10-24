@@ -491,6 +491,68 @@ fn un_payload_con_un_altro_srid_e_un_errore_esplicito() {
     }
 }
 
+/// REJ-002 per un valore: la buona forma prima dello SRID. Una linestring di un
+/// solo punto (GEO-011) con uno SRID diverso da quello del campo e' malformata,
+/// `data_mapping`, non una contraddizione del CRS: fino alla 6.0 la buona forma
+/// non guardava i conteggi e il rifiuto arrivava `crs`. Vale per `read`, per
+/// `write` e per `convert`.
+#[test]
+fn un_valore_malformato_con_un_altro_srid_e_data_mapping() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let ingresso = temporanea.path().join("malformato.arrow");
+    // Una linestring di un punto e un poligono con l'anello di quattro punti
+    // non chiuso: i punti hanno ascisse diverse, quindi il primo non e'
+    // l'ultimo.
+    for (nome, base, anelli) in [("linestring", 2_u32, None), ("polygon", 3, Some(1_u32))] {
+        let punti = if anelli.is_some() { 4_u32 } else { 1 };
+        let mut ewkb = Vec::new();
+        testa(base, Dim::Xy, Some(4326), Ordine::Little, false, &mut ewkb);
+        if let Some(anelli) = anelli {
+            u32_in(anelli, Ordine::Little, &mut ewkb);
+        }
+        u32_in(punti, Ordine::Little, &mut ewkb);
+        for i in 0..punti {
+            coordinata(Dim::Xy, f64::from(i), Ordine::Little, &mut ewkb);
+        }
+        // Il tipo dichiarato e' quello del valore: il rifiuto non e' di tipo.
+        dataset(
+            &ingresso,
+            Dim::Xy,
+            nome,
+            "3003",
+            "EPSG:3003",
+            &[vec![Some(ewkb)]],
+        );
+        let riletto = temporanea.path().join("riletto.arrow");
+        let (riuscita, documento) = esegui(&[
+            "read",
+            ingresso.to_str().unwrap(),
+            "--output",
+            riletto.to_str().unwrap(),
+        ]);
+        assert!(!riuscita, "{nome} read: {documento}");
+        assert_eq!(
+            documento["error"]["category"], "data_mapping",
+            "{nome} read: {documento}"
+        );
+        for (comando_nome, comando) in COMANDI {
+            let gpkg = temporanea
+                .path()
+                .join(format!("{nome}-{comando_nome}.gpkg"));
+            let (riuscita, documento) = comando(&ingresso, &gpkg);
+            assert!(!riuscita, "{nome} {comando_nome}: {documento}");
+            assert_eq!(
+                documento["error"]["category"], "data_mapping",
+                "{nome} {comando_nome}: {documento}"
+            );
+            assert!(
+                !gpkg.exists(),
+                "{nome} {comando_nome}: nessuna destinazione"
+            );
+        }
+    }
+}
+
 /// `convert` da un IPC EWKB big-endian XYZM arriva con gli stessi valori.
 #[test]
 fn convert_da_ipc_ewkb_verso_geopackage() {

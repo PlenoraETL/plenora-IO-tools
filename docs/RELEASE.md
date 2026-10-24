@@ -1385,6 +1385,32 @@ speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
 dell'interprete e verificare e chiudere gli eventuali processi figli e le
 risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
 
+### Arrow Geometry Semantics: la rilettura
+
+La rilettura dell'adozione restringe gli ingressi accettati e cambia la
+categoria di alcuni rifiuti; i limiti sono riportati in
+[PRODUCT](PRODUCT.md#limitazioni-di-prodotto).
+
+- **WKB ben formato ovunque (GEO-011).** Linestring di un punto, circularstring
+  pari o di meno di tre punti, anelli vuoti, di meno di quattro punti o non
+  chiusi byte per byte, triangoli di più anelli si rifiutano con
+  `data_mapping`, da qualunque formato, in lettura e in scrittura; l'encoder
+  non li emette.
+- **Profondità 32.** Il default di `max_wkb_depth` passa da 64 a 32 e un valore
+  oltre 32 si rifiuta.
+- **La buona forma prima dello SRID (REJ-002).** Un valore malformato con uno
+  SRID diverso da quello del campo è `data_mapping`, non più `crs`.
+- **Categorie di REJ-001.** Più colonne `geoarrow.wkb` sono `unsupported` (prima
+  `invalid_plan`), anche in uno schema esterno; i difetti dei metadati
+  geometrici trovati dalla lettura del contratto sono `schema`, o `crs` per le
+  chiavi CRS (prima `invalid_plan`); una versione di contratto ben formata e
+  diversa da 1 è `unsupported`, una malformata `schema`.
+- **CRS come l'oracolo.** `crs_id` con U+001C..U+001F è malformato (`crs`), un
+  WKT con quei separatori è ben formato; un PROJJSON con un numero oltre `f64`,
+  un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
+- **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
+  con `crs` invece di essere scritto come 4326.
+
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
 la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il

@@ -16,6 +16,68 @@ const PROFONDITA_MASSIMA: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Malformata;
 
+mod projjson;
+
+/// Un'autorita' o un codice letti da una definizione.
+///
+/// Un PROJJSON puo' portare una stringa con un surrogato isolato (`"\ud800"`):
+/// e' JSON ben formato per l'oracolo (`json.loads` la conserva), e nessuna
+/// stringa Rust la rappresenta. Non si sostituisce con un carattere qualunque:
+/// un testo cosi' non e' uguale a nessun `crs_id`, che e' sempre Unicode
+/// valido, e una sostituzione potrebbe renderlo uguale a uno.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TestoDefinizione {
+    Unicode(String),
+    SurrogatiIsolati,
+}
+
+impl TestoDefinizione {
+    /// Uguale, carattere per carattere, al testo dato.
+    #[must_use]
+    pub fn uguale_a(&self, altro: &str) -> bool {
+        matches!(self, Self::Unicode(testo) if testo == altro)
+    }
+
+    /// La stessa autorita' di `altro` come la confronta l'oracolo:
+    /// `pair[0].upper() == authority.upper()`. La mappatura e' quella completa
+    /// di Unicode, con i casi speciali (la s lunga U+017F diventa `S`, la
+    /// legatura U+FB01 diventa `FI`), che Rust e Python applicano entrambi; un
+    /// carattere introdotto in una versione di Unicode che l'uno conosce e
+    /// l'altro no puo' divergere, ed e' un limite dichiarato.
+    #[must_use]
+    pub fn stessa_autorita(&self, altro: &str) -> bool {
+        matches!(self, Self::Unicode(testo) if testo.to_uppercase() == altro.to_uppercase())
+    }
+}
+
+/// Uno spazio per l'oracolo: `str.isspace()` di Python, che e' anche il `\s`
+/// delle sue espressioni regolari su `str` (la grammatica di `crs_id`, lo
+/// spoglio del WKT).
+///
+/// E' il `White_Space` di Unicode -- `char::is_whitespace` -- piu' i quattro
+/// separatori U+001C..U+001F, che Python conta fra gli spazi (classe
+/// bidirezionale `B` o `S`) e Unicode no. L'elenco e' chiuso e scritto per
+/// esteso, invece di dipendere dalle tabelle Unicode di una versione di Rust:
+/// e' quello di Python 3.11 (Unicode 14), verificato su tutto lo spazio dei
+/// punti di codice.
+#[must_use]
+pub const fn spazio_python(c: char) -> bool {
+    matches!(
+        c,
+        '\u{9}'..='\u{d}'
+            | '\u{1c}'..='\u{20}'
+            | '\u{85}'
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200a}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+    )
+}
+
 const RADICI_WKT1: [&str; 7] = [
     "GEOGCS",
     "PROJCS",
@@ -53,10 +115,11 @@ const AUTORITA_LOCALI: [&str; 7] = [
 /// `crs_id` nomina l'autorita' di un catalogo locale.
 #[must_use]
 pub fn autorita_locale(crs_id: &str) -> bool {
+    // `authority.upper() in LOCAL_AUTHORITIES`, come l'oracolo: la mappatura
+    // completa, non solo ASCII.
     crs_id.split_once(':').is_some_and(|(autorita, _)| {
-        AUTORITA_LOCALI
-            .iter()
-            .any(|locale| autorita.eq_ignore_ascii_case(locale))
+        let maiuscola = autorita.to_uppercase();
+        AUTORITA_LOCALI.iter().any(|locale| maiuscola == *locale)
     })
 }
 
@@ -77,9 +140,9 @@ pub fn contraddice(
     };
     let stessa: Vec<_> = coppie
         .iter()
-        .filter(|(a, _)| a.eq_ignore_ascii_case(autorita))
+        .filter(|(a, _)| a.stessa_autorita(autorita))
         .collect();
-    Ok(!stessa.is_empty() && !stessa.iter().any(|(_, c)| c == codice))
+    Ok(!stessa.is_empty() && !stessa.iter().any(|(_, c)| c.uguale_a(codice)))
 }
 
 /// Le coppie (autorita', codice) di primo livello della definizione.
@@ -89,43 +152,24 @@ pub fn contraddice(
 pub fn identificatori(
     testo: &str,
     formato: CrsDefinitionFormat,
-) -> Result<Vec<(String, String)>, Malformata> {
-    match formato {
-        CrsDefinitionFormat::Projjson => identificatori_projjson(testo),
-        CrsDefinitionFormat::Wkt => {
-            identificatori_wkt(&radice_wkt(testo, &RADICI_WKT1)?, "AUTHORITY")
-        }
-        CrsDefinitionFormat::Wkt2 => identificatori_wkt(&radice_wkt(testo, &RADICI_WKT2)?, "ID"),
-    }
-}
-
-fn identificatori_projjson(testo: &str) -> Result<Vec<(String, String)>, Malformata> {
-    let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
-    let radice = radice.as_object().ok_or(Malformata)?;
-    let trovati: Vec<&serde_json::Value> = match (radice.get("id"), radice.get("ids")) {
-        (Some(_), Some(_)) => return Err(Malformata),
-        (Some(id), None) => vec![id],
-        (None, Some(ids)) => ids.as_array().ok_or(Malformata)?.iter().collect(),
-        (None, None) => Vec::new(),
+) -> Result<Vec<(TestoDefinizione, TestoDefinizione)>, Malformata> {
+    let wkt = |coppie: Vec<(String, String)>| {
+        coppie
+            .into_iter()
+            .map(|(a, c)| (TestoDefinizione::Unicode(a), TestoDefinizione::Unicode(c)))
+            .collect()
     };
-    trovati
-        .into_iter()
-        .map(|voce| {
-            let voce = voce.as_object().ok_or(Malformata)?;
-            let autorita = voce
-                .get("authority")
-                .and_then(serde_json::Value::as_str)
-                .ok_or(Malformata)?;
-            let codice = match voce.get("code").ok_or(Malformata)? {
-                serde_json::Value::String(testo) => testo.clone(),
-                serde_json::Value::Number(numero) if numero.is_i64() || numero.is_u64() => {
-                    numero.to_string()
-                }
-                _ => return Err(Malformata),
-            };
-            Ok((autorita.to_owned(), codice))
-        })
-        .collect()
+    match formato {
+        CrsDefinitionFormat::Projjson => projjson::identificatori(testo),
+        CrsDefinitionFormat::Wkt => Ok(wkt(identificatori_wkt(
+            &radice_wkt(testo, &RADICI_WKT1)?,
+            "AUTHORITY",
+        )?)),
+        CrsDefinitionFormat::Wkt2 => Ok(wkt(identificatori_wkt(
+            &radice_wkt(testo, &RADICI_WKT2)?,
+            "ID",
+        )?)),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -144,7 +188,9 @@ fn token_wkt(testo: &str) -> Result<Vec<Token<'_>>, Malformata> {
     let mut i = 0;
     while i < byte.len() {
         let c = testo[i..].chars().next().ok_or(Malformata)?;
-        if c.is_whitespace() {
+        // Lo spazio dell'oracolo (`\s*` e `str.strip()`), non `White_Space`:
+        // anche U+001C..U+001F separano i token.
+        if spazio_python(c) {
             i += c.len_utf8();
             continue;
         }
@@ -476,6 +522,10 @@ fn novanta(valore: &str) -> bool {
     intera.trim_start_matches('0') == "90" && frazione.bytes().all(|b| b == b'0')
 }
 
+// Limite dichiarato (docs/PRODUCT.md, «CRS: PROJJSON»): qui si legge ancora con
+// `serde_json`, che rifiuta un numero oltre `f64`, un surrogato isolato e piu' di
+// 128 livelli. Il chiamante tratta il rifiuto come assi ignoti, quindi `unknown`:
+// un'informazione in meno, mai un ordine sbagliato.
 fn assi_projjson(testo: &str) -> Result<AssiDichiarati, Malformata> {
     let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
     let radice = radice.as_object().ok_or(Malformata)?;

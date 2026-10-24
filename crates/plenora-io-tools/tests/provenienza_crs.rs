@@ -421,6 +421,27 @@ fn gpkg_conserva_l_identificatore_e_ne_deriva_le_altre_rappresentazioni() {
     caratterizza("gpkg <- identificatore conservato", &esito, &[]);
 }
 
+/// GEO-005 confronta i codici come testo: `EPSG:04326` e `EPSG:+4326` non sono
+/// `EPSG:4326`. Il `GeoPackage` porta il codice come intero, e scriverli come
+/// 4326 li faceva rileggere `EPSG:4326`, un'altra identita'. Ora si rifiutano,
+/// con `crs`, prima di creare la destinazione.
+#[test]
+fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
+    for crs in ["EPSG:04326", "EPSG:+4326", "EPSG:4326 "] {
+        let dir = directory();
+        let uscita = dir.path().join("uscita.gpkg");
+        let esito = converti(&sorgente(dir.path()), &uscita, Some(crs));
+        assert!(!esito.riuscita, "{crs}: {}", esito.stdout);
+        let busta: serde_json::Value =
+            serde_json::from_str(esito.stdout.trim()).expect("il rifiuto emette una busta JSON");
+        assert_eq!(busta["error"]["category"], "crs", "{crs}: {busta}");
+        assert!(
+            !uscita.exists(),
+            "{crs}: nessuna destinazione su un rifiuto"
+        );
+    }
+}
+
 // --- filegdb: entrambe derivano dal **runtime GDAL** -----------------------
 
 /// Il terzo controesempio: `Derived` senza alcun `Preserved`, e vera, perche'

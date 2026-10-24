@@ -1729,8 +1729,15 @@ struct BudgetForma {
 
 impl BudgetForma {
     const fn nuovo(limiti: &WkbLimits) -> Self {
+        // Lo stesso tetto effettivo del parser condiviso: la profondita' di
+        // GEO-011, che una quota puo' stringere e non allargare.
+        let profondita = plenora_io_model::limits::PROFONDITA_WKB_CONTRATTO;
         Self {
-            profondita_massima: limiti.max_depth,
+            profondita_massima: if limiti.max_depth < profondita {
+                limiti.max_depth
+            } else {
+                profondita
+            },
             componenti_residui: limiti.max_components,
         }
     }
@@ -2209,7 +2216,9 @@ fn layer_crs(layer: &plenora_io_core::WriteLayer, geom_idx: usize) -> Result<Lay
     let srid = metadata
         .get(plenora_io_model::geometry::PLENORA_SRID_KEY)
         .map(|testo| {
-            testo.parse::<i32>().map_err(|_| {
+            // La grammatica dello SRID (`0|-?[1-9][0-9]*`), non `str::parse`,
+            // che accetterebbe `+4326` e `04326`.
+            plenora_io_model::crs::codice_intero_canonico(testo).ok_or_else(|| {
                 PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                     "metadato plenora.geometry.srid non intero nel campo geometria",
                 ))
@@ -2249,10 +2258,16 @@ fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
              fuori dall'installazione d'origine",
         )));
     }
-    let Some((auth, code_i)) = id
-        .split_once(':')
-        .and_then(|(auth, code)| Some((auth.to_ascii_uppercase(), code.parse::<i32>().ok()?)))
-    else {
+    // Il codice si porta nell'intero di `organization_coordsys_id` solo se e'
+    // canonico: `EPSG:04326` o `EPSG:+4326` diventerebbero 4326 e si
+    // rileggerebbero `EPSG:4326`, un'altra identita' (GEO-005 confronta i
+    // codici come testo). Un codice cosi' non e' rappresentabile, e si rifiuta.
+    let Some((auth, code_i)) = id.split_once(':').and_then(|(auth, code)| {
+        Some((
+            auth.to_ascii_uppercase(),
+            plenora_io_model::crs::codice_intero_canonico(code)?,
+        ))
+    }) else {
         let raw = RawCrs::new(
             crs.definition.as_deref().unwrap_or(id).to_owned(),
             Some(id.to_owned()),

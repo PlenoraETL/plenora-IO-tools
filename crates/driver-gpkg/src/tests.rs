@@ -644,7 +644,11 @@ fn il_budget_dei_componenti_coincide_con_quello_del_parser_condiviso() {
         ("LINESTRING 3 punti", sequenza(3)),
         ("POLYGON EMPTY", poligono(&[])),
         ("POLYGON un anello di 4", poligono(&[4])),
-        ("POLYGON due anelli vuoti", poligono(&[0, 0])),
+        // Due anelli di quattro punti, non due anelli vuoti: un anello vuoto
+        // e' malformato per GEO-011 e il parser condiviso lo rifiuta, mentre
+        // la classificazione del flag "empty" non giudica la struttura. Il
+        // confronto riguarda il budget, e vale sui valori ben formati.
+        ("POLYGON due anelli di 4", poligono(&[4, 4])),
         (
             "MULTIPOINT di 2",
             collezione(4, &[punto(1.0, 2.0), punto_vuoto()]),

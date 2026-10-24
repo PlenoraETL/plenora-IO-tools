@@ -218,7 +218,11 @@ fn crs_id(testo: &str) -> bool {
     lettere.next().is_some_and(|c| c.is_ascii_alphabetic())
         && lettere.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
         && !codice.is_empty()
-        && !codice.chars().any(|c| c.is_whitespace() || c == ':')
+        // `\s` di Python, non `White_Space`: U+001C..U+001F sono spazi anche
+        // per la grammatica (GEO-016).
+        && !codice
+            .chars()
+            .any(|c| crate::crs_definizione::spazio_python(c) || c == ':')
 }
 
 fn chiusa(chiave: &str, valore: &str) -> bool {

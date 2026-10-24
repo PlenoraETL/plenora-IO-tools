@@ -919,10 +919,17 @@ fn multiple_geoarrow_fields_are_rejected() {
         writer.finish().unwrap();
     }
 
-    assert!(matches!(
-        IpcDriver.open(Source::Path(path), opzioni_lettura()),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
-    ));
+    // GEO-012 e REJ-001: un limite di supporto, `unsupported`, anche per uno
+    // schema esterno senza versione ne' chiavi `plenora.*`; mai `invalid_plan`,
+    // che descrive la richiesta e non l'ingresso.
+    let Err(errore) = IpcDriver.open(Source::Path(path), opzioni_lettura()) else {
+        panic!("due colonne geoarrow.wkb devono essere rifiutate");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
 }
 
 #[test]

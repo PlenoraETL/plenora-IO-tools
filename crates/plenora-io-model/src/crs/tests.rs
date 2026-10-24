@@ -294,3 +294,45 @@ fn definition_epsg_rejects_ambiguous_or_nested_only_ids() {
         None
     );
 }
+
+/// GEO-005 confronta i codici come testo: un codice con zeri iniziali o con il
+/// segno non e' il codice canonico, e non diventa uno SRID che lo farebbe
+/// sembrare tale.
+#[test]
+fn authority_srid_solo_per_un_codice_canonico() {
+    assert_eq!(authority_srid("EPSG:4326"), Some(4326));
+    assert_eq!(authority_srid("epsg:0"), Some(0));
+    for id in [
+        "EPSG:04326",
+        "EPSG:+4326",
+        "EPSG:-4326",
+        "EPSG:4326 ",
+        "EPSG:",
+        "EPSG:4326.0",
+    ] {
+        assert_eq!(authority_srid(id), None, "{id}");
+    }
+}
+
+/// Nel WKT un codice **numerico** si legge come intero, come fa l'oracolo
+/// (`+0043` vale 43); un codice **stringa** e' testo, e `"04326"` non e' 4326.
+#[test]
+fn definition_authority_srid_distingue_il_numero_dalla_stringa() {
+    let wkt = |codice: &str| format!("GEOGCS[\"x\",AUTHORITY[\"EPSG\",{codice}]]");
+    for (codice, atteso) in [
+        ("\"4326\"", Some(4326)),
+        ("4326", Some(4326)),
+        ("04326", Some(4326)),
+        ("+4326", Some(4326)),
+        ("\"04326\"", None),
+        ("\"+4326\"", None),
+        ("4326.5", None),
+        ("\"4326x\"", None),
+    ] {
+        assert_eq!(
+            definition_authority_srid(&wkt(codice), CrsDefinitionFormat::Wkt),
+            atteso,
+            "{codice}"
+        );
+    }
+}

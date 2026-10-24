@@ -1421,12 +1421,13 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     // con le quote della produzione mentre gira con un tetto per cella cento
     // volte piu' stretto.
     //
-    // La profondita' e' 32 e non 64, e la ragione e' misurata: `serde_json` ha
-    // un limite di ricorsione suo, 128 livelli JSON, e ogni livello GeoJSON ne
-    // costa due -- l'oggetto e la sua lista. Oltre i sessantadue livelli e'
-    // **lui** a rifiutare, quindi con il tetto di produzione il nostro non
-    // morderebbe mai e la campagna non lo eserciterebbe. A 32 morde per primo,
-    // ed e' cio' che un input ostile deve incontrare.
+    // La profondita' e' 32, come in produzione dalla 6.0 (GEO-011), e la
+    // ragione per cui lo era gia' prima e' misurata: `serde_json` ha un limite
+    // di ricorsione suo, 128 livelli JSON, e ogni livello GeoJSON ne costa due
+    // -- l'oggetto e la sua lista. Oltre i sessantadue livelli e' **lui** a
+    // rifiutare, quindi con il vecchio tetto di produzione (64) il nostro non
+    // mordeva mai. A 32 morde per primo, ed e' cio' che un input ostile deve
+    // incontrare.
     let quote = QuoteInferenza {
         cella: WkbLimits {
             max_cell_bytes: 1_048_576,
