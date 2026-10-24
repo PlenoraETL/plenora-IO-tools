@@ -373,6 +373,9 @@ impl FormatDriver for IpcDriver {
         // sorgente non vengono riscritti: e' cio' che distingue una
         // conservazione da un ricalcolo.
         let fields = with_field_identity(fields);
+        // Le chiavi di schema che IO non possiede passano (ARROW-010), anche un
+        // `geo` che contraddice il campo: limite dichiarato in docs/PRODUCT.md
+        // («un `geo` di schema passa tale e quale»).
         let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
             fields,
             layer.schema.metadata().clone(),

@@ -1275,10 +1275,11 @@ impl FormatDriver for GeoParquetDriver {
         let geometria_nullable = schema.field(geom_idx).is_nullable();
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+        aug_fields[geom_idx] = senza_crs_geoarrow(&aug_fields[geom_idx]);
         aug_fields.push(bbox_field(geometria_nullable));
         let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
             aug_fields,
-            schema.metadata().clone(),
+            senza_chiavi_del_formato(schema.metadata()),
         ));
         let staging = StagedFile::new(
             &path,
@@ -1292,12 +1293,18 @@ impl FormatDriver for GeoParquetDriver {
             .set_compression(compression_from(opts)?)
             .set_max_row_group_row_count(Some(65_536))
             .build();
-        let writer = ArrowWriter::try_new(staging.reopen()?, write_schema.clone(), Some(props))
-            .map_err(|_| {
-                fmt_err(&PublicMessage::Curated(
-                    "apertura del writer Parquet fallita",
-                ))
-            })?;
+        // `ARROW:schema` lo scrive `finish`, con il `geo` finale (sotto,
+        // `schema_arrow_con_geo`).
+        let opzioni = parquet::arrow::arrow_writer::ArrowWriterOptions::new()
+            .with_properties(props)
+            .with_skip_arrow_metadata(true);
+        let writer =
+            ArrowWriter::try_new_with_options(staging.reopen()?, write_schema.clone(), opzioni)
+                .map_err(|_| {
+                    fmt_err(&PublicMessage::Curated(
+                        "apertura del writer Parquet fallita",
+                    ))
+                })?;
         with_write_validation(
             Box::new(GeoParquetWriter {
                 staging,
@@ -1315,6 +1322,63 @@ impl FormatDriver for GeoParquetDriver {
             opts,
         )
     }
+}
+
+/// Le chiavi di schema che appartengono a `GeoParquet` o al Parquet stesso.
+///
+/// Il contratto sorgente puo' portarle -- un Arrow IPC con il `geo` di geopandas,
+/// un `GeoParquet` riletto -- e copiate nello schema di scrittura finivano in
+/// `ARROW:schema`, accanto al `geo` del footer che il writer scrive dal
+/// contratto: pyarrow (`read_schema`, `read_table`) rendeva il `geo` della
+/// sorgente, e un file `EPSG:32632` si leggeva `EPSG:4326` (rilettura 12). Il
+/// `geo` del footer e' l'unica verita'; in lettura la chiave e' consumata nel
+/// contratto e non lo attraversa.
+const CHIAVI_DEL_FORMATO: [&str; 2] =
+    [plenora_io_model::geometry::GEO_METADATA_KEY, "ARROW:schema"];
+
+/// Il CRS `GeoArrow` (`ARROW:extension:metadata`) della colonna geometria: IO non
+/// lo legge (docs/PRODUCT.md), e qui e' una seconda dichiarazione del CRS che
+/// il `geo` del file puo' contraddire. Non entra ne' esce.
+const CHIAVE_ESTENSIONE_GEOARROW: &str = "ARROW:extension:metadata";
+
+fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::Metadata {
+    let mut metadati = metadati.clone();
+    for chiave in CHIAVI_DEL_FORMATO {
+        metadati.remove(chiave);
+    }
+    metadati
+}
+
+/// Lo schema Arrow incorporato, con il `geo` del footer **identico**.
+///
+/// pyarrow, quando il footer porta `ARROW:schema`, rende i metadati dello schema
+/// incorporato e non quelli del footer, e geopandas cerca `geo` li': fino alla
+/// rilettura 12 un `GeoParquet` di IO li' non lo aveva (o aveva quello stantio
+/// della sorgente), e per geopandas non era un `GeoParquet`. Il `geo` si decide
+/// alla chiusura, con i tipi visti; `ArrowWriter` fissa lo schema
+/// all'apertura, quindi il writer salta il proprio e lo codifica qui, con la
+/// stessa funzione della libreria.
+fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
+    let mut metadati = schema.metadata().clone();
+    metadati.insert(plenora_io_model::geometry::GEO_METADATA_KEY, geo);
+    let con_geo = Schema::new_with_metadata(schema.fields().clone(), metadati);
+    let mut proprieta = WriterProperties::builder().build();
+    parquet::arrow::add_encoded_arrow_schema_to_metadata(&con_geo, &mut proprieta);
+    proprieta
+        .key_value_metadata()
+        .and_then(|voci| voci.iter().find(|voce| voce.key == "ARROW:schema"))
+        .and_then(|voce| voce.value.clone())
+        .ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "schema Arrow incorporato non codificato",
+            ))
+        })
+}
+
+fn senza_crs_geoarrow(campo: &Field) -> Field {
+    let mut metadati = campo.metadata().clone();
+    metadati.remove(CHIAVE_ESTENSIONE_GEOARROW);
+    campo.clone().with_metadata(metadati)
 }
 
 /// Che cosa il writer mette nel campo `crs` della colonna.
@@ -1875,6 +1939,10 @@ impl FormatWriter for GeoParquetWriter {
         })?;
         schema_ufficiale::valida(&documento, VERSIONE_SCRITTA)?;
 
+        writer.append_key_value_metadata(KeyValue::new(
+            "ARROW:schema".to_owned(),
+            schema_arrow_con_geo(&self.write_schema, &geo)?,
+        ));
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|_| {
             fmt_err(&PublicMessage::Curated(
@@ -3038,6 +3106,7 @@ fn retag_schema(
         .map(|f| {
             if f.name() == geom_name {
                 let mut md = f.metadata().clone();
+                md.remove(CHIAVE_ESTENSIONE_GEOARROW);
                 md.insert(
                     ARROW_EXTENSION_NAME_KEY.to_owned(),
                     GEOARROW_WKB_EXTENSION.to_owned(),
@@ -3051,7 +3120,10 @@ fn retag_schema(
             }
         })
         .collect();
-    Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
+    Arc::new(Schema::new_with_metadata(
+        fields,
+        senza_chiavi_del_formato(schema.metadata()),
+    ))
 }
 
 /// Trova la colonna geometria (`geoarrow.wkb`) in uno schema in scrittura.

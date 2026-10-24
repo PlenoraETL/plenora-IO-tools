@@ -424,6 +424,11 @@ pub struct CrsRepresentationCapabilities {
     /// Che cosa resta dell'identificatore quando la definizione non si
     /// conserva tale e quale. Non va sul filo: e' un raffinamento per piano.
     pub identificatore_senza_definizione: IdentificatoreSenzaDefinizione,
+    /// Il writer scrive l'autorita' in maiuscolo (il `GeoPackage`, nella
+    /// colonna `organization`): `epsg:4326` si rilegge `EPSG:4326`, uguale per
+    /// GEO-005 ma non byte per byte, e l'identificatore e' `derived`. Fino alla
+    /// rilettura 12 era `preserved`. Non va sul filo.
+    pub autorita_in_maiuscolo: bool,
 }
 
 /// Il catalogo dice la capability statica, e una capability che dipende dalla
@@ -503,7 +508,15 @@ impl CrsRepresentationCapabilities {
             crs_definition,
             definizione_verbatim: DefinizioneVerbatim::Tutte,
             identificatore_senza_definizione: IdentificatoreSenzaDefinizione::ComeDichiarato,
+            autorita_in_maiuscolo: false,
         }
+    }
+
+    /// Il writer scrive l'autorita' dell'identificatore in maiuscolo.
+    #[must_use]
+    pub const fn autorita_in_maiuscolo(mut self) -> Self {
+        self.autorita_in_maiuscolo = true;
+        self
     }
 
     /// Senza una definizione conservata tale e quale, l'identificatore si
@@ -536,12 +549,21 @@ impl CrsRepresentationCapabilities {
     ) -> CrsRepresentationState {
         let conservata = definizione.is_some()
             && self.crs_definition_per(grammatica) == CrsRepresentationState::Preserved;
-        match self.identificatore_senza_definizione {
+        let stato = match self.identificatore_senza_definizione {
             IdentificatoreSenzaDefinizione::SoloQuesti {
                 identificatori,
                 altrimenti,
             } if !conservata && !id.is_some_and(|id| identificatori.contains(&id)) => altrimenti,
             _ => self.crs_id,
+        };
+        let riscritta = self.autorita_in_maiuscolo
+            && id
+                .and_then(|id| id.split_once(':'))
+                .is_some_and(|(autorita, _)| autorita.bytes().any(|b| b.is_ascii_lowercase()));
+        if riscritta && stato == CrsRepresentationState::Preserved {
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier)
+        } else {
+            stato
         }
     }
 

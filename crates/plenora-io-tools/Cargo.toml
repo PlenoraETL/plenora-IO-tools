@@ -76,3 +76,11 @@ arrow-schema.workspace = true
 # nostro validatore concorda con se stesso. E' gia' nel workspace -- la usa
 # `driver-geoparquet` -- quindi il grafo compilato del prodotto non cambia.
 jsonschema.workspace = true
+# Solo per `tests/rilettura_dei_crs.rs`: le sorgenti native (un `GeoPackage`
+# come lo scrive GDAL, un `GeoParquet` come lo scrive pyarrow) non passano dai
+# writer di IO, che la matrice prova, e lo schema incorporato in `ARROW:schema`
+# si legge senza il lettore del driver. Sono gia' nel workspace -- le usano
+# `driver-gpkg` e `driver-geoparquet` --, quindi il grafo compilato del
+# prodotto non cambia.
+parquet.workspace = true
+rusqlite.workspace = true

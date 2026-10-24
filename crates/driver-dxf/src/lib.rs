@@ -226,6 +226,12 @@ fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
 /// [`plenora_io_model::crs_definizione::senza_bom`]): un secondo resta, e la
 /// definizione resta malformata.
 ///
+/// Gli spazi ai bordi non contano nel confronto ma **restano** nel testo: il
+/// writer la scrive tale e quale (il fork codifica gli a capo come `^M^J`)
+/// e la capability la dichiara conservata. Fino alla rilettura 12 il lettore la
+/// rifilava, e un `.prj` chiuso da CRLF usciva dal DXF diverso senza che la
+/// conversione lo dichiarasse.
+///
 /// # Errors
 ///
 /// `Crs` se due `GEODATA` dichiarano definizioni diverse.
@@ -235,8 +241,8 @@ fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
         let ObjectType::GeoData(geodata) = &object.specific else {
             continue;
         };
-        let definition = geodata.coordinate_system_definition.trim();
-        if definition.is_empty() {
+        let definition = geodata.coordinate_system_definition.as_str();
+        if definition.trim().is_empty() {
             continue;
         }
         // Un BOM solo, come `senza_bom`, senza copiare la definizione.
@@ -247,7 +253,7 @@ fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
         };
         let definition = &definition[bom..];
         match trovata {
-            Some(precedente) if precedente != definition => {
+            Some(precedente) if precedente.trim() != definition.trim() => {
                 return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                     "DXF con piu' GEODATA che dichiarano CRS diversi",
                 )));
@@ -271,8 +277,15 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
     };
     // Il BOM iniziale l'ha gia' tolto `embedded_crs_definition`, prima del
     // confronto fra i `GEODATA`: toglierlo di nuovo qui ne toglierebbe un
-    // secondo.
-    if definition.len() > plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
+    // secondo. Una forma testuale si misura senza gli spazi ai bordi, che non
+    // entrano in nessuna definizione; un WKT entra nel contratto tale e quale.
+    let testuale = !plenora_io_model::crs_definizione::sembra_wkt(&definition);
+    let misurata = if testuale {
+        definition.trim()
+    } else {
+        definition.as_str()
+    };
+    if misurata.len() > plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
         let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
             "DXF: la definizione del CRS nel GEODATA supera il tetto, byte",
             NumeroStrutturale::Limite(driver_common::saturating_u64(
@@ -282,7 +295,7 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         errore.driver = Some("dxf".to_owned());
         return Err(errore);
     }
-    if !plenora_io_model::crs_definizione::sembra_wkt(&definition) {
+    if testuale {
         return resolve_dxf_crs_testuale(&definition, assunta);
     }
     // Una definizione WKT la decide la regola unica del modello, la stessa

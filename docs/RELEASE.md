@@ -1578,6 +1578,29 @@ categoria di alcuni rifiuti; i limiti sono riportati in
     `plenora-io-catalog-v2`, che da ora enumera anche `crs` e
     `crs_representations`
     ([PRODUCT](PRODUCT.md#il-vocabolario-crs-del-catalogo)).
+- **Il file si rilegge come la busta lo dichiara (rilettura 12).** La prova
+  confronta anche stato, grammatica, assi e SRID, parte anche da sorgenti
+  native (GeoPackage alla GDAL, Shapefile con `.prj` CRLF, GeoParquet alla
+  geopandas) e ha un terzo passaggio
+  ([PRODUCT](PRODUCT.md#il-file-si-rilegge-come-la-busta-lo-dichiara)).
+  Cambiano, rispetto a 777c5a1:
+  - un GeoParquet scritto porta in `ARROW:schema` lo stesso `geo` del footer,
+    e non più quello della sorgente né il CRS GeoArrow
+    (`ARROW:extension:metadata`) della colonna geometria: pyarrow leggeva il
+    `geo` della sorgente (`EPSG:4326` per un file che il footer dichiara
+    `EPSG:32632`, `lossless`), e da una sorgente senza `geo` (IPC, GeoPackage,
+    Shapefile, DXF, GeoJSON) non ne leggeva nessuno, così per geopandas il file
+    non era un GeoParquet. I tipi dello schema incorporato non cambiano. Il lettore GeoParquet non
+    lascia più `geo` nei metadati dello schema del contratto, quindi un
+    GeoParquet convertito in IPC non porta un `geo` di schema; da IPC a IPC un
+    `geo` di schema passa com'era (limite dichiarato);
+  - il DXF rilegge la definizione del `GEODATA` tale e quale, con gli spazi ai
+    bordi e un CRLF finale (prima rifilata, con la definizione dichiarata
+    conservata); due `GEODATA` che differiscono solo per gli spazi ai bordi
+    restano un CRS solo;
+  - verso GeoPackage un identificatore con l'autorità minuscola (`epsg:4326`)
+    dichiara `crs_id_not_preserved_derived`: si rilegge `EPSG:4326` (prima
+    dichiarato conservato).
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è

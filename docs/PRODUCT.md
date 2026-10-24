@@ -291,14 +291,15 @@ definizione la riscrive (il GeoPackage), e il catalogo la pubblica come
 |---|---|---|
 | IPC | tutte | — |
 | GeoParquet | PROJJSON, byte per byte | con `OGC:CRS84` il campo `crs` si omette (il file si rilegge `OGC:CRS84`, senza definizione) e la perdita è `crs_definition_not_preserved_absent`; con `EPSG:4326` lo stesso, più `crs_id_not_preserved_absent` (rilettura 11); con un altro identificatore, o senza, `unsupported`. Fino a db1307d il documento passava da `serde_json::Value`: le chiavi uscivano riordinate e i numeri riscritti come `f64` (`0.99960000000000000000000001` diventava `0.9996`, `9E0` diventava `9.0`), con la definizione dichiarata conservata; anche il lettore consegnava la riscrittura invece del testo del file |
-| Shapefile (`.prj`), DXF (`GEODATA`) | WKT, WKT 2 | un PROJJSON con `OGC:CRS84` o `EPSG:4326` si sostituisce con il WKT che il writer sintetizza, e la perdita è `crs_definition_not_preserved_derived`; con ogni altro identificatore `unsupported` («il `.prj` porta un WKT»). Convertire PROJJSON in WKT servirebbe un resolver: un GeoParquet in EPSG:3003 non si converte in Shapefile né in DXF |
+| Shapefile (`.prj`), DXF (`GEODATA`) | WKT, WKT 2, byte per byte (anche gli spazi ai bordi e un CRLF finale: il DXF codifica gli a capo come `^M^J`, e fino alla rilettura 12 il lettore del `GEODATA` rifilava il testo, così un `.prj` chiuso da CRLF usciva dal DXF diverso con la definizione dichiarata conservata) | un PROJJSON con `OGC:CRS84` o `EPSG:4326` si sostituisce con il WKT che il writer sintetizza, e la perdita è `crs_definition_not_preserved_derived`; con ogni altro identificatore `unsupported` («il `.prj` porta un WKT»). Convertire PROJJSON in WKT servirebbe un resolver: un GeoParquet in EPSG:3003 non si converte in Shapefile né in DXF |
 | GeoPackage | WKT 1, riscritto | la colonna `definition` di `gpkg_spatial_ref_sys` porta un WKT 1 (GPKG 1.3, tabella 21), e il writer ci scrive solo quello: la definizione si riscrive dalla riga (`crs_definition_not_preserved_derived`). Un PROJJSON o un WKT 2 non ci vanno: per `EPSG:4326` la riga, che il writer registra sempre, porta il WKT canonico (`derived`), per ogni altro identificatore la colonna vale `undefined`, come la specifica ammette, e la definizione non si rilegge (`crs_definition_not_preserved_absent`). Fino a db1307d un PROJJSON finiva nella colonna WKT, dichiarato derivato |
 | FileGDB | — | la definizione si riscrive da GDAL: `crs_definition_not_preserved_derived`, come prima |
 | GeoJSON, KML, CSV, XLSX | — | `crs_definition_not_preserved_absent`, come prima |
 
 La riga di `EPSG:4326` che ogni GeoPackage scritto da IO porta ha, dalla
-rilettura 11, il WKT 1 del registro EPSG con l'autorità di radice
-(`WKT_WGS84_GPKG` in `driver-gpkg`), non più `GEOGCS["WGS 84"]`: quel WKT la
+rilettura 11, il testo della tabella 21 di GPKG 1.3 — un WKT 1 con
+l'autorità di radice e **senza** `AXIS`, non la forma del registro EPSG
+(`WKT_WGS84_GPKG` in `driver-gpkg`) —, non più `GEOGCS["WGS 84"]`: quel WKT la
 regola dei lettori non lo risolve, e un GeoPackage in WGS 84 convertito in
 Shapefile o DXF si rileggeva non risolto. Il GeoPackage rifiuta con
 `unsupported`, non più `crs`, ciò che `gpkg_spatial_ref_sys` non sa
@@ -354,7 +355,8 @@ rileggeva non risolto, con l'identificatore dichiarato derivato).
 
 È l'invariante della classe, e una prova permanente lo verifica su ogni
 sorgente verso ogni bersaglio senza GDAL (`rilettura_dei_crs.rs` in
-`plenora-io-tools`), in due passaggi: da venti sorgenti IPC (WKT, WKT ESRI,
+`plenora-io-tools`), in due passaggi (tre, e con le sorgenti native, dalla
+rilettura 12: sotto): da venti sorgenti IPC (WKT, WKT ESRI,
 WKT 2, PROJJSON con numeri oltre `f64` ed escape, solo identificatore, senza
 identificatore, coppie contraddette, `missing`) e poi dai file GeoParquet,
 GeoPackage, Shapefile, DXF e GeoJSON che il primo passaggio ha scritto. Per
@@ -368,6 +370,65 @@ la definizione; un `missing` si rilegge `missing`. CSV e XLSX non portano un
 CRS, e per loro la regola è che ogni perdita sia dichiarata. Su db1307d la
 prova fallisce con trenta violazioni al primo passaggio e cinquantacinque al
 secondo, che ricadono nei sette rilievi della rilettura 11.
+
+Dalla rilettura 12 la prova confronta anche lo stato della risoluzione (una
+sorgente non risolta si rilegge nello stesso stato, una risolta si rilegge
+risolta), la grammatica (`definition_format`: la stessa definizione non si
+rilegge con un'altra etichetta), l'ordine degli assi (uguale, oppure `unknown`
+quando la perdita della definizione che lo portava è dichiarata — mai un altro
+ordine — con la sola eccezione dichiarata di `other` verso i formati con l'est
+per primo, sotto «Ordine degli assi») e l'SRID (dove un file lo porta in chiaro,
+Arrow IPC); pretende che un GeoParquet scritto non porti un `geo` in
+`ARROW:schema` e che un Arrow IPC scritto da un'altra sorgente non porti un
+`geo` di schema. Parte anche da sorgenti native, scritte senza i writer di IO:
+GeoPackage alla GDAL (WKT con `AXIS`, `organization` minuscola, definizione
+chiusa da CRLF, `undefined`), Shapefile con il `.prj` ESRI, chiuso da CRLF o
+preceduto da spazi, GeoParquet alla geopandas (`geo` anche nello schema
+incorporato, PROJJSON con `", "`, autorità minuscola, `crs` omesso o `null`),
+oltre ai casi IPC con identificatori minuscoli, definizioni con spazi ai bordi
+o CRLF, `other`, SRID, un `geo` di schema stantio e una sorgente
+`declared_unresolved`; e ha un terzo passaggio sulle catene GPKG→SHP,
+GeoParquet→GPKG, SHP→GPKG, GPKG→DXF, DXF→GeoParquet e SHP→DXF. Su 777c5a1
+fallisce con diciannove violazioni al primo passaggio, cinquantuno al secondo e
+trentaquattro al terzo, in tre classi:
+
+* **il `geo` della sorgente nello schema scritto.** Il writer GeoParquet
+  copiava i metadati dello schema del contratto in `ARROW:schema`, accanto al
+  `geo` del footer scritto dal contratto: da un IPC con un `geo` di schema che
+  dichiara `EPSG:4326` e un campo `EPSG:32632` usciva un file `lossless` il cui
+  footer dice 32632 e che pyarrow (`read_schema`, `read_table`) legge 4326. Lo
+  stesso da GeoParquet a GeoParquet, e da GeoParquet a IPC il `geo` restava nei
+  metadati dello schema. Ora il lettore GeoParquet consuma `geo` nel contratto
+  e non lo lascia nello schema, e il writer non copia nello schema le chiavi
+  che appartengono al formato (`geo`, `ARROW:schema`) né il CRS GeoArrow
+  (`ARROW:extension:metadata`) della colonna geometria, che IO non legge e che
+  il `geo` può contraddire: il `geo` del footer è l'unica dichiarazione. Le
+  altre chiavi di schema passano (ARROW-010). Lo schema incorporato porta lo
+  **stesso** `geo` del footer, byte per byte: pyarrow (`read_schema`,
+  `read_table`), quando il footer porta `ARROW:schema`, rende i soli metadati
+  dello schema incorporato, e geopandas (`read_parquet`) cerca `geo` lì. Fino
+  alla rilettura 12 un GeoParquet scritto da IO da una sorgente senza `geo`
+  (IPC, GeoPackage, Shapefile, DXF, GeoJSON) non lo portava affatto nello schema
+  incorporato — per l'ecosistema pyarrow non era un GeoParquet («Missing geo
+  metadata») —, e da un GeoParquet portava quello della sorgente. Il `geo` si
+  decide alla chiusura (tipi visti, covering) e `ArrowWriter` fissa lo schema
+  all'apertura: il writer salta lo schema incorporato della libreria
+  (`with_skip_arrow_metadata`) e lo codifica alla chiusura con la stessa
+  funzione (`add_encoded_arrow_schema_to_metadata`), sullo stesso schema più
+  `geo`, così i tipi Arrow incorporati (large, timezone, dictionary, decimal,
+  nullabilità, metadati di campo) restano quelli di prima;
+* **il DXF che rifilava la definizione** (sopra, tabella delle grammatiche);
+* **il GeoPackage che scrive l'autorità in maiuscolo.** `organization` si
+  scrive in maiuscolo, e `epsg:4326` si rilegge `EPSG:4326`: uguale per
+  GEO-005, ma non byte per byte, e la conversione lo dichiarava conservato. Ora
+  un identificatore con l'autorità minuscola verso GeoPackage dichiara
+  `crs_id_not_preserved_derived` (la capability `autorita_in_maiuscolo` di
+  `CrsRepresentationCapabilities`, che non va sul filo).
+
+Prove: `rilettura_dei_crs.rs` (regola 9: il `geo` di `ARROW:schema` è quello
+del footer; su c5abbdb fallisce in tutti e tre i passaggi, 140 violazioni);
+`le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato`,
+`il_geo_letto_non_resta_nei_metadati_del_contratto` (in `driver-geoparquet`).
 
 #### Il vocabolario CRS del catalogo
 
@@ -456,9 +517,11 @@ Limiti dichiarati (regola 4):
 * **`other` e `unknown` passano verso i formati con l'est per primo.** Il
   bordo non sa provare che contraddicano il formato, e i valori si scrivono
   come sono. Garanzia indebolita: la rilettura dichiara l'ordine del formato,
-  non `unknown`. Hazard: un campo `unknown` che memorizzava la latitudine prima
-  esce dalla rilettura come `lon_lat`. Rientro: rifiutare `unknown` in
-  scrittura, quando una versione del contratto lo decide.
+  né `other` né `unknown`. Hazard: un campo `unknown` o `other` che
+  memorizzava la latitudine (o il nord) prima esce dalla rilettura come
+  `lon_lat` (o `easting_northing`), cioè con un ordine che i valori non hanno.
+  Rientro: rifiutare `other` e `unknown` in scrittura, quando una versione del
+  contratto lo decide.
 * **Proiezioni polari in WKT 1 senza `AXIS`.** Il default OGC 01-009 è est poi
   nord; il prodotto dichiara `other` solo quando il nome della proiezione dice
   polare (`Polar_Stereographic`, `..._Pole`) o la latitudine d'origine è ±90.
@@ -648,6 +711,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | Runtime `io.read`: vettore di cancellazione | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §3 (`io-read-cancelled-error`), per la lettura con token gia' cancellato: `CANCELLED`, fase `probe`, retry `never`, contro `READ_CANCELLED`, `read`, `safe` della fixture. Categoria `cancelled` ed effetto `none` coincidono. Il binding conserva gli assi delle operazioni comuni a CLI e Rust (SURFACE-BINDINGS-1.0 §1). Conseguenza per il consumatore: nessun retry automatico. Hazard: chi instrada per codice/fase della fixture puo' non riconoscere l'errore; chi presume `safe` puo' ritentare contro l'indicazione effettiva. Rientro: allineare la fixture in plenora-contracts oppure cambiare gli assi su tutte le superfici in una release dichiarata. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | GeoParquet: compatibilita' di lettura | Il fork comune con data-tools2 `6492733` rifiuta anche file validi prima leggibili: `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` per valori e livelli non sono qualificati. Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY` (distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime` (default senza schema Arrow incorporato), giorni o millisecondi non nulli con `YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante; statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di ogni rappresentazione permessa dal formato Parquet. Sono rifiutati anche `INDEX_PAGE`, lettura di page index (`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati (selezioni/filtri di righe, offset, salto di record/pagine). IO non usa questi ultimi percorsi; usa `with_row_groups` per il pruning. Indici/bloom presenti ma non richiesti non causano da soli il rifiuto. Per Dictionary FLBA: messaggio statico `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei batch: errore tipizzato `DataMapping`, fase `Read`, retry `Never`, effetto `None`, messaggio statico `batch Parquet non leggibile`, senza dati; nessun panico o risultato vuoto. Rientro: qualificare ogni percorso nel fork condiviso (fuzz e regressioni), adottare la base qualificata e verificarla al confine IO. Vedi [note della prossima release](RELEASE.md#note-della-prossima-release) |
 | IPC | **una sola colonna geometrica per layer.** Il contratto comune (ARROW-INTERCHANGE-1.0) non fissa un numero di colonne geometriche; il modello di questo componente porta un solo contratto geometrico per layer. Un Arrow IPC in ingresso con due o più colonne GeoArrow è rifiutato all'apertura con `unsupported` (GEO-012, REJ-001), anche quando lo schema è esterno, senza versione né chiavi `plenora.*`, e dopo i difetti di vocabolario di ogni colonna geometria (REJ-002) (prova `multiple_geoarrow_fields_are_rejected` in `driver-ipc`); in scrittura vale lo stesso rifiuto, `unsupported`, per un layer con più colonne GeoArrow e nessun contratto geometrico esplicito (prova `ambiguous_or_invalid_legacy_geometry_metadata_is_rejected` in `plenora-io-core`). Fino alla 5.x entrambi erano `invalid_plan`, che REJ-001 esclude. Hazard: nessun dato si perde in silenzio, ma una catena verso `io.write` con due geometrie fallisce invece di comporsi. In GeoParquet la colonna primaria è la geometria del layer; le altre colonne geometriche del file (le secondarie del documento `geo` e i campi che lo schema Arrow incorporato marca come geometria) sono **nominate** nella scoperta, in `native_metadata["geoparquet.altre_colonne"]`, e una lettura che le comprende — senza projection, o con una projection che ne seleziona una — è rifiutata con `unsupported` prima di riaprire il file (GEO-012: nessuna geometria degradata a binario, nessuna scelta al posto di chi legge; prove `due_geometrie_senza_selezione_sono_rifiutate_come_non_supportate` e seguenti in `driver-geoparquet`). Si legge proiettando la sola primaria, o nessuna geometria. Rientra con un contratto multi-geometria per layer, che oggi nessuna versione pubblicata prevede |
+| IPC | **un `geo` di schema passa tale e quale.** Un Arrow IPC può portare nei metadati dello schema un documento `geo` (geopandas lo scrive con `to_feather`). IO non lo legge né lo confronta con il contratto della colonna, che resta l'unica fonte del CRS; da IPC a IPC la chiave passa byte per byte, come ogni chiave che IO non possiede (ARROW-010), anche quando contraddice il campo (prova `rilettura_dei_crs.rs`, caso `32632_pj_geo_stantio`). Non arriva mai a un GeoParquet scritto da IO, né a un IPC scritto da un'altra sorgente: il writer GeoParquet non copia `geo` nello schema, e il lettore GeoParquet lo consuma nel contratto. Hazard: un consumatore che legge il `geo` di un IPC (geopandas `read_feather`) da un IPC→IPC vede il CRS stantio della sorgente. Rientra quando il lettore IPC confronta un `geo` di schema con il contratto e rifiuta la contraddizione (ARROW-006) |
 | IPC | **il CRS nella sola forma GeoArrow standard non è letto.** Il CRS si legge dalla chiave di campo `crs` e dal blocco `plenora.geometry.*` (ARROW-INTERCHANGE-1.0 §4), non da `ARROW:extension:metadata`. Un file che porta il CRS **solo** lì, come lo scrivono i produttori GeoArrow esterni, è letto con CRS `missing`, senza errore (prova `crs_only_in_geoarrow_extension_metadata_is_read_as_missing` in `driver-ipc`). Hazard: lo stato `missing` è dichiarato nel contratto e i sink che pretendono un CRS rifiutano, ma un sink che lo ammette scrive una geometria senza il CRS che la sorgente aveva. I file di plenora-data-tools e plenora-database-tools portano il blocco `plenora.geometry.*` e non sono toccati. Rientra quando `ARROW:extension:metadata` viene letto, o quando un CRS presente solo lì viene rifiutato con un errore esplicito |
 | IPC | **solo i sette tipi semplici e la semantica `geometry`.** Il sink IPC (`WKB_PASSTHROUGH_GEOMETRY`) dichiara Point, LineString, Polygon, i tre Multi e GeometryCollection: una colonna che dichiara CircularString, Triangle o altri tipi estesi, o la semantica `geography`, si rifiuta con `unsupported` prima di ogni effetto (GEO-000, verdetto di supporto; GEO-010). Lo stesso valore dentro una GeometryCollection resta un valore e segue GEO-011. Il catalogo dichiara lo stesso insieme. Rientro: un sink IPC che dichiari i tipi estesi. |
 | tutti: identificatore di radice di un WKT | lo SRID di radice di un WKT (capability e perdita di fedeltà) si legge con la stessa grammatica della verifica GEO-005, WKT 1 o WKT 2: `AUTHORITY` in WKT 1, `ID` in WKT 2, solo alla radice, con parentesi quadre o tonde. Fino alla 5.x uno scanner di byte più largo contava solo le parentesi quadre (un CRS annidato fra tonde esponeva il suo identificatore come di radice), trovava `ID[` dentro `XID[` e accettava le parole dell'altra grammatica: due letture della stessa radice davano due CRS. Un WKT non ben formato non ha SRID di radice. **L'identificatore che lo Shapefile (`.prj`) e il DXF (`GEODATA` in WKT) danno a una definizione WKT, con o senza `--assume-crs`, lo decide una regola sola** (`crs_definizione::identificatore_wkt` in `plenora-io-model`), sull'albero del lettore stretto: (1) il testo si legge nella grammatica WKT 1 o WKT 2 in cui è ben formato; malformato in entrambe è `crs`, con o senza opzione, e `io.inspect` e `io.read` rispondono allo stesso modo; (2) le dichiarazioni sono gli identificatori della radice con la parola della grammatica **più** quelli con la parola dell'altra (`ID` in WKT 1, `AUTHORITY` in WKT 2), che per GEO-005 non dichiarano ma chi legge il file legge come dichiarazioni; un nodo malformato dell'una o dell'altra parola (`ID[EPSG,3003]`, `ID["EPSG"]`, `ID["EPSG",3003.5]`) rende la radice indecidibile: `crs`; (3) una radice `BOUNDCRS`, riconosciuta dalla parola della radice con ogni spaziatura e maiuscola, non si risolve mai: senza opzione è non risolta, con l'opzione è `crs`; (4) due dichiarazioni diverse (autorità ASCII case-insensitive, codice come testo) sono `crs`, con o senza opzione; (5) una dichiarazione: senza opzione si risolve solo un `EPSG` con codice intero canonico, come `EPSG:<codice>`, e ogni altra autorità (`ESRI`, `OGC:CRS84` di radice) resta non risolta; con l'opzione, l'opzione deve essere uguale alla dichiarazione, e l'identificatore ha la grafia del file; (6) nessuna dichiarazione: la forma ESRI di WGS 84 **intera** — `GEOGCS[nome, DATUM[nome, SPHEROID[nome, 6378137, 298.257223563]], PRIMEM["Greenwich", 0], UNIT["degree", 0.0174532925199433]]` e nessun altro nodo (né `AXIS`, né `TOWGS84`, né un `AUTHORITY` annidato), con i nomi `WGS 84` o `GCS_WGS_1984` per la radice, `WGS_1984` o `D_WGS_1984` per il datum, `WGS 84` o `WGS_1984` per l'ellissoide, interi e ASCII case-insensitive, e i numeri confrontati come decimali esatti (`6378137.0` vale `6378137`; una forma esponenziale o `0.017453292519943295` non sono riconosciute) — è `EPSG:4326` senza opzione, e con l'opzione ammette solo `EPSG:4326` e `OGC:CRS84`; ogni altra definizione resta non risolta senza opzione, e con l'opzione l'opzione la nomina, salvo un identificatore che il bordo sa di genere contrario alla radice (riga «tutti: genere del CRS»). Le dichiarazioni (2) si confrontano ciascuna con la prima, in tempo lineare. Fino a c0e84cb la forma ESRI si riconosceva dai due soli nomi (`GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["GRS 1980",...]],PRIMEM["Paris",2.337],UNIT["grad",...]]` e `GEOGCS("WGS 84",DATUM("WGS_1984"))` erano `EPSG:4326`), la grafia di ArcGIS no, e le dichiarazioni si deduplicavano in tempo quadratico. Fino a a651844 ogni driver decideva con più letture parziali del testo, e sette riletture di fila ne trovarono una nuova che dava un'etichetta sbagliata senza errore: un `ID["EPSG",4258]` alla radice del WGS 84 ESRI usciva `EPSG:4326`; `AUTHORITY["EPSG","3003"],ID["EPSG",3004]` usciva `EPSG:3003`; un `ID` malformato lasciava passare l'opzione; nel DXF `--assume-crs EPSG:4326` passava su un `ID` in WKT 1, un'autorità ESRI, un `BOUNDCRS`, un `AUTHORITY` in WKT 2; il `DATUM["WGS_1984"` si cercava ovunque nel testo; un `.prj` malformato dava a `io.inspect` un identificatore che `io.read` poi rifiutava. Il formato di una definizione (`wkt` o `wkt2`) si decide con lo stesso lettore, WKT 2 e poi WKT 1; il prefisso maiuscolo esatto (`PROJCRS[`) resta solo per un testo che non è ben formato in nessuna delle due: prima `PROJCRS [`, `projcrs[` o `PROJECTEDCRS[` erano `wkt` e la verifica GEO-005 li rifiutava. Hazard residuo (6): il bordo non è un resolver, e un'opzione su una definizione senza dichiarazioni e diversa dalla forma ESRI intera di WGS 84 la nomina anche quando la contraddice, purché il genere non si contraddica in modo visibile: `EPSG:3003` su un UTM anonimo, `EPSG:4258` su un geografico anonimo qualunque, `EPSG:32632` su un altro proiettato. Si rifiuta soltanto un identificatore di cui il bordo conosce il genere (`EPSG:4326` e `OGC:CRS84` geografici, `EPSG:3857` proiettato) su una radice del genere opposto o che non è un CRS orizzontale (riga «tutti: genere del CRS»). Rientra con un resolver CRS. Due divergenze conservative dichiarate: un `.prj` vuoto o di soli spazi è `crs` anche con l'opzione (non è un WKT ben formato); un `ID["EPSG",4326.0]` in un WKT 1 è `crs` perché la regola (2) lo legge come dichiarazione malformata, mentre per GEO-005 e per l'oracolo in un WKT 1 `ID` non è un identificatore e si ignora. Sono rifiuti in più, mai un CRS sbagliato. Prove: `regola_wkt_senza_dichiarazioni_e_forma_esri`, `regola_wkt_con_una_dichiarazione`, `regola_wkt_con_l_altra_parola_chiave`, `regola_wkt_ambigua_o_legata`, `regola_wkt_malformata`, `definition_format_decide_la_grammatica_con_il_lettore`, `il_prj_segue_la_regola_unica_dell_identificatore`, `il_wkt_del_geodata_segue_la_regola_unica`, `inspect_e_read_concordano_su_un_prj_malformato`, `definition_epsg_rejects_ambiguous_or_nested_only_ids`, `una_definizione_wkt_multibyte_non_fa_panicare_il_bordo` |

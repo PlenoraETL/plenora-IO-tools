@@ -2592,16 +2592,23 @@ fn assume_crs_geografico_su_un_proiettato_anonimo_e_rifiutato() {
 /// La definizione del `GEODATA` ha lo stesso tetto del `.prj`.
 #[test]
 fn una_definizione_del_geodata_oltre_il_tetto_e_un_limite() {
+    // Una forma testuale si misura senza gli spazi ai bordi, che non entrano
+    // in una definizione; un WKT si misura com'e', perche' dalla rilettura 12
+    // entra nel contratto tale e quale, spazi compresi.
     let definizione = format!("EPSG:3003{}", " ".repeat(1 << 20));
-    // `embedded_crs_definition` toglie gli spazi ai bordi: il riempimento sta
-    // dentro un WKT.
     let wkt = format!(
         r#"GEOGCS["{}",AUTHORITY["EPSG","4326"]]"#,
         "x".repeat(1 << 20)
     );
+    let wkt_con_spazi = format!(
+        r#"GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]]{}"#,
+        " ".repeat(1 << 20)
+    );
     assert!(resolve_dxf_crs(&con_geodata(&definizione), &opzioni_lettura()).is_ok());
-    let errore = resolve_dxf_crs(&con_geodata(&wkt), &opzioni_lettura()).unwrap_err();
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    for testo in [wkt, wkt_con_spazi] {
+        let errore = resolve_dxf_crs(&con_geodata(&testo), &opzioni_lettura()).unwrap_err();
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
 }
 
 /// Rilettura 9, punto 4: il tipo di un alias si legge come attributo, con gli
