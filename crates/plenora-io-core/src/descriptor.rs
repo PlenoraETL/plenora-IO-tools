@@ -5,6 +5,7 @@ use serde::Serialize;
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
 };
+use plenora_io_model::crs::AxisOrder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -246,7 +247,40 @@ pub struct GeometryWriteSupport {
     /// Tipi geometrici accettati dal formato nel profilo corrente.
     pub geometry_types: &'static [GeometryType],
     pub mixed_types: bool,
+    /// Gli ordini memorizzati (`plenora.geometry.axis_order`, GEO-001) che il
+    /// formato rappresenta. Chi fissa easting o longitudine prima non
+    /// rappresenta latitudine o northing prima: scritto com'e', il campo
+    /// uscirebbe invertito, e il bordo non ha una conversione qualificata.
+    ///
+    /// Non serializzato: `io.catalog` e' fissato da
+    /// `release/cli-protocol-v2.json`, e una chiave nuova e' una decisione di
+    /// protocollo. Il limite si legge dal rifiuto, con la sua ragione.
+    #[serde(skip)]
+    pub axis_orders: &'static [AxisOrder],
 }
+
+/// Gli ordini di un formato con l'ascissa memorizzata per prima.
+///
+/// `other` (una polare, memorizzata come i propri x e y) e `unknown` passano:
+/// non contraddicono il formato in un modo che il bordo sappia provare.
+/// Garanzia indebolita, dichiarata in `docs/PRODUCT.md` («Ordine degli
+/// assi»): la rilettura dichiara l'ordine del formato.
+pub const EAST_FIRST_AXIS_ORDERS: &[AxisOrder] = &[
+    AxisOrder::LongitudeLatitude,
+    AxisOrder::EastingNorthing,
+    AxisOrder::Other,
+    AxisOrder::Unknown,
+];
+
+/// Tutti gli ordini: un formato che porta la dichiarazione con i valori.
+pub const ALL_AXIS_ORDERS: &[AxisOrder] = &[
+    AxisOrder::LongitudeLatitude,
+    AxisOrder::LatitudeLongitude,
+    AxisOrder::EastingNorthing,
+    AxisOrder::NorthingEasting,
+    AxisOrder::Other,
+    AxisOrder::Unknown,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -570,6 +604,7 @@ pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
 /// `GeoJSON`/KML-like geometry support: XY plus an interoperable altitude Z.
@@ -586,6 +621,7 @@ pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
 pub const WKB_SINGLE_TYPE_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
@@ -614,11 +650,14 @@ pub const WKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport 
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
+/// Arrow IPC: la dichiarazione dell'ordine viaggia con i valori.
 pub const WKB_EWKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     encodings: &[GeometryEncoding::Wkb, GeometryEncoding::Ewkb],
     spatial_semantics: &[SpatialSemantics::Geometry, SpatialSemantics::Geography],
+    axis_orders: ALL_AXIS_ORDERS,
     ..WKB_PASSTHROUGH_GEOMETRY
 };
 
@@ -629,6 +668,7 @@ pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[],
     geometry_types: &[],
     mixed_types: false,
+    axis_orders: &[],
 };
 
 /// Garanzia offerta dal reader per `ReadRequest::projected_fields` (`ENGINEERING.md § Projection e pruning`).

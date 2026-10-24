@@ -26,6 +26,9 @@ pub enum CapabilityReason {
     CrsRepresentationsInconsistent,
     ReprojectionRequired,
     Nullability,
+    /// Il formato fissa l'ordine memorizzato delle ordinate e il campo ne
+    /// dichiara un altro (GEO-001): scritto, uscirebbe invertito.
+    AxisOrderNotRepresentable,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
