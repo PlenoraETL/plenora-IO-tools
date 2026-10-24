@@ -170,23 +170,217 @@ pub fn identificatori(
     }
 }
 
-/// Gli identificatori che la radice di un WKT porta con la parola dell'**altra**
-/// grammatica: `ID` in un WKT 1, `AUTHORITY` in un WKT 2.
+/// La grammatica WKT in cui il testo e' ben formato: WKT 2, poi WKT 1. Le
+/// radici delle due grammatiche sono disgiunte, quindi l'ordine non sceglie
+/// fra due letture valide. `None` se il testo non e' ben formato in nessuna.
+pub(crate) fn grammatica_wkt(testo: &str) -> Option<CrsDefinitionFormat> {
+    if radice_wkt(testo, &RADICI_WKT2).is_ok() {
+        Some(CrsDefinitionFormat::Wkt2)
+    } else if radice_wkt(testo, &RADICI_WKT1).is_ok() {
+        Some(CrsDefinitionFormat::Wkt)
+    } else {
+        None
+    }
+}
+
+/// Il testo **comincia** come un WKT: a meno degli spazi, una parola seguita
+/// da `[` o `(`.
 ///
-/// Per GEO-005 non sono identificatori, e [`identificatori`] non li vede. Un
-/// lettore umano o un altro strumento li legge pero' come tali: chi deve
-/// decidere se un nome dato da fuori contraddice la definizione li usa per
-/// rifiutare, mai per accettare. Vuoto se il testo non e' un WKT ben formato.
+/// Sono le stesse due condizioni con cui il lettore stretto apre
+/// la radice, quindi un testo che non le soddisfa non e' mai un WKT ben formato,
+/// e uno che le soddisfa e' un WKT -- ben formato o no. Serve a chi riceve
+/// definizioni di piu' forme (il `GEODATA` di un DXF: WKT, XML, `EPSG:<codice>`)
+/// per sapere quali vanno alla regola di [`identificatore_wkt`].
 #[must_use]
-pub fn identificatori_con_l_altra_parola(testo: &str) -> Vec<(String, String)> {
-    let leggi = |radici: &[&str], parola: &str| {
-        radice_wkt(testo, radici)
-            .and_then(|radice| identificatori_wkt(&radice, parola))
-            .ok()
+pub fn sembra_wkt(testo: &str) -> bool {
+    let resto = testo.trim_start_matches(spazio_python);
+    let inizio_parola = resto
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_');
+    let dopo_parola = resto.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_');
+    inizio_parola
+        && dopo_parola
+            .trim_start_matches(spazio_python)
+            .starts_with(['[', '('])
+}
+
+/// Perche' una definizione WKT non da' un identificatore e la lettura si
+/// ferma. Ogni variante e' un errore `crs`, con o senza `--assume-crs`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RifiutoIdentita {
+    /// Il testo non e' un WKT ben formato, ne' 1 ne' 2, oppure un nodo
+    /// identificatore della radice (`AUTHORITY` o `ID`) e' malformato: che cosa
+    /// la radice dichiari non e' decidibile.
+    Malformata,
+    /// La radice dichiara piu' identificatori diversi (GEO-005).
+    Ambigua,
+    /// `--assume-crs` su un `BOUNDCRS`, che lega un CRS sorgente a uno di
+    /// destinazione e non ha un'identita' propria da nominare.
+    Legata,
+    /// `--assume-crs` diverso da cio' che la definizione dichiara, o da uno dei
+    /// due nomi di WGS 84 sulla forma ESRI riconosciuta.
+    Contraddetta,
+}
+
+impl RifiutoIdentita {
+    /// L'errore `crs` del driver, con un messaggio curato che non riporta ne'
+    /// la definizione ne' gli identificatori.
+    #[must_use]
+    pub fn errore(self, driver: &'static str) -> crate::PlenoraIoError {
+        let messaggio = match self {
+            Self::Malformata => {
+                "definizione WKT del CRS malformata: l'identificatore della radice non e' decidibile"
+            }
+            Self::Ambigua => "la radice della definizione WKT del CRS dichiara identificatori discordi",
+            Self::Legata => {
+                "--assume-crs non nomina un BOUNDCRS: la definizione lega due CRS e non ne ha uno proprio"
+            }
+            Self::Contraddetta => "--assume-crs contraddice il CRS della definizione WKT",
+        };
+        let mut errore =
+            crate::PlenoraIoError::crs_redatto(&crate::PublicMessage::Curated(messaggio));
+        errore.driver = Some(driver.to_owned());
+        errore
+    }
+}
+
+/// Che cosa la radice di un WKT ben formato dice della propria identita'.
+#[derive(Debug, PartialEq, Eq)]
+enum Identita {
+    /// `BOUNDCRS`.
+    Legata,
+    /// Una sola dichiarazione (autorita', codice), nella grafia del file.
+    Dichiarata(String, String),
+    /// Piu' dichiarazioni diverse.
+    Ambigua,
+    /// Nessuna dichiarazione, e la forma ESRI di WGS 84.
+    Wgs84Esri,
+    /// Nessuna dichiarazione, e nessuna forma riconosciuta.
+    Anonima,
+}
+
+/// L'identificatore che i driver danno a una definizione WKT, con o senza
+/// `--assume-crs`: la **regola unica** dello Shapefile (`.prj`) e del DXF
+/// (`GEODATA` in WKT).
+///
+/// `Ok(None)` e' un CRS dichiarato e non risolto. Fino al 24/10 ciascun driver decideva con piu' letture parziali del testo
+/// (una per la radice, una per l'altra parola chiave, una per la forma ESRI,
+/// una per il `BOUNDCRS`), e ogni rilettura ne trovava una che diceva una cosa
+/// diversa dalle altre: un'etichetta sbagliata senza errore. Qui la lettura e'
+/// una, sull'albero del lettore stretto, e decide cosi':
+///
+/// 1. il testo si legge con la grammatica WKT 1 o WKT 2 in cui e' ben formato;
+///    malformato in entrambe e' [`RifiutoIdentita::Malformata`];
+/// 2. le **dichiarazioni** sono gli identificatori della radice con la parola
+///    della grammatica (`AUTHORITY` in WKT 1, `ID` in WKT 2) **piu'** quelli con
+///    la parola dell'altra: per GEO-005 questi ultimi non sono identificatori,
+///    ma chi legge il file li legge come tali. Un nodo malformato dell'una o
+///    dell'altra parola rende la radice indecidibile: `Malformata`;
+/// 3. una radice `BOUNDCRS` non si risolve mai: senza opzione resta non
+///    risolta, con l'opzione e' [`RifiutoIdentita::Legata`];
+/// 4. due dichiarazioni diverse (autorita' ASCII case-insensitive, codice come
+///    testo) sono [`RifiutoIdentita::Ambigua`], con o senza opzione;
+/// 5. una dichiarazione: senza opzione si risolve solo un `EPSG` con codice
+///    intero canonico, come `EPSG:<codice>` (le altre autorita', `OGC:CRS84`
+///    compreso, restano non risolte); con l'opzione, l'opzione deve essere
+///    uguale alla dichiarazione, e l'identificatore ha la grafia del file;
+/// 6. nessuna dichiarazione: la forma ESRI di WGS 84 (`wgs84_esri`) e'
+///    `EPSG:4326` senza opzione, e con l'opzione ammette solo `EPSG:4326` o
+///    `OGC:CRS84`; ogni altra definizione resta non risolta senza opzione, e
+///    con l'opzione l'opzione la nomina. Quest'ultimo e' il rischio residuo
+///    dichiarato: il bordo non e' un resolver, e non sa dire se un `PROJCS`
+///    anonimo e' davvero il CRS che l'opzione nomina.
+///
+/// # Errors
+/// [`RifiutoIdentita`], nei casi elencati.
+pub fn identificatore_wkt(
+    testo: &str,
+    assunto: Option<&str>,
+) -> Result<Option<String>, RifiutoIdentita> {
+    let identita = identita_wkt(testo).map_err(|Malformata| RifiutoIdentita::Malformata)?;
+    let nomina = |assunto: &str, autorita: &str, codice: &str| {
+        assunto
+            .split_once(':')
+            .is_some_and(|(a, c)| a.eq_ignore_ascii_case(autorita) && c == codice)
     };
-    leggi(&RADICI_WKT1, "ID")
-        .or_else(|| leggi(&RADICI_WKT2, "AUTHORITY"))
-        .unwrap_or_default()
+    match (identita, assunto) {
+        (Identita::Ambigua, _) => Err(RifiutoIdentita::Ambigua),
+        (Identita::Legata | Identita::Anonima, None) => Ok(None),
+        (Identita::Legata, Some(_)) => Err(RifiutoIdentita::Legata),
+        (Identita::Dichiarata(autorita, codice), None) => Ok(autorita
+            .eq_ignore_ascii_case("EPSG")
+            .then(|| crate::crs::codice_intero_canonico(&codice))
+            .flatten()
+            .and_then(|codice| u32::try_from(codice).ok())
+            .map(|codice| format!("EPSG:{codice}"))),
+        (Identita::Dichiarata(autorita, codice), Some(assunto)) => {
+            if nomina(assunto, &autorita, &codice) {
+                Ok(Some(format!("{autorita}:{codice}")))
+            } else {
+                Err(RifiutoIdentita::Contraddetta)
+            }
+        }
+        (Identita::Wgs84Esri, None) => Ok(Some("EPSG:4326".to_owned())),
+        (Identita::Wgs84Esri, Some(assunto)) => {
+            if nomina(assunto, "EPSG", "4326") || nomina(assunto, "OGC", "CRS84") {
+                Ok(Some(assunto.to_owned()))
+            } else {
+                Err(RifiutoIdentita::Contraddetta)
+            }
+        }
+        (Identita::Anonima, Some(assunto)) => Ok(Some(assunto.to_owned())),
+    }
+}
+
+fn identita_wkt(testo: &str) -> Result<Identita, Malformata> {
+    let (radice, propria, altra) = match radice_wkt(testo, &RADICI_WKT1) {
+        Ok(radice) => (radice, "AUTHORITY", "ID"),
+        Err(Malformata) => (radice_wkt(testo, &RADICI_WKT2)?, "ID", "AUTHORITY"),
+    };
+    let mut dichiarate: Vec<(String, String)> = Vec::new();
+    for (autorita, codice) in identificatori_wkt(&radice, propria)?
+        .into_iter()
+        .chain(identificatori_wkt(&radice, altra)?)
+    {
+        let gia_vista = dichiarate
+            .iter()
+            .any(|(a, c)| a.eq_ignore_ascii_case(&autorita) && *c == codice);
+        if !gia_vista {
+            dichiarate.push((autorita, codice));
+        }
+    }
+    if radice.parola.eq_ignore_ascii_case("BOUNDCRS") {
+        return Ok(Identita::Legata);
+    }
+    let mut dichiarate = dichiarate.into_iter();
+    Ok(match (dichiarate.next(), dichiarate.next()) {
+        (None, _) if wgs84_esri(&radice) => Identita::Wgs84Esri,
+        (None, _) => Identita::Anonima,
+        (Some((autorita, codice)), None) => Identita::Dichiarata(autorita, codice),
+        (Some(_), Some(_)) => Identita::Ambigua,
+    })
+}
+
+/// La forma ESRI WKT 1 di WGS 84, quella che il writer Shapefile emette e che
+/// non porta un'autorita': una radice `GEOGCS` chiamata `WGS 84` con **un
+/// solo** `DATUM` figlio diretto, chiamato `WGS_1984`. I nomi si confrontano
+/// interi, ASCII case-insensitive (come la lettura in maiuscolo che c'era
+/// prima); `D_WGS_1984`, la grafia di `ArcGIS`, non e' riconosciuta, come prima.
+/// Un `DATUM` annidato altrove (in un `EXTENSION`, in un CRS base) non conta.
+fn wgs84_esri(radice: &Nodo) -> bool {
+    let chiamato = |nodo: &Nodo, nome: &str| matches!(nodo.voci.first(), Some(Voce::Stringa(valore)) if valore.eq_ignore_ascii_case(nome));
+    let mut datum = radice.voci.iter().filter_map(|voce| match voce {
+        Voce::Nodo(figlio) if figlio.parola.eq_ignore_ascii_case("DATUM") => Some(figlio),
+        _ => None,
+    });
+    let unico = match (datum.next(), datum.next()) {
+        (Some(datum), None) => Some(datum),
+        _ => None,
+    };
+    radice.parola.eq_ignore_ascii_case("GEOGCS")
+        && chiamato(radice, "WGS 84")
+        && unico.is_some_and(|datum| chiamato(datum, "WGS_1984"))
 }
 
 #[derive(Debug, PartialEq, Eq)]

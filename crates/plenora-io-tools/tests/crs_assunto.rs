@@ -159,3 +159,44 @@ fn un_prj_senza_autorita_si_nomina_con_assume_crs() {
         );
     }
 }
+
+/// (f) Un `.prj` malformato: `inspect` e `read` dicono la stessa cosa, un
+/// errore `crs`, con e senza opzione. Su a651844 `inspect` riportava
+/// `EPSG:4326` (la forma ESRI si riconosceva su un testo che la grammatica
+/// rifiuta) e `read` poi rifiutava la definizione alla verifica GEO-005.
+#[test]
+fn inspect_e_read_concordano_su_un_prj_malformato() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = scrivi(dir.path(), "shp", "uscita.shp.d", "EPSG:4326");
+    let prj = Path::new(&percorso).join("data.prj");
+    let esri = std::fs::read_to_string(&prj).expect("il writer scrive il .prj");
+    let senza_chiusura = esri.trim_end().strip_suffix(']').expect("WKT").to_owned();
+    let malformati = [
+        format!("{senza_chiusura},AUTHORITY[\"EPSG\",4258.0]]"),
+        senza_chiusura,
+        format!("{esri} coda"),
+    ];
+    for (indice, malformato) in malformati.iter().enumerate() {
+        std::fs::write(&prj, malformato).expect("prj riscritto");
+        for opzione in [None, Some("OGC:CRS84"), Some("EPSG:4326")] {
+            let mut ispezione = vec!["inspect", percorso.as_str()];
+            let consegna = dir.path().join(format!("consegna-{indice}.arrow"));
+            let consegna = consegna.to_str().expect("UTF-8").to_owned();
+            let mut lettura = vec!["read", percorso.as_str(), "--output", consegna.as_str()];
+            if let Some(opzione) = opzione {
+                ispezione.extend(["--assume-crs", opzione]);
+                lettura.extend(["--assume-crs", opzione]);
+            }
+            let ispezionato = esegui(&ispezione);
+            let letto = esegui(&lettura);
+            assert_eq!(
+                ispezionato["error"]["category"], "crs",
+                "inspect, {opzione:?}, {malformato}: {ispezionato}"
+            );
+            assert_eq!(
+                letto["error"]["category"], "crs",
+                "read, {opzione:?}, {malformato}: {letto}"
+            );
+        }
+    }
+}

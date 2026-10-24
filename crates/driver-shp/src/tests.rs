@@ -5862,3 +5862,99 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         "lo staging sparisce con il writer"
     );
 }
+
+/// La regola unica del modello sul `.prj`: i casi (a)..(f) che su a651844
+/// davano un'etichetta sbagliata senza errore. Le prove della regola, caso per
+/// caso, sono in `plenora-io-model` (`regola_unica_dell_identificatore_wkt`);
+/// qui si prova che il driver la usa, con e senza opzione.
+#[test]
+fn il_prj_segue_la_regola_unica_dell_identificatore() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("regola.shp");
+    let esri_con = |nodo: &str| format!("{},{nodo}]", &WGS84_WKT[..WGS84_WKT.len() - 1]);
+    let leggi = |prj: &str, assunto: Option<&str>| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        let opzioni = assunto.map_or_else(opzioni_lettura, |assunto| {
+            opzioni_lettura().with_assume_crs(assunto)
+        });
+        resolve_crs(&path, &opzioni)
+    };
+    let rifiuto = |prj: &str, assunto: Option<&str>| match leggi(prj, assunto) {
+        Ok(crs) => panic!("{prj}, {assunto:?}: accettato come {:?}", crs.id),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs, "{prj}");
+            assert_eq!(errore.driver.as_deref(), Some("shp"));
+        }
+    };
+
+    // (a) Un `ID` alla radice del WGS 84 ESRI dichiara: niente deduzione.
+    let a = esri_con(r#"ID["EPSG",4258]"#);
+    assert_eq!(leggi(&a, None).unwrap().id.as_deref(), Some("EPSG:4258"));
+    rifiuto(&a, Some("EPSG:4326"));
+    // (b) Due dichiarazioni diverse, con e senza opzione.
+    let b = r#"PROJCS["x",GEOGCS["y"],AUTHORITY["EPSG","3003"],ID["EPSG",3004]]"#;
+    rifiuto(b, None);
+    rifiuto(b, Some("EPSG:3003"));
+    // (c) Un nodo dell'altra parola malformato rende la radice indecidibile.
+    for c in ["ID[EPSG,3003]", r#"ID["EPSG"]"#, r#"ID["EPSG",3003.5]"#] {
+        let prj = format!(r#"PROJCS["x",GEOGCS["y"],{c}]"#);
+        rifiuto(&prj, None);
+        rifiuto(&prj, Some("EPSG:3003"));
+    }
+    // (e) Il `DATUM` di WGS 84 dentro un `EXTENSION` non fa la forma ESRI.
+    let e = r#"GEOGCS["WGS 84",DATUM["D_Monte_Mario"],EXTENSION["x",DATUM["WGS_1984"]]]"#;
+    let errore = leggi(e, None).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+    // (f) Malformati: errore anche senza opzione, e la stessa risposta per
+    // `inspect` e `read`, che passano entrambi di qui.
+    let senza_chiusura = &WGS84_WKT[..WGS84_WKT.len() - 1];
+    for f in [
+        esri_con(r#"AUTHORITY["EPSG",4258.0]"#),
+        senza_chiusura.to_owned(),
+        format!("{WGS84_WKT} coda"),
+    ] {
+        rifiuto(&f, None);
+        rifiuto(&f, Some("OGC:CRS84"));
+    }
+    // Un `BOUNDCRS` con spazi e minuscole resta un `BOUNDCRS`.
+    rifiuto(
+        r#"boundcrs [SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#,
+        Some("EPSG:4326"),
+    );
+    // `OGC:CRS84` come intero `.prj` resta come prima.
+    assert_eq!(
+        leggi(" ogc:crs84\n", None).unwrap().id.as_deref(),
+        Some("OGC:CRS84")
+    );
+    assert_eq!(
+        leggi("OGC:CRS84", Some("ogc:CRS84")).unwrap().id.as_deref(),
+        Some("OGC:CRS84")
+    );
+    assert!(leggi("OGC:CRS84", Some("EPSG:4326")).is_err());
+}
+
+/// Un `.prj` che non e' UTF-8 valeva come assente, e `--assume-crs` nominava
+/// il CRS che il file dichiarava, qualunque fosse.
+#[test]
+fn un_prj_non_utf8_e_un_errore_non_un_assenza() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("latin1.shp");
+    let mut prj = b"PROJCS[\"Citt\xe0\",GEOGCS[\"y\"],AUTHORITY[\"EPSG\",\"3003\"]]".to_vec();
+    std::fs::write(path.with_extension("prj"), &prj).unwrap();
+    for opzioni in [
+        opzioni_lettura(),
+        opzioni_lettura().with_assume_crs("EPSG:4326"),
+    ] {
+        let errore = resolve_crs(&path, &opzioni).unwrap_err();
+        assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    }
+    prj.retain(u8::is_ascii);
+    std::fs::write(path.with_extension("prj"), &prj).unwrap();
+    assert_eq!(
+        resolve_crs(&path, &opzioni_lettura())
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("EPSG:3003")
+    );
+}
