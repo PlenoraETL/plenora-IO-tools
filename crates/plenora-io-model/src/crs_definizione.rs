@@ -208,9 +208,9 @@ fn token_wkt(testo: &str) -> Result<Vec<Token<'_>>, Malformata> {
 /// comincia in `inizio`, oppure `None` se li' non comincia un numero.
 fn fine_numero(byte: &[u8], inizio: usize) -> Option<usize> {
     let cifre = |da: usize| {
-        (da..)
-            .take_while(|&k| byte.get(k).is_some_and(u8::is_ascii_digit))
-            .count()
+        byte.get(da..).map_or(0, |resto| {
+            resto.iter().take_while(|b| b.is_ascii_digit()).count()
+        })
     };
     let mut i = inizio;
     if matches!(byte.get(i), Some(b'+' | b'-')) {
@@ -260,11 +260,15 @@ enum Voce {
     Parola,
 }
 
-fn radice_wkt(testo: &str, radici: &[&str]) -> Result<Nodo, Malformata> {
+fn radice_wkt(testo: &str, ammesse: &[&str]) -> Result<Nodo, Malformata> {
     let token = token_wkt(testo)?;
     let mut posizione = 0;
     let radice = nodo(&token, &mut posizione, 0)?;
-    if posizione != token.len() || !radici.iter().any(|r| radice.parola.eq_ignore_ascii_case(r)) {
+    if posizione != token.len()
+        || !ammesse
+            .iter()
+            .any(|r| radice.parola.eq_ignore_ascii_case(r))
+    {
         return Err(Malformata);
     }
     Ok(radice)
@@ -285,7 +289,7 @@ fn nodo(token: &[Token<'_>], posizione: &mut usize, profondita: usize) -> Result
     loop {
         match (token.get(*posizione), token.get(*posizione + 1)) {
             (Some(Token::Parola(_)), Some(Token::Apre(_))) => {
-                voci.push(Voce::Nodo(nodo(token, posizione, profondita + 1)?))
+                voci.push(Voce::Nodo(nodo(token, posizione, profondita + 1)?));
             }
             (Some(Token::Stringa(valore)), _) => {
                 voci.push(Voce::Stringa(valore.clone()));
@@ -309,7 +313,9 @@ fn nodo(token: &[Token<'_>], posizione: &mut usize, profondita: usize) -> Result
                     voci,
                 });
             }
-            Some(Token::Virgola) => *posizione += 1,
+            Some(Token::Virgola) => {
+                *posizione += 1;
+            }
             _ => return Err(Malformata),
         }
     }
