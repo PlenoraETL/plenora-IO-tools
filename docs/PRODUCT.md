@@ -221,6 +221,50 @@ scritta per intero e si rilegge: GeoParquet **conserva** la definizione, e
 dell'SRID — che il metadato `geo` non ha dove mettere — dichiara la sola
 derivazione dall'identificatore.
 
+#### Ordine degli assi
+
+`plenora.geometry.axis_order` dichiara l'ordine delle prime due ordinate
+**come memorizzate** nei valori WKB (Arrow Geometry Semantics 1.0, GEO-001),
+non l'ordine con cui il registro elenca gli assi del CRS: `EPSG:4326` letto da
+un GeoPackage è `lon_lat`, anche se EPSG registra la latitudine per prima.
+Fino alla 5.x il prodotto dichiarava l'ordine del registro (`lat_lon` per ogni
+`EPSG:4326`) mentre i valori portavano la longitudine prima.
+
+| in lettura | ordine dichiarato |
+|---|---|
+| GeoPackage, GeoParquet, Shapefile, FileGDB, DXF | il formato memorizza easting o longitudine prima: `lon_lat` per un geografico, `easting_northing` per un proiettato i cui assi sono est/nord, `other` se la definizione dice assi che non lo sono (una polare come EPSG:3031), `unknown` se il genere è ignoto, se la definizione non dice gli assi o se un proiettato non ha definizione (GeoPackage con `definition = 'undefined'`) |
+| GeoJSON, KML | `lon_lat` (RFC 7946, KML 2.2) |
+| CSV, XLSX con `x_column`/`y_column` | la richiesta nomina la `x`, e la `x` è l'est: `lon_lat` con `--assume-crs` geografico |
+| CSV, XLSX con `wkt_column` | `unknown`: il WKT non fissa l'ordine e la richiesta non lo dichiara |
+| Arrow IPC | quello che il campo dichiara; con la sola chiave `crs`, `unknown` |
+
+In scrittura, un formato che fissa easting o longitudine prima — tutti tranne
+Arrow IPC, compresi CSV e XLSX — **rifiuta** un campo `lat_lon` o
+`northing_easting` con `unsupported`, ragione `axis_order_not_representable`,
+prima di creare la destinazione: scritto com'è uscirebbe invertito, e il bordo
+non ha una conversione delle ordinate qualificata. Arrow IPC porta la
+dichiarazione con i valori e li accetta tutti.
+
+Limiti dichiarati (regola 4):
+
+* **`other` e `unknown` passano verso i formati con l'est per primo.** Il
+  bordo non sa provare che contraddicano il formato, e i valori si scrivono
+  come sono. Garanzia indebolita: la rilettura dichiara l'ordine del formato,
+  non `unknown`. Hazard: un campo `unknown` che memorizzava la latitudine prima
+  esce dalla rilettura come `lon_lat`. Rientro: rifiutare `unknown` in
+  scrittura, quando una versione del contratto lo decide.
+* **Proiezioni polari in WKT 1 senza `AXIS`.** Il default OGC 01-009 è est poi
+  nord; il prodotto dichiara `other` solo quando il nome della proiezione dice
+  polare (`Polar_Stereographic`, `..._Pole`) o la latitudine d'origine è ±90.
+  Hazard: una polare che non lo dichiara esce `easting_northing`. Rientro: un
+  resolver CRS al bordo.
+* **CSV e XLSX rifiutano `lat_lon` anche in WKT**, dove il formato non fissa
+  l'ordine: il prodotto non distingue la codifica in validazione, e la
+  rilettura con `x_column`/`y_column` dichiarerebbe `lon_lat`.
+* **`io.catalog` non pubblica gli ordini ammessi**: il protocollo v2 è
+  ratificato, e la chiave nuova è una decisione di protocollo. Il limite si
+  legge dal rifiuto.
+
 ---
 
 ## Contratti pubblici

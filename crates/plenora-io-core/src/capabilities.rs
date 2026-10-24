@@ -26,6 +26,18 @@ fn violation(
     PlenoraIoError::capability_redatta(driver, field, reason, detail)
 }
 
+/// L'ordine memorizzato che il campo dichiara; `unknown` senza CRS, perche'
+/// un campo `missing` non porta la chiave (ARROW-VOCABULARY-1.0 §4).
+const fn declared_axis_order(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> plenora_io_model::crs::AxisOrder {
+    match &geometry.crs {
+        CrsResolution::Resolved(resolved) => resolved.axis_order,
+        CrsResolution::DeclaredButUnresolved(raw) => raw.axis_order,
+        CrsResolution::Missing => plenora_io_model::crs::AxisOrder::Unknown,
+    }
+}
+
 fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
     match crs {
         CrsResolution::Resolved(resolved) => resolved.id.as_deref(),
@@ -417,6 +429,24 @@ pub fn validate_write(
                     ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::GeometryNotSupported,
                     &PublicMessage::Curated(unsupported.canonical_name()),
+                ));
+            }
+            // GEO-001: un formato che fissa easting o longitudine prima
+            // scriverebbe invertito un campo con latitudine o northing prima.
+            // Il bersaglio non rappresenta l'ingresso: `unsupported` prima di
+            // ogni effetto (GEO-000 punto 2), qui per tutti i driver.
+            if !caps
+                .geometry
+                .axis_orders
+                .contains(&declared_axis_order(geometry))
+            {
+                return Err(violation(
+                    driver,
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
+                    CapabilityReason::AxisOrderNotRepresentable,
+                    &PublicMessage::Curated(
+                        "il formato memorizza easting o longitudine prima, il campo dichiara un altro ordine",
+                    ),
                 ));
             }
             match caps.crs {

@@ -44,6 +44,8 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
         GeometryType::MultiPolygon,
     ],
     mixed_types: false,
+    // Il FileGDB memorizza x poi y, easting o longitudine prima.
+    axis_orders: plenora_io_core::EAST_FIRST_AXIS_ORDERS,
 };
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
@@ -528,7 +530,7 @@ mod backend {
         CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
         LayerContract, LayerId,
     };
-    use plenora_io_model::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
+    use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
     use plenora_io_model::geometry::with_geometry_contract_metadata;
     use plenora_io_model::{
         CapabilityReason, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
@@ -1346,46 +1348,6 @@ mod backend {
         }
     }
 
-    fn has_any(value: &str, needles: &[&str]) -> bool {
-        let value = value.to_ascii_lowercase();
-        needles.iter().any(|needle| value.contains(needle))
-    }
-
-    fn declared_axis_order(spatial_ref: &SpatialRef, kind: CrsKind) -> AxisOrder {
-        let target = match kind {
-            CrsKind::Geographic => "GEOGCS",
-            CrsKind::Projected => "PROJCS",
-            CrsKind::Unknown => return AxisOrder::Unknown,
-        };
-        let Ok(first) = spatial_ref.axis_name(target, 0) else {
-            return AxisOrder::Unknown;
-        };
-        let Ok(second) = spatial_ref.axis_name(target, 1) else {
-            return AxisOrder::Unknown;
-        };
-        match kind {
-            CrsKind::Geographic
-                if has_any(&first, &["longitude", "lon"])
-                    && has_any(&second, &["latitude", "lat"]) =>
-            {
-                AxisOrder::LongitudeLatitude
-            }
-            CrsKind::Geographic
-                if has_any(&first, &["latitude", "lat"])
-                    && has_any(&second, &["longitude", "lon"]) =>
-            {
-                AxisOrder::LatitudeLongitude
-            }
-            CrsKind::Projected
-                if has_any(&first, &["easting", "east"])
-                    && has_any(&second, &["northing", "north"]) =>
-            {
-                AxisOrder::EastingNorthing
-            }
-            CrsKind::Geographic | CrsKind::Projected | CrsKind::Unknown => AxisOrder::Unknown,
-        }
-    }
-
     fn resolve_layer_crs(
         embedded: Option<SpatialRef>,
         assume_crs: Option<&str>,
@@ -1416,12 +1378,14 @@ mod backend {
         })?;
         let id = authority_id(&spatial_ref);
         let kind = crs_kind(&spatial_ref);
-        let mut resolved = ResolvedCrs::new(id, kind, Some(definition));
-        let declared_axis_order = declared_axis_order(&spatial_ref, kind);
-        if declared_axis_order != AxisOrder::Unknown {
-            resolved.axis_order = declared_axis_order;
-        }
-        Ok(resolved)
+        // Il FileGDB memorizza x poi y, e x e' easting o longitudine, qualunque
+        // sia l'ordine con cui GDAL riporta gli assi dell'autorita': quello e'
+        // l'ordine del registro (EPSG:4326 elenca la latitudine prima), e
+        // GEO-002 vieta di ricavarne la dichiarazione. Fino alla 5.x lo si
+        // leggeva da `axis_name`, e un EPSG:4326 usciva `lat_lon` con i
+        // valori in longitudine prima. Il WKT di GDAL dice ancora se gli assi
+        // sono una coppia est/nord: una polare (EPSG:3031) e' `other`.
+        Ok(ResolvedCrs::new(id, kind, Some(definition)).stored_east_first())
     }
 
     fn geometry_contract_from_ogr(
@@ -1979,6 +1943,7 @@ mod backend {
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
         use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
         use plenora_io_model::contract::{GeometryEncoding, GeometryType};
+        use plenora_io_model::crs::AxisOrder;
         use plenora_io_model::limits::WkbLimits;
 
         /// Opzioni di scrittura sul modello unificato (S4.e).
@@ -2128,7 +2093,12 @@ mod backend {
         }
 
         #[test]
-        fn gdal_reports_authority_axis_order_without_canonicalization() {
+        /// GDAL riporta gli assi dell'autorita' (EPSG:4326 latitudine prima),
+        /// ma i valori del `FileGDB` memorizzano la longitudine prima: la
+        /// dichiarazione e' `lon_lat` (GEO-001). Fino alla 5.x la prova si
+        /// chiamava `gdal_reports_authority_axis_order_without_canonicalization`
+        /// e fissava `lat_lon`, cioe' l'ordine del registro.
+        fn gdal_axis_order_is_the_stored_one_not_the_registry_one() {
             let epsg = resolve_layer_crs(
                 Some(SpatialRef::from_definition("EPSG:4326").unwrap()),
                 None,
@@ -2145,7 +2115,7 @@ mod backend {
             )
             .unwrap();
 
-            assert_eq!(epsg.axis_order, AxisOrder::LatitudeLongitude);
+            assert_eq!(epsg.axis_order, AxisOrder::LongitudeLatitude);
             assert_eq!(crs84.axis_order, AxisOrder::LongitudeLatitude);
             assert_ne!(crs84.id.as_deref(), Some("EPSG:4326"));
             assert_eq!(projected.axis_order, AxisOrder::EastingNorthing);

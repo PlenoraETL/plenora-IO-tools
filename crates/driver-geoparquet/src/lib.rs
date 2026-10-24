@@ -2119,7 +2119,7 @@ fn crs_from(geo: Option<&MetadatiGeo>) -> Result<ResolvedCrs> {
         // era conforme, cosi' chi legge non scambia la cortesia per conformita'.
         metadati::Crs::StoricoSoloIdentificatore(id) => {
             let genere = crs_kind_for_authority_id(id);
-            Ok(ResolvedCrs::new(Some(id.clone()), genere, None))
+            Ok(ResolvedCrs::new(Some(id.clone()), genere, None).stored_east_first())
         }
         metadati::Crs::Documento(v) => {
             let id = v.get("id").and_then(|i| {
@@ -2151,7 +2151,10 @@ fn crs_from(geo: Option<&MetadatiGeo>) -> Result<ResolvedCrs> {
             } else {
                 CrsKind::Unknown
             };
-            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
+            // GeoParquet memorizza longitudine o easting prima qualunque sia
+            // l'ordine che il PROJJSON elenca (GeoParquet 1.1, «crs»): EPSG:4326
+            // qui e' `lon_lat`, non l'ordine del registro (GEO-002).
+            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)).stored_east_first())
         }
     }
 }

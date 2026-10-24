@@ -1533,7 +1533,9 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
         };
         let kind = crs_kind(&id, Some(&wkt));
-        return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
+        // Lo Shapefile memorizza x poi y, e x e' easting o longitudine:
+        // l'ordine viene dal formato, non dal registro (GEO-002).
+        return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)).stored_east_first());
     }
     opts.assume_crs.as_ref().map_or_else(
         || {
@@ -1541,7 +1543,7 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
                 "Shapefile senza .prj: fornire --assume-crs",
             )))
         },
-        |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
+        |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None).stored_east_first()),
     )
 }
 
@@ -1553,24 +1555,34 @@ fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     })
 }
 
+/// L'identificatore del CRS che il `.prj` dichiara **alla radice**.
+///
+/// Fino alla 5.x la forma ESRI di WGS 84 si riconosceva cercando
+/// `GEOGCS["WGS 84"` **ovunque** nel testo, e l'ultimo `"EPSG"` faceva da
+/// riserva: un `PROJCS` su WGS 84 -- ogni UTM WGS 84, EPSG:3031, EPSG:3857 --
+/// contiene quel `GEOGCS` annidato e diventava `EPSG:4326`, con la sua stessa
+/// `AUTHORITY` di radice che lo contraddiceva (GEO-005). L'identificatore di un
+/// CRS base annidato non descrive il CRS esterno: si legge solo la radice, e
+/// il riconoscimento ESRI vale solo per un `GEOGCS` che **e'** la radice.
 fn authority_id_from_wkt(wkt: &str) -> Option<String> {
-    let upper = wkt.to_ascii_uppercase();
-    if upper.trim() == "OGC:CRS84" {
+    let upper = wkt.trim().to_ascii_uppercase();
+    if upper == "OGC:CRS84" {
         return Some("OGC:CRS84".to_owned());
+    }
+    // `.prj` e' WKT 1 (ESRI o OGC); la lettura della radice e' la stessa per
+    // `AUTHORITY[` e `ID[`, quindi copre anche un WKT 2.
+    if let Some(code) = plenora_io_model::crs::definition_authority_srid(
+        wkt,
+        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
+    ) {
+        return Some(format!("EPSG:{code}"));
     }
     // Il writer Shapefile emette questa forma ESRI WKT1 canonica, che non
     // contiene AUTHORITY ma identifica senza ambiguità WGS 84.
-    if upper.contains("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\"") {
+    if upper.starts_with("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\"") {
         return Some("EPSG:4326".to_owned());
     }
-    let epsg = upper.rfind("\"EPSG\"")?;
-    let tail = &upper[epsg + "\"EPSG\"".len()..];
-    let start = tail.find(char::is_numeric)?;
-    let code: String = tail[start..]
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
-    (!code.is_empty()).then(|| format!("EPSG:{code}"))
+    None
 }
 
 fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {

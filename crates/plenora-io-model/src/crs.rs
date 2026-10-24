@@ -36,7 +36,9 @@ pub struct ResolvedCrs {
     /// Identificatore leggibile, es. "EPSG:4326" / "OGC:CRS84".
     pub id: Option<String>,
     pub kind: CrsKind,
-    /// Ordine assi dichiarato dall'autorità/formato, mai canonicalizzato.
+    /// Ordine delle prime due ordinate **come memorizzate** nei valori
+    /// (GEO-001): lo dichiara il produttore dalla convenzione della sorgente,
+    /// mai dall'ordine con cui il registro elenca gli assi del CRS (GEO-002).
     pub axis_order: AxisOrder,
     /// Rappresentazione sorgente (WKT o PROJJSON), se disponibile.
     pub definition: Option<String>,
@@ -46,16 +48,32 @@ pub struct ResolvedCrs {
 }
 
 impl ResolvedCrs {
+    /// Un CRS risolto con `axis_order` `unknown`, finche' il produttore non lo
+    /// stabilisce. Fino alla 5.x lo si ricavava dall'identificatore, e
+    /// `EPSG:4326` diventava `lat_lon` -- l'ordine del registro -- anche nei
+    /// valori di un `GeoPackage`: GEO-002 vieta la deduzione, e un produttore
+    /// che dimentica di dichiarare ora dice di non sapere invece del falso.
     pub fn new(id: Option<String>, kind: CrsKind, definition: Option<String>) -> Self {
-        let axis_order = axis_order_for(id.as_deref(), kind);
         let definition_format = definition.as_deref().map(definition_format);
         Self {
             id,
             kind,
-            axis_order,
+            axis_order: AxisOrder::Unknown,
             definition,
             definition_format,
         }
+    }
+
+    /// Dichiara l'ordine di un formato che memorizza per prima l'ascissa,
+    /// easting o longitudine, qualunque sia il CRS ([`east_first_axis_order`]).
+    /// Va chiamato dopo ogni correzione di `definition_format`.
+    #[must_use]
+    pub fn stored_east_first(mut self) -> Self {
+        self.axis_order = east_first_axis_order(
+            self.kind,
+            self.definition.as_deref().zip(self.definition_format),
+        );
+        self
     }
 
     #[must_use]
@@ -64,9 +82,11 @@ impl ResolvedCrs {
         self
     }
 
+    /// `OGC:CRS84` con la longitudine memorizzata per prima: lo usano soltanto
+    /// i formati che la fissano (`GeoJSON`, KML, `GeoParquet` senza `crs`).
     #[must_use]
     pub fn wgs84() -> Self {
-        Self::new(Some("OGC:CRS84".to_owned()), CrsKind::Geographic, None)
+        Self::new(Some("OGC:CRS84".to_owned()), CrsKind::Geographic, None).stored_east_first()
     }
 }
 
@@ -94,13 +114,31 @@ pub(crate) fn definition_format(definition: &str) -> CrsDefinitionFormat {
     }
 }
 
+/// L'ordine memorizzato da un formato che scrive per prima l'ascissa (GEO-001,
+/// GEO-002).
+///
+/// Il genere sceglie la coppia (`lon_lat` o `easting_northing`); la
+/// definizione decide solo se gli assi **sono** est/nord, altrimenti `other`
+/// (una polare come EPSG:3031, westing/southing). L'ordine in cui la
+/// definizione li elenca e' quello del registro, e non conta. `unknown` se il
+/// genere e' ignoto, se la definizione e' malformata o non dice gli assi, e per
+/// un proiettato senza definizione: dal solo identificatore non si sa se e'
+/// polare, e saperlo richiederebbe un resolver CRS.
 #[must_use]
-pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
-    match id {
-        Some(id) if id.eq_ignore_ascii_case("OGC:CRS84") => AxisOrder::LongitudeLatitude,
-        Some(id) if id.eq_ignore_ascii_case("EPSG:4326") => AxisOrder::LatitudeLongitude,
-        _ if kind == CrsKind::Projected => AxisOrder::EastingNorthing,
-        _ => AxisOrder::Unknown,
+pub fn east_first_axis_order(
+    kind: CrsKind,
+    definition: Option<(&str, CrsDefinitionFormat)>,
+) -> AxisOrder {
+    use crate::crs_definizione::{assi_dichiarati, AssiDichiarati};
+    let assi = definition
+        .map(|(testo, formato)| assi_dichiarati(testo, formato).unwrap_or(AssiDichiarati::Ignoti));
+    match (kind, assi) {
+        (CrsKind::Unknown, _) | (_, Some(AssiDichiarati::Ignoti)) | (CrsKind::Projected, None) => {
+            AxisOrder::Unknown
+        }
+        (_, Some(AssiDichiarati::Altri)) => AxisOrder::Other,
+        (CrsKind::Geographic, None | Some(AssiDichiarati::EstNord)) => AxisOrder::LongitudeLatitude,
+        (CrsKind::Projected, Some(AssiDichiarati::EstNord)) => AxisOrder::EastingNorthing,
     }
 }
 
@@ -241,28 +279,28 @@ pub struct RawCrs {
 }
 
 impl RawCrs {
+    /// Conserva una definizione non risolta; l'ordine resta `unknown`, perche'
+    /// dall'identificatore si leggerebbe solo quello del registro (GEO-002).
     #[must_use]
     pub fn new(definition: String, authority_hint: Option<String>) -> Self {
         let definition_format = Some(definition_format(&definition));
-        let axis_order = axis_order_for(authority_hint.as_deref(), CrsKind::Unknown);
         Self {
             definition: Some(definition),
             authority_hint,
             definition_format,
-            axis_order,
+            axis_order: AxisOrder::Unknown,
         }
     }
 
     /// Conserva un identificatore dichiarato che il bordo non ha risolto.
     /// Non sintetizza una definizione testuale né rende il CRS operativo.
     #[must_use]
-    pub fn from_authority_hint(authority_hint: String) -> Self {
-        let axis_order = axis_order_for(Some(&authority_hint), CrsKind::Unknown);
+    pub const fn from_authority_hint(authority_hint: String) -> Self {
         Self {
             definition: None,
             authority_hint: Some(authority_hint),
             definition_format: None,
-            axis_order,
+            axis_order: AxisOrder::Unknown,
         }
     }
 }

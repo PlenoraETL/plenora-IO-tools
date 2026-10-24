@@ -1916,7 +1916,11 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
 }
 
 #[test]
-fn prj_authority_is_resolved_and_keeps_epsg_axis_order() {
+/// L'identificatore viene dal `.prj`, l'ordine dal formato: lo Shapefile
+/// memorizza la longitudine prima, e EPSG:4326 qui e' `lon_lat` (GEO-001).
+/// Fino alla 5.x la prova si chiamava `..._keeps_epsg_axis_order` e fissava
+/// `lat_lon`, l'ordine del registro.
+fn prj_authority_is_resolved_and_axis_order_is_the_stored_one() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("roads.shp");
     std::fs::write(
@@ -1929,8 +1933,45 @@ fn prj_authority_is_resolved_and_keeps_epsg_axis_order() {
     assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
     assert_eq!(
         crs.axis_order,
-        plenora_io_model::crs::AxisOrder::LatitudeLongitude
+        plenora_io_model::crs::AxisOrder::LongitudeLatitude
     );
+}
+
+/// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della
+/// radice, non del `GEOGCS` annidato. Prima della correzione questo `.prj`
+/// usciva `EPSG:4326` con genere proiettato.
+#[test]
+fn projected_prj_on_wgs84_keeps_its_root_identifier() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("utm.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["central_meridian",9],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#,
+    )
+    .unwrap();
+    let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("EPSG:32632"));
+    assert_eq!(crs.kind, CrsKind::Projected);
+    assert_eq!(
+        crs.axis_order,
+        plenora_io_model::crs::AxisOrder::EastingNorthing
+    );
+}
+
+/// Senza identificatore alla radice, uno annidato non lo sostituisce: il CRS
+/// resta non risolto, e serve `--assume-crs`. Prima l'ultimo `"EPSG"` del
+/// testo -- qui l'unita' -- diventava l'identificatore.
+#[test]
+fn nested_identifier_alone_does_not_resolve_the_prj() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nested.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        r#"PROJCS["custom",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1,AUTHORITY["EPSG","9001"]]]"#,
+    )
+    .unwrap();
+    let error = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
 }
 
 #[test]
