@@ -46,7 +46,9 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{crs_kind_for_authority_id, CrsResolution, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{
+    crs_kind_for_authority_id, CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs,
+};
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
@@ -977,7 +979,10 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: WKB_PASSTHROUGH_GEOMETRY,
-        crs: CrsWriteSupport::Embedded,
+        // Un CRS risolto, oppure `crs: null` per un `missing`: e' cosi' che
+        // GeoParquet 1.1 dice «CRS ignoto». Il dichiarato ma non risolto non
+        // ha un modo conforme di essere scritto, e si rifiuta.
+        crs: CrsWriteSupport::EmbeddedOrUnknown,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,
             // L'SRID non viene scritto: il metadato `geo` non ha un posto dove
@@ -987,13 +992,18 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // `absent` direbbe a chi automatizza che l'SRID va riportato da
             // fuori, e non e' vero.
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
-            // La definizione **si conserva**. Il writer scrive nel metadato
-            // `geo` il PROJJSON che il contratto porta, verbatim: una
-            // definizione che non sia PROJJSON viene rifiutata e non degradata,
-            // e un CRS noto per solo identificatore ferma la scrittura invece
-            // di produrre un file senza CRS. Quindi ogni scrittura che riesce
-            // ha scritto la definizione che le e' arrivata.
+            // La definizione PROJJSON **si conserva**: il writer la scrive nel
+            // metadato `geo` verbatim. Le altre no. Un WKT con `OGC:CRS84` o
+            // `EPSG:4326` esce come campo `crs` omesso, cioe' CRS84 senza
+            // definizione, e la perdita e' `crs_definition_not_preserved_absent`;
+            // con ogni altro identificatore, o senza, la scrittura si rifiuta.
+            // Fino alla rilettura 10 la capability diceva `Preserved` senza
+            // condizioni, e il WKT spariva in una conversione `lossless`.
             CrsRepresentationState::Preserved,
+        )
+        .verbatim_solo(
+            &[CrsDefinitionFormat::Projjson],
+            CrsRepresentationState::Absent,
         ),
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
@@ -1345,9 +1355,19 @@ fn crs_da_scrivere(
     legacy_crs_meta: Option<String>,
 ) -> Result<CrsDaScrivere> {
     let risoluzione = geometry.map(|geometria| &geometria.crs);
-    let definizione = match risoluzione {
-        Some(CrsResolution::Resolved(crs)) => crs.definition.as_deref(),
-        _ => None,
+    // Il dichiarato ma non risolto non ha una forma conforme: lo rifiuta gia'
+    // la validazione comune (`EmbeddedOrUnknown`), e qui non si scambia per
+    // un CRS84 solo perche' il suo suggerimento d'autorita' lo nomina.
+    if matches!(risoluzione, Some(CrsResolution::DeclaredButUnresolved(_))) {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoParquet scrive un CRS risolto o un CRS ignoto, non un CRS dichiarato e non risolto",
+            ),
+        ));
+    }
+    let (identificatore_risolto, definizione) = match risoluzione {
+        Some(CrsResolution::Resolved(crs)) => (crs.id.as_deref(), crs.definition.as_deref()),
+        _ => (None, None),
     };
     // Una definizione che e' un oggetto JSON e' **candidata** a essere il
     // PROJJSON che il contratto porta. Candidata, non tale: chiamare PROJJSON
@@ -1370,15 +1390,36 @@ fn crs_da_scrivere(
                 ),
             ));
         }
+        // Una definizione che non e' PROJJSON non si scrive. Si omette solo
+        // dove l'identificatore e' CRS84 **e** non la contraddice (la regola
+        // dei lettori, `crs_kind_for`, che la validazione comune applica gia'
+        // e qui si ripete come seconda guardia): la perdita della definizione
+        // la dichiara il piano (`crs_definition_not_preserved_absent`). Senza
+        // identificatore, fino alla rilettura 10 usciva `crs: null`, cioe'
+        // «CRS ignoto» per un CRS che il contratto conosceva, in una
+        // conversione `lossless`.
+        match identificatore_risolto {
+            Some(id) if EQUIVALENTI_A_CRS84.contains(&id) => {
+                plenora_io_model::crs::crs_kind_for(Some(id), Some(testo), "geoparquet")?;
+                return Ok(CrsDaScrivere::Omesso);
+            }
+            Some(_) => {}
+            None => {
+                return Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated(
+                        "definizione CRS che non e' PROJJSON e senza identificatore: GeoParquet non ha un modo conforme di scriverla",
+                    ),
+                ))
+            }
+        }
     }
 
-    let identificatore = match risoluzione {
-        Some(CrsResolution::Resolved(crs)) => crs.id.as_deref(),
-        Some(CrsResolution::DeclaredButUnresolved(raw)) => raw.authority_hint.as_deref(),
-        Some(CrsResolution::Missing) | None => None,
-    }
-    .map(str::to_owned)
-    .or(legacy_crs_meta);
+    // I metadati legacy della colonna valgono solo dove manca un contratto
+    // geometrico: un `missing` dichiarato resta `missing`, cioe' `crs: null`.
+    let identificatore = match geometry {
+        Some(_) => identificatore_risolto.map(str::to_owned),
+        None => legacy_crs_meta,
+    };
 
     match identificatore {
         None => Ok(CrsDaScrivere::Nullo),

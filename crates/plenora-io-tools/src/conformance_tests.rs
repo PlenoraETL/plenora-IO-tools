@@ -74,6 +74,14 @@ fn valid_crs(descriptor: &FormatDescriptor) -> CrsResolution {
         .crs
     {
         CrsWriteSupport::Fixed(id) => resolved(id),
+        // `GeoParquet` conserva solo una definizione PROJJSON: il WKT di
+        // `resolved` uscirebbe come perdita dichiarata, e il piano valido di
+        // riferimento non ne ha. Il solo identificatore e' il caso comune.
+        CrsWriteSupport::EmbeddedOrUnknown => CrsResolution::resolved(ResolvedCrs::new(
+            Some("EPSG:4326".to_owned()),
+            CrsKind::Geographic,
+            None,
+        )),
         CrsWriteSupport::Embedded | CrsWriteSupport::EmbeddedOptional | CrsWriteSupport::None => {
             resolved("EPSG:4326")
         }
@@ -379,10 +387,53 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
     }
 }
 
+/// Il profilo `EmbeddedOrUnknown`: `missing` si scrive, il dichiarato ma non
+/// risolto si rifiuta prima di ogni effetto.
+fn crs_risolto_o_ignoto_fails_closed(descriptor: &FormatDescriptor) {
+    let support = descriptor
+        .write_capabilities()
+        .expect("driver scrivibile")
+        .geometry;
+    let piano = |crs| {
+        geometry_plan(
+            descriptor,
+            crs,
+            support.dimensions[0],
+            support.encodings[0],
+            support.spatial_semantics[0],
+            vec![GeometryType::Point],
+        )
+    };
+    assert!(
+        validate_write(
+            descriptor,
+            &piano(CrsResolution::Missing),
+            colonne_predefinite(),
+            &senza_opzioni()
+        )
+        .is_ok(),
+        "{} dichiara il CRS ignoto scrivibile ma rifiuta lo stato missing",
+        descriptor.id()
+    );
+    assert_capability(
+        descriptor.id(),
+        validate_write(
+            descriptor,
+            &piano(CrsResolution::DeclaredButUnresolved(
+                plenora_io_model::crs::RawCrs::from_authority_hint("EPSG:4326".to_owned()),
+            )),
+            colonne_predefinite(),
+            &senza_opzioni(),
+        ),
+        CapabilityReason::CrsUnresolved,
+    );
+}
+
 #[test]
 fn crs_matrix_fails_closed() {
     let mut embedded = 0;
     let mut optional_embedded = 0;
+    let mut embedded_or_unknown = 0;
     let mut fixed = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -445,10 +496,18 @@ fn crs_matrix_fails_closed() {
                 );
                 optional_embedded += 1;
             }
+            CrsWriteSupport::EmbeddedOrUnknown => {
+                crs_risolto_o_ignoto_fails_closed(descriptor);
+                embedded_or_unknown += 1;
+            }
             CrsWriteSupport::None => {}
         }
     }
-    assert!(embedded >= 5, "copertura CRS embedded insufficiente");
+    assert_eq!(
+        embedded_or_unknown, 1,
+        "il profilo CRS risolto-o-ignoto deve essere esercitato"
+    );
+    assert!(embedded >= 4, "copertura CRS embedded insufficiente");
     assert_eq!(
         optional_embedded, 1,
         "il profilo CRS embedded opzionale deve essere esercitato"
@@ -490,6 +549,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
 #[test]
 fn every_writer_declares_the_reviewed_crs_representation_matrix() {
     use plenora_io_core::CrsDerivation;
+    use plenora_io_model::crs::CrsDefinitionFormat;
     use CrsRepresentationState::{Absent, Derived, Preserved};
 
     // La matrice non dichiara piu' soltanto **se** una rappresentazione si
@@ -507,11 +567,14 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
         ),
         (
             "geoparquet",
+            // La definizione si conserva solo PROJJSON: un WKT con un
+            // identificatore CRS84 esce senza definizione (rilettura 10).
             CrsRepresentationCapabilities::new(
                 Preserved,
                 Derived(CrsDerivation::FromIdentifier),
                 Preserved,
-            ),
+            )
+            .verbatim_solo(&[CrsDefinitionFormat::Projjson], Absent),
         ),
         (
             "gpkg",
@@ -523,18 +586,30 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
         ),
         (
             "shp",
+            // Il WKT si conserva; un PROJJSON e' sostituito dal WKT che il
+            // writer sintetizza per l'identificatore (rilettura 10).
             CrsRepresentationCapabilities::new(
                 da_definizione(driver_shp::CRS_CON_DEFINIZIONE_SINTETIZZATA),
                 Absent,
                 Preserved,
+            )
+            .verbatim_solo(
+                &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2],
+                Derived(CrsDerivation::FromIdentifier),
             ),
         ),
         (
             "dxf",
+            // Il WKT si conserva; un PROJJSON e' sostituito dal WKT che il
+            // writer sintetizza per l'identificatore (rilettura 10).
             CrsRepresentationCapabilities::new(
                 da_definizione(driver_dxf::CRS_CON_DEFINIZIONE_SINTETIZZATA),
                 Absent,
                 Preserved,
+            )
+            .verbatim_solo(
+                &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2],
+                Derived(CrsDerivation::FromIdentifier),
             ),
         ),
         (

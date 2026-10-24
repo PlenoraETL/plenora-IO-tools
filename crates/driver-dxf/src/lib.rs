@@ -52,7 +52,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -219,6 +219,13 @@ fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
 /// stesso CRS, e il file non dice quale valga. Definizioni uguali non sono un
 /// conflitto.
 ///
+/// Il confronto e' sulle definizioni **senza il BOM iniziale**, che non ne fa
+/// parte: fino alla rilettura 10 si confrontavano prima di toglierlo, e due
+/// `GEODATA` con la stessa definizione, uno con il BOM e uno senza, erano un
+/// conflitto. La definizione che esce e' gia' senza BOM (uno solo, come
+/// [`plenora_io_model::crs_definizione::senza_bom`]): un secondo resta, e la
+/// definizione resta malformata.
+///
 /// # Errors
 ///
 /// `Crs` se due `GEODATA` dichiarano definizioni diverse.
@@ -232,6 +239,13 @@ fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
         if definition.is_empty() {
             continue;
         }
+        // Un BOM solo, come `senza_bom`, senza copiare la definizione.
+        let bom = if definition.starts_with('\u{feff}') {
+            '\u{feff}'.len_utf8()
+        } else {
+            0
+        };
+        let definition = &definition[bom..];
         match trovata {
             Some(precedente) if precedente != definition => {
                 return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -255,8 +269,9 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         let kind = plenora_io_model::crs::crs_kind_for(Some(id), None, "dxf")?;
         return Ok(ResolvedCrs::new(Some(id.to_owned()), kind, None).stored_east_first());
     };
-    // Un BOM iniziale non fa parte della definizione.
-    let definition = plenora_io_model::crs_definizione::senza_bom(definition);
+    // Il BOM iniziale l'ha gia' tolto `embedded_crs_definition`, prima del
+    // confronto fra i `GEODATA`: toglierlo di nuovo qui ne toglierebbe un
+    // secondo.
     if definition.len() > plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
         let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
             "DXF: la definizione del CRS nel GEODATA supera il tetto, byte",
@@ -355,6 +370,10 @@ fn resolve_dxf_crs_testuale(definition: &str, assunta: Option<&str>) -> Result<R
 /// `GEODATA`, e dalla capability `crs_id`, che la dichiara.
 pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"];
 
+/// Le grammatiche che il `GEODATA` porta tali e quali.
+const GRAMMATICHE_DEL_GEODATA: &[CrsDefinitionFormat] =
+    &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2];
+
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     let resolved = geometry.resolved_crs().ok_or_else(|| {
         PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -362,8 +381,29 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
         ))
     })?;
     if let Some(definition) = &resolved.definition {
-        if !definition.trim().is_empty() {
+        // Il `GEODATA` porta un WKT (o la forma XML, che il contratto etichetta
+        // `wkt`): un PROJJSON scritto li' non si rileggeva piu', e la
+        // conversione riusciva lo stesso. Fuori da quelle grammatiche la
+        // definizione si sostituisce con quella sintetizzata, e la perdita la
+        // dichiara la capability, oppure la scrittura si rifiuta.
+        let verbatim = GRAMMATICHE_DEL_GEODATA
+            .iter()
+            .any(|ammessa| resolved.definition_format == Some(*ammessa));
+        if verbatim && !definition.trim().is_empty() {
             return Ok(definition.clone());
+        }
+        if !verbatim {
+            return match resolved.id.as_deref() {
+                Some(id) if CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(&id) => {
+                    Ok(WGS84_ESRI_WKT.to_owned())
+                }
+                _ => Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated(
+                        "DXF: il GEODATA porta un WKT, e la definizione del CRS e' in un'altra \
+                     grammatica che il writer non sa convertire",
+                    ),
+                )),
+            };
         }
     }
     match resolved.id.as_deref() {
@@ -436,6 +476,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
+        )
+        // Il `GEODATA` conserva il WKT; un PROJJSON e' sostituito dal WKT che
+        // il writer sintetizza per l'identificatore, o la scrittura si rifiuta.
+        .verbatim_solo(
+            GRAMMATICHE_DEL_GEODATA,
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,

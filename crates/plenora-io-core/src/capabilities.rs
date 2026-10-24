@@ -46,10 +46,14 @@ fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
     }
 }
 
-pub(crate) fn comparable_crs_representations(
-    geometry: &plenora_io_model::contract::GeometryColumnContract,
-) -> [Option<i64>; 3] {
-    let (definition, definition_format) = match &geometry.crs {
+/// La definizione dichiarata e la sua grammatica.
+fn declared_definition(
+    crs: &CrsResolution,
+) -> (
+    Option<&str>,
+    Option<plenora_io_model::crs::CrsDefinitionFormat>,
+) {
+    match crs {
         CrsResolution::Resolved(resolved) => {
             (resolved.definition.as_deref(), resolved.definition_format)
         }
@@ -57,7 +61,68 @@ pub(crate) fn comparable_crs_representations(
             (raw.definition.as_deref(), raw.definition_format)
         }
         CrsResolution::Missing => (None, None),
+    }
+}
+
+/// Un bersaglio che conserva l'identificatore e non la definizione non sceglie
+/// l'identificatore quando i due si contraddicono.
+///
+/// La regola e' quella di [`plenora_io_model::crs::crs_kind_for`], la stessa
+/// con cui Shapefile, DXF, `GeoPackage` e `GeoParquet` rifiutano in lettura la
+/// coppia: un identificatore che il bordo sa orizzontale su una radice che non
+/// lo e', o di genere opposto. Un Arrow conforme la puo' portare (GEO-005
+/// confronta solo gli identificatori), e IPC la conserva intera. Un bersaglio
+/// che tiene solo l'identificatore -- `GeoParquet` con `EPSG:4326` e un WKT,
+/// `GeoPackage`, `GeoJSON`, KML -- sceglierebbe uno dei due al posto di chi ha
+/// scritto il file: fino alla rilettura 10 `GeoParquet` scriveva `EPSG:4326`
+/// per un `LOCAL_CS` e si dichiarava `lossless`.
+///
+/// E' un limite del bersaglio su un ingresso conforme, quindi `unsupported`
+/// (GEO-000 punto 2, REJ-001 «support»), con la ragione delle rappresentazioni
+/// discordanti. Non si guarda dove la definizione si conserva (IPC, il `.prj`
+/// o il `GEODATA` di un WKT) o dove la riscrive il runtime da lei (`FileGDB`):
+/// li' non si sceglie niente, e la perdita dell'identificatore e' dichiarata.
+fn verifica_identificatore_conservato(
+    driver: &'static str,
+    caps: &crate::descriptor::FormatWriteCapabilities,
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> Result<()> {
+    let (Some(id), (Some(definizione), grammatica)) = (
+        declared_crs_id(&geometry.crs),
+        declared_definition(&geometry.crs),
+    ) else {
+        return Ok(());
     };
+    if caps.crs_representations.crs_id == CrsRepresentationState::Absent
+        || matches!(
+            caps.crs_representations.crs_definition_per(grammatica),
+            CrsRepresentationState::Preserved
+                | CrsRepresentationState::Derived(
+                    crate::descriptor::CrsDerivation::RuntimeResolved
+                )
+        )
+    {
+        return Ok(());
+    }
+    match plenora_io_model::crs::crs_kind_for(Some(id), Some(definizione), driver) {
+        Ok(_) => Ok(()),
+        Err(errore) if errore.category == plenora_io_model::ErrorCategory::Crs => Err(violation(
+            driver,
+            ContractIdentifier::from_geometry_column(geometry).as_ref(),
+            CapabilityReason::CrsRepresentationsInconsistent,
+            &PublicMessage::Curated(
+                "l'identificatore e la definizione del CRS si contraddicono nel genere, e il \
+                 formato conserverebbe il solo identificatore",
+            ),
+        )),
+        Err(errore) => Err(errore),
+    }
+}
+
+pub(crate) fn comparable_crs_representations(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> [Option<i64>; 3] {
+    let (definition, definition_format) = declared_definition(&geometry.crs);
     [
         declared_crs_id(&geometry.crs)
             .and_then(plenora_io_model::crs::authority_srid)
@@ -458,6 +523,21 @@ pub fn validate_write(
                         &PublicMessage::Curated("il formato richiede un CRS risolto"),
                     ))
                 }
+                // `missing` si scrive come «CRS ignoto»; il dichiarato ma non
+                // risolto no: il formato non ha un modo di dirlo.
+                CrsWriteSupport::EmbeddedOrUnknown
+                    if matches!(geometry.crs, CrsResolution::DeclaredButUnresolved(_)) =>
+                {
+                    return Err(violation(
+                        driver,
+                        ContractIdentifier::from_geometry_column(geometry).as_ref(),
+                        CapabilityReason::CrsUnresolved,
+                        &PublicMessage::Curated(
+                            "il formato scrive un CRS risolto o un CRS ignoto, non un CRS \
+                             dichiarato e non risolto",
+                        ),
+                    ))
+                }
                 CrsWriteSupport::Fixed(expected) if geometry.crs.id() != Some(expected) => {
                     return Err(violation(
                         driver,
@@ -475,9 +555,11 @@ pub fn validate_write(
                 }
                 CrsWriteSupport::Embedded
                 | CrsWriteSupport::EmbeddedOptional
+                | CrsWriteSupport::EmbeddedOrUnknown
                 | CrsWriteSupport::Fixed(_)
                 | CrsWriteSupport::None => {}
             }
+            verifica_identificatore_conservato(driver, &caps, geometry)?;
             let [comparable_id, comparable_srid, comparable_definition] =
                 comparable_crs_representations(geometry);
             let representations_are_preserved = comparable_id.is_none()
@@ -487,7 +569,9 @@ pub fn validate_write(
                     || caps.crs_representations.srid == CrsRepresentationState::Preserved);
             let representations_are_preserved = representations_are_preserved
                 && (comparable_definition.is_none()
-                    || caps.crs_representations.crs_definition
+                    || caps
+                        .crs_representations
+                        .crs_definition_per(declared_definition(&geometry.crs).1)
                         == CrsRepresentationState::Preserved);
             if crs_representations_are_inconsistent(geometry) && !representations_are_preserved {
                 return Err(violation(
@@ -539,7 +623,9 @@ pub fn validate_write(
         if senza_geometria
             && matches!(
                 caps.crs,
-                CrsWriteSupport::Embedded | CrsWriteSupport::Fixed(_)
+                CrsWriteSupport::Embedded
+                    | CrsWriteSupport::EmbeddedOrUnknown
+                    | CrsWriteSupport::Fixed(_)
             )
         {
             return Err(violation(

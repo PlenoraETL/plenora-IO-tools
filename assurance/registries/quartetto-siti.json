@@ -80,6 +80,7 @@
     ],
     "definition_for_write": [
       "Crs/Validate/Crs/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never"
     ],
@@ -219,6 +220,8 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "crs_da_scrivere": [
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
@@ -382,6 +385,9 @@
     "resolve_crs": [
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never"
+    ],
+    "resolve_prj": [
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "resolved_crs_id": [
       "Crs/Validate/Crs/Never"

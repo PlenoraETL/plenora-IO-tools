@@ -1411,3 +1411,72 @@ fn driver_common_geometry_field(name: &str, crs: &str) -> Field {
     md.insert(GEO_CRS_KEY.to_owned(), crs.to_owned());
     Field::new(name, DataType::Binary, true).with_metadata(md)
 }
+
+/// Rilettura 10, punto 3: una definizione oltre il tetto e' `resource_limit`,
+/// non `crs` «non ben formata». La verifica dello schema chiamava il lettore
+/// stretto, che oltre il tetto dice malformato, prima di misurarla.
+#[test]
+fn una_definizione_oltre_il_tetto_e_un_limite_non_un_crs_malformato() {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+        PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
+        PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+        PLENORA_FIELD_ID_KEY, PLENORA_PRECISION_KEY, PLENORA_SPATIAL_SEMANTICS_KEY,
+        PLENORA_TYPES_DECLARATION_KEY,
+    };
+    let definizione = |nome: &str| {
+        format!(
+            "GEOGCS[\"{nome}\",DATUM[\"D\",SPHEROID[\"S\",6378137,298.257223563]],\
+             PRIMEM[\"G\",0],UNIT[\"degree\",0.0174532925199433]]"
+        )
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let file_con = |nome: &str, testo: String| {
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            [
+                (
+                    ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    GEOARROW_WKB_EXTENSION.to_owned(),
+                ),
+                (PLENORA_FIELD_ID_KEY.to_owned(), "0".to_owned()),
+                (
+                    PLENORA_SPATIAL_SEMANTICS_KEY.to_owned(),
+                    "geometry".to_owned(),
+                ),
+                (PLENORA_PRECISION_KEY.to_owned(), "float64".to_owned()),
+                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (
+                    PLENORA_TYPES_DECLARATION_KEY.to_owned(),
+                    "unresolved".to_owned(),
+                ),
+                (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:4326".to_owned()),
+                (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
+                (PLENORA_CRS_DEFINITION_KEY.to_owned(), testo),
+                (
+                    PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
+                    "wkt".to_owned(),
+                ),
+            ]
+            .into_iter()
+            .collect::<arrow_schema::Metadata>(),
+        );
+        let path = dir.path().join(nome);
+        ipc_vuoto(
+            &path,
+            &with_contract_version(Arc::new(Schema::new(vec![field]))),
+        );
+        path
+    };
+    let oltre = definizione(&"a".repeat(MAX_BYTE_DEFINIZIONE_CRS));
+    assert!(oltre.len() > MAX_BYTE_DEFINIZIONE_CRS);
+    assert_eq!(
+        categoria_in_apertura(file_con("oltre.arrow", oltre)),
+        Some(plenora_io_model::ErrorCategory::ResourceLimit)
+    );
+    // Il controllo positivo: sotto il tetto, la stessa forma si apre.
+    let sotto = definizione(&"a".repeat(1000));
+    assert_eq!(categoria_in_apertura(file_con("sotto.arrow", sotto)), None);
+}

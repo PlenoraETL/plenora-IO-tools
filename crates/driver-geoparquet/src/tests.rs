@@ -3160,6 +3160,55 @@ fn crs84_omette_il_campo_e_un_crs_mancante_scrive_null() {
     );
 }
 
+/// Rilettura 10, punti 1 e 2, al writer: che cosa esce per ogni stato che non
+/// e' un PROJJSON.
+#[test]
+fn le_definizioni_che_non_sono_projjson_non_spariscono_in_silenzio() {
+    const WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+    let colonna =
+        |crs: CrsResolution| GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true);
+    // Un `missing` e' `crs: null`, e il metadato legacy della colonna non lo
+    // trasforma in un CRS che il contratto non dichiara.
+    assert_eq!(
+        crs_da_scrivere(
+            Some(&colonna(CrsResolution::Missing)),
+            Some("OGC:CRS84".to_owned())
+        )
+        .expect("scrivibile"),
+        CrsDaScrivere::Nullo
+    );
+    // Il dichiarato ma non risolto non diventa CRS84 per il suo suggerimento.
+    let errore = crs_da_scrivere(
+        Some(&colonna(CrsResolution::DeclaredButUnresolved(
+            RawCrs::from_authority_hint("OGC:CRS84".to_owned()),
+        ))),
+        None,
+    )
+    .expect_err("non risolto");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    // Un WKT senza identificatore usciva `crs: null`.
+    let anonimo = ResolvedCrs::new(None, CrsKind::Geographic, Some(WKT.to_owned()));
+    let errore = crs_da_scrivere(Some(&colonna(anonimo.into())), None).expect_err("anonimo");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    // Un WKT con `EPSG:4326` si omette: la perdita la dichiara il piano.
+    let wgs84 = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Geographic,
+        Some(WKT.to_owned()),
+    );
+    assert_eq!(
+        crs_da_scrivere(Some(&colonna(wgs84.into())), None).expect("scrivibile"),
+        CrsDaScrivere::Omesso
+    );
+    // Su un `LOCAL_CS` il writer, come seconda guardia, non sceglie.
+    let locale = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Unknown,
+        Some("LOCAL_CS[\"x\",LOCAL_DATUM[\"d\",0],UNIT[\"metre\",1]]".to_owned()),
+    );
+    assert!(crs_da_scrivere(Some(&colonna(locale.into())), None).is_err());
+}
+
 #[test]
 fn projjson_without_identifier_is_a_typed_unresolved_crs() {
     // Il documento e' completo perche' ora passa dalla validazione: un

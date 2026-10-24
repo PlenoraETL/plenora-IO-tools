@@ -373,8 +373,13 @@ pub fn verifica_crs_assunto(
         CrsResolution::Missing => {
             return Err(crate::PlenoraIoError::crs_redatto(
                 &crate::PublicMessage::Curated(
-                    "--assume-crs non applicato: il formato non usa l'opzione e la sorgente \
-                     non dichiara un CRS",
+                    // Vero per i due casi che arrivano qui: un IPC senza CRS,
+                    // dove il formato l'opzione non la usa, e un GeoParquet
+                    // `crs: null`, che la usa per un Parquet senza `geo` ma
+                    // qui dichiara il CRS ignoto. Fino alla rilettura 10 il
+                    // testo diceva «il formato non usa l'opzione» per entrambi.
+                    "--assume-crs non applicato: la geometria resta senza CRS, perche' la \
+                     sorgente lo dichiara ignoto o il formato non usa l'opzione",
                 ),
             ));
         }
