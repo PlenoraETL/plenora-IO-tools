@@ -344,7 +344,7 @@ fn codici_epsg_discordi_nella_definizione_sono_rifiutati() {
         "EPSG:3003 EPSG:32632",
         "urn:ogc:def:crs:EPSG::3003 / EPSG:4326",
         r#"<Dictionary><Alias id="3003" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias><Alias id="32632" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
-        r#"<Dictionary><Alias id="3003"><Namespace>EPSG Code</Namespace></Alias><Alias id="4326"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        r#"<Dictionary><Alias id = '3003' type = 'CoordinateSystem'><Namespace>EPSG Code</Namespace></Alias><Alias id="4326" type="coordinatesystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
     ];
     for definizione in discordi {
         let errore =
@@ -2602,4 +2602,117 @@ fn una_definizione_del_geodata_oltre_il_tetto_e_un_limite() {
     assert!(resolve_dxf_crs(&con_geodata(&definizione), &opzioni_lettura()).is_ok());
     let errore = resolve_dxf_crs(&con_geodata(&wkt), &opzioni_lettura()).unwrap_err();
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+}
+
+/// Rilettura 9, punto 4: il tipo di un alias si legge come attributo, con gli
+/// spazi attorno a `=` e le due virgolette. Su b4d8064 `type = "Datum"` non era
+/// `TYPE="`, e l'alias del datum 6326 usciva come il CRS `EPSG:6326`.
+#[test]
+fn il_tipo_dell_alias_si_legge_come_attributo() {
+    let non_del_sistema = [
+        r#"<Dictionary><Alias id="6326" type = "Datum"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        r"<Dictionary><Alias id='6326' type='Datum'><Namespace>EPSG Code</Namespace></Alias></Dictionary>",
+        r#"<Dictionary><Alias id="7030"	type	=	"Ellipsoid"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        // Senza `type` l'alias non dice che cosa nomina.
+        r#"<Dictionary><Alias id="3003"><Namespace>EPSG Code</Namespace></Alias><Alias id="4326"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        // `<Aliases>` e' un altro elemento.
+        r#"<Dictionary><Aliases id="3003" type="CoordinateSystem">EPSG</Aliases></Dictionary>"#,
+    ];
+    for definizione in non_del_sistema {
+        let errore =
+            resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()).expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::CrsUnresolved,
+            "{definizione}"
+        );
+        let errore = resolve_dxf_crs(
+            &con_geodata(definizione),
+            &opzioni_lettura().with_assume_crs("EPSG:6326"),
+        )
+        .expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::Crs,
+            "{definizione}"
+        );
+    }
+    // Il datum accanto al sistema di coordinate, con gli spazi: conta il secondo.
+    let concorde = r#"<Dictionary><Alias id="6326" type = "Datum"><Namespace>EPSG Code</Namespace></Alias><Alias id = "4326" type = "CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#;
+    let crs = resolve_dxf_crs(&con_geodata(concorde), &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
+    // Un tag che non si legge non dice che cosa dichiara: `crs`.
+    for illeggibile in [
+        r#"<Dictionary><Alias id="4326" type="CoordinateSystem><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        r#"<Dictionary><Alias id="4326" type="Datum" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        r#"<Dictionary><Alias id=4326 type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+    ] {
+        let errore =
+            resolve_dxf_crs(&con_geodata(illeggibile), &opzioni_lettura()).expect_err(illeggibile);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::Crs,
+            "{illeggibile}"
+        );
+    }
+}
+
+/// Rilettura 9, punto 5: un codice EPSG testuale non canonico segue la regola
+/// del WKT. Senza opzione non si risolve; con l'opzione uguale come testo vale
+/// la grafia del file, diversa e' `crs`. Su b4d8064 `EPSG:032632` usciva
+/// risolto cosi' com'era.
+#[test]
+fn un_codice_testuale_non_canonico_segue_la_regola_del_wkt() {
+    let alias = r#"<Dictionary><Alias id="032632" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#;
+    for definizione in ["EPSG:032632", "urn:ogc:def:crs:EPSG::032632", alias] {
+        let errore =
+            resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()).expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::CrsUnresolved,
+            "{definizione}"
+        );
+        let crs = match resolve_dxf_crs(
+            &con_geodata(definizione),
+            &opzioni_lettura().with_assume_crs("epsg:032632"),
+        ) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{definizione}: {errore}"),
+        };
+        assert_eq!(crs.id.as_deref(), Some("EPSG:032632"), "{definizione}");
+        let errore = resolve_dxf_crs(
+            &con_geodata(definizione),
+            &opzioni_lettura().with_assume_crs("EPSG:32632"),
+        )
+        .expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::Crs,
+            "{definizione}"
+        );
+    }
+    // `EPSG:0` e' canonico.
+    let crs = resolve_dxf_crs(&con_geodata("EPSG:0"), &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("EPSG:0"));
+}
+
+/// Rilettura 9, punti 1 e 7 nel DXF: un `LOCAL_CS` anonimo con
+/// `--assume-crs EPSG:4326` e' `crs`; un BOM iniziale del `GEODATA` si toglie.
+#[test]
+fn geodata_local_cs_e_bom() {
+    let locale =
+        r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#;
+    let errore = resolve_dxf_crs(
+        &con_geodata(locale),
+        &opzioni_lettura().with_assume_crs("EPSG:4326"),
+    )
+    .expect_err("EPSG:4326 su un LOCAL_CS");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    let crs = resolve_dxf_crs(
+        &con_geodata(&format!("\u{feff}{WGS84_ESRI_WKT}")),
+        &opzioni_lettura(),
+    )
+    .unwrap();
+    assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
+    assert!(!crs.definition.unwrap().starts_with('\u{feff}'));
 }

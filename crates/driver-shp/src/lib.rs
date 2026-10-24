@@ -1605,11 +1605,15 @@ fn leggi_prj(prj: &Path) -> Result<Option<String>> {
         errore.driver = Some("shp".to_owned());
         return Err(errore);
     }
-    String::from_utf8(byte).map(Some).map_err(|_| {
-        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "Shapefile: il .prj non e' testo UTF-8",
-        ))
-    })
+    // Un BOM iniziale non fa parte del WKT: si toglie, e la definizione
+    // emessa e' quella senza.
+    String::from_utf8(byte)
+        .map(|testo| Some(plenora_io_model::crs_definizione::senza_bom(testo)))
+        .map_err(|_| {
+            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "Shapefile: il .prj non e' testo UTF-8",
+            ))
+        })
 }
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {

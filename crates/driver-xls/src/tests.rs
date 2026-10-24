@@ -3663,3 +3663,51 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
         "{errore}"
     );
 }
+
+/// Il genere che l'XLSX dichiara viene dalla regola comune, come nel CSV:
+/// `epsg:4326` in minuscolo e' geografico, `EPSG:3857` proiettato, un codice
+/// che il bordo non conosce resta ignoto.
+#[test]
+fn il_genere_dell_opzione_segue_la_regola_comune() {
+    use plenora_io_model::crs::{AxisOrder, CrsKind};
+    let dir = tempfile::tempdir().unwrap();
+    let percorso = dir.path().join("punti.xlsx");
+    let mut cartella = Workbook::new();
+    let foglio = cartella.add_worksheet();
+    foglio.write_string(0, 0, "lon").unwrap();
+    foglio.write_string(0, 1, "lat").unwrap();
+    foglio.write_number(1, 0, 12.5).unwrap();
+    foglio.write_number(1, 1, 45.9).unwrap();
+    cartella.save(&percorso).unwrap();
+    for (assunto, genere, ordine) in [
+        (
+            "epsg:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        (
+            "EPSG:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        ("EPSG:3857", CrsKind::Projected, AxisOrder::Unknown),
+        ("EPSG:3003", CrsKind::Unknown, AxisOrder::Unknown),
+    ] {
+        let opzioni = opzioni_lettura()
+            .with_assume_crs(assunto)
+            .with_format_option("x_column", "lon")
+            .with_format_option("y_column", "lat");
+        let ds = match XlsDriver.open(Source::Path(percorso.clone()), opzioni) {
+            Ok(ds) => ds,
+            Err(errore) => panic!("{assunto}: {errore}"),
+        };
+        let crs = ds.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .and_then(|g| g.resolved_crs())
+            .cloned()
+            .unwrap();
+        assert_eq!((crs.kind, crs.axis_order), (genere, ordine), "{assunto}");
+    }
+}

@@ -48,16 +48,34 @@ use crate::driver::spool::StagedSpool;
 /// silenzio; un controllo per driver sarebbe stato dieci copie della stessa
 /// regola, con il rischio che l'undicesimo driver la dimentichi.
 ///
+/// # Un layer rifiutato non chiude gli altri
+///
+/// Le due verifiche del CRS (l'opzione e GEO-005/GEO-020) sono **del layer**.
+/// Fino al 24/10 correvano su tutti i layer a ogni apertura e il primo rifiuto
+/// chiudeva il dataset: un `GeoPackage` con una sola riga di
+/// `gpkg_spatial_ref_sys` malformata rendeva illeggibile anche il layer sano
+/// che `io.read --layer` chiedeva. Ora un dataset a piu' layer conserva il
+/// rifiuto del layer ([`OpenDatasetHandle::rifiuto_del_layer`]): la lettura di
+/// quel layer lo restituisce, quella degli altri procede, e `io.inspect` e
+/// `io.layers`, che descrivono tutti i layer, falliscono con quel rifiuto. Se
+/// i layer rifiutati sono tutti, o il layer e' uno solo, il rifiuto e' gia'
+/// dell'apertura, come prima.
+///
 /// # Errors
 ///
-/// `crs` se l'opzione contraddice il CRS dichiarato da una colonna
-/// geometrica, o se non si puo' confrontare con esso.
+/// `schema` se il nome della colonna geometrica e' ambiguo; il primo rifiuto
+/// del CRS (`crs`, o `limit_exceeded` per una definizione oltre il tetto) se
+/// nessun layer si puo' leggere.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
 ) -> Result<Box<dyn OpenDatasetHandle>> {
+    let mut rifiuti = BTreeMap::new();
     for layer in dataset.layers() {
+        if dataset.rifiuto_del_layer(layer.id).is_some() {
+            continue;
+        }
         if let Some(geometria) = &layer.contract.geometry {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
             // batch -- la validazione, il conteggio dei componenti, gli esempi
@@ -78,19 +96,42 @@ pub fn with_read_budget(
                      layer",
                 )));
             }
-            plenora_io_model::crs::verifica_crs_assunto(
-                opts.assume_crs.as_deref(),
-                &geometria.crs,
-            )?;
             // GEO-005 e GEO-020 sul CRS emesso, per ogni driver: nessuno emette
             // una definizione o un identificatore che la scrittura IPC rifiuterebbe.
-            plenora_io_model::crs::verifica_crs_emesso(&geometria.crs)?;
+            let verifica = plenora_io_model::crs::verifica_crs_assunto(
+                opts.assume_crs.as_deref(),
+                &geometria.crs,
+            )
+            .and_then(|()| plenora_io_model::crs::verifica_crs_emesso(&geometria.crs));
+            if let Err(errore) = verifica {
+                rifiuti.insert(layer.id.0, errore);
+            }
+        }
+    }
+    let leggibili = dataset
+        .layers()
+        .iter()
+        .filter(|layer| {
+            !rifiuti.contains_key(&layer.id.0) && dataset.rifiuto_del_layer(layer.id).is_none()
+        })
+        .count();
+    if leggibili == 0 {
+        // Nessun layer si legge: il primo rifiuto, nell'ordine dei layer, e'
+        // quello dell'apertura.
+        let primo = dataset.layers().iter().find_map(|layer| {
+            rifiuti
+                .remove(&layer.id.0)
+                .or_else(|| dataset.rifiuto_del_layer(layer.id))
+        });
+        if let Some(errore) = primo {
+            return Err(errore);
         }
     }
     Ok(Box::new(BudgetedDataset {
         dataset,
         budget: opts.budget().clone(),
         physical_row_indices_attestable,
+        rifiuti,
     }))
 }
 
@@ -98,6 +139,8 @@ struct BudgetedDataset {
     dataset: Box<dyn OpenDatasetHandle>,
     budget: OperationBudget,
     physical_row_indices_attestable: bool,
+    /// I layer il cui CRS non passa le verifiche comuni, per id di layer.
+    rifiuti: BTreeMap<u32, PlenoraIoError>,
 }
 
 impl OpenDatasetHandle for BudgetedDataset {
@@ -109,10 +152,20 @@ impl OpenDatasetHandle for BudgetedDataset {
         self.dataset.fidelity_assessment()
     }
 
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti
+            .get(&layer.0)
+            .cloned()
+            .or_else(|| self.dataset.rifiuto_del_layer(layer))
+    }
+
     fn open_layer_reader(
         &self,
         request: &crate::request::ReadRequest,
     ) -> Result<Box<dyn LayerReader>> {
+        if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
+            return Err(rifiuto);
+        }
         self.budget.context().ensure_active()?;
         // Il lease precede intenzionalmente la creazione del reader: diversi
         // driver avviano qui il worker parser e non devono farlo fuori quota.

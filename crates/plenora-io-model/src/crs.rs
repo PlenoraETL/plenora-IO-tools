@@ -173,8 +173,10 @@ pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
 ///
 /// La definizione decide con la parola della propria radice
 /// ([`crate::crs_definizione::genere_radice`]); una definizione ben formata di
-/// genere ignoto (`BOUNDCRS`, composto, geocentrico) lascia il genere ignoto
-/// qualunque sia l'identificatore, e una malformata pure (la rifiuta la verifica
+/// genere ignoto (composto, geocentrico, verticale, locale) lascia il genere
+/// ignoto con un identificatore ignoto, ed e' un rifiuto con uno di quelli che
+/// il bordo sa orizzontali; un `BOUNDCRS` resta ignoto qualunque sia
+/// l'identificatore, e una definizione malformata pure (la rifiuta la verifica
 /// GEO-005 di [`verifica_crs_emesso`]). Senza definizione decide
 /// l'identificatore, solo se il bordo lo conosce gia': `OGC:CRS84` ed
 /// `EPSG:4326` geografici ([`crs_kind_for_authority_id`]), `EPSG:3857`
@@ -190,8 +192,11 @@ pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
 ///
 /// `crs`, con il driver, se l'identificatore e' uno di quelli noti e il suo
 /// genere contraddice quello della definizione (`EPSG:4326` su un `PROJCS`,
-/// dichiarato o nominato da `--assume-crs`): il bordo non e' un resolver, ma
-/// questa contraddizione la vede senza risolvere niente.
+/// dichiarato o nominato da `--assume-crs`) o la radice non e' orizzontale
+/// (`EPSG:4326` su un `LOCAL_CS`): il bordo non e' un resolver, ma questa
+/// contraddizione la vede senza risolvere niente. `limit_exceeded` se la
+/// definizione supera
+/// [`MAX_BYTE_DEFINIZIONE_CRS`](crate::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS).
 pub fn crs_kind_for(
     id: Option<&str>,
     definition: Option<&str>,
@@ -207,25 +212,46 @@ pub fn crs_kind_for(
     let Some(definition) = definition else {
         return Ok(dall_id);
     };
-    let dalla_definizione =
-        match crate::crs_definizione::genere_radice(definition, definition_format(definition)) {
-            Ok(Some(genere)) => genere,
+    crate::crs_definizione::verifica_dimensione_definizione(definition, Some(driver))?;
+    let formato = definition_format(definition);
+    let (dalla_definizione, ben_formata) =
+        match crate::crs_definizione::genere_radice(definition, formato) {
+            Ok(Some(genere)) => (genere, true),
             // Un PROJJSON senza `type` non dice il genere: decide l'identificatore.
             Ok(None) => return Ok(dall_id),
-            Err(crate::crs_definizione::Malformata) => CrsKind::Unknown,
+            Err(crate::crs_definizione::Malformata) => (CrsKind::Unknown, false),
         };
+    let rifiuto = |messaggio| {
+        let mut errore =
+            crate::PlenoraIoError::crs_redatto(&crate::PublicMessage::Curated(messaggio));
+        errore.driver = Some(driver.to_owned());
+        Err(errore)
+    };
     match (dalla_definizione, dall_id) {
-        (CrsKind::Unknown, _) => Ok(CrsKind::Unknown),
+        // Malformata: la rifiuta la verifica GEO-005 di `verifica_crs_emesso`.
+        (CrsKind::Unknown, _) if !ben_formata => Ok(CrsKind::Unknown),
+        (CrsKind::Unknown, CrsKind::Unknown) => Ok(CrsKind::Unknown),
+        // Un `BOUNDCRS` lega due CRS: il genere resta ignoto, come prima, e
+        // l'opzione non lo nomina (`RifiutoIdentita::Legata`).
+        (CrsKind::Unknown, _) if crate::crs_definizione::radice_legata(definition, formato) => {
+            Ok(CrsKind::Unknown)
+        }
+        // Un identificatore che il bordo sa orizzontale 2D, geografico o
+        // proiettato, su una radice che non lo e' (verticale, locale,
+        // geocentrica, composta, derivata, temporale, parametrica). Fino al
+        // 24/10 il genere restava ignoto e il CRS usciva risolto con
+        // l'identificatore: un `LOCAL_CS` anonimo con `--assume-crs EPSG:4326`
+        // diventava `EPSG:4326`.
+        (CrsKind::Unknown, _) => rifiuto(
+            "l'identificatore del CRS nomina un CRS orizzontale (geografico o proiettato) e la \
+             radice della definizione non lo e'",
+        ),
         (genere, CrsKind::Unknown) => Ok(genere),
         (genere, noto) if genere == noto => Ok(genere),
-        _ => {
-            let mut errore = crate::PlenoraIoError::crs_redatto(&crate::PublicMessage::Curated(
-                "il genere dell'identificatore del CRS (geografico o proiettato) contraddice \
-                     quello della radice della definizione",
-            ));
-            errore.driver = Some(driver.to_owned());
-            Err(errore)
-        }
+        _ => rifiuto(
+            "il genere dell'identificatore del CRS (geografico o proiettato) contraddice \
+                 quello della radice della definizione",
+        ),
     }
 }
 
@@ -245,7 +271,9 @@ pub fn crs_kind_for(
 /// # Errors
 ///
 /// `crs` se la definizione e' malformata o contraddice l'identificatore, o se
-/// un identificatore di un catalogo locale e' dichiarato risolto.
+/// un identificatore di un catalogo locale e' dichiarato risolto;
+/// `limit_exceeded` se la definizione supera
+/// [`MAX_BYTE_DEFINIZIONE_CRS`](crate::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS).
 pub fn verifica_crs_emesso(crs: &CrsResolution) -> crate::Result<()> {
     let errore = |messaggio| {
         Err(crate::PlenoraIoError::crs_redatto(
@@ -280,6 +308,7 @@ pub fn verifica_crs_emesso(crs: &CrsResolution) -> crate::Result<()> {
     let Some(definition) = definition else {
         return Ok(());
     };
+    crate::crs_definizione::verifica_dimensione_definizione(definition, None)?;
     // Un contratto costruito a mano puo' non dire il formato: vale quello che
     // la scrittura dei metadati gli darebbe.
     let format = format.unwrap_or_else(|| definition_format(definition));

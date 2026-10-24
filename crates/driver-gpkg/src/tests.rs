@@ -2064,3 +2064,220 @@ fn il_genere_della_riga_srs_viene_dalla_radice() {
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
     assert_eq!(errore.driver.as_deref(), Some("gpkg"));
 }
+
+// --- rilettura 9 -------------------------------------------------------------
+
+/// Un `GeoPackage` con due layer, `vani` e `strade`, entrambi in `EPSG:4326`.
+fn due_layer(path: &std::path::Path) {
+    let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+            Arc::new(Int64Array::from(vec![1_i64])),
+        ],
+    )
+    .unwrap();
+    let layer = |name: &str| WriteLayer {
+        name: name.to_owned(),
+        contract: DataContract {
+            schema: schema.clone(),
+            geometry: None,
+        },
+    };
+    let plan = WritePlan {
+        layers: vec![layer("vani"), layer("strade")],
+    };
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write_to_layer(LayerId(0), &batch).unwrap();
+    writer.write_to_layer(LayerId(1), &batch).unwrap();
+    writer.finish().unwrap();
+}
+
+/// Registra una riga di `gpkg_spatial_ref_sys` e la assegna ai layer nominati.
+fn riassegna_srs(path: &std::path::Path, tabelle: &[&str], riga: Option<(&str, i64, &str)>) {
+    let conn = Connection::open(path).unwrap();
+    let srs_id = 900_001_i64;
+    if let Some((organizzazione, codice, definizione)) = riga {
+        conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+             (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+             VALUES ('x', ?1, ?2, ?3, ?4)",
+            rusqlite::params![srs_id, organizzazione, codice, definizione],
+        )
+        .unwrap();
+    }
+    for tabella in tabelle {
+        conn.execute(
+            "UPDATE gpkg_geometry_columns SET srs_id = ?1 WHERE table_name = ?2",
+            rusqlite::params![srs_id, tabella],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE gpkg_contents SET srs_id = ?1 WHERE table_name = ?2",
+            rusqlite::params![srs_id, tabella],
+        )
+        .unwrap();
+    }
+}
+
+fn richiesta(layer: LayerId) -> ReadRequest {
+    ReadRequest {
+        layer,
+        projected_fields: None,
+        projection_mode: ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        scope: ReadScope::default(),
+        batch_target: BatchTarget::default(),
+        cancellation: CancellationToken::default(),
+    }
+}
+
+fn id_del_layer(dataset: &dyn OpenDatasetHandle, nome: &str) -> LayerId {
+    dataset
+        .layers()
+        .iter()
+        .find(|layer| layer.name == nome)
+        .map(|layer| layer.id)
+        .unwrap()
+}
+
+/// Rilettura 9, punto 2: un layer il cui CRS non passa le verifiche comuni
+/// (qui una definizione PROJ, malformata per GEO-005) o non si risolve
+/// (organizzazione `NONE`, riga mancante) non rende illeggibile l'altro. Su
+/// b4d8064 l'apertura falliva per tutti, e `read --layer` del layer sano con
+/// lei.
+#[test]
+fn un_layer_dal_crs_rifiutato_non_chiude_gli_altri() {
+    let righe: [Option<(&str, i64, &str)>; 3] = [
+        Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
+        Some(("NONE", 0, "undefined")),
+        // Nessuna riga: lo `srs_id` del layer non esiste.
+        None,
+    ];
+    for riga in righe {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("due.gpkg");
+        due_layer(&path);
+        riassegna_srs(&path, &["vani"], riga);
+        let dataset = match GpkgDriver.open(Source::Path(path.clone()), opzioni_lettura()) {
+            Ok(dataset) => dataset,
+            Err(errore) => panic!("{riga:?}: {errore}"),
+        };
+        let vani = id_del_layer(dataset.as_ref(), "vani");
+        let strade = id_del_layer(dataset.as_ref(), "strade");
+        assert!(dataset.rifiuto_del_layer(strade).is_none(), "{riga:?}");
+        let rifiuto = dataset.rifiuto_del_layer(vani).expect("vani e' rifiutato");
+        assert_eq!(
+            rifiuto.category,
+            plenora_io_model::ErrorCategory::Crs,
+            "{riga:?}"
+        );
+        let Err(errore) = dataset.open_layer_reader(&richiesta(vani)) else {
+            panic!("{riga:?}: il layer rifiutato si legge");
+        };
+        assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+        let mut reader = dataset.open_layer_reader(&richiesta(strade)).unwrap();
+        let mut righe_lette = 0;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            righe_lette += batch.num_rows();
+        }
+        assert_eq!(righe_lette, 1, "{riga:?}");
+    }
+}
+
+/// Se nessun layer si legge, l'apertura fallisce con il primo rifiuto, come
+/// prima.
+#[test]
+fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due.gpkg");
+    due_layer(&path);
+    riassegna_srs(
+        &path,
+        &["vani", "strade"],
+        Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
+    );
+    let Err(errore) = GpkgDriver.open(Source::Path(path), opzioni_lettura()) else {
+        panic!("l'apertura riesce senza layer leggibili");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
+/// Rilettura 9, punto 1 nel `GeoPackage`: `EPSG:4326` registrato con una
+/// definizione `LOCAL_CS` e' `crs`. Su b4d8064 il genere restava ignoto e il
+/// CRS usciva risolto.
+#[test]
+fn un_identificatore_geografico_su_un_local_cs_e_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        [r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#],
+    )
+    .unwrap();
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+}
+
+/// Rilettura 9, punto 3: la definizione di `gpkg_spatial_ref_sys` ha il tetto
+/// comune, e oltre il tetto `SQLite` non la consegna. Su b4d8064 si leggeva per
+/// intero e il genere usciva dal lettore stretto dopo averla tokenizzata.
+#[test]
+fn la_definizione_della_riga_srs_ha_il_tetto() {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let mut lunga = String::from(r#"GEOGCS["x""#);
+    while lunga.len() <= MAX_BYTE_DEFINIZIONE_CRS {
+        lunga.push_str(",1");
+    }
+    lunga.push(']');
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        [&lunga],
+    )
+    .unwrap();
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+    assert!(!errore.message.contains("GEOGCS"), "{}", errore.message);
+}
+
+/// Rilettura 9, punto 7: un BOM iniziale non fa parte della definizione. Su
+/// b4d8064 la riga si leggeva malformata.
+#[test]
+fn un_bom_iniziale_della_definizione_si_toglie() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        ["\u{feff}GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]"],
+    )
+    .unwrap();
+    let crs = crs_for(&conn, 900_001).unwrap();
+    assert_eq!(crs.kind, CrsKind::Geographic);
+    let definizione = crs.definition.clone().unwrap();
+    assert!(definizione.starts_with("GEOGCS["), "{definizione}");
+    plenora_io_model::crs::verifica_crs_emesso(&plenora_io_model::crs::CrsResolution::Resolved(
+        crs,
+    ))
+    .unwrap();
+}

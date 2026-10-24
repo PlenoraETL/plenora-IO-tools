@@ -46,9 +46,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{
-    crs_kind_for_authority_id, CrsKind, CrsResolution, RawCrs, ResolvedCrs,
-};
+use plenora_io_model::crs::{crs_kind_for_authority_id, CrsResolution, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
@@ -2089,7 +2087,7 @@ fn resolve_geometry_and_crs(
             )));
         }
         let crs = crs_from(geo)?;
-        return Ok((geo.nome_primaria.clone(), CrsResolution::Resolved(crs)));
+        return Ok((geo.nome_primaria.clone(), crs));
     }
 
     // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria si
@@ -2142,18 +2140,23 @@ fn resolve_geometry_and_crs(
 ///   il file un'affermazione che non ha fatto: chi legge crederebbe di avere
 ///   coordinate in WGS84 dove nessuno lo ha detto;
 /// * **documento** -- il PROJJSON dichiarato.
-fn crs_from(geo: &MetadatiGeo) -> Result<ResolvedCrs> {
+fn crs_from(geo: &MetadatiGeo) -> Result<CrsResolution> {
     match &geo.primaria.crs {
-        metadati::Crs::Assente => Ok(ResolvedCrs::wgs84()),
-        // Nessun identificatore, nessuna definizione, natura ignota: e' la
-        // rappresentazione di «non lo so», e non ne esiste un'altra.
-        metadati::Crs::Nullo => Ok(ResolvedCrs::new(None, CrsKind::Unknown, None)),
+        metadati::Crs::Assente => Ok(ResolvedCrs::wgs84().into()),
+        // `null` e' un CRS ignoto (GeoParquet 1.1, «crs»): nel vocabolario e'
+        // `missing`, l'unico stato senza identificatore ne' definizione
+        // (ARROW-VOCABULARY-1.0, sezione 4). Fino al 24/10 era un `resolved`
+        // senza nessuno dei due: `io.read` lo emetteva, e la conversione in
+        // IPC lo rifiutava come metadato CRS non valido.
+        metadati::Crs::Nullo => Ok(CrsResolution::Missing),
         // Accettato per compatibilita': l'identificatore e' cio' che quel file
         // dichiarava, e si conserva. Il contratto dice altrove che il file non
         // era conforme, cosi' chi legge non scambia la cortesia per conformita'.
         metadati::Crs::StoricoSoloIdentificatore(id) => {
             let genere = crs_kind_for_authority_id(id);
-            Ok(ResolvedCrs::new(Some(id.clone()), genere, None).stored_east_first())
+            Ok(ResolvedCrs::new(Some(id.clone()), genere, None)
+                .stored_east_first()
+                .into())
         }
         metadati::Crs::Documento(v) => {
             let id = v.get("id").and_then(|i| {
@@ -2184,7 +2187,9 @@ fn crs_from(geo: &MetadatiGeo) -> Result<ResolvedCrs> {
             // GeoParquet memorizza longitudine o easting prima qualunque sia
             // l'ordine che il PROJJSON elenca (GeoParquet 1.1, «crs»): EPSG:4326
             // qui e' `lon_lat`, non l'ordine del registro (GEO-002).
-            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)).stored_east_first())
+            Ok(ResolvedCrs::new(Some(id), kind, Some(definition))
+                .stored_east_first()
+                .into())
         }
     }
 }

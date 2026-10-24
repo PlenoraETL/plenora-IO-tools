@@ -72,6 +72,9 @@ use super::{Malformata, TestoDefinizione};
 pub(super) fn identificatori(
     testo: &str,
 ) -> Result<Vec<(TestoDefinizione, TestoDefinizione)>, Malformata> {
+    if testo.len() > super::MAX_BYTE_DEFINIZIONE_CRS {
+        return Err(Malformata);
+    }
     valida(testo.as_bytes())?;
     let mut cursore = Cursore {
         byte: testo.as_bytes(),

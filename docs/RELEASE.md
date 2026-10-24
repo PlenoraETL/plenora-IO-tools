@@ -1436,7 +1436,8 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   `PROJCS [`, `PROJCS(` o `PROJCS	[` è proiettato (prima geografico, e con gli
   assi est/nord `lon_lat` su dati UTM), `GEOGCS["PROJCS[",...]` è geografico,
   un composto, un `BOUNDCRS` o un geocentrico (`GEODCRS` senza
-  `CS[ellipsoidal]`) ha genere e ordine ignoti; un identificatore che il bordo
+  `CS[ellipsoidal]`) ha genere e ordine ignoti con un identificatore che il
+  bordo non conosce (con uno che conosce, vedi sotto); un identificatore che il bordo
   sa geografico (`EPSG:4326`, `OGC:CRS84`) su una radice proiettata, o
   `EPSG:3857` su una geografica, è `crs`, dichiarato o nominato da
   `--assume-crs`; in GeoParquet un `type` `ProjectedCRS` con `id` EPSG:4326 è
@@ -1457,8 +1458,37 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   definizione malformata o che contraddice `crs_id`, o un catalogo locale
   (`POSTGIS:4326` di un GeoPackage) risolto, è `crs` già in `io.inspect` e
   `io.read`, non solo nella scrittura IPC.
-- **Tetto sulla definizione del `.prj` e del `GEODATA`.** Oltre 1 MiB è
-  `limit_exceeded`; prima il `.prj` si leggeva intero.
+- **Tetto sulla definizione, da ogni sorgente.** Oltre 1 MiB una definizione
+  CRS è `limit_exceeded`: il `.prj`, il `GEODATA`, la riga di
+  `gpkg_spatial_ref_sys`, il `crs` di GeoParquet, il metadato di un campo
+  Arrow IPC (anche in scrittura), la definizione di FileGDB. Prima il `.prj` si
+  leggeva intero, e le definizioni di un metadato erano limitate solo dai byte
+  del metadato (8 MiB in un GeoPackage: 698 MB di picco).
+- **Un layer rifiutato non chiude gli altri.** In un GeoPackage a più layer il
+  CRS che non passa le verifiche (`--assume-crs`, GEO-005, GEO-020) o non si
+  risolve rifiuta il layer: `io.read --layer` e `io.convert --layer` su un
+  layer sano procedono, sul layer rifiutato falliscono; `io.inspect` e
+  `io.layers`, che descrivono tutti i layer, falliscono con quel rifiuto.
+  Prima il primo rifiuto chiudeva il dataset intero.
+- **Un identificatore orizzontale vuole una radice orizzontale.** `EPSG:4326`,
+  `OGC:CRS84` ed `EPSG:3857`, dichiarati o nominati da `--assume-crs`, su una
+  radice che non è un CRS orizzontale 2D (`LOCAL_CS`, `ENGCRS`, `GEOCCS`, un
+  `GEODCRS` cartesiano, verticali, composti, `DERIVEDPROJCRS`, temporali,
+  parametrici) sono `crs`; prima il genere restava ignoto e il CRS usciva
+  risolto. Un `BOUNDCRS` resta com'era.
+- **DXF: alias e codici.** Il tipo di un `<Alias>` si legge come attributo (spazi
+  attorno a `=`, virgolette semplici o doppie): `type = "Datum"` non conta più
+  come il sistema di coordinate, un alias senza `type` non conta, un tag
+  illeggibile è `crs`. Un codice testuale non canonico (`EPSG:032632`) resta non
+  risolto senza opzione, come in un `AUTHORITY`.
+- **GeoParquet `crs: null` è `missing`.** Prima era un `resolved` senza
+  identificatore né definizione, che la conversione in IPC rifiutava; ora
+  lettura e conversione concordano.
+- **Genere riletto dall'IPC.** Segue la regola comune dalla definizione e
+  dall'identificatore: un `EPSG:3031` polare torna proiettato.
+- **BOM.** Un BOM UTF-8 iniziale di un `.prj`, di una riga di
+  `gpkg_spatial_ref_sys` o di un `GEODATA` si toglie; prima la definizione era
+  malformata.
 - **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
   la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
   fuori da una feature table, rende il file `data_mapping` all'apertura; prima
