@@ -153,8 +153,13 @@ pub enum Crs {
     Assente,
     /// Il campo c'e' e vale `null`: il CRS non e' dichiarato.
     Nullo,
-    /// Un documento PROJJSON.
-    Documento(serde_json::Value),
+    /// Un documento PROJJSON: il valore, per leggerlo, e il **testo** com'e'
+    /// nel file, per conservarlo. Fino alla rilettura 11 c'era solo il valore,
+    /// e la definizione che il driver consegnava era la sua riscrittura.
+    Documento {
+        valore: serde_json::Value,
+        testo: String,
+    },
     /// La forma storica `{"id": {"authority": ..., "code": ...}}`, che PROJJSON
     /// non e' e che questo repository ha scritto fino a S10.
     ///
@@ -276,7 +281,8 @@ pub fn analizza(grezzo: &str, accetta_crs_storico: bool) -> Result<MetadatiGeo> 
         }
     }
 
-    match (esito_schema, leggi(oggetto, versione, conformita)) {
+    let testi = testi_dei_crs(grezzo);
+    match (esito_schema, leggi(oggetto, versione, conformita, &testi)) {
         (Ok(()), letto) => letto,
         (Err(dello_schema), Err(preciso)) => {
             // Il verdetto e' dello schema, la ragione e' la nostra: e' il caso
@@ -293,6 +299,7 @@ fn leggi(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     versione: &'static str,
     conformita: Conformita,
+    testi: &BTreeMap<String, String>,
 ) -> Result<MetadatiGeo> {
     let colonna_primaria = stringa_obbligatoria(oggetto, "primary_column")?;
 
@@ -317,14 +324,27 @@ fn leggi(
             "metadato `geo` GeoParquet in cui `primary_column` non compare fra `columns`",
         ))
     })?;
-    let primaria = colonna(grezza_primaria, versione, conformita)?;
+    let primaria = colonna(
+        grezza_primaria,
+        versione,
+        conformita,
+        testi.get(&colonna_primaria).map(String::as_str),
+    )?;
 
     let mut secondarie = BTreeMap::new();
     for (nome, grezza) in colonne_grezze {
         if nome == &colonna_primaria {
             continue;
         }
-        secondarie.insert(nome.clone(), colonna(grezza, versione, conformita)?);
+        secondarie.insert(
+            nome.clone(),
+            colonna(
+                grezza,
+                versione,
+                conformita,
+                testi.get(nome).map(String::as_str),
+            )?,
+        );
     }
 
     Ok(MetadatiGeo {
@@ -334,6 +354,36 @@ fn leggi(
         primaria,
         secondarie,
     })
+}
+
+/// Il testo del campo `crs` di ogni colonna, com'e' nel documento.
+///
+/// Si legge con `RawValue`, che conserva i byte del valore: chiavi, spazi e
+/// numeri restano quelli del file. Le chiavi ripetute valgono come in
+/// `serde_json::Value` (l'ultima), cosi' il testo e il valore che si leggono
+/// sono dello stesso campo. Un documento che non si legge cosi' non ha testi:
+/// la validazione lo rifiuta comunque, e qui non si decide niente.
+fn testi_dei_crs(grezzo: &str) -> BTreeMap<String, String> {
+    use serde_json::value::RawValue;
+    let mut testi = BTreeMap::new();
+    let Ok(radice) = serde_json::from_str::<BTreeMap<String, &RawValue>>(grezzo) else {
+        return testi;
+    };
+    let Some(colonne) = radice
+        .get("columns")
+        .and_then(|c| serde_json::from_str::<BTreeMap<String, &RawValue>>(c.get()).ok())
+    else {
+        return testi;
+    };
+    for (nome, colonna) in colonne {
+        let Ok(campi) = serde_json::from_str::<BTreeMap<String, &RawValue>>(colonna.get()) else {
+            continue;
+        };
+        if let Some(crs) = campi.get("crs") {
+            testi.insert(nome, crs.get().to_owned());
+        }
+    }
+    testi
 }
 
 /// La forma storica **esatta** che questo repository scriveva nel campo `crs`.
@@ -431,6 +481,7 @@ fn colonna(
     grezza: &serde_json::Value,
     versione: &'static str,
     conformita: Conformita,
+    testo_crs: Option<&str>,
 ) -> Result<ColonnaGeo> {
     let oggetto = grezza.as_object().ok_or_else(|| {
         non_conforme(&PublicMessage::Curated(
@@ -440,7 +491,7 @@ fn colonna(
 
     encoding(oggetto, versione)?;
     let tipi = geometry_types(oggetto)?;
-    let crs = crs(oggetto, conformita)?;
+    let crs = crs(oggetto, conformita, testo_crs)?;
     let bordi = bordi(oggetto)?;
     let orientamento = orientamento(oggetto)?;
     let bbox = bbox(oggetto)?;
@@ -555,6 +606,7 @@ pub fn etichetta_di_tipo(etichetta: &str) -> Option<(GeometryType, CoordinateDim
 fn crs(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     conformita: Conformita,
+    testo: Option<&str>,
 ) -> Result<Crs> {
     let Some(valore) = oggetto.get("crs") else {
         return Ok(Crs::Assente);
@@ -573,7 +625,15 @@ fn crs(
         }
     }
     if valore.is_object() {
-        return Ok(Crs::Documento(valore.clone()));
+        let testo = testo.ok_or_else(|| {
+            non_conforme(&PublicMessage::Curated(
+                "colonna GeoParquet con un `crs` il cui testo non si rilegge",
+            ))
+        })?;
+        return Ok(Crs::Documento {
+            valore: valore.clone(),
+            testo: testo.to_owned(),
+        });
     }
     Err(non_conforme(&PublicMessage::Curated(
         "colonna GeoParquet con un `crs` che non e' ne' un oggetto PROJJSON ne' null",

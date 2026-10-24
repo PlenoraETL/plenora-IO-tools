@@ -97,6 +97,66 @@
             "sink_path"
           ],
           "properties": {
+            "crs": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "embedded",
+                    "embedded_optional",
+                    "embedded_or_unknown",
+                    "none"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "fixed"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "fixed": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              ],
+              "$comment": "Che cosa il writer fa del CRS (PRODUCT.md, «Il vocabolario CRS del catalogo»): `embedded` lo incorpora e pretende un CRS risolto; `embedded_optional` incorpora anche il dichiarato ma non risolto e il mancante (IPC); `embedded_or_unknown` incorpora un risolto e scrive il mancante come CRS ignoto, e rifiuta il dichiarato ma non risolto (GeoParquet, `crs: null`); l'oggetto con `fixed` impone quel CRS e rifiuta gli altri; `none` non porta CRS. Enumerato dalla rilettura 11: prima i valori erano liberi nello schema e scritti solo nel codice."
+            },
+            "crs_representations": {
+              "type": "object",
+              "required": [
+                "crs_id",
+                "srid",
+                "crs_definition"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "crs_id": {
+                  "enum": [
+                    "preserved",
+                    "derived",
+                    "absent"
+                  ]
+                },
+                "srid": {
+                  "enum": [
+                    "preserved",
+                    "derived",
+                    "absent"
+                  ]
+                },
+                "crs_definition": {
+                  "enum": [
+                    "preserved",
+                    "conditional",
+                    "derived",
+                    "absent"
+                  ]
+                }
+              },
+              "$comment": "La capability statica di ogni rappresentazione; il verdetto per piano sta nel `LossReport`. `preserved` si conserva tale e quale, `derived` si rilegge da un'altra rappresentazione scritta nel file, `absent` non si scrive. `conditional` (rilettura 11) dice che l'esito della definizione dipende dalla sua grammatica: conservata o riscritta in alcune, sostituita o perduta nelle altre, con la perdita dichiarata per piano; le grammatiche per formato le elenca PRODUCT.md. Fino alla rilettura 11 GeoParquet, Shapefile e DXF pubblicavano `preserved`."
+            },
             "sink_path": {
               "type": "object",
               "required": [

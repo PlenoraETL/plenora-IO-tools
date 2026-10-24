@@ -877,13 +877,50 @@ fn reader_uppercases_the_organization_in_ascii_only() {
     );
 }
 
+/// `OGC:CRS84` non ha un codice intero, e `gpkg_spatial_ref_sys` lo vuole:
+/// il writer non lo riscrive `EPSG:4326`, e lo rifiuta come limite del
+/// bersaglio. Fino alla rilettura 11 il rifiuto era `crs` («non risolto»)
+/// per un CRS risolto.
 #[test]
 fn writer_does_not_relabel_crs84_as_epsg_4326() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
     assert!(matches!(
         register_srs(&conn, &crs("OGC:CRS84", None)),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
+        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
+    ));
+}
+
+/// La riga di WGS 84 porta il WKT canonico, che la regola dei lettori
+/// rilegge `EPSG:4326`. Fino alla rilettura 11 era `GEOGCS["WGS 84"]`, che
+/// non si risolve: un `GeoPackage` convertito in Shapefile si rileggeva non
+/// risolto.
+#[test]
+fn la_riga_di_wgs84_porta_il_wkt_canonico() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let crs = crs_for(&conn, 4326).unwrap();
+    assert_eq!(crs.definition.as_deref(), Some(WKT_WGS84_GPKG));
+    assert_eq!(
+        plenora_io_model::crs_definizione::identificatore_wkt(WKT_WGS84_GPKG, None),
+        Ok(Some("EPSG:4326".to_owned()))
+    );
+}
+
+/// Un CRS senza identificatore e' un limite del `GeoPackage`, non un CRS
+/// sbagliato: `unsupported` (fino alla rilettura 11 `crs`).
+#[test]
+fn un_crs_senza_identificatore_e_un_limite_del_bersaglio() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let senza = LayerCrs {
+        id: None,
+        definition: None,
+        srid: None,
+    };
+    assert!(matches!(
+        register_srs(&conn, &senza),
+        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
     ));
 }
 

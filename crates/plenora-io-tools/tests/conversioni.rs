@@ -208,10 +208,13 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
     let uscita = dir.path().join("uscita.shp.d");
     let esito = converti("canonico_punti_dbf.geojson", &uscita, &[]);
     assert!(esito.riuscito, "{}", esito.stderr);
+    // `OGC:CRS84` non si rilegge dal `.prj` che il writer sintetizza: quel WKT
+    // si rilegge `EPSG:4326`, un altro identificatore (GEO-005), e va
+    // riportato da fuori. Fino alla rilettura 11 la perdita era `derived`.
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
-        "l'identificatore si rilegge dal .prj che il writer scrive"
+        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        "il .prj sintetizzato si rilegge EPSG:4326, non OGC:CRS84"
     );
     let righe = per_id(&uscita, &[]);
     assert_eq!(

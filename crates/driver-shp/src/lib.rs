@@ -140,7 +140,7 @@ pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
-const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+pub const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("shp", reason)
@@ -612,6 +612,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // non viene scritto niente da cui ricavarlo.
             CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
                 synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                synthesized_wkt: WGS84_WKT,
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,

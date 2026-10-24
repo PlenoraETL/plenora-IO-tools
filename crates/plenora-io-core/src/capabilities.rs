@@ -79,9 +79,18 @@ fn declared_definition(
 ///
 /// E' un limite del bersaglio su un ingresso conforme, quindi `unsupported`
 /// (GEO-000 punto 2, REJ-001 «support»), con la ragione delle rappresentazioni
-/// discordanti. Non si guarda dove la definizione si conserva (IPC, il `.prj`
-/// o il `GEODATA` di un WKT) o dove la riscrive il runtime da lei (`FileGDB`):
-/// li' non si sceglie niente, e la perdita dell'identificatore e' dichiarata.
+/// discordanti. Restano fuori solo i bersagli che non scelgono: quello che non
+/// conserva l'identificatore (CSV, XLSX), quello che conserva la coppia intera
+/// e la rilegge com'e' (IPC), e quello che la consegna a un runtime che la
+/// riscrive (`FileGDB`).
+///
+/// Fino alla rilettura 11 restava fuori anche ogni bersaglio che conserva la
+/// definizione, con l'idea che li' non si scegliesse niente. Non e' vero: il
+/// lettore applica la stessa regola alla coppia che rilegge. `GeoParquet`
+/// scriveva `EPSG:4326` dentro un PROJJSON `EngineeringCRS`, la conversione era
+/// `lossless` e il file non si rileggeva (`crs`); lo Shapefile e il DXF
+/// scrivevano un `LOCAL_CS` per `EPSG:4326`, dichiaravano l'identificatore
+/// derivato, e il file si rileggeva non risolto.
 fn verifica_identificatore_conservato(
     driver: &'static str,
     caps: &crate::descriptor::FormatWriteCapabilities,
@@ -93,14 +102,11 @@ fn verifica_identificatore_conservato(
     ) else {
         return Ok(());
     };
-    if caps.crs_representations.crs_id == CrsRepresentationState::Absent
-        || matches!(
-            caps.crs_representations.crs_definition_per(grammatica),
-            CrsRepresentationState::Preserved
-                | CrsRepresentationState::Derived(
-                    crate::descriptor::CrsDerivation::RuntimeResolved
-                )
-        )
+    let rappresentazioni = &caps.crs_representations;
+    if rappresentazioni.crs_id == CrsRepresentationState::Absent
+        || rappresentazioni.conserva_la_coppia()
+        || rappresentazioni.crs_definition_per(grammatica)
+            == CrsRepresentationState::Derived(crate::descriptor::CrsDerivation::RuntimeResolved)
     {
         return Ok(());
     }
@@ -112,10 +118,49 @@ fn verifica_identificatore_conservato(
             CapabilityReason::CrsRepresentationsInconsistent,
             &PublicMessage::Curated(
                 "l'identificatore e la definizione del CRS si contraddicono nel genere, e il \
-                 formato conserverebbe il solo identificatore",
+                 formato non li conserva com'e' la coppia",
             ),
         )),
         Err(errore) => Err(errore),
+    }
+}
+
+/// Un CRS risolto non si scrive dove i lettori lo rileggerebbero non
+/// risolto, se non c'e' un identificatore con cui dichiararne la perdita.
+///
+/// E' lo Shapefile e il DXF, che dell'identificatore scrivono solo il WKT: la
+/// regola dei lettori (`identificatore_wkt`) ne ricava uno soltanto da
+/// un'autorita' EPSG di radice o dalla forma ESRI di WGS 84. Un `PROJCS`
+/// anonimo senza identificatore nel contratto si rileggeva «dichiarato ma non
+/// risolto», e la conversione si dichiarava `conditional` senza nessuna
+/// ragione CRS (rilettura 11). Con un identificatore la perdita si dichiara
+/// (`crs_id_not_preserved_absent`, il verdetto per piano) e `--assume-crs` lo
+/// riporta; senza, non c'e' niente da riportare. Un WKT che i lettori non
+/// rileggono affatto (ambiguo, malformato) si rifiuta in entrambi i casi.
+fn verifica_rilettura_risolta(
+    driver: &'static str,
+    caps: &crate::descriptor::FormatWriteCapabilities,
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> Result<()> {
+    let CrsResolution::Resolved(crs) = &geometry.crs else {
+        return Ok(());
+    };
+    let riletto = caps.crs_representations.identificatore_riletto(
+        crs.id.as_deref(),
+        crs.definition.as_deref(),
+        crs.definition_format,
+    );
+    match (riletto, crs.id.as_deref()) {
+        (None | Some(Ok(Some(_))), _) | (Some(Ok(None)), Some(_)) => Ok(()),
+        (Some(Ok(None)), None) | (Some(Err(_)), _) => Err(violation(
+            driver,
+            ContractIdentifier::from_geometry_column(geometry).as_ref(),
+            CapabilityReason::CrsUnresolved,
+            &PublicMessage::Curated(
+                "il formato porta il CRS nel solo WKT, e da questo WKT i lettori non \
+                 ricavano un identificatore: il CRS si rileggerebbe non risolto",
+            ),
+        )),
     }
 }
 
@@ -560,18 +605,22 @@ pub fn validate_write(
                 | CrsWriteSupport::None => {}
             }
             verifica_identificatore_conservato(driver, &caps, geometry)?;
+            verifica_rilettura_risolta(driver, &caps, geometry)?;
             let [comparable_id, comparable_srid, comparable_definition] =
                 comparable_crs_representations(geometry);
+            let (definizione, grammatica) = declared_definition(&geometry.crs);
             let representations_are_preserved = comparable_id.is_none()
-                || caps.crs_representations.crs_id == CrsRepresentationState::Preserved;
+                || caps.crs_representations.crs_id_per(
+                    declared_crs_id(&geometry.crs),
+                    definizione,
+                    grammatica,
+                ) == CrsRepresentationState::Preserved;
             let representations_are_preserved = representations_are_preserved
                 && (comparable_srid.is_none()
                     || caps.crs_representations.srid == CrsRepresentationState::Preserved);
             let representations_are_preserved = representations_are_preserved
                 && (comparable_definition.is_none()
-                    || caps
-                        .crs_representations
-                        .crs_definition_per(declared_definition(&geometry.crs).1)
+                    || caps.crs_representations.crs_definition_per(grammatica)
                         == CrsRepresentationState::Preserved);
             if crs_representations_are_inconsistent(geometry) && !representations_are_preserved {
                 return Err(violation(

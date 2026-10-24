@@ -1004,7 +1004,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         .verbatim_solo(
             &[CrsDefinitionFormat::Projjson],
             CrsRepresentationState::Absent,
-        ),
+        )
+        // Senza PROJJSON l'identificatore non ha dove stare: il campo `crs` si
+        // omette, e il file si rilegge `OGC:CRS84`. `EPSG:4326` e' un altro
+        // identificatore (GEO-005), e va riportato da fuori: `absent`. Fino
+        // alla rilettura 11 la conversione si dichiarava `lossless`.
+        .identificatore_senza_definizione(&["OGC:CRS84"], CrsRepresentationState::Absent),
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
@@ -1380,7 +1385,7 @@ fn crs_da_scrivere(
         {
             let documento = serde_json::Value::Object(oggetto);
             if schema_ufficiale::e_projjson(&documento)? {
-                return Ok(CrsDaScrivere::Documento(testo.to_owned()));
+                return documento_da_scrivere(testo, &documento, identificatore_risolto);
             }
             // Si nomina il campo, mai il contenuto: il documento arriva dal
             // contratto e non entra in un messaggio pubblico.
@@ -1436,6 +1441,85 @@ fn crs_da_scrivere(
             ),
         )),
     }
+}
+
+/// Il documento PROJJSON che il writer incorpora, se il file lo rilegge com'e'.
+///
+/// Il campo `crs` e' l'unico posto in cui `GeoParquet` porta l'identificatore,
+/// e il lettore lo ricava dal documento (`id`) con la regola dei lettori
+/// (`crs_kind_for`). Tre casi non si rileggono come il contratto li dichiara,
+/// e si rifiutano invece di scrivere un file che dice altro (rilettura 11):
+///
+/// * un documento senza `id`: il lettore lo rifiuta come CRS non risolto. Il
+///   contratto lo dichiarava risolto, e la conversione era `lossless`;
+/// * un `id` diverso, anche solo nella grafia, dall'identificatore del
+///   contratto: il file direbbe l'identificatore del documento;
+/// * un `id` che contraddice il genere del documento (`EPSG:4326` su un
+///   `EngineeringCRS`): il lettore lo rifiuta con `crs`.
+///
+/// Il documento si scrive poi **tale e quale** (`build_geo_metadata`): uno
+/// con spazi ai bordi non si incorpora senza toglierli, e si rifiuta anche lui.
+fn documento_da_scrivere(
+    testo: &str,
+    documento: &serde_json::Value,
+    identificatore_del_contratto: Option<&str>,
+) -> Result<CrsDaScrivere> {
+    let rifiuto = |messaggio: &'static str| {
+        Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(messaggio),
+        ))
+    };
+    if !(testo.starts_with('{') && testo.ends_with('}')) {
+        return rifiuto(
+            "definizione PROJJSON con spazi ai bordi: GeoParquet la incorpora come valore JSON, \
+             e non la conserverebbe byte per byte",
+        );
+    }
+    let Some(id) = identificatore_del_documento(documento) else {
+        return rifiuto(
+            "documento PROJJSON senza `id`: GeoParquet porta l'identificatore solo nel \
+             documento, e il file si rileggerebbe con un CRS non risolto",
+        );
+    };
+    if identificatore_del_contratto.is_some_and(|contratto| contratto != id) {
+        return Err(PlenoraIoError::capability_redatta(
+            "geoparquet",
+            None,
+            plenora_io_model::CapabilityReason::CrsRepresentationsInconsistent,
+            &PublicMessage::Curated(
+                "l'identificatore del CRS e l'`id` del documento PROJJSON non coincidono: \
+                 GeoParquet conserva solo quello del documento",
+            ),
+        ));
+    }
+    match plenora_io_model::crs::crs_kind_for(Some(&id), Some(testo), "geoparquet") {
+        Ok(_) => Ok(CrsDaScrivere::Documento(testo.to_owned())),
+        Err(errore) if errore.category == plenora_io_model::ErrorCategory::Crs => {
+            Err(PlenoraIoError::capability_redatta(
+                "geoparquet",
+                None,
+                plenora_io_model::CapabilityReason::CrsRepresentationsInconsistent,
+                &PublicMessage::Curated(
+                    "l'identificatore e la definizione del CRS si contraddicono nel genere, e \
+                     il formato non li conserva com'e' la coppia",
+                ),
+            ))
+        }
+        Err(errore) => Err(errore),
+    }
+}
+
+/// L'identificatore di un documento PROJJSON come lo rilegge questo driver:
+/// `id.authority` e `id.code`, il codice come numero o come testo.
+fn identificatore_del_documento(documento: &serde_json::Value) -> Option<String> {
+    let id = documento.get("id")?;
+    let autorita = id.get("authority").and_then(|a| a.as_str())?;
+    let codice = id.get("code").map(|c| match c {
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    })?;
+    Some(format!("{autorita}:{codice}"))
 }
 
 struct GeoParquetDataset {
@@ -2199,17 +2283,13 @@ fn crs_from(geo: &MetadatiGeo) -> Result<CrsResolution> {
                 .stored_east_first()
                 .into())
         }
-        metadati::Crs::Documento(v) => {
-            let id = v.get("id").and_then(|i| {
-                let a = i.get("authority").and_then(|a| a.as_str())?;
-                let code = i.get("code").map(|c| match c {
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                })?;
-                Some(format!("{a}:{code}"))
-            });
-            let definition = v.to_string();
+        metadati::Crs::Documento { valore: v, testo } => {
+            let id = identificatore_del_documento(v);
+            // Il testo del documento com'e' nel file, non la sua riscrittura:
+            // fino alla rilettura 11 si rileggeva `v.to_string()`, con le
+            // chiavi riordinate e i numeri passati da `f64` (`0.99960000000000000000000001`
+            // diventava `0.9996`), e la definizione si dichiarava conservata.
+            let definition = testo.clone();
             let Some(id) = id else {
                 let raw = RawCrs::new(
                     definition,
@@ -3109,12 +3189,7 @@ fn build_geo_metadata(
             column["crs"] = serde_json::Value::Null;
         }
         CrsDaScrivere::Documento(testo) => {
-            let documento: serde_json::Value = serde_json::from_str(testo).map_err(|_| {
-                fmt_err(&PublicMessage::Curated(
-                    "definizione PROJJSON non rileggibile al momento di scriverla",
-                ))
-            })?;
-            column["crs"] = documento;
+            return geo_con_documento(geom_name, &column, testo);
         }
     }
     let mut columns = HashMap::new();
@@ -3130,6 +3205,65 @@ fn build_geo_metadata(
         "columns": columns,
     })
     .to_string())
+}
+
+/// Il metadato `geo` con il documento PROJJSON **tale e quale**.
+///
+/// Fino alla rilettura 11 il documento passava da `serde_json::Value`: le
+/// chiavi uscivano riordinate e i numeri riscritti come `f64`
+/// (`0.99960000000000000000000001` diventava `0.9996`, `9E0` diventava `9.0`),
+/// e la definizione si dichiarava conservata. Ora il documento entra come
+/// valore grezzo (`RawValue`), che si serializza con i suoi byte; il resto del
+/// metadato si costruisce come prima, con le chiavi nello stesso ordine.
+fn geo_con_documento(
+    geom_name: &str,
+    senza_crs: &serde_json::Value,
+    testo: &str,
+) -> Result<String> {
+    use serde_json::value::RawValue;
+    use std::collections::BTreeMap;
+    let grezzo = |testo: String| {
+        RawValue::from_string(testo).map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "metadato GeoParquet non serializzabile come JSON",
+            ))
+        })
+    };
+    let mut campi: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
+    if let Some(oggetto) = senza_crs.as_object() {
+        for (chiave, valore) in oggetto {
+            campi.insert(chiave.clone(), grezzo(valore.to_string())?);
+        }
+    }
+    let documento = grezzo(testo.to_owned())?;
+    // `from_string` toglie gli spazi ai bordi: il chiamante li ha gia'
+    // rifiutati, e qui si verifica che il valore sia il testo intero.
+    if documento.get() != testo {
+        return Err(fmt_err(&PublicMessage::Curated(
+            "definizione PROJJSON che non si incorpora byte per byte",
+        )));
+    }
+    campi.insert("crs".to_owned(), documento);
+    let testo_di = |valore: &BTreeMap<String, Box<RawValue>>| {
+        serde_json::to_string(valore).map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "metadato GeoParquet non serializzabile come JSON",
+            ))
+        })
+    };
+    let mut colonne: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
+    colonne.insert(geom_name.to_owned(), grezzo(testo_di(&campi)?)?);
+    let mut radice: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
+    radice.insert("columns".to_owned(), grezzo(testo_di(&colonne)?)?);
+    radice.insert(
+        "primary_column".to_owned(),
+        grezzo(serde_json::Value::from(geom_name).to_string())?,
+    );
+    radice.insert(
+        "version".to_owned(),
+        grezzo(serde_json::Value::from(VERSIONE_SCRITTA).to_string())?,
+    );
+    testo_di(&radice)
 }
 
 #[cfg(test)]

@@ -50,7 +50,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 
@@ -243,6 +243,18 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // `gpkg_spatial_ref_sys`.
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
+        )
+        // La colonna `definition` porta un WKT 1 (GPKG 1.3, tabella 21: OGC
+        // 01-009), e il writer ci scrive solo quello. Una definizione in
+        // un'altra grammatica non si scrive: la riga di `EPSG:4326`, che
+        // `init_gpkg` registra sempre, ha il WKT canonico, ogni altra riga vale
+        // `undefined` e la definizione non si rilegge. Fino alla rilettura 11
+        // un PROJJSON finiva nella colonna, e la perdita si dichiarava derivata.
+        .verbatim_solo(
+            &[CrsDefinitionFormat::Wkt],
+            CrsRepresentationState::Derived(CrsDerivation::SynthesizedFor {
+                ids: SRS_CON_DEFINIZIONE_CANONICA,
+            }),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
@@ -2297,6 +2309,20 @@ fn wkb_shape(payload: &[u8], limiti: &WkbLimits) -> Result<WkbShape> {
 // ed e' il posto giusto per farlo -- qui pretenderlo cambierebbe il contratto
 // di scrittura fuori dal perimetro di questo lotto.
 
+/// Gli identificatori la cui riga di `gpkg_spatial_ref_sys` il writer
+/// registra sempre, con una definizione canonica.
+pub const SRS_CON_DEFINIZIONE_CANONICA: &[&str] = &["EPSG:4326"];
+
+/// La definizione della riga `EPSG:4326` che ogni `GeoPackage` deve avere (GPKG
+/// 1.3, requisito 11, tabella 21), nella forma WKT 1 del registro EPSG.
+///
+/// Fino alla rilettura 11 la riga portava `GEOGCS["WGS 84"]`: un WKT che la
+/// regola dei lettori non risolve, e che lo Shapefile e il DXF scrivevano tale
+/// e quale, cosi' un `GeoPackage` in WGS 84 convertito in Shapefile si
+/// rileggeva non risolto. Questa porta l'autorita' di radice, e la regola la
+/// rilegge `EPSG:4326`.
+pub const WKT_WGS84_GPKG: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]";
+
 fn init_gpkg(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA application_id = 1196444487;
@@ -2312,9 +2338,16 @@ fn init_gpkg(conn: &Connection) -> Result<()> {
             geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL,
             m TINYINT NOT NULL, PRIMARY KEY (table_name, column_name));
          INSERT INTO gpkg_spatial_ref_sys VALUES
-            ('WGS 84 geodetic', 4326, 'EPSG', 4326, 'GEOGCS[\"WGS 84\"]', 'longitude/latitude'),
             ('undefined cartesian', -1, 'NONE', -1, 'undefined', 'undefined'),
             ('undefined geographic', 0, 'NONE', 0, 'undefined', 'undefined');",
+    )
+    .map_err(sql_err)?;
+    // La riga di WGS 84 lega la definizione come parametro: il WKT porta
+    // virgolette, e nel testo SQL andrebbe riscritto a mano.
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys VALUES \
+         ('WGS 84 geodetic', 4326, 'EPSG', 4326, ?1, 'longitude/latitude')",
+        [WKT_WGS84_GPKG],
     )
     .map_err(sql_err)?;
     Ok(())
@@ -2343,6 +2376,7 @@ const fn sqlite_type(dt: &DataType) -> &'static str {
 /// CRS del layer in scrittura.
 struct LayerCrs {
     id: Option<String>,
+    /// La definizione da scrivere in `definition`: solo un WKT 1.
     definition: Option<String>,
     /// `plenora.geometry.srid` (GEO-008): quando c'e' e' lo SRID dei valori,
     /// e diventa lo `srs_id` del layer.
@@ -2353,9 +2387,19 @@ struct LayerCrs {
 /// altrimenti dall'id e dallo SRID nei metadati del campo geometria.
 fn layer_crs(layer: &plenora_io_core::WriteLayer, geom_idx: usize) -> Result<LayerCrs> {
     if let Some(g) = &layer.contract.geometry {
+        // La colonna `definition` porta un WKT 1: un PROJJSON o un WKT 2 non
+        // ci vanno (la capability ne dichiara la perdita, `verbatim_solo`).
+        let definition = match &g.crs {
+            CrsResolution::Resolved(crs)
+                if crs.definition_format == Some(CrsDefinitionFormat::Wkt) =>
+            {
+                crs.definition.clone()
+            }
+            _ => None,
+        };
         return Ok(LayerCrs {
             id: g.crs.id().map(str::to_owned),
-            definition: g.crs.definition().map(str::to_owned),
+            definition,
             srid: g.srid,
         });
     }
@@ -2391,10 +2435,19 @@ fn layer_crs(layer: &plenora_io_core::WriteLayer, geom_idx: usize) -> Result<Lay
 /// stessa organizzazione e lo stesso codice: altrimenti la geometria finirebbe
 /// legata a un CRS che non e' il suo, e il conflitto si rifiuta.
 fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
+    // Un CRS senza identificatore, o con un codice che non e' un intero
+    // canonico, e' un ingresso conforme che `gpkg_spatial_ref_sys` non
+    // rappresenta: la riga vuole un'organizzazione e un codice intero. E' un
+    // limite del bersaglio, `unsupported` (REJ-001 «support»); fino alla
+    // rilettura 11 era `crs`, e un `OGC:CRS84` letto da un GeoJSON usciva «non
+    // risolto».
     let Some(id) = crs.id.as_deref() else {
-        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "GeoPackage richiede un CRS esplicito; nessun default implicito",
-        )));
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoPackage registra un CRS per organizzazione e codice, e il CRS non ha un \
+             identificatore",
+            ),
+        ));
     };
     // GEO-020: il codice di un catalogo locale identifica un CRS solo
     // nell'installazione che l'ha scritto. Il GeoPackage e' un'altra
@@ -2415,11 +2468,12 @@ fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
             plenora_io_model::crs::codice_intero_canonico(code)?,
         ))
     }) else {
-        let raw = RawCrs::new(
-            crs.definition.as_deref().unwrap_or(id).to_owned(),
-            Some(id.to_owned()),
-        );
-        return Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw));
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoPackage registra un CRS con un codice intero dell'organizzazione, e \
+             l'identificatore del CRS non ne ha uno canonico",
+            ),
+        ));
     };
     let srs_id = crs.srid.unwrap_or(code_i);
     let esistente: Option<(String, i64)> = conn
