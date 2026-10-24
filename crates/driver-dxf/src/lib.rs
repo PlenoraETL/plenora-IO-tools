@@ -68,7 +68,7 @@ const ARC_SEGMENTS: usize = 24;
 const MAX_INSERT_DEPTH: usize = 16;
 /// Tetto complessivo di entità generate (anti-esplosione da array/annidamenti).
 const MAX_ENTITIES: usize = 5_000_000;
-const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
+pub const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("dxf", reason)
@@ -409,13 +409,19 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     match resolved.id.as_deref() {
         Some(id) if CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(&id) => Ok(WGS84_ESRI_WKT.to_owned()),
         // L'identificativo non esce: viene dal contratto, che chi legge
-        // l'errore ha gia'.
-        Some(_) => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF richiede la definizione WKT/XML del CRS, non il solo authority id",
-        ))),
-        None => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF richiede una definizione WKT/XML del CRS",
-        ))),
+        // l'errore ha gia'. Un CRS risolto noto per il solo identificatore e'
+        // un ingresso conforme che il `GEODATA` non sa scrivere: un limite del
+        // bersaglio, `unsupported` (REJ-001 «support»). Fino alla rilettura 11
+        // era `crs`, la categoria di un CRS sbagliato; e' la stessa classe del
+        // `GeoPackage` con `OGC:CRS84`.
+        Some(_) => Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "DXF richiede la definizione WKT/XML del CRS, non il solo authority id",
+            ),
+        )),
+        None => Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated("DXF richiede una definizione WKT/XML del CRS"),
+        )),
     }
 }
 
@@ -473,6 +479,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // scritto senza: quando la scrittura avviene, la definizione c'e'.
             CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
                 synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                synthesized_wkt: WGS84_ESRI_WKT,
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,

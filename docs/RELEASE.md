@@ -1537,6 +1537,47 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   tetto si misura sui byte UTF-8, e una definizione ASCII di 600 KB si legge
   (prima `limit_exceeded`). Due `GEODATA` uguali a meno del BOM non sono più un
   conflitto.
+- **Il file si rilegge come la busta lo dichiara (rilettura 11).** Una prova
+  permanente, `rilettura_dei_crs.rs`, converte ogni sorgente verso ogni
+  bersaglio senza GDAL, in due passaggi, e pretende che il file riletto dica
+  ciò che la busta ha dichiarato
+  ([PRODUCT](PRODUCT.md#il-file-si-rilegge-come-la-busta-lo-dichiara)).
+  Cambiano, rispetto a db1307d:
+  - verso GeoParquet `EPSG:4326` senza PROJJSON dichiara
+    `crs_id_not_preserved_absent` (il file si rilegge `OGC:CRS84`; prima
+    `lossless` da un IPC con il solo identificatore, e da un GeoPackage in
+    WGS 84 la sola perdita della definizione);
+  - il PROJJSON di GeoParquet si scrive e si rilegge byte per byte (prima
+    chiavi riordinate e numeri riscritti come `f64`, dichiarati conservati);
+    un PROJJSON senza `id`, con un `id` diverso dall'identificatore o di genere
+    contraddetto, o con spazi ai bordi, è `unsupported` (prima si scriveva un
+    file che non si rileggeva, o che diceva un altro identificatore);
+  - la contraddizione di genere fra identificatore e definizione è
+    `unsupported` verso ogni bersaglio che porta un CRS, tranne IPC e FileGDB:
+    anche GeoParquet con un PROJJSON, Shapefile e DXF (prima scrivevano);
+  - il GeoPackage scrive in `gpkg_spatial_ref_sys.definition` solo un WKT 1:
+    un PROJJSON o un WKT 2 diventano `undefined` e dichiarano
+    `crs_definition_not_preserved_absent` (per `EPSG:4326` resta la riga
+    canonica, `derived`); la riga di `EPSG:4326` porta il WKT 1 del registro
+    EPSG invece di `GEOGCS["WGS 84"]`, e un GeoPackage in WGS 84 convertito in
+    Shapefile si rilegge `EPSG:4326` (prima non risolto);
+  - il GeoPackage rifiuta con `unsupported`, non più `crs`, un CRS senza
+    identificatore, un codice non intero canonico e `OGC:CRS84` (un GeoJSON
+    verso GeoPackage); il DXF con `unsupported`, non più `crs`, un CRS noto per
+    il solo identificatore che non sa scrivere;
+  - verso Shapefile e DXF l'identificatore è `crs_id_not_preserved_derived`
+    solo se il WKT scritto lo restituisce, altrimenti `..._absent` (un `PROJCS`
+    anonimo con identificatore, `OGC:CRS84` che il WKT sintetizzato rilegge
+    `EPSG:4326`); un CRS risolto senza identificatore il cui WKT si
+    rileggerebbe non risolto è `unsupported` (prima `conditional` senza
+    ragioni CRS). Rientra la deviazione «Shapefile, DXF: identificatore dal
+    WKT» della rilettura 10;
+  - il catalogo pubblica `crs_definition: "conditional"` per GeoParquet,
+    Shapefile, DXF e GeoPackage (prima `preserved`, `preserved`, `preserved`,
+    `derived`): il valore è nuovo, ed entra nello schema
+    `plenora-io-catalog-v2`, che da ora enumera anche `crs` e
+    `crs_representations`
+    ([PRODUCT](PRODUCT.md#il-vocabolario-crs-del-catalogo)).
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è

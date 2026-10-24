@@ -229,7 +229,15 @@ fn geoparquet_dichiara_il_wkt_che_non_scrive() {
     let uscita = dir.path().join("uscita.parquet");
     let esito = converti(&sorgente, &uscita, &[]);
     assert!(esito.riuscita, "{}", esito.busta);
-    assert_eq!(esito.perdite(), ["crs_definition_not_preserved_absent"]);
+    // Dalla rilettura 11 si dichiara anche l'identificatore: il file si
+    // rilegge `OGC:CRS84`, e `EPSG:4326` e' un altro identificatore.
+    assert_eq!(
+        esito.perdite(),
+        [
+            "crs_definition_not_preserved_absent",
+            "crs_id_not_preserved_absent"
+        ]
+    );
     assert_ne!(
         esito.livello(),
         "lossless",
@@ -380,6 +388,315 @@ fn shp_e_dxf_sostituiscono_il_projjson_e_lo_dichiarano() {
         let riletto = ispeziona(&uscita);
         assert!(riletto.riuscita, "{destinazione}: {}", riletto.busta);
     }
+}
+
+// --- rilettura 11 ---------------------------------------------------------
+//
+// Ogni prova di questa sezione fallisce su `db1307d`. La regola che le tiene
+// insieme e' quella di `rilettura_dei_crs.rs`: il file si rilegge come la
+// busta lo dichiara.
+
+/// Una sorgente IPC con il solo identificatore.
+fn sorgente_solo_id(dir: &Path, nome: &str, crs_id: &str, assi: &str) -> PathBuf {
+    use arrow_array::{ArrayRef, BinaryArray, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+    let geometria: HashMap<String, String> = [
+        ("ARROW:extension:name", "geoarrow.wkb"),
+        ("plenora.field_id", "1"),
+        ("plenora.geometry.encoding", "wkb"),
+        ("plenora.geometry.dimensions", "xy"),
+        ("plenora.geometry.spatial_semantics", "geometry"),
+        ("plenora.geometry.precision", "float64"),
+        ("plenora.geometry.types_declaration", "exact"),
+        ("plenora.geometry.types", "point"),
+        ("plenora.geometry.crs_resolution", "resolved"),
+        ("plenora.geometry.axis_order", assi),
+        ("plenora.geometry.crs_id", crs_id),
+        ("crs", crs_id),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect();
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("nome", DataType::Utf8, false),
+            Field::new("geometry", DataType::Binary, true).with_metadata(geometria),
+        ],
+        HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]),
+    ));
+    let wkb = [Some(punto_wkb(9.19, 45.46))];
+    let colonne: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from(vec!["alfa"])),
+        Arc::new(wkb.iter().map(Option::as_deref).collect::<BinaryArray>()),
+    ];
+    let batch = RecordBatch::try_new(Arc::clone(&schema), colonne).expect("batch");
+    let percorso = dir.join(nome);
+    let file = std::fs::File::create(&percorso).expect("sorgente creata");
+    let mut scrittore = arrow_ipc::writer::FileWriter::try_new(file, &schema).expect("writer");
+    scrittore.write(&batch).expect("batch scritto");
+    scrittore.finish().expect("sorgente completata");
+    percorso
+}
+
+fn geometria_riletta(percorso: &Path) -> serde_json::Value {
+    let riletto = ispeziona(percorso);
+    assert!(riletto.riuscita, "{}", riletto.busta);
+    riletto.busta["result"]["layers"][0]["geometry"].clone()
+}
+
+const PROJJSON_32632: &str = r#"{"$schema":"https://proj.org/schemas/v0.5/projjson.schema.json","type":"ProjectedCRS","name":"WGS 84 / UTM zone 32N","base_crs":{"name":"WGS 84","datum":{"type":"GeodeticReferenceFrame","name":"World Geodetic System 1984","ellipsoid":{"name":"WGS 84","semi_major_axis":6378137,"inverse_flattening":298.257223563}},"coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"},{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"}]}},"conversion":{"name":"UTM zone 32N","method":{"name":"Transverse Mercator","id":{"authority":"EPSG","code":9807}},"parameters":[{"name":"Latitude of natural origin","value":0,"unit":"degree"},{"name":"Longitude of natural origin","value":9,"unit":"degree"},{"name":"Scale factor at natural origin","value":0.9996,"unit":"unity"},{"name":"False easting","value":500000,"unit":"metre"},{"name":"False northing","value":0,"unit":"metre"}]},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"Easting","abbreviation":"E","direction":"east","unit":"metre"},{"name":"Northing","abbreviation":"N","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":32632}}"#;
+
+/// F1: `EPSG:4326` senza PROJJSON si rilegge da `GeoParquet` `OGC:CRS84`, e la
+/// busta lo dichiara. Su `db1307d` la conversione era `lossless`. Anche da un
+/// `GeoPackage`, il caso piu' comune.
+#[test]
+fn geoparquet_dichiara_l_identificatore_che_diventa_crs84() {
+    let dir = directory();
+    let sorgente = sorgente_solo_id(dir.path(), "wgs84.arrow", "EPSG:4326", "lon_lat");
+    let gpkg = dir.path().join("wgs84.gpkg");
+    assert!(converti(&sorgente, &gpkg, &[]).riuscita);
+    for (ingresso, nome) in [(&sorgente, "da-ipc.parquet"), (&gpkg, "da-gpkg.parquet")] {
+        let uscita = dir.path().join(nome);
+        let esito = converti(ingresso, &uscita, &[]);
+        assert!(esito.riuscita, "{nome}: {}", esito.busta);
+        assert!(
+            esito
+                .perdite()
+                .contains(&"crs_id_not_preserved_absent".to_owned()),
+            "{nome}: {:?}",
+            esito.perdite()
+        );
+        assert_ne!(esito.livello(), "lossless", "{nome}");
+        assert_eq!(geometria_riletta(&uscita)["crs"], "OGC:CRS84", "{nome}");
+    }
+    // `OGC:CRS84` resta se stesso: nessuna perdita.
+    let crs84 = sorgente_solo_id(dir.path(), "crs84.arrow", "OGC:CRS84", "lon_lat");
+    let uscita = dir.path().join("crs84.parquet");
+    let esito = converti(&crs84, &uscita, &[]);
+    assert!(
+        esito.riuscita && esito.perdite().is_empty(),
+        "{}",
+        esito.busta
+    );
+    assert_eq!(esito.livello(), "lossless");
+}
+
+/// F2: il PROJJSON attraversa `GeoParquet` byte per byte. Su `db1307d` le
+/// chiavi uscivano riordinate e i numeri passati da `f64`, con la
+/// definizione dichiarata conservata.
+#[test]
+fn geoparquet_conserva_il_projjson_byte_per_byte() {
+    let dir = directory();
+    let definizione = PROJJSON_32632
+        .replace(
+            r#""value":0.9996"#,
+            r#""value":0.99960000000000000000000001"#,
+        )
+        .replace(r#""value":500000"#, r#""value":500000.00000000000000001"#)
+        .replace(r#""value":9,"#, r#""value":9E0,"#);
+    let sorgente = sorgente_ipc(
+        dir.path(),
+        "utm.arrow",
+        Some("EPSG:32632"),
+        "easting_northing",
+        (&definizione, "projjson"),
+    );
+    let uscita = dir.path().join("utm.parquet");
+    let esito = converti(&sorgente, &uscita, &[]);
+    assert!(esito.riuscita, "{}", esito.busta);
+    assert!(esito.perdite().is_empty(), "{:?}", esito.perdite());
+    let geometria = geometria_riletta(&uscita);
+    assert_eq!(
+        geometria["crs_resolution"]["definition"].as_str(),
+        Some(definizione.as_str())
+    );
+    // E di nuovo: GeoParquet -> GeoParquet non cambia un byte.
+    let ancora = dir.path().join("ancora.parquet");
+    assert!(converti(&uscita, &ancora, &[]).riuscita);
+    assert_eq!(
+        geometria_riletta(&ancora)["crs_resolution"]["definition"].as_str(),
+        Some(definizione.as_str())
+    );
+}
+
+/// F3: `EPSG:4326` su un PROJJSON `EngineeringCRS` verso `GeoParquet`, e su un
+/// `LOCAL_CS` verso Shapefile e DXF: rifiuto, prima di ogni effetto. Su
+/// `db1307d` `GeoParquet` scriveva un file che non si rileggeva, e lo Shapefile
+/// e il DXF un file che si rileggeva non risolto.
+#[test]
+fn la_coppia_contraddetta_si_rifiuta_anche_dove_la_definizione_si_conserva() {
+    let dir = directory();
+    let ingegneria = r#"{"$schema":"https://proj.org/schemas/v0.7/projjson.schema.json","type":"EngineeringCRS","name":"x","datum":{"name":"d"},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"X","abbreviation":"X","direction":"east","unit":"metre"},{"name":"Y","abbreviation":"Y","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":4326}}"#;
+    let projjson = sorgente_ipc(
+        dir.path(),
+        "ingegneria.arrow",
+        Some("EPSG:4326"),
+        "lon_lat",
+        (ingegneria, "projjson"),
+    );
+    let locale = sorgente_ipc(
+        dir.path(),
+        "locale.arrow",
+        Some("EPSG:4326"),
+        "lon_lat",
+        (LOCAL_CS, "wkt"),
+    );
+    for (sorgente, destinazione) in [
+        (&projjson, "uscita.parquet"),
+        (&locale, "uscita.shp.d"),
+        (&locale, "uscita.dxf"),
+    ] {
+        let uscita = dir.path().join(destinazione);
+        let esito = converti(sorgente, &uscita, &[]);
+        assert!(!esito.riuscita, "{destinazione}: {}", esito.busta);
+        assert_eq!(esito.categoria(), "unsupported", "{destinazione}");
+        assert!(
+            esito.messaggio().contains("si contraddicono nel genere"),
+            "{destinazione}: {}",
+            esito.messaggio()
+        );
+        assert!(!uscita.exists(), "{destinazione}: nessun file pubblicato");
+    }
+}
+
+/// F4: un PROJJSON non finisce nella colonna WKT di `gpkg_spatial_ref_sys`.
+/// La riga vale `undefined`, la definizione si rilegge assente, e la busta lo
+/// dichiara. Su `db1307d` il JSON finiva nella colonna, dichiarato derivato.
+#[test]
+fn gpkg_non_scrive_un_projjson_nella_colonna_wkt() {
+    let dir = directory();
+    let sorgente = sorgente_ipc(
+        dir.path(),
+        "utm.arrow",
+        Some("EPSG:32632"),
+        "easting_northing",
+        (PROJJSON_32632, "projjson"),
+    );
+    let uscita = dir.path().join("utm.gpkg");
+    let esito = converti(&sorgente, &uscita, &[]);
+    assert!(esito.riuscita, "{}", esito.busta);
+    assert_eq!(esito.perdite(), ["crs_definition_not_preserved_absent"]);
+    let geometria = geometria_riletta(&uscita);
+    assert_eq!(geometria["crs"], "EPSG:32632");
+    assert!(
+        geometria["crs_resolution"]["definition"].is_null(),
+        "{geometria}"
+    );
+}
+
+/// F5: un CRS risolto che il file rileggerebbe non risolto si rifiuta, o se
+/// ha un identificatore ne dichiara la perdita (`absent`, non `derived`). Su
+/// `db1307d` `GeoParquet` era `lossless` e lo Shapefile `conditional` senza
+/// ragioni CRS, e il file non si rileggeva.
+#[test]
+fn un_crs_che_il_file_rilegge_non_risolto_non_si_scrive_in_silenzio() {
+    let dir = directory();
+    let senza_id = PROJJSON_32632.replace(r#","id":{"authority":"EPSG","code":32632}}"#, "}");
+    let projjson = sorgente_ipc(
+        dir.path(),
+        "pj.arrow",
+        None,
+        "easting_northing",
+        (&senza_id, "projjson"),
+    );
+    let anonimo = sorgente_ipc(
+        dir.path(),
+        "anonimo.arrow",
+        None,
+        "lon_lat",
+        (PROIETTATO_ANONIMO, "wkt"),
+    );
+    for (sorgente, destinazione) in [
+        (&projjson, "uscita.parquet"),
+        (&anonimo, "uscita.shp.d"),
+        (&anonimo, "uscita.dxf"),
+    ] {
+        let uscita = dir.path().join(destinazione);
+        let esito = converti(sorgente, &uscita, &[]);
+        assert!(!esito.riuscita, "{destinazione}: {}", esito.busta);
+        assert_eq!(esito.categoria(), "unsupported", "{destinazione}");
+        assert!(!uscita.exists(), "{destinazione}: nessun file pubblicato");
+    }
+    // Con un identificatore: si scrive, e la perdita e' `absent`, perche' il
+    // `.prj` anonimo non lo restituisce; `--assume-crs` lo riporta.
+    let con_id = sorgente_ipc(
+        dir.path(),
+        "con_id.arrow",
+        Some("EPSG:3003"),
+        "easting_northing",
+        (
+            PROIETTATO_ANONIMO.replace("\"anon\"", "\"x\"").as_str(),
+            "wkt",
+        ),
+    );
+    let uscita = dir.path().join("con_id.shp.d");
+    let esito = converti(&con_id, &uscita, &[]);
+    assert!(esito.riuscita, "{}", esito.busta);
+    assert_eq!(esito.perdite(), ["crs_id_not_preserved_absent"]);
+    let riletto = cli(&[
+        "inspect",
+        uscita.to_str().expect("percorso"),
+        "--assume-crs",
+        "EPSG:3003",
+    ]);
+    assert!(riletto.riuscita, "{}", riletto.busta);
+}
+
+/// F6: un `GeoPackage` in WGS 84 scritto da noi si converte in Shapefile e si
+/// rilegge `EPSG:4326` (su `db1307d` la riga portava `GEOGCS["WGS 84"]`, e lo
+/// Shapefile si rileggeva non risolto); un `GeoJSON` (`OGC:CRS84`) verso
+/// `GeoPackage` e' `unsupported`, non `crs`.
+#[test]
+fn gpkg_porta_wgs84_intero_e_rifiuta_crs84_come_limite() {
+    let dir = directory();
+    let sorgente = sorgente_solo_id(dir.path(), "wgs84.arrow", "EPSG:4326", "lon_lat");
+    let gpkg = dir.path().join("wgs84.gpkg");
+    assert!(converti(&sorgente, &gpkg, &[]).riuscita);
+    let shp = dir.path().join("wgs84.shp.d");
+    let esito = converti(&gpkg, &shp, &[]);
+    assert!(esito.riuscita, "{}", esito.busta);
+    assert_eq!(geometria_riletta(&shp)["crs"], "EPSG:4326");
+
+    let geojson = dir.path().join("crs84.geojson");
+    let crs84 = sorgente_solo_id(dir.path(), "crs84.arrow", "OGC:CRS84", "lon_lat");
+    assert!(converti(&crs84, &geojson, &[]).riuscita);
+    let uscita = dir.path().join("crs84.gpkg");
+    let esito = converti(&geojson, &uscita, &[]);
+    assert!(!esito.riuscita, "{}", esito.busta);
+    assert_eq!(esito.categoria(), "unsupported");
+    assert!(!uscita.exists());
+
+    // Stessa classe: il DXF con il solo identificatore e' un limite del
+    // bersaglio, non un CRS sbagliato (su `db1307d` era `crs`).
+    let utm = sorgente_solo_id(dir.path(), "utm.arrow", "EPSG:32632", "easting_northing");
+    let uscita = dir.path().join("utm.dxf");
+    let esito = converti(&utm, &uscita, &[]);
+    assert!(!esito.riuscita, "{}", esito.busta);
+    assert_eq!(esito.categoria(), "unsupported");
+}
+
+/// F7: il catalogo non dice `preserved` per una definizione che dipende
+/// dalla grammatica. Su `db1307d` `GeoParquet`, Shapefile e DXF pubblicavano
+/// `crs_definition: "preserved"`.
+#[test]
+fn il_catalogo_dice_condizionata_la_definizione_che_dipende_dalla_grammatica() {
+    let catalogo = cli(&["catalog"]);
+    assert!(catalogo.riuscita, "{}", catalogo.busta);
+    let drivers = catalogo.busta["result"]["drivers"]
+        .as_array()
+        .expect("drivers");
+    let definizione = |id: &str| {
+        drivers
+            .iter()
+            .find(|d| d["id"] == id)
+            .map(|d| d["write_capabilities"]["crs_representations"]["crs_definition"].clone())
+            .expect("il driver e' nel catalogo")
+    };
+    for id in ["geoparquet", "shp", "dxf", "gpkg"] {
+        assert_eq!(definizione(id), "conditional", "{id}");
+    }
+    assert_eq!(definizione("ipc"), "preserved");
+    assert_eq!(definizione("geojson"), "absent");
 }
 
 // --- GeoParquet: un CRS ignoto si scrive `null` ---------------------------

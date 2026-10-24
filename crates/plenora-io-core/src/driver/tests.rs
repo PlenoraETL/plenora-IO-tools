@@ -47,7 +47,8 @@ const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
 // Quattro elementi sono usciti con l'estrazione di `perdita_pianificata`:
 // le prove li raggiungono dove sono andati, e restano le stesse.
 use super::perdita_pianificata::{
-    record_crs_representation_loss, stato_per_il_piano, FontiDelPiano, RappresentazioneDelCrs,
+    record_crs_representation_loss, stato_dell_identificatore, stato_per_il_piano, FontiDelPiano,
+    RappresentazioneDelCrs,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -846,6 +847,7 @@ fn una_derivazione_decade_solo_quando_le_manca_la_fonte() {
     const SINTETIZZABILI: &[&str] = &["EPSG:4326"];
     let da_definizione = CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
         synthesized_for: SINTETIZZABILI,
+        synthesized_wkt: WGS84_CON_AUTORITA,
     });
     let da_identificatore = CrsRepresentationState::Derived(CrsDerivation::FromIdentifier);
     let dal_formato = CrsRepresentationState::Derived(CrsDerivation::FixedByFormat);
@@ -908,6 +910,129 @@ fn una_derivazione_decade_solo_quando_le_manca_la_fonte() {
     ] {
         assert_eq!(stato_per_il_piano(stato, &senza_niente), stato);
     }
+}
+
+/// Il WKT di WGS 84 con l'autorita' di radice: la regola dei lettori lo
+/// rilegge `EPSG:4326`.
+const WGS84_CON_AUTORITA: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
+
+/// Una definizione sintetizzata solo per alcuni identificatori (il `GeoPackage`
+/// con una definizione che non e' WKT 1): fuori da quelli non c'e' niente da
+/// rileggere, anche se il piano porta una definizione.
+#[test]
+fn una_definizione_sintetizzata_regge_solo_per_i_suoi_identificatori() {
+    let sintetizzata = CrsRepresentationState::Derived(CrsDerivation::SynthesizedFor {
+        ids: &["EPSG:4326"],
+    });
+    let wgs84 = FontiDelPiano {
+        crs_id: Some("EPSG:4326"),
+        crs_definition: Some("{}"),
+    };
+    let utm = FontiDelPiano {
+        crs_id: Some("EPSG:32632"),
+        crs_definition: Some("{}"),
+    };
+    assert_eq!(stato_per_il_piano(sintetizzata, &wgs84), sintetizzata);
+    assert_eq!(
+        stato_per_il_piano(sintetizzata, &utm),
+        CrsRepresentationState::Absent
+    );
+}
+
+/// L'identificatore che si ricava dal WKT e' `derived` solo se il WKT si
+/// rilegge nello **stesso** identificatore: fino alla rilettura 11 bastava che
+/// un WKT ci fosse.
+#[test]
+fn l_identificatore_dal_wkt_e_derivato_solo_se_si_rilegge_uguale() {
+    use plenora_io_model::crs::CrsDefinitionFormat;
+    let derivato = CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+        synthesized_for: &["EPSG:4326", "OGC:CRS84"],
+        synthesized_wkt: WGS84_CON_AUTORITA,
+    });
+    let shp = crate::descriptor::CrsRepresentationCapabilities::new(
+        derivato,
+        CrsRepresentationState::Absent,
+        CrsRepresentationState::Preserved,
+    )
+    .verbatim_solo(
+        &[CrsDefinitionFormat::Wkt],
+        CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
+    );
+    let anonimo = "PROJCS[\"anon\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],UNIT[\"metre\",1]]";
+    let con = |crs_id, crs_definition| FontiDelPiano {
+        crs_id,
+        crs_definition,
+    };
+    let wkt = Some(CrsDefinitionFormat::Wkt);
+    // Il WKT dichiara l'identificatore: si rilegge, `derived`.
+    assert_eq!(
+        stato_dell_identificatore(&shp, &con(Some("epsg:4326"), Some(WGS84_CON_AUTORITA)), wkt),
+        derivato
+    );
+    // Un `PROJCS` anonimo si rilegge non risolto: va riportato da fuori.
+    assert_eq!(
+        stato_dell_identificatore(&shp, &con(Some("EPSG:32632"), Some(anonimo)), wkt),
+        CrsRepresentationState::Absent
+    );
+    // Il WKT sintetizzato per `OGC:CRS84` si rilegge `EPSG:4326`: un altro
+    // identificatore (GEO-005).
+    assert_eq!(
+        stato_dell_identificatore(&shp, &con(Some("OGC:CRS84"), None), None),
+        CrsRepresentationState::Absent
+    );
+    assert_eq!(
+        stato_dell_identificatore(&shp, &con(Some("EPSG:4326"), None), None),
+        derivato
+    );
+    // Senza niente da scrivere decade come prima.
+    assert_eq!(
+        stato_dell_identificatore(&shp, &con(Some("EPSG:3003"), None), None),
+        CrsRepresentationState::Absent
+    );
+}
+
+/// `GeoParquet`: senza il PROJJSON che lo porta, l'identificatore si rilegge
+/// come il default del formato, e solo `OGC:CRS84` resta uguale.
+#[test]
+fn senza_definizione_l_identificatore_si_rilegge_come_il_default() {
+    use plenora_io_model::crs::CrsDefinitionFormat;
+    let geoparquet = crate::descriptor::CrsRepresentationCapabilities::new(
+        CrsRepresentationState::Preserved,
+        CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
+        CrsRepresentationState::Preserved,
+    )
+    .verbatim_solo(
+        &[CrsDefinitionFormat::Projjson],
+        CrsRepresentationState::Absent,
+    )
+    .identificatore_senza_definizione(&["OGC:CRS84"], CrsRepresentationState::Absent);
+    let con = |crs_id, crs_definition| FontiDelPiano {
+        crs_id,
+        crs_definition,
+    };
+    let projjson = Some(CrsDefinitionFormat::Projjson);
+    let wkt = Some(CrsDefinitionFormat::Wkt);
+    assert_eq!(
+        stato_dell_identificatore(&geoparquet, &con(Some("EPSG:4326"), Some("{}")), projjson),
+        CrsRepresentationState::Preserved
+    );
+    for (id, definizione, grammatica) in [
+        (Some("EPSG:4326"), None, None),
+        (Some("EPSG:4326"), Some("GEOGCS[...]"), wkt),
+    ] {
+        assert_eq!(
+            stato_dell_identificatore(&geoparquet, &con(id, definizione), grammatica),
+            CrsRepresentationState::Absent
+        );
+    }
+    assert_eq!(
+        stato_dell_identificatore(
+            &geoparquet,
+            &con(Some("OGC:CRS84"), Some("GEOGCS[...]")),
+            wkt
+        ),
+        CrsRepresentationState::Preserved
+    );
 }
 
 #[test]

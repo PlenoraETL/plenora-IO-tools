@@ -239,54 +239,192 @@ va riportato **fuori** dal file, `derived` direbbe che basta rileggerlo.
 e il driver non ne sintetizza uno da un identificatore. Una scrittura il cui
 CRS è noto solo come `EPSG:3003` viene quindi **rifiutata**, non degradata — e
 lo è anche quando la sorgente porta un WKT, che GeoParquet non ha un modo
-conforme di scrivere. Un PROJJSON si scrive per intero e si rilegge:
-GeoParquet **conserva** la definizione PROJJSON, e dell'SRID — che il metadato
-`geo` non ha dove mettere — dichiara la sola derivazione dall'identificatore.
+conforme di scrivere. Un PROJJSON si scrive **byte per byte** e si rilegge con
+gli stessi byte: GeoParquet **conserva** la definizione PROJJSON, e dell'SRID —
+che il metadato `geo` non ha dove mettere — dichiara la sola derivazione
+dall'identificatore.
+
+L'identificatore, in GeoParquet, vive **solo** dentro il documento (`id`), e il
+lettore lo ricava da lì. Per questo il writer scrive un PROJJSON soltanto se il
+file lo rilegge come il contratto lo dichiara, e rifiuta con `unsupported`,
+prima di ogni effetto, tre casi che fino alla rilettura 11 si scrivevano come
+`lossless`: un documento senza `id` (il lettore lo rifiuta come CRS non
+risolto), un `id` diverso dall'identificatore del contratto anche solo nella
+grafia (`crs_representations_inconsistent`: il file direbbe quello del
+documento), un `id` che contraddice il genere del documento (`EPSG:4326` su un
+`EngineeringCRS`, regola «tutti: genere del CRS»). Un contratto senza
+identificatore con un documento che ne porta uno si scrive: il file ne dice
+uno in più, non uno diverso. Un documento con spazi ai bordi si rifiuta: si
+incorpora come valore JSON, e gli spazi non sarebbero conservati.
+
+**`EPSG:4326` senza PROJJSON si rilegge `OGC:CRS84`.** Senza documento il
+writer omette il campo `crs`, che per la specifica vale `OGC:CRS84`. Le
+coordinate non cambiano — GeoParquet memorizza longitudine prima qualunque sia
+il CRS, e l'ordine `lon_lat` dichiarato resta vero — ma l'identificatore sì:
+per GEO-005 `EPSG:4326` e `OGC:CRS84` sono identificatori diversi. Dalla
+rilettura 11 la perdita si dichiara (`crs_id_not_preserved_absent`: va
+riportato da fuori, il file non lo restituisce); fino a db1307d un IPC con il
+solo `EPSG:4326` convertito in GeoParquet era `lossless`, e un GeoPackage in
+`EPSG:4326` dichiarava la sola definizione. Si è scelto di
+dichiarare invece di scrivere un PROJJSON di `EPSG:4326` preso da una
+costante: senza PROJ non c'è un documento canonico da cui copiarlo (le
+versioni di PROJ emettono `datum` o `datum_ensemble` con membri diversi), e un
+documento scritto a mano sarebbe una definizione che nessuno ci ha dato, con
+il rischio di dirla sbagliata. Dichiarare non dice mai il falso; il file che
+esce è quello di prima, letto da GDAL e da ogni lettore GeoParquet come WGS 84
+`lon_lat`. Rientro: un resolver CRS, o un PROJJSON canonico di `EPSG:4326`
+fissato da plenora-contracts.
 
 #### Che cosa ogni bersaglio fa della definizione che riceve
 
 Un Arrow conforme porta la definizione in una qualunque delle tre grammatiche
 (WKT, WKT 2, PROJJSON), e GEO-005 confronta solo gli identificatori. Dalla
-rilettura 10 `crs_definition: preserved` vale **per grammatica**
+rilettura 10 `crs_definition` vale **per grammatica**
 (`CrsRepresentationCapabilities::verbatim_solo` in `plenora-io-core`), e il
 verdetto per piano la legge: una definizione che il bersaglio non scrive tale e
 quale è una perdita dichiarata o un rifiuto, mai una conversione `lossless`.
+Dalla rilettura 11 la restrizione vale anche per un bersaglio che la
+definizione la riscrive (il GeoPackage), e il catalogo la pubblica come
+`crs_definition: "conditional"` (sezione «Il vocabolario CRS del catalogo»).
 
 | bersaglio | conserva | un'altra grammatica |
 |---|---|---|
 | IPC | tutte | — |
-| GeoParquet | PROJJSON | con `OGC:CRS84` o `EPSG:4326` il campo `crs` si omette (il file si rilegge `OGC:CRS84`, senza definizione) e la perdita è `crs_definition_not_preserved_absent`; con un altro identificatore, o senza, `unsupported`. Fino a b7a6c94 il primo caso era `lossless`, e un WKT senza identificatore usciva `crs: null`, «CRS ignoto», per un CRS che il contratto conosceva |
-| Shapefile (`.prj`), DXF (`GEODATA`) | WKT, WKT 2 | un PROJJSON con `OGC:CRS84` o `EPSG:4326` si sostituisce con il WKT che il writer sintetizza, e la perdita è `crs_definition_not_preserved_derived`; con ogni altro identificatore `unsupported` («il `.prj` porta un WKT»). Fino a b7a6c94 il PROJJSON si scriveva nel `.prj` o nel `GEODATA` così com'era, la conversione riusciva, e il file non si rileggeva più — nemmeno con `--assume-crs`. Convertire PROJJSON in WKT servirebbe un resolver: un GeoParquet in EPSG:3003 non si converte in Shapefile né in DXF |
-| GeoPackage, FileGDB | — | la definizione si riscrive (da `gpkg_spatial_ref_sys` o da GDAL): `crs_definition_not_preserved_derived`, come prima |
+| GeoParquet | PROJJSON, byte per byte | con `OGC:CRS84` il campo `crs` si omette (il file si rilegge `OGC:CRS84`, senza definizione) e la perdita è `crs_definition_not_preserved_absent`; con `EPSG:4326` lo stesso, più `crs_id_not_preserved_absent` (rilettura 11); con un altro identificatore, o senza, `unsupported`. Fino a db1307d il documento passava da `serde_json::Value`: le chiavi uscivano riordinate e i numeri riscritti come `f64` (`0.99960000000000000000000001` diventava `0.9996`, `9E0` diventava `9.0`), con la definizione dichiarata conservata; anche il lettore consegnava la riscrittura invece del testo del file |
+| Shapefile (`.prj`), DXF (`GEODATA`) | WKT, WKT 2 | un PROJJSON con `OGC:CRS84` o `EPSG:4326` si sostituisce con il WKT che il writer sintetizza, e la perdita è `crs_definition_not_preserved_derived`; con ogni altro identificatore `unsupported` («il `.prj` porta un WKT»). Convertire PROJJSON in WKT servirebbe un resolver: un GeoParquet in EPSG:3003 non si converte in Shapefile né in DXF |
+| GeoPackage | WKT 1, riscritto | la colonna `definition` di `gpkg_spatial_ref_sys` porta un WKT 1 (GPKG 1.3, tabella 21), e il writer ci scrive solo quello: la definizione si riscrive dalla riga (`crs_definition_not_preserved_derived`). Un PROJJSON o un WKT 2 non ci vanno: per `EPSG:4326` la riga, che il writer registra sempre, porta il WKT canonico (`derived`), per ogni altro identificatore la colonna vale `undefined`, come la specifica ammette, e la definizione non si rilegge (`crs_definition_not_preserved_absent`). Fino a db1307d un PROJJSON finiva nella colonna WKT, dichiarato derivato |
+| FileGDB | — | la definizione si riscrive da GDAL: `crs_definition_not_preserved_derived`, come prima |
 | GeoJSON, KML, CSV, XLSX | — | `crs_definition_not_preserved_absent`, come prima |
 
+La riga di `EPSG:4326` che ogni GeoPackage scritto da IO porta ha, dalla
+rilettura 11, il WKT 1 del registro EPSG con l'autorità di radice
+(`WKT_WGS84_GPKG` in `driver-gpkg`), non più `GEOGCS["WGS 84"]`: quel WKT la
+regola dei lettori non lo risolve, e un GeoPackage in WGS 84 convertito in
+Shapefile o DXF si rileggeva non risolto. Il GeoPackage rifiuta con
+`unsupported`, non più `crs`, ciò che `gpkg_spatial_ref_sys` non sa
+rappresentare: un CRS senza identificatore, un codice che non è un intero
+canonico (`EPSG:04326`), un'autorità con un codice testuale (`OGC:CRS84`, che
+un GeoJSON porta sempre). Sono limiti del bersaglio su un CRS risolto (REJ-001
+«support»); fino a db1307d `OGC:CRS84` usciva «CRS dichiarato ma non
+risolto». Il DXF, per la stessa ragione, rifiuta con `unsupported` un CRS noto
+solo per un identificatore di cui non sa scrivere il WKT (prima `crs`).
+
+**L'identificatore che Shapefile e DXF scrivono è quello che il WKT dice.**
+I due formati non scrivono l'identificatore: scrivono il WKT, e i lettori lo
+ricavano con la regola di `identificatore_wkt`. Dalla rilettura 11 il verdetto
+per piano rilegge il WKT che il writer emette con quella regola
+(`CrsRepresentationCapabilities::identificatore_riletto`): se ne esce lo stesso
+identificatore (GEO-005) la perdita è `crs_id_not_preserved_derived`, altrimenti
+`crs_id_not_preserved_absent` — un `PROJCS` anonimo con `EPSG:32632` si rilegge
+non risolto, e `OGC:CRS84` si rilegge dal WKT sintetizzato `EPSG:4326`; in
+entrambi i casi l'identificatore va riportato con `--assume-crs`. Un CRS
+risolto **senza** identificatore il cui WKT si rileggerebbe non risolto, o un
+WKT che i lettori non rileggono affatto, si rifiuta con `unsupported`
+(`crs_unresolved`): non c'è un identificatore con cui dichiararne la perdita.
+Fino a db1307d le due cose erano `crs_id_not_preserved_derived` e una
+conversione `conditional` senza ragioni CRS, e il file si rileggeva «dichiarato
+ma non risolto». È il rientro della deviazione «Shapefile, DXF: identificatore
+dal WKT» della rilettura 10.
+
 Un `missing` si scrive in GeoParquet come `crs: null` (capability
-`embedded_or_unknown`, nuova nel catalogo): era la promessa della riga
-«GeoParquet: `crs: null`», e fino a b7a6c94 la validazione la rifiutava
-(«il formato richiede un CRS risolto»). Il dichiarato ma non risolto resta un
-rifiuto: GeoParquet non ha un modo di dirlo.
+`embedded_or_unknown`): era la promessa della riga «GeoParquet: `crs: null`»,
+e fino a b7a6c94 la validazione la rifiutava («il formato richiede un CRS
+risolto»). Il dichiarato ma non risolto resta un rifiuto: GeoParquet non ha un
+modo di dirlo.
 
 **Il bersaglio non sceglie l'identificatore contro la definizione.** Un
 identificatore che il bordo sa orizzontale su una radice che non lo è
-(`EPSG:4326` su un `LOCAL_CS`) o di genere opposto (`EPSG:4326` su un `PROJCS`
-anonimo) è la contraddizione che i lettori rifiutano (`crs_kind_for`, riga
-«tutti: genere del CRS»). Un Arrow conforme la può portare, e IPC la conserva
-intera; un bersaglio che conserverebbe il solo identificatore — GeoParquet con
-un WKT, GeoPackage, GeoJSON, KML — la rifiuta con `unsupported` e la ragione
-`crs_representations_inconsistent`, prima di ogni effetto. È un limite del
-bersaglio su un ingresso conforme (GEO-000 punto 2, REJ-001 «support»), non un
-difetto dell'ingresso: per questo non è `crs`. Shapefile e DXF scrivono il WKT,
-e FileGDB lo passa a GDAL: lì non si sceglie niente. Fino a b7a6c94 GeoParquet
-scriveva `EPSG:4326` per un `LOCAL_CS` dichiarandosi `lossless`, e GeoPackage
-lo scriveva come `EPSG:4326` con la definizione di WGS 84. Prove:
+(`EPSG:4326` su un `LOCAL_CS` o su un PROJJSON `EngineeringCRS`) o di genere
+opposto (`EPSG:4326` su un `PROJCS` anonimo, `EPSG:3857` su un geografico) è
+la contraddizione che i lettori rifiutano (`crs_kind_for`, riga «tutti: genere
+del CRS»). Un Arrow conforme la può portare, e IPC la conserva intera e la
+rilegge com'è. Ogni altro bersaglio che porta un CRS la rifiuta con
+`unsupported` e la ragione `crs_representations_inconsistent`, prima di ogni
+effetto; restano fuori solo FileGDB, che consegna la coppia a GDAL, e CSV e
+XLSX, che l'identificatore non lo scrivono. È un limite del bersaglio su un
+ingresso conforme (GEO-000 punto 2, REJ-001 «support»), non un difetto
+dell'ingresso: per questo non è `crs`. Fino a b7a6c94 GeoParquet scriveva
+`EPSG:4326` per un `LOCAL_CS` dichiarandosi `lossless`; fino a db1307d la
+regola saltava ogni bersaglio che conserva la definizione, e GeoParquet
+scriveva `EPSG:4326` dentro un `EngineeringCRS` (un file che non si rileggeva,
+`lossless`), Shapefile e DXF un `LOCAL_CS` per `EPSG:4326` (un file che si
+rileggeva non risolto, con l'identificatore dichiarato derivato).
+
+#### Il file si rilegge come la busta lo dichiara
+
+È l'invariante della classe, e una prova permanente lo verifica su ogni
+sorgente verso ogni bersaglio senza GDAL (`rilettura_dei_crs.rs` in
+`plenora-io-tools`), in due passaggi: da venti sorgenti IPC (WKT, WKT ESRI,
+WKT 2, PROJJSON con numeri oltre `f64` ed escape, solo identificatore, senza
+identificatore, coppie contraddette, `missing`) e poi dai file GeoParquet,
+GeoPackage, Shapefile, DXF e GeoJSON che il primo passaggio ha scritto. Per
+ogni scrittura riuscita: senza `crs_id_not_preserved_*` il file si rilegge con
+lo stesso identificatore, byte per byte; con `..._derived` con uno uguale per
+GEO-005; senza `crs_definition_not_preserved_*` con la stessa definizione,
+byte per byte (una definizione che la sorgente non aveva può comparire); un
+file che non si rilegge senza opzioni ha dichiarato `crs_id_not_preserved_absent`
+e `--assume-crs` lo riporta, o — senza identificatore — ha dichiarato perduta
+la definizione; un `missing` si rilegge `missing`. CSV e XLSX non portano un
+CRS, e per loro la regola è che ogni perdita sia dichiarata. Su db1307d la
+prova fallisce con trenta violazioni al primo passaggio e cinquantacinque al
+secondo, che ricadono nei sette rilievi della rilettura 11.
+
+#### Il vocabolario CRS del catalogo
+
+`io.catalog` pubblica per ogni writer due capability CRS, enumerate dalla
+rilettura 11 nello schema `plenora-io-catalog-v2` (prima i valori erano liberi
+nello schema e scritti solo nel codice).
+
+`write_capabilities.crs` dice che cosa il writer fa del CRS:
+
+| valore | significato | formati |
+|---|---|---|
+| `embedded` | incorpora il CRS, e pretende un CRS risolto | GeoPackage, Shapefile, DXF, FileGDB |
+| `embedded_optional` | incorpora anche il dichiarato ma non risolto e il mancante, senza perdita | IPC |
+| `embedded_or_unknown` | incorpora un CRS risolto e scrive il mancante come CRS ignoto (`crs: null`); il dichiarato ma non risolto si rifiuta | GeoParquet |
+| `{"fixed": id}` | impone quel CRS; un altro si rifiuta (`reprojection_required`) | GeoJSON, KML (`OGC:CRS84`) |
+| `none` | non porta un CRS | CSV, XLSX |
+
+`write_capabilities.crs_representations` dice, per ciascuna delle tre
+rappresentazioni del contratto (`crs_id`, `srid`, `crs_definition`), che cosa
+ne esce; è la capability statica, e il verdetto per piano sta nel `LossReport`
+(`..._not_preserved_derived`, `..._not_preserved_absent`):
+
+| valore | significato |
+|---|---|
+| `preserved` | si scrive e si rilegge tale e quale |
+| `derived` | non si scrive, e si rilegge da un'altra rappresentazione scritta nel file; per piano può decadere ad `absent` quando quella manca o non restituisce lo stesso valore |
+| `absent` | non si scrive, e va riportata da fuori |
+| `conditional` | solo `crs_definition`: l'esito dipende dalla grammatica della definizione. IPC conserva tutte le grammatiche (`preserved`); GeoParquet conserva il PROJJSON e perde le altre; Shapefile e DXF conservano WKT e WKT 2 e sostituiscono un PROJJSON con il WKT sintetizzato per `EPSG:4326` e `OGC:CRS84` (altrimenti rifiutano); il GeoPackage riscrive un WKT 1 dalla propria riga e perde le altre grammatiche, tranne per `EPSG:4326` |
+
+Fino alla rilettura 11 GeoParquet, Shapefile e DXF pubblicavano
+`crs_definition: "preserved"` e il GeoPackage `"derived"`, mentre l'esito
+dipendeva dalla grammatica; il valore che serviva non esisteva, ed è stato
+aggiunto allo schema di IO (`conditional`) e alle note di rilascio.
+
+Prove (in `plenora-io-tools`, `definizione_crs_in_scrittura.rs`; su db1307d
+falliscono le sette della rilettura 11 e `geoparquet_dichiara_il_wkt_che_non_scrive`):
 `geoparquet_dichiara_il_wkt_che_non_scrive`,
 `geoparquet_rifiuta_un_wkt_senza_identificatore`,
 `l_identificatore_non_si_sceglie_contro_la_definizione`,
 `shp_e_dxf_rifiutano_un_projjson_che_non_sanno_scrivere`,
 `shp_e_dxf_sostituiscono_il_projjson_e_lo_dichiarano`,
-`un_crs_ignoto_si_riscrive_in_geoparquet_come_null` (in `plenora-io-tools`),
-`le_definizioni_che_non_sono_projjson_non_spariscono_in_silenzio` (in
-`driver-geoparquet`), `geoparquet_proiettato_a_dxf_rifiuta_il_projjson`
+`un_crs_ignoto_si_riscrive_in_geoparquet_come_null`,
+`geoparquet_dichiara_l_identificatore_che_diventa_crs84`,
+`geoparquet_conserva_il_projjson_byte_per_byte`,
+`la_coppia_contraddetta_si_rifiuta_anche_dove_la_definizione_si_conserva`,
+`gpkg_non_scrive_un_projjson_nella_colonna_wkt`,
+`un_crs_che_il_file_rilegge_non_risolto_non_si_scrive_in_silenzio`,
+`gpkg_porta_wgs84_intero_e_rifiuta_crs84_come_limite`,
+`il_catalogo_dice_condizionata_la_definizione_che_dipende_dalla_grammatica`;
+`rilettura_dei_crs.rs`; `le_definizioni_che_non_sono_projjson_non_spariscono_in_silenzio`,
+`un_projjson_che_il_file_non_rilegge_uguale_non_si_scrive`,
+`il_projjson_si_scrive_e_si_rilegge_byte_per_byte`,
+`il_lettore_consegna_il_testo_del_documento` (in `driver-geoparquet`);
+`la_riga_di_wgs84_porta_il_wkt_canonico` (in `driver-gpkg`);
+`l_identificatore_dal_wkt_e_derivato_solo_se_si_rilegge_uguale`,
+`senza_definizione_l_identificatore_si_rilegge_come_il_default` (in
+`plenora-io-core`); `geoparquet_proiettato_a_dxf_rifiuta_il_projjson`
 (matrice delle conversioni).
 
 #### Ordine degli assi
@@ -502,7 +640,6 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | | |
 |---|---|
 | DXF | approssima per costruzione: archi ed ellissi tassellati, multipart esplose, testo come punto. La perdita è dichiarata, non silenziosa |
-| Shapefile, DXF: identificatore dal WKT | il writer scrive il WKT che riceve e non l'identificatore, e dichiara `crs_id_not_preserved_derived`: l'identificatore si rilegge dal WKT. Non sempre è vero: un WKT senza autorità di radice che la regola dei lettori non riconosce (un `LOCAL_CS`, un `PROJCS` anonimo) si rilegge non risolto, o con `--assume-crs` contraddetto. La perdita è dichiarata, ma come derivata invece che assente. Hazard: un consumatore che automatizza la rilettura trova un rifiuto `crs` dove si aspettava l'identificatore; nessun CRS sbagliato. Rilevato nella rilettura 10, non corretto lì. Rientra quando la derivazione da definizione verifica, per piano, che il WKT dichiari l'identificatore (`identificatore_wkt`) |
 | KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
 | DXF | un `DATATABLE` oltre 2^20 righe, colonne o celle, e un'anteprima (`THUMBNAILIMAGE`) la cui decodifica supererebbe 16 MiB, rendono il documento illeggibile (`FORMAT_ERROR`). Sono tetti espliciti del prodotto contro le prenotazioni dimensionate dall'input, **non** una garanzia di leggere ogni file AutoCAD. L'ordine delle celle del `DATATABLE` (per colonne, un valore per ogni riga) segue la specifica Autodesk come la scrive il fork ed è verificato solo in round-trip interno, non contro file AutoCAD reali: il driver non legge `DATATABLE`, ma il lettore li attraversa. In scrittura il fork accetta solo `DATATABLE` completi (un nome per colonna, un valore per ogni riga di ogni colonna, un tipo per colonna) e rifiuta gli altri con un errore; il driver scrive entità e `GEODATA`, non `DATATABLE` |
 | DXF | i reali si scrivono in ASCII con dodici decimali: per le coordinate è sotto la precisione geografica di 1 cm (un dodicesimo decimale di grado è circa 1e-7 m), per altri valori reali è un arrotondamento che il formato non segnala |
@@ -523,7 +660,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | Arrow IPC: genere riletto | il genere di un CRS `resolved` riletto dai metadati segue `crs_kind_for` (identificatore e radice della definizione); solo se la definizione manca e l'identificatore è ignoto decide l'ordine memorizzato (`lon_lat`/`lat_lon` geografico, `easting_northing`/`northing_easting` proiettato). Fino a b4d8064 decideva sempre l'ordine, e un `EPSG:3031` polare, proiettato per lo Shapefile con assi `other`, si rileggeva ignoto. Un identificatore che contraddice la radice qui lascia il genere ignoto senza rifiutare: il genere non è un campo del vocabolario, e il campo è quello che GEO-005 ha già giudicato. Prova: `il_genere_riletto_segue_la_regola_comune` |
 | tutti: WKB ben formato (GEO-011) | ogni WKB o EWKB che IO decodifica, ispeziona o codifica rispetta la buona forma di Arrow Geometry Semantics 1.0 come la decide l'oracolo dei contratti (`arrow_data.py`): una linestring ha zero o almeno due punti, una circularstring zero o un numero dispari di almeno tre, un anello lineare di poligono o triangolo almeno quattro punti con l'ultimo uguale al primo **byte per byte** (Z e M comprese: `-0.0` non chiude `0.0`, un NaN con gli stessi bit chiude), un triangolo al più un anello, al più 32 livelli di annidamento, e ogni membro di un aggregato ha le dimensioni del contenitore. Il rifiuto è del codec stesso -- `decode_wkb`, `inspect_wkb` e l'encoder -- e non dei percorsi che lo consultano dopo: fino alla 5.0.1 il membro di altre dimensioni era solo annotato (`nested_dimensions_coherent`) e rifiutato a valle, dalla validazione dei batch e da quella delle scritture, e un percorso che non leggesse il flag lo avrebbe accettato o emesso (prova `un_membro_di_altre_dimensioni_e_malformato_nel_codec` in `wkb_lossless/tests.rs`). Vale per **ogni formato**, non solo per l'ingresso Arrow: un valore che un componente del contratto rifiuterebbe non esce da IO. Ambito: un file nativo con una polilinea di un vertice, un anello non chiuso o vuoto (KML, GeoJSON, DXF, Shapefile, GeoPackage scritti da altri) è rifiutato con `data_mapping` invece di essere letto; fino alla 5.x passava. Hazard: file prima leggibili ora falliscono, con un errore esplicito e nessun dato pubblicato; nessuna chiusura o riparazione implicita. Rientro: nessuno previsto, è la conformità; una riparazione esplicita sarebbe un'opzione nuova e dichiarata. Prove: `geo_011_*` in `plenora-io-model` (`wkb/tests.rs`), `un_valore_malformato_con_un_altro_srid_e_data_mapping` in `plenora-io-tools` Un membro che porta insieme uno SRID e dimensioni diverse dal contenitore è rifiutato per le dimensioni (GEO-011) dove l'oracolo cita prima lo SRID del membro (GEO-009): la categoria, `data_mapping`, è la stessa, cambia solo la causa di riga riportata. |
 | tutti: `max_wkb_depth` | la profondità di GEO-011 (32) non è una quota: il parser la applica qualunque sia la configurazione, e `max_wkb_depth` (`--max-wkb-depth`, budget runtime) può solo stringerla. Un valore oltre 32 si rifiuta alla validazione dei limiti (`limit_exceeded`) invece di restare un flag senza effetto; il default passa da 64 a 32. Hazard: una configurazione che chiedeva 64 ora fallisce. Prove: `geo_011_l_annidamento_si_ferma_a_32_qualunque_sia_il_tetto`, `max_wkb_depth_oltre_il_contratto_si_rifiuta` |
-| CRS: PROJJSON (GEO-005) | gli identificatori di un PROJJSON si leggono con un lettore dedicato che replica `json.loads` con i ganci dell'oracolo: numeri di qualunque grandezza (`1e400`), surrogati isolati, codici `-0` (vale `0`) o oltre `u64`, qualunque annidamento. Restano tre differenze, dove l'oracolo in CPython non dà un verdetto perché si ferma con un'eccezione dell'interprete e non con `Malformed`: `RecursionError` oltre circa mille livelli, `ValueError` per un intero di più di 4300 cifre, `decimal.InvalidOperation` per un decimale con un esponente oltre i limiti di `decimal` (`9e9999999999999999999999999999`). Lì IO dà il verdetto della grammatica, perché legge i numeri come testo senza valutarli: il documento è ben formato, un intero lungo è un codice valido, un decimale -- con qualunque esponente -- come `code` è malformato e altrove è un valore qualunque (prove `projjson_*` in `crs_definizione/tests.rs`). **Memoria**: lineare nei byte del documento con un fattore dichiarato -- un byte per contenitore aperto, 16 byte per chiave di un oggetto aperto (liberati alla sua chiusura), della radice soltanto `id` e `ids` e di ogni identificatore soltanto `authority` e `code`, in UTF-8. Fino alla 5.0.1 la verifica teneva un `HashSet` per oggetto aperto e 48 byte per contenitore, e la lettura materializzava ogni membro della radice fino al terzo livello. Misurato in release su documenti di 16 MiB, picco delle allocazioni prima e dopo: 403 MB e 8 MB (`{"a":` e 8 milioni di `[`), 591 MB e 71 MB (3,3 milioni di `{"":` annidati, il caso peggiore: 4,3 volte i byte a 16 MiB, fino a circa 6,8 volte su dimensioni dove le capacità dei vettori raddoppiano appena oltre il necessario, con un tetto assoluto di circa 71 MB fino a 16 MiB), 277 MB e meno di 1 KB (8 milioni di numeri in una lista), 170 MB e 34 MB (2,4 milioni di chiavi in un oggetto), 233 MB e 56 MB (600 mila `ids`, quasi tutto il risultato). Il documento è già limitato dai byte del metadato che lo porta. Il doppione di chiave si cerca alla chiusura dell'oggetto, su impronte SipHash a chiavi casuali e con il confronto esatto delle sole chiavi di impronta uguale: il verdetto non dipende dall'impronta (prova `le_impronte_uguali_non_cambiano_il_verdetto`). Lo **SRID** ricavato da un PROJJSON (`definition_authority_srid`, usato dalle capability e dal confronto delle rappresentazioni nel `LossReport`) usa ora lo stesso lettore: un codice numerico è un intero, un codice stringa è testo e vale solo se canonico, come nel WKT. Fino alla 5.0.1 una stringa passava da `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in un WKT non dava SRID (prova `definition_authority_srid_projjson_distingue_il_numero_dalla_stringa`). Gli **altri** usi di un PROJJSON in IO -- l'ordine degli assi dichiarato verso un formato con l'est prima, il documento `crs` di GeoParquet -- leggono ancora con `serde_json` senza `arbitrary_precision`: per un documento con un numero oltre `f64`, un surrogato isolato o più di 128 livelli l'ordine resta `unknown`, e GeoParquet tratta la definizione come una che non è PROJJSON (come un WKT): con `EPSG:4326` o `OGC:CRS84` omette il `crs`, che per il formato vale CRS84, e dalla rilettura 10 dichiara la definizione perduta (`crs_definition_not_preserved_absent`), altrimenti rifiuta con `unsupported`. Hazard: nessun risultato sbagliato, un rifiuto o un'informazione in meno. Rientro: portare quei due usi sul lettore dedicato. Prove: `projjson_*` in `crs_definizione/tests.rs` |
+| CRS: PROJJSON (GEO-005) | gli identificatori di un PROJJSON si leggono con un lettore dedicato che replica `json.loads` con i ganci dell'oracolo: numeri di qualunque grandezza (`1e400`), surrogati isolati, codici `-0` (vale `0`) o oltre `u64`, qualunque annidamento. Restano tre differenze, dove l'oracolo in CPython non dà un verdetto perché si ferma con un'eccezione dell'interprete e non con `Malformed`: `RecursionError` oltre circa mille livelli, `ValueError` per un intero di più di 4300 cifre, `decimal.InvalidOperation` per un decimale con un esponente oltre i limiti di `decimal` (`9e9999999999999999999999999999`). Lì IO dà il verdetto della grammatica, perché legge i numeri come testo senza valutarli: il documento è ben formato, un intero lungo è un codice valido, un decimale -- con qualunque esponente -- come `code` è malformato e altrove è un valore qualunque (prove `projjson_*` in `crs_definizione/tests.rs`). **Memoria**: lineare nei byte del documento con un fattore dichiarato -- un byte per contenitore aperto, 16 byte per chiave di un oggetto aperto (liberati alla sua chiusura), della radice soltanto `id` e `ids` e di ogni identificatore soltanto `authority` e `code`, in UTF-8. Fino alla 5.0.1 la verifica teneva un `HashSet` per oggetto aperto e 48 byte per contenitore, e la lettura materializzava ogni membro della radice fino al terzo livello. Misurato in release su documenti di 16 MiB, picco delle allocazioni prima e dopo: 403 MB e 8 MB (`{"a":` e 8 milioni di `[`), 591 MB e 71 MB (3,3 milioni di `{"":` annidati, il caso peggiore: 4,3 volte i byte a 16 MiB, fino a circa 6,8 volte su dimensioni dove le capacità dei vettori raddoppiano appena oltre il necessario, con un tetto assoluto di circa 71 MB fino a 16 MiB), 277 MB e meno di 1 KB (8 milioni di numeri in una lista), 170 MB e 34 MB (2,4 milioni di chiavi in un oggetto), 233 MB e 56 MB (600 mila `ids`, quasi tutto il risultato). Il documento è già limitato dai byte del metadato che lo porta. Il doppione di chiave si cerca alla chiusura dell'oggetto, su impronte SipHash a chiavi casuali e con il confronto esatto delle sole chiavi di impronta uguale: il verdetto non dipende dall'impronta (prova `le_impronte_uguali_non_cambiano_il_verdetto`). Lo **SRID** ricavato da un PROJJSON (`definition_authority_srid`, usato dalle capability e dal confronto delle rappresentazioni nel `LossReport`) usa ora lo stesso lettore: un codice numerico è un intero, un codice stringa è testo e vale solo se canonico, come nel WKT. Fino alla 5.0.1 una stringa passava da `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in un WKT non dava SRID (prova `definition_authority_srid_projjson_distingue_il_numero_dalla_stringa`). Gli **altri** usi di un PROJJSON in IO -- l'ordine degli assi dichiarato verso un formato con l'est prima, il documento `crs` di GeoParquet -- leggono ancora con `serde_json` senza `arbitrary_precision`: per un documento con un numero oltre `f64`, un surrogato isolato o più di 128 livelli l'ordine resta `unknown`, e GeoParquet tratta la definizione come una che non è PROJJSON (come un WKT): con `EPSG:4326` o `OGC:CRS84` omette il `crs`, che per il formato vale CRS84, e dalla rilettura 10 dichiara la definizione perduta (`crs_definition_not_preserved_absent`), dalla rilettura 11 con `EPSG:4326` anche l'identificatore (`crs_id_not_preserved_absent`), altrimenti rifiuta con `unsupported`. Quando invece il documento si scrive, si scrive e si rilegge con i suoi byte (`RawValue`): `serde_json` serve a validarlo, non a riscriverlo. Hazard: nessun risultato sbagliato, un rifiuto o un'informazione in meno. Rientro: portare quei due usi sul lettore dedicato. Prove: `projjson_*` in `crs_definizione/tests.rs` |
 | CRS: spazi e maiuscole | lo spazio della grammatica di `crs_id` (GEO-016) e del WKT è `str.isspace()` di Python 3.11 (Unicode 14), scritto come elenco chiuso: il `White_Space` di Unicode più U+001C..U+001F. Le autorità si confrontano ASCII case-insensitive, come scrivono GEO-005 e GEO-020, anche nella lettura di `gpkg_spatial_ref_sys`: `EPſG` (U+017F) è un'altra autorità. L'oracolo al pin 3aec9f7 usa `str.upper()` e qui diverge; la correzione dell'oracolo è plenora-contracts #53, e nessun vettore copre il caso. Hazard: nessuno per autorità ASCII. Prove: `lo_spazio_e_quello_di_python`, `l_autorita_si_confronta_solo_in_ascii`, `reader_uppercases_the_organization_in_ascii_only` |
 | GeoPackage: codice CRS non canonico | `srs_id` e `organization_coordsys_id` sono interi: un `crs_id` il cui codice non è un intero canonico (`EPSG:04326`, `EPSG:+4326`) non ha un intero che lo rappresenti senza cambiarne l'identità (GEO-005 confronta i codici come testo), e si rifiuta con `crs` prima di creare la destinazione. Fino alla 5.x diventava 4326 e si rileggeva `EPSG:4326`. Lo stesso vale per lo SRID ricavato da un identificatore (`authority_srid`, GeoParquet) e per un codice **stringa** di un `AUTHORITY` WKT: `"04326"` non diventa 4326; un codice **numerico** resta un intero, come per l'oracolo. Hazard: un identificatore così non si scrive in GeoPackage. Prove: `gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita`, `authority_srid_solo_per_un_codice_canonico` |
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |

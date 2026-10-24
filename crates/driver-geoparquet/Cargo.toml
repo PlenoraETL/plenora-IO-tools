@@ -20,5 +20,10 @@ jsonschema.workspace = true
 parquet.workspace = true
 base64.workspace = true
 geo-types.workspace = true
-serde_json.workspace = true
+# Rilettura 11: `serde_json::value::RawValue` conserva i byte del documento
+# PROJJSON del campo `crs`, in lettura e in scrittura. La feature `raw_value`
+# e' gia' nel grafo del workspace (la abilita `driver-geojson`, che compila
+# nello stesso artefatto): qui la si dichiara invece di contare
+# sull'unificazione delle feature. Non porta dipendenze.
+serde_json = { workspace = true, features = ["raw_value"] }
 tempfile.workspace = true

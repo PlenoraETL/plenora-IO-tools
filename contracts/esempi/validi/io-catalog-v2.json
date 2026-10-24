@@ -175,7 +175,7 @@
         "attributes": "loss_reported",
         "crs": "embedded",
         "crs_representations": {
-          "crs_definition": "preserved",
+          "crs_definition": "conditional",
           "crs_id": "derived",
           "srid": "absent"
         },
@@ -472,7 +472,7 @@
         "attributes": "all",
         "crs": "embedded_or_unknown",
         "crs_representations": {
-          "crs_definition": "preserved",
+          "crs_definition": "conditional",
           "crs_id": "preserved",
           "srid": "derived"
         },
@@ -561,7 +561,7 @@
         "attributes": "all",
         "crs": "embedded",
         "crs_representations": {
-          "crs_definition": "derived",
+          "crs_definition": "conditional",
           "crs_id": "preserved",
           "srid": "derived"
         },
@@ -886,7 +886,7 @@
         "attributes": "all",
         "crs": "embedded",
         "crs_representations": {
-          "crs_definition": "preserved",
+          "crs_definition": "conditional",
           "crs_id": "derived",
           "srid": "absent"
         },

@@ -412,7 +412,7 @@ fn crs_assente_nullo_o_oggetto_e_accettato() {
             }
         }),
     ));
-    assert!(matches!(letti.primaria.crs, Crs::Documento(_)));
+    assert!(matches!(letti.primaria.crs, Crs::Documento { .. }));
 }
 
 #[test]

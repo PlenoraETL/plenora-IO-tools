@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 185,
+  "totale": 184,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -28,8 +28,8 @@
       "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; tre nelle prove (Q2 e, dalla 4.2.0, `tests/fork_parquet.rs`), dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore; dodici nelle prove dei decoder portate da data-tools2 (`tests/parquet_decoder.rs`, PR #53): cinque `unwrap_or_else` trasformano panici catturati in `panic!` con il motivo, uno segnala un seme assente, uno trasforma un normale errore di lettura in panico, uno restituisce il ripiego diagnostico `(payload non testuale)`, tre tolgono il prefisso «Parquet argument error: » prima del confronto del messaggio e uno codifica il primo valore di un blocco DELTA sintetico vuoto come 0: nessuno ripiega su un valore in un percorso di prodotto"
     },
     "driver-gpkg": {
-      "conteggio": 4,
-      "ragione": "`undefined` richiesto dalla tabella SRS quando manca WKT; raw CRS conserva almeno l'ID; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti Adozione Arrow Geometry Semantics 1.0: in `register_srs` `srid.unwrap_or(code)` usa come srs_id il codice dell'autorita' quando il layer non dichiara uno SRID numerico, ed e' la convenzione GeoPackage per le righe EPSG; le collisioni di srs_id con un altro CRS si rifiutano a parte."
+      "conteggio": 3,
+      "ragione": "`undefined` richiesto dalla tabella SRS quando manca WKT; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti Adozione Arrow Geometry Semantics 1.0: in `register_srs` `srid.unwrap_or(code)` usa come srs_id il codice dell'autorita' quando il layer non dichiara uno SRID numerico, ed e' la convenzione GeoPackage per le righe EPSG; le collisioni di srs_id con un altro CRS si rifiutano a parte. Rilettura 11: tolto il ripiego del `RawCrs` (definizione o, in mancanza, l'identificatore) nel rifiuto di un codice non canonico, che ora e' `unsupported` e non porta il CRS."
     },
     "driver-ipc": {
       "conteggio": 2,

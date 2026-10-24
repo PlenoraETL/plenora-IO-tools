@@ -81,8 +81,8 @@
     "definition_for_write": [
       "Crs/Validate/Crs/Never",
       "Unsupported/Validate/Unsupported/Never",
-      "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never"
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "dxf_contract": [
       "Crs/Validate/Crs/Never"
@@ -228,6 +228,11 @@
     "crs_from": [
       "Crs/Validate/CrsUnresolved/Never"
     ],
+    "documento_da_scrivere": [
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never"
+    ],
     "fmt_err": [
       "DataMapping/Read/Format/Never"
     ],
@@ -293,9 +298,9 @@
       "InvalidPlan/Validate/Contract/Never"
     ],
     "register_srs": [
+      "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never",
-      "Crs/Validate/CrsUnresolved/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never"
     ]
   },

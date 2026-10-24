@@ -546,6 +546,8 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     );
 }
 
+// Una voce per driver: la lunghezza e' quella della matrice, non logica.
+#[allow(clippy::too_many_lines)]
 #[test]
 fn every_writer_declares_the_reviewed_crs_representation_matrix() {
     use plenora_io_core::CrsDerivation;
@@ -557,8 +559,12 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
     // e sono le liste dei driver a dire per quali identificatori la
     // definizione viene sintetizzata -- non una copia scritta qui, che
     // divergerebbe in silenzio.
-    let da_definizione =
-        |synthesized_for| Derived(CrsDerivation::FromDefinition { synthesized_for });
+    let da_definizione = |synthesized_for, synthesized_wkt| {
+        Derived(CrsDerivation::FromDefinition {
+            synthesized_for,
+            synthesized_wkt,
+        })
+    };
 
     let expected = HashMap::from([
         (
@@ -574,14 +580,24 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
                 Derived(CrsDerivation::FromIdentifier),
                 Preserved,
             )
-            .verbatim_solo(&[CrsDefinitionFormat::Projjson], Absent),
+            .verbatim_solo(&[CrsDefinitionFormat::Projjson], Absent)
+            // Senza PROJJSON solo `OGC:CRS84` si rilegge uguale (rilettura 11).
+            .identificatore_senza_definizione(&["OGC:CRS84"], Absent),
         ),
         (
             "gpkg",
+            // La colonna `definition` porta solo un WKT 1: un'altra grammatica
+            // si rilegge solo per le righe canoniche (rilettura 11).
             CrsRepresentationCapabilities::new(
                 Preserved,
                 Derived(CrsDerivation::FromIdentifier),
                 Derived(CrsDerivation::FromIdentifier),
+            )
+            .verbatim_solo(
+                &[CrsDefinitionFormat::Wkt],
+                Derived(CrsDerivation::SynthesizedFor {
+                    ids: driver_gpkg::SRS_CON_DEFINIZIONE_CANONICA,
+                }),
             ),
         ),
         (
@@ -589,7 +605,10 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
             // Il WKT si conserva; un PROJJSON e' sostituito dal WKT che il
             // writer sintetizza per l'identificatore (rilettura 10).
             CrsRepresentationCapabilities::new(
-                da_definizione(driver_shp::CRS_CON_DEFINIZIONE_SINTETIZZATA),
+                da_definizione(
+                    driver_shp::CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                    driver_shp::WGS84_WKT,
+                ),
                 Absent,
                 Preserved,
             )
@@ -603,7 +622,10 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
             // Il WKT si conserva; un PROJJSON e' sostituito dal WKT che il
             // writer sintetizza per l'identificatore (rilettura 10).
             CrsRepresentationCapabilities::new(
-                da_definizione(driver_dxf::CRS_CON_DEFINIZIONE_SINTETIZZATA),
+                da_definizione(
+                    driver_dxf::CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                    driver_dxf::WGS84_ESRI_WKT,
+                ),
                 Absent,
                 Preserved,
             )

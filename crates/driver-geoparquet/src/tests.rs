@@ -3108,9 +3108,153 @@ fn projjson_crs84() -> String {
                     {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
                     {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
                 ]
-            }
+            },
+            // Dalla rilettura 11 il documento porta l'identificatore: e' il
+            // solo posto in cui GeoParquet lo scrive.
+            "id": {"authority": "OGC", "code": "CRS84"}
         })
         .to_string()
+}
+
+/// Un contratto con identificatore e PROJJSON, nel genere dato.
+fn con_projjson(id: Option<&str>, kind: CrsKind, projjson: &str) -> GeometryColumnContract {
+    let crs = ResolvedCrs::new(id.map(str::to_owned), kind, Some(projjson.to_owned()))
+        .with_definition_format(CrsDefinitionFormat::Projjson);
+    GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true)
+}
+
+/// Rilettura 11: il writer scrive un PROJJSON solo se il file lo rilegge con
+/// lo stesso identificatore. Su `db1307d` tutti e tre si scrivevano.
+#[test]
+fn un_projjson_che_il_file_non_rilegge_uguale_non_si_scrive() {
+    let crs84 = projjson_crs84();
+    let senza_id = {
+        let mut valore: serde_json::Value = serde_json::from_str(&crs84).expect("JSON");
+        valore.as_object_mut().expect("oggetto").remove("id");
+        valore.to_string()
+    };
+    // Senza `id`: il lettore lo rifiuta come CRS non risolto.
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(None, CrsKind::Geographic, &senza_id)),
+        None,
+    )
+    .expect_err("senza id non si scrive");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    assert!(errore.to_string().contains("senza `id`"), "{errore}");
+    // Un `id` diverso da quello del contratto, anche solo nella grafia.
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("ogc:crs84"),
+            CrsKind::Geographic,
+            &crs84,
+        )),
+        None,
+    )
+    .expect_err("un id diverso non si scrive");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert_eq!(
+        errore.capability_reason,
+        Some(plenora_io_model::CapabilityReason::CrsRepresentationsInconsistent)
+    );
+    // Un `id` che contraddice il genere del documento.
+    let ingegneria = r#"{"type":"EngineeringCRS","name":"x","datum":{"name":"d"},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"X","abbreviation":"X","direction":"east","unit":"metre"},{"name":"Y","abbreviation":"Y","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":4326}}"#;
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("EPSG:4326"),
+            CrsKind::Geographic,
+            ingegneria,
+        )),
+        None,
+    )
+    .expect_err("il genere contraddetto non si scrive");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert!(
+        errore.to_string().contains("si contraddicono nel genere"),
+        "{errore}"
+    );
+    // Un contratto senza identificatore e un documento che lo porta: si
+    // scrive, e il file ne dice uno in piu', non uno diverso.
+    assert_eq!(
+        crs_da_scrivere(Some(&con_projjson(None, CrsKind::Geographic, &crs84)), None)
+            .expect("si scrive"),
+        CrsDaScrivere::Documento(crs84)
+    );
+}
+
+/// Rilettura 11: il documento esce e rientra **byte per byte**. Su `db1307d`
+/// passava da `serde_json::Value`, e `0.99960000000000000000000001` usciva
+/// `0.9996`, `9E0` usciva `9.0`, le chiavi uscivano riordinate.
+#[test]
+fn il_projjson_si_scrive_e_si_rilegge_byte_per_byte() {
+    // Numeri che `f64` non rappresenta, un esponente, una parentesi in escape
+    // e `type` dopo `name`: tutti testi che una riscrittura cambia.
+    let barra = char::from(0x5c_u8);
+    let nome_in_escape = format!("WGS 84 {barra}u0028CRS84)");
+    let testo = projjson_crs84()
+        .replace("298.257223563", "298.2572235630000000000001")
+        .replace("6378137", "6378137E0")
+        .replace(
+            r#""name":"WGS 84 (CRS84)","type":"GeographicCRS""#,
+            &format!(r#""type":"GeographicCRS","name":"{nome_in_escape}""#),
+        );
+    assert!(
+        testo.contains("E0") && testo.contains(&nome_in_escape),
+        "{testo}"
+    );
+    let geo = build_geo_metadata(
+        "geometry",
+        &BTreeSet::new(),
+        &CrsDaScrivere::Documento(testo.clone()),
+    )
+    .expect("il documento si costruisce");
+    assert!(
+        geo.contains(&testo),
+        "il documento non e' incorporato tale e quale: {geo}"
+    );
+    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let metadati::Crs::Documento { testo: riletto, .. } = &letti.primaria.crs else {
+        panic!("atteso un documento: {:?}", letti.primaria.crs);
+    };
+    assert_eq!(riletto, &testo);
+    // Il resto del metadato e' quello di prima, con le stesse chiavi.
+    let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
+    schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
+}
+
+/// Un testo con spazi ai bordi non si incorporerebbe byte per byte.
+#[test]
+fn un_projjson_con_spazi_ai_bordi_non_si_scrive() {
+    let testo = format!(" {} ", projjson_crs84());
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("OGC:CRS84"),
+            CrsKind::Geographic,
+            &testo,
+        )),
+        None,
+    )
+    .expect_err("non si incorpora byte per byte");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+}
+
+/// Il lettore consegna il testo del file, anche quando il file non e' nostro.
+#[test]
+fn il_lettore_consegna_il_testo_del_documento() {
+    let crs = r#"{ "type" : "GeographicCRS", "name":"WGS 84 (CRS84)","datum":{"type":"GeodeticReferenceFrame","name":"World Geodetic System 1984","ellipsoid":{"name":"WGS 84","semi_major_axis":6378137,"inverse_flattening":298.2572235630000000000001}},"coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"},{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"}]},"id":{"authority":"OGC","code":"CRS84"} }"#;
+    let geo = format!(
+        r#"{{"version":"1.1.0","primary_column":"geometry","columns":{{"geometry":{{"encoding":"WKB","geometry_types":[],"crs": {crs} }}}}}}"#
+    );
+    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let metadati::Crs::Documento { testo, .. } = &letti.primaria.crs else {
+        panic!("atteso un documento");
+    };
+    assert_eq!(testo, crs);
 }
 
 #[test]

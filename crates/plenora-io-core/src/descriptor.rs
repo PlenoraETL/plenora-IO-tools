@@ -341,11 +341,28 @@ pub enum CrsDerivation {
     /// invece che come variante sorella perche' non e' una provenienza a se' —
     /// e' cio' che rende vera `FromDefinition` quando il WKT non arriva da
     /// fuori.
+    ///
+    /// `synthesized_wkt` e' il WKT che il writer emette per quegli
+    /// identificatori: il verdetto per piano lo rilegge con la regola dei
+    /// lettori ([`plenora_io_model::crs_definizione::identificatore_wkt`]) per
+    /// sapere **quale** identificatore il file restituira'. Fino alla rilettura
+    /// 11 la derivazione si dava per buona appena una definizione c'era, e un
+    /// `OGC:CRS84` che il `.prj` sintetizzato rilegge `EPSG:4326`, o un
+    /// `PROJCS` anonimo che si rilegge non risolto, si dichiaravano `derived`.
     FromDefinition {
         synthesized_for: &'static [&'static str],
+        synthesized_wkt: &'static str,
     },
     /// Si ricava dall'**identificatore** conservato nel file.
     FromIdentifier,
+    /// Si ricava da una definizione che il writer scrive **solo** per questi
+    /// identificatori, e per nessun altro.
+    ///
+    /// E' il `GeoPackage` con una definizione che non e' WKT 1: la colonna
+    /// `definition` porta un WKT, e la riga di `EPSG:4326`, che il writer
+    /// registra sempre, ne ha uno canonico; per ogni altro identificatore la
+    /// colonna vale `undefined`, e la definizione non si rilegge.
+    SynthesizedFor { ids: &'static [&'static str] },
     /// La fissa il formato: e' disponibile per costruzione, sempre.
     FixedByFormat,
     /// La ricava il runtime che scrive il file, non il nostro codice.
@@ -393,17 +410,63 @@ impl Serialize for CrsRepresentationState {
 /// È distinta da [`CrsWriteSupport`]: quest'ultima stabilisce se il formato
 /// richiede/incorpora un CRS, questa struttura stabilisce cosa sopravvive
 /// davvero al bordo di scrittura.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CrsRepresentationCapabilities {
     pub crs_id: CrsRepresentationState,
     pub srid: CrsRepresentationState,
     pub crs_definition: CrsRepresentationState,
-    /// In quali grammatiche una definizione `Preserved` si conserva davvero.
+    /// In quali grammatiche la definizione esce nello stato `crs_definition`.
     ///
-    /// Non va sul filo, come la provenienza di `Derived`: il catalogo dice la
-    /// capability statica, e il verdetto per piano vive nel `LossReport`.
-    #[serde(skip)]
+    /// Sul filo diventa il valore `conditional` di `crs_definition` (vedi
+    /// l'implementazione di `Serialize`); le grammatiche le dice
+    /// `PRODUCT.md`, e il verdetto per piano vive nel `LossReport`.
     pub definizione_verbatim: DefinizioneVerbatim,
+    /// Che cosa resta dell'identificatore quando la definizione non si
+    /// conserva tale e quale. Non va sul filo: e' un raffinamento per piano.
+    pub identificatore_senza_definizione: IdentificatoreSenzaDefinizione,
+}
+
+/// Il catalogo dice la capability statica, e una capability che dipende dalla
+/// grammatica della definizione non e' `preserved`: fino alla rilettura 11
+/// `GeoParquet`, Shapefile e DXF pubblicavano `crs_definition: "preserved"`
+/// mentre conservano solo il PROJJSON (il primo) o solo il WKT (gli altri due).
+/// Il valore e' ora `conditional`, nello schema del catalogo di IO.
+impl Serialize for CrsRepresentationCapabilities {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut stato = serializer.serialize_struct("CrsRepresentationCapabilities", 3)?;
+        stato.serialize_field("crs_id", &self.crs_id)?;
+        stato.serialize_field("srid", &self.srid)?;
+        match self.definizione_verbatim {
+            DefinizioneVerbatim::Tutte => {
+                stato.serialize_field("crs_definition", &self.crs_definition)?;
+            }
+            DefinizioneVerbatim::Solo { .. } => {
+                stato.serialize_field("crs_definition", "conditional")?;
+            }
+        }
+        stato.end()
+    }
+}
+
+/// Che cosa resta dell'identificatore di un piano la cui definizione il writer
+/// non scrive tale e quale.
+///
+/// E' `GeoParquet`: l'identificatore vive **dentro** il documento PROJJSON, e
+/// senza documento il writer omette il campo `crs`, che per la specifica vale
+/// `OGC:CRS84`. Un `EPSG:4326` scritto cosi' si rilegge `OGC:CRS84`, che per
+/// GEO-005 e' un altro identificatore: fino alla rilettura 11 la conversione si
+/// dichiarava `lossless`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentificatoreSenzaDefinizione {
+    /// L'identificatore esce nello stato `crs_id`, con o senza definizione.
+    ComeDichiarato,
+    /// Senza definizione conservata, solo questi identificatori si rileggono
+    /// uguali; ogni altro esce nello stato `altrimenti`.
+    SoloQuesti {
+        identificatori: &'static [&'static str],
+        altrimenti: CrsRepresentationState,
+    },
 }
 
 /// Le grammatiche della definizione che un writer scrive **tali e quali**.
@@ -439,11 +502,103 @@ impl CrsRepresentationCapabilities {
             srid,
             crs_definition,
             definizione_verbatim: DefinizioneVerbatim::Tutte,
+            identificatore_senza_definizione: IdentificatoreSenzaDefinizione::ComeDichiarato,
         }
     }
 
-    /// La definizione `Preserved` si conserva solo in `grammatiche`; nelle
-    /// altre esce `altrimenti`.
+    /// Senza una definizione conservata tale e quale, l'identificatore si
+    /// rilegge uguale solo se e' uno di `identificatori`; ogni altro esce
+    /// `altrimenti`.
+    #[must_use]
+    pub const fn identificatore_senza_definizione(
+        mut self,
+        identificatori: &'static [&'static str],
+        altrimenti: CrsRepresentationState,
+    ) -> Self {
+        self.identificatore_senza_definizione = IdentificatoreSenzaDefinizione::SoloQuesti {
+            identificatori,
+            altrimenti,
+        };
+        self
+    }
+
+    /// Lo stato di `crs_id` per questo identificatore e questa definizione.
+    ///
+    /// La derivazione dalla definizione (`FromDefinition`) la raffina il
+    /// verdetto per piano, che sa quale WKT il writer emette; qui si applica
+    /// soltanto [`IdentificatoreSenzaDefinizione`].
+    #[must_use]
+    pub fn crs_id_per(
+        &self,
+        id: Option<&str>,
+        definizione: Option<&str>,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> CrsRepresentationState {
+        let conservata = definizione.is_some()
+            && self.crs_definition_per(grammatica) == CrsRepresentationState::Preserved;
+        match self.identificatore_senza_definizione {
+            IdentificatoreSenzaDefinizione::SoloQuesti {
+                identificatori,
+                altrimenti,
+            } if !conservata && !id.is_some_and(|id| identificatori.contains(&id)) => altrimenti,
+            _ => self.crs_id,
+        }
+    }
+
+    /// Che cosa i lettori rileggono come identificatore dal WKT che il writer
+    /// emette, quando `crs_id` si ricava dalla definizione (`FromDefinition`).
+    ///
+    /// Il WKT emesso e' la definizione del piano, se il writer la conserva in
+    /// quella grammatica, altrimenti quello sintetizzato per gli identificatori
+    /// che lo prevedono. `None` se `crs_id` non si ricava dalla definizione o
+    /// se il writer non emette nessun WKT; altrimenti l'esito della regola dei
+    /// lettori ([`plenora_io_model::crs_definizione::identificatore_wkt`],
+    /// senza opzione): `Ok(None)` e' un CRS che si rilegge non risolto, un
+    /// errore uno che non si rilegge affatto.
+    #[must_use]
+    pub fn identificatore_riletto(
+        &self,
+        id: Option<&str>,
+        definizione: Option<&str>,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> Option<
+        std::result::Result<Option<String>, plenora_io_model::crs_definizione::RifiutoIdentita>,
+    > {
+        let CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+            synthesized_for,
+            synthesized_wkt,
+        }) = self.crs_id
+        else {
+            return None;
+        };
+        let emesso = match definizione {
+            Some(testo)
+                if self.crs_definition_per(grammatica) == CrsRepresentationState::Preserved =>
+            {
+                testo
+            }
+            _ if id.is_some_and(|id| synthesized_for.contains(&id)) => synthesized_wkt,
+            _ => return None,
+        };
+        Some(plenora_io_model::crs_definizione::identificatore_wkt(
+            emesso, None,
+        ))
+    }
+
+    /// Il writer conserva identificatore e definizione **insieme**, in ogni
+    /// grammatica: la coppia si rilegge com'e', anche quando si contraddice
+    /// nel genere (IPC).
+    #[must_use]
+    pub fn conserva_la_coppia(&self) -> bool {
+        self.crs_id == CrsRepresentationState::Preserved
+            && self.crs_definition == CrsRepresentationState::Preserved
+            && self.definizione_verbatim == DefinizioneVerbatim::Tutte
+            && self.identificatore_senza_definizione
+                == IdentificatoreSenzaDefinizione::ComeDichiarato
+    }
+
+    /// Una definizione in `grammatiche` esce nello stato `crs_definition`;
+    /// nelle altre esce `altrimenti`.
     #[must_use]
     pub const fn verbatim_solo(
         mut self,
@@ -460,23 +615,23 @@ impl CrsRepresentationCapabilities {
     /// Lo stato di `crs_definition` per una definizione in questa grammatica.
     ///
     /// Una grammatica ignota (`None`) non e' fra quelle dichiarate: il verdetto
-    /// prudente e' quello che dichiara la perdita.
+    /// prudente e' quello che dichiara la perdita. La restrizione vale per
+    /// qualunque stato di base: fino alla rilettura 11 valeva solo per
+    /// `Preserved`, e il `GeoPackage`, che riscrive la definizione
+    /// dall'identificatore, non poteva dire che un PROJJSON non lo riscrive.
     #[must_use]
     pub fn crs_definition_per(
         &self,
         grammatica: Option<CrsDefinitionFormat>,
     ) -> CrsRepresentationState {
-        match (self.crs_definition, self.definizione_verbatim) {
-            (
-                CrsRepresentationState::Preserved,
-                DefinizioneVerbatim::Solo {
-                    grammatiche,
-                    altrimenti,
-                },
-            ) if !grammatica.is_some_and(|grammatica| grammatiche.contains(&grammatica)) => {
+        match self.definizione_verbatim {
+            DefinizioneVerbatim::Solo {
+                grammatiche,
+                altrimenti,
+            } if !grammatica.is_some_and(|grammatica| grammatiche.contains(&grammatica)) => {
                 altrimenti
             }
-            (stato, _) => stato,
+            _ => self.crs_definition,
         }
     }
 }
