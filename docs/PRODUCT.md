@@ -514,6 +514,15 @@ con uno uguale per GEO-005, o con uno dell'elenco chiuso `EQUIVALENTI`:
 rileggono `EPSG:4326` o senza identificatore. Sulla matrice attuale nessuna
 scrittura viola la regola stretta.
 
+**Limiti residui alla chiusura delle riletture (rilettura 14, nessun difetto silenzioso).** Le seconde letture del ciclo si sono chiuse quando una lettura indipendente non ha trovato più risultati sbagliati senza errore; quel che resta è dichiarato qui:
+
+- **`geo` confrontati come testo.** Due `geo` (footer e `ARROW:schema`) che differiscono solo per spazi o ordine delle chiavi si rifiutano: un rifiuto in più, mai una lettura diversa. Se gli spazi cadono dentro il `crs`, la categoria è `crs` invece di `schema`. Rientro: un confronto semantico del documento `geo`.
+- **`geo` solo nel footer.** IO lo legge, come prescrive la specifica; pyarrow, che con `ARROW:schema` presente rende i metadati dello schema incorporato, non lo vede e il file per lui non è GeoParquet: un errore di geopandas, non una lettura diversa. IO scrive il `geo` in entrambi i posti.
+- **Chiavi native diverse da `geoparquet.*` nello schema incorporato** di un GeoParquet esterno (per esempio `plenora.geometry.native.gpkg.srs_id`) entrano nel contratto. Nessun writer di IO ne consuma oggi; un writer che ne consumasse una dovrà prima applicare loro lo stesso trattamento di `geoparquet.epoch`.
+- **IPC → IPC con un'epoca nativa non numerica** passa tale e quale (ARROW-010): la rifiuta la prima scrittura GeoParquet, con `schema`.
+- **`orientation` e `bbox` della colonna** non si ereditano più da chiavi native: un'affermazione sui valori tolta, non una sbagliata (vedi sopra).
+- **IPC → IPC con un `geo` di schema stantio** e un'epoca nativa diversa conserva entrambi (ARROW-010): un lettore che legge il `geo` di schema dell'IPC vede l'epoca stantia. È il limite del `geo` di schema IPC già dichiarato, esteso all'epoca.
+
 #### Il vocabolario CRS del catalogo
 
 `io.catalog` pubblica per ogni writer due capability CRS, enumerate dalla

@@ -988,7 +988,14 @@ fn violazioni_dell_epoca(
 ) -> Vec<String> {
     let riletta = epoca_del_file(uscita);
     match &sorgente.epoca {
-        Some(_) if dichiara("crs_coordinate_epoch_not_preserved") => Vec::new(),
+        // Dichiarata perduta, l'epoca non deve ricomparire diversa: la perdita
+        // copre l'assenza, non un'altra epoca (la stessa stretta della regola 1).
+        Some(epoca) if dichiara("crs_coordinate_epoch_not_preserved") => match &riletta {
+            Some(altra) if altra != epoca => vec![format!(
+                "epoca dichiarata perduta e riletta diversa: {altra}"
+            )],
+            _ => Vec::new(),
+        },
         Some(epoca) if riletta.as_ref() != Some(epoca) => vec![format!(
             "epoca {epoca} non dichiarata perduta e riletta {riletta:?}"
         )],
