@@ -1584,10 +1584,13 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   geopandas) e ha un terzo passaggio
   ([PRODUCT](PRODUCT.md#il-file-si-rilegge-come-la-busta-lo-dichiara)).
   Cambiano, rispetto a 777c5a1:
-  - un GeoParquet scritto non porta più in `ARROW:schema` il `geo` della
-    sorgente né il CRS GeoArrow (`ARROW:extension:metadata`) della colonna
-    geometria: pyarrow leggeva il `geo` della sorgente (`EPSG:4326` per un file
-    che il footer dichiara `EPSG:32632`, `lossless`). Il lettore GeoParquet non
+  - un GeoParquet scritto porta in `ARROW:schema` lo stesso `geo` del footer,
+    e non più quello della sorgente né il CRS GeoArrow
+    (`ARROW:extension:metadata`) della colonna geometria: pyarrow leggeva il
+    `geo` della sorgente (`EPSG:4326` per un file che il footer dichiara
+    `EPSG:32632`, `lossless`), e da una sorgente senza `geo` (IPC, GeoPackage,
+    Shapefile, DXF, GeoJSON) non ne leggeva nessuno, così per geopandas il file
+    non era un GeoParquet. I tipi dello schema incorporato non cambiano. Il lettore GeoParquet non
     lascia più `geo` nei metadati dello schema del contratto, quindi un
     GeoParquet convertito in IPC non porta un `geo` di schema; da IPC a IPC un
     `geo` di schema passa com'era (limite dichiarato);

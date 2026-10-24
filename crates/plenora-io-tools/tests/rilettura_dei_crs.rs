@@ -29,9 +29,9 @@
 //!    primo»), scritta qui per esteso ([`EST_PER_PRIMO`]);
 //! 8. senza una perdita `srid_not_preserved_*`, l'SRID si rilegge uguale (la
 //!    prova lo legge dove `io.inspect` non lo rende: nei campi di un Arrow IPC);
-//! 9. un `GeoParquet` scritto non porta un `geo` in `ARROW:schema`, che e' cio'
-//!    che pyarrow rende, e un Arrow IPC scritto da un'altra sorgente non porta un
-//!    `geo` di schema: il `geo` del footer e' l'unica verita'. Da IPC a IPC il
+//! 9. un `GeoParquet` scritto porta in `ARROW:schema`, che e' cio' che pyarrow
+//!    rende e dove geopandas cerca, il `geo` del footer, identico; un Arrow IPC
+//!    scritto da un'altra sorgente non porta un `geo` di schema. Da IPC a IPC il
 //!    `geo` passa tale e quale (ARROW-010), limite dichiarato.
 //!
 //! La sorgente e' cio' che `io.inspect` ne legge, non cio' che la prova crede di
@@ -59,7 +59,8 @@
 //! grammatica, assi, stato e SRID, parte anche da sorgenti native (`GeoPackage`
 //! alla GDAL, Shapefile con il `.prj` chiuso da CRLF, `GeoParquet` alla
 //! geopandas) e ha un terzo passaggio sulle catene di [`TERZO_PASSAGGIO`]. Su
-//! `777c5a1` fallisce in tutti e tre i passaggi.
+//! `777c5a1` fallisce in tutti e tre i passaggi, e su `c5abbdb` (lo schema
+//! incorporato senza `geo`) anche: un `GeoParquet` di IO, per pyarrow, non lo era.
 //!
 //! `FileGDB` resta fuori: scrive solo con `gdal-backend`.
 
@@ -848,22 +849,30 @@ fn geo_fuori_posto(uscita: &Path, da: &str, verso: &str) -> Option<&'static str>
             let file = std::fs::File::open(uscita).expect("file scritto");
             let lettore = parquet::file::reader::SerializedFileReader::new(file).expect("footer");
             let metadati = lettore.metadata().file_metadata();
-            let solo_schema: Vec<_> = metadati
+            let chiavi: Vec<_> = metadati
                 .key_value_metadata()
                 .into_iter()
                 .flatten()
-                .filter(|voce| voce.key == "ARROW:schema")
-                .cloned()
                 .collect();
+            let solo_schema: Vec<_> = chiavi
+                .iter()
+                .filter(|voce| voce.key == "ARROW:schema")
+                .map(|voce| (*voce).clone())
+                .collect();
+            if solo_schema.is_empty() {
+                return None;
+            }
             let incorporato = parquet::arrow::parquet_to_arrow_schema(
                 metadati.schema_descr(),
                 Some(&solo_schema),
             )
             .expect("schema incorporato");
-            incorporato
-                .metadata()
-                .contains_key("geo")
-                .then_some("un `geo` in ARROW:schema")
+            let del_footer = chiavi
+                .iter()
+                .find(|voce| voce.key == "geo")
+                .and_then(|voce| voce.value.as_ref());
+            (incorporato.metadata().get("geo") != del_footer)
+                .then_some("il `geo` di ARROW:schema non e' quello del footer")
         }
         "ipc" if da != "ipc" => {
             let file = std::fs::File::open(uscita).expect("file scritto");

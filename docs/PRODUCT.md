@@ -403,15 +403,20 @@ trentaquattro al terzo, in tre classi:
   che appartengono al formato (`geo`, `ARROW:schema`) né il CRS GeoArrow
   (`ARROW:extension:metadata`) della colonna geometria, che IO non legge e che
   il `geo` può contraddire: il `geo` del footer è l'unica dichiarazione. Le
-  altre chiavi di schema passano (ARROW-010). È la disposizione dei file di
-  GDAL: pyarrow 25 (`read_schema`, `read_table`), quando il footer porta
-  `ARROW:schema`, rende i soli metadati dello schema incorporato, e quindi non
-  rende `geo`, né prima né dopo la correzione per un file la cui sorgente non
-  ne portava uno; geopandas lo legge allora dal footer (`read_metadata`), e con
-  il `geo` stantio nello schema incorporato leggeva quello. Il `geo` del footer
-  si scrive alla chiusura, con i tipi e il covering, mentre `ARROW:schema` si
-  fissa all'apertura: portarlo anche lì richiederebbe di riscrivere lo schema
-  incorporato, e non si fa;
+  altre chiavi di schema passano (ARROW-010). Lo schema incorporato porta lo
+  **stesso** `geo` del footer, byte per byte: pyarrow (`read_schema`,
+  `read_table`), quando il footer porta `ARROW:schema`, rende i soli metadati
+  dello schema incorporato, e geopandas (`read_parquet`) cerca `geo` lì. Fino
+  alla rilettura 12 un GeoParquet scritto da IO da una sorgente senza `geo`
+  (IPC, GeoPackage, Shapefile, DXF, GeoJSON) non lo portava affatto nello schema
+  incorporato — per l'ecosistema pyarrow non era un GeoParquet («Missing geo
+  metadata») —, e da un GeoParquet portava quello della sorgente. Il `geo` si
+  decide alla chiusura (tipi visti, covering) e `ArrowWriter` fissa lo schema
+  all'apertura: il writer salta lo schema incorporato della libreria
+  (`with_skip_arrow_metadata`) e lo codifica alla chiusura con la stessa
+  funzione (`add_encoded_arrow_schema_to_metadata`), sullo stesso schema più
+  `geo`, così i tipi Arrow incorporati (large, timezone, dictionary, decimal,
+  nullabilità, metadati di campo) restano quelli di prima;
 * **il DXF che rifilava la definizione** (sopra, tabella delle grammatiche);
 * **il GeoPackage che scrive l'autorità in maiuscolo.** `organization` si
   scrive in maiuscolo, e `epsg:4326` si rilegge `EPSG:4326`: uguale per
@@ -420,7 +425,8 @@ trentaquattro al terzo, in tre classi:
   `crs_id_not_preserved_derived` (la capability `autorita_in_maiuscolo` di
   `CrsRepresentationCapabilities`, che non va sul filo).
 
-Prove: `rilettura_dei_crs.rs`;
+Prove: `rilettura_dei_crs.rs` (regola 9: il `geo` di `ARROW:schema` è quello
+del footer; su c5abbdb fallisce in tutti e tre i passaggi, 140 violazioni);
 `le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato`,
 `il_geo_letto_non_resta_nei_metadati_del_contratto` (in `driver-geoparquet`).
 

@@ -4223,7 +4223,7 @@ const GEO_STANTIO: &str = r#"{"version":"1.1.0","primary_column":"geometry","col
 
 /// Lo schema Arrow incorporato in `ARROW:schema`, senza le chiavi del footer:
 /// e' cio' che pyarrow rende come metadati dello schema.
-fn schema_incorporato(percorso: &std::path::Path) -> (Schema, usize) {
+fn schema_incorporato(percorso: &std::path::Path) -> (Schema, Vec<String>) {
     use parquet::file::reader::FileReader as _;
     let lettore =
         parquet::file::reader::SerializedFileReader::new(File::open(percorso).unwrap()).unwrap();
@@ -4244,13 +4244,19 @@ fn schema_incorporato(percorso: &std::path::Path) -> (Schema, usize) {
         Some(&solo),
     )
     .unwrap();
-    let geo = chiavi.iter().filter(|voce| voce.key == "geo").count();
+    let geo = chiavi
+        .iter()
+        .filter(|voce| voce.key == "geo")
+        .filter_map(|voce| voce.value.clone())
+        .collect();
     (schema, geo)
 }
 
 /// Su 777c5a1 lo schema di scrittura copiava i metadati della sorgente, e il
 /// `geo` stantio finiva in `ARROW:schema`: pyarrow rendeva `EPSG:4326` per un
-/// file che il footer dichiara `EPSG:32632`.
+/// file che il footer dichiara `EPSG:32632`. Su c5abbdb lo schema incorporato
+/// non portava nessun `geo`, e per pyarrow e geopandas il file non era un
+/// `GeoParquet`: ora porta il `geo` del footer, identico.
 #[test]
 fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     let dir = tempfile::tempdir().unwrap();
@@ -4295,8 +4301,9 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     writer.finish().expect("chiusura");
 
     let (incorporato, geo) = schema_incorporato(&percorso);
-    assert_eq!(geo, 1, "il footer porta il solo `geo` del writer");
-    assert!(!incorporato.metadata().contains_key("geo"));
+    assert_eq!(geo.len(), 1, "il footer porta il solo `geo` del writer");
+    assert_eq!(incorporato.metadata().get("geo"), Some(&geo[0]));
+    assert!(!geo[0].contains("stantio"));
     // Una chiave che non appartiene al formato passa (ARROW-010).
     assert_eq!(
         incorporato.metadata().get("altro").map(String::as_str),
