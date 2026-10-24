@@ -314,29 +314,59 @@ fn ogni_dimensione_e_ogni_ordine_dei_byte_arrivano_con_gli_stessi_valori() {
     }
 }
 
-/// I figli di un aggregato portano il proprio SRID (o nessuno): se coincide
-/// con quello dichiarato si toglie, e l'aggregato arriva ISO.
+/// I figli di un aggregato senza SRID proprio: l'aggregato arriva ISO, con lo
+/// SRID dell'esterno tolto perche' coincide con quello dichiarato.
 #[test]
-fn un_aggregato_con_lo_srid_ripetuto_nei_figli_arriva_iso() {
+fn un_aggregato_con_lo_srid_solo_sull_esterno_arriva_iso() {
     let temporanea = tempfile::tempdir().expect("directory temporanea");
-    for (indice, srid_figlio) in [None, Some(4326)].into_iter().enumerate() {
-        let ingresso = temporanea.path().join(format!("multi-{indice}.arrow"));
-        let ewkb = multipunto(Dim::Xyz, Some(4326), srid_figlio, Ordine::Big, false);
-        dataset(
-            &ingresso,
-            Dim::Xyz,
-            "multipoint",
-            "4326",
-            "EPSG:4326",
-            &[vec![Some(ewkb)]],
-        );
-        let gpkg = temporanea.path().join(format!("multi-{indice}.gpkg"));
-        let (riuscita, documento) = scrivi(&ingresso, &gpkg);
-        assert!(riuscita, "{documento}");
+    let ingresso = temporanea.path().join("multi.arrow");
+    let ewkb = multipunto(Dim::Xyz, Some(4326), None, Ordine::Big, false);
+    dataset(
+        &ingresso,
+        Dim::Xyz,
+        "multipoint",
+        "4326",
+        "EPSG:4326",
+        &[vec![Some(ewkb)]],
+    );
+    let gpkg = temporanea.path().join("multi.gpkg");
+    let (riuscita, documento) = scrivi(&ingresso, &gpkg);
+    assert!(riuscita, "{documento}");
+    assert_eq!(
+        geometrie_rilette(&gpkg, temporanea.path()),
+        vec![Some(multipunto(Dim::Xyz, None, None, Ordine::Little, true))]
+    );
+}
+
+/// Un figlio che ripete lo SRID dell'esterno: sotto `ewkb` lo SRID sta solo
+/// sulla geometria esterna, e su un membro il valore e' malformato anche
+/// quando coincide (ARROW-GEOMETRY-SEMANTICS-1.0 GEO-009). Un tempo si
+/// toglieva e l'aggregato arrivava ISO; ora e' un rifiuto `data_mapping`,
+/// senza destinazione, per `write` e per `convert`.
+#[test]
+fn un_aggregato_con_lo_srid_ripetuto_nei_figli_e_un_errore() {
+    let temporanea = tempfile::tempdir().expect("directory temporanea");
+    let ingresso = temporanea.path().join("multi-ripetuto.arrow");
+    let ewkb = multipunto(Dim::Xyz, Some(4326), Some(4326), Ordine::Big, false);
+    dataset(
+        &ingresso,
+        Dim::Xyz,
+        "multipoint",
+        "4326",
+        "EPSG:4326",
+        &[vec![Some(ewkb)]],
+    );
+    for (nome, comando) in COMANDI {
+        let gpkg = temporanea
+            .path()
+            .join(format!("multi-ripetuto-{nome}.gpkg"));
+        let (riuscita, documento) = comando(&ingresso, &gpkg);
+        assert!(!riuscita, "{nome}: {documento}");
         assert_eq!(
-            geometrie_rilette(&gpkg, temporanea.path()),
-            vec![Some(multipunto(Dim::Xyz, None, None, Ordine::Little, true))]
+            documento["error"]["category"], "data_mapping",
+            "{nome}: {documento}"
         );
+        assert!(!gpkg.exists(), "{nome}: nessuna destinazione su un rifiuto");
     }
 }
 

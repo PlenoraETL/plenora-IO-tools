@@ -848,6 +848,23 @@ const VALID_POINT: &[u8] = &[
     1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+/// Un campo binario con l'estensione `geoarrow.wkb`, a cui il contratto
+/// geometrico aggiunge poi il vocabolario: senza l'estensione le chiavi
+/// `plenora.geometry.*` starebbero su un campo che non e' geometria, e il file
+/// si rifiuterebbe in apertura (REJ-001) prima di arrivare a cio' che le prove
+/// sui limiti di lettura guardano.
+fn campo_geoarrow_wkb(nome: &str) -> arrow_schema::Field {
+    use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION};
+
+    arrow_schema::Field::new(nome, arrow_schema::DataType::Binary, true).with_metadata(
+        std::iter::once((
+            ARROW_EXTENSION_NAME_KEY.to_owned(),
+            GEOARROW_WKB_EXTENSION.to_owned(),
+        ))
+        .collect::<std::collections::HashMap<_, _>>(),
+    )
+}
+
 fn materialize_multibatch_geometry_ipc(
     directory: &tempfile::TempDir,
     first_batch_valid: bool,
@@ -857,7 +874,7 @@ fn materialize_multibatch_geometry_ipc(
 
     use arrow_array::{BinaryArray, RecordBatch};
     use arrow_ipc::writer::FileWriter;
-    use arrow_schema::{DataType, Field, Schema};
+    use arrow_schema::Schema;
     use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
     use plenora_io_model::crs::CrsResolution;
     use plenora_io_model::geometry::{with_contract_version, with_geometry_contract_metadata};
@@ -871,8 +888,7 @@ fn materialize_multibatch_geometry_ipc(
     let mut geometry =
         GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true);
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let field =
-        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), &geometry);
+    let field = with_geometry_contract_metadata(&campo_geoarrow_wkb("geometry"), &geometry);
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     let first_values = (0..12)
         .map(|index| {
@@ -974,7 +990,7 @@ fn materialize_multibatch_valid_ipc(directory: &tempfile::TempDir) -> PathBuf {
 
     use arrow_array::{BinaryArray, RecordBatch};
     use arrow_ipc::writer::FileWriter;
-    use arrow_schema::{DataType, Field, Schema};
+    use arrow_schema::Schema;
     use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
     use plenora_io_model::crs::CrsResolution;
     use plenora_io_model::geometry::{with_contract_version, with_geometry_contract_metadata};
@@ -983,8 +999,7 @@ fn materialize_multibatch_valid_ipc(directory: &tempfile::TempDir) -> PathBuf {
     let mut geometry =
         GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true);
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let field =
-        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), &geometry);
+    let field = with_geometry_contract_metadata(&campo_geoarrow_wkb("geometry"), &geometry);
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
 
     let dodici = RecordBatch::try_new(
@@ -1686,20 +1701,25 @@ fn convert_exposes_reader_crs_inconsistency_without_writer_ambiguity() {
     assert!(!shapefile_output.exists());
 }
 
+/// `io.convert` di un IPC che dichiara `declared_unresolved` con il solo SRID:
+/// un tempo la conversione riusciva e non sintetizzava un `crs_id`; ora il CRS
+/// non e' una dichiarazione valida (`declared_unresolved` chiede `crs_id` o
+/// `crs_definition`, e `axis_order`), e il rifiuto e' `crs` all'apertura,
+/// senza destinazione. Il vocabolario del campo e' completo: l'unico difetto
+/// e' quello del CRS.
 #[test]
-fn convert_round_trips_declared_unresolved_srid_only_without_synthesis() {
+fn convert_rejects_declared_unresolved_srid_only_with_crs() {
     use std::collections::HashMap;
     use std::fs::File;
     use std::sync::Arc;
 
-    use arrow_ipc::reader::FileReader;
     use arrow_ipc::writer::FileWriter;
     use arrow_schema::{DataType, Field, Schema};
     use plenora_io_model::geometry::{
         with_contract_version, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
-        PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
         PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
-        PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        PLENORA_FIELD_ID_KEY, PLENORA_GEOMETRY_TYPES_KEY, PLENORA_PRECISION_KEY,
+        PLENORA_SPATIAL_SEMANTICS_KEY, PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
     };
 
     let directory = tempfile::tempdir().unwrap();
@@ -1710,8 +1730,14 @@ fn convert_round_trips_declared_unresolved_srid_only_without_synthesis() {
             ARROW_EXTENSION_NAME_KEY.to_owned(),
             GEOARROW_WKB_EXTENSION.to_owned(),
         ),
+        (PLENORA_FIELD_ID_KEY.to_owned(), "0".to_owned()),
         (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
         (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+        (
+            PLENORA_SPATIAL_SEMANTICS_KEY.to_owned(),
+            "geometry".to_owned(),
+        ),
+        (PLENORA_PRECISION_KEY.to_owned(), "float64".to_owned()),
         (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
         (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
         (
@@ -1735,27 +1761,15 @@ fn convert_round_trips_declared_unresolved_srid_only_without_synthesis() {
         "ipc".to_owned(),
     ])
     .unwrap();
-    // `cmd_convert` rende il **corpo**: lo `status` e' della busta, e chi
-    // la costruisce e' `main`. Che la conversione sia riuscita lo dice gia'
-    // l'`unwrap`.
-    let document = cmd_convert(&cli).unwrap();
-    assert!(document.get("publish_outcome").is_some());
-
-    let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
-        .unwrap()
-        .schema();
-    let metadata = output_schema.field(0).metadata();
+    let error = cmd_convert(&cli).unwrap_err();
     assert_eq!(
-        metadata.get(PLENORA_SRID_KEY).map(String::as_str),
-        Some("4326")
+        error.0,
+        uscita_della_categoria(ErrorCategory::Crs),
+        "{}",
+        error.1
     );
-    for key in [
-        PLENORA_CRS_ID_KEY,
-        PLENORA_CRS_DEFINITION_KEY,
-        PLENORA_AXIS_ORDER_KEY,
-    ] {
-        assert!(!metadata.contains_key(key), "chiave sintetizzata: {key}");
-    }
+    assert_eq!(error.1["error"]["category"], "crs");
+    assert!(!output.exists());
 }
 
 #[test]
