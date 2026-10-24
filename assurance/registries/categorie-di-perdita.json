@@ -143,6 +143,11 @@
       "id": "crs_definition_not_preserved_derived",
       "superficie": "plenora-io-core",
       "forma": "costante"
+    },
+    {
+      "id": "crs_coordinate_epoch_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
     }
   ],
   "vie_dinamiche_ammesse": [

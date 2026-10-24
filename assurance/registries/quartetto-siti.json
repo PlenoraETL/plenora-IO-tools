@@ -233,8 +233,16 @@
       "Unsupported/Validate/Capability/Never",
       "Unsupported/Validate/Capability/Never"
     ],
+    "epoca_da_scrivere": [
+      "Schema/Validate/Schema/Never"
+    ],
     "fmt_err": [
       "DataMapping/Read/Format/Never"
+    ],
+    "geo_concordi": [
+      "Schema/Validate/Schema/Never",
+      "Crs/Validate/Crs/Never",
+      "Schema/Validate/Schema/Never"
     ],
     "geometry_type_label": [
       "Unsupported/Validate/Unsupported/Never"

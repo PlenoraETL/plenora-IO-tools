@@ -126,6 +126,18 @@ pub fn valida_schema(driver: &'static str, schema: FbSchema<'_>) -> Result<()> {
 /// Come [`valida_schema`], piu' il caso in cui i byte non siano un messaggio
 /// `FlatBuffer` valido o non portino uno schema.
 pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> {
+    valori_dello_schema(driver, byte, "").map(|_| ())
+}
+
+/// Come [`valida_messaggio_schema`], e restituisce i valori di `chiave`.
+///
+/// Dai metadati dello schema, **tutti**: una chiave ripetuta non si riduce qui
+/// a una sola, perche' quale valga lo decide chi legge.
+///
+/// # Errors
+///
+/// Come [`valida_messaggio_schema`].
+pub fn valori_dello_schema(driver: &'static str, byte: &[u8], chiave: &str) -> Result<Vec<String>> {
     if byte.len() > MAX_BYTE_METADATI {
         return Err(errore(driver, "metadati dello schema Arrow oltre il tetto"));
     }
@@ -145,7 +157,14 @@ pub fn valida_messaggio_schema(driver: &'static str, byte: &[u8]) -> Result<()> 
     let schema = messaggio
         .header_as_schema()
         .ok_or_else(|| errore(driver, "messaggio Arrow IPC senza schema"))?;
-    valida_schema(driver, schema)
+    valida_schema(driver, schema)?;
+    Ok(schema
+        .custom_metadata()
+        .into_iter()
+        .flatten()
+        .filter(|voce| voce.key() == Some(chiave))
+        .filter_map(|voce| voce.value().map(str::to_owned))
+        .collect())
 }
 
 /// I metadati del footer: `key` e `value` devono esserci entrambi.

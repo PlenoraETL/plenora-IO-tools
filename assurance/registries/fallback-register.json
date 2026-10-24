@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 184,
+  "totale": 185,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -24,8 +24,8 @@
       "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso; piu' il messaggio che distingue un JSON malformato da un rifiuto di una nostra regola, quando il canale laterale dell'errore e' vuoto"
     },
     "driver-geoparquet": {
-      "conteggio": 18,
-      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; tre nelle prove (Q2 e, dalla 4.2.0, `tests/fork_parquet.rs`), dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore; dodici nelle prove dei decoder portate da data-tools2 (`tests/parquet_decoder.rs`, PR #53): cinque `unwrap_or_else` trasformano panici catturati in `panic!` con il motivo, uno segnala un seme assente, uno trasforma un normale errore di lettura in panico, uno restituisce il ripiego diagnostico `(payload non testuale)`, tre tolgono il prefisso «Parquet argument error: » prima del confronto del messaggio e uno codifica il primo valore di un blocco DELTA sintetico vuoto come 0: nessuno ripiega su un valore in un percorso di prodotto"
+      "conteggio": 19,
+      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; tre nelle prove (Q2 e, dalla 4.2.0, `tests/fork_parquet.rs`), dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore; dodici nelle prove dei decoder portate da data-tools2 (`tests/parquet_decoder.rs`, PR #53): cinque `unwrap_or_else` trasformano panici catturati in `panic!` con il motivo, uno segnala un seme assente, uno trasforma un normale errore di lettura in panico, uno restituisce il ripiego diagnostico `(payload non testuale)`, tre tolgono il prefisso «Parquet argument error: » prima del confronto del messaggio e uno codifica il primo valore di un blocco DELTA sintetico vuoto come 0: nessuno ripiega su un valore in un percorso di prodotto. Dalla rilettura 13 uno in piu' (18 -> 19): in `metadati::crs_della_primaria` un `crs` omesso diventa il testo vuoto, che nessun valore JSON e': e' il segno dell'assenza nel confronto fra il `geo` del footer e quello dello schema incorporato, non un ripiego su un valore"
     },
     "driver-gpkg": {
       "conteggio": 3,
