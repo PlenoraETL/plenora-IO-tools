@@ -300,7 +300,7 @@ impl FormatDriver for IpcDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(IpcDataset {
                 path,
                 layers: vec![LayerContract {
@@ -311,7 +311,7 @@ impl FormatDriver for IpcDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(

@@ -1084,7 +1084,8 @@ impl FormatDriver for GeoParquetDriver {
         })?;
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder, opt_in_crs_storico(&opts.format_options)?)?;
-        let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
+        let (geom_name, crs) =
+            resolve_geometry_and_crs(&parquet_schema, geo.as_ref(), opts.assume_crs.as_deref())?;
         // **Prima** di toccare lo schema esposto: il metadato viene confrontato
         // col file, e se non regge il file e' rifiutato. Farlo dopo il retag
         // vorrebbe dire aver gia' tolto colonne sulla fiducia.
@@ -1172,7 +1173,7 @@ impl FormatDriver for GeoParquetDriver {
             name,
             contract,
         };
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GeoParquetDataset {
                 path,
                 out_schema,
@@ -1184,7 +1185,7 @@ impl FormatDriver for GeoParquetDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -2064,10 +2065,19 @@ fn read_geo_meta(
 }
 
 /// Nome colonna geometria + CRS risolto dai metadati `geo`.
+///
+/// Senza metadato `geo` il file non e' `GeoParquet`, e la specifica non gli
+/// assegna un CRS: il default `OGC:CRS84` di `GeoParquet` 1.1 vale per una colonna
+/// **dichiarata** nel metadato senza la chiave `crs`, non per un Parquet
+/// qualunque con una colonna che si chiama `geometry`. Fino a qui il driver lo
+/// etichettava WGS84 lo stesso, cioe' affermava cio' che il file non dice. Ora
+/// il CRS e' `missing`, oppure quello che `--assume-crs` nomina, come per un
+/// CSV.
 fn resolve_geometry_and_crs(
     schema: &Schema,
     geo: Option<&MetadatiGeo>,
-) -> Result<(String, ResolvedCrs)> {
+    assume_crs: Option<&str>,
+) -> Result<(String, CrsResolution)> {
     if let Some(geo) = geo {
         // La colonna che i metadati dichiarano deve esistere nel file. Prima
         // nessuno lo verificava: un `primary_column` che nominava una colonna
@@ -2078,8 +2088,8 @@ fn resolve_geometry_and_crs(
                 "metadato `geo` GeoParquet che dichiara una `primary_column` assente dallo schema",
             )));
         }
-        let crs = crs_from(Some(geo))?;
-        return Ok((geo.nome_primaria.clone(), crs));
+        let crs = crs_from(geo)?;
+        return Ok((geo.nome_primaria.clone(), CrsResolution::Resolved(crs)));
     }
 
     // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria si
@@ -2110,7 +2120,17 @@ fn resolve_geometry_and_crs(
                 "nessuna colonna geometria: non è GeoParquet",
             ))
         })?;
-    Ok((primary, ResolvedCrs::wgs84()))
+    // L'ordine degli assi resta `unknown`: la convenzione «x = longitudine o
+    // easting» e' di GeoParquet, e senza metadato il file non la dichiara --
+    // come il WKT di un CSV (`PRODUCT.md`, ordine degli assi).
+    let crs = assume_crs.map_or(CrsResolution::Missing, |id| {
+        CrsResolution::Resolved(ResolvedCrs::new(
+            Some(id.to_owned()),
+            crs_kind_for_authority_id(id),
+            None,
+        ))
+    });
+    Ok((primary, crs))
 }
 
 /// Il CRS della colonna primaria, nei tre stati che la specifica distingue.
@@ -2122,12 +2142,7 @@ fn resolve_geometry_and_crs(
 ///   il file un'affermazione che non ha fatto: chi legge crederebbe di avere
 ///   coordinate in WGS84 dove nessuno lo ha detto;
 /// * **documento** -- il PROJJSON dichiarato.
-fn crs_from(geo: Option<&MetadatiGeo>) -> Result<ResolvedCrs> {
-    let Some(geo) = geo else {
-        // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria
-        // e' stata riconosciuta dal nome. Vale cio' che valeva.
-        return Ok(ResolvedCrs::wgs84());
-    };
+fn crs_from(geo: &MetadatiGeo) -> Result<ResolvedCrs> {
     match &geo.primaria.crs {
         metadati::Crs::Assente => Ok(ResolvedCrs::wgs84()),
         // Nessun identificatore, nessuna definizione, natura ignota: e' la
@@ -2888,7 +2903,7 @@ fn radici_del_covering(percorsi: &[Vec<String>; 4]) -> Vec<String> {
 fn retag_schema(
     schema: &Schema,
     geom_name: &str,
-    crs: &ResolvedCrs,
+    crs: &CrsResolution,
     covering_names: Option<&[String]>,
 ) -> SchemaRef {
     let is_internal = |name: &str| -> bool {
@@ -2905,8 +2920,8 @@ fn retag_schema(
                     ARROW_EXTENSION_NAME_KEY.to_owned(),
                     GEOARROW_WKB_EXTENSION.to_owned(),
                 );
-                if let Some(id) = &crs.id {
-                    md.insert(GEO_CRS_KEY.to_owned(), id.clone());
+                if let Some(id) = crs.id() {
+                    md.insert(GEO_CRS_KEY.to_owned(), id.to_owned());
                 }
                 f.as_ref().clone().with_metadata(md)
             } else {

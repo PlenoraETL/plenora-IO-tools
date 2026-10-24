@@ -540,6 +540,33 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
     );
 }
 
+/// IPC non usa `--assume-crs`: con una geometria senza CRS l'opzione restava
+/// senza effetto, e la lettura riusciva come se non fosse stata data. Ora e'
+/// un rifiuto `crs`, come un'opzione che contraddice il CRS dichiarato.
+#[test]
+fn assume_crs_su_una_geometria_senza_crs_non_e_ignorato() {
+    let dir = tempfile::tempdir().unwrap();
+    let solo_estensione: arrow_schema::Metadata = std::iter::once((
+        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+    ))
+    .collect();
+    let path = dir.path().join("senza-crs.arrow");
+    ipc_vuoto(
+        &path,
+        &Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true).with_metadata(solo_estensione)
+        ]),
+    );
+    let Err(errore) = IpcDriver.open(
+        Source::Path(path),
+        opzioni_lettura().with_assume_crs("EPSG:3003"),
+    ) else {
+        panic!("--assume-crs ignorato su una geometria senza CRS");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
 /// Il limite dichiarato in `docs/PRODUCT.md` («Limitazioni di prodotto», IPC):
 /// il CRS che un produttore `GeoArrow` mette **solo** in
 /// `ARROW:extension:metadata` non e' letto, e la geometria risulta senza CRS.

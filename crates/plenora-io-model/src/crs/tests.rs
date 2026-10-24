@@ -336,3 +336,39 @@ fn definition_authority_srid_distingue_il_numero_dalla_stringa() {
         );
     }
 }
+
+/// GEO-005: l'autorita' si confronta senza maiuscole, il codice come testo, e
+/// due autorita' diverse non sono mai lo stesso identificatore.
+#[test]
+fn stesso_identificatore_segue_geo_005() {
+    assert!(stesso_identificatore("EPSG:3003", "epsg:3003"));
+    assert!(stesso_identificatore("ogc:CRS84", "OGC:CRS84"));
+    assert!(!stesso_identificatore("OGC:crs84", "OGC:CRS84"));
+    assert!(!stesso_identificatore("EPSG:4326", "OGC:CRS84"));
+    assert!(!stesso_identificatore("EPSG:04326", "EPSG:4326"));
+    assert!(!stesso_identificatore("4326", "4326"));
+}
+
+/// Ogni stato del CRS dichiarato contro un'opzione: uguale passa, diverso,
+/// non confrontabile o non applicato e' un errore `crs`, e il messaggio non
+/// porta nessuno dei due identificatori.
+#[test]
+fn verifica_crs_assunto_rifiuta_cio_che_non_puo_confermare() {
+    let risolto = CrsResolution::Resolved(ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Geographic,
+        None,
+    ));
+    assert!(verifica_crs_assunto(None, &CrsResolution::Missing).is_ok());
+    assert!(verifica_crs_assunto(Some("epsg:4326"), &risolto).is_ok());
+    let senza_id = CrsResolution::Resolved(ResolvedCrs::new(None, CrsKind::Unknown, None));
+    let grezzo =
+        CrsResolution::DeclaredButUnresolved(RawCrs::from_authority_hint("EPSG:3003".to_owned()));
+    assert!(verifica_crs_assunto(Some("EPSG:3003"), &grezzo).is_ok());
+    for dichiarato in [&risolto, &senza_id, &grezzo, &CrsResolution::Missing] {
+        let errore = verifica_crs_assunto(Some("EPSG:32632"), dichiarato).unwrap_err();
+        assert_eq!(errore.category, crate::ErrorCategory::Crs);
+        assert!(!errore.message.contains("32632"), "{}", errore.message);
+        assert!(!errore.message.contains("4326"), "{}", errore.message);
+    }
+}

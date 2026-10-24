@@ -689,7 +689,7 @@ impl FormatDriver for ShpDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(ShpDataset {
                 path,
                 cols,
@@ -707,7 +707,7 @@ impl FormatDriver for ShpDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -1530,13 +1530,15 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
         // cioe' un CRS che contraddice se stesso (GEO-005). L'opzione resta il
         // modo di nominare un `.prj` che non dichiara un'autorita'.
         if let (Some(assunta), Some(dichiarata)) = (opts.assume_crs.as_deref(), &dichiarata) {
-            if !assunta.eq_ignore_ascii_case(dichiarata) {
+            if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
                 return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                     "Shapefile: --assume-crs contraddice l'autorita' dichiarata dal .prj",
                 )));
             }
         }
-        let id = opts.assume_crs.clone().or(dichiarata);
+        // Concordi, vale la grafia del file: l'opzione puo' scrivere
+        // l'autorita' in minuscolo, e l'identificatore e' quello del `.prj`.
+        let id = dichiarata.or_else(|| opts.assume_crs.clone());
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));

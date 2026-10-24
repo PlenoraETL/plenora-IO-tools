@@ -325,6 +325,56 @@ fn due_geodata_discordi_sono_rifiutati() {
     assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
 }
 
+fn con_geodata(definizione: &str) -> Drawing {
+    let mut drawing = Drawing::new();
+    drawing.add_object(Object::new(ObjectType::GeoData(GeoData {
+        coordinate_system_definition: definizione.to_owned(),
+        ..Default::default()
+    })));
+    drawing
+}
+
+/// Una definizione che dichiara due codici EPSG diversi, in una delle tre forme
+/// o fra due di esse, non dice quale valga: vinceva la prima occorrenza della
+/// prima forma trovata. L'alias di un datum non e' il CRS e non conta; codici
+/// uguali ripetuti non sono un conflitto.
+#[test]
+fn codici_epsg_discordi_nella_definizione_sono_rifiutati() {
+    let discordi = [
+        "EPSG:3003 EPSG:32632",
+        "urn:ogc:def:crs:EPSG::3003 / EPSG:4326",
+        r#"PROJCS["EPSG:3003 Monte Mario",GEOGCS["Monte Mario"],AUTHORITY["EPSG","32632"]]"#,
+        r#"<Dictionary><Alias id="3003" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias><Alias id="32632" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+        r#"<Dictionary><Alias id="3003"><Namespace>EPSG Code</Namespace></Alias><Alias id="4326"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+    ];
+    for definizione in discordi {
+        let errore =
+            resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()).expect_err(definizione);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Crs,
+            "{definizione}"
+        );
+        assert!(!errore.message.contains("3003"), "{}", errore.message);
+    }
+
+    let concordi = [
+        ("EPSG:3003 EPSG:3003", "EPSG:3003"),
+        (
+            r#"<Dictionary><Alias id="6326" type="Datum"><Namespace>EPSG Code</Namespace></Alias><Alias id="4326" type="CoordinateSystem"><Namespace>EPSG Code</Namespace></Alias></Dictionary>"#,
+            "EPSG:4326",
+        ),
+        (WGS84_ESRI_WKT, "EPSG:4326"),
+    ];
+    for (definizione, atteso) in concordi {
+        let risolto = match resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()) {
+            Ok(risolto) => risolto,
+            Err(errore) => panic!("{definizione}: {errore}"),
+        };
+        assert_eq!(risolto.id.as_deref(), Some(atteso));
+    }
+}
+
 #[test]
 fn geodata_epsg_is_resolved_without_fallback() {
     let mut drawing = Drawing::new();

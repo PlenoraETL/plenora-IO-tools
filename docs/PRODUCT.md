@@ -189,6 +189,29 @@ configurazione, non un valore ignorato.
 Nessun driver riproietta. Il CRS viene letto, scritto o dichiarato — mai
 trasformato.
 
+#### `--assume-crs` e il CRS che la sorgente dichiara
+
+L'opzione **nomina** un CRS che la sorgente non dichiara. Quando la sorgente ne
+dichiara uno, i due si confrontano per ogni colonna geometrica, in un punto
+solo che ogni driver attraversa all'apertura (`with_read_budget` in
+`plenora-io-core`, regola in `plenora_io_model::crs::verifica_crs_assunto`):
+
+| la sorgente dichiara | `--assume-crs` |
+|---|---|
+| un identificatore uguale (GEO-005: autorità senza maiuscole, codice come testo) | ammesso; il contratto conserva la grafia della sorgente |
+| un identificatore diverso | rifiutato con `crs` |
+| un CRS senza identificatore (`crs: null` di GeoParquet, una definizione senza autorità) | rifiutato con `crs`: non si può confrontare |
+| niente, e il formato non usa l'opzione (Arrow IPC senza CRS) | rifiutato con `crs`: l'opzione resterebbe senza effetto |
+
+Fino alla 5.0.1 GeoPackage, GeoParquet, GeoJSON, KML e IPC ignoravano
+l'opzione, e DXF e FileGDB la ignoravano quando il CRS incorporato dichiarava
+il proprio identificatore: chi chiedeva `EPSG:3003` riceveva il CRS del file
+senza che la busta lo dicesse. Il confronto non è un resolver: `OGC:CRS84` ed
+`EPSG:4326` sono identificatori diversi, e su un GeoJSON l'opzione ammessa è
+`OGC:CRS84` (prove `un_assume_crs_che_contraddice_il_crs_dichiarato_e_rifiutato`
+in `plenora-io-tools`, `verifica_crs_assunto_rifiuta_cio_che_non_puo_confermare`
+in `plenora-io-model`).
+
 #### `--assume-crs` dichiara, non risolve
 
 `--assume-crs EPSG:3003` dice **quale** CRS hanno i dati. Non è un resolver
@@ -452,12 +475,16 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | FileGDB | **si apre con il solo driver GDAL `OpenFileGDB`.** Una directory `.gdb` che GDAL saprebbe aprire con un altro driver (per esempio una directory di CSV) è rifiutata invece di essere letta con le regole di un altro formato (prova `una_directory_gdb_che_non_e_un_filegdb_non_si_apre`). Un layer con più campi geometrici resta enumerato, ne dichiara il numero in `native_metadata["filegdb.geometry_field_count"]`, e la sua lettura è rifiutata con `unsupported` (GEO-012; prova `piu_campi_geometrici_rendono_il_layer_non_supportato`): prima si prendeva il primo campo e gli altri sparivano. Rientra con un contratto multi-geometria per layer |
 | GeoPackage | **una sola colonna geometrica per feature table.** Una tabella con più righe in `gpkg_geometry_columns` è rifiutata all'apertura con `unsupported` (GEO-012; prova `due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate`): prima ogni riga diventava un layer con lo stesso nome, e in ciascuno l'altra geometria usciva come BLOB. Hazard: il rifiuto chiude l'intero file, anche le altre tabelle. Rientra con un contratto multi-geometria per layer |
-| GeoParquet senza metadato `geo` | la geometria si riconosce dal nome (`geometry`, `geom`, `wkb`); con **più** di quei nomi nel file l'apertura è rifiutata con `unsupported` invece di prendere il primo dell'elenco (prova `un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo`) |
+| GeoParquet senza metadato `geo` | la geometria si riconosce dal nome (`geometry`, `geom`, `wkb`); con **più** di quei nomi nel file l'apertura è rifiutata con `unsupported` invece di prendere il primo dell'elenco (prova `un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo`). Il CRS è `missing`, oppure quello che `--assume-crs` nomina, con ordine degli assi `unknown` (la convenzione longitudine prima è del metadato `geo`): il default `OGC:CRS84` di GeoParquet 1.1 vale per una colonna dichiarata nel metadato senza la chiave `crs`, e un Parquet senza `geo` non è GeoParquet. Fino alla 5.0.1 il driver lo etichettava WGS84 (prova `un_parquet_senza_geo_non_afferma_un_crs`). Hazard: un sink che pretende un CRS ora rifiuta questi file finché l'opzione non lo nomina |
 | CSV, XLSX | `wkt_column` esclude `x_column` e `y_column`: dichiararli insieme è un errore di configurazione (`invalid_configuration`), non più una precedenza silenziosa del WKT (prove `wkt_column_insieme_a_x_y_e_una_configurazione_ambigua` in `driver-csv`, `n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie` in `driver-xls`) |
+| GeoJSON | il membro `crs` di GeoJSON 2008, su collezione, feature, geometria o figlia di una `GeometryCollection`, è ammesso solo se è un CRS con nome che nomina CRS84 o EPSG:4326, in forma breve, URN OGC (con o senza versione) o URI `opengis.net`; ogni altro nome, un CRS per link, `null`, una forma malformata o con chiavi ripetute o estranee è rifiutato con `crs`. Prima il membro si ignorava e il documento usciva `OGC:CRS84` qualunque CRS dichiarasse (prova `il_membro_crs_storico_deve_nominare_wgs84`). EPSG:4326 si accetta come CRS84 perché GeoJSON 2008 fissa l'ordine x, y, cioè longitudine prima, qualunque CRS dichiari |
+| KML | nessun analogo: KML 2.2 non ha un elemento che dichiari un CRS, e il formato resta WGS84 fisso |
 | GeoJSON | una chiave ripetuta nell'oggetto geometria (`type`, `coordinates`, `geometries`) o al livello del `FeatureCollection` (`type`, `features`) rifiuta il documento, come già le chiavi ripetute della feature: prima valeva l'ultima, e due `features` si concatenavano (prova `chiavi_ripetute_nella_geometria_e_nella_collezione_sono_rifiutate`) |
 | KML | un `Point` con più tuple, un `coordinates` ripetuto nella stessa geometria e un `Polygon` senza un unico anello esterno (due anelli nello stesso `outerBoundaryIs`, o due `outerBoundaryIs`) sono rifiutati: prima se ne teneva una parte e il resto spariva (prova `event_parser_rejects_geometries_it_used_to_truncate`) |
 | DXF | più oggetti `GEODATA` con definizioni del CRS diverse sono rifiutati con `crs`: prima valeva il primo (prova `due_geodata_discordi_sono_rifiutati`). Definizioni uguali restano ammesse |
-| Shapefile | `--assume-crs` diverso dall'autorità che il `.prj` dichiara alla radice è rifiutato con `crs`: prima vinceva l'opzione, e il contratto univa il suo identificatore alla definizione del `.prj` (GEO-005; prova `prj_e_assume_crs_in_conflitto_sono_rifiutati`). L'opzione resta il modo di nominare un `.prj` che non dichiara un'autorità |
+| DXF | una definizione del `GEODATA` che dichiara codici EPSG diversi — fra gli `EPSG:<codice>` del testo, gli identificatori di radice di un WKT e gli `<Alias>` EPSG del sistema di coordinate di un XML Autodesk — è rifiutata con `crs`: prima valeva la prima occorrenza della prima forma trovata (prova `codici_epsg_discordi_nella_definizione_sono_rifiutati`). Gli alias con `type` diverso da `CoordinateSystem` (datum, ellissoide) non contano. Hazard residuo: un `EPSG:<codice>` che compare nel testo di un nome WKT conta come dichiarazione, e se differisce dalla radice il file si rifiuta invece di leggersi |
+| Shapefile | `--assume-crs` diverso dall'autorità che il `.prj` dichiara alla radice è rifiutato con `crs`: prima vinceva l'opzione, e il contratto univa il suo identificatore alla definizione del `.prj` (GEO-005; prova `prj_e_assume_crs_in_conflitto_sono_rifiutati`). L'opzione resta il modo di nominare un `.prj` che non dichiara un'autorità. Gli altri formati seguono la stessa regola (vedi [`--assume-crs` e il CRS che la sorgente dichiara](#--assume-crs-e-il-crs-che-la-sorgente-dichiara)) |
+| tutti | `--assume-crs` si confronta col CRS dichiarato per **uguaglianza** di identificatore (GEO-005), non per equivalenza: `OGC:CRS84` contro `EPSG:4326`, o un codice scritto con zeri iniziali, è un conflitto anche quando i due nomi descrivono lo stesso CRS. Hazard: un rifiuto in più, mai un CRS sbagliato; si rimedia passando l'identificatore come la sorgente lo scrive (`io.inspect` senza opzione lo mostra). Rientra con un resolver di equivalenze, che il bordo I/O non porta |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |
 | tutti | nessuna proiezione delle colonne: lo schema consegnato è quello della sorgente |

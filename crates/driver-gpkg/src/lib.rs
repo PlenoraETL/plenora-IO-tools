@@ -354,7 +354,7 @@ impl FormatDriver for GpkgDriver {
                 layer_srs_id,
             });
         }
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GpkgDataset {
                 path,
                 layers,
@@ -362,7 +362,7 @@ impl FormatDriver for GpkgDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(

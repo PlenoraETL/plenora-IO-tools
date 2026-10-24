@@ -40,21 +40,36 @@ use crate::driver::spool::StagedSpool;
 /// decisione. Concentrarla qui e' cio' che ha reso possibile capovolgerla in
 /// un atto solo.
 ///
-/// Non restituisce `Result`: con un solo modello di budget non c'e' piu' nulla
-/// da rifiutare. Fino a S4.d la firma portava un errore per le opzioni del
-/// modello sbagliato — prima quelle nuove, poi quelle vecchie — e ogni driver
-/// doveva propagarlo.
-#[must_use]
+/// E' anche il punto in cui `--assume-crs` incontra il CRS che ogni driver ha
+/// letto: tutti i driver passano di qui con il dataset aperto, e qui ogni
+/// colonna geometrica si confronta con l'opzione
+/// ([`plenora_io_model::crs::verifica_crs_assunto`]). Prima l'opzione la
+/// leggevano soltanto i driver che la usano, e gli altri la ignoravano in
+/// silenzio; un controllo per driver sarebbe stato dieci copie della stessa
+/// regola, con il rischio che l'undicesimo driver la dimentichi.
+///
+/// # Errors
+///
+/// `crs` se l'opzione contraddice il CRS dichiarato da una colonna
+/// geometrica, o se non si puo' confrontare con esso.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
-) -> Box<dyn OpenDatasetHandle> {
-    Box::new(BudgetedDataset {
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(geometria) = &layer.contract.geometry {
+            plenora_io_model::crs::verifica_crs_assunto(
+                opts.assume_crs.as_deref(),
+                &geometria.crs,
+            )?;
+        }
+    }
+    Ok(Box::new(BudgetedDataset {
         dataset,
         budget: opts.budget().clone(),
         physical_row_indices_attestable,
-    })
+    }))
 }
 
 struct BudgetedDataset {

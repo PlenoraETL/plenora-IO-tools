@@ -456,7 +456,7 @@ fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     // E in lettura `null` non diventa CRS84: diventa «non lo so».
     let letti = metadati::analizza(&geo, false).expect("conforme");
     assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
-    let crs = crs_from(Some(&letti)).expect("risolto");
+    let crs = crs_from(&letti).expect("risolto");
     assert_eq!(
         crs.id.as_deref(),
         None,
@@ -2962,14 +2962,87 @@ fn legacy_bbox_names_are_hidden_with_explicit_opt_in() {
     assert!(contract_schema.index_of("geometry").is_ok());
 }
 
+/// Un Parquet con una colonna `geometry` e senza metadato `geo`.
+fn parquet_senza_geo(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let percorso = dir.path().join("senza_geo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "geometry",
+        DataType::Binary,
+        true,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    percorso
+}
+
+/// Senza metadato `geo` il file non e' `GeoParquet`, e niente gli assegna un
+/// CRS: il default `OGC:CRS84` della specifica vale per una colonna dichiarata
+/// nel metadato senza `crs`. Il driver lo etichettava WGS84 lo stesso; ora il
+/// CRS e' `missing`, oppure quello che `--assume-crs` nomina.
 #[test]
-fn default_crs_is_crs84_with_longitude_latitude_axis_order() {
-    let crs = crs_from(None).unwrap();
-    assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+fn un_parquet_senza_geo_non_afferma_un_crs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_senza_geo(&dir);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap();
+    let geometria = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs, CrsResolution::Missing);
+
+    let assunto = GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs("EPSG:3003"),
+        )
+        .unwrap();
+    let geometria = assunto.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs.id(), Some("EPSG:3003"));
+    // Senza metadato nessuno dichiara l'ordine memorizzato.
     assert_eq!(
-        crs.axis_order,
-        plenora_io_model::crs::AxisOrder::LongitudeLatitude
+        geometria.resolved_crs().map(|crs| crs.axis_order),
+        Some(plenora_io_model::crs::AxisOrder::Unknown)
     );
+}
+
+/// Un `GeoParquet` che dichiara il proprio CRS e un `--assume-crs` diverso sono
+/// due dichiarazioni in conflitto: l'opzione si ignorava in silenzio.
+#[test]
+fn assume_crs_in_conflitto_col_metadato_geo_e_rifiutato() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_, percorso) = geo_di_un_file_scritto(&dir);
+    let dichiarato = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap()
+        .layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .and_then(|g| g.crs.id().map(str::to_owned))
+        .expect("il file scritto dichiara un CRS");
+    let Err(errore) = GeoParquetDriver.open(
+        Source::Path(percorso.clone()),
+        opzioni_lettura().with_assume_crs("EPSG:3003"),
+    ) else {
+        panic!("--assume-crs in conflitto col metadato geo: ignorato");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    // Lo stesso identificatore, con l'autorita' in minuscolo, e' concorde.
+    let (autorita, codice) = dichiarato.split_once(':').unwrap();
+    let concorde = format!("{}:{codice}", autorita.to_ascii_lowercase());
+    assert!(GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs(concorde),
+        )
+        .is_ok());
 }
 
 #[test]
@@ -3145,7 +3218,7 @@ fn projjson_without_identifier_is_a_typed_unresolved_crs() {
             false,
         )
         .expect("il documento e' conforme");
-    let error = crs_from(Some(&geo)).unwrap_err();
+    let error = crs_from(&geo).unwrap_err();
     assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     assert_eq!(error.driver.as_deref(), Some("geoparquet"));
     assert!(!error.to_string().contains("survey-grid-secret"));

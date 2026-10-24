@@ -17,6 +17,8 @@ pub use geometry::{wkb_from_gj_value, write_geo_geojson};
 // La deserializzazione limitata durante il parse (S12): usata da qui,
 // non esposta. Il confine pubblico resta la lettura del dataset.
 pub(crate) mod geometria_progressiva;
+// Il membro `crs` di GeoJSON 2008: ammesso solo se nomina WGS84.
+pub(crate) mod crs_storico;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -175,7 +177,7 @@ impl FormatDriver for GeoJsonDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GeoJsonDataset {
                 path,
                 quote,
@@ -188,7 +190,7 @@ impl FormatDriver for GeoJsonDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -584,6 +586,11 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
                     map.next_value_seed(FeaturesSeed { accs: self.accs })?;
                     features_observed = true;
                 }
+                "crs" => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.accs.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 _ => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -672,6 +679,11 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                     type_observed = Some(value);
                 }
                 FeatKey::Geom => map.next_value_seed(TipoGeometricoSeed { accs: self.accs })?,
+                FeatKey::Crs => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.accs.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -936,6 +948,11 @@ impl<'de> Visitor<'de> for TopSink<'_> {
                     map.next_value_seed(FeaturesSink { sink: self.sink })?;
                     features_observed = true;
                 }
+                "crs" => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.sink.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 _ => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -1102,6 +1119,11 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                     map.next_value_seed(PropsSink { sink: self.sink })?;
                     props_seen = true;
                 }
+                FeatKey::Crs => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.sink.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -1168,6 +1190,8 @@ enum FeatKey {
     /// controllarne il valore e rifiutare Feature con `type` diverso o
     /// mancante.
     Type,
+    /// Il membro `crs` di `GeoJSON` 2008 (vedi [`crs_storico`]).
+    Crs,
     Other,
 }
 struct FeatKeySeed;
@@ -1187,6 +1211,7 @@ impl Visitor<'_> for FeatKeySeed {
             "geometry" => FeatKey::Geom,
             "properties" => FeatKey::Props,
             "type" => FeatKey::Type,
+            "crs" => FeatKey::Crs,
             _ => FeatKey::Other,
         })
     }
@@ -1240,6 +1265,10 @@ impl<'de> Visitor<'de> for TipoGeometricoSeed<'_> {
                 // la propria diagnostica di riga.
                 if let Some(tipo) = GeometryType::from_canonical_name(&nome.to_ascii_lowercase()) {
                     self.accs.tipi_geometrici.insert(tipo);
+                }
+            } else if chiave == "crs" {
+                if !map.next_value_seed(crs_storico::CrsStorico)? {
+                    return Err(self.accs.ferma(crs_storico::rifiuto()));
                 }
             } else {
                 map.next_value::<IgnoredAny>()?;

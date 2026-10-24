@@ -350,7 +350,7 @@ impl FormatDriver for XlsDriver {
         );
         drop(wb);
         let (layout, contract, spool) = inferenza?;
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -363,7 +363,7 @@ impl FormatDriver for XlsDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
