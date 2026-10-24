@@ -216,6 +216,9 @@ impl FormatDriver for IpcDriver {
                     .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido")))
             }
         })?;
+        // Arrow Geometry Semantics 1.0, REJ-001/002: versione, vocabolario, CRS e
+        // supporto nelle loro classi e nel loro ordine, prima di ogni altra lettura.
+        plenora_io_model::vocabolario::verifica_schema(schema.as_ref())?;
         validate_contract_version(schema.as_ref())?;
         let canonical_version_present =
             schema.metadata().contains_key(PLENORA_CONTRACT_VERSION_KEY);

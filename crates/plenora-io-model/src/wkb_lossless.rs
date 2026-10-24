@@ -66,6 +66,10 @@ pub struct WkbInspection {
     pub srid: Option<i32>,
     pub nested_dimensions_coherent: bool,
     pub contains_srid: bool,
+    /// Un membro di una collezione porta uno SRID: sotto `ewkb` lo SRID sta
+    /// solo sulla geometria esterna (GEO-009), quindi il valore e' malformato
+    /// anche quando lo SRID del membro coincide con quello esterno.
+    pub srid_on_member: bool,
     /// Coordinate e geometrie figlie conteggiate dal parser bounded.
     pub components: usize,
 }
@@ -622,6 +626,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
     };
     let mut nested_dimensions_coherent = true;
     let mut contains_srid = srid.is_some();
+    let mut srid_on_member = false;
 
     match base {
         1 => {
@@ -655,6 +660,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
                 nested_dimensions_coherent &=
                     child.dimensions == dimensions && child.nested_dimensions_coherent;
                 contains_srid |= child.contains_srid;
+                srid_on_member |= child.contains_srid;
             }
         }
         _ => {
@@ -670,6 +676,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
         srid,
         nested_dimensions_coherent,
         contains_srid,
+        srid_on_member,
         components: components_before - reader.components_left,
     })
 }

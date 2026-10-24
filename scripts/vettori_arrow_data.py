@@ -11,7 +11,9 @@ Un vettore valido rifiutato con `unsupported` e' il verdetto di **supporto** di
 GEO-000 (un componente puo' rifiutare un ingresso conforme che i suoi
 bersagli non rappresentano): si conta a parte, perche' e' ammesso solo se il
 manifesto lo dichiara, e non si confonde ne' con un'accettazione ne' con un
-errore.
+errore. Vale solo per il limite che IO dichiara, piu' campi geometria: anche
+su un vettore invalido nei valori, dove REJ-002 riporta il limite di supporto
+prima del valore.
 
     python scripts/vettori_arrow_data.py --contracts .plenora-contracts \\
         --cli target/release/plenora-io --referto vettori-arrow-data.json
@@ -65,17 +67,27 @@ def esegui(cli: Path, operazione: str, ingresso: Path, uscita: Path) -> dict:
             "code": errore.get("code") if isinstance(errore, dict) else None}
 
 
+def piu_geometrie(vettore: dict) -> bool:
+    """Il solo limite di supporto che IO dichiara: un campo geometria per schema."""
+    return sum((c.get("metadata") or {}).get("ARROW:extension:name") == "geoarrow.wkb"
+               for c in vettore["fields"]) > 1
+
+
 def verdetto(vettore: dict, osservato: dict) -> str:
     accettato = osservato["exit"] == 0
+    supporto = osservato["category"] == "unsupported" and piu_geometrie(vettore)
     if vettore["expect"] == "valid":
         if accettato:
             return "conforme"
-        if osservato["category"] == "unsupported":
-            return "rifiuto-di-supporto"
-        return "rifiuto-indebito"
+        return "rifiuto-di-supporto" if supporto else "rifiuto-indebito"
     if accettato:
         return "accettazione-indebita"
-    return "conforme" if osservato["category"] == vettore["category"] else "categoria-sbagliata"
+    if osservato["category"] == vettore["category"]:
+        return "conforme"
+    # REJ-002: un limite di supporto si riporta prima di un valore invalido; il
+    # vettore porta il verdetto di conformita' dell'ingresso, non quello di un
+    # componente con quel limite.
+    return "rifiuto-di-supporto" if supporto and vettore["category"] == "data_mapping" else "categoria-sbagliata"
 
 
 def main() -> int:
@@ -112,7 +124,9 @@ def main() -> int:
     totale = len(righe)
     print(f"vettori arrow-data-v1: {len(vettori)} su {len(OPERAZIONI)} operazioni, {totale} esiti: "
           + ", ".join(f"{k} {v}" for k, v in sorted(conteggi.items())))
-    return 0 if conteggi.get("conforme", 0) == totale else 1
+    # Il rifiuto di supporto e' ammesso solo per il limite che il manifesto
+    # dichiara (piu' campi geometria); ogni altro esito non e' del contratto.
+    return 0 if set(conteggi) <= {"conforme", "rifiuto-di-supporto"} else 1
 
 
 if __name__ == "__main__":

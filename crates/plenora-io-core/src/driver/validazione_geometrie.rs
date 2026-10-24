@@ -18,13 +18,26 @@ use plenora_io_model::Result;
 use super::{
     inspect_wkb, saturating_u64, BTreeMap, BinaryArray, CapabilityReason, ContractIdentifier,
     CoordinateDimensions, ErrorCategory, ErrorPhase, GeometryColumnContract, GeometryEncoding,
-    GeometryWriteSupport, IoErrorCode, KnownOrUnknownCount, LargeBinaryArray, PlenoraIoError,
-    PublicMessage, RecordBatch, RemoteEffect, RetryDisposition, RowDiagnosticColumn,
-    RowDiagnosticExample, RowDiagnosticScope, RowDiagnosticWriteOutcome, RowDiagnosticWriteState,
-    RowDiagnostics, RowDiagnosticsCompleteness, WkbInspection, WkbLimits,
+    GeometryType, GeometryWriteSupport, IoErrorCode, KnownOrUnknownCount, LargeBinaryArray,
+    PlenoraIoError, PublicMessage, RecordBatch, RemoteEffect, RetryDisposition,
+    RowDiagnosticColumn, RowDiagnosticExample, RowDiagnosticScope, RowDiagnosticWriteOutcome,
+    RowDiagnosticWriteState, RowDiagnostics, RowDiagnosticsCompleteness, WkbInspection, WkbLimits,
     WriteDiagnosticStateCounts, ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
     ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE,
 };
+
+/// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
+const CAUSA_SRID: &str = "contract.srid";
+
+/// REJ-002: la categoria del rifiuto e' quella della prima violazione in
+/// ordine di riga.
+fn categoria_del_rifiuto(prima_causa: Option<&str>) -> ErrorCategory {
+    if prima_causa == Some(CAUSA_SRID) {
+        ErrorCategory::Crs
+    } else {
+        ErrorCategory::DataMapping
+    }
+}
 
 fn geometry_violation(
     driver: &'static str,
@@ -41,70 +54,74 @@ fn validate_inspected_geometry(
     contract: &GeometryColumnContract,
     geometry: &WkbInspection,
 ) -> Result<()> {
-    let actual_dimensions = geometry.dimensions;
-    if contract.dimensions != CoordinateDimensions::Unknown
-        && contract.dimensions != actual_dimensions
-    {
-        return Err(geometry_violation(
+    let identificatore = ContractIdentifier::from_geometry_column(contract);
+    let violazione = |reason, detail: &PublicMessage| {
+        Err(geometry_violation(
             driver,
-            ContractIdentifier::from_geometry_column(contract).as_ref(),
-            CapabilityReason::CoordinateDimensions,
-            &PublicMessage::CuratedPair(
-                "dimensioni del payload diverse da quelle dichiarate dal contratto:",
-                actual_dimensions.nome(),
-            ),
-        ));
-    }
-    if !support.dimensions.contains(&actual_dimensions) {
-        return Err(geometry_violation(
-            driver,
-            ContractIdentifier::from_geometry_column(contract).as_ref(),
-            CapabilityReason::CoordinateDimensions,
-            &PublicMessage::CuratedPair(
-                "dimensioni del payload non supportate dal driver:",
-                actual_dimensions.nome(),
-            ),
-        ));
-    }
-
+            identificatore.as_ref(),
+            reason,
+            detail,
+        ))
+    };
+    // REJ-002 per un valore: buona forma, poi SRID, poi tipi e dimensioni.
     let allow_srid = contract.encoding == GeometryEncoding::Ewkb;
-    if !geometry.nested_dimensions_coherent || (!allow_srid && geometry.contains_srid) {
-        return Err(geometry_violation(
-            driver,
-            ContractIdentifier::from_geometry_column(contract).as_ref(),
-            if allow_srid {
-                CapabilityReason::CoordinateDimensions
-            } else {
-                CapabilityReason::GeometryEncoding
-            },
-            &PublicMessage::Curated(
-                "componenti WKB con dimensioni incoerenti o SRID EWKB non dichiarato",
-            ),
-        ));
+    if !geometry.nested_dimensions_coherent {
+        return violazione(
+            CapabilityReason::CoordinateDimensions,
+            &PublicMessage::Curated("componenti WKB con dimensioni incoerenti"),
+        );
     }
-    if contract.encoding == GeometryEncoding::Ewkb && geometry.srid != contract.srid {
-        return Err(geometry_violation(
-            driver,
-            ContractIdentifier::from_geometry_column(contract).as_ref(),
+    // Sotto `ewkb` lo SRID sta solo sulla geometria esterna (GEO-009), sotto
+    // `wkb` non c'e' (GEO-008): in entrambi i casi il valore e' malformato.
+    if geometry.srid_on_member || (!allow_srid && geometry.contains_srid) {
+        return violazione(
             CapabilityReason::GeometryEncoding,
+            &PublicMessage::Curated("SRID EWKB su un membro o sotto encoding wkb"),
+        );
+    }
+    // Uno SRID esterno diverso da quello del campo, o in un campo che non lo
+    // dichiara, contraddice il CRS; un valore senza SRID ha quello del campo.
+    if allow_srid && geometry.srid.is_some() && geometry.srid != contract.srid {
+        return violazione(
+            CapabilityReason::CrsRepresentationsInconsistent,
             // Gli SRID non entrano: sono numeri **letti dal payload**, e il
             // vincolo di S9 ammette solo indici, conteggi, tetti e codici
             // strutturali.
             &PublicMessage::Curated("SRID del payload diverso da quello dichiarato"),
-        ));
+        );
     }
     if !contract.geometry_types.is_empty()
+        && !contract.geometry_types.contains(&GeometryType::Unknown)
         && !contract.geometry_types.contains(&geometry.geometry_type)
     {
-        return Err(geometry_violation(
-            driver,
-            ContractIdentifier::from_geometry_column(contract).as_ref(),
+        return violazione(
             CapabilityReason::MixedGeometry,
             &PublicMessage::CuratedPair(
                 "tipo geometrico assente da quelli dichiarati:",
                 geometry.geometry_type.canonical_name(),
             ),
-        ));
+        );
+    }
+    let actual_dimensions = geometry.dimensions;
+    if contract.dimensions != CoordinateDimensions::Unknown
+        && contract.dimensions != actual_dimensions
+    {
+        return violazione(
+            CapabilityReason::CoordinateDimensions,
+            &PublicMessage::CuratedPair(
+                "dimensioni del payload diverse da quelle dichiarate dal contratto:",
+                actual_dimensions.nome(),
+            ),
+        );
+    }
+    if !support.dimensions.contains(&actual_dimensions) {
+        return violazione(
+            CapabilityReason::CoordinateDimensions,
+            &PublicMessage::CuratedPair(
+                "dimensioni del payload non supportate dal driver:",
+                actual_dimensions.nome(),
+            ),
+        );
     }
     Ok(())
 }
@@ -307,6 +324,7 @@ fn inspect_geometry_row(
             CapabilityReason::Nullability => "contract.nullability",
             CapabilityReason::CoordinateDimensions => "contract.coordinate_dimensions",
             CapabilityReason::MixedGeometry => "contract.geometry_type",
+            CapabilityReason::CrsRepresentationsInconsistent => CAUSA_SRID,
             _ => "contract.geometry_encoding",
         };
         violations.insert(
@@ -360,7 +378,7 @@ fn errore_di_rifiuto_senza_report(
     );
     let mut error = PlenoraIoError::redatto(
         IoErrorCode::Generic,
-        ErrorCategory::DataMapping,
+        categoria_del_rifiuto(causa),
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,
@@ -461,7 +479,7 @@ pub fn write_rejection_error(
     };
     let mut error = PlenoraIoError::redatto(
         IoErrorCode::Generic,
-        ErrorCategory::DataMapping,
+        categoria_del_rifiuto(prima.map(|violation| violation.cause)),
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,

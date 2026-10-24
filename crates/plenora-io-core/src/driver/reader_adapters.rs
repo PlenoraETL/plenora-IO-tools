@@ -8,7 +8,9 @@ use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use plenora_io_model::budget::{
     ConcurrencyLease, InternalMemoryLease, OperationBudget, OperationCounter,
 };
-use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, LayerContract, LayerId};
+use plenora_io_model::contract::{
+    CoordinateDimensions, GeometryEncoding, GeometryType, LayerContract, LayerId,
+};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
 use plenora_io_model::{
@@ -782,19 +784,31 @@ fn collect_read_violations(
                 );
                 return Ok(());
             };
-            let cause = if geometry.dimensions != CoordinateDimensions::Unknown
-                && (geometry.dimensions != inspected.dimensions
-                    || !inspected.nested_dimensions_coherent)
-            {
+            // REJ-002 per un valore: buona forma, poi SRID, poi tipi e dimensioni.
+            // Uno SRID su un membro e' malformato (GEO-009); sotto `ewkb` uno
+            // SRID esterno diverso da quello del campo, o in un campo che non lo
+            // dichiara, contraddice il CRS ed e' della classe `crs`; un valore
+            // senza SRID in un campo che lo dichiara ha lo SRID del campo.
+            let cause = if !inspected.nested_dimensions_coherent {
                 Some("contract.coordinate_dimensions")
-            } else if (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
-                || (geometry.encoding == GeometryEncoding::Ewkb && inspected.srid != geometry.srid)
+            } else if inspected.srid_on_member
+                || (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
             {
                 Some("contract.geometry_encoding")
+            } else if geometry.encoding == GeometryEncoding::Ewkb
+                && inspected.srid.is_some()
+                && inspected.srid != geometry.srid
+            {
+                Some(CAUSA_SRID)
             } else if !geometry.geometry_types.is_empty()
+                && !geometry.geometry_types.contains(&GeometryType::Unknown)
                 && !geometry.geometry_types.contains(&inspected.geometry_type)
             {
                 Some("contract.geometry_type")
+            } else if geometry.dimensions != CoordinateDimensions::Unknown
+                && geometry.dimensions != inspected.dimensions
+            {
+                Some("contract.coordinate_dimensions")
             } else {
                 None
             };
@@ -919,6 +933,9 @@ fn read_rejection_error(
     accumulator.into_error(reached_eof, knowledge_limit)
 }
 
+/// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
+const CAUSA_SRID: &str = "contract.srid";
+
 struct ReadViolationAccumulator {
     physical_row_indices_attestable: bool,
     examples_limit: u64,
@@ -926,6 +943,9 @@ struct ReadViolationAccumulator {
     counts: BTreeMap<String, u64>,
     examples: BTreeMap<u64, (&'static str, Option<String>)>,
     column_names_attestable: bool,
+    /// La causa della prima violazione in ordine di riga: decide la categoria
+    /// (REJ-002).
+    prima_causa: Option<&'static str>,
 }
 
 impl ReadViolationAccumulator {
@@ -937,6 +957,7 @@ impl ReadViolationAccumulator {
             counts: BTreeMap::new(),
             examples: BTreeMap::new(),
             column_names_attestable: true,
+            prima_causa: None,
         }
     }
 
@@ -946,6 +967,7 @@ impl ReadViolationAccumulator {
 
     fn record_all(&mut self, violations: BTreeMap<u64, (&'static str, String)>) -> Result<()> {
         for (source_index, (cause, column)) in violations {
+            self.prima_causa.get_or_insert(cause);
             let column = RowDiagnosticColumn::attest(column);
             self.column_names_attestable &= column.is_attested();
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
@@ -1058,9 +1080,14 @@ impl ReadViolationAccumulator {
     ) -> PlenoraIoError {
         let observed_total = self.observed_total;
         let diagnostics = self.diagnostics(reached_eof, knowledge_limit);
+        let categoria = if self.prima_causa == Some(CAUSA_SRID) {
+            ErrorCategory::Crs
+        } else {
+            ErrorCategory::DataMapping
+        };
         let error = PlenoraIoError::redatto(
             IoErrorCode::Generic,
-            ErrorCategory::DataMapping,
+            categoria,
             ErrorPhase::Read,
             RemoteEffect::None,
             RetryDisposition::Never,

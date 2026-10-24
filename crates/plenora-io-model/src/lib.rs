@@ -26,6 +26,7 @@ pub mod json;
 pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod vocabolario;
 pub mod wkb;
 mod wkb_lossless;
 
