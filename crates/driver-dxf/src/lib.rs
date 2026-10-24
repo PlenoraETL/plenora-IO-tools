@@ -104,11 +104,34 @@ fn digits_after(text: &str, marker: &str) -> Option<String> {
     (!digits.is_empty()).then_some(digits)
 }
 
+/// Il codice di una definizione che **e'** un identificatore EPSG: tutto il
+/// testo, a meno degli spazi ai bordi, e' `EPSG:<cifre>` oppure
+/// `URN:OGC:DEF:CRS:EPSG:<versione>:<cifre>` (gia' in maiuscolo).
+///
+/// Fino a qui si prendeva ogni `EPSG:` seguito da cifre **ovunque** nel testo:
+/// il nome di un WKT (`PROJCS["Locale basato su EPSG:4326",...]`), la
+/// descrizione di un XML, un commento. Un proiettato senza `AUTHORITY` di
+/// radice usciva EPSG:4326, geografico, senza alcun segnale. Il testo libero
+/// di una definizione non dichiara un identificatore.
+fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
+    let testo = upper.trim();
+    let codice = if let Some(codice) = testo.strip_prefix("EPSG:") {
+        codice
+    } else {
+        let resto = testo.strip_prefix("URN:OGC:DEF:CRS:EPSG:")?;
+        // La versione puo' essere vuota (`EPSG::3003`); un secondo `:` resta
+        // nel codice e lo rende non numerico.
+        resto.split_once(':')?.1
+    };
+    (!codice.is_empty() && codice.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| codice.to_owned())
+}
+
 /// Il codice EPSG che la definizione del `GEODATA` dichiara.
 ///
-/// Le forme sono tre: un `EPSG:<codice>` nel testo (anche dentro un URN), gli
-/// identificatori di radice di un WKT, gli `<Alias>` EPSG di una definizione
-/// XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
+/// Le forme sono tre: una definizione che **e'** l'identificatore
+/// (`EPSG:<codice>` o il suo URN OGC), gli identificatori di radice di un WKT,
+/// gli `<Alias>` EPSG di una definizione XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
 /// trovata: un testo con due `EPSG:` diversi, o un XML con due alias, dava il
 /// primo codice e l'altro spariva. Ora si raccolgono tutte, e codici discordi
 /// sono un conflitto: la definizione non dice quale valga.
@@ -124,11 +147,7 @@ fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
     use plenora_io_model::crs::CrsDefinitionFormat;
     let upper = definition.to_ascii_uppercase();
     let mut codici: BTreeSet<String> = BTreeSet::new();
-    let mut remaining = upper.as_str();
-    while let Some(start) = remaining.find("EPSG:") {
-        codici.extend(digits_after(remaining, "EPSG:"));
-        remaining = &remaining[start + "EPSG:".len()..];
-    }
+    codici.extend(epsg_che_e_la_definizione(&upper));
     // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
     // AUTHORITY EPSG del testo, che si leggeva fino alla 5.x, e' quello
     // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
@@ -216,6 +235,17 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         let trimmed = definition.trim();
         (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
     });
+    // Due dichiarazioni diverse dello stesso CRS: il codice incorporato
+    // vinceva e l'opzione taceva. Il controllo comune di `with_read_budget`
+    // lo rifiuterebbe comunque; il resolver non deve pero' decidere da se' di
+    // ignorare l'opzione. Concordi, vale la grafia del file.
+    if let (Some(assunta), Some(dichiarata)) = (options.assume_crs.as_deref(), &embedded_id) {
+        if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
+            )));
+        }
+    }
     let id = embedded_id.or_else(|| options.assume_crs.clone());
     let Some(id) = id else {
         let raw = RawCrs::new(definition, None);

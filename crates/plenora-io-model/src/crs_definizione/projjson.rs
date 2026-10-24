@@ -26,29 +26,47 @@
 //! ripetuta in qualunque oggetto rifiutata (`object_pairs_hook`); la radice
 //! deve essere un oggetto.
 //!
-//! # Dove resta una differenza
+//! # Dove l'oracolo non da' un verdetto
 //!
-//! L'oracolo, in `CPython`, non da' un verdetto oltre circa mille livelli
-//! (`RecursionError`) ne' su un intero di piu' di 4300 cifre (`ValueError`):
-//! sono limiti dell'interprete, non della grammatica. Questo lettore e'
-//! iterativo, non ha un tetto di annidamento proprio e legge gli interi come
-//! testo: li' accetta. Il documento e' gia' limitato dai byte del metadato.
+//! L'oracolo, in `CPython`, si ferma con un'eccezione che non e' `Malformed`
+//! -- cioe' senza un verdetto del contratto -- in tre casi, tutti limiti
+//! dell'interprete e non della grammatica:
+//!
+//! - oltre circa mille livelli di annidamento (`RecursionError`);
+//! - su un intero di piu' di 4300 cifre (`ValueError`);
+//! - su un decimale con un esponente oltre i limiti di `decimal`, per esempio
+//!   `9e9999999999999999999999999999` (`decimal.InvalidOperation`).
+//!
+//! Questo lettore e' iterativo e legge i numeri come testo, senza valutarli:
+//! nei tre casi da' il verdetto della grammatica. Il documento e' ben formato;
+//! un intero lungo e' un codice valido, un decimale (con qualunque esponente)
+//! come codice e' malformato e altrove e' un valore qualunque.
+//!
+//! # Memoria
+//!
+//! Fino alla 5.0.1 la verifica teneva un `HashSet` per ogni oggetto aperto e
+//! 48 byte per ogni contenitore aperto, e la lettura della radice
+//! materializzava ogni membro fino al terzo livello: con un metadato di 16 MiB
+//! il picco arrivava a 25-37 volte i byte del documento (oltre 500 MB per tre
+//! milioni di oggetti annidati). Ora la memoria e' lineare nei byte, con un
+//! fattore piccolo e dichiarato:
+//!
+//! - un byte per ogni contenitore aperto (il suo genere);
+//! - per ogni chiave di un oggetto aperto un'impronta e una posizione (16
+//!   byte); le chiavi di un oggetto si liberano alla sua chiusura;
+//! - della radice si materializzano soltanto `id` e `ids`, e di ogni
+//!   identificatore soltanto `authority` e `code`, decodificati in UTF-8.
+//!
+//! Il doppione si cerca alla chiusura dell'oggetto, ordinando le impronte
+//! (`SipHash` con chiavi casuali, quindi non costruibili da chi scrive il
+//! documento) e confrontando per intero le sole chiavi con la stessa impronta:
+//! il verdetto e' esatto, l'impronta decide solo quanto lavoro fare. Le misure
+//! sono in `docs/PRODUCT.md`, riga «CRS: PROJJSON».
 
-use std::collections::HashSet;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
 
 use super::{Malformata, TestoDefinizione};
-
-/// Un valore di `id` o `ids`, materializzato fino a tre livelli: oltre, a un
-/// identificatore non serve.
-enum Valore {
-    Oggetto(Vec<(Vec<u32>, Self)>),
-    Lista(Vec<Self>),
-    Testo(Vec<u32>),
-    Intero(String),
-    /// Un decimale, un booleano, `null`, o un contenitore oltre il terzo
-    /// livello: nessuno dei due membri di un identificatore lo ammette.
-    Altro,
-}
 
 /// Le coppie (autorita', codice) di `id` o `ids` della radice.
 pub(super) fn identificatori(
@@ -59,56 +77,7 @@ pub(super) fn identificatori(
         byte: testo.as_bytes(),
         pos: 0,
     };
-    let (id, ids) = radice(&mut cursore)?;
-    // `id` e `ids` insieme, o `ids` che non e' una lista, sono malformati.
-    let trovati = match (id, ids) {
-        (Some(id), None) => vec![id],
-        (None, Some(Valore::Lista(ids))) => ids,
-        (None, None) => Vec::new(),
-        (_, Some(_)) => return Err(Malformata),
-    };
-    trovati.into_iter().map(identificatore).collect()
-}
-
-fn identificatore(voce: Valore) -> Result<(TestoDefinizione, TestoDefinizione), Malformata> {
-    let Valore::Oggetto(membri) = voce else {
-        return Err(Malformata);
-    };
-    let mut autorita = None;
-    let mut codice = None;
-    for (chiave, valore) in membri {
-        if chiave == unita("authority") {
-            autorita = Some(valore);
-        } else if chiave == unita("code") {
-            codice = Some(valore);
-        }
-    }
-    let Some(Valore::Testo(autorita)) = autorita else {
-        return Err(Malformata);
-    };
-    let codice = match codice {
-        Some(Valore::Testo(codice)) => testo_definizione(&codice),
-        Some(Valore::Intero(codice)) => TestoDefinizione::Unicode(codice),
-        _ => return Err(Malformata),
-    };
-    Ok((testo_definizione(&autorita), codice))
-}
-
-fn unita(testo: &str) -> Vec<u32> {
-    testo.chars().map(u32::from).collect()
-}
-
-/// Un testo JSON decodificato in punti di codice; un surrogato isolato non ha
-/// una stringa Rust che lo rappresenti.
-fn testo_definizione(punti: &[u32]) -> TestoDefinizione {
-    punti
-        .iter()
-        .map(|p| char::from_u32(*p))
-        .collect::<Option<String>>()
-        .map_or(
-            TestoDefinizione::SurrogatiIsolati,
-            TestoDefinizione::Unicode,
-        )
+    radice(&mut cursore)
 }
 
 struct Cursore<'a> {
@@ -136,48 +105,104 @@ impl Cursore<'_> {
         }
     }
 
-    /// Una stringa JSON, dalle virgolette d'apertura, in punti di codice.
-    fn stringa(&mut self) -> Result<Vec<u32>, Malformata> {
-        self.atteso(b'"')?;
-        let mut punti = Vec::new();
-        loop {
-            let byte = self.guarda().ok_or(Malformata)?;
-            match byte {
-                b'"' => {
-                    self.pos += 1;
-                    return Ok(punti);
-                }
-                b'\\' => {
-                    self.pos += 1;
-                    punti.push(self.escape()?);
-                }
-                // `strict=True`: nessun carattere di controllo crudo.
-                0x00..=0x1f => return Err(Malformata),
-                _ => {
-                    // Il documento e' una `&str`: dal byte iniziale si sa
-                    // quanti byte ha il carattere, e si decodifica solo lui
-                    // (decodificare tutto il resto a ogni carattere sarebbe
-                    // quadratico).
-                    let lunghezza = match byte {
-                        0x00..=0x7f => 1,
-                        0xc0..=0xdf => 2,
-                        0xe0..=0xef => 3,
-                        _ => 4,
-                    };
-                    let pezzo = self
-                        .byte
-                        .get(self.pos..self.pos + lunghezza)
-                        .ok_or(Malformata)?;
-                    let carattere = std::str::from_utf8(pezzo)
-                        .map_err(|_| Malformata)?
-                        .chars()
-                        .next()
-                        .ok_or(Malformata)?;
-                    punti.push(u32::from(carattere));
-                    self.pos += carattere.len_utf8();
-                }
+    /// Il prossimo punto di codice di una stringa JSON gia' aperta, o `None`
+    /// dopo averne consumato le virgolette di chiusura.
+    fn punto(&mut self) -> Result<Option<u32>, Malformata> {
+        let byte = self.guarda().ok_or(Malformata)?;
+        match byte {
+            b'"' => {
+                self.pos += 1;
+                Ok(None)
+            }
+            b'\\' => {
+                self.pos += 1;
+                self.escape().map(Some)
+            }
+            // `strict=True`: nessun carattere di controllo crudo.
+            0x00..=0x1f => Err(Malformata),
+            _ => {
+                // Il documento e' una `&str`: dal byte iniziale si sa quanti
+                // byte ha il carattere, e si decodifica solo lui (decodificare
+                // tutto il resto a ogni carattere sarebbe quadratico).
+                let lunghezza = match byte {
+                    0x00..=0x7f => 1,
+                    0xc0..=0xdf => 2,
+                    0xe0..=0xef => 3,
+                    _ => 4,
+                };
+                let pezzo = self
+                    .byte
+                    .get(self.pos..self.pos + lunghezza)
+                    .ok_or(Malformata)?;
+                let carattere = std::str::from_utf8(pezzo)
+                    .map_err(|_| Malformata)?
+                    .chars()
+                    .next()
+                    .ok_or(Malformata)?;
+                self.pos += carattere.len_utf8();
+                Ok(Some(u32::from(carattere)))
             }
         }
+    }
+
+    /// Una stringa JSON, dalle virgolette d'apertura, decodificata: in UTF-8,
+    /// o [`TestoDefinizione::SurrogatiIsolati`] se porta un surrogato isolato.
+    fn testo(&mut self) -> Result<TestoDefinizione, Malformata> {
+        self.atteso(b'"')?;
+        let mut testo = String::new();
+        let mut surrogati = false;
+        while let Some(punto) = self.punto()? {
+            match char::from_u32(punto) {
+                Some(carattere) if !surrogati => testo.push(carattere),
+                Some(_) => {}
+                None => surrogati = true,
+            }
+        }
+        Ok(if surrogati {
+            TestoDefinizione::SurrogatiIsolati
+        } else {
+            TestoDefinizione::Unicode(testo)
+        })
+    }
+
+    /// Consuma una stringa JSON, dalle virgolette d'apertura, senza tenerla.
+    fn salta_stringa(&mut self) -> Result<(), Malformata> {
+        self.atteso(b'"')?;
+        while self.punto()?.is_some() {}
+        Ok(())
+    }
+
+    /// L'impronta dei punti di codice di una stringa JSON, dalle virgolette
+    /// d'apertura: due grafie dello stesso testo (`"a"` e `"a"`) hanno la
+    /// stessa impronta.
+    fn impronta(&mut self, stato: &RandomState) -> Result<u64, Malformata> {
+        self.atteso(b'"')?;
+        let mut hasher = stato.build_hasher();
+        while let Some(punto) = self.punto()? {
+            hasher.write_u32(punto);
+        }
+        Ok(hasher.finish())
+    }
+
+    /// Una stringa JSON, dalle virgolette d'apertura, confrontata con i nomi
+    /// dati: l'indice di quello uguale, se c'e'. Della stringa si tengono al
+    /// piu' i primi caratteri che servono al confronto.
+    fn nome_fra(&mut self, nomi: &[&str]) -> Result<Option<usize>, Malformata> {
+        const TENUTI: usize = 16;
+        self.atteso(b'"')?;
+        let mut inizio = String::new();
+        let mut troppo = false;
+        while let Some(punto) = self.punto()? {
+            match char::from_u32(punto) {
+                Some(carattere) if !troppo && inizio.len() < TENUTI => inizio.push(carattere),
+                _ => troppo = true,
+            }
+        }
+        Ok(if troppo {
+            None
+        } else {
+            nomi.iter().position(|nome| *nome == inizio)
+        })
     }
 
     fn escape(&mut self) -> Result<u32, Malformata> {
@@ -225,11 +250,12 @@ impl Cursore<'_> {
         Ok(valore)
     }
 
-    /// Un numero JSON: `Some(testo)` se intero, nella forma di `str(int(...))`
-    /// di Python (`-0` vale `0`), `None` se decimale. Come la regex di
-    /// `json.scanner`, una frazione o un esponente incompleti non si consumano:
-    /// il byte che resta lo rifiuta chi viene dopo.
-    fn numero(&mut self) -> Result<Option<String>, Malformata> {
+    /// Un numero JSON: `Some(inizio..fine)` della sua parte intera se e'
+    /// intero, `None` se decimale. Come la regex di `json.scanner`, una
+    /// frazione o un esponente incompleti non si consumano: il byte che resta
+    /// lo rifiuta chi viene dopo. Il numero non si valuta: un esponente
+    /// qualunque e' soltanto testo.
+    fn numero(&mut self) -> Result<Option<std::ops::Range<usize>>, Malformata> {
         let inizio = self.pos;
         if self.guarda() == Some(b'-') {
             self.pos += 1;
@@ -257,15 +283,7 @@ impl Cursore<'_> {
             }
         }
         // Una frazione o un esponente consumati fanno un decimale.
-        if self.pos != fine_intero {
-            return Ok(None);
-        }
-        let testo = std::str::from_utf8(&self.byte[inizio..fine_intero]).map_err(|_| Malformata)?;
-        Ok(Some(if testo == "-0" {
-            "0".to_owned()
-        } else {
-            testo.to_owned()
-        }))
+        Ok((self.pos == fine_intero).then_some(inizio..fine_intero))
     }
 
     fn cifre(&mut self) {
@@ -283,98 +301,119 @@ impl Cursore<'_> {
         }
     }
 
-    /// Un valore scalare, o l'apertura di un contenitore (`{` o `[`, non
+    /// Consuma un valore scalare e restituisce `true`, oppure restituisce
+    /// `false` davanti all'apertura di un contenitore (`{` o `[`, non
     /// consumata).
-    fn scalare(&mut self) -> Result<Option<Valore>, Malformata> {
-        Ok(Some(match self.guarda().ok_or(Malformata)? {
-            b'{' | b'[' => return Ok(None),
-            b'"' => Valore::Testo(self.stringa()?),
-            b'-' | b'0'..=b'9' => self.numero()?.map_or(Valore::Altro, Valore::Intero),
-            b't' => {
-                self.letterale(b"true")?;
-                Valore::Altro
+    fn salta_scalare(&mut self) -> Result<bool, Malformata> {
+        match self.guarda().ok_or(Malformata)? {
+            b'{' | b'[' => return Ok(false),
+            b'"' => self.salta_stringa()?,
+            b'-' | b'0'..=b'9' => {
+                self.numero()?;
             }
-            b'f' => {
-                self.letterale(b"false")?;
-                Valore::Altro
-            }
-            b'n' => {
-                self.letterale(b"null")?;
-                Valore::Altro
-            }
+            b't' => self.letterale(b"true")?,
+            b'f' => self.letterale(b"false")?,
+            b'n' => self.letterale(b"null")?,
             // `NaN`, `Infinity`, `-Infinity` (gia' rifiutato da `numero`) e
             // ogni altro byte.
             _ => return Err(Malformata),
-        }))
+        }
+        Ok(true)
+    }
+
+    /// Consuma un valore qualunque, gia' validato, senza tenerne niente.
+    fn salta_valore(&mut self) -> Result<(), Malformata> {
+        if self.salta_scalare()? {
+            Ok(())
+        } else {
+            salta_contenitore(self)
+        }
     }
 }
 
-enum Contenitore {
-    Oggetto(HashSet<Vec<u32>>),
-    Lista,
+/// Una chiave di un oggetto aperto: l'impronta dei suoi punti di codice e la
+/// posizione delle sue virgolette d'apertura, da cui rileggerla per intero.
+///
+/// Il bit alto della posizione segna la prima chiave di un oggetto: e' cio'
+/// che dice dove cominciano le chiavi dell'oggetto che si chiude, senza una
+/// seconda pila. Una posizione in una `&[u8]` non arriva mai a quel bit
+/// (una fetta non supera `isize::MAX` byte).
+#[derive(Clone, Copy)]
+struct Chiave {
+    impronta: u64,
+    posizione: usize,
 }
 
-/// La sintassi del documento intero, senza ricorsione: una pila di contenitori,
-/// e per ogni oggetto l'insieme delle sue chiavi.
+const PRIMA_DELL_OGGETTO: usize = 1 << (usize::BITS - 1);
+
+impl Chiave {
+    const fn inizio(self) -> usize {
+        self.posizione & !PRIMA_DELL_OGGETTO
+    }
+
+    const fn prima(self) -> bool {
+        self.posizione & PRIMA_DELL_OGGETTO != 0
+    }
+}
+
+/// La sintassi del documento intero, senza ricorsione.
+///
+/// La pila dei contenitori aperti tiene un byte per livello; le chiavi degli
+/// oggetti aperti stanno in un solo vettore, e la prima di ogni oggetto e'
+/// segnata.
 fn valida(byte: &[u8]) -> Result<(), Malformata> {
+    let stato = RandomState::new();
     let mut cursore = Cursore { byte, pos: 0 };
-    let mut pila: Vec<Contenitore> = Vec::new();
+    // `true` per un oggetto, `false` per una lista.
+    let mut generi: Vec<bool> = Vec::new();
+    let mut chiavi: Vec<Chiave> = Vec::new();
     'valore: loop {
         cursore.spazi();
-        match cursore.scalare()? {
-            Some(_) => {}
-            None if cursore.guarda() == Some(b'{') => {
+        if !cursore.salta_scalare()? {
+            let oggetto = cursore.guarda() == Some(b'{');
+            cursore.pos += 1;
+            cursore.spazi();
+            if cursore.guarda() == Some(if oggetto { b'}' } else { b']' }) {
                 cursore.pos += 1;
-                cursore.spazi();
-                if cursore.guarda() == Some(b'}') {
-                    cursore.pos += 1;
-                } else {
-                    let mut chiavi = HashSet::new();
-                    chiave(&mut cursore, &mut chiavi)?;
-                    pila.push(Contenitore::Oggetto(chiavi));
-                    continue 'valore;
+            } else {
+                generi.push(oggetto);
+                if oggetto {
+                    chiave(&mut cursore, &stato, &mut chiavi, true)?;
                 }
-            }
-            None => {
-                cursore.pos += 1;
-                cursore.spazi();
-                if cursore.guarda() == Some(b']') {
-                    cursore.pos += 1;
-                } else {
-                    pila.push(Contenitore::Lista);
-                    continue 'valore;
-                }
+                continue 'valore;
             }
         }
         // Un valore e' finito: si chiudono i contenitori che finiscono con lui.
         loop {
             cursore.spazi();
-            match pila.last_mut() {
-                None => break 'valore,
-                Some(Contenitore::Oggetto(chiavi)) => match cursore.guarda() {
-                    Some(b',') => {
-                        cursore.pos += 1;
+            let Some(&oggetto) = generi.last() else {
+                break 'valore;
+            };
+            match cursore.guarda() {
+                Some(b',') => {
+                    cursore.pos += 1;
+                    if oggetto {
                         cursore.spazi();
-                        chiave(&mut cursore, chiavi)?;
-                        continue 'valore;
+                        chiave(&mut cursore, &stato, &mut chiavi, false)?;
                     }
-                    Some(b'}') => {
-                        cursore.pos += 1;
-                        pila.pop();
-                    }
-                    _ => return Err(Malformata),
-                },
-                Some(Contenitore::Lista) => match cursore.guarda() {
-                    Some(b',') => {
-                        cursore.pos += 1;
-                        continue 'valore;
-                    }
-                    Some(b']') => {
-                        cursore.pos += 1;
-                        pila.pop();
-                    }
-                    _ => return Err(Malformata),
-                },
+                    continue 'valore;
+                }
+                Some(b'}') if oggetto => {
+                    cursore.pos += 1;
+                    generi.pop();
+                    let inizio = chiavi
+                        .iter()
+                        .rposition(|chiave| chiave.prima())
+                        .ok_or(Malformata)?;
+                    let proprie = chiavi.get_mut(inizio..).ok_or(Malformata)?;
+                    nessun_doppione(byte, proprie)?;
+                    chiavi.truncate(inizio);
+                }
+                Some(b']') if !oggetto => {
+                    cursore.pos += 1;
+                    generi.pop();
+                }
+                _ => return Err(Malformata),
             }
         }
     }
@@ -386,98 +425,202 @@ fn valida(byte: &[u8]) -> Result<(), Malformata> {
     }
 }
 
-/// Una chiave e i due punti; una chiave gia' vista nello stesso oggetto e'
-/// malformata.
-fn chiave(cursore: &mut Cursore<'_>, chiavi: &mut HashSet<Vec<u32>>) -> Result<(), Malformata> {
-    let nome = cursore.stringa()?;
-    if !chiavi.insert(nome) {
+/// Una chiave e i due punti; la chiave si registra fra quelle dell'oggetto
+/// aperto.
+fn chiave(
+    cursore: &mut Cursore<'_>,
+    stato: &RandomState,
+    chiavi: &mut Vec<Chiave>,
+    prima: bool,
+) -> Result<(), Malformata> {
+    let inizio = cursore.pos;
+    if inizio & PRIMA_DELL_OGGETTO != 0 {
         return Err(Malformata);
     }
+    let impronta = cursore.impronta(stato)?;
+    chiavi.push(Chiave {
+        impronta,
+        posizione: if prima {
+            inizio | PRIMA_DELL_OGGETTO
+        } else {
+            inizio
+        },
+    });
     cursore.spazi();
     cursore.atteso(b':')
 }
 
-/// `id` e `ids` della radice, che deve essere un oggetto. Il documento e' gia'
-/// stato validato: qui si percorre soltanto.
-fn radice(cursore: &mut Cursore<'_>) -> Result<(Option<Valore>, Option<Valore>), Malformata> {
-    cursore.spazi();
-    if cursore.guarda() != Some(b'{') {
-        return Err(Malformata);
-    }
-    let (mut id, mut ids) = (None, None);
-    for (nome, valore) in membri(cursore, 1)? {
-        if nome == unita("id") {
-            id = Some(valore);
-        } else if nome == unita("ids") {
-            ids = Some(valore);
+/// Le chiavi di un oggetto che si chiude sono tutte diverse.
+///
+/// Si ordinano per impronta, e soltanto le chiavi con la stessa impronta si
+/// confrontano per intero: due chiavi uguali hanno per forza la stessa
+/// impronta, quindi nessun doppione sfugge.
+fn nessun_doppione(byte: &[u8], chiavi: &mut [Chiave]) -> Result<(), Malformata> {
+    chiavi.sort_unstable_by_key(|chiave| chiave.impronta);
+    let mut gruppo = 0;
+    while gruppo < chiavi.len() {
+        let impronta = chiavi[gruppo].impronta;
+        let fine = chiavi[gruppo..]
+            .iter()
+            .position(|chiave| chiave.impronta != impronta)
+            .map_or(chiavi.len(), |scarto| gruppo + scarto);
+        for prima in gruppo..fine {
+            for seconda in prima + 1..fine {
+                if stesso_testo(byte, chiavi[prima].inizio(), chiavi[seconda].inizio())? {
+                    return Err(Malformata);
+                }
+            }
         }
+        gruppo = fine;
     }
-    Ok((id, ids))
+    Ok(())
 }
 
-/// I membri dell'oggetto che comincia al cursore, con i valori materializzati
-/// fino al livello `livello + 2`.
+/// Le due stringhe JSON che cominciano in `prima` e `seconda` hanno gli stessi
+/// punti di codice.
+fn stesso_testo(byte: &[u8], prima: usize, seconda: usize) -> Result<bool, Malformata> {
+    let mut a = Cursore { byte, pos: prima };
+    let mut b = Cursore { byte, pos: seconda };
+    a.atteso(b'"')?;
+    b.atteso(b'"')?;
+    loop {
+        let (pa, pb) = (a.punto()?, b.punto()?);
+        if pa != pb {
+            return Ok(false);
+        }
+        if pa.is_none() {
+            return Ok(true);
+        }
+    }
+}
+
+type Coppia = (TestoDefinizione, TestoDefinizione);
+
+/// `id` e `ids` della radice, che deve essere un oggetto. Il documento e' gia'
+/// stato validato: qui si percorre soltanto, e degli altri membri non si tiene
+/// niente.
+///
+/// `id` e `ids` insieme, o `ids` che non e' una lista, sono malformati; ogni
+/// voce deve essere un identificatore.
+fn radice(cursore: &mut Cursore<'_>) -> Result<Vec<Coppia>, Malformata> {
+    cursore.spazi();
+    let mut id: Option<Coppia> = None;
+    let mut ids: Option<Vec<Coppia>> = None;
+    membri(
+        cursore,
+        |cursore, nome| {
+            match nome {
+                Some(0) => id = Some(identificatore(cursore)?),
+                Some(_) => {
+                    cursore.atteso(b'[')?;
+                    let mut voci = Vec::new();
+                    cursore.spazi();
+                    if cursore.guarda() == Some(b']') {
+                        cursore.pos += 1;
+                    } else {
+                        loop {
+                            cursore.spazi();
+                            voci.push(identificatore(cursore)?);
+                            cursore.spazi();
+                            match cursore.guarda() {
+                                Some(b',') => cursore.pos += 1,
+                                Some(b']') => {
+                                    cursore.pos += 1;
+                                    break;
+                                }
+                                _ => return Err(Malformata),
+                            }
+                        }
+                    }
+                    ids = Some(voci);
+                }
+                None => cursore.salta_valore()?,
+            }
+            Ok(())
+        },
+        &["id", "ids"],
+    )?;
+    match (id, ids) {
+        (Some(id), None) => Ok(vec![id]),
+        (None, Some(ids)) => Ok(ids),
+        (None, None) => Ok(Vec::new()),
+        (Some(_), Some(_)) => Err(Malformata),
+    }
+}
+
+/// Un identificatore: un oggetto con `authority` stringa e `code` stringa o
+/// intero. Gli altri membri non si tengono.
+fn identificatore(cursore: &mut Cursore<'_>) -> Result<Coppia, Malformata> {
+    let mut autorita = None;
+    let mut codice = None;
+    membri(
+        cursore,
+        |cursore, nome| {
+            match nome {
+                Some(0) => {
+                    if cursore.guarda() != Some(b'"') {
+                        return Err(Malformata);
+                    }
+                    autorita = Some(cursore.testo()?);
+                }
+                Some(_) => {
+                    codice = Some(match cursore.guarda() {
+                        Some(b'"') => cursore.testo()?,
+                        Some(b'-' | b'0'..=b'9') => {
+                            let intero = cursore.numero()?.ok_or(Malformata)?;
+                            let testo =
+                                std::str::from_utf8(cursore.byte.get(intero).ok_or(Malformata)?)
+                                    .map_err(|_| Malformata)?;
+                            // La forma di `str(int(...))` di Python: `-0` vale `0`.
+                            TestoDefinizione::Unicode(if testo == "-0" {
+                                "0".to_owned()
+                            } else {
+                                testo.to_owned()
+                            })
+                        }
+                        _ => return Err(Malformata),
+                    });
+                }
+                None => cursore.salta_valore()?,
+            }
+            Ok(())
+        },
+        &["authority", "code"],
+    )?;
+    match (autorita, codice) {
+        (Some(autorita), Some(codice)) => Ok((autorita, codice)),
+        _ => Err(Malformata),
+    }
+}
+
+/// Percorre i membri dell'oggetto che comincia al cursore: per ciascuno,
+/// `visita` riceve il cursore sul valore e l'indice in `nomi` della chiave, se
+/// e' uno di quelli, e consuma il valore. Un valore che non e' un oggetto e'
+/// malformato.
 fn membri(
     cursore: &mut Cursore<'_>,
-    livello: usize,
-) -> Result<Vec<(Vec<u32>, Valore)>, Malformata> {
+    mut visita: impl FnMut(&mut Cursore<'_>, Option<usize>) -> Result<(), Malformata>,
+    nomi: &[&str],
+) -> Result<(), Malformata> {
     cursore.atteso(b'{')?;
-    let mut trovati = Vec::new();
     cursore.spazi();
     if cursore.guarda() == Some(b'}') {
         cursore.pos += 1;
-        return Ok(trovati);
+        return Ok(());
     }
     loop {
         cursore.spazi();
-        let nome = cursore.stringa()?;
+        let trovato = cursore.nome_fra(nomi)?;
         cursore.spazi();
         cursore.atteso(b':')?;
         cursore.spazi();
-        trovati.push((nome, valore(cursore, livello + 1)?));
+        visita(cursore, trovato)?;
         cursore.spazi();
         match cursore.guarda() {
             Some(b',') => cursore.pos += 1,
             Some(b'}') => {
                 cursore.pos += 1;
-                return Ok(trovati);
-            }
-            _ => return Err(Malformata),
-        }
-    }
-}
-
-/// Il livello oltre il quale un valore non si materializza: `ids` (1), un suo
-/// identificatore (2), un membro dell'identificatore (3).
-const LIVELLO_MASSIMO: usize = 3;
-
-fn valore(cursore: &mut Cursore<'_>, livello: usize) -> Result<Valore, Malformata> {
-    if let Some(scalare) = cursore.scalare()? {
-        return Ok(scalare);
-    }
-    if livello > LIVELLO_MASSIMO {
-        salta_contenitore(cursore)?;
-        return Ok(Valore::Altro);
-    }
-    if cursore.guarda() == Some(b'{') {
-        return Ok(Valore::Oggetto(membri(cursore, livello)?));
-    }
-    cursore.atteso(b'[')?;
-    let mut elementi = Vec::new();
-    cursore.spazi();
-    if cursore.guarda() == Some(b']') {
-        cursore.pos += 1;
-        return Ok(Valore::Lista(elementi));
-    }
-    loop {
-        cursore.spazi();
-        elementi.push(valore(cursore, livello + 1)?);
-        cursore.spazi();
-        match cursore.guarda() {
-            Some(b',') => cursore.pos += 1,
-            Some(b']') => {
-                cursore.pos += 1;
-                return Ok(Valore::Lista(elementi));
+                return Ok(());
             }
             _ => return Err(Malformata),
         }
@@ -485,13 +628,13 @@ fn valore(cursore: &mut Cursore<'_>, livello: usize) -> Result<Valore, Malformat
 }
 
 /// Salta un contenitore gia' validato contando le parentesi fuori dalle
-/// stringhe, senza ricorsione.
+/// stringhe, senza ricorsione e senza tenere niente.
 fn salta_contenitore(cursore: &mut Cursore<'_>) -> Result<(), Malformata> {
     let mut aperti = 0_usize;
     loop {
         match cursore.guarda().ok_or(Malformata)? {
             b'"' => {
-                cursore.stringa()?;
+                cursore.salta_stringa()?;
                 continue;
             }
             b'{' | b'[' => aperti += 1,
@@ -507,3 +650,6 @@ fn salta_contenitore(cursore: &mut Cursore<'_>) -> Result<(), Malformata> {
         cursore.pos += 1;
     }
 }
+
+#[cfg(test)]
+mod tests;

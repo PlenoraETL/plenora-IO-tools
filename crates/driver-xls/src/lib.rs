@@ -21,6 +21,7 @@ use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
+use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -1139,12 +1140,21 @@ fn resolve_geometry(
     start_column: u32,
     opts: &BTreeMap<String, String>,
 ) -> Result<(XlsxGeomSpec, BTreeSet<u32>)> {
-    let index = |name: &str| {
-        headers
-            .iter()
-            .position(|header| header == name)
-            .and_then(|offset| u32::try_from(offset).ok())
-            .and_then(|offset| start_column.checked_add(offset))
+    // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
+    // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
+    let index = |name: &str, assente: &'static str, ambigua: &'static str| -> Result<u32> {
+        match colonna_per_nome(headers, name) {
+            ColonnaPerNome::Unica(offset) => u32::try_from(offset)
+                .ok()
+                .and_then(|offset| start_column.checked_add(offset))
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "indice colonna XLSX non rappresentabile",
+                    ))
+                }),
+            ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+            ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+        }
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
     // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
@@ -1168,24 +1178,24 @@ fn resolve_geometry(
         // testo runtime ammesso e' il token del validatore centrale, che qui
         // non c'e' — `wkt_column` e' `Testo`, quindi lo schema lo accetta e il
         // rifiuto nasce dal confronto con l'intestazione di questo foglio.
-        let column = index(wkt_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna WKT assente dall'intestazione",
-            ))
-        })?;
+        let column = index(
+            wkt_name,
+            "colonna WKT assente dall'intestazione",
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((XlsxGeomSpec::Wkt(column), BTreeSet::from([column])));
     }
     if let (Some(x_name), Some(y_name)) = (opts.get("x_column"), opts.get("y_column")) {
-        let x_column = index(x_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna X assente dall'intestazione",
-            ))
-        })?;
-        let y_column = index(y_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna Y assente dall'intestazione",
-            ))
-        })?;
+        let x_column = index(
+            x_name,
+            "colonna X assente dall'intestazione",
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
+        let y_column = index(
+            y_name,
+            "colonna Y assente dall'intestazione",
+            "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((
             XlsxGeomSpec::Xy(x_column, y_column),
             BTreeSet::from([x_column, y_column]),

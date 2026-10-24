@@ -286,20 +286,31 @@ pub fn definition_authority_srid(definition: &str, format: CrsDefinitionFormat) 
     }
 }
 
-// Limite dichiarato (docs/PRODUCT.md, «CRS: PROJJSON»): `serde_json` non legge
-// ogni PROJJSON che l'oracolo legge; per quelli lo SRID non si ricava (`None`).
+/// Lo SRID dell'unico identificatore EPSG di primo livello (`id` o `ids`) di
+/// un PROJJSON, letto con il lettore dei contratti
+/// ([`crate::crs_definizione::identificatori`]), non con `serde_json`.
+///
+/// Il codice segue la regola del WKT: un numero JSON e' un intero, nella forma
+/// dell'oracolo (`-0` vale `0`); una stringa e' testo, e si legge solo se
+/// canonica ([`codice_intero_canonico`]). Fino a qui una stringa passava da
+/// `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in
+/// un WKT dava `None`. Due codici EPSG diversi sono ambigui: `None`.
 fn projjson_root_epsg(definition: &str) -> Option<u32> {
-    let value: serde_json::Value = serde_json::from_str(definition).ok()?;
-    let id = value.as_object()?.get("id")?.as_object()?;
-    let authority = id.get("authority")?.as_str()?;
-    if !authority.eq_ignore_ascii_case("EPSG") {
+    use crate::crs_definizione::TestoDefinizione;
+    let coppie =
+        crate::crs_definizione::identificatori(definition, CrsDefinitionFormat::Projjson).ok()?;
+    let mut codici = coppie
+        .iter()
+        .filter(|(autorita, _)| autorita.stessa_autorita("EPSG"))
+        .map(|(_, codice)| match codice {
+            TestoDefinizione::Unicode(testo) => Some(testo.as_str()),
+            TestoDefinizione::SurrogatiIsolati => None,
+        });
+    let primo = codici.next()??;
+    if !codici.all(|altro| altro == Some(primo)) {
         return None;
     }
-    match id.get("code")? {
-        serde_json::Value::Number(code) => u32::try_from(code.as_u64()?).ok(),
-        serde_json::Value::String(code) => code.parse().ok(),
-        _ => None,
-    }
+    codice_intero_canonico(primo).and_then(|codice| u32::try_from(codice).ok())
 }
 
 fn wkt_root_epsg(definition: &str) -> Option<u32> {

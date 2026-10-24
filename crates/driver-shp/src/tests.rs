@@ -1941,6 +1941,55 @@ fn prj_authority_is_resolved_and_axis_order_is_the_stored_one() {
     );
 }
 
+/// Il `.prj` ESRI di WGS 84 non dichiara un'autorita': `EPSG:4326` e' una
+/// deduzione del driver, non una dichiarazione del file. `--assume-crs` e' il
+/// modo di nominare un `.prj` senza autorita', quindi non puo' contraddire una
+/// deduzione: `OGC:CRS84` veniva rifiutato come se il file dicesse altro.
+/// Senza l'opzione la deduzione resta, e con l'opzione vale l'opzione.
+#[test]
+fn assume_crs_nomina_un_prj_esri_che_non_dichiara_autorita() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri.shp");
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+
+    let dedotto = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(dedotto.id.as_deref(), Some("EPSG:4326"));
+
+    for assunto in ["OGC:CRS84", "EPSG:4326"] {
+        let crs = match resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto)) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{assunto}: {errore}"),
+        };
+        assert_eq!(crs.id.as_deref(), Some(assunto), "vale l'opzione");
+    }
+
+    // Lo stesso attraverso l'apertura completa, che porta l'opzione anche al
+    // controllo comune di `with_read_budget`: la deduzione non deve arrivarci
+    // come se il file l'avesse dichiarata.
+    let senza_prj = seme("punti-con-attributi.bundle");
+    let parti = __fuzz_dividi_bundle(&senza_prj).expect("bundle del seme");
+    assert!(parti.prj.is_empty(), "il seme non porta un `.prj`");
+    let mut bundle = senza_prj.clone();
+    bundle.extend_from_slice(WGS84_WKT.as_bytes());
+    for assunto in ["OGC:CRS84", "EPSG:4326"] {
+        let esito = __fuzz_leggi_bundle(&bundle, opzioni_di_campagna().with_assume_crs(assunto));
+        assert!(esito.is_ok(), "{assunto}: {esito:?}");
+    }
+    // Un `.prj` che dichiara davvero l'autorita' resta in conflitto.
+    let mut dichiarato = senza_prj;
+    dichiarato.extend_from_slice(b"GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]]");
+    let errore = __fuzz_leggi_bundle(
+        &dichiarato,
+        opzioni_di_campagna().with_assume_crs("OGC:CRS84"),
+    )
+    .expect_err("un'autorita' dichiarata contraddetta dall'opzione");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Crs,
+        "{errore:?}"
+    );
+}
+
 /// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della
 /// radice, non del `GEOGCS` annidato. Prima della correzione questo `.prj`
 /// usciva `EPSG:4326` con genere proiettato.

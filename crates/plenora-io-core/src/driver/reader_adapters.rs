@@ -59,6 +59,25 @@ pub fn with_read_budget(
 ) -> Result<Box<dyn OpenDatasetHandle>> {
     for layer in dataset.layers() {
         if let Some(geometria) = &layer.contract.geometry {
+            // Il contratto nomina la colonna geometrica, e chi la cerca nei
+            // batch -- la validazione, il conteggio dei componenti, gli esempi
+            // di perdita, chi consuma l'Arrow -- la cerca per nome. Un nome
+            // che lo schema ripete fa trovare la prima occorrenza, che puo'
+            // non essere la geometria: un campo validato al posto di un altro,
+            // in silenzio. Il nome ambiguo si rifiuta qui, per ogni driver.
+            let omonimi = layer
+                .contract
+                .schema
+                .fields()
+                .iter()
+                .filter(|campo| campo.name() == &geometria.name)
+                .count();
+            if omonimi > 1 {
+                return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                    "colonna geometrica ambigua: il suo nome compare piu' volte nello schema del \
+                     layer",
+                )));
+            }
             plenora_io_model::crs::verifica_crs_assunto(
                 opts.assume_crs.as_deref(),
                 &geometria.crs,

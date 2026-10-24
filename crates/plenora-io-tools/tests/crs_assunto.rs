@@ -42,14 +42,19 @@ fn esegui(argomenti: &[&str]) -> Value {
 
 /// I formati che dichiarano il proprio CRS, con la destinazione e il CRS che
 /// ciascuno accetta in scrittura.
-const DICHIARANTI: [(&str, &str, &str); 7] = [
+///
+/// Lo Shapefile non c'e': il writer scrive la forma ESRI di WGS 84, che non
+/// porta un'autorita', e il reader ne **deduce** `EPSG:4326` senza che il file
+/// lo dichiari. Fino alla 5.0.1 la deduzione si confrontava con l'opzione come
+/// se fosse una dichiarazione; ora l'opzione nomina quel `.prj`, come il
+/// prodotto promette (prova `un_prj_senza_autorita_si_nomina_con_assume_crs`).
+const DICHIARANTI: [(&str, &str, &str); 6] = [
     ("geojson", "uscita.geojson", "OGC:CRS84"),
     ("kml", "uscita.kml", "OGC:CRS84"),
     ("gpkg", "uscita.gpkg", "EPSG:4326"),
     ("geoparquet", "uscita.parquet", "EPSG:4326"),
     ("ipc", "uscita.arrow", "EPSG:4326"),
     ("dxf", "uscita.dxf", "EPSG:4326"),
-    ("shp", "uscita.shp.d", "EPSG:4326"),
 ];
 
 fn scrivi(dir: &Path, formato: &str, destinazione: &str, crs: &str) -> String {
@@ -129,5 +134,28 @@ fn un_assume_crs_che_contraddice_il_crs_dichiarato_e_rifiutato() {
             "EPSG:3003",
         ]);
         assert_eq!(letto["error"]["category"], "crs", "{formato}: {letto}");
+    }
+}
+
+/// Il `.prj` che il writer Shapefile scrive per WGS 84 e' la forma ESRI senza
+/// `AUTHORITY`. Senza opzione il reader ne deduce `EPSG:4326`; con l'opzione,
+/// l'opzione lo nomina. `--assume-crs OGC:CRS84` era rifiutato come se il file
+/// dichiarasse `EPSG:4326`: il caso per cui l'opzione esiste.
+#[test]
+fn un_prj_senza_autorita_si_nomina_con_assume_crs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = scrivi(dir.path(), "shp", "uscita.shp.d", "EPSG:4326");
+
+    let senza = esegui(&["inspect", &percorso]);
+    assert_eq!(
+        senza["result"]["layers"][0]["geometry"]["crs"], "EPSG:4326",
+        "{senza}"
+    );
+    for assunto in ["OGC:CRS84", "EPSG:4326"] {
+        let nominato = esegui(&["inspect", &percorso, "--assume-crs", assunto]);
+        assert_eq!(
+            nominato["result"]["layers"][0]["geometry"]["crs"], assunto,
+            "{nominato}"
+        );
     }
 }
