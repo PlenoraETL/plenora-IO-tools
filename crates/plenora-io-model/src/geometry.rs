@@ -419,6 +419,21 @@ fn invalid_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> Ple
     errore
 }
 
+/// Un difetto di una chiave CRS: categoria `crs` (REJ-001), qualunque sia il
+/// tipo del difetto.
+fn crs_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> PlenoraIoError {
+    let mut errore = PlenoraIoError::crs_redatto(message);
+    errore.field = Some(field.name().clone());
+    errore
+}
+
+const DEFINIZIONE_CRS_MALFORMATA: PublicMessage =
+    PublicMessage::Curated("definizione CRS non ben formata nel formato dichiarato");
+const DEFINIZIONE_CRS_CONTRADDICE_ID: PublicMessage =
+    PublicMessage::Curated("definizione CRS che descrive un CRS diverso da crs_id");
+const AUTORITA_LOCALE_RISOLTA: PublicMessage =
+    PublicMessage::Curated("crs_id di un catalogo locale dichiarato risolto");
+
 const METADATO_VERSIONE_NON_VALIDO: PublicMessage =
     PublicMessage::Curated("metadato di versione del contratto non valido");
 const METADATO_ESTENSIONE_NON_VALIDO: PublicMessage =
@@ -611,6 +626,28 @@ pub fn read_geometry_contract_metadata(
                 field,
                 &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
             ));
+        }
+        // GEO-005: la definizione e' ben formata nel formato che dichiara e non
+        // descrive un CRS diverso da quello che `crs_id` nomina. Vale per ogni
+        // `crs_resolution`, perche' una definizione incoerente resta incoerente
+        // anche quando il produttore non l'ha risolta.
+        if let (Some(testo), Some(formato)) = (definition.as_deref(), definition_format) {
+            match crate::crs_definizione::contraddice(id.as_deref(), testo, formato) {
+                Err(crate::crs_definizione::Malformata) => {
+                    return Err(crs_metadata(field, &DEFINIZIONE_CRS_MALFORMATA));
+                }
+                Ok(true) => return Err(crs_metadata(field, &DEFINIZIONE_CRS_CONTRADDICE_ID)),
+                Ok(false) => {}
+            }
+        }
+        // GEO-020: un catalogo locale non e' un registro; un suo identificatore
+        // non si dichiara mai risolto.
+        if resolution == "resolved"
+            && id
+                .as_deref()
+                .is_some_and(crate::crs_definizione::autorita_locale)
+        {
+            return Err(crs_metadata(field, &AUTORITA_LOCALE_RISOLTA));
         }
         parsed.crs = match resolution.as_str() {
             "resolved" => {
