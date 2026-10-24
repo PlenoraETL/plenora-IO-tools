@@ -1424,7 +1424,7 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   `unsupported`.
 - **CRS dichiarati, non dedotti.** `--assume-crs` su uno Shapefile si confronta
   solo con l'autorità che il `.prj` dichiara: `OGC:CRS84` su un `.prj` ESRI di
-  WGS 84 senza `AUTHORITY` è ora ammesso. Nel `GEODATA` DXF un `EPSG:<codice>`
+  WGS 84 senza `AUTHORITY` è ora ammesso, e ogni identificatore diverso dai due nomi di WGS 84 su quella forma è `crs`; un'autorità di radice non EPSG (`AUTHORITY["ESRI",...]`) è dichiarata come una EPSG. Nel `GEODATA` DXF un `EPSG:<codice>`
   conta solo quando la definizione è l'identificatore: un codice citato nel nome
   di un WKT non è più una dichiarazione, e quella definizione si nomina con
   `--assume-crs`. Lo SRID di un PROJJSON segue la regola del WKT: `"04326"` non

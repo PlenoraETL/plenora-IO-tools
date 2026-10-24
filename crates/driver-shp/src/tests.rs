@@ -1990,6 +1990,35 @@ fn assume_crs_nomina_un_prj_esri_che_non_dichiara_autorita() {
     );
 }
 
+/// L'opzione nomina un `.prj` senza autorita', non lo sostituisce. Sul WGS 84
+/// ESRI che il driver riconosce ammette solo i due nomi di quel CRS: prima
+/// `EPSG:3003` usciva come identificatore sopra la definizione di WGS 84
+/// geografico. E un'autorita' di radice non EPSG e' dichiarata quanto una EPSG:
+/// `AUTHORITY["ESRI","4265"]` non si rietichetta come `EPSG:4326`.
+#[test]
+fn assume_crs_non_rietichetta_un_prj_riconosciuto_o_dichiarato() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri.shp");
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect_err("EPSG:3003 sopra WGS 84 geografico");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!errore.message.contains("3003"), "{}", errore.message);
+
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS[\"GCS_Monte_Mario\",DATUM[\"D_Monte_Mario\",SPHEROID[\"International_1924\",\
+         6378388.0,297.0]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433],\
+         AUTHORITY[\"ESRI\",\"4265\"]]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326"))
+        .expect_err("EPSG:4326 sopra un'autorita' ESRI dichiarata");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    let concorde = resolve_crs(&path, &opzioni_lettura().with_assume_crs("esri:4265"));
+    assert!(concorde.is_ok(), "{concorde:?}");
+}
+
 /// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della
 /// radice, non del `GEOGCS` annidato. Prima della correzione questo `.prj`
 /// usciva `EPSG:4326` con genere proiettato.
