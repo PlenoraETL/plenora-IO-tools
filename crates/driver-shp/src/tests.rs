@@ -2065,6 +2065,45 @@ fn la_deduzione_esri_non_scavalca_un_autorita_di_radice() {
     }
 }
 
+/// Le radici che l'opzione non puo' nominare: un `ID` in un WKT 1 (o un
+/// `AUTHORITY` in un WKT 2), che senza opzione si legge come dichiarazione;
+/// due identificatori di radice diversi; un `BOUNDCRS`, che non ha identita'
+/// propria. Prima l'opzione usciva come identificatore sopra ciascuna.
+#[test]
+fn assume_crs_non_nomina_radici_che_dichiarano_altro_o_niente_di_proprio() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("radici.shp");
+    let casi = [
+        "PROJCS[\"Monte Mario / Italy zone 1\",GEOGCS[\"Monte Mario\",DATUM[\"Monte_Mario\",\
+         SPHEROID[\"International 1924\",6378388,297]],PRIMEM[\"Greenwich\",0],\
+         UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],\
+         UNIT[\"metre\",1],ID[\"EPSG\",3003]]",
+        "PROJCS[\"x\",GEOGCS[\"y\",DATUM[\"z\",SPHEROID[\"s\",6378388,297]],PRIMEM[\"G\",0],\
+         UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],\
+         UNIT[\"metre\",1],AUTHORITY[\"EPSG\",\"3003\"],AUTHORITY[\"EPSG\",\"3004\"]]",
+        "BOUNDCRS[SOURCECRS[GEOGCRS[\"Monte Mario\",DATUM[\"Monte Mario\",\
+         ELLIPSOID[\"International 1924\",6378388,297]],CS[ellipsoidal,2],\
+         AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",4265]]],\
+         TARGETCRS[GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",\
+         ELLIPSOID[\"WGS 84\",6378137,298.257223563]],CS[ellipsoidal,2],\
+         AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",4326]]],\
+         ABRIDGEDTRANSFORMATION[\"t\",METHOD[\"Geocentric translations\"]]]",
+    ];
+    for prj in casi {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        for assunto in ["EPSG:4326", "EPSG:3004"] {
+            let esito = resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto));
+            let errore = match esito {
+                Ok(crs) => panic!("{assunto} accettato come {:?} su {prj}", crs.id),
+                Err(errore) => errore,
+            };
+            assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+        }
+    }
+}
+
 /// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della
 /// radice, non del `GEOGCS` annidato. Prima della correzione questo `.prj`
 /// usciva `EPSG:4326` con genere proiettato.

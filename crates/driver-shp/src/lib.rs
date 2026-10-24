@@ -1544,7 +1544,20 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
         // nomi di quel CRS: un altro identificatore su una definizione che il
         // driver riconosce come WGS 84 geografico unirebbe un CRS diverso alla
         // definizione di WGS 84.
-        let radice = identificatori_di_radice(&wkt);
+        //
+        // Le due letture della radice si uniscono: `identificatori` segue la
+        // grammatica stretta (`AUTHORITY` in WKT 1, `ID` in WKT 2), la lettura
+        // dello SRID accetta l'una e l'altra parola. Un testo che senza opzione
+        // si legge come dichiarazione lo e' anche con l'opzione.
+        let mut radice = identificatori_di_radice(&wkt);
+        if let Some(epsg) = &dichiarata {
+            if !radice
+                .iter()
+                .any(|id| plenora_io_model::crs::stesso_identificatore(id, epsg))
+            {
+                radice.push(epsg.clone());
+            }
+        }
         // La deduzione ESRI vale solo per un `.prj` che alla radice non dichiara
         // niente: un `AUTHORITY["ESRI","104000"]` sopra un nome e un datum di
         // WGS 84 dice un altro CRS, e dedurre `EPSG:4326` lo sovrascriverebbe.
@@ -1554,6 +1567,21 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             None
         };
         let id = if let Some(assunta) = opts.assume_crs.as_deref() {
+            // Una radice che dichiara due CRS diversi, o un `BOUNDCRS`, che non
+            // ha un'identita' propria ma lega un CRS sorgente a uno di
+            // destinazione, non si nomina con l'opzione: qualunque nome
+            // sceglierebbe una delle due parti al posto di chi legge.
+            let ambigua = radice
+                .iter()
+                .skip(1)
+                .any(|id| !plenora_io_model::crs::stesso_identificatore(id, &radice[0]));
+            let legata = wkt
+                .trim_start()
+                .get(..9)
+                .is_some_and(|testa| testa.eq_ignore_ascii_case("BOUNDCRS["));
+            if ambigua || legata {
+                return Err(contraddice_il_prj());
+            }
             if radice.is_empty() {
                 let nomina_la_deduzione = ["EPSG:4326", "OGC:CRS84"]
                     .iter()
@@ -1619,8 +1647,9 @@ fn authority_declared_by_wkt(wkt: &str) -> Option<String> {
     if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
         return Some("OGC:CRS84".to_owned());
     }
-    // `.prj` e' WKT 1 (ESRI o OGC); la lettura della radice e' la stessa per
-    // `AUTHORITY[` e `ID[`, quindi copre anche un WKT 2.
+    // `.prj` e' WKT 1 (ESRI o OGC); questa lettura della radice accetta
+    // `AUTHORITY[` e `ID[` in entrambe le grammatiche, piu' larga di
+    // `identificatori_di_radice`: `resolve_crs` unisce le due.
     plenora_io_model::crs::definition_authority_srid(
         wkt,
         plenora_io_model::crs::CrsDefinitionFormat::Wkt,
@@ -1628,17 +1657,17 @@ fn authority_declared_by_wkt(wkt: &str) -> Option<String> {
     .map(|code| format!("EPSG:{code}"))
 }
 
-/// Gli identificatori che la radice del `.prj` dichiara, di ogni autorita',
-/// nella forma `AUTORITA:codice`; `OGC:CRS84` per il `.prj` che e' soltanto
-/// quel nome. Un testo che non e' un WKT ben formato, ne' 1 ne' 2, non ne
-/// dichiara: l'opzione allora lo nomina, e la definizione malformata si
-/// rifiuta a valle, alla verifica GEO-005 del contratto.
 fn contraddice_il_prj() -> PlenoraIoError {
     PlenoraIoError::crs_redatto(&PublicMessage::Curated(
         "Shapefile: --assume-crs contraddice il CRS del .prj",
     ))
 }
 
+/// Gli identificatori che la radice del `.prj` dichiara, di ogni autorita',
+/// nella forma `AUTORITA:codice`; `OGC:CRS84` per il `.prj` che e' soltanto
+/// quel nome. Un testo che non e' un WKT ben formato, ne' 1 ne' 2, non ne
+/// dichiara: l'opzione allora lo nomina, e la definizione malformata si
+/// rifiuta a valle, alla verifica GEO-005 del contratto.
 fn identificatori_di_radice(wkt: &str) -> Vec<String> {
     use plenora_io_model::crs_definizione::{identificatori, TestoDefinizione};
     if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
