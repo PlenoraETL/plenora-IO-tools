@@ -406,9 +406,8 @@ fn regola_wkt_senza_dichiarazioni_e_forma_esri() {
     use RifiutoIdentita::Contraddetta;
     let esri_estensione = r#"GEOGCS["WGS 84",DATUM["D_Monte_Mario",SPHEROID["International_1924",6378388,297]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],EXTENSION["x",DATUM["WGS_1984"]]]"#.to_owned();
     let esri_due_datum = esri_con(r#"DATUM["Monte_Mario"]"#);
-    let esri_minuscolo =
-        r#"geogcs ( "wgs 84" , datum ( "wgs_1984" , SPHEROID["WGS 84",6378137,298.257223563] ) )"#
-            .to_owned();
+    let esri_minuscolo = r#"geogcs ( "wgs 84" , datum ( "wgs_1984" , SPHEROID["WGS 84",6378137.000,298.2572235630] ) , primem("greenwich",0.0) , unit("DEGREE",+0.0174532925199433) )"#
+        .to_owned();
     verifica(vec![
         // 6. Nessuna dichiarazione, forma ESRI di WGS 84.
         ("esri", ESRI_WGS84.to_owned(), None, Ok(Some("EPSG:4326"))),
@@ -461,7 +460,7 @@ fn regola_wkt_senza_dichiarazioni_e_forma_esri() {
             "D_WGS_1984",
             ESRI_WGS84.replace("WGS_1984", "D_WGS_1984"),
             None,
-            Ok(None),
+            Ok(Some("EPSG:4326")),
         ),
         // (a) Un `ID` con la parola dell'altra grammatica alla radice e' una
         // dichiarazione: niente deduzione.
@@ -833,4 +832,141 @@ fn sembra_wkt_come_il_lettore_apre_la_radice() {
     for testo in [ESRI_WGS84, BOUNDCRS, WKT1_3003, WKT2_4326] {
         assert!(grammatica_wkt(testo).is_some() && sembra_wkt(testo));
     }
+}
+
+/// La forma ESRI di WGS 84 si riconosce solo intera: ellissoide, meridiano e
+/// unita' con i valori canonici, come decimali esatti, e nessun nodo in piu'.
+/// Su c0e84cb bastavano il nome della radice e quello del datum, e un
+/// ellissoide GRS 1980 con il meridiano di Parigi in gradi centesimali, o un
+/// datum senza ellissoide, diventavano `EPSG:4326`; la forma di `ArcGIS`
+/// (`GCS_WGS_1984`, `D_WGS_1984`) restava invece non risolta.
+#[test]
+fn la_forma_esri_di_wgs84_si_riconosce_solo_intera() {
+    use RifiutoIdentita::Contraddetta;
+    let arcgis = r#"GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]"#;
+    let parigi = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Paris",2.337],UNIT["grad",0.01570796326794897]]"#;
+    let variante = |da: &str, a: &str| ESRI_WGS84.replacen(da, a, 1);
+    verifica(vec![
+        ("writer", ESRI_WGS84.to_owned(), None, Ok(Some("EPSG:4326"))),
+        ("arcgis", arcgis.to_owned(), None, Ok(Some("EPSG:4326"))),
+        (
+            "arcgis",
+            arcgis.to_owned(),
+            Some("EPSG:3003"),
+            Err(Contraddetta),
+        ),
+        (
+            "zeri",
+            variante("6378137,298.257223563", "6378137.000,298.2572235630"),
+            None,
+            Ok(Some("EPSG:4326")),
+        ),
+        ("parigi", parigi.to_owned(), None, Ok(None)),
+        (
+            "parigi",
+            parigi.to_owned(),
+            Some("EPSG:3003"),
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "senza ellissoide",
+            r#"GEOGCS("WGS 84",DATUM("WGS_1984"))"#.to_owned(),
+            None,
+            Ok(None),
+        ),
+        (
+            "grs 1980",
+            variante("298.257223563", "298.257222101"),
+            None,
+            Ok(None),
+        ),
+        (
+            "esponente",
+            variante("6378137", "6.378137e6"),
+            None,
+            Ok(None),
+        ),
+        ("parigi 0", variante("Greenwich", "Paris"), None, Ok(None)),
+        (
+            "meridiano",
+            variante("\"Greenwich\",0", "\"Greenwich\",2.337"),
+            None,
+            Ok(None),
+        ),
+        (
+            "unita'",
+            variante("0.0174532925199433", "0.017453292519943295"),
+            None,
+            Ok(None),
+        ),
+        ("grad", variante("\"degree\"", "\"grad\""), None, Ok(None)),
+        ("asse", esri_con(r#"AXIS["Lat",NORTH]"#), None, Ok(None)),
+        (
+            "towgs84",
+            variante("298.257223563]", "298.257223563],TOWGS84[0,0,0,0,0,0,0]"),
+            None,
+            Ok(None),
+        ),
+        ("nome", variante("WGS 84", "WGS 72"), None, Ok(None)),
+    ]);
+}
+
+/// Due dichiarazioni diverse bastano per `Ambigua`, comunque siano mescolate
+/// a ripetizioni della prima; ripetizioni uguali (autorita' ASCII
+/// case-insensitive) restano una dichiarazione.
+#[test]
+fn le_dichiarazioni_si_confrontano_con_la_prima() {
+    use RifiutoIdentita::Ambigua;
+    let ripetute = |n: usize, coda: &str| {
+        format!(
+            r#"PROJCS["x"{}{coda}]"#,
+            r#",AUTHORITY["epsg","3003"],ID["EPSG",3003]"#.repeat(n)
+        )
+    };
+    verifica(vec![
+        ("uguali", ripetute(500, ""), None, Ok(Some("EPSG:3003"))),
+        (
+            "una diversa in fondo",
+            ripetute(500, r#",ID["EPSG",3004]"#),
+            None,
+            Err(Ambigua),
+        ),
+    ]);
+}
+
+/// Il genere della radice, nelle grammatiche e nelle grafie che il lettore
+/// stretto accetta.
+#[test]
+fn il_genere_viene_dalla_parola_della_radice() {
+    use crate::crs::CrsKind::{Geographic, Projected, Unknown};
+    use CrsDefinitionFormat::{Projjson, Wkt, Wkt2};
+    for (testo, formato, atteso) in [
+        (r#"GEOGCS["PROJCS["]"#, Wkt, Some(Geographic)),
+        (r#"PROJCS (" ",GEOGCS["y"])"#, Wkt, Some(Projected)),
+        ("PROJCS\t[\"x\"]", Wkt, Some(Projected)),
+        (r#"GEOCCS["x"]"#, Wkt, Some(Unknown)),
+        (r#"COMPD_CS["x",PROJCS["y"]]"#, Wkt, Some(Unknown)),
+        (
+            r#"projectedcrs [ "x" , BASEGEOGCRS["y"] ]"#,
+            Wkt2,
+            Some(Projected),
+        ),
+        (r#"GEOGRAPHICCRS["x"]"#, Wkt2, Some(Geographic)),
+        (r#"GEODCRS["x",CS[ellipsoidal,2]]"#, Wkt2, Some(Geographic)),
+        (r#"GEODCRS["x",CS[Cartesian,3]]"#, Wkt2, Some(Unknown)),
+        (r#"BOUNDCRS[SOURCECRS[GEOGCRS["a"]]]"#, Wkt2, Some(Unknown)),
+        (r#"DERIVEDPROJCRS["x"]"#, Wkt2, Some(Unknown)),
+        (r#"{"type":"ProjectedCRS"}"#, Projjson, Some(Projected)),
+        (
+            r#"{"type":"GeodeticCRS","coordinate_system":{"subtype":"ellipsoidal"}}"#,
+            Projjson,
+            Some(Geographic),
+        ),
+        (r#"{"type":"GeodeticCRS"}"#, Projjson, Some(Unknown)),
+        (r#"{"id":{"authority":"EPSG","code":4326}}"#, Projjson, None),
+    ] {
+        assert_eq!(genere_radice(testo, formato), Ok(atteso), "{testo}");
+    }
+    assert_eq!(genere_radice(r#"GEOGCS["x""#, Wkt), Err(Malformata));
+    assert_eq!(genere_radice(r#"GEOGCS["x"]"#, Wkt2), Err(Malformata));
 }

@@ -2176,15 +2176,11 @@ fn crs_from(geo: &MetadatiGeo) -> Result<ResolvedCrs> {
                 );
                 return Err(PlenoraIoError::crs_non_risolto_redatto("geoparquet", &raw));
             };
-            let kind = if crs_kind_for_authority_id(&id) == CrsKind::Geographic
-                || v.get("type").and_then(|t| t.as_str()) == Some("GeographicCRS")
-            {
-                CrsKind::Geographic
-            } else if v.get("type").and_then(|t| t.as_str()) == Some("ProjectedCRS") {
-                CrsKind::Projected
-            } else {
-                CrsKind::Unknown
-            };
+            // Il genere con la regola comune dei driver, dal `type` della radice.
+            // Fino al 24/10 l'identificatore `EPSG:4326` vinceva su un `type`
+            // `ProjectedCRS`, e il documento usciva geografico, `lon_lat`.
+            let kind =
+                plenora_io_model::crs::crs_kind_for(Some(&id), Some(&definition), "geoparquet")?;
             // GeoParquet memorizza longitudine o easting prima qualunque sia
             // l'ordine che il PROJJSON elenca (GeoParquet 1.1, «crs»): EPSG:4326
             // qui e' `lon_lat`, non l'ordine del registro (GEO-002).

@@ -58,7 +58,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -1526,42 +1526,45 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     if let Some(wkt) = leggi_prj(&prj)? {
         let assunta = opts.assume_crs.as_deref();
         // Il `.prj` che e' soltanto il nome `OGC:CRS84` lo dichiara; l'opzione
-        // lo puo' solo ripetere, e l'identificatore ha la grafia canonica.
-        let id = if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
+        // lo puo' solo ripetere, e l'identificatore ha la grafia canonica. Il
+        // nome non e' una definizione WKT, e non si emette come tale: fino al
+        // 24/10 usciva come definizione `wkt`, che `io.read` emetteva e la
+        // conversione in IPC rifiutava (GEO-005).
+        if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
             if assunta.is_some_and(|assunta| {
                 !plenora_io_model::crs::stesso_identificatore(assunta, "OGC:CRS84")
             }) {
                 return Err(contraddice_il_prj());
             }
-            Some("OGC:CRS84".to_owned())
-        } else {
-            // Ogni altro `.prj` e' una definizione WKT, e l'identificatore lo
-            // decide la regola unica del modello, la stessa del DXF: radice letta
-            // con il lettore stretto, dichiarazioni con l'una e l'altra parola
-            // chiave, `BOUNDCRS`, forma ESRI di WGS 84 (docs/PRODUCT.md, «tutti:
-            // identificatore di radice di un WKT»). Un `.prj` malformato e' un
-            // errore anche per `io.inspect`, che prima riportava un identificatore
-            // che `io.read` poi rifiutava.
-            plenora_io_model::crs_definizione::identificatore_wkt(&wkt, assunta)
-                .map_err(|rifiuto| rifiuto.errore("shp"))?
-        };
+            return Ok(ResolvedCrs::wgs84());
+        }
+        // Ogni altro `.prj` e' una definizione WKT, e l'identificatore lo
+        // decide la regola unica del modello, la stessa del DXF: radice letta
+        // con il lettore stretto, dichiarazioni con l'una e l'altra parola
+        // chiave, `BOUNDCRS`, forma ESRI di WGS 84 (docs/PRODUCT.md, «tutti:
+        // identificatore di radice di un WKT»). Un `.prj` malformato e' un
+        // errore anche per `io.inspect`, che prima riportava un identificatore
+        // che `io.read` poi rifiutava.
+        let id = plenora_io_model::crs_definizione::identificatore_wkt(&wkt, assunta)
+            .map_err(|rifiuto| rifiuto.errore("shp"))?;
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
         };
-        let kind = crs_kind(&id, Some(&wkt));
+        // Il genere dalla radice della definizione, con la regola comune dei
+        // driver: `EPSG:4326` nominato su un `PROJCS` anonimo e' un rifiuto.
+        let kind = plenora_io_model::crs::crs_kind_for(Some(&id), Some(&wkt), "shp")?;
         // Lo Shapefile memorizza x poi y, e x e' easting o longitudine:
         // l'ordine viene dal formato, non dal registro (GEO-002).
         return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)).stored_east_first());
     }
-    opts.assume_crs.as_ref().map_or_else(
-        || {
-            Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "Shapefile senza .prj: fornire --assume-crs",
-            )))
-        },
-        |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None).stored_east_first()),
-    )
+    let Some(id) = opts.assume_crs.as_deref() else {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile senza .prj: fornire --assume-crs",
+        )));
+    };
+    let kind = plenora_io_model::crs::crs_kind_for(Some(id), None, "shp")?;
+    Ok(ResolvedCrs::new(Some(id.to_owned()), kind, None).stored_east_first())
 }
 
 /// Il testo del `.prj`, oppure `None` se il file non c'e'.
@@ -1569,21 +1572,39 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
 /// Fino al 24/10 ogni errore di lettura valeva assenza: un `.prj` che non e'
 /// UTF-8 (un nome Latin-1) o che non si apre spariva, e `--assume-crs`
 /// nominava il CRS che il file dichiarava, qualunque fosse. Solo l'assenza e'
-/// assenza; il resto e' un errore `crs`.
+/// assenza; il resto e' un errore `crs`. Il file si legge fino al tetto
+/// [`MAX_BYTE_DEFINIZIONE_CRS`](plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS)
+/// piu' un byte: fino al 24/10 si leggeva intero, qualunque ne fosse la
+/// dimensione.
 ///
 /// # Errors
 ///
-/// `crs` se il `.prj` esiste e non si legge come testo UTF-8.
+/// `crs` se il `.prj` esiste e non si legge come testo UTF-8;
+/// `limit_exceeded` se supera il tetto.
 fn leggi_prj(prj: &Path) -> Result<Option<String>> {
-    let byte = match std::fs::read(prj) {
-        Ok(byte) => byte,
-        Err(errore) if errore.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => {
-            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "Shapefile: il .prj esiste ma non si legge",
-            )));
-        }
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let non_si_legge = || {
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile: il .prj esiste ma non si legge",
+        ))
     };
+    let file = match File::open(prj) {
+        Ok(file) => file,
+        Err(errore) if errore.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(non_si_legge()),
+    };
+    let mut byte = Vec::new();
+    file.take(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS) + 1)
+        .read_to_end(&mut byte)
+        .map_err(|_| non_si_legge())?;
+    if byte.len() > MAX_BYTE_DEFINIZIONE_CRS {
+        let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+            "Shapefile: il .prj supera il tetto, byte",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
+        ));
+        errore.driver = Some("shp".to_owned());
+        return Err(errore);
+    }
     String::from_utf8(byte).map(Some).map_err(|_| {
         PlenoraIoError::crs_redatto(&PublicMessage::Curated(
             "Shapefile: il .prj non e' testo UTF-8",
@@ -1603,24 +1624,6 @@ fn contraddice_il_prj() -> PlenoraIoError {
     PlenoraIoError::crs_redatto(&PublicMessage::Curated(
         "Shapefile: --assume-crs contraddice il CRS del .prj",
     ))
-}
-
-fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {
-    let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if definition.contains("PROJCS[")
-        || definition.contains("PROJCRS[")
-        || id.eq_ignore_ascii_case("EPSG:3857")
-    {
-        CrsKind::Projected
-    } else if id.eq_ignore_ascii_case("OGC:CRS84")
-        || id.eq_ignore_ascii_case("EPSG:4326")
-        || definition.contains("GEOGCS[")
-        || definition.contains("GEOGCRS[")
-    {
-        CrsKind::Geographic
-    } else {
-        CrsKind::Unknown
-    }
 }
 
 fn dbf_numeric_integer_precision_unverifiable(value: &FieldValue) -> bool {

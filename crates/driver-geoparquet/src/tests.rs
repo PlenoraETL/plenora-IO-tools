@@ -3977,3 +3977,48 @@ fn zstd_round_trip() {
         .unwrap();
     assert_eq!(col.value(0), wkb.as_slice());
 }
+
+/// Il genere di un documento `crs` viene dal suo `type` con la regola comune
+/// dei driver: su c0e84cb l'identificatore `EPSG:4326` vinceva su un `type`
+/// `ProjectedCRS`, e il documento usciva geografico, `lon_lat` sui dati
+/// proiettati.
+#[test]
+fn il_genere_del_documento_crs_viene_dal_type() {
+    let asse = |nome: &str, direzione: &str, unita: &str| serde_json::json!({"name": nome, "abbreviation": nome, "direction": direzione, "unit": unita});
+    let crs = serde_json::json!({
+        "type": "ProjectedCRS",
+        "name": "x",
+        "base_crs": {
+            "type": "GeographicCRS",
+            "name": "WGS 84",
+            "datum": {
+                "type": "GeodeticReferenceFrame",
+                "name": "World Geodetic System 1984",
+                "ellipsoid": {"name": "WGS 84", "semi_major_axis": 6_378_137, "inverse_flattening": 298.257_223_563}
+            },
+            "coordinate_system": {
+                "subtype": "ellipsoidal",
+                "axis": [asse("Lon", "east", "degree"), asse("Lat", "north", "degree")]
+            }
+        },
+        "conversion": {"name": "unnamed", "method": {"name": "Transverse Mercator"}},
+        "coordinate_system": {
+            "subtype": "Cartesian",
+            "axis": [asse("E", "east", "metre"), asse("N", "north", "metre")]
+        },
+        "id": {"authority": "EPSG", "code": 4326}
+    });
+    let geo = metadati::analizza(
+        &serde_json::json!({
+            "version": "1.1.0",
+            "primary_column": "geometry",
+            "columns": {"geometry": {"encoding": "WKB", "geometry_types": ["Point"], "crs": crs}}
+        })
+        .to_string(),
+        false,
+    )
+    .expect("il documento e' conforme");
+    let errore = crs_from(&geo).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("geoparquet"));
+}

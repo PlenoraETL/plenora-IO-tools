@@ -50,7 +50,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{RawCrs, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 
@@ -1506,25 +1506,16 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
                 );
                 return Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw));
             }
-            let kind = if id.eq_ignore_ascii_case("EPSG:4326") {
-                CrsKind::Geographic
-            } else if id.eq_ignore_ascii_case("EPSG:3857")
-                || def.to_ascii_uppercase().contains("PROJCS[")
-                || def.to_ascii_uppercase().contains("PROJCRS[")
-            {
-                CrsKind::Projected
-            } else if def.to_ascii_uppercase().contains("GEOGCS[")
-                || def.to_ascii_uppercase().contains("GEOGCRS[")
-            {
-                CrsKind::Geographic
-            } else {
-                CrsKind::Unknown
-            };
             let definition = if def == "undefined" || def.is_empty() {
                 None
             } else {
                 Some(def)
             };
+            // Il genere dalla radice della definizione, con la regola comune
+            // dei driver. Fino al 24/10 si cercava `PROJCS[` nel testo, e un
+            // `PROJECTEDCRS[...]` usciva geografico, `lon_lat`.
+            let kind =
+                plenora_io_model::crs::crs_kind_for(Some(&id), definition.as_deref(), "gpkg")?;
             // GeoPackage memorizza x = easting o longitudine, y = northing o
             // latitudine, qualunque sia il CRS (GPKG 1.3, 2.1.3.1.1): l'ordine
             // si dichiara dal formato, non dal registro (GEO-002).

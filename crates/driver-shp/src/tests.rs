@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 // --- il bundle del fuzzer, e i semi che lo alimentano -----------------
 //
@@ -5957,4 +5958,144 @@ fn un_prj_non_utf8_e_un_errore_non_un_assenza() {
             .as_deref(),
         Some("EPSG:3003")
     );
+}
+
+/// Un UTM 32N in WKT 2 con gli assi est/nord e l'identificatore di radice, nella
+/// parola chiave data: il `BASEGEOGCRS[` annidato contiene `GEOGCRS[`.
+fn utm_wkt2(parola: &str) -> String {
+    format!(
+        r#"{parola}["WGS 84 / UTM zone 32N",BASEGEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]]],CONVERSION["UTM zone 32N",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["easting",east],AXIS["northing",north],LENGTHUNIT["metre",1],ID["EPSG",32632]]"#
+    )
+}
+
+/// Il genere del CRS viene dalla parola della **radice**: su c0e84cb il driver
+/// cercava `PROJCS[`/`PROJCRS[` nel testo, e un `PROJECTEDCRS[`, `projcrs [` o
+/// `PROJCRS(` usciva geografico (per il `BASEGEOGCRS[`) e `lon_lat` sui dati
+/// UTM; `PROJCS [`, `PROJCS(` e `PROJCS\t[` uscivano geografici, e
+/// `GEOGCS["PROJCS[",...]` proiettato.
+#[test]
+fn il_genere_del_prj_viene_dalla_radice() {
+    use plenora_io_model::crs::AxisOrder;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("genere.shp");
+    let leggi = |prj: &str| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        match resolve_crs(&path, &opzioni_lettura()) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{prj}: {errore}"),
+        }
+    };
+    for parola in ["PROJECTEDCRS", "projcrs ", "PROJCRS"] {
+        let crs = leggi(&utm_wkt2(parola));
+        assert_eq!(crs.id.as_deref(), Some("EPSG:32632"), "{parola}");
+        assert_eq!(crs.kind, CrsKind::Projected, "{parola}");
+        assert_eq!(crs.axis_order, AxisOrder::EastingNorthing, "{parola}");
+    }
+    let tonde = utm_wkt2("PROJCRS").replacen("PROJCRS[", "PROJCRS(", 1);
+    let tonde = format!("{})", &tonde[..tonde.len() - 1]);
+    let crs = leggi(&tonde);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Projected, AxisOrder::EastingNorthing)
+    );
+    for apertura in ["PROJCS [", "PROJCS(", "PROJCS\t["] {
+        let chiusura = if apertura.ends_with('(') { ")" } else { "]" };
+        let prj = format!(
+            r#"{apertura}"UTM 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AUTHORITY["EPSG","32632"]{chiusura}"#
+        );
+        let crs = leggi(&prj);
+        assert_eq!(crs.kind, CrsKind::Projected, "{apertura}");
+        assert_eq!(crs.axis_order, AxisOrder::EastingNorthing, "{apertura}");
+    }
+    let crs = leggi(r#"GEOGCS["PROJCS[",AUTHORITY["EPSG","4326"]]"#);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Geographic, AxisOrder::LongitudeLatitude)
+    );
+    // Un composto non ha il genere di una sua parte: con un genere ignoto
+    // l'ordine resta ignoto.
+    let composto = format!(
+        r#"COMPOUNDCRS["c",{},VERTCRS["v",VDATUM["d"],CS[vertical,1],AXIS["h",up],LENGTHUNIT["metre",1]],ID["EPSG",5555]]"#,
+        utm_wkt2("PROJCRS").replace(r#",ID["EPSG",32632]"#, "")
+    );
+    let crs = leggi(&composto);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Unknown, AxisOrder::Unknown)
+    );
+}
+
+/// Un identificatore che il bordo sa geografico (`EPSG:4326`, `OGC:CRS84`) su
+/// una radice proiettata, o `EPSG:3857` su una geografica, e' una
+/// contraddizione che si vede senza risolvere: su c0e84cb l'opzione nominava
+/// il `PROJCS` anonimo e i dati UTM uscivano `EPSG:4326`, `lon_lat`.
+#[test]
+fn assume_crs_di_genere_contrario_alla_radice_e_rifiutato() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("contrario.shp");
+    let anonimo_proiettato = r#"PROJCS["UTM 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1]]"#;
+    let anonimo_geografico = r#"GEOGCS["Monte Mario",DATUM["Monte_Mario",SPHEROID["International 1924",6378388,297]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]"#;
+    let leggi = |prj: &str, assunto: &str| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto))
+    };
+    for assunto in ["EPSG:4326", "ogc:crs84"] {
+        let errore = leggi(anonimo_proiettato, assunto).expect_err(assunto);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+        assert_eq!(errore.driver.as_deref(), Some("shp"));
+        assert!(!errore.message.contains("4326"), "{}", errore.message);
+    }
+    assert!(leggi(anonimo_geografico, "EPSG:3857").is_err());
+    // Un identificatore che il bordo non sa classificare resta nominato: e' il
+    // rischio residuo dichiarato della regola (6).
+    assert_eq!(
+        leggi(anonimo_proiettato, "EPSG:32632").unwrap().kind,
+        CrsKind::Projected
+    );
+    assert_eq!(
+        leggi(anonimo_geografico, "EPSG:4265").unwrap().kind,
+        CrsKind::Geographic
+    );
+}
+
+/// Il `.prj` che e' soltanto `OGC:CRS84` da' l'identificatore e nessuna
+/// definizione: su c0e84cb il nome usciva come definizione `wkt`, `io.read`
+/// lo emetteva e la conversione in IPC lo rifiutava (GEO-005).
+#[test]
+fn un_prj_ogc_crs84_non_emette_una_definizione() {
+    use plenora_io_model::crs::AxisOrder;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crs84.shp");
+    std::fs::write(path.with_extension("prj"), " ogc:crs84\n").unwrap();
+    let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+    assert_eq!(crs.definition, None);
+    assert_eq!(crs.definition_format, None);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Geographic, AxisOrder::LongitudeLatitude)
+    );
+}
+
+/// Il `.prj` si legge fino a un tetto dichiarato di un MiB: su c0e84cb si
+/// leggeva intero, e un WKT valido seguito da oltre un MiB di spazi si
+/// risolveva.
+#[test]
+fn un_prj_oltre_il_tetto_e_un_limite() {
+    const TETTO: usize = 1 << 20;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("grande.shp");
+    let al_tetto = format!("{WGS84_WKT}{}", " ".repeat(TETTO - WGS84_WKT.len()));
+    std::fs::write(path.with_extension("prj"), &al_tetto).unwrap();
+    assert_eq!(
+        resolve_crs(&path, &opzioni_lettura())
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("EPSG:4326")
+    );
+    std::fs::write(path.with_extension("prj"), format!("{al_tetto} ")).unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    assert_eq!(errore.driver.as_deref(), Some("shp"));
 }

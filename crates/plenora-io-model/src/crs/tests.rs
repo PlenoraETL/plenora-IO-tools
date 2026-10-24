@@ -469,3 +469,80 @@ fn definition_format_decide_la_grammatica_con_il_lettore() {
         CrsDefinitionFormat::Wkt
     );
 }
+
+/// La regola comune del genere: la definizione decide con la radice, un genere
+/// ignoto della radice resta ignoto qualunque sia l'identificatore, senza
+/// definizione decidono gli identificatori gia' noti, e un identificatore noto
+/// di genere contrario alla radice e' `crs`. Il genere ignoto da' sempre un
+/// ordine ignoto.
+#[test]
+fn il_genere_segue_la_radice_e_rifiuta_l_identificatore_contrario() {
+    use CrsKind::{Geographic, Projected, Unknown};
+    let utm =
+        r#"PROJECTEDCRS["x",BASEGEOGCRS["y"],CS[Cartesian,2],AXIS["e",east],AXIS["n",north]]"#;
+    for (id, definizione, atteso) in [
+        (Some("EPSG:32632"), Some(utm), Projected),
+        (Some("EPSG:4326"), None, Geographic),
+        (Some("EPSG:3857"), None, Projected),
+        (Some("EPSG:3003"), None, Unknown),
+        (None, Some(r#"GEOGCS["x"]"#), Geographic),
+        (Some("EPSG:4326"), Some(r#"GEOCCS["x"]"#), Unknown),
+        (Some("EPSG:4326"), Some(r#"GEOGCS["x""#), Unknown),
+        (Some("EPSG:3857"), Some(r#"PROJCS["x"]"#), Projected),
+    ] {
+        assert_eq!(
+            crs_kind_for(id, definizione, "shp").ok(),
+            Some(atteso),
+            "{id:?} {definizione:?}"
+        );
+    }
+    for (id, definizione) in [
+        ("EPSG:4326", utm),
+        ("OGC:CRS84", r#"PROJCS["x"]"#),
+        ("EPSG:3857", r#"GEOGCRS["x"]"#),
+    ] {
+        let errore = crs_kind_for(Some(id), Some(definizione), "dxf").unwrap_err();
+        assert_eq!(errore.code, crate::IoErrorCode::Crs);
+        assert_eq!(errore.driver.as_deref(), Some("dxf"));
+    }
+    assert_eq!(
+        east_first_axis_order(Unknown, Some((utm, CrsDefinitionFormat::Wkt2))),
+        AxisOrder::Unknown
+    );
+}
+
+/// GEO-005 e GEO-020 sul CRS emesso: una definizione malformata o contraddetta
+/// e un catalogo locale risolto sono `crs`; senza definizione o concorde passa.
+#[test]
+fn verifica_crs_emesso_applica_geo_005() {
+    let risolto = |id: &str, definizione: Option<&str>| {
+        CrsResolution::Resolved(ResolvedCrs::new(
+            Some(id.to_owned()),
+            CrsKind::Unknown,
+            definizione.map(str::to_owned),
+        ))
+    };
+    assert!(verifica_crs_emesso(&CrsResolution::Missing).is_ok());
+    assert!(verifica_crs_emesso(&risolto("EPSG:3003", None)).is_ok());
+    assert!(verifica_crs_emesso(&risolto("EPSG:3003", Some(r#"PROJCS["x"]"#))).is_ok());
+    for definizione in [
+        "EPSG:3003",
+        r#"PROJCS["x""#,
+        r#"PROJCS["x",AUTHORITY["EPSG","3004"]]"#,
+    ] {
+        let errore = verifica_crs_emesso(&risolto("EPSG:3003", Some(definizione))).unwrap_err();
+        assert_eq!(errore.code, crate::IoErrorCode::Crs, "{definizione}");
+        assert!(!errore.message.contains("3004"), "{}", errore.message);
+    }
+    let non_risolto = CrsResolution::DeclaredButUnresolved(RawCrs::new(
+        r#"PROJCS["x",AUTHORITY["EPSG","3004"]]"#.to_owned(),
+        Some("EPSG:3003".to_owned()),
+    ));
+    assert!(verifica_crs_emesso(&non_risolto).is_err());
+    // GEO-020: un catalogo locale si dichiara solo non risolto.
+    assert!(verifica_crs_emesso(&risolto("postgis:4326", None)).is_err());
+    let locale = CrsResolution::DeclaredButUnresolved(RawCrs::from_authority_hint(
+        "POSTGIS:4326".to_owned(),
+    ));
+    assert!(verifica_crs_emesso(&locale).is_ok());
+}
