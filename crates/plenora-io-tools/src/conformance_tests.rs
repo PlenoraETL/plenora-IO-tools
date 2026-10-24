@@ -598,7 +598,10 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
                 Derived(CrsDerivation::SynthesizedFor {
                     ids: driver_gpkg::SRS_CON_DEFINIZIONE_CANONICA,
                 }),
-            ),
+            )
+            // `organization` in maiuscolo: `epsg:4326` si rilegge `EPSG:4326`
+            // (rilettura 12).
+            .autorita_in_maiuscolo(),
         ),
         (
             "shp",

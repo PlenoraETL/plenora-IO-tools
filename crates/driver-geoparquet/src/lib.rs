@@ -1275,10 +1275,11 @@ impl FormatDriver for GeoParquetDriver {
         let geometria_nullable = schema.field(geom_idx).is_nullable();
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+        aug_fields[geom_idx] = senza_crs_geoarrow(&aug_fields[geom_idx]);
         aug_fields.push(bbox_field(geometria_nullable));
         let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
             aug_fields,
-            schema.metadata().clone(),
+            senza_chiavi_del_formato(schema.metadata()),
         ));
         let staging = StagedFile::new(
             &path,
@@ -1315,6 +1316,37 @@ impl FormatDriver for GeoParquetDriver {
             opts,
         )
     }
+}
+
+/// Le chiavi di schema che appartengono a `GeoParquet` o al Parquet stesso.
+///
+/// Il contratto sorgente puo' portarle -- un Arrow IPC con il `geo` di geopandas,
+/// un `GeoParquet` riletto -- e copiate nello schema di scrittura finivano in
+/// `ARROW:schema`, accanto al `geo` del footer che il writer scrive dal
+/// contratto: pyarrow (`read_schema`, `read_table`) rendeva il `geo` della
+/// sorgente, e un file `EPSG:32632` si leggeva `EPSG:4326` (rilettura 12). Il
+/// `geo` del footer e' l'unica verita'; in lettura la chiave e' consumata nel
+/// contratto e non lo attraversa.
+const CHIAVI_DEL_FORMATO: [&str; 2] =
+    [plenora_io_model::geometry::GEO_METADATA_KEY, "ARROW:schema"];
+
+/// Il CRS `GeoArrow` (`ARROW:extension:metadata`) della colonna geometria: IO non
+/// lo legge (docs/PRODUCT.md), e qui e' una seconda dichiarazione del CRS che
+/// il `geo` del file puo' contraddire. Non entra ne' esce.
+const CHIAVE_ESTENSIONE_GEOARROW: &str = "ARROW:extension:metadata";
+
+fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::Metadata {
+    let mut metadati = metadati.clone();
+    for chiave in CHIAVI_DEL_FORMATO {
+        metadati.remove(chiave);
+    }
+    metadati
+}
+
+fn senza_crs_geoarrow(campo: &Field) -> Field {
+    let mut metadati = campo.metadata().clone();
+    metadati.remove(CHIAVE_ESTENSIONE_GEOARROW);
+    campo.clone().with_metadata(metadati)
 }
 
 /// Che cosa il writer mette nel campo `crs` della colonna.
@@ -3038,6 +3070,7 @@ fn retag_schema(
         .map(|f| {
             if f.name() == geom_name {
                 let mut md = f.metadata().clone();
+                md.remove(CHIAVE_ESTENSIONE_GEOARROW);
                 md.insert(
                     ARROW_EXTENSION_NAME_KEY.to_owned(),
                     GEOARROW_WKB_EXTENSION.to_owned(),
@@ -3051,7 +3084,10 @@ fn retag_schema(
             }
         })
         .collect();
-    Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
+    Arc::new(Schema::new_with_metadata(
+        fields,
+        senza_chiavi_del_formato(schema.metadata()),
+    ))
 }
 
 /// Trova la colonna geometria (`geoarrow.wkb`) in uno schema in scrittura.

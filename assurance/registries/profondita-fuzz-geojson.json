@@ -4,9 +4,9 @@
   "target": "geojson_reader",
   "artefatto": "assurance/profondita-fuzz-geojson.json",
   "rimisurazione_dovuta": {
-    "perche": "La classe delle geometrie ambigue cambia il perimetro GeoJSON: le chiavi ripetute nell'oggetto geometria e al livello del FeatureCollection si rifiutano invece di tenere l'ultimo valore. Poi il membro `crs` di GeoJSON 2008, su collezione, feature e geometria, letto da un seme dedicato e rifiutato se non nomina WGS84.",
+    "perche": "La classe delle geometrie ambigue cambia il perimetro GeoJSON: le chiavi ripetute nell'oggetto geometria e al livello del FeatureCollection si rifiutano invece di tenere l'ultimo valore. Poi il membro `crs` di GeoJSON 2008, su collezione, feature e geometria, letto da un seme dedicato e rifiutato se non nomina WGS84. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
     "impronta_della_misura": "d4798eb5278dbfcc53621dc16c5c23a77f801fe04bf5836a50789d0e8e1bb7bf",
-    "impronta_attesa": "5e373db7a936553e21c41f9936d806cdd2edf361dff336ac1e48dc3faef31dd7",
+    "impronta_attesa": "462042857aab418bf7e0adf64fb323b6f465a62b03207d4c2fa660ca3923dd89",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh geojson_reader"

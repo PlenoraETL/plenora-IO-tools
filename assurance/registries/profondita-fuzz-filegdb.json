@@ -4,17 +4,17 @@
   "target": "filegdb_reader",
   "artefatto": "assurance/profondita-fuzz-filegdb.json",
   "rimisurazione_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: apertura col solo driver `OpenFileGDB` e rifiuto dei layer con piu' campi geometrici. Poi `--assume-crs` contro il CRS dichiarato: il controllo nell'adapter comune `with_read_budget`, che ogni apertura attraversa, e il confronto GEO-005 degli identificatori in scrittura.",
+    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: apertura col solo driver `OpenFileGDB` e rifiuto dei layer con piu' campi geometrici. Poi `--assume-crs` contro il CRS dichiarato: il controllo nell'adapter comune `with_read_budget`, che ogni apertura attraversa, e il confronto GEO-005 degli identificatori in scrittura. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
     "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "31286eda1236430accafc3facbc3dccfd14c955b953ace075fa02d2d03727d33",
+    "impronta_attesa": "e225d71a552d3b94c110c3da8416ff62ba83cdce91c217d26bbb89aa58c4b5d7",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
   },
   "rimisurazione_asan_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB (ordine degli assi memorizzato, verifica delle definizioni CRS, SRID sul membro EWKB, ordine REJ-002). Il binario misurato non e' piu' quello che il codice corrente produce; il replay strumentato non e' stato rieseguito in questo worktree Windows. Poi `--assume-crs` contro il CRS dichiarato, verificato all'apertura nell'adapter comune.",
+    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB (ordine degli assi memorizzato, verifica delle definizioni CRS, SRID sul membro EWKB, ordine REJ-002). Il binario misurato non e' piu' quello che il codice corrente produce; il replay strumentato non e' stato rieseguito in questo worktree Windows. Poi `--assume-crs` contro il CRS dichiarato, verificato all'apertura nell'adapter comune. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
     "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "31286eda1236430accafc3facbc3dccfd14c955b953ace075fa02d2d03727d33",
+    "impronta_attesa": "e225d71a552d3b94c110c3da8416ff62ba83cdce91c217d26bbb89aa58c4b5d7",
     "non_promette": "La misura archiviata non attesta il confine AddressSanitizer del perimetro aggiornato.",
     "quando": "prima della qualificazione del candidato 6.0.0, sulla VM .138",
     "comando": "bash scripts/asan-filegdb.sh"

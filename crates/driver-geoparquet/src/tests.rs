@@ -4215,3 +4215,110 @@ fn il_genere_del_documento_crs_viene_dal_type() {
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
     assert_eq!(errore.driver.as_deref(), Some("geoparquet"));
 }
+
+// --- rilettura 12: le chiavi del formato non attraversano il contratto ------
+
+/// Un `geo` che dichiara `EPSG:4326`, diverso dal CRS del campo.
+const GEO_STANTIO: &str = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],"crs":{"type":"GeographicCRS","name":"stantio","id":{"authority":"EPSG","code":4326}}}}}"#;
+
+/// Lo schema Arrow incorporato in `ARROW:schema`, senza le chiavi del footer:
+/// e' cio' che pyarrow rende come metadati dello schema.
+fn schema_incorporato(percorso: &std::path::Path) -> (Schema, usize) {
+    use parquet::file::reader::FileReader as _;
+    let lettore =
+        parquet::file::reader::SerializedFileReader::new(File::open(percorso).unwrap()).unwrap();
+    let chiavi = lettore
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .cloned()
+        .expect("il footer porta metadati");
+    let solo: Vec<KeyValue> = chiavi
+        .iter()
+        .filter(|voce| voce.key == "ARROW:schema")
+        .cloned()
+        .collect();
+    assert_eq!(solo.len(), 1, "un solo ARROW:schema");
+    let schema = parquet::arrow::parquet_to_arrow_schema(
+        lettore.metadata().file_metadata().schema_descr(),
+        Some(&solo),
+    )
+    .unwrap();
+    let geo = chiavi.iter().filter(|voce| voce.key == "geo").count();
+    (schema, geo)
+}
+
+/// Su 777c5a1 lo schema di scrittura copiava i metadati della sorgente, e il
+/// `geo` stantio finiva in `ARROW:schema`: pyarrow rendeva `EPSG:4326` per un
+/// file che il footer dichiara `EPSG:32632`.
+#[test]
+fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
+    let dir = tempfile::tempdir().unwrap();
+    let percorso = dir.path().join("stantio.parquet");
+    let mut campo = geometry_field_meta("EPSG:4326");
+    campo.insert(
+        "ARROW:extension:metadata".to_owned(),
+        r#"{"crs":"EPSG:3857"}"#.to_owned(),
+    );
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("geometry", DataType::Binary, true).with_metadata(campo),
+            Field::new("id", DataType::Int64, false),
+        ],
+        HashMap::from([
+            ("geo".to_owned(), GEO_STANTIO.to_owned()),
+            ("altro".to_owned(), "v".to_owned()),
+        ]),
+    ));
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(9.0, 45.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(Int64Array::from(vec![1_i64])),
+        ],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let mut writer = GeoParquetDriver
+        .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+        .expect("il writer si apre");
+    writer.write(&batch).expect("scrittura");
+    writer.finish().expect("chiusura");
+
+    let (incorporato, geo) = schema_incorporato(&percorso);
+    assert_eq!(geo, 1, "il footer porta il solo `geo` del writer");
+    assert!(!incorporato.metadata().contains_key("geo"));
+    // Una chiave che non appartiene al formato passa (ARROW-010).
+    assert_eq!(
+        incorporato.metadata().get("altro").map(String::as_str),
+        Some("v")
+    );
+    let geometria = incorporato.field_with_name("geometry").unwrap();
+    assert!(!geometria
+        .metadata()
+        .contains_key("ARROW:extension:metadata"));
+}
+
+/// In lettura il `geo` e' consumato nel contratto: su 777c5a1 restava nei
+/// metadati dello schema, e un `GeoParquet` convertito in IPC lo portava con
+/// se'.
+#[test]
+fn il_geo_letto_non_resta_nei_metadati_del_contratto() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_geo(&dir, Some(&geo_con("")));
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("si apre");
+    let contratto = &dataset.layers()[0].contract;
+    assert!(!contratto.schema.metadata().contains_key("geo"));
+    assert!(!contratto.schema.metadata().contains_key("ARROW:schema"));
+}

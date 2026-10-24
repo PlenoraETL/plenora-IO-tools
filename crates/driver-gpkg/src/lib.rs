@@ -255,7 +255,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             CrsRepresentationState::Derived(CrsDerivation::SynthesizedFor {
                 ids: SRS_CON_DEFINIZIONE_CANONICA,
             }),
-        ),
+        )
+        // `organization` si scrive in maiuscolo (`register_srs`).
+        .autorita_in_maiuscolo(),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
         sink_path: SinkPathConstraint::Required {
@@ -2313,8 +2315,10 @@ fn wkb_shape(payload: &[u8], limiti: &WkbLimits) -> Result<WkbShape> {
 /// registra sempre, con una definizione canonica.
 pub const SRS_CON_DEFINIZIONE_CANONICA: &[&str] = &["EPSG:4326"];
 
-/// La definizione della riga `EPSG:4326` che ogni `GeoPackage` deve avere (GPKG
-/// 1.3, requisito 11, tabella 21), nella forma WKT 1 del registro EPSG.
+/// La riga `EPSG:4326` che ogni `GeoPackage` deve avere (GPKG 1.3, requisito 11).
+///
+/// E' il testo della tabella 21: un WKT 1 **senza** `AXIS`, non la forma del
+/// registro EPSG, che dichiara latitudine poi longitudine.
 ///
 /// Fino alla rilettura 11 la riga portava `GEOGCS["WGS 84"]`: un WKT che la
 /// regola dei lettori non risolve, e che lo Shapefile e il DXF scrivevano tale

@@ -17,12 +17,27 @@
 //!    che serve a rileggerlo: dell'identificatore (`crs_id_not_preserved_absent`),
 //!    che `--assume-crs` riporta e la prova lo verifica, o -- se la sorgente non
 //!    ne aveva uno -- della definizione (`crs_definition_not_preserved_absent`);
-//! 5. una sorgente senza CRS (`missing`) si rilegge senza CRS.
+//! 5. una sorgente non risolta (`missing`, `declared_unresolved`) si rilegge
+//!    nello stesso stato, e una risolta si rilegge risolta;
+//! 6. una definizione riletta uguale si rilegge nella **stessa** grammatica
+//!    (`definition_format`): lo stesso testo etichettato altrimenti e' un'altra
+//!    affermazione;
+//! 7. l'ordine degli assi della sorgente, se dichiarato (non `unknown`), si
+//!    rilegge uguale, o `unknown` quando la perdita della definizione che lo
+//!    portava e' dichiarata -- mai un **altro** ordine. L'eccezione e' quella di
+//!    docs/PRODUCT.md («`other` e `unknown` passano verso i formati con l'est per
+//!    primo»), scritta qui per esteso ([`EST_PER_PRIMO`]);
+//! 8. senza una perdita `srid_not_preserved_*`, l'SRID si rilegge uguale (la
+//!    prova lo legge dove `io.inspect` non lo rende: nei campi di un Arrow IPC);
+//! 9. un `GeoParquet` scritto non porta un `geo` in `ARROW:schema`, che e' cio'
+//!    che pyarrow rende, e un Arrow IPC scritto da un'altra sorgente non porta un
+//!    `geo` di schema: il `geo` del footer e' l'unica verita'. Da IPC a IPC il
+//!    `geo` passa tale e quale (ARROW-010), limite dichiarato.
 //!
 //! La sorgente e' cio' che `io.inspect` ne legge, non cio' che la prova crede di
-//! averci scritto: cosi' la stessa regola vale al secondo passaggio, dai file
+//! averci scritto: cosi' la stessa regola vale ai passaggi successivi, dai file
 //! che il primo ha scritto (`GeoParquet`, `GeoPackage`, Shapefile, DXF, `GeoJSON`)
-//! verso ogni bersaglio.
+//! verso ogni bersaglio, e dalle sorgenti native.
 //!
 //! # Perche' esiste
 //!
@@ -35,6 +50,16 @@
 //! rilegge non risolto. Erano trovate da una matrice scritta a mano; questa e'
 //! quella matrice, permanente. Su `db1307d` fallisce con trenta violazioni al
 //! primo passaggio e cinquantacinque al secondo.
+//!
+//! La rilettura 12 ne ha trovati altri tre, fuori dalla matrice di allora, che
+//! confrontava solo identificatore e definizione e partiva solo da IPC: un `geo`
+//! stantio della sorgente copiato in `ARROW:schema`, il DXF che rifilava una
+//! definizione chiusa da CRLF, e il `GeoPackage` che scrive `epsg:4326` come
+//! `EPSG:4326` dichiarandolo conservato. Ora la matrice confronta anche
+//! grammatica, assi, stato e SRID, parte anche da sorgenti native (`GeoPackage`
+//! alla GDAL, Shapefile con il `.prj` chiuso da CRLF, `GeoParquet` alla
+//! geopandas) e ha un terzo passaggio sulle catene di [`TERZO_PASSAGGIO`]. Su
+//! `777c5a1` fallisce in tutti e tre i passaggi.
 //!
 //! `FileGDB` resta fuori: scrive solo con `gdal-backend`.
 
@@ -87,6 +112,13 @@ fn pj_numeri() -> String {
 /// Un `EngineeringCRS` con `id` EPSG:4326: genere contraddetto.
 const PJ_ENG_4326: &str = r#"{"$schema":"https://proj.org/schemas/v0.7/projjson.schema.json","type":"EngineeringCRS","name":"x","datum":{"name":"d"},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"X","abbreviation":"X","direction":"east","unit":"metre"},{"name":"Y","abbreviation":"Y","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":4326}}"#;
 
+/// I WKT come li scrive GDAL, con `AXIS`.
+const GDAL_4326: &str = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]"#;
+const GDAL_32632: &str = r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",9],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#;
+/// Il `geo` di schema che geopandas scrive anche in Arrow IPC (`to_feather`):
+/// dichiara `EPSG:4326`, e qui contraddice il CRS del campo.
+const GEO_STANTIO: &str = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],"crs":{"type":"GeographicCRS","name":"stantio","id":{"authority":"EPSG","code":4326}}}}}"#;
+
 // --- le sorgenti -------------------------------------------------------------
 
 const GEO: (f64, f64) = (9.0, 45.0);
@@ -99,6 +131,21 @@ struct Caso {
     definizione: Option<(String, &'static str)>,
     assi: Option<&'static str>,
     punto: (f64, f64),
+    srid: Option<&'static str>,
+    /// Un `geo` nei metadati di schema.
+    geo_di_schema: bool,
+}
+
+impl Caso {
+    const fn con_srid(mut self, srid: &'static str) -> Self {
+        self.srid = Some(srid);
+        self
+    }
+
+    const fn con_geo_di_schema(mut self) -> Self {
+        self.geo_di_schema = true;
+        self
+    }
 }
 
 fn risolto(
@@ -115,6 +162,8 @@ fn risolto(
         definizione: definizione.map(|(testo, formato)| (testo.to_owned(), formato)),
         assi: Some(assi),
         punto,
+        srid: None,
+        geo_di_schema: false,
     }
 }
 
@@ -246,6 +295,72 @@ fn casi() -> Vec<Caso> {
             definizione: None,
             assi: None,
             punto: GEO,
+            srid: None,
+            geo_di_schema: false,
+        },
+        // Rilettura 12: identificatori minuscoli, definizioni con i bordi, un
+        // ordine `other`, l'SRID, un `geo` di schema, una sorgente non risolta.
+        risolto("4326_id_minuscolo", Some("epsg:4326"), None, "lon_lat", GEO),
+        risolto(
+            "32632_wkt_minuscolo",
+            Some("epsg:32632"),
+            Some((GDAL_32632, "wkt")),
+            "easting_northing",
+            UTM,
+        ),
+        risolto(
+            "32632_wkt_crlf",
+            Some("EPSG:32632"),
+            Some((&format!("{GDAL_32632}\r\n"), "wkt")),
+            "easting_northing",
+            UTM,
+        ),
+        risolto(
+            "32632_wkt_spazi",
+            Some("EPSG:32632"),
+            Some((&format!("  {UTM32_EPSG} "), "wkt")),
+            "easting_northing",
+            UTM,
+        ),
+        risolto(
+            "4326_gdal_lat_lon",
+            Some("EPSG:4326"),
+            Some((GDAL_4326, "wkt")),
+            "lat_lon",
+            (45.0, 9.0),
+        ),
+        risolto(
+            "32632_other",
+            Some("EPSG:32632"),
+            Some((GDAL_32632, "wkt")),
+            "other",
+            UTM,
+        ),
+        risolto(
+            "32632_wkt_srid",
+            Some("EPSG:32632"),
+            Some((GDAL_32632, "wkt")),
+            "easting_northing",
+            UTM,
+        )
+        .con_srid("32632"),
+        risolto(
+            "32632_pj_geo_stantio",
+            Some("EPSG:32632"),
+            Some((PJ_32632, "projjson")),
+            "easting_northing",
+            UTM,
+        )
+        .con_geo_di_schema(),
+        Caso {
+            nome: "non_risolto_wkt",
+            risoluzione: "declared_unresolved",
+            crs_id: None,
+            definizione: Some((UTM32_ANONIMO.to_owned(), "wkt")),
+            assi: Some("unknown"),
+            punto: UTM,
+            srid: None,
+            geo_di_schema: false,
         },
     ]
 }
@@ -290,12 +405,19 @@ fn sorgente_ipc(dir: &Path, caso: &Caso) -> PathBuf {
             (*formato).to_owned(),
         );
     }
+    if let Some(srid) = caso.srid {
+        geometria.insert("plenora.geometry.srid".to_owned(), srid.to_owned());
+    }
+    let mut metadati = HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]);
+    if caso.geo_di_schema {
+        metadati.insert("geo".to_owned(), GEO_STANTIO.to_owned());
+    }
     let schema = Arc::new(Schema::new_with_metadata(
         vec![
             Field::new("nome", DataType::Utf8, false),
             Field::new("geometry", DataType::Binary, true).with_metadata(geometria),
         ],
-        HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]),
+        metadati,
     ));
     let wkb = [Some(punto_wkb(caso.punto))];
     let colonne: Vec<ArrayRef> = vec![
@@ -309,6 +431,285 @@ fn sorgente_ipc(dir: &Path, caso: &Caso) -> PathBuf {
     scrittore.write(&batch).expect("batch scritto");
     scrittore.finish().expect("sorgente completata");
     percorso
+}
+
+// --- le sorgenti native ------------------------------------------------------
+//
+// Scritte come le scrivono gli altri: nessuna passa dai writer di IO, che la
+// matrice sta provando.
+
+/// Un `GeoPackage` come lo scrive GDAL: le righe obbligatorie, una riga
+/// `(organizzazione, codice, definizione)` per il CRS del layer e un punto.
+fn gpkg_nativo(
+    dir: &Path,
+    nome: &str,
+    riga: Option<(&str, i64, &str)>,
+    srs_id: i64,
+    punto: (f64, f64),
+) -> PathBuf {
+    let percorso = dir.join(format!("{nome}.gpkg"));
+    let conn = rusqlite::Connection::open(&percorso).expect("sqlite");
+    conn.execute_batch(
+        "PRAGMA application_id = 1196444487; PRAGMA user_version = 10300;
+         CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY,
+            organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL,
+            definition TEXT NOT NULL, description TEXT);
+         CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL,
+            identifier TEXT UNIQUE, description TEXT DEFAULT '', last_change DATETIME NOT NULL
+            DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), min_x DOUBLE, min_y DOUBLE,
+            max_x DOUBLE, max_y DOUBLE, srs_id INTEGER);
+         CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL,
+            geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL,
+            m TINYINT NOT NULL, PRIMARY KEY (table_name, column_name));
+         CREATE TABLE punti (fid INTEGER PRIMARY KEY AUTOINCREMENT, geom POINT, nome TEXT);
+         INSERT INTO gpkg_spatial_ref_sys VALUES
+            ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', NULL),
+            ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', NULL);",
+    )
+    .expect("tabelle");
+    let mut righe = vec![("EPSG", 4326, GDAL_4326)];
+    righe.extend(riga);
+    for (organizzazione, codice, definizione) in righe {
+        conn.execute(
+            "INSERT OR REPLACE INTO gpkg_spatial_ref_sys VALUES ('crs', ?1, ?2, ?3, ?4, NULL)",
+            rusqlite::params![
+                if codice == 4326 { 4326 } else { srs_id },
+                organizzazione,
+                codice,
+                definizione
+            ],
+        )
+        .expect("riga del CRS");
+    }
+    conn.execute(
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, srs_id) \
+         VALUES ('punti', 'features', 'punti', ?1)",
+        [srs_id],
+    )
+    .expect("contents");
+    conn.execute(
+        "INSERT INTO gpkg_geometry_columns VALUES ('punti', 'geom', 'POINT', ?1, 0, 0)",
+        [srs_id],
+    )
+    .expect("geometry_columns");
+    let mut blob = b"GP".to_vec();
+    blob.extend_from_slice(&[0, 1]);
+    blob.extend_from_slice(&i32::try_from(srs_id).expect("srs_id").to_le_bytes());
+    blob.extend_from_slice(&punto_wkb(punto));
+    conn.execute("INSERT INTO punti (geom, nome) VALUES (?1, 'alfa')", [blob])
+        .expect("punto");
+    percorso
+}
+
+/// Uno Shapefile scritto byte per byte, con il `.prj` che si vuole.
+fn shp_nativo(dir: &Path, nome: &str, prj: &str, (x, y): (f64, f64)) -> PathBuf {
+    let cartella = dir.join(nome);
+    std::fs::create_dir_all(&cartella).expect("cartella");
+    let intestazione = |parole: i32| {
+        let mut byte = Vec::new();
+        for valore in [9994_i32, 0, 0, 0, 0, 0, parole] {
+            byte.extend_from_slice(&valore.to_be_bytes());
+        }
+        byte.extend_from_slice(&1000_i32.to_le_bytes());
+        byte.extend_from_slice(&1_i32.to_le_bytes());
+        for valore in [x, y, x, y, 0.0, 0.0, 0.0, 0.0] {
+            byte.extend_from_slice(&valore.to_le_bytes());
+        }
+        byte
+    };
+    let mut record = 1_i32.to_le_bytes().to_vec();
+    record.extend_from_slice(&x.to_le_bytes());
+    record.extend_from_slice(&y.to_le_bytes());
+    let mut shp = intestazione(64);
+    shp.extend_from_slice(&1_i32.to_be_bytes());
+    shp.extend_from_slice(&10_i32.to_be_bytes());
+    shp.extend_from_slice(&record);
+    let mut shx = intestazione(54);
+    shx.extend_from_slice(&50_i32.to_be_bytes());
+    shx.extend_from_slice(&10_i32.to_be_bytes());
+    let mut dbf = vec![3_u8, 124, 10, 24];
+    dbf.extend_from_slice(&1_u32.to_le_bytes());
+    dbf.extend_from_slice(&65_u16.to_le_bytes());
+    dbf.extend_from_slice(&11_u16.to_le_bytes());
+    dbf.extend_from_slice(&[0; 20]);
+    dbf.extend_from_slice(b"NOME\0\0\0\0\0\0\0C\0\0\0\0\x0a");
+    dbf.extend_from_slice(&[0; 15]);
+    dbf.extend_from_slice(b"\r alfa      \x1a");
+    let base = cartella.join("punti");
+    for (estensione, byte) in [
+        ("shp", shp),
+        ("shx", shx),
+        ("dbf", dbf),
+        ("prj", prj.as_bytes().to_vec()),
+        ("cpg", b"UTF-8".to_vec()),
+    ] {
+        std::fs::write(base.with_extension(estensione), byte).expect("componente");
+    }
+    base.with_extension("shp")
+}
+
+/// Un `GeoParquet` come lo scrive pyarrow per geopandas: `geo` nel footer e
+/// nei metadati dello schema incorporato.
+fn geoparquet_nativo(dir: &Path, nome: &str, crs: Option<&str>, punto: (f64, f64)) -> PathBuf {
+    use arrow_array::{ArrayRef, BinaryArray, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+
+    let campo_crs = crs.map_or_else(String::new, |crs| format!(r#", "crs": {crs}"#));
+    let geo = format!(
+        r#"{{"primary_column": "geometry", "columns": {{"geometry": {{"encoding": "WKB", "geometry_types": ["Point"]{campo_crs}}}}}, "version": "1.0.0"}}"#
+    );
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("nome", DataType::Utf8, true),
+            Field::new("geometry", DataType::Binary, true),
+        ],
+        HashMap::from([("geo".to_owned(), geo.clone())]),
+    ));
+    let colonne: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from(vec!["alfa"])),
+        Arc::new(BinaryArray::from(vec![Some(punto_wkb(punto).as_slice())])),
+    ];
+    let batch = RecordBatch::try_new(Arc::clone(&schema), colonne).expect("batch");
+    let proprieta = parquet::file::properties::WriterProperties::builder()
+        .set_key_value_metadata(Some(vec![parquet::file::metadata::KeyValue::new(
+            "geo".to_owned(),
+            geo,
+        )]))
+        .build();
+    let percorso = dir.join(format!("{nome}.parquet"));
+    let file = std::fs::File::create(&percorso).expect("file");
+    let mut scrittore =
+        parquet::arrow::ArrowWriter::try_new(file, schema, Some(proprieta)).expect("writer");
+    scrittore.write(&batch).expect("scrittura");
+    scrittore.close().expect("chiusura");
+    percorso
+}
+
+/// Il PROJJSON come lo serializza geopandas: `", "` e `": "`.
+fn alla_geopandas(projjson: &str) -> String {
+    projjson.replace(",\"", ", \"").replace("\":", "\": ")
+}
+
+/// Le sorgenti native: nome, percorso, formato.
+// Una riga per sorgente: la lunghezza e' quella dell'elenco, non logica.
+#[allow(clippy::too_many_lines)]
+fn sorgenti_native(dir: &Path) -> Vec<(String, PathBuf, &'static str)> {
+    let pj_minuscolo = PJ_4326.replace(
+        r#""authority":"EPSG","code":4326"#,
+        r#""authority":"epsg","code":4326"#,
+    );
+    let crlf = format!("{GDAL_32632}\r\n");
+    let spazi = format!("  {GDAL_32632}");
+    let sorgenti = vec![
+        (
+            "g_4326_gdal",
+            gpkg_nativo(dir, "g_4326_gdal", None, 4326, GEO),
+            "gpkg",
+        ),
+        (
+            "g_32632_gdal",
+            gpkg_nativo(
+                dir,
+                "g_32632_gdal",
+                Some(("EPSG", 32632, GDAL_32632)),
+                32632,
+                UTM,
+            ),
+            "gpkg",
+        ),
+        (
+            "g_32632_minuscolo",
+            gpkg_nativo(
+                dir,
+                "g_32632_minuscolo",
+                Some(("epsg", 32632, GDAL_32632)),
+                32632,
+                UTM,
+            ),
+            "gpkg",
+        ),
+        (
+            "g_32632_crlf",
+            gpkg_nativo(
+                dir,
+                "g_32632_crlf",
+                Some(("EPSG", 32632, crlf.as_str())),
+                32632,
+                UTM,
+            ),
+            "gpkg",
+        ),
+        (
+            "g_32632_undefined",
+            gpkg_nativo(
+                dir,
+                "g_32632_undefined",
+                Some(("EPSG", 32632, "undefined")),
+                32632,
+                UTM,
+            ),
+            "gpkg",
+        ),
+        (
+            "s_esri_gcs",
+            shp_nativo(dir, "s_esri_gcs", WGS84_ESRI, GEO),
+            "shp",
+        ),
+        (
+            "s_32632_crlf",
+            shp_nativo(dir, "s_32632_crlf", &crlf, UTM),
+            "shp",
+        ),
+        (
+            "s_32632_spazi",
+            shp_nativo(dir, "s_32632_spazi", &spazi, UTM),
+            "shp",
+        ),
+        (
+            "s_4326_wkt2",
+            shp_nativo(dir, "s_4326_wkt2", WGS84_WKT2, GEO),
+            "shp",
+        ),
+        (
+            "p_4326_geopandas",
+            geoparquet_nativo(dir, "p_4326_geopandas", Some(&alla_geopandas(PJ_4326)), GEO),
+            "geoparquet",
+        ),
+        (
+            "p_4326_minuscolo",
+            geoparquet_nativo(dir, "p_4326_minuscolo", Some(&pj_minuscolo), GEO),
+            "geoparquet",
+        ),
+        (
+            "p_32632",
+            geoparquet_nativo(dir, "p_32632", Some(PJ_32632), UTM),
+            "geoparquet",
+        ),
+        (
+            "p_crs84",
+            geoparquet_nativo(dir, "p_crs84", None, GEO),
+            "geoparquet",
+        ),
+        (
+            "p_nullo",
+            geoparquet_nativo(dir, "p_nullo", Some("null"), GEO),
+            "geoparquet",
+        ),
+    ];
+    sorgenti
+        .into_iter()
+        .map(|(nome, percorso, formato)| (nome.to_owned(), percorso, formato))
+        .collect()
+}
+
+/// Tutte le sorgenti del primo passaggio: i casi IPC e le native.
+fn sorgenti(dir: &Path) -> Vec<(String, PathBuf, &'static str)> {
+    let mut tutte: Vec<(String, PathBuf, &'static str)> = casi()
+        .iter()
+        .map(|caso| (caso.nome.to_owned(), sorgente_ipc(dir, caso), "ipc"))
+        .collect();
+    tutte.extend(sorgenti_native(dir));
+    tutte
 }
 
 // --- il binario --------------------------------------------------------------
@@ -329,6 +730,26 @@ const BERSAGLI: [(&str, &str); 9] = [
 /// I formati da cui parte il secondo passaggio.
 const RILETTI: [&str; 5] = ["geoparquet", "gpkg", "shp", "dxf", "geojson"];
 
+/// Le catene del terzo passaggio: il formato del primo file e quello del
+/// secondo. Sono le catene dei rilievi delle riletture 11 e 12 (il `GeoPackage`
+/// che riscrive la definizione, lo Shapefile e il DXF che la portano nel solo
+/// WKT, `GeoParquet` che la porta nel solo PROJJSON); tutte e venticinque
+/// moltiplicherebbero per cinque il tempo della prova.
+const TERZO_PASSAGGIO: [(&str, &str); 6] = [
+    ("gpkg", "shp"),
+    ("geoparquet", "gpkg"),
+    ("shp", "gpkg"),
+    ("gpkg", "dxf"),
+    ("dxf", "geoparquet"),
+    ("shp", "dxf"),
+];
+
+/// I bersagli il cui ordine degli assi e' fissato dal formato, l'est per primo:
+/// un `other` ci si scrive com'e' e si rilegge con l'ordine del formato
+/// (docs/PRODUCT.md, «`other` e `unknown` passano verso i formati con l'est per
+/// primo»). E' l'eccezione dichiarata alla regola 7, e vale solo per `other`.
+const EST_PER_PRIMO: [&str; 6] = ["geoparquet", "gpkg", "shp", "dxf", "geojson", "kml"];
+
 fn cli(argomenti: &[&str]) -> (bool, serde_json::Value) {
     let output = Command::new(binario())
         .args(argomenti)
@@ -339,12 +760,24 @@ fn cli(argomenti: &[&str]) -> (bool, serde_json::Value) {
     (output.status.success(), busta)
 }
 
-/// Il CRS che `io.inspect` legge: risoluzione, identificatore, definizione.
+/// Il CRS che `io.inspect` legge, e l'SRID dove un file lo porta in chiaro.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Crs {
     stato: String,
     id: Option<String>,
     definizione: Option<String>,
+    formato: Option<String>,
+    assi: Option<String>,
+    srid: Option<String>,
+}
+
+/// L'SRID di un Arrow IPC, dal campo geometria: `io.inspect` non lo rende.
+fn srid_ipc(percorso: &Path) -> Option<String> {
+    let file = std::fs::File::open(percorso).ok()?;
+    let lettore = arrow_ipc::reader::FileReader::try_new(file, None).ok()?;
+    let schema = lettore.schema();
+    let campo = schema.field_with_name("geometry").ok()?;
+    campo.metadata().get("plenora.geometry.srid").cloned()
 }
 
 fn crs_letto(percorso: &Path, opzioni: &[&str]) -> Result<Crs, String> {
@@ -361,6 +794,9 @@ fn crs_letto(percorso: &Path, opzioni: &[&str]) -> Result<Crs, String> {
         stato: testo(&risoluzione["status"]).expect("la risoluzione porta lo stato"),
         id: testo(&risoluzione["id"]),
         definizione: testo(&risoluzione["definition"]),
+        formato: testo(&risoluzione["definition_format"]),
+        assi: testo(&risoluzione["axis_order"]),
+        srid: srid_ipc(percorso),
     })
 }
 
@@ -388,7 +824,7 @@ fn converti(
         .expect("una scrittura riuscita porta `counts`")
         .iter()
         .filter_map(|voce| voce["categoria"].as_str())
-        .filter(|c| c.starts_with("crs_"))
+        .filter(|c| c.starts_with("crs_") || c.starts_with("srid_"))
         .map(str::to_owned)
         .collect();
     Some((
@@ -404,13 +840,169 @@ fn stesso_identificatore(a: &str, b: &str) -> bool {
     }
 }
 
+/// Un `geo` che il file scritto porta dove non deve (regola 9).
+fn geo_fuori_posto(uscita: &Path, da: &str, verso: &str) -> Option<&'static str> {
+    match verso {
+        "geoparquet" => {
+            use parquet::file::reader::FileReader as _;
+            let file = std::fs::File::open(uscita).expect("file scritto");
+            let lettore = parquet::file::reader::SerializedFileReader::new(file).expect("footer");
+            let metadati = lettore.metadata().file_metadata();
+            let solo_schema: Vec<_> = metadati
+                .key_value_metadata()
+                .into_iter()
+                .flatten()
+                .filter(|voce| voce.key == "ARROW:schema")
+                .cloned()
+                .collect();
+            let incorporato = parquet::arrow::parquet_to_arrow_schema(
+                metadati.schema_descr(),
+                Some(&solo_schema),
+            )
+            .expect("schema incorporato");
+            incorporato
+                .metadata()
+                .contains_key("geo")
+                .then_some("un `geo` in ARROW:schema")
+        }
+        "ipc" if da != "ipc" => {
+            let file = std::fs::File::open(uscita).expect("file scritto");
+            let lettore = arrow_ipc::reader::FileReader::try_new(file, None).expect("IPC");
+            lettore
+                .schema()
+                .metadata()
+                .contains_key("geo")
+                .then_some("un `geo` di schema da una sorgente non IPC")
+        }
+        _ => None,
+    }
+}
+
 /// I bersagli che non portano un CRS: il lettore lo chiede sempre con
 /// `--assume-crs` (e la geometria con `wkt_column`). Per loro la regola e'
 /// che la perdita di ogni rappresentazione sia dichiarata.
 const SENZA_CRS: [&str; 2] = ["csv", "xls"];
 
+/// Le violazioni per un file che non si rilegge senza opzioni (regola 4).
+fn violazioni_senza_rilettura(
+    sorgente: &Crs,
+    dichiara: &dyn Fn(&str) -> bool,
+    uscita: &Path,
+    categoria: &str,
+) -> Vec<String> {
+    let mut errori = Vec::new();
+    match &sorgente.id {
+        Some(id) => {
+            if !dichiara("crs_id_not_preserved_absent") {
+                errori.push(format!(
+                    "non si rilegge ({categoria}) e non dichiara crs_id_not_preserved_absent"
+                ));
+            }
+            match crs_letto(uscita, &["--assume-crs", id]) {
+                Ok(riletto)
+                    if riletto
+                        .id
+                        .as_deref()
+                        .is_some_and(|r| stesso_identificatore(r, id)) => {}
+                altro => errori.push(format!(
+                    "--assume-crs non riporta l'identificatore: {altro:?}"
+                )),
+            }
+        }
+        None => {
+            if !dichiara("crs_definition_not_preserved_absent") {
+                errori.push(format!(
+                    "non si rilegge ({categoria}), e senza identificatore non dichiara perduta la definizione"
+                ));
+            }
+        }
+    }
+    errori
+}
+
+/// Le regole 1 e 2: l'identificatore.
+fn violazioni_dell_identificatore(
+    sorgente: &Crs,
+    riletto: &Crs,
+    dichiara: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    let mut errori = Vec::new();
+    let Some(id) = &sorgente.id else {
+        return errori;
+    };
+    if !dichiara("crs_id_not_preserved") && riletto.id.as_ref() != Some(id) {
+        errori.push(format!(
+            "identificatore conservato e riletto diverso: {:?}",
+            riletto.id
+        ));
+    }
+    if dichiara("crs_id_not_preserved_derived")
+        && !riletto
+            .id
+            .as_deref()
+            .is_some_and(|r| stesso_identificatore(r, id))
+    {
+        errori.push(format!(
+            "identificatore derivato e riletto diverso: {:?}",
+            riletto.id
+        ));
+    }
+    errori
+}
+
+/// Le regole 3, 6, 7 e 8: definizione, grammatica, assi, SRID.
+fn violazioni_della_definizione(
+    sorgente: &Crs,
+    riletto: &Crs,
+    dichiara: &dyn Fn(&str) -> bool,
+    verso: &str,
+) -> Vec<String> {
+    let mut errori = Vec::new();
+    if let Some(definizione) = &sorgente.definizione {
+        if !dichiara("crs_definition_not_preserved")
+            && riletto.definizione.as_ref() != Some(definizione)
+        {
+            errori.push("definizione conservata e riletta diversa".to_owned());
+        }
+        if riletto.definizione.as_ref() == Some(definizione) && riletto.formato != sorgente.formato
+        {
+            errori.push(format!(
+                "la stessa definizione si rilegge in un'altra grammatica: {:?} -> {:?}",
+                sorgente.formato, riletto.formato
+            ));
+        }
+    }
+    if let Some(assi) = sorgente.assi.as_deref().filter(|assi| *assi != "unknown") {
+        let letti = riletto.assi.as_deref();
+        let uguale = letti == Some(assi);
+        let ignoto = letti == Some("unknown") && dichiara("crs_definition_not_preserved");
+        let del_formato = assi == "other"
+            && EST_PER_PRIMO.contains(&verso)
+            && matches!(letti, Some("easting_northing" | "longitude_latitude"));
+        if !(uguale || ignoto || del_formato) {
+            errori.push(format!("l'ordine degli assi {assi} si rilegge {letti:?}"));
+        }
+    }
+    if let Some(srid) = &sorgente.srid {
+        let dichiarato = dichiara("srid_not_preserved");
+        if !dichiarato && verso != "ipc" {
+            errori.push("SRID non scritto e non dichiarato perduto".to_owned());
+        }
+        if !dichiarato && verso == "ipc" && riletto.srid.as_ref() != Some(srid) {
+            errori.push(format!("SRID conservato e riletto {:?}", riletto.srid));
+        }
+    }
+    errori
+}
+
 /// Le violazioni dell'invariante per una conversione riuscita.
-fn violazioni(sorgente: &Crs, perdite: &[String], uscita: &Path, verso: &str) -> Vec<String> {
+fn violazioni(
+    sorgente: &Crs,
+    perdite: &[String],
+    uscita: &Path,
+    da: &str,
+    verso: &str,
+) -> Vec<String> {
     let dichiara = |prefisso: &str| perdite.iter().any(|p| p.starts_with(prefisso));
     let mut errori = Vec::new();
     if SENZA_CRS.contains(&verso) {
@@ -422,67 +1014,30 @@ fn violazioni(sorgente: &Crs, perdite: &[String], uscita: &Path, verso: &str) ->
         }
         return errori;
     }
+    if let Some(errore) = geo_fuori_posto(uscita, da, verso) {
+        errori.push(errore.to_owned());
+    }
     let riletto = match crs_letto(uscita, &[]) {
         Ok(riletto) => riletto,
         Err(categoria) => {
-            match &sorgente.id {
-                Some(id) => {
-                    if !dichiara("crs_id_not_preserved_absent") {
-                        errori.push(format!(
-                            "non si rilegge ({categoria}) e non dichiara crs_id_not_preserved_absent"
-                        ));
-                    }
-                    match crs_letto(uscita, &["--assume-crs", id]) {
-                        Ok(riletto)
-                            if riletto
-                                .id
-                                .as_deref()
-                                .is_some_and(|r| stesso_identificatore(r, id)) => {}
-                        altro => errori.push(format!(
-                            "--assume-crs non riporta l'identificatore: {altro:?}"
-                        )),
-                    }
-                }
-                None => {
-                    if !dichiara("crs_definition_not_preserved_absent") {
-                        errori.push(format!(
-                            "non si rilegge ({categoria}), e senza identificatore non dichiara perduta la definizione"
-                        ));
-                    }
-                }
-            }
+            errori.extend(violazioni_senza_rilettura(
+                sorgente, &dichiara, uscita, &categoria,
+            ));
             return errori;
         }
     };
-    if sorgente.stato == "missing" && riletto.stato != "missing" {
-        errori.push(format!("un CRS mancante si rilegge {riletto:?}"));
+    if riletto.stato != sorgente.stato {
+        errori.push(format!(
+            "un CRS {} si rilegge {}",
+            sorgente.stato, riletto.stato
+        ));
     }
-    if let Some(id) = &sorgente.id {
-        if !dichiara("crs_id_not_preserved") && riletto.id.as_ref() != Some(id) {
-            errori.push(format!(
-                "identificatore conservato e riletto diverso: {:?}",
-                riletto.id
-            ));
-        }
-        if dichiara("crs_id_not_preserved_derived")
-            && !riletto
-                .id
-                .as_deref()
-                .is_some_and(|r| stesso_identificatore(r, id))
-        {
-            errori.push(format!(
-                "identificatore derivato e riletto diverso: {:?}",
-                riletto.id
-            ));
-        }
-    }
-    if let Some(definizione) = &sorgente.definizione {
-        if !dichiara("crs_definition_not_preserved")
-            && riletto.definizione.as_ref() != Some(definizione)
-        {
-            errori.push("definizione conservata e riletta diversa".to_owned());
-        }
-    }
+    errori.extend(violazioni_dell_identificatore(
+        sorgente, &riletto, &dichiara,
+    ));
+    errori.extend(violazioni_della_definizione(
+        sorgente, &riletto, &dichiara, verso,
+    ));
     errori
 }
 
@@ -505,7 +1060,7 @@ fn verso_ogni_bersaglio(
         let Some((perdite, livello)) = converti(sorgente, da, &uscita, verso) else {
             continue;
         };
-        for errore in violazioni(&crs_sorgente, &perdite, &uscita, verso) {
+        for errore in violazioni(&crs_sorgente, &perdite, &uscita, da, verso) {
             errori.push(format!(
                 "{nome} ({da}) -> {verso}: {errore}; livello {livello}, perdite {perdite:?}"
             ));
@@ -515,13 +1070,42 @@ fn verso_ogni_bersaglio(
     scritti
 }
 
+/// Il secondo passaggio da ogni sorgente: i file scritti, con il nome della
+/// catena e i due formati.
+fn secondo_passaggio(
+    dir: &Path,
+    errori: &mut Vec<String>,
+) -> Vec<(String, &'static str, &'static str, PathBuf)> {
+    let mut ignorati = Vec::new();
+    let mut scritti = Vec::new();
+    for (nome, sorgente, da) in sorgenti(dir) {
+        let primo = dir.join("primo");
+        for (formato, scritto) in verso_ogni_bersaglio(&primo, &nome, &sorgente, da, &mut ignorati)
+        {
+            if !RILETTI.contains(&formato) {
+                continue;
+            }
+            let catena = format!("{nome}-{formato}");
+            for (secondo, file) in
+                verso_ogni_bersaglio(&dir.join("secondo"), &catena, &scritto, formato, errori)
+            {
+                scritti.push((catena.clone(), formato, secondo, file));
+            }
+        }
+    }
+    scritti
+}
+
 #[test]
 fn ogni_scrittura_si_rilegge_come_la_dichiara() {
     let dir = tempfile::tempdir().expect("directory temporanea");
     let mut errori = Vec::new();
-    for caso in casi() {
-        let sorgente = sorgente_ipc(dir.path(), &caso);
-        verso_ogni_bersaglio(dir.path(), caso.nome, &sorgente, "ipc", &mut errori);
+    for (nome, sorgente, da) in sorgenti(dir.path()) {
+        // Una sorgente che non si legge uscirebbe dalla matrice in silenzio.
+        if let Err(categoria) = crs_letto(&sorgente, &[]) {
+            errori.push(format!("{nome}: la sorgente non si legge ({categoria})"));
+        }
+        verso_ogni_bersaglio(dir.path(), &nome, &sorgente, da, &mut errori);
     }
     assert!(errori.is_empty(), "{}", errori.join("\n"));
 }
@@ -530,26 +1114,28 @@ fn ogni_scrittura_si_rilegge_come_la_dichiara() {
 #[test]
 fn ogni_scrittura_si_rilegge_come_la_dichiara_anche_al_secondo_passaggio() {
     let dir = tempfile::tempdir().expect("directory temporanea");
+    let mut errori = Vec::new();
+    secondo_passaggio(dir.path(), &mut errori);
+    assert!(errori.is_empty(), "{}", errori.join("\n"));
+}
+
+/// Il terzo passaggio, sulle catene di [`TERZO_PASSAGGIO`].
+#[test]
+fn ogni_scrittura_si_rilegge_come_la_dichiara_anche_al_terzo_passaggio() {
+    let dir = tempfile::tempdir().expect("directory temporanea");
     let mut ignorati = Vec::new();
     let mut errori = Vec::new();
-    for caso in casi() {
-        let sorgente = sorgente_ipc(dir.path(), &caso);
-        let primo = dir.path().join("primo");
-        for (formato, scritto) in
-            verso_ogni_bersaglio(&primo, caso.nome, &sorgente, "ipc", &mut ignorati)
-        {
-            if !RILETTI.contains(&formato) {
-                continue;
-            }
-            let nome = format!("{}-{formato}", caso.nome);
-            verso_ogni_bersaglio(
-                &dir.path().join("secondo"),
-                &nome,
-                &scritto,
-                formato,
-                &mut errori,
-            );
+    for (catena, primo, secondo, scritto) in secondo_passaggio(dir.path(), &mut ignorati) {
+        if !TERZO_PASSAGGIO.contains(&(primo, secondo)) {
+            continue;
         }
+        verso_ogni_bersaglio(
+            &dir.path().join("terzo"),
+            &format!("{catena}-{secondo}"),
+            &scritto,
+            secondo,
+            &mut errori,
+        );
     }
     assert!(errori.is_empty(), "{}", errori.join("\n"));
 }
