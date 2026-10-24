@@ -470,7 +470,7 @@
           "other"
         ],
         "attributes": "all",
-        "crs": "embedded",
+        "crs": "embedded_or_unknown",
         "crs_representations": {
           "crs_definition": "preserved",
           "crs_id": "preserved",

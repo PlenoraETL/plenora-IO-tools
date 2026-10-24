@@ -1509,6 +1509,34 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   di un WKT non è più una dichiarazione, e quella definizione si nomina con
   `--assume-crs`. Lo SRID di un PROJJSON segue la regola del WKT: `"04326"` non
   è 4326.
+- **La definizione che un bersaglio non conserva si dichiara, o si rifiuta
+  (rilettura 10).** `crs_definition: preserved` vale per grammatica
+  ([PRODUCT](PRODUCT.md#che-cosa-ogni-bersaglio-fa-della-definizione-che-riceve)).
+  Cambiano, rispetto a b7a6c94: verso GeoParquet un WKT con `EPSG:4326` o
+  `OGC:CRS84` dichiara `crs_definition_not_preserved_absent` (prima
+  `lossless`), e un WKT senza identificatore è `unsupported` (prima `crs:
+  null`); verso Shapefile e DXF un PROJJSON con `EPSG:4326` o `OGC:CRS84` si
+  sostituisce con il WKT sintetizzato e dichiara
+  `crs_definition_not_preserved_derived`, con ogni altro identificatore è
+  `unsupported` (prima la conversione riusciva e il file non si rileggeva): un
+  GeoParquet in EPSG:3003 non si converte più in Shapefile né in DXF.
+- **Il bersaglio non sceglie l'identificatore.** Un identificatore orizzontale
+  noto su una radice che non lo è, o di genere opposto (`EPSG:4326` su un
+  `LOCAL_CS` o su un `PROJCS` anonimo), verso un bersaglio che terrebbe il solo
+  identificatore — GeoParquet con un WKT, GeoPackage, GeoJSON, KML — è
+  `unsupported` con la ragione `crs_representations_inconsistent`; IPC lo
+  conserva come prima. Prima GeoParquet e GeoPackage scrivevano `EPSG:4326`.
+- **GeoParquet scrive `crs: null`.** Un `missing` si scrive come CRS ignoto, e
+  `GeoParquet -> GeoParquet` di un file `crs: null` riesce (prima
+  `unsupported`). Il catalogo dichiara la nuova capability
+  `crs: "embedded_or_unknown"` per `geoparquet` (prima `embedded`); il
+  dichiarato ma non risolto resta un rifiuto. Il messaggio di `--assume-crs`
+  su un CRS ignoto non dice più che il formato non usa l'opzione.
+- **Tetto, categoria e codifica.** Una definizione IPC oltre 1 MiB è
+  `limit_exceeded` (prima `crs` «non ben formata»); in un GeoPackage UTF-16 il
+  tetto si misura sui byte UTF-8, e una definizione ASCII di 600 KB si legge
+  (prima `limit_exceeded`). Due `GEODATA` uguali a meno del BOM non sono più un
+  conflitto.
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è

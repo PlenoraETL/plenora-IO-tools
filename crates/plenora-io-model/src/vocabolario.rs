@@ -360,6 +360,12 @@ fn crs(campo: &Field) -> Result<()> {
             "wkt2" => CrsDefinitionFormat::Wkt2,
             _ => CrsDefinitionFormat::Projjson,
         };
+        // Il tetto unico delle definizioni, prima del lettore: oltre il tetto il
+        // lettore stretto la dice malformata, e fino alla rilettura 10 una
+        // definizione di 1 MiB e un byte usciva `crs` «non ben formata» invece
+        // di `limit_exceeded`. E' lo stesso ordine della lettura dei metadati
+        // del campo (`geometry::read_geometry_contract_metadata`).
+        crs_definizione::verifica_dimensione_definizione(testo, None)?;
         match crs_definizione::contraddice(id, testo, formato) {
             Err(crs_definizione::Malformata) => {
                 return Err(PlenoraIoError::crs_redatto(&DEFINIZIONE_MALFORMATA))

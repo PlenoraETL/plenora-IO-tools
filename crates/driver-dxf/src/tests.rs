@@ -2716,3 +2716,29 @@ fn geodata_local_cs_e_bom() {
     assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
     assert!(!crs.definition.unwrap().starts_with('\u{feff}'));
 }
+
+/// Rilettura 10, punto 5: due `GEODATA` con la stessa definizione, uno con il
+/// BOM iniziale e uno senza, non sono un conflitto. Il confronto avveniva prima
+/// di togliere il BOM. Un secondo BOM resta, e la definizione resta malformata.
+#[test]
+fn due_geodata_uguali_a_meno_del_bom_concordano() {
+    let mut drawing = Drawing::new();
+    for definizione in [
+        format!("\u{feff}{WGS84_ESRI_WKT}"),
+        WGS84_ESRI_WKT.to_owned(),
+    ] {
+        drawing.add_object(Object::new(ObjectType::GeoData(GeoData {
+            coordinate_system_definition: definizione,
+            ..Default::default()
+        })));
+    }
+    let crs = resolve_dxf_crs(&drawing, &opzioni_lettura()).expect("le due definizioni concordano");
+    assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
+    assert!(!crs.definition.unwrap().starts_with('\u{feff}'));
+
+    resolve_dxf_crs(
+        &con_geodata(&format!("\u{feff}\u{feff}{WGS84_ESRI_WKT}")),
+        &opzioni_lettura(),
+    )
+    .expect_err("un secondo BOM non si toglie");
+}

@@ -211,15 +211,26 @@
       "prova": "due formati che fissano lo **stesso** CRS: la conversione riesce, e il CRS non e' un problema. E' il controllo positivo del rifiuto `gpkg-a-kml`, senza il quale «KML rifiuta» sarebbe vero anche di un driver che rifiuta sempre. Gli attributi non testuali diventano testo, e la coercizione e' dichiarata."
     },
     {
+      "id": "ipc-a-dxf",
+      "sorgente": "ipc",
+      "destinazione": "dxf",
+      "fixture": "canonico_pieno.parquet",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::ipc_con_wkt_a_dxf_dichiara_ogni_approssimazione",
+      "prova": "verso l'unico formato di classe approssimante. Le geometrie arrivano; gli attributi no, e ciascuno e' dichiarato **per nome** -- il DXF non ha un modello di attributi. L'ingresso si **deriva** dalla fixture piena, quella senza la riga priva di geometria: la si converte in IPC, lossless, e il PROJJSON si sostituisce con il WKT che il GeoPackage canonico dichiara per lo stesso EPSG:3003. Serve perche' il `GEODATA` porta un WKT, e dalla rilettura 10 un PROJJSON verso il DXF e' un rifiuto (`geoparquet-a-dxf`); il WKT si conserva, e il disegno si rilegge EPSG:3003."
+    },
+    {
       "id": "geoparquet-a-dxf",
       "sorgente": "geoparquet",
       "destinazione": "dxf",
       "fixture": "canonico_pieno.parquet",
       "opzioni": [],
       "profilo": "base",
-      "esito_atteso": "successo",
-      "test": "conversioni::geoparquet_a_dxf_dichiara_ogni_approssimazione",
-      "prova": "verso l'unico formato di classe approssimante. Le geometrie arrivano; gli attributi no, e ciascuno e' dichiarato **per nome** -- il DXF non ha un modello di attributi. La fixture e' quella senza la riga priva di geometria: quel rifiuto ha il proprio caso, e tenerlo qui avrebbe reso non provato tutto il resto."
+      "esito_atteso": "rifiuto_capability",
+      "test": "conversioni::geoparquet_proiettato_a_dxf_rifiuta_il_projjson",
+      "prova": "un PROJJSON verso il `GEODATA`, che porta un WKT. Fino alla rilettura 10 la conversione riusciva e scriveva il PROJJSON dove nessun lettore lo rilegge -- nemmeno il nostro, nemmeno con `--assume-crs` -- dichiarando solo `crs_id_not_preserved_derived`. Convertirlo in WKT servirebbe un resolver: il bersaglio non rappresenta l'ingresso, ed e' `unsupported` prima di ogni effetto (GEO-000 punto 2)."
     },
     {
       "id": "dxf-a-geojson",
@@ -322,15 +333,15 @@
       "prova": "un nome di campo oltre i dieci caratteri del DBF. Lo Shapefile **non tronca in silenzio**: un nome che non entra e' una richiesta che il formato non puo' soddisfare, non una perdita da dichiarare -- due colonne troncate allo stesso prefisso collidono, e la collisione sarebbe silenziosa. La meta' riuscita e' `geojson-dbf-a-shp`."
     },
     {
-      "id": "geoparquet-nullo-a-dxf",
-      "sorgente": "geoparquet",
+      "id": "gpkg-nullo-a-dxf",
+      "sorgente": "gpkg",
       "destinazione": "dxf",
-      "fixture": "canonico.parquet",
+      "fixture": "canonico.gpkg",
       "opzioni": [],
       "profilo": "base",
       "esito_atteso": "rifiuto_riga",
-      "test": "conversioni::geoparquet_con_riga_senza_geometria_a_dxf_rifiuta_la_riga",
-      "prova": "la riga senza geometria verso un formato di disegno, dove un'entita' senza geometria non esiste. Il rifiuto e' **di riga** e porta la propria diagnostica: causa, colonna e indice della riga sorgente. Non si elimina la riga in silenzio, che sarebbe l'unico modo di far riuscire questa conversione."
+      "test": "conversioni::gpkg_con_riga_senza_geometria_a_dxf_rifiuta_la_riga",
+      "prova": "la riga senza geometria verso un formato di disegno, dove un'entita' senza geometria non esiste. Il rifiuto e' **di riga** e porta la propria diagnostica: causa, colonna e indice della riga sorgente. Non si elimina la riga in silenzio, che sarebbe l'unico modo di far riuscire questa conversione. La sorgente e' il GeoPackage canonico, con la definizione in WKT: il GeoParquet canonico porta un PROJJSON, che dalla rilettura 10 il DXF rifiuta prima di arrivare alle righe."
     },
     {
       "id": "csv-bool-a-filegdb",

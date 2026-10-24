@@ -2259,6 +2259,51 @@ fn la_definizione_della_riga_srs_ha_il_tetto() {
     assert!(!errore.message.contains("GEOGCS"), "{}", errore.message);
 }
 
+/// Rilettura 10, punto 4: il tetto e' sui byte UTF-8 della definizione, non sui
+/// byte della codifica del database. In un `GeoPackage` UTF-16 una definizione
+/// ASCII di 600 KB ne misura 1,2 M nella codifica del database: su b7a6c94 la
+/// guardia SQL la rifiutava sotto il tetto di 1 MiB. Una CJK che sta sotto il
+/// tetto in UTF-16 e lo supera in UTF-8 si rifiuta, con la stessa categoria.
+#[test]
+fn il_tetto_della_definizione_e_in_utf8_anche_in_un_database_utf16() {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let definizione = |nome: &str| {
+        format!(
+            "GEOGCS[\"{nome}\",DATUM[\"D\",SPHEROID[\"S\",6378137,298.257223563]],\
+             PRIMEM[\"G\",0],UNIT[\"degree\",0.0174532925199433]]"
+        )
+    };
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA encoding = 'UTF-16le';").unwrap();
+    init_gpkg(&conn).unwrap();
+    let codifica: String = conn
+        .query_row("PRAGMA encoding", [], |riga| riga.get(0))
+        .unwrap();
+    assert_eq!(codifica, "UTF-16le", "il database della prova e' UTF-16");
+
+    let ascii = definizione(&"a".repeat(600_000));
+    assert!(ascii.len() < MAX_BYTE_DEFINIZIONE_CRS && 2 * ascii.len() > MAX_BYTE_DEFINIZIONE_CRS);
+    let cjk = definizione(&"\u{4e2d}".repeat(400_000));
+    assert!(cjk.len() > MAX_BYTE_DEFINIZIONE_CRS && 2 * 400_000 < MAX_BYTE_DEFINIZIONE_CRS);
+    for (srs_id, testo) in [(900_001, &ascii), (900_002, &cjk)] {
+        conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+             (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+             VALUES ('x', ?1, 'EPSG', 4326, ?2)",
+            rusqlite::params![srs_id, testo],
+        )
+        .unwrap();
+    }
+    let crs = crs_for(&conn, 900_001).expect("sotto il tetto in UTF-8");
+    assert_eq!(crs.definition.as_deref().map(str::len), Some(ascii.len()));
+    let errore = crs_for(&conn, 900_002).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+}
+
 /// Rilettura 9, punto 7: un BOM iniziale non fa parte della definizione. Su
 /// b4d8064 la riga si leggeva malformata.
 #[test]

@@ -58,7 +58,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -615,6 +615,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
+        )
+        // Il `.prj` conserva il WKT; un PROJJSON e' sostituito dal WKT che il
+        // writer sintetizza per l'identificatore, o la scrittura si rifiuta.
+        .verbatim_solo(
+            GRAMMATICHE_DEL_PRJ,
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
@@ -792,7 +798,7 @@ impl FormatDriver for ShpDriver {
                 publish_mode,
                 attrs,
                 geom_idx,
-                prj: resolve_prj(layer, schema, geom_idx),
+                prj: resolve_prj(layer, schema, geom_idx)?,
                 shape_type: None,
                 rows: 0,
                 input_total: None,
@@ -1498,17 +1504,43 @@ fn wkt_for_id(id: Option<&str>) -> Option<String> {
         .map(|_| WGS84_WKT.to_owned())
 }
 
+/// Il testo del `.prj`, se ce n'e' uno da scrivere.
+///
+/// Il `.prj` e' WKT: una definizione WKT si scrive tale e quale, una in
+/// un'altra grammatica (PROJJSON) no. Fino alla rilettura 10 un PROJJSON finiva
+/// nel `.prj` cosi' com'era, e il file non si rileggeva piu' (il lettore lo
+/// rifiuta come WKT malformato) mentre la conversione riusciva. Ora, per un
+/// identificatore di cui il writer sa sintetizzare il WKT, la definizione e'
+/// sostituita e la perdita e' dichiarata (`crs_definition_not_preserved_derived`,
+/// dalla capability); per ogni altro e' un rifiuto.
+///
+/// # Errors
+///
+/// `unsupported` se la definizione non e' WKT e l'identificatore non e' fra
+/// quelli sintetizzabili.
 fn resolve_prj(
     layer: &plenora_io_core::WriteLayer,
     schema: &Schema,
     geom_idx: usize,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if let Some(g) = &layer.contract.geometry {
         if let Some(def) = g.crs.definition() {
-            return Some(def.to_owned());
+            let grammatica = g.resolved_crs().and_then(|crs| crs.definition_format);
+            if GRAMMATICHE_DEL_PRJ
+                .iter()
+                .any(|ammessa| grammatica == Some(*ammessa))
+            {
+                return Ok(Some(def.to_owned()));
+            }
+            return wkt_for_id(g.crs.id()).map(Some).ok_or_else(|| {
+                PlenoraIoError::non_supportato_redatto(&PublicMessage::Curated(
+                    "Shapefile: il .prj porta un WKT, e la definizione del CRS e' in un'altra \
+                     grammatica che il writer non sa convertire",
+                ))
+            });
         }
         if let Some(wkt) = wkt_for_id(g.crs.id()) {
-            return Some(wkt);
+            return Ok(Some(wkt));
         }
     }
     let id = schema
@@ -1516,8 +1548,13 @@ fn resolve_prj(
         .metadata()
         .get(GEO_CRS_KEY)
         .map(String::as_str);
-    wkt_for_id(id)
+    Ok(wkt_for_id(id))
 }
+
+/// Le grammatiche che il `.prj` porta tali e quali: il WKT, in una delle due
+/// versioni che il lettore legge.
+const GRAMMATICHE_DEL_PRJ: &[CrsDefinitionFormat] =
+    &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2];
 
 // --- lettura: helpers ------------------------------------------------------
 

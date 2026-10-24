@@ -1539,14 +1539,25 @@ fn layer_rifiutato(layer_id: LayerId, table_meta: FeatureTable) -> (LayerContrac
 
 fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
     use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
-    // La definizione si legge solo entro il tetto comune: `SQLite` ne misura i
-    // byte e non la consegna se lo supera. Fino al 24/10 si leggeva intera, e
+    // La definizione si legge solo entro una guardia: `SQLite` ne misura i
+    // byte e non la consegna se la supera. Fino al 24/10 si leggeva intera, e
     // 8 MiB costavano 700 MB di picco nel lettore stretto.
-    // Il tetto entra nel testo della query da una costante, non da un valore
+    //
+    // La guardia e' grossolana, e il tetto esatto si applica dopo, in Rust,
+    // sul testo UTF-8. `CAST(definition AS BLOB)` misura i byte **nella
+    // codifica del database**: fino alla rilettura 10 la guardia era il tetto
+    // stesso, e in un database UTF-16 una definizione ASCII di 600 KB (1,2 MB
+    // in UTF-16) si rifiutava sotto il tetto di 1 MiB UTF-8, mentre una CJK ne
+    // passava circa una volta e mezza. Un testo che sta nel tetto in UTF-8
+    // misura al piu' il doppio in UTF-16 (ogni carattere da 1 byte UTF-8 ne
+    // prende 2; da 2 o 3 byte, 2; da 4, 4): la guardia a due volte il tetto
+    // non ne scarta nessuno, e tiene il picco di lettura a 2 MiB.
+    // Il valore entra nel testo della query da una costante, non da un valore
     // letto: `rusqlite` non lega un `usize`.
+    const GUARDIA_SQL: usize = 2 * MAX_BYTE_DEFINIZIONE_CRS;
     let sql = format!(
         "SELECT organization, organization_coordsys_id, \
-         CASE WHEN length(CAST(definition AS BLOB)) <= {MAX_BYTE_DEFINIZIONE_CRS} \
+         CASE WHEN length(CAST(definition AS BLOB)) <= {GUARDIA_SQL} \
          THEN definition END, definition IS NULL \
          FROM gpkg_spatial_ref_sys WHERE srs_id = ?1"
     );
@@ -1554,15 +1565,19 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
         conn.query_row(&sql, [srs_id], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         });
+    let oltre_il_tetto = || {
+        let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+            "GeoPackage: la definizione di gpkg_spatial_ref_sys supera il tetto, byte",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
+        ));
+        errore.driver = Some("gpkg".to_owned());
+        Err(errore)
+    };
     match row {
-        Ok((_, _, None, false)) => {
-            let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "GeoPackage: la definizione di gpkg_spatial_ref_sys supera il tetto, byte",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
-            ));
-            errore.driver = Some("gpkg".to_owned());
-            Err(errore)
-        }
+        Ok((_, _, None, false)) => oltre_il_tetto(),
+        // Il tetto esatto, sui byte UTF-8 del testo cosi' come e' scritto, BOM
+        // compreso: la stessa misura che la guardia faceva in un database UTF-8.
+        Ok((_, _, Some(def), false)) if def.len() > MAX_BYTE_DEFINIZIONE_CRS => oltre_il_tetto(),
         Ok((org, code, Some(def), false)) => {
             // Un BOM iniziale non fa parte della definizione.
             let def = plenora_io_model::crs_definizione::senza_bom(def);

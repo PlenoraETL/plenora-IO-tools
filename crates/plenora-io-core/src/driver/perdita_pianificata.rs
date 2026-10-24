@@ -25,12 +25,18 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
         if let Some(geometry) = &layer.contract.geometry {
-            let (crs_id, crs_definition) = match &geometry.crs {
-                CrsResolution::Resolved(crs) => (crs.id.as_deref(), crs.definition.as_deref()),
-                CrsResolution::DeclaredButUnresolved(raw) => {
-                    (raw.authority_hint.as_deref(), raw.definition.as_deref())
-                }
-                CrsResolution::Missing => (None, None),
+            let (crs_id, crs_definition, grammatica) = match &geometry.crs {
+                CrsResolution::Resolved(crs) => (
+                    crs.id.as_deref(),
+                    crs.definition.as_deref(),
+                    crs.definition_format,
+                ),
+                CrsResolution::DeclaredButUnresolved(raw) => (
+                    raw.authority_hint.as_deref(),
+                    raw.definition.as_deref(),
+                    raw.definition_format,
+                ),
+                CrsResolution::Missing => (None, None, None),
             };
             // Le capability dicono da dove ogni rappresentazione si ricava;
             // il piano dice se quella fonte c'e'. Il verdetto e' l'incrocio
@@ -70,7 +76,14 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
                 },
                 RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
-                stato_per_il_piano(capabilities.crs_representations.crs_definition, &fonti),
+                // La grammatica decide se `Preserved` regge: un writer che
+                // conserva solo il PROJJSON non conserva un WKT.
+                stato_per_il_piano(
+                    capabilities
+                        .crs_representations
+                        .crs_definition_per(grammatica),
+                    &fonti,
+                ),
             );
         }
 

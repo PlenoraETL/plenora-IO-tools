@@ -5,7 +5,7 @@ use serde::Serialize;
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
 };
-use plenora_io_model::crs::AxisOrder;
+use plenora_io_model::crs::{AxisOrder, CrsDefinitionFormat};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -290,6 +290,16 @@ pub enum CrsWriteSupport {
     /// Il formato incorpora senza perdita anche gli stati dichiarato ma non
     /// risolto e assente.
     EmbeddedOptional,
+    /// Il formato incorpora un CRS risolto e ha un modo suo di dire «CRS
+    /// ignoto», con cui scrive lo stato `missing`; il dichiarato ma non
+    /// risolto non lo rappresenta, e lo rifiuta.
+    ///
+    /// E' `GeoParquet`: `crs: null` e' la sua affermazione «non lo so»
+    /// (`GeoParquet` 1.1). Fino alla rilettura 10 il formato si dichiarava
+    /// `Embedded`, e un `missing` letto da un `GeoParquet` `crs: null` non si
+    /// riscriveva nello stesso formato, contro cio' che `PRODUCT.md`
+    /// prometteva.
+    EmbeddedOrUnknown,
     Fixed(&'static str),
     None,
 }
@@ -388,6 +398,33 @@ pub struct CrsRepresentationCapabilities {
     pub crs_id: CrsRepresentationState,
     pub srid: CrsRepresentationState,
     pub crs_definition: CrsRepresentationState,
+    /// In quali grammatiche una definizione `Preserved` si conserva davvero.
+    ///
+    /// Non va sul filo, come la provenienza di `Derived`: il catalogo dice la
+    /// capability statica, e il verdetto per piano vive nel `LossReport`.
+    #[serde(skip)]
+    pub definizione_verbatim: DefinizioneVerbatim,
+}
+
+/// Le grammatiche della definizione che un writer scrive **tali e quali**.
+///
+/// `crs_definition: Preserved` era un'affermazione senza condizioni, e non era
+/// vera per tre writer: `GeoParquet` conserva solo il PROJJSON (un WKT con
+/// `EPSG:4326` spariva, e il file si rileggeva `OGC:CRS84` senza definizione),
+/// Shapefile e DXF solo il WKT (un PROJJSON finiva nel `.prj` o nel `GEODATA`,
+/// e il file non si rileggeva piu'). La conversione si dichiarava `lossless`
+/// in tutti e tre i casi. La condizione ora e' scritta, e il verdetto per
+/// piano la legge ([`CrsRepresentationCapabilities::crs_definition_per`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefinizioneVerbatim {
+    /// Ogni grammatica.
+    Tutte,
+    /// Solo queste. Una definizione in un'altra grammatica, quando la
+    /// scrittura riesce, esce nello stato `altrimenti`: mai `Preserved`.
+    Solo {
+        grammatiche: &'static [CrsDefinitionFormat],
+        altrimenti: CrsRepresentationState,
+    },
 }
 
 impl CrsRepresentationCapabilities {
@@ -401,6 +438,45 @@ impl CrsRepresentationCapabilities {
             crs_id,
             srid,
             crs_definition,
+            definizione_verbatim: DefinizioneVerbatim::Tutte,
+        }
+    }
+
+    /// La definizione `Preserved` si conserva solo in `grammatiche`; nelle
+    /// altre esce `altrimenti`.
+    #[must_use]
+    pub const fn verbatim_solo(
+        mut self,
+        grammatiche: &'static [CrsDefinitionFormat],
+        altrimenti: CrsRepresentationState,
+    ) -> Self {
+        self.definizione_verbatim = DefinizioneVerbatim::Solo {
+            grammatiche,
+            altrimenti,
+        };
+        self
+    }
+
+    /// Lo stato di `crs_definition` per una definizione in questa grammatica.
+    ///
+    /// Una grammatica ignota (`None`) non e' fra quelle dichiarate: il verdetto
+    /// prudente e' quello che dichiara la perdita.
+    #[must_use]
+    pub fn crs_definition_per(
+        &self,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> CrsRepresentationState {
+        match (self.crs_definition, self.definizione_verbatim) {
+            (
+                CrsRepresentationState::Preserved,
+                DefinizioneVerbatim::Solo {
+                    grammatiche,
+                    altrimenti,
+                },
+            ) if !grammatica.is_some_and(|grammatica| grammatiche.contains(&grammatica)) => {
+                altrimenti
+            }
+            (stato, _) => stato,
         }
     }
 }
