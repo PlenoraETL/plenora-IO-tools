@@ -125,16 +125,15 @@ fn geometry_type_metadata_uses_canonical_names_without_separators() {
 
 #[test]
 fn emits_and_reads_complete_crs_and_type_contract() {
-    let mut geometry = GeometryColumnContract::wkb_xy(
-        FieldId(17),
-        "geometry",
-        ResolvedCrs::new(
-            Some("EPSG:4326".to_owned()),
-            crate::crs::CrsKind::Geographic,
-            Some("GEOGCRS[\"WGS 84\"]".to_owned()),
-        ),
-        true,
+    // L'ordine lo dichiara il produttore (GEO-002): il costruttore non lo
+    // deduce piu' dall'identificatore, e la prova lo fissa a mano.
+    let mut crs = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        crate::crs::CrsKind::Geographic,
+        Some("GEOGCRS[\"WGS 84\"]".to_owned()),
     );
+    crs.axis_order = AxisOrder::LatitudeLongitude;
+    let mut geometry = GeometryColumnContract::wkb_xy(FieldId(17), "geometry", crs, true);
     geometry.geometry_types = vec![GeometryType::Point];
     geometry.types_declaration = TypesDeclaration::Exact;
     let field =

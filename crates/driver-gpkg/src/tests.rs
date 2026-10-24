@@ -858,22 +858,35 @@ fn writer_does_not_relabel_crs84_as_epsg_4326() {
     ));
 }
 
+/// L'ordine dichiarato e' quello dei valori, non del registro (GEO-001).
+///
+/// `GeoPackage` memorizza x = easting o longitudine qualunque sia il CRS: il
+/// 4326 di sistema e' `lon_lat`. Fino alla 5.x la prova si chiamava
+/// `gpkg_epsg_axis_orders_are_explicit` e fissava `lat_lon`, l'ordine con cui
+/// EPSG registra il 4326. Un proiettato registrato con `definition =
+/// 'undefined'` non dice se la proiezione e' polare, e l'ordine e' `unknown`;
+/// con il WKT, gli assi decidono fra `easting_northing` e `other`.
 #[test]
-fn gpkg_epsg_axis_orders_are_explicit() {
+fn gpkg_axis_order_is_the_stored_one() {
+    use plenora_io_model::crs::AxisOrder;
+    const UTM: &str = r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#;
+    const POLARE: &str = r#"PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Polar_Stereographic"],UNIT["metre",1],AXIS["Easting",NORTH],AXIS["Northing",NORTH],AUTHORITY["EPSG","3031"]]"#;
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
     register_srs(&conn, Some("EPSG:3857"), None).unwrap();
+    register_srs(&conn, Some("EPSG:32632"), Some(UTM)).unwrap();
+    register_srs(&conn, Some("EPSG:3031"), Some(POLARE)).unwrap();
 
-    let geographic = crs_for(&conn, 4326).unwrap();
-    let projected = crs_for(&conn, 3857).unwrap();
     assert_eq!(
-        geographic.axis_order,
-        plenora_io_model::crs::AxisOrder::LatitudeLongitude
+        crs_for(&conn, 4326).unwrap().axis_order,
+        AxisOrder::LongitudeLatitude
     );
+    assert_eq!(crs_for(&conn, 3857).unwrap().axis_order, AxisOrder::Unknown);
     assert_eq!(
-        projected.axis_order,
-        plenora_io_model::crs::AxisOrder::EastingNorthing
+        crs_for(&conn, 32632).unwrap().axis_order,
+        AxisOrder::EastingNorthing
     );
+    assert_eq!(crs_for(&conn, 3031).unwrap().axis_order, AxisOrder::Other);
 }
 
 fn ids_with_spatial_hint(dataset: &dyn OpenDatasetHandle, spatial_pruning_hint: Bbox) -> Vec<i64> {

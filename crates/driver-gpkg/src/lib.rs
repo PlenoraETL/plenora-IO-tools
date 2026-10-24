@@ -1459,7 +1459,10 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
             } else {
                 Some(def)
             };
-            Ok(ResolvedCrs::new(Some(id), kind, definition))
+            // GeoPackage memorizza x = easting o longitudine, y = northing o
+            // latitudine, qualunque sia il CRS (GPKG 1.3, 2.1.3.1.1): l'ordine
+            // si dichiara dal formato, non dal registro (GEO-002).
+            Ok(ResolvedCrs::new(Some(id), kind, definition).stored_east_first())
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             let raw = RawCrs::new(format!("GeoPackage srs_id={srs_id}"), None);

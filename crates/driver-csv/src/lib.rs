@@ -306,12 +306,17 @@ impl FormatDriver for CsvDriver {
         } else {
             CrsKind::Unknown
         };
-        let mut geometry_contract = GeometryColumnContract::wkb_xy(
-            FieldId(0),
-            GEOMETRY,
-            ResolvedCrs::new(Some(crs.clone()), kind, None),
-            true,
-        );
+        // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
+        // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
+        // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
+        // produttore non lo sa, e dichiara `unknown`.
+        let crs_dichiarato = ResolvedCrs::new(Some(crs.clone()), kind, None);
+        let crs_dichiarato = match geom {
+            GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+            GeomSpec::Wkt(_) => crs_dichiarato,
+        };
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
         geometry_contract.dimensions = dimensions;
         geometry_contract.set_exact_geometry_types(geometry_types);
         let native_encoding = match geom {

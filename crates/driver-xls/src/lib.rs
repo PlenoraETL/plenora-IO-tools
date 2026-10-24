@@ -1585,12 +1585,15 @@ where
     } else {
         CrsKind::Unknown
     };
-    let mut geometry_contract = GeometryColumnContract::wkb_xy(
-        FieldId(0),
-        GEOMETRY,
-        ResolvedCrs::new(Some(crs.to_owned()), kind, None),
-        true,
-    );
+    // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
+    // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
+    let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
+    let crs_dichiarato = match geom {
+        XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+        XlsxGeomSpec::Wkt(_) => crs_dichiarato,
+    };
+    let mut geometry_contract =
+        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
     geometry_contract.native_metadata.insert(

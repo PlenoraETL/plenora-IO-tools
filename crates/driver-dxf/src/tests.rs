@@ -312,6 +312,28 @@ fn geodata_epsg_is_resolved_without_fallback() {
     assert_eq!(resolved.definition.as_deref(), Some(WGS84_ESRI_WKT));
 }
 
+/// Un WKT 1 di GDAL porta `AUTHORITY` annidati prima di quello della radice,
+/// e un proiettato contiene il `GEOGCS` del proprio CRS base: l'identificatore
+/// e' quello della radice, il genere e' proiettato, l'ordine memorizzato e'
+/// `easting_northing`. Prima della correzione usciva EPSG:7030 (lo
+/// `SPHEROID`) con genere geografico.
+#[test]
+fn geodata_wkt_uses_the_root_identifier_and_projected_kind() {
+    let definition = r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#;
+    let mut drawing = Drawing::new();
+    drawing.add_object(Object::new(ObjectType::GeoData(GeoData {
+        coordinate_system_definition: definition.to_owned(),
+        ..Default::default()
+    })));
+    let resolved = resolve_dxf_crs(&drawing, &opzioni_lettura()).unwrap();
+    assert_eq!(resolved.id.as_deref(), Some("EPSG:32632"));
+    assert_eq!(resolved.kind, CrsKind::Projected);
+    assert_eq!(
+        resolved.axis_order,
+        plenora_io_model::crs::AxisOrder::EastingNorthing
+    );
+}
+
 #[test]
 fn unresolved_geodata_is_preserved_in_typed_error() {
     let definition = "LOCAL_CS[\"survey-grid-secret\"]";

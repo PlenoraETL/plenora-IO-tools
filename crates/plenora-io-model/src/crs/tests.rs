@@ -54,20 +54,130 @@ fn authority_kind_leaves_other_identifiers_unknown() {
     }
 }
 
+/// Il costruttore non deduce l'ordine dall'identificatore (GEO-002).
+///
+/// Prima `EPSG:4326` diventava `lat_lon`, l'ordine del registro, e
+/// `EPSG:3857` `easting_northing` anche se nessuno lo aveva stabilito: la
+/// prova si chiamava `crs84_and_epsg_4326_keep_distinct_axis_orders` e fissava
+/// proprio la deduzione che il contratto vieta.
 #[test]
-fn crs84_and_epsg_4326_keep_distinct_axis_orders() {
-    let crs84 = ResolvedCrs::wgs84();
-    let epsg4326 = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
+fn il_costruttore_non_deduce_l_ordine_dal_registro() {
+    for (id, kind) in [
+        ("EPSG:4326", CrsKind::Geographic),
+        ("OGC:CRS84", CrsKind::Geographic),
+        ("EPSG:3857", CrsKind::Projected),
+    ] {
+        let crs = ResolvedCrs::new(Some(id.to_owned()), kind, None);
+        assert_eq!(crs.axis_order, AxisOrder::Unknown, "{id}");
+    }
+    for raw in [
+        RawCrs::new("GEOGCS[\"x\"]".to_owned(), Some("EPSG:4326".to_owned())),
+        RawCrs::from_authority_hint("EPSG:4326".to_owned()),
+    ] {
+        assert_eq!(raw.axis_order, AxisOrder::Unknown);
+    }
+}
 
-    assert_eq!(crs84.axis_order, AxisOrder::LongitudeLatitude);
-    assert_eq!(epsg4326.axis_order, AxisOrder::LatitudeLongitude);
-    assert_ne!(crs84, epsg4326);
+/// `EPSG:4326` memorizzato con la longitudine prima e' `lon_lat`, con o senza
+/// la definizione che elenca la latitudine per prima (GEO-001).
+#[test]
+fn epsg_4326_memorizzato_est_prima_e_lon_lat() {
+    let senza = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None)
+        .stored_east_first();
+    assert_eq!(senza.axis_order, AxisOrder::LongitudeLatitude);
+    let wkt = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]"#;
+    let con = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Geographic,
+        Some(wkt.to_owned()),
+    )
+    .stored_east_first();
+    assert_eq!(con.axis_order, AxisOrder::LongitudeLatitude);
+    assert_eq!(
+        ResolvedCrs::wgs84().axis_order,
+        AxisOrder::LongitudeLatitude
+    );
 }
 
 #[test]
-fn projected_crs_declares_easting_northing() {
-    let crs = ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None);
+fn proiettato_memorizzato_est_prima() {
+    let utm = r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#;
+    let crs = ResolvedCrs::new(
+        Some("EPSG:32632".to_owned()),
+        CrsKind::Projected,
+        Some(utm.to_owned()),
+    )
+    .stored_east_first();
     assert_eq!(crs.axis_order, AxisOrder::EastingNorthing);
+    // Gauss-Krueger: il registro elenca northing prima, il formato memorizza
+    // comunque easting prima.
+    let gk = r#"PROJCS["DHDN / 3-degree Gauss-Kruger zone 3",GEOGCS["DHDN"],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["Northing",NORTH],AXIS["Easting",EAST],AUTHORITY["EPSG","31467"]]"#;
+    assert_eq!(
+        east_first_axis_order(CrsKind::Projected, Some((gk, CrsDefinitionFormat::Wkt))),
+        AxisOrder::EastingNorthing
+    );
+}
+
+/// Gli assi di EPSG:3031 puntano lungo i meridiani: `other` (GEO-001).
+#[test]
+fn proiezione_polare_e_other() {
+    let gdal = r#"PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84"],PROJECTION["Polar_Stereographic"],PARAMETER["latitude_of_origin",-71],UNIT["metre",1],AXIS["Easting",NORTH],AXIS["Northing",NORTH],AUTHORITY["EPSG","3031"]]"#;
+    let esri = r#"PROJCS["WGS_1984_Antarctic_Polar_Stereographic",GEOGCS["GCS_WGS_1984"],PROJECTION["Stereographic_South_Pole"],PARAMETER["standard_parallel_1",-71.0],UNIT["Meter",1.0]]"#;
+    let wkt2 = r#"PROJCRS["WGS 84 / Antarctic Polar Stereographic",BASEGEOGCRS["WGS 84"],CONVERSION["x",METHOD["Polar Stereographic (variant B)"]],CS[Cartesian,2],AXIS["easting (X)",north,MERIDIAN[90,ANGLEUNIT["degree",0.0174532925199433]]],AXIS["northing (Y)",north,MERIDIAN[0,ANGLEUNIT["degree",0.0174532925199433]]],ID["EPSG",3031]]"#;
+    let laea = r#"PROJCS["polar laea",GEOGCS["WGS 84"],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["latitude_of_center",90.000],UNIT["metre",1]]"#;
+    for (testo, formato) in [
+        (gdal, CrsDefinitionFormat::Wkt),
+        (esri, CrsDefinitionFormat::Wkt),
+        (wkt2, CrsDefinitionFormat::Wkt2),
+        (laea, CrsDefinitionFormat::Wkt),
+    ] {
+        assert_eq!(
+            east_first_axis_order(CrsKind::Projected, Some((testo, formato))),
+            AxisOrder::Other,
+            "{testo}"
+        );
+    }
+}
+
+/// Senza poter stabilire l'ordine, il produttore dichiara `unknown`.
+#[test]
+fn senza_elementi_l_ordine_e_unknown() {
+    assert_eq!(
+        east_first_axis_order(CrsKind::Projected, None),
+        AxisOrder::Unknown,
+        "un proiettato senza definizione potrebbe essere polare"
+    );
+    assert_eq!(
+        east_first_axis_order(CrsKind::Unknown, None),
+        AxisOrder::Unknown
+    );
+    for (testo, formato) in [
+        ("PROJCS[", CrsDefinitionFormat::Wkt),
+        (
+            r#"COMPD_CS["x",PROJCS["y"],VERT_CS["z"]]"#,
+            CrsDefinitionFormat::Wkt,
+        ),
+        (r#"PROJCRS["senza assi"]"#, CrsDefinitionFormat::Wkt2),
+        (r#"{"type":"ProjectedCRS"}"#, CrsDefinitionFormat::Projjson),
+    ] {
+        assert_eq!(
+            east_first_axis_order(CrsKind::Projected, Some((testo, formato))),
+            AxisOrder::Unknown,
+            "{testo}"
+        );
+    }
+}
+
+#[test]
+fn projjson_epsg_4326_e_lon_lat() {
+    let projjson = r#"{"type":"GeographicCRS","name":"WGS 84","coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"},{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"}]},"id":{"authority":"EPSG","code":4326}}"#;
+    assert_eq!(
+        east_first_axis_order(
+            CrsKind::Geographic,
+            Some((projjson, CrsDefinitionFormat::Projjson))
+        ),
+        AxisOrder::LongitudeLatitude
+    );
 }
 
 #[test]

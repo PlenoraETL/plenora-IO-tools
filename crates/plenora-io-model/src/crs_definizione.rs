@@ -257,7 +257,7 @@ enum Voce {
     Nodo(Nodo),
     Stringa(String),
     Numero(String),
-    Parola,
+    Parola(String),
 }
 
 fn radice_wkt(testo: &str, ammesse: &[&str]) -> Result<Nodo, Malformata> {
@@ -299,8 +299,8 @@ fn nodo(token: &[Token<'_>], posizione: &mut usize, profondita: usize) -> Result
                 voci.push(Voce::Numero((*valore).to_owned()));
                 *posizione += 1;
             }
-            (Some(Token::Parola(_)), _) => {
-                voci.push(Voce::Parola);
+            (Some(Token::Parola(valore)), _) => {
+                voci.push(Voce::Parola((*valore).to_owned()));
                 *posizione += 1;
             }
             _ => return Err(Malformata),
@@ -339,6 +339,166 @@ fn identificatori_wkt(radice: &Nodo, parola: &str) -> Result<Vec<(String, String
         coppie.push((autorita.clone(), codice));
     }
     Ok(coppie)
+}
+
+/// Che cosa la definizione dice degli assi delle prime due ordinate, letti
+/// alla radice (GEO-001).
+///
+/// Non dice in che **ordine** i valori le memorizzano: l'ordine con cui la
+/// definizione elenca gli assi e' quello del registro (EPSG:4326 elenca la
+/// latitudine per prima), e GEO-002 vieta di ricavarne la dichiarazione. Dice
+/// soltanto se gli assi sono una coppia est/nord, l'unica cosa che serve a un
+/// formato che memorizza per prima l'ascissa.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssiDichiarati {
+    /// Un asse verso est e uno verso nord, in qualunque ordine. Anche il WKT 1
+    /// di un `GEOGCS` o `PROJCS` senza `AXIS`, che per la specifica OGC
+    /// 01-009 vale est poi nord, fuori dalle proiezioni polari.
+    EstNord,
+    /// Assi che non sono una coppia est/nord: lungo i meridiani di una
+    /// proiezione polare (EPSG:3031), verso ovest o sud, geocentrici.
+    Altri,
+    /// La definizione non dice gli assi della radice: un CRS composto o
+    /// vincolato, un WKT 2 o un PROJJSON senza sistema di coordinate.
+    Ignoti,
+}
+
+const RADICI_CON_ASSI_WKT2: [&str; 6] = [
+    "GEOGCRS",
+    "GEOGRAPHICCRS",
+    "GEODCRS",
+    "GEODETICCRS",
+    "PROJCRS",
+    "PROJECTEDCRS",
+];
+
+/// Gli assi della radice della definizione.
+///
+/// # Errors
+/// [`Malformata`] se la definizione non e' ben formata nel formato dichiarato.
+pub fn assi_dichiarati(
+    testo: &str,
+    formato: CrsDefinitionFormat,
+) -> Result<AssiDichiarati, Malformata> {
+    let (ammesse, con_assi, wkt1): (&[&str], &[&str], bool) = match formato {
+        CrsDefinitionFormat::Projjson => return assi_projjson(testo),
+        CrsDefinitionFormat::Wkt => (&RADICI_WKT1, &["GEOGCS", "PROJCS"], true),
+        CrsDefinitionFormat::Wkt2 => (&RADICI_WKT2, &RADICI_CON_ASSI_WKT2, false),
+    };
+    let radice = radice_wkt(testo, ammesse)?;
+    if !con_assi
+        .iter()
+        .any(|r| radice.parola.eq_ignore_ascii_case(r))
+    {
+        return Ok(AssiDichiarati::Ignoti);
+    }
+    // Senza `AXIS` il WKT 1 vale est poi nord (OGC 01-009), ma il default non
+    // descrive una proiezione polare; il WKT 2 non ha default.
+    Ok(assi_wkt(&radice).unwrap_or_else(|| {
+        if !wkt1 {
+            AssiDichiarati::Ignoti
+        } else if proiezione_polare_wkt1(&radice) {
+            AssiDichiarati::Altri
+        } else {
+            AssiDichiarati::EstNord
+        }
+    }))
+}
+
+/// Le prime due coppie (direzione, legato a un meridiano) formano una coppia
+/// est/nord? `None` se non ci sono assi; un asse solo non e' una coppia.
+fn coppia_est_nord<'a>(assi: impl Iterator<Item = (&'a str, bool)>) -> Option<AssiDichiarati> {
+    let coppie: Vec<(&str, bool)> = assi.take(2).collect();
+    let [(prima, meridiano_1), (seconda, meridiano_2)] = coppie.as_slice() else {
+        return (!coppie.is_empty()).then_some(AssiDichiarati::Altri);
+    };
+    let est_nord =
+        |a: &str, b: &str| a.eq_ignore_ascii_case("east") && b.eq_ignore_ascii_case("north");
+    Some(
+        if !meridiano_1 && !meridiano_2 && (est_nord(prima, seconda) || est_nord(seconda, prima)) {
+            AssiDichiarati::EstNord
+        } else {
+            AssiDichiarati::Altri
+        },
+    )
+}
+
+/// Gli `AXIS` figli diretti della radice; `None` se non ce ne sono.
+fn assi_wkt(radice: &Nodo) -> Option<AssiDichiarati> {
+    let assi = radice.voci.iter().filter_map(|voce| match voce {
+        Voce::Nodo(figlio) if figlio.parola.eq_ignore_ascii_case("AXIS") => {
+            let direzione = match figlio.voci.get(1) {
+                Some(Voce::Parola(direzione)) => direzione.as_str(),
+                // Un asse senza direzione leggibile non e' est ne' nord.
+                _ => "",
+            };
+            let meridiano = figlio
+                .voci
+                .iter()
+                .any(|v| matches!(v, Voce::Nodo(n) if n.parola.eq_ignore_ascii_case("MERIDIAN")));
+            Some((direzione, meridiano))
+        }
+        _ => None,
+    });
+    coppia_est_nord(assi)
+}
+
+/// Una proiezione WKT 1 polare per nome (`Polar_Stereographic`,
+/// `Stereographic_South_Pole`) o per `latitude_of_origin`/`latitude_of_center`
+/// di +-90 gradi. E' un indizio, non una risoluzione: una polare che non lo
+/// dichiara resta est/nord, come il default del formato. Limite dichiarato.
+fn proiezione_polare_wkt1(radice: &Nodo) -> bool {
+    radice.voci.iter().any(|voce| {
+        let Voce::Nodo(figlio) = voce else {
+            return false;
+        };
+        let nome = match figlio.voci.first() {
+            Some(Voce::Stringa(nome)) => nome.to_ascii_lowercase(),
+            _ => return false,
+        };
+        if figlio.parola.eq_ignore_ascii_case("PROJECTION") {
+            return nome.contains("polar") || nome.contains("pole");
+        }
+        figlio.parola.eq_ignore_ascii_case("PARAMETER")
+            && (nome == "latitude_of_origin" || nome == "latitude_of_center")
+            && matches!(
+                figlio.voci.get(1),
+                Some(Voce::Numero(valore)) if novanta(valore)
+            )
+    })
+}
+
+/// Il numero vale esattamente +-90 in decimale (`90`, `-90.000`), confrontato
+/// sul testo; una forma esponenziale non e' riconosciuta.
+fn novanta(valore: &str) -> bool {
+    let senza_segno = valore.strip_prefix(['+', '-']).unwrap_or(valore);
+    let (intera, frazione) = senza_segno.split_once('.').unwrap_or((senza_segno, ""));
+    intera.trim_start_matches('0') == "90" && frazione.bytes().all(|b| b == b'0')
+}
+
+fn assi_projjson(testo: &str) -> Result<AssiDichiarati, Malformata> {
+    let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
+    let radice = radice.as_object().ok_or(Malformata)?;
+    let tipo = radice.get("type").and_then(serde_json::Value::as_str);
+    if !matches!(tipo, Some("GeographicCRS" | "GeodeticCRS" | "ProjectedCRS")) {
+        return Ok(AssiDichiarati::Ignoti);
+    }
+    let Some(assi) = radice
+        .get("coordinate_system")
+        .and_then(|cs| cs.get("axis"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Ok(AssiDichiarati::Ignoti);
+    };
+    let assi = assi.iter().map(|asse| {
+        (
+            asse.get("direction")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(""),
+            asse.get("meridian").is_some(),
+        )
+    });
+    Ok(coppia_est_nord(assi).unwrap_or(AssiDichiarati::Ignoti))
 }
 
 /// Un codice numerico scritto come intero decimale (`+0043` vale `43`).

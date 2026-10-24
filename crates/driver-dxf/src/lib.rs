@@ -74,17 +74,23 @@ fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("dxf", reason)
 }
 
+/// Il genere del CRS. Il proiettato si guarda **per primo**: un `PROJCS`
+/// contiene il `GEOGCS` del proprio CRS base, e fino alla 5.x il controllo
+/// del geografico, che veniva prima, classificava geografico ogni WKT 1
+/// proiettato -- e ora il genere sceglie anche fra `lon_lat` ed
+/// `easting_northing`.
 fn crs_kind(id: Option<&str>, definition: Option<&str>) -> CrsKind {
     let id = id.unwrap_or_default();
     let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if id == "OGC:CRS84"
+    if definition.contains("PROJCS[") || definition.contains("PROJCRS[") {
+        CrsKind::Projected
+    } else if id == "OGC:CRS84"
         || id == "EPSG:4326"
         || definition.contains("GEOGCS[")
         || definition.contains("GEODCRS[")
+        || definition.contains("GEOGCRS[")
     {
         CrsKind::Geographic
-    } else if definition.contains("PROJCS[") || definition.contains("PROJCRS[") {
-        CrsKind::Projected
     } else {
         CrsKind::Unknown
     }
@@ -102,10 +108,14 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
     if let Some(code) = digits_after(&upper, "EPSG:") {
         return Some(format!("EPSG:{code}"));
     }
-    for marker in ["AUTHORITY[\"EPSG\",", "ID[\"EPSG\","] {
-        if let Some(code) = digits_after(&upper, marker) {
-            return Some(format!("EPSG:{code}"));
-        }
+    // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
+    // `AUTHORITY["EPSG",` del testo, che si leggeva fino alla 5.x, e' quello
+    // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
+    if let Some(code) = plenora_io_model::crs::definition_authority_srid(
+        definition,
+        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
+    ) {
+        return Some(format!("EPSG:{code}"));
     }
     let mut remaining = upper.as_str();
     while let Some(start) = remaining.find("<ALIAS") {
@@ -142,7 +152,7 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
             ))
         })?;
         let kind = crs_kind(Some(&id), None);
-        return Ok(ResolvedCrs::new(Some(id), kind, None));
+        return Ok(ResolvedCrs::new(Some(id), kind, None).stored_east_first());
     };
     let embedded_id = epsg_from_definition(&definition).or_else(|| {
         let trimmed = definition.trim();
@@ -154,7 +164,9 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
     };
     let kind = crs_kind(Some(&id), Some(&definition));
-    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
+    // Le coordinate di disegno sono x poi y, e x e' easting o longitudine:
+    // l'ordine viene dal formato, non dal registro (GEO-002).
+    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)).stored_east_first())
 }
 
 /// Gli identificatori per cui il writer sintetizza la definizione.
