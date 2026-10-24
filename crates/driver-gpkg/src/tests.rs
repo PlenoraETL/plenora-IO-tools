@@ -853,16 +853,114 @@ fn writer_does_not_relabel_crs84_as_epsg_4326() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
     assert!(matches!(
-        register_srs(&conn, Some("OGC:CRS84"), None),
+        register_srs(&conn, &crs("OGC:CRS84", None)),
         Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
     ));
+}
+
+/// GEO-020: il codice di un catalogo locale non e' un codice di registro.
+/// `POSTGIS:4326` non si lega mai alla riga EPSG:4326 built-in.
+#[test]
+fn writer_rejects_local_catalog_authority() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    for id in ["POSTGIS:4326", "mysql:3857", "SQLITE:900913"] {
+        let error = register_srs(&conn, &crs(id, None)).unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs, "{id}");
+    }
+    assert_eq!(srs_rows(&conn), 3, "nessuna riga aggiunta");
+}
+
+/// Un `srs_id` gia' occupato da un'altra organizzazione/codice e' un rifiuto,
+/// non un riuso silenzioso della riga esistente.
+#[test]
+fn writer_rejects_srs_id_owned_by_another_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let error = register_srs(&conn, &crs("ESRI:4326", None)).unwrap_err();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+
+    register_srs(&conn, &crs("ESRI:3857", None)).unwrap();
+    let error = register_srs(&conn, &crs("EPSG:3857", None)).unwrap_err();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    let (org, code): (String, i64) = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = 3857",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((org.as_str(), code), ("ESRI", 3857));
+}
+
+/// Lo stesso CRS registrato da due layer riusa la riga: non e' un conflitto.
+#[test]
+fn writer_reuses_row_of_same_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    assert_eq!(register_srs(&conn, &crs("epsg:4326", None)).unwrap(), 4326);
+    assert_eq!(
+        register_srs(&conn, &crs("EPSG:32632", None)).unwrap(),
+        32632
+    );
+    assert_eq!(
+        register_srs(&conn, &crs("EPSG:32632", None)).unwrap(),
+        32632
+    );
+    assert_eq!(srs_rows(&conn), 4);
+}
+
+/// GEO-008: lo SRID dichiarato dal campo e' lo `srs_id`; l'identita' resta
+/// quella di `crs_id`. Uno SRID che cade su una riga di un altro CRS e' un
+/// rifiuto.
+#[test]
+fn writer_takes_srs_id_from_declared_srid() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    assert_eq!(
+        register_srs(&conn, &crs("EPSG:3857", Some(900_913))).unwrap(),
+        900_913
+    );
+    let (org, code): (String, i64) = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = 900913",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((org.as_str(), code), ("EPSG", 3857));
+    for srid in [4326, 0, -1] {
+        let error = register_srs(&conn, &crs("EPSG:32632", Some(srid))).unwrap_err();
+        assert_eq!(
+            error.category,
+            plenora_io_model::ErrorCategory::Crs,
+            "{srid}"
+        );
+    }
+}
+
+fn crs(id: &str, srid: Option<i32>) -> LayerCrs {
+    LayerCrs {
+        id: Some(id.to_owned()),
+        definition: None,
+        srid,
+    }
+}
+
+fn srs_rows(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM gpkg_spatial_ref_sys", [], |r| {
+        r.get(0)
+    })
+    .unwrap()
 }
 
 #[test]
 fn gpkg_epsg_axis_orders_are_explicit() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
-    register_srs(&conn, Some("EPSG:3857"), None).unwrap();
+    register_srs(&conn, &crs("EPSG:3857", None)).unwrap();
 
     let geographic = crs_for(&conn, 4326).unwrap();
     let projected = crs_for(&conn, 3857).unwrap();
@@ -1477,6 +1575,33 @@ fn round_trip_non_wgs84_crs() {
     let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
     let crs = ds.layers()[0].contract.geometry.as_ref().unwrap().crs.id();
     assert_eq!(crs, Some("EPSG:3857"));
+}
+
+/// GEO-020 dal bordo del writer: `POSTGIS:4326` e' rifiutato prima di ogni
+/// effetto e la destinazione non nasce, invece di finire legato a EPSG:4326.
+#[test]
+fn local_catalog_crs_is_rejected_before_publishing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("locale.gpkg");
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "POSTGIS:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let Err(error) = GpkgDriver.create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+    else {
+        panic!("POSTGIS:4326 accettato dal writer GeoPackage");
+    };
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!path.exists());
 }
 
 /// Un `GeoPackage` minimo con `righe` punti, scritto dal driver stesso.

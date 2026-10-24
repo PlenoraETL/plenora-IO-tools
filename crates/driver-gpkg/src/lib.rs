@@ -26,7 +26,7 @@ use std::collections::BTreeSet;
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, OpenFlags, Statement};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Statement};
 
 use driver_common::{geometry_field, geometry_index};
 use plenora_io_core::descriptor::{
@@ -442,8 +442,7 @@ impl FormatDriver for GpkgDriver {
                     NumeroStrutturale::Indice(driver_common::saturating_u64(indice_layer)),
                 ))
             })?;
-            let (crs_id, crs_def) = layer_crs(l, geom_idx);
-            let srs_id = register_srs(&conn, crs_id.as_deref(), crs_def.as_deref())?;
+            let srs_id = register_srs(&conn, &layer_crs(l, geom_idx)?)?;
             layers.push(create_feature_table(
                 &conn,
                 &l.name,
@@ -2184,61 +2183,114 @@ const fn sqlite_type(dt: &DataType) -> &'static str {
     }
 }
 
-/// CRS del layer in scrittura: dal contratto (id + WKT) se presente, altrimenti
-/// dall'id nei metadati del campo geometria.
-fn layer_crs(
-    layer: &plenora_io_core::WriteLayer,
-    geom_idx: usize,
-) -> (Option<String>, Option<String>) {
+/// CRS del layer in scrittura.
+struct LayerCrs {
+    id: Option<String>,
+    definition: Option<String>,
+    /// `plenora.geometry.srid` (GEO-008): quando c'e' e' lo SRID dei valori,
+    /// e diventa lo `srs_id` del layer.
+    srid: Option<i32>,
+}
+
+/// CRS del layer in scrittura: dal contratto (id + WKT + SRID) se presente,
+/// altrimenti dall'id e dallo SRID nei metadati del campo geometria.
+fn layer_crs(layer: &plenora_io_core::WriteLayer, geom_idx: usize) -> Result<LayerCrs> {
     if let Some(g) = &layer.contract.geometry {
-        return (
-            g.crs.id().map(str::to_owned),
-            g.crs.definition().map(str::to_owned),
-        );
+        return Ok(LayerCrs {
+            id: g.crs.id().map(str::to_owned),
+            definition: g.crs.definition().map(str::to_owned),
+            srid: g.srid,
+        });
     }
-    let id = layer
-        .contract
-        .schema
-        .field(geom_idx)
-        .metadata()
-        .get(plenora_io_model::geometry::GEO_CRS_KEY)
-        .cloned();
-    (id, None)
+    let metadata = layer.contract.schema.field(geom_idx).metadata();
+    let srid = metadata
+        .get(plenora_io_model::geometry::PLENORA_SRID_KEY)
+        .map(|testo| {
+            testo.parse::<i32>().map_err(|_| {
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "metadato plenora.geometry.srid non intero nel campo geometria",
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(LayerCrs {
+        id: metadata
+            .get(plenora_io_model::geometry::GEO_CRS_KEY)
+            .cloned(),
+        definition: None,
+        srid,
+    })
 }
 
 /// Risolve il `srs_id` `GeoPackage` per il CRS dato, registrandolo in
-/// `gpkg_spatial_ref_sys` se non è il WGS84 built-in. Senza WKT reale usa
+/// `gpkg_spatial_ref_sys` se la riga non c'e'. Senza WKT reale usa
 /// `definition='undefined'`: GDAL risolve comunque il CRS da organization+code.
-fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
-    let Some(id) = id else {
+///
+/// Lo `srs_id` e' `plenora.geometry.srid` quando il campo lo dichiara,
+/// altrimenti il codice dell'autorita' (la mappatura documentata di GEO-008).
+/// Una riga gia' presente con quello `srs_id` si riusa solo se descrive la
+/// stessa organizzazione e lo stesso codice: altrimenti la geometria finirebbe
+/// legata a un CRS che non e' il suo, e il conflitto si rifiuta.
+fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
+    let Some(id) = crs.id.as_deref() else {
         return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
             "GeoPackage richiede un CRS esplicito; nessun default implicito",
         )));
     };
-    if id.eq_ignore_ascii_case("EPSG:4326") {
-        return Ok(4326);
+    // GEO-020: il codice di un catalogo locale identifica un CRS solo
+    // nell'installazione che l'ha scritto. Il GeoPackage e' un'altra
+    // installazione, e il lettore rifiuterebbe la riga con categoria `crs`.
+    if plenora_io_model::crs_definizione::autorita_locale(id) {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "CRS di un catalogo locale (GEO-020): il codice non identifica il CRS \
+             fuori dall'installazione d'origine",
+        )));
     }
-    if let Some((auth, code)) = id.split_once(':') {
-        if let Ok(code_i) = code.parse::<i32>() {
+    let Some((auth, code_i)) = id
+        .split_once(':')
+        .and_then(|(auth, code)| Some((auth.to_ascii_uppercase(), code.parse::<i32>().ok()?)))
+    else {
+        let raw = RawCrs::new(
+            crs.definition.as_deref().unwrap_or(id).to_owned(),
+            Some(id.to_owned()),
+        );
+        return Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw));
+    };
+    let srs_id = crs.srid.unwrap_or(code_i);
+    let esistente: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = ?1",
+            [srs_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql_err)?;
+    match esistente {
+        Some((org, code)) if org.eq_ignore_ascii_case(&auth) && code == i64::from(code_i) => {}
+        Some(_) => {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "srs_id GeoPackage gia' assegnato a un altro CRS in gpkg_spatial_ref_sys",
+            )));
+        }
+        None => {
             conn.execute(
-                "INSERT OR IGNORE INTO gpkg_spatial_ref_sys \
+                "INSERT INTO gpkg_spatial_ref_sys \
                  (srs_name, srs_id, organization, organization_coordsys_id, definition, description) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![
                     id,
+                    srs_id,
+                    auth,
                     code_i,
-                    auth.to_uppercase(),
-                    code_i,
-                    def.unwrap_or("undefined"),
+                    crs.definition.as_deref().unwrap_or("undefined"),
                     "importato da plenora-io"
                 ],
             )
             .map_err(sql_err)?;
-            return Ok(code_i);
         }
     }
-    let raw = RawCrs::new(def.unwrap_or(id).to_owned(), Some(id.to_owned()));
-    Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
+    Ok(srs_id)
 }
 
 fn create_feature_table(
