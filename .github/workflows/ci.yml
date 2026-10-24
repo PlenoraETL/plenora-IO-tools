@@ -795,6 +795,18 @@ jobs:
           --contracts .plenora-contracts
           --cli target/debug/plenora-io
 
+      # Arrow Geometry Semantics 1.0 si dichiara `conforming` nel manifesto: i
+      # vettori arrow-data-v1 del pin, letti e scritti dal binario appena
+      # costruito, sono la prova che lo sostiene. pyarrow serve solo a costruire
+      # gli IPC dei vettori, nella versione con cui si prova l'SDK.
+      - name: Vettori arrow-data-v1 contro il binario
+        run: |
+          python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
+          python3 scripts/vettori_arrow_data.py \
+            --contracts .plenora-contracts \
+            --cli target/debug/plenora-io \
+            --referto vettori-arrow-data.json
+
   # La superficie Rust pubblica, provata da un consumatore **esterno** compilato
   # dall'archivio sorgente distribuito.
   #
