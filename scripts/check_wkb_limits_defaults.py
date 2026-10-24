@@ -93,7 +93,16 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # (Shapefile). Costruiscono il contesto del writer a mano, e li' la quota WKB
 # e' contesto e non oggetto: cio' che si prova e' che la scadenza prevalga e
 # che nulla venga pubblicato.
-ATTESI = {"test": 90, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 90 a 95 con le prove di GEO-011 in `plenora-io-model`
+# (`wkb/tests.rs`): tre decodificano byte scritti a mano sotto la quota
+# predefinita, che li' e' il contesto; due, nella prova dell'annidamento, ne
+# derivano i tetti di profondita' da provare, perche' cio' che si prova e' che
+# la profondita' del contratto valga qualunque sia il tetto configurato.
+# `test` passa da 95 a 96 con `un_membro_di_altre_dimensioni_e_malformato_nel_codec`
+# (`wkb_lossless/tests.rs`): decodifica e ispeziona byte scritti a mano sotto
+# la quota predefinita, che li' e' il contesto; cio' che si prova e' il rifiuto
+# di GEO-011 per un membro di altre dimensioni, non un tetto.
+ATTESI = {"test": 96, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

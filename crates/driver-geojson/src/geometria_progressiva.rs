@@ -54,10 +54,11 @@
 //! formato.
 //!
 //! Attribuire al nostro tetto un rifiuto prodotto da serde sarebbe falso, e la
-//! differenza si vede: con `max_depth` a 64 -- il valore di produzione -- e'
-//! serde a rifiutare per primo, e il nostro non morde mai. Il punto d'ingresso
-//! del fuzzing ne dichiara percio' 32, cosi' la campagna esercita **il
-//! nostro**; una sonda misura la soglia e non la deduce.
+//! differenza si vede: con `max_depth` a 64 -- il valore di produzione fino
+//! alla 5.x -- era serde a rifiutare per primo, e il nostro non mordeva mai.
+//! Dalla 6.0 il valore di produzione e' 32, la profondita' di GEO-011, la
+//! stessa che il punto d'ingresso del fuzzing dichiarava gia': morde per primo
+//! **il nostro**. Una sonda misura la soglia di serde e non la deduce.
 //!
 //! Sono tre cose diverse e portano tre codici diversi: dire «limite superato» a
 //! chi ha scritto `"type": "Punto"` lo manderebbe ad allargare una quota che
@@ -470,6 +471,15 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
 
         while let Some(chiave) = map.next_key::<String>()? {
             match chiave.as_str() {
+                // Una chiave ripetuta e' un documento ambiguo: teneva l'ultimo
+                // valore, e il documento non dice quale valga.
+                "type" if tipo.is_some() => return Err(self.budget.di_formato(&CHIAVE_RIPETUTA)),
+                "coordinates" if coordinate.is_some() => {
+                    return Err(self.budget.di_formato(&CHIAVE_RIPETUTA))
+                }
+                "geometries" if figlie.is_some() => {
+                    return Err(self.budget.di_formato(&CHIAVE_RIPETUTA))
+                }
                 "type" => {
                     let nome = map.next_value::<String>()?;
                     let letto = Tipo::dal_nome(&nome).ok_or_else(|| {
@@ -491,7 +501,15 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
                         profondita: self.profondita,
                     })?);
                 }
-                // `bbox`, `crs` e i membri estranei restano ignorati, come li
+                // Il membro `crs` di GeoJSON 2008 puo' stare anche sulla
+                // geometria, e in una `GeometryCollection` su ogni figlia: un
+                // CRS che non e' WGS84 si rifiuta (vedi `crs_storico`).
+                "crs" => {
+                    if !map.next_value_seed(crate::crs_storico::CrsStorico)? {
+                        return Err(self.budget.ferma(crate::crs_storico::rifiuto()));
+                    }
+                }
+                // `bbox` e i membri estranei restano ignorati, come li
                 // ignorava la deserializzazione precedente: il lotto sposta il
                 // confine, non l'insieme accettato.
                 _ => {
@@ -509,6 +527,10 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
             .map_err(|errore| self.budget.ferma(errore))
     }
 }
+
+/// Una chiave dell'oggetto geometria che compare due volte.
+const CHIAVE_RIPETUTA: PublicMessage =
+    PublicMessage::Curated("chiave ripetuta nell'oggetto geometria GeoJSON");
 
 /// Il seme della lista `geometries` di una `GeometryCollection`.
 struct SemeGeometrie<'a> {

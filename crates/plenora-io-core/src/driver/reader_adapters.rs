@@ -8,7 +8,9 @@ use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use plenora_io_model::budget::{
     ConcurrencyLease, InternalMemoryLease, OperationBudget, OperationCounter,
 };
-use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, LayerContract, LayerId};
+use plenora_io_model::contract::{
+    CoordinateDimensions, GeometryEncoding, GeometryType, LayerContract, LayerId,
+};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
 use plenora_io_model::{
@@ -38,21 +40,55 @@ use crate::driver::spool::StagedSpool;
 /// decisione. Concentrarla qui e' cio' che ha reso possibile capovolgerla in
 /// un atto solo.
 ///
-/// Non restituisce `Result`: con un solo modello di budget non c'e' piu' nulla
-/// da rifiutare. Fino a S4.d la firma portava un errore per le opzioni del
-/// modello sbagliato — prima quelle nuove, poi quelle vecchie — e ogni driver
-/// doveva propagarlo.
-#[must_use]
+/// E' anche il punto in cui `--assume-crs` incontra il CRS che ogni driver ha
+/// letto: tutti i driver passano di qui con il dataset aperto, e qui ogni
+/// colonna geometrica si confronta con l'opzione
+/// ([`plenora_io_model::crs::verifica_crs_assunto`]). Prima l'opzione la
+/// leggevano soltanto i driver che la usano, e gli altri la ignoravano in
+/// silenzio; un controllo per driver sarebbe stato dieci copie della stessa
+/// regola, con il rischio che l'undicesimo driver la dimentichi.
+///
+/// # Errors
+///
+/// `crs` se l'opzione contraddice il CRS dichiarato da una colonna
+/// geometrica, o se non si puo' confrontare con esso.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
-) -> Box<dyn OpenDatasetHandle> {
-    Box::new(BudgetedDataset {
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(geometria) = &layer.contract.geometry {
+            // Il contratto nomina la colonna geometrica, e chi la cerca nei
+            // batch -- la validazione, il conteggio dei componenti, gli esempi
+            // di perdita, chi consuma l'Arrow -- la cerca per nome. Un nome
+            // che lo schema ripete fa trovare la prima occorrenza, che puo'
+            // non essere la geometria: un campo validato al posto di un altro,
+            // in silenzio. Il nome ambiguo si rifiuta qui, per ogni driver.
+            let omonimi = layer
+                .contract
+                .schema
+                .fields()
+                .iter()
+                .filter(|campo| campo.name() == &geometria.name)
+                .count();
+            if omonimi > 1 {
+                return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                    "colonna geometrica ambigua: il suo nome compare piu' volte nello schema del \
+                     layer",
+                )));
+            }
+            plenora_io_model::crs::verifica_crs_assunto(
+                opts.assume_crs.as_deref(),
+                &geometria.crs,
+            )?;
+        }
+    }
+    Ok(Box::new(BudgetedDataset {
         dataset,
         budget: opts.budget().clone(),
         physical_row_indices_attestable,
-    })
+    }))
 }
 
 struct BudgetedDataset {
@@ -782,19 +818,31 @@ fn collect_read_violations(
                 );
                 return Ok(());
             };
-            let cause = if geometry.dimensions != CoordinateDimensions::Unknown
-                && (geometry.dimensions != inspected.dimensions
-                    || !inspected.nested_dimensions_coherent)
-            {
+            // REJ-002 per un valore: buona forma, poi SRID, poi tipi e dimensioni.
+            // Uno SRID su un membro e' malformato (GEO-009); sotto `ewkb` uno
+            // SRID esterno diverso da quello del campo, o in un campo che non lo
+            // dichiara, contraddice il CRS ed e' della classe `crs`; un valore
+            // senza SRID in un campo che lo dichiara ha lo SRID del campo.
+            let cause = if !inspected.nested_dimensions_coherent {
                 Some("contract.coordinate_dimensions")
-            } else if (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
-                || (geometry.encoding == GeometryEncoding::Ewkb && inspected.srid != geometry.srid)
+            } else if inspected.srid_on_member
+                || (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
             {
                 Some("contract.geometry_encoding")
+            } else if geometry.encoding == GeometryEncoding::Ewkb
+                && inspected.srid.is_some()
+                && inspected.srid != geometry.srid
+            {
+                Some(CAUSA_SRID)
             } else if !geometry.geometry_types.is_empty()
+                && !geometry.geometry_types.contains(&GeometryType::Unknown)
                 && !geometry.geometry_types.contains(&inspected.geometry_type)
             {
                 Some("contract.geometry_type")
+            } else if geometry.dimensions != CoordinateDimensions::Unknown
+                && geometry.dimensions != inspected.dimensions
+            {
+                Some("contract.coordinate_dimensions")
             } else {
                 None
             };
@@ -919,6 +967,9 @@ fn read_rejection_error(
     accumulator.into_error(reached_eof, knowledge_limit)
 }
 
+/// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
+const CAUSA_SRID: &str = "contract.srid";
+
 struct ReadViolationAccumulator {
     physical_row_indices_attestable: bool,
     examples_limit: u64,
@@ -926,6 +977,9 @@ struct ReadViolationAccumulator {
     counts: BTreeMap<String, u64>,
     examples: BTreeMap<u64, (&'static str, Option<String>)>,
     column_names_attestable: bool,
+    /// La causa della prima violazione in ordine di riga: decide la categoria
+    /// (REJ-002).
+    prima_causa: Option<&'static str>,
 }
 
 impl ReadViolationAccumulator {
@@ -937,6 +991,7 @@ impl ReadViolationAccumulator {
             counts: BTreeMap::new(),
             examples: BTreeMap::new(),
             column_names_attestable: true,
+            prima_causa: None,
         }
     }
 
@@ -946,6 +1001,7 @@ impl ReadViolationAccumulator {
 
     fn record_all(&mut self, violations: BTreeMap<u64, (&'static str, String)>) -> Result<()> {
         for (source_index, (cause, column)) in violations {
+            self.prima_causa.get_or_insert(cause);
             let column = RowDiagnosticColumn::attest(column);
             self.column_names_attestable &= column.is_attested();
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
@@ -1058,9 +1114,14 @@ impl ReadViolationAccumulator {
     ) -> PlenoraIoError {
         let observed_total = self.observed_total;
         let diagnostics = self.diagnostics(reached_eof, knowledge_limit);
+        let categoria = if self.prima_causa == Some(CAUSA_SRID) {
+            ErrorCategory::Crs
+        } else {
+            ErrorCategory::DataMapping
+        };
         let error = PlenoraIoError::redatto(
             IoErrorCode::Generic,
-            ErrorCategory::DataMapping,
+            categoria,
             ErrorPhase::Read,
             RemoteEffect::None,
             RetryDisposition::Never,

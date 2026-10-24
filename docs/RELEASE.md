@@ -1385,6 +1385,53 @@ speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
 dell'interprete e verificare e chiudere gli eventuali processi figli e le
 risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
 
+### Arrow Geometry Semantics: la rilettura
+
+La rilettura dell'adozione restringe gli ingressi accettati e cambia la
+categoria di alcuni rifiuti; i limiti sono riportati in
+[PRODUCT](PRODUCT.md#limitazioni-di-prodotto).
+
+- **WKB ben formato ovunque (GEO-011).** Linestring di un punto, circularstring
+  pari o di meno di tre punti, anelli vuoti, di meno di quattro punti o non
+  chiusi byte per byte, triangoli di più anelli si rifiutano con
+  `data_mapping`, da qualunque formato, in lettura e in scrittura; l'encoder
+  non li emette.
+- **Profondità 32.** Il default di `max_wkb_depth` passa da 64 a 32 e un valore
+  oltre 32 si rifiuta.
+- **La buona forma prima dello SRID (REJ-002).** Un valore malformato con uno
+  SRID diverso da quello del campo è `data_mapping`, non più `crs`.
+- **Categorie di REJ-001.** Più colonne `geoarrow.wkb` sono `unsupported` (prima
+  `invalid_plan`), anche in uno schema esterno; i difetti dei metadati
+  geometrici trovati dalla lettura del contratto sono `schema`, o `crs` per le
+  chiavi CRS (prima `invalid_plan`); una versione di contratto ben formata e
+  diversa da 1 è `unsupported`, una malformata `schema`.
+- **CRS come l'oracolo.** `crs_id` con U+001C..U+001F è malformato (`crs`), un
+  WKT con quei separatori è ben formato; un PROJJSON con un numero oltre `f64`,
+  un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
+- **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
+  con `crs` invece di essere scritto come 4326.
+- **Una sola lettura della radice WKT.** Lo SRID di radice di un WKT si legge con la grammatica di GEO-005: un CRS annidato fra parentesi tonde non espone più il suo identificatore, `XID[` non è `ID[`, e un WKT non ben formato non ha SRID. Uno Shapefile che prima usciva con un identificatore letto così ora esce non risolto, e si nomina con `--assume-crs`.
+- **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
+  la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
+  fuori da una feature table, rende il file `data_mapping` all'apertura; prima
+  quel layer spariva dall'elenco.
+- **Membri di altre dimensioni (GEO-011).** Un aggregato WKB con un membro di
+  dimensioni diverse dal contenitore si rifiuta nel codec, con `data_mapping`,
+  in decodifica, ispezione e codifica.
+- **Nomi ambigui.** Una colonna geometrica il cui nome compare più volte nello
+  schema del layer è `schema` all'apertura, per ogni formato; un
+  `wkt_column`, `x_column` o `y_column` che l'intestazione CSV o XLSX ripete è
+  `data_mapping`. Il GeoPackage confronta tabelle e colonne come SQLite, senza
+  maiuscole ASCII: la stessa tabella dichiarata due volte con due geometrie è
+  `unsupported`.
+- **CRS dichiarati, non dedotti.** `--assume-crs` su uno Shapefile si confronta
+  solo con l'autorità che il `.prj` dichiara: `OGC:CRS84` su un `.prj` ESRI di
+  WGS 84 senza `AUTHORITY` è ora ammesso, e ogni identificatore diverso dai due nomi di WGS 84 su quella forma è `crs`; un'autorità di radice non EPSG (`AUTHORITY["ESRI",...]`) è dichiarata come una EPSG. Nel `GEODATA` DXF un `EPSG:<codice>`
+  conta solo quando la definizione è l'identificatore: un codice citato nel nome
+  di un WKT non è più una dichiarazione, e quella definizione si nomina con
+  `--assume-crs`. Lo SRID di un PROJJSON segue la regola del WKT: `"04326"` non
+  è 4326.
+
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
 la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il

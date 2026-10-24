@@ -574,6 +574,72 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
     assert!(testo.contains("POINT"), "e il valore ci arriva: «{testo}»");
 }
 
+/// `wkt_column` insieme a `x_column`/`y_column` dichiara due geometrie per lo
+/// stesso layer. Vinceva `wkt_column` in silenzio, e le colonne x/y uscivano
+/// come attributi: una scelta fatta al posto di chi legge. La richiesta e'
+/// contraddittoria, quindi si corregge la richiesta.
+#[test]
+fn wkt_column_insieme_a_x_y_e_una_configurazione_ambigua() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("in.csv");
+    std::fs::write(&src, "wkt,lon,lat\nPOINT (1 2),1,2\n").unwrap();
+    let combinazioni: [&[(&str, &str)]; 3] = [
+        &[
+            ("wkt_column", "wkt"),
+            ("x_column", "lon"),
+            ("y_column", "lat"),
+        ],
+        &[("wkt_column", "wkt"), ("x_column", "lon")],
+        &[("wkt_column", "wkt"), ("y_column", "lat")],
+    ];
+    for opzioni in combinazioni {
+        match CsvDriver.open(Source::Path(src.clone()), read_opts(opzioni)) {
+            Ok(_) => panic!("{opzioni:?}: due dichiarazioni di geometria accettate"),
+            Err(errore) => {
+                assert_eq!(
+                    errore.category,
+                    plenora_io_model::ErrorCategory::InvalidConfiguration,
+                    "{opzioni:?}"
+                );
+                assert!(!errore.message.contains("lon"), "{}", errore.message);
+            }
+        }
+    }
+}
+
+/// Un'intestazione che ripete il nome della colonna dichiarata: la geometria
+/// usciva dalla prima occorrenza, scelta in silenzio, e la seconda diventava
+/// un attributo. Il nome e' ambiguo e la lettura si rifiuta.
+#[test]
+fn una_colonna_geometrica_dal_nome_ripetuto_e_rifiutata() {
+    let dir = tempfile::tempdir().unwrap();
+    let casi: [(&str, &[(&str, &str)]); 3] = [
+        (
+            "geo_segreta,id,geo_segreta\nPOINT (1 2),1,POINT (3 4)\n",
+            &[("wkt_column", "geo_segreta")],
+        ),
+        (
+            "x_segreta,y_segreta,x_segreta\n1,2,3\n",
+            &[("x_column", "x_segreta"), ("y_column", "y_segreta")],
+        ),
+        (
+            "x_segreta,y_segreta,y_segreta\n1,2,3\n",
+            &[("x_column", "x_segreta"), ("y_column", "y_segreta")],
+        ),
+    ];
+    for (indice, (testo, opzioni)) in casi.into_iter().enumerate() {
+        let src = dir.path().join(format!("dup{indice}.csv"));
+        std::fs::write(&src, testo).unwrap();
+        match CsvDriver.open(Source::Path(src), read_opts(opzioni)) {
+            Ok(_) => panic!("{opzioni:?}: nome di colonna ripetuto accettato"),
+            Err(errore) => {
+                assert!(errore.message.contains("ambigua"), "{}", errore.message);
+                assert!(!errore.message.contains("segreta"), "{}", errore.message);
+            }
+        }
+    }
+}
+
 #[test]
 fn round_trip_csv_xy() {
     let dir = tempfile::tempdir().unwrap();

@@ -216,28 +216,27 @@ impl FormatDriver for IpcDriver {
                     .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido")))
             }
         })?;
+        // Arrow Geometry Semantics 1.0, REJ-001/002: versione, vocabolario, CRS e
+        // supporto nelle loro classi e nel loro ordine, prima di ogni altra lettura.
+        plenora_io_model::vocabolario::verifica_schema(schema.as_ref())?;
         validate_contract_version(schema.as_ref())?;
         let canonical_version_present =
             schema.metadata().contains_key(PLENORA_CONTRACT_VERSION_KEY);
-        let mut geometry_fields = schema
+        let geometry_fields: Vec<(usize, &arrow_schema::FieldRef)> = schema
             .fields()
             .iter()
             .enumerate()
-            .filter(|(_, field)| is_geometry_field(field));
-        let geometry = match geometry_fields.next() {
-            None => None,
-            Some((i, field)) => {
-                validate_geometry_field_identity(field, canonical_version_present)?;
-                // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di
-                // prodotto»): una sola colonna geometrica. Il contratto comune
-                // non la impone; e' il modello di questo componente, un
-                // `GeometryColumnContract` per layer. La seconda colonna non si
-                // ignora: si rifiuta il file, prima di leggere una riga.
-                if geometry_fields.next().is_some() {
-                    return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
-                        "Arrow IPC contiene più colonne GeoArrow nel contratto v1",
-                    )));
-                }
+            .filter(|(_, field)| is_geometry_field(field))
+            .collect();
+        // REJ-002: i difetti di vocabolario di **ogni** campo geometria prima
+        // del limite di supporto, che non deve coprirli.
+        for (_, field) in &geometry_fields {
+            validate_geometry_field_identity(field, canonical_version_present)?;
+        }
+        let geometry = match geometry_fields.as_slice() {
+            [] => None,
+            [(i, _)] => {
+                let i = *i;
                 let f = schema.field(i);
                 // Il CRS si legge dalla chiave `crs` e poi dal blocco
                 // `plenora.geometry.*`, non da `ARROW:extension:metadata`: un
@@ -280,13 +279,28 @@ impl FormatDriver for IpcDriver {
                 // piu' niente, quindi non c'e' piu' niente da difendere.
                 Some(contract)
             }
+            // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di prodotto»):
+            // una sola colonna geometrica. Il contratto comune ne ammette piu'
+            // (GEO-012); e' il modello di questo componente, un
+            // `GeometryColumnContract` per layer. La seconda colonna non si
+            // ignora: si rifiuta il file, prima di leggere una riga, con
+            // `unsupported` (GEO-012, REJ-001) anche quando lo schema e'
+            // esterno, senza versione ne' chiavi `plenora.*`, e il vocabolario
+            // non lo ha gia' fatto.
+            _ => {
+                return Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated(
+                        "Arrow IPC con più colonne GeoArrow: questo componente ne rappresenta una (GEO-012)",
+                    ),
+                ));
+            }
         };
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(IpcDataset {
                 path,
                 layers: vec![LayerContract {
@@ -297,7 +311,7 @@ impl FormatDriver for IpcDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -363,6 +377,10 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         )));
+        // Guardia del produttore: lo schema porta la versione, quindi vale la
+        // verifica di `open` (REJ-001/002), qui prima dello staging: un file che
+        // IO stesso rifiuterebbe in lettura non si produce in silenzio.
+        plenora_io_model::vocabolario::verifica_schema(schema.as_ref())?;
         // La serializzazione richiesta. Il valore e' gia' stato validato da
         // `validate_write` contro lo schema delle opzioni -- `Enumerato(&["file",
         // "stream"])` -- quindi qui l'unico caso da decidere e' l'assenza, che

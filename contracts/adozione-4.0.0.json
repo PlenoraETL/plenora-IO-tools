@@ -122,6 +122,15 @@
       "verification": [
         "cargo test -p plenora-io-tools --test metadati_arrow --test provenienza_crs"
       ]
+    },
+    {
+      "id": "plenora-arrow-geometry-semantics-v1",
+      "status": "conforming",
+      "verification": [
+        "python3 scripts/vettori_arrow_data.py --contracts <checkout> --cli <binario> --referto <referto>",
+        "cargo test -p plenora-io-model --lib",
+        "cargo test -p plenora-io-tools --test ordine_degli_assi"
+      ]
     }
   ],
   "perche_not_applicable_non_e_una_deviazione": "Python SDK non richiesto dal profilo v3; la wheel resta verificata ma non dichiara la superficie comune della bozza #32. Runtime conditional: essendo esposto, adotta 2.0 con le deviazioni elencate.",
@@ -173,6 +182,13 @@
       "surface": "runtime",
       "observed_behavior": "Regola 4; i vettori io-read-v1 fissano io.read@1 (il registro runtime-v1 include anche @2); il profilo v3 serve io.read@2. Gli originali restano immutati: @1 e rifiutato unsupported; i test applicano esplicitamente @2 e il contratto risultato v2 ai casi di esecuzione. Hazard: copiare il selettore storico impedisce la lettura.",
       "tracking": "Rientro: vettori successori del catalogo v3 in contracts; prove runtime_vettori e docs/PRODUCT.md.",
+      "detectable_before_invocation": true
+    },
+    {
+      "rule": "ARROW-001 / REJ-001 (versione del contratto assente)",
+      "surface": "cli",
+      "observed_behavior": "Uno schema Arrow senza `plenora.contract.version` e senza chiavi `plenora.` (di schema o di campo) e' letto come sorgente esterna e accettato; il contratto lo rifiuta con `schema`. Con una qualunque chiave `plenora.` vale REJ-001 per intero. Hazard: un produttore Plenora che omettesse tutte le chiavi sarebbe trattato come esterno; le sue geometrie senza tipi dichiarati sono rifiutate in scrittura (`unsupported`), non perse.",
+      "tracking": "Rientro: regola di profilo IO-ARROW-001 proposta in plenora-contracts (accettazione di profilo ammessa da GEO-000); la deviazione si ritira all'adozione del pin che la contiene.",
       "detectable_before_invocation": true
     }
   ],
@@ -230,9 +246,14 @@
       "motivo": "Nessun ingresso di trasporto, forwarding o archivio di accettazione; responsabilita host fuori busta."
     },
     {
-      "regola": "INTEROP-001..005 / GEO-000..020 / REJ-001..004",
+      "regola": "INTEROP-001..005",
       "stato": "non_applicabile",
-      "motivo": "Contratti opt-in non rivendicati: questa adozione non qualifica interoperabilita o semantica geometrica 1.0."
+      "motivo": "Contratto opt-in non rivendicato: questa adozione non qualifica l'interoperabilita' fra componenti."
+    },
+    {
+      "regola": "GEO-000..020 / REJ-001..004",
+      "stato": "implementato",
+      "motivo": "Arrow Geometry Semantics 1.0 rivendicato: vettori arrow-data-v1 168 conformi e 4 rifiuti di supporto (piu' campi geometria, GEO-012), con gli assi del rifiuto di REJ-003 verificati; ordine degli assi memorizzato e rifiutato verso i formati che non lo rappresentano. Lo schema esterno senza chiavi plenora e' fra le deviations."
     },
     {
       "regola": "ERR-016",

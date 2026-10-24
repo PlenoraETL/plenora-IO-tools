@@ -456,7 +456,7 @@ fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     // E in lettura `null` non diventa CRS84: diventa «non lo so».
     let letti = metadati::analizza(&geo, false).expect("conforme");
     assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
-    let crs = crs_from(Some(&letti)).expect("risolto");
+    let crs = crs_from(&letti).expect("risolto");
     assert_eq!(
         crs.id.as_deref(),
         None,
@@ -2014,6 +2014,37 @@ fn un_parquet_senza_geo_resta_leggibile_come_parquet_semplice() {
     assert!(!geometria.native_metadata.contains_key("geoparquet.version"));
 }
 
+/// Senza `geo` la geometria si riconosce dal nome, fra `geometry`, `geom` e
+/// `wkb`. Con due di quei nomi nel file vinceva il primo dell'elenco, e
+/// l'altra colonna usciva come un binario qualunque: una scelta che il file
+/// non autorizza. Ora il file e' ambiguo, e lo si dice.
+#[test]
+fn un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("ambiguo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geom", DataType::Binary, true),
+        Field::new("geometry", DataType::Binary, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    match GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura()) {
+        Ok(_) => panic!("due colonne candidate alla geometria: il driver ne ha scelta una"),
+        Err(errore) => assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported),
+    }
+}
+
 #[test]
 fn un_geo_malformato_ferma_l_apertura_invece_di_passare_per_assente() {
     // Il difetto che il lotto chiude: `serde_json::from_str(..).ok()`
@@ -2212,6 +2243,163 @@ fn le_colonne_geometriche_secondarie_sono_nominate_dal_contratto() {
             .get("geoparquet.altre_colonne")
             .map(String::as_str),
         Some("altra")
+    );
+}
+
+// --- piu' colonne geometriche: GEO-012 ----------------------------------
+
+/// Il documento con due colonne geometriche, `geometry` primaria e `altra`.
+const GEO_DUE_GEOMETRIE: &str = concat!(
+    r#"{"version":"1.1.0","primary_column":"geometry","columns":{"#,
+    r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
+    r#""altra":{"encoding":"WKB","geometry_types":[]}}}"#,
+);
+
+/// La richiesta che proietta i campi dati, in modalita' `Required`.
+fn richiesta_proiettata(campi: &[u32]) -> ReadRequest {
+    ReadRequest {
+        projected_fields: Some(campi.iter().copied().map(FieldId).collect()),
+        projection_mode: ProjectionMode::Required,
+        ..richiesta_semplice()
+    }
+}
+
+/// L'esito di `open_layer_reader`, ridotto al codice d'errore e al messaggio.
+fn esito_lettura(
+    dataset: &dyn OpenDatasetHandle,
+    richiesta: &ReadRequest,
+) -> Option<(plenora_io_model::IoErrorCode, String)> {
+    match dataset.open_layer_reader(richiesta) {
+        Ok(_) => None,
+        Err(errore) => Some((errore.code, errore.message)),
+    }
+}
+
+#[test]
+fn due_geometrie_senza_selezione_sono_rifiutate_come_non_supportate() {
+    // Il difetto: la primaria diventava la geometria e `altra` usciva come un
+    // binario qualunque, nominata solo in un metadato nativo. GEO-012 vieta
+    // proprio questo -- degradare un campo geometrico a binario o sceglierne
+    // uno -- e chiede il rifiuto `unsupported` prima di ogni effetto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("la scoperta resta possibile: e' li' che il limite si vede");
+    let Some((codice, messaggio)) = esito_lettura(dataset.as_ref(), &richiesta_semplice()) else {
+        panic!("una lettura con due geometrie non deve degradarne una a binario");
+    };
+    assert_eq!(codice, plenora_io_model::IoErrorCode::Unsupported);
+    // Errori senza dati: il nome della colonna viene dal file.
+    assert!(!messaggio.contains("altra"), "{messaggio}");
+}
+
+#[test]
+fn una_projection_che_tiene_entrambe_le_geometrie_e_rifiutata() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[0, 1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_secondaria_e_rifiutata() {
+    // Senza la primaria `altra` sarebbe l'unica colonna, ma il contratto
+    // geometrico e' quello della primaria: uscirebbe binaria, cioe' degradata.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_primaria_resta_leggibile() {
+    // Leggere cio' che si e' chiesto non e' scegliere al posto di qualcuno:
+    // la geometria che esce e' una sola, e porta il proprio contratto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let mut lettore = dataset
+        .open_layer_reader(&richiesta_proiettata(&[0, 2]))
+        .expect("la sola primaria si legge");
+    let geometria = lettore
+        .contract()
+        .contract
+        .geometry
+        .clone()
+        .expect("la primaria porta il contratto geometrico");
+    assert_eq!(geometria.name, "geometry");
+    let batch = lettore.next_batch().expect("batch").expect("una riga");
+    assert_eq!(batch.num_columns(), 2);
+    assert!(batch.schema().index_of("altra").is_err());
+}
+
+#[test]
+fn un_campo_geoarrow_non_dichiarato_da_geo_e_rifiutato() {
+    // Lo schema Arrow incorporato puo' marcare `geoarrow.wkb` una colonna che
+    // il documento `geo` non nomina. Passava con l'estensione e senza alcun
+    // contratto: una seconda geometria che nessuno validava.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("estensione_su_altra.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let estensione = HashMap::from([(
+        ARROW_EXTENSION_NAME_KEY.to_owned(),
+        GEOARROW_WKB_EXTENSION.to_owned(),
+    )]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geometry", DataType::Binary, true),
+        Field::new("altra", DataType::Binary, true).with_metadata(estensione),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
+    writer.close().unwrap();
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    // La scoperta deve dire cio' che la lettura rifiutera': anche questa
+    // colonna e' un'altra geometria, e il contratto la nomina come le
+    // secondarie del documento `geo`. Prima la nominava solo se il documento
+    // la dichiarava, e la scoperta descriveva un layer leggibile.
+    let geometria = dataset.layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .expect("colonna geometria");
+    assert_eq!(
+        geometria
+            .native_metadata
+            .get("geoparquet.altre_colonne")
+            .map(String::as_str),
+        Some("altra")
+    );
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_semplice());
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
     );
 }
 
@@ -2774,14 +2962,87 @@ fn legacy_bbox_names_are_hidden_with_explicit_opt_in() {
     assert!(contract_schema.index_of("geometry").is_ok());
 }
 
+/// Un Parquet con una colonna `geometry` e senza metadato `geo`.
+fn parquet_senza_geo(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let percorso = dir.path().join("senza_geo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "geometry",
+        DataType::Binary,
+        true,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    percorso
+}
+
+/// Senza metadato `geo` il file non e' `GeoParquet`, e niente gli assegna un
+/// CRS: il default `OGC:CRS84` della specifica vale per una colonna dichiarata
+/// nel metadato senza `crs`. Il driver lo etichettava WGS84 lo stesso; ora il
+/// CRS e' `missing`, oppure quello che `--assume-crs` nomina.
 #[test]
-fn default_crs_is_crs84_with_longitude_latitude_axis_order() {
-    let crs = crs_from(None).unwrap();
-    assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+fn un_parquet_senza_geo_non_afferma_un_crs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_senza_geo(&dir);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap();
+    let geometria = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs, CrsResolution::Missing);
+
+    let assunto = GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs("EPSG:3003"),
+        )
+        .unwrap();
+    let geometria = assunto.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs.id(), Some("EPSG:3003"));
+    // Senza metadato nessuno dichiara l'ordine memorizzato.
     assert_eq!(
-        crs.axis_order,
-        plenora_io_model::crs::AxisOrder::LongitudeLatitude
+        geometria.resolved_crs().map(|crs| crs.axis_order),
+        Some(plenora_io_model::crs::AxisOrder::Unknown)
     );
+}
+
+/// Un `GeoParquet` che dichiara il proprio CRS e un `--assume-crs` diverso sono
+/// due dichiarazioni in conflitto: l'opzione si ignorava in silenzio.
+#[test]
+fn assume_crs_in_conflitto_col_metadato_geo_e_rifiutato() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_, percorso) = geo_di_un_file_scritto(&dir);
+    let dichiarato = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap()
+        .layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .and_then(|g| g.crs.id().map(str::to_owned))
+        .expect("il file scritto dichiara un CRS");
+    let Err(errore) = GeoParquetDriver.open(
+        Source::Path(percorso.clone()),
+        opzioni_lettura().with_assume_crs("EPSG:3003"),
+    ) else {
+        panic!("--assume-crs in conflitto col metadato geo: ignorato");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    // Lo stesso identificatore, con l'autorita' in minuscolo, e' concorde.
+    let (autorita, codice) = dichiarato.split_once(':').unwrap();
+    let concorde = format!("{}:{codice}", autorita.to_ascii_lowercase());
+    assert!(GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs(concorde),
+        )
+        .is_ok());
 }
 
 #[test]
@@ -2957,7 +3218,7 @@ fn projjson_without_identifier_is_a_typed_unresolved_crs() {
             false,
         )
         .expect("il documento e' conforme");
-    let error = crs_from(Some(&geo)).unwrap_err();
+    let error = crs_from(&geo).unwrap_err();
     assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     assert_eq!(error.driver.as_deref(), Some("geoparquet"));
     assert!(!error.to_string().contains("survey-grid-secret"));

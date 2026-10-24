@@ -44,6 +44,8 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
         GeometryType::MultiPolygon,
     ],
     mixed_types: false,
+    // Il FileGDB memorizza x poi y, easting o longitudine prima.
+    axis_orders: plenora_io_core::EAST_FIRST_AXIS_ORDERS,
 };
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
@@ -103,6 +105,35 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
 );
 
 pub struct FileGdbDriver;
+
+/// Rifiuta la lettura di un layer che dichiara piu' di un campo geometrico.
+///
+/// Il modello porta un contratto geometrico per layer, e il reader prendeva il
+/// primo campo: gli altri non comparivano nemmeno nello schema, e sparivano.
+/// E' la scelta al posto di chi legge che GEO-012 vieta. Il layer resta
+/// enumerato -- rifiutare all'apertura chiuderebbe anche i layer leggibili
+/// accanto a lui -- e la scoperta ne dichiara il numero in
+/// `filegdb.geometry_field_count`.
+///
+/// Sta fuori dal backend perche' la decisione non dipende da GDAL e si prova
+/// anche senza: `OpenFileGDB` non scrive layer con due geometrie, e nessuna
+/// fixture del driver saprebbe produrne uno.
+///
+/// # Errors
+///
+/// `Unsupported` con piu' di un campo geometrico.
+#[cfg_attr(not(feature = "gdal-backend"), allow(dead_code))]
+fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()> {
+    if campi_geometrici > 1 {
+        return Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
+            &plenora_io_model::PublicMessage::Curated(
+                "FileGDB: il layer dichiara piu' campi geometrici, e il componente porta una \
+                 sola geometria per layer (GEO-012)",
+            ),
+        ));
+    }
+    Ok(())
+}
 
 // --- la superficie del fuzz target -----------------------------------------
 //
@@ -454,7 +485,7 @@ impl FormatDriver for FileGdbDriver {
             radici::applica();
             let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return Ok(plenora_io_core::with_read_budget(dataset, &opts, false));
+            return plenora_io_core::with_read_budget(dataset, &opts, false);
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -528,7 +559,7 @@ mod backend {
         CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
         LayerContract, LayerId,
     };
-    use plenora_io_model::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
+    use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
     use plenora_io_model::geometry::with_geometry_contract_metadata;
     use plenora_io_model::{
         CapabilityReason, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
@@ -759,7 +790,9 @@ mod backend {
         })?;
         if let (Some(expected), Some(actual)) = (resolved.id.as_deref(), authority_id(&spatial_ref))
         {
-            if !expected.eq_ignore_ascii_case(&actual) {
+            // Lo stesso confronto di `--assume-crs` (GEO-005): autorita'
+            // senza maiuscole, codice come testo.
+            if !plenora_io_model::crs::stesso_identificatore(expected, &actual) {
                 return Err(PlenoraIoError::crs_non_risolto_redatto(
                     "filegdb",
                     &RawCrs::new(definition.to_owned(), resolved.id.clone()),
@@ -1346,46 +1379,6 @@ mod backend {
         }
     }
 
-    fn has_any(value: &str, needles: &[&str]) -> bool {
-        let value = value.to_ascii_lowercase();
-        needles.iter().any(|needle| value.contains(needle))
-    }
-
-    fn declared_axis_order(spatial_ref: &SpatialRef, kind: CrsKind) -> AxisOrder {
-        let target = match kind {
-            CrsKind::Geographic => "GEOGCS",
-            CrsKind::Projected => "PROJCS",
-            CrsKind::Unknown => return AxisOrder::Unknown,
-        };
-        let Ok(first) = spatial_ref.axis_name(target, 0) else {
-            return AxisOrder::Unknown;
-        };
-        let Ok(second) = spatial_ref.axis_name(target, 1) else {
-            return AxisOrder::Unknown;
-        };
-        match kind {
-            CrsKind::Geographic
-                if has_any(&first, &["longitude", "lon"])
-                    && has_any(&second, &["latitude", "lat"]) =>
-            {
-                AxisOrder::LongitudeLatitude
-            }
-            CrsKind::Geographic
-                if has_any(&first, &["latitude", "lat"])
-                    && has_any(&second, &["longitude", "lon"]) =>
-            {
-                AxisOrder::LatitudeLongitude
-            }
-            CrsKind::Projected
-                if has_any(&first, &["easting", "east"])
-                    && has_any(&second, &["northing", "north"]) =>
-            {
-                AxisOrder::EastingNorthing
-            }
-            CrsKind::Geographic | CrsKind::Projected | CrsKind::Unknown => AxisOrder::Unknown,
-        }
-    }
-
     fn resolve_layer_crs(
         embedded: Option<SpatialRef>,
         assume_crs: Option<&str>,
@@ -1416,12 +1409,14 @@ mod backend {
         })?;
         let id = authority_id(&spatial_ref);
         let kind = crs_kind(&spatial_ref);
-        let mut resolved = ResolvedCrs::new(id, kind, Some(definition));
-        let declared_axis_order = declared_axis_order(&spatial_ref, kind);
-        if declared_axis_order != AxisOrder::Unknown {
-            resolved.axis_order = declared_axis_order;
-        }
-        Ok(resolved)
+        // Il FileGDB memorizza x poi y, e x e' easting o longitudine, qualunque
+        // sia l'ordine con cui GDAL riporta gli assi dell'autorita': quello e'
+        // l'ordine del registro (EPSG:4326 elenca la latitudine prima), e
+        // GEO-002 vieta di ricavarne la dichiarazione. Fino alla 5.x lo si
+        // leggeva da `axis_name`, e un EPSG:4326 usciva `lat_lon` con i
+        // valori in longitudine prima. Il WKT di GDAL dice ancora se gli assi
+        // sono una coppia est/nord: una polare (EPSG:3031) e' `other`.
+        Ok(ResolvedCrs::new(id, kind, Some(definition)).stored_east_first())
     }
 
     fn geometry_contract_from_ogr(
@@ -1463,12 +1458,33 @@ mod backend {
         geometry
     }
 
+    /// Apre il percorso con il **solo** driver `OpenFileGDB`.
+    ///
+    /// `Dataset::open` lascia scegliere a GDAL fra tutti i driver registrati,
+    /// e una directory `.gdb` che contiene altro -- per esempio dei CSV, che il
+    /// driver CSV di GDAL apre come directory -- veniva letta come se fosse un
+    /// `FileGDB`: un'interpretazione scelta da GDAL al posto di chi legge, con
+    /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
+    /// fallisce.
+    fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
+        Dataset::open_ex(
+            path,
+            gdal::DatasetOptions {
+                open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
+                    | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
+                allowed_drivers: Some(&["OpenFileGDB"]),
+                open_options: None,
+                sibling_files: None,
+            },
+        )
+    }
+
     pub fn open(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
-        let ds = Dataset::open(path)
+        let ds = apri_solo_filegdb(path)
             .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
@@ -1494,6 +1510,10 @@ mod backend {
                 .geom_fields()
                 .next()
                 .map(|field| field.field_type());
+            // Quanti campi geometrici il layer dichiara. Il contratto ne porta
+            // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
+            // li conta, e la lettura del layer si rifiuta (GEO-012).
+            let campi_geometrici = layer.defn().geom_fields().count();
             // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
             // una tabella significava chiedere un `--assume-crs` per dei dati
             // che non sono spaziali, con un messaggio che parlava di geometria.
@@ -1510,10 +1530,16 @@ mod backend {
                             ))
                         })?
                         .to_owned();
-                    Some((
-                        crs_label,
-                        geometry_contract_from_ogr(ogr_geometry_type, crs),
-                    ))
+                    let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
+                    if campi_geometrici > 1 {
+                        // Il limite si vede dalla scoperta, come chiede
+                        // GEO-012: il numero e' strutturale, non un dato.
+                        geometria.native_metadata.insert(
+                            "filegdb.geometry_field_count".to_owned(),
+                            campi_geometrici.to_string(),
+                        );
+                    }
+                    Some((crs_label, geometria))
                 }
                 None => None,
             };
@@ -1578,6 +1604,7 @@ mod backend {
                 gdal_idx: i,
                 fields,
                 ha_geometria,
+                campi_geometrici,
             });
         }
         Ok(Box::new(GdbDataset {
@@ -1654,6 +1681,9 @@ mod backend {
         /// zero. Il reader sottraeva sempre uno, e su una tabella avrebbe
         /// letto il campo sbagliato -- o nessuno.
         ha_geometria: bool,
+        /// I campi geometrici che il layer dichiara; piu' di uno rende il
+        /// layer illeggibile, vedi [`super::rifiuta_piu_geometrie`].
+        campi_geometrici: usize,
     }
 
     struct GdbDataset {
@@ -1686,6 +1716,7 @@ mod backend {
                     ))
                 })?;
             let m = &self.metas[idx];
+            super::rifiuta_piu_geometrie(m.campi_geometrici)?;
             let (indices, layer_contract) =
                 plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
             // In una feature class l'indice Arrow zero e' la geometria e gli
@@ -1780,7 +1811,7 @@ mod backend {
             contract,
             2,
             move |emitter: BatchEmitter| {
-                let ds = Dataset::open(&path)
+                let ds = apri_solo_filegdb(&path)
                     .map_err(|_| err(&PublicMessage::Curated("apertura del FileGDB fallita")))?;
                 let mut layer = ds.layer(gdal_idx).map_err(|_| {
                     err(&PublicMessage::Curated(
@@ -1979,6 +2010,7 @@ mod backend {
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
         use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
         use plenora_io_model::contract::{GeometryEncoding, GeometryType};
+        use plenora_io_model::crs::AxisOrder;
         use plenora_io_model::limits::WkbLimits;
 
         /// Opzioni di scrittura sul modello unificato (S4.e).
@@ -2128,7 +2160,12 @@ mod backend {
         }
 
         #[test]
-        fn gdal_reports_authority_axis_order_without_canonicalization() {
+        /// GDAL riporta gli assi dell'autorita' (EPSG:4326 latitudine prima),
+        /// ma i valori del `FileGDB` memorizzano la longitudine prima: la
+        /// dichiarazione e' `lon_lat` (GEO-001). Fino alla 5.x la prova si
+        /// chiamava `gdal_reports_authority_axis_order_without_canonicalization`
+        /// e fissava `lat_lon`, cioe' l'ordine del registro.
+        fn gdal_axis_order_is_the_stored_one_not_the_registry_one() {
             let epsg = resolve_layer_crs(
                 Some(SpatialRef::from_definition("EPSG:4326").unwrap()),
                 None,
@@ -2145,7 +2182,7 @@ mod backend {
             )
             .unwrap();
 
-            assert_eq!(epsg.axis_order, AxisOrder::LatitudeLongitude);
+            assert_eq!(epsg.axis_order, AxisOrder::LongitudeLatitude);
             assert_eq!(crs84.axis_order, AxisOrder::LongitudeLatitude);
             assert_ne!(crs84.id.as_deref(), Some("EPSG:4326"));
             assert_eq!(projected.axis_order, AxisOrder::EastingNorthing);
@@ -2645,6 +2682,61 @@ mod backend {
                     m: None,
                 })
             );
+        }
+
+        /// Un `FileGDB` con un CRS incorporato e un `--assume-crs` diverso: l'opzione
+        /// si ignorava, e il layer usciva col CRS del file senza dirlo. Lo stesso
+        /// identificatore, con l'autorita' in minuscolo, resta ammesso.
+        #[test]
+        fn assume_crs_in_conflitto_col_crs_incorporato_e_rifiutato() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("incorporato.gdb");
+            let schema: SchemaRef =
+                Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+            let wkb = point_wkb(CoordinateDimensions::Xy, None, None);
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "punti".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+            let driver = super::super::FileGdbDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+
+            let Err(errore) = driver.open(
+                Source::Path(path.clone()),
+                opzioni_lettura().with_assume_crs("EPSG:3003"),
+            ) else {
+                panic!("--assume-crs in conflitto col CRS incorporato: ignorato");
+            };
+            assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+            let concorde = driver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("epsg:3857"),
+                )
+                .unwrap();
+            let crs = &concorde.layers()[0].contract.geometry.as_ref().unwrap().crs;
+            assert_eq!(crs.id(), Some("EPSG:3857"));
         }
 
         #[test]
@@ -3352,6 +3444,31 @@ mod backend {
         /// indici di layer sotto i piedi di chi li ha letti dal catalogo, e un
         /// `--layer 1` significherebbe due cose diverse a seconda di quali
         /// layer il driver ha deciso di nascondere.
+        /// Una directory `.gdb` che non e' un `FileGDB` non si legge come tale.
+        ///
+        /// `Dataset::open` lasciava scegliere a GDAL il driver, e il driver CSV
+        /// di GDAL apre una directory di CSV: un `.csvt` che marca due colonne
+        /// `WKT` ne fa un layer con **due** campi geometrici, di cui il reader
+        /// prendeva il primo. Due scelte silenziose in una: il formato e la
+        /// geometria.
+        #[test]
+        fn una_directory_gdb_che_non_e_un_filegdb_non_si_apre() {
+            let dir = tempfile::tempdir().unwrap();
+            let percorso = dir.path().join("travestito.gdb");
+            std::fs::create_dir(&percorso).unwrap();
+            std::fs::write(
+                percorso.join("a.csv"),
+                "g1,g2,id\n\"POINT (1 2)\",\"POINT (3 4)\",1\n",
+            )
+            .unwrap();
+            std::fs::write(percorso.join("a.csvt"), "WKT,WKT,Integer\n").unwrap();
+
+            assert!(
+                open(&percorso, Some("EPSG:4326")).is_err(),
+                "una directory di CSV non e' un FileGDB"
+            );
+        }
+
         #[test]
         fn una_tabella_non_spaziale_non_impedisce_di_aprire_la_gdb() {
             let dir = tempfile::tempdir().unwrap();

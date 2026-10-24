@@ -395,7 +395,7 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -408,7 +408,7 @@ impl FormatDriver for KmlDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -677,6 +677,10 @@ fn read_spool_string(input: &mut impl Read) -> Result<Option<String>> {
         .map_err(|_| err(&PublicMessage::Curated("testo spool KML non UTF-8")))
 }
 
+const PUNTO_SENZA_COORDINATE: PublicMessage = PublicMessage::Curated("Point KML senza coordinate");
+const PUNTO_CON_PIU_TUPLE: PublicMessage =
+    PublicMessage::Curated("Point KML con piu' di una tupla di coordinate");
+
 struct PlacemarkStream {
     reader: XmlReader<DecodingReader<BufReader<File>>>,
     event_buffer: Vec<u8>,
@@ -889,9 +893,18 @@ impl PlacemarkStream {
         cancellation: &CancellationToken,
     ) -> Result<Vec<KmlCoord>> {
         let mut coordinates = Vec::new();
+        let mut coordinates_visto = false;
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) if element.local_name().as_ref() == "coordinates" => {
+                    // Un secondo `coordinates` nella stessa geometria: teneva
+                    // l'ultimo, e il documento non dice quale valga.
+                    if coordinates_visto {
+                        return Err(err(&PublicMessage::Curated(
+                            "geometria KML con piu' elementi coordinates",
+                        )));
+                    }
+                    coordinates_visto = true;
                     let text = self.read_text(cancellation)?;
                     coordinates = coords_from_str(&text)
                         .map_err(|_| err(&PublicMessage::Curated("coordinate KML non valide")))?;
@@ -943,7 +956,15 @@ impl PlacemarkStream {
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) if element.local_name().as_ref() == "outerBoundaryIs" => {
+                    // Un anello esterno e uno solo (KML 2.2): un secondo anello
+                    // nello stesso `outerBoundaryIs`, o un secondo
+                    // `outerBoundaryIs`, sparivano tenendo il primo o l'ultimo.
                     let rings = self.read_boundary(b"outerBoundaryIs", cancellation)?;
+                    if outer.is_some() || rings.len() != 1 {
+                        return Err(err(&PublicMessage::Curated(
+                            "Polygon KML senza un unico anello esterno",
+                        )));
+                    }
                     outer = rings.into_iter().next();
                 }
                 Event::Start(element) if element.local_name().as_ref() == "innerBoundaryIs" => {
@@ -998,10 +1019,15 @@ impl PlacemarkStream {
         Ok(match name {
             b"Point" => {
                 let coordinates = self.read_geometry_coordinates(b"Point", cancellation)?;
-                let coordinate = coordinates
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| err(&PublicMessage::Curated("Point KML senza coordinate")))?;
+                // Un `Point` ha una tupla e una sola: con piu' tuple teneva la
+                // prima, e le altre sparivano.
+                let [coordinate] = <[KmlCoord; 1]>::try_from(coordinates).map_err(|altre| {
+                    err(if altre.is_empty() {
+                        &PUNTO_SENZA_COORDINATE
+                    } else {
+                        &PUNTO_CON_PIU_TUPLE
+                    })
+                })?;
                 Some(KmlGeometry::Point(KmlPoint::from(coordinate)))
             }
             b"LineString" => Some(KmlGeometry::LineString(KmlLineString::from(

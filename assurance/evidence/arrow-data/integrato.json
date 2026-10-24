@@ -1,0 +1,2242 @@
+{
+  "schema_version": 1,
+  "vettori": 86,
+  "conteggi": {
+    "conforme": 168,
+    "rifiuto-di-supporto": 4
+  },
+  "esiti": [
+    {
+      "vettore": "axis-lat-lon-stored",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "axis-lat-lon-stored",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "axis-lon-lat-epsg4326",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "axis-lon-lat-epsg4326",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "axis-other-polar",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "axis-other-polar",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-datum-identifier-changed",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-datum-identifier-changed",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-datum-without-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-datum-without-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-definition-without-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-definition-without-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-degree-other-spelling",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-degree-other-spelling",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-degree-round-trip-spelling",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-degree-round-trip-spelling",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-ellipsoid-other-decimal-spelling",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-ellipsoid-other-decimal-spelling",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-geographic-unit-metre",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-geographic-unit-metre",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-id-with-consistent-definition",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-id-with-consistent-definition",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-id-with-consistent-wkt1-definition",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-id-with-consistent-wkt1-definition",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-local-authority-mysql-epsg-like-code",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-local-authority-mysql-epsg-like-code",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-local-authority-postgis",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-local-authority-postgis",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-modified-ellipsoid-under-same-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-modified-ellipsoid-under-same-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-nested-base-identifier-only",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-nested-base-identifier-only",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-datum-name-changed",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-datum-name-changed",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-ensemble-other-accuracy",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-ensemble-other-accuracy",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-ensemble-other-members",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-ensemble-other-members",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-projjson",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-projjson",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-wkt1",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-wkt1",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-wkt2",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3003-wkt2",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-projjson",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-projjson",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-wkt1",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-wkt1",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-wkt2",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-32632-wkt2",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-projjson",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-projjson",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-wkt1",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-wkt1",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-wkt2",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-3857-wkt2",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-projjson",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-projjson",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt1",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt1",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt2-prime-meridian-without-unit",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt2-prime-meridian-without-unit",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt2",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-epsg-4326-wkt2",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-usage-unknown-node",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-proj-usage-unknown-node",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projcs-3003-consistent",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projcs-3003-consistent",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projcs-3003-nested-geogcs-4326",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projcs-3003-nested-geogcs-4326",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-linear-degree",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-linear-degree",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-scale-degree",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-scale-degree",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-without-type",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-axis-unit-without-type",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-consistent-32632",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-consistent-32632",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-cs-in-feet",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-cs-in-feet",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-one-axis",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-one-axis",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-prime-meridian-bare-longitude",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-prime-meridian-bare-longitude",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-prime-meridian-in-datum",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-prime-meridian-in-datum",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-semi-minor-axis",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-projjson-semi-minor-axis",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-towgs84-under-same-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-towgs84-under-same-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-unknown-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-unknown-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-utm-complete-with-identifier",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-utm-complete-with-identifier",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-axis-scale-unit",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-axis-scale-unit",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-axis-without-unit",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-axis-without-unit",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-parameter-unit-of-another-quantity",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-parameter-unit-of-another-quantity",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-without-coordinate-system",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "crs-wkt2-without-coordinate-system",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "dimensions-xyz-extended-flag",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "dimensions-xyz-extended-flag",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "ewkb-srid-matches-field",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "ewkb-srid-matches-field",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "geography-point",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "geography-point",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-axis-order-missing",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-axis-order-missing",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-2",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "unsupported",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-2",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "unsupported",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-absent",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-absent",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-not-decimal",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-contract-version-not-decimal",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-definition-contradicts-id",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-definition-contradicts-id",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-definition-malformed",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-definition-malformed",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-local-authority-resolved",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-local-authority-resolved",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-projcs-3003-declared-4326",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-projcs-3003-declared-4326",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-projjson-contradicts-id",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-crs-projjson-contradicts-id",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-dimensions-differ",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-dimensions-differ",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-differs",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-differs",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-on-member",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-on-member",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-only-on-member",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-only-on-member",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-without-field-srid",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-ewkb-srid-without-field-srid",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-geoarrow-on-utf8",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-geoarrow-on-utf8",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-geography-and-truncated",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-geography-and-truncated",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-crs-before-values",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-crs-before-values",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "crs",
+      "osservato": {
+        "exit": 3,
+        "category": "crs",
+        "code": "CRS_REQUIRED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-first-row",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-first-row",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-version-before-crs",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "unsupported",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-version-before-crs",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "unsupported",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-vocabulary-before-crs",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precedence-vocabulary-before-crs",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precision-missing",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-precision-missing",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-two-geometries-and-truncated",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "rifiuto-di-supporto"
+    },
+    {
+      "vettore": "invalid-two-geometries-and-truncated",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "rifiuto-di-supporto"
+    },
+    {
+      "vettore": "invalid-type-outside-declaration",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-type-outside-declaration",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-types-not-canonical",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-types-not-canonical",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "schema",
+      "osservato": {
+        "exit": 3,
+        "category": "schema",
+        "code": "CONTRACT",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-unknown-crs-and-truncated",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-unknown-crs-and-truncated",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-wkb-truncated",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-wkb-truncated",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-wkb-with-srid-flag",
+      "operazione": "read",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "invalid-wkb-with-srid-flag",
+      "operazione": "write",
+      "atteso": "invalid",
+      "categoria_attesa": "data_mapping",
+      "osservato": {
+        "exit": 3,
+        "category": "data_mapping",
+        "code": "FORMAT_ERROR",
+        "phase": "read",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "two-geometry-fields",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "rifiuto-di-supporto"
+    },
+    {
+      "vettore": "two-geometry-fields",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 3,
+        "category": "unsupported",
+        "code": "UNSUPPORTED",
+        "phase": "validate",
+        "remote_effect": "none",
+        "retry": "never"
+      },
+      "verdetto": "rifiuto-di-supporto"
+    },
+    {
+      "vettore": "types-mixed-without-list",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "types-mixed-without-list",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "types-point-polygon",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "types-point-polygon",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "wkb-with-declared-srid",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "wkb-with-declared-srid",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "xyz-iso-with-srid",
+      "operazione": "read",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    },
+    {
+      "vettore": "xyz-iso-with-srid",
+      "operazione": "write",
+      "atteso": "valid",
+      "categoria_attesa": null,
+      "osservato": {
+        "exit": 0,
+        "category": null,
+        "code": null
+      },
+      "verdetto": "conforme"
+    }
+  ]
+}

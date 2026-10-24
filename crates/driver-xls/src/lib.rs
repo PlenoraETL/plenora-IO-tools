@@ -21,6 +21,7 @@ use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
+use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -350,7 +351,7 @@ impl FormatDriver for XlsDriver {
         );
         drop(wb);
         let (layout, contract, spool) = inferenza?;
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -363,7 +364,7 @@ impl FormatDriver for XlsDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -1139,36 +1140,62 @@ fn resolve_geometry(
     start_column: u32,
     opts: &BTreeMap<String, String>,
 ) -> Result<(XlsxGeomSpec, BTreeSet<u32>)> {
-    let index = |name: &str| {
-        headers
-            .iter()
-            .position(|header| header == name)
-            .and_then(|offset| u32::try_from(offset).ok())
-            .and_then(|offset| start_column.checked_add(offset))
+    // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
+    // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
+    let index = |name: &str, assente: &'static str, ambigua: &'static str| -> Result<u32> {
+        match colonna_per_nome(headers, name) {
+            ColonnaPerNome::Unica(offset) => u32::try_from(offset)
+                .ok()
+                .and_then(|offset| start_column.checked_add(offset))
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "indice colonna XLSX non rappresentabile",
+                    ))
+                }),
+            ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+            ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+        }
     };
+    // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
+    // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
+    // chi legge. La richiesta si contraddice, e si corregge la richiesta.
+    if opts.contains_key("wkt_column")
+        && (opts.contains_key("x_column") || opts.contains_key("y_column"))
+    {
+        return Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            plenora_io_model::ErrorPhase::Validate,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            &PublicMessage::Curated(
+                "xlsx: wkt_column esclude x_column e y_column; dichiarare una sola geometria",
+            ),
+        ));
+    }
     if let Some(wkt_name) = opts.get("wkt_column") {
         // I nomi delle colonne non escono: sono valori d'opzione, e l'unico
         // testo runtime ammesso e' il token del validatore centrale, che qui
         // non c'e' — `wkt_column` e' `Testo`, quindi lo schema lo accetta e il
         // rifiuto nasce dal confronto con l'intestazione di questo foglio.
-        let column = index(wkt_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna WKT assente dall'intestazione",
-            ))
-        })?;
+        let column = index(
+            wkt_name,
+            "colonna WKT assente dall'intestazione",
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((XlsxGeomSpec::Wkt(column), BTreeSet::from([column])));
     }
     if let (Some(x_name), Some(y_name)) = (opts.get("x_column"), opts.get("y_column")) {
-        let x_column = index(x_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna X assente dall'intestazione",
-            ))
-        })?;
-        let y_column = index(y_name).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna Y assente dall'intestazione",
-            ))
-        })?;
+        let x_column = index(
+            x_name,
+            "colonna X assente dall'intestazione",
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
+        let y_column = index(
+            y_name,
+            "colonna Y assente dall'intestazione",
+            "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((
             XlsxGeomSpec::Xy(x_column, y_column),
             BTreeSet::from([x_column, y_column]),
@@ -1585,12 +1612,15 @@ where
     } else {
         CrsKind::Unknown
     };
-    let mut geometry_contract = GeometryColumnContract::wkb_xy(
-        FieldId(0),
-        GEOMETRY,
-        ResolvedCrs::new(Some(crs.to_owned()), kind, None),
-        true,
-    );
+    // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
+    // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
+    let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
+    let crs_dichiarato = match geom {
+        XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+        XlsxGeomSpec::Wkt(_) => crs_dichiarato,
+    };
+    let mut geometry_contract =
+        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
     geometry_contract.native_metadata.insert(

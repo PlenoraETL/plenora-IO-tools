@@ -19,7 +19,8 @@
     "plenora-surface-bindings-v1",
     "plenora-composition-v1",
     "plenora-runtime-binding-v2",
-    "plenora-arrow-vocabulary-v1"
+    "plenora-arrow-vocabulary-v1",
+    "plenora-arrow-geometry-semantics-v1"
   ],
   "not_applicable": {
     "plenora-python-sdk-v1": "il profilo io-tools dichiara `python_sdk: not_applicable`, e il contratto comune fissa le distribuzioni per database-tools e rest-tools. Lo SDK Python di IO-tools resta e viene spedito, ma non reclama questo contratto: e' verificato come artefatto nostro, dalla wheel installata, perche' avvolge il CLI e deve restare coerente con la sua busta."

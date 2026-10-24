@@ -440,31 +440,131 @@ fn un_footer_con_metadati_completi_supera_la_prevalidazione() {
         .expect("un footer con metadati completi non deve essere rifiutato");
 }
 
+/// I metadati di un campo geometria conforme ad Arrow Geometry Semantics 1.0:
+/// l'estensione e le sette chiavi obbligatorie, con il CRS dichiarato
+/// `missing`. Le fixture che non provano il vocabolario partono da qui e
+/// cambiano solo cio' che provano.
+fn metadati_geometria_conformi() -> arrow_schema::Metadata {
+    use plenora_io_model::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_CRS_RESOLUTION_KEY,
+        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_FIELD_ID_KEY, PLENORA_PRECISION_KEY,
+        PLENORA_SPATIAL_SEMANTICS_KEY, PLENORA_TYPES_DECLARATION_KEY,
+    };
+    [
+        (ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION),
+        (PLENORA_FIELD_ID_KEY, "0"),
+        (PLENORA_ENCODING_KEY, "wkb"),
+        (PLENORA_DIMENSIONS_KEY, "xy"),
+        (PLENORA_SPATIAL_SEMANTICS_KEY, "geometry"),
+        (PLENORA_PRECISION_KEY, "float64"),
+        (PLENORA_TYPES_DECLARATION_KEY, "mixed"),
+        (PLENORA_CRS_RESOLUTION_KEY, "missing"),
+    ]
+    .into_iter()
+    .map(|(chiave, valore)| (chiave.to_owned(), valore.to_owned()))
+    .collect()
+}
+
+/// Un file IPC senza batch con lo schema dato, scritto da arrow e non da IO:
+/// e' l'ingresso di un produttore qualunque.
+fn ipc_vuoto(path: &std::path::Path, schema: &Schema) {
+    let file = File::create(path).unwrap();
+    let mut writer = FileWriter::try_new(file, schema).unwrap();
+    writer.finish().unwrap();
+}
+
+/// La categoria del rifiuto all'apertura; `None` se il file si apre.
+fn categoria_in_apertura(path: std::path::PathBuf) -> Option<plenora_io_model::ErrorCategory> {
+    IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .err()
+        .map(|errore| errore.category)
+}
+
+/// Una geometria senza CRS: un Arrow esterno con la sola estensione e uno
+/// schema plenora che dichiara `crs_resolution=missing` si leggono `Missing`;
+/// uno schema plenora con la sola estensione non e' un'assenza dichiarata ma
+/// un vocabolario incompleto, e si rifiuta con `schema` (REJ-001).
 #[test]
 fn geometry_without_crs_metadata_is_explicitly_missing() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("missing-crs.arrow");
-    let field = Field::new("geometry", DataType::Binary, true).with_metadata(
-        std::iter::once((
-            plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-            plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
-        ))
-        .collect::<arrow_schema::Metadata>(),
-    );
-    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
-    {
-        let file = File::create(&path).unwrap();
-        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
-        writer.finish().unwrap();
+    let solo_estensione: arrow_schema::Metadata = std::iter::once((
+        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+    ))
+    .collect();
+
+    for (nome, schema) in [
+        (
+            "esterno",
+            Schema::new(vec![Field::new("geometry", DataType::Binary, true)
+                .with_metadata(solo_estensione.clone())]),
+        ),
+        (
+            "plenora-missing",
+            with_contract_version(Arc::new(Schema::new(vec![Field::new(
+                "geometry",
+                DataType::Binary,
+                true,
+            )
+            .with_metadata(metadati_geometria_conformi())])))
+            .as_ref()
+            .clone(),
+        ),
+    ] {
+        let path = dir.path().join(format!("{nome}.arrow"));
+        ipc_vuoto(&path, &schema);
+        let dataset = IpcDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap_or_else(|errore| panic!("{nome}: {errore}"));
+        assert!(
+            matches!(
+                &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
+                CrsResolution::Missing
+            ),
+            "{nome}"
+        );
     }
 
-    let dataset = IpcDriver
-        .open(Source::Path(path), opzioni_lettura())
-        .unwrap();
-    assert!(matches!(
-        &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
-        CrsResolution::Missing
-    ));
+    let path = dir.path().join("plenora-solo-estensione.arrow");
+    let schema = with_contract_version(Arc::new(Schema::new(vec![Field::new(
+        "geometry",
+        DataType::Binary,
+        true,
+    )
+    .with_metadata(solo_estensione)])));
+    ipc_vuoto(&path, &schema);
+    assert_eq!(
+        categoria_in_apertura(path),
+        Some(plenora_io_model::ErrorCategory::Schema)
+    );
+}
+
+/// IPC non usa `--assume-crs`: con una geometria senza CRS l'opzione restava
+/// senza effetto, e la lettura riusciva come se non fosse stata data. Ora e'
+/// un rifiuto `crs`, come un'opzione che contraddice il CRS dichiarato.
+#[test]
+fn assume_crs_su_una_geometria_senza_crs_non_e_ignorato() {
+    let dir = tempfile::tempdir().unwrap();
+    let solo_estensione: arrow_schema::Metadata = std::iter::once((
+        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+    ))
+    .collect();
+    let path = dir.path().join("senza-crs.arrow");
+    ipc_vuoto(
+        &path,
+        &Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true).with_metadata(solo_estensione)
+        ]),
+    );
+    let Err(errore) = IpcDriver.open(
+        Source::Path(path),
+        opzioni_lettura().with_assume_crs("EPSG:3003"),
+    ) else {
+        panic!("--assume-crs ignorato su una geometria senza CRS");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
 }
 
 /// Il limite dichiarato in `docs/PRODUCT.md` («Limitazioni di prodotto», IPC):
@@ -474,6 +574,11 @@ fn geometry_without_crs_metadata_is_explicitly_missing() {
 /// La prova fissa il comportamento di oggi perche' cambiarlo -- leggerlo, o
 /// rifiutare il file -- sia una decisione visibile e non una deriva: quando il
 /// limite rientra, questa prova cambia insieme alla riga del documento.
+///
+/// Il limite riguarda l'Arrow **esterno**, senza versione e senza chiavi
+/// `plenora.*`, come lo scrive un produttore `GeoArrow`. Lo stesso campo in
+/// uno schema che si dichiara plenora non e' un CRS non letto: e' un
+/// vocabolario incompleto, e si rifiuta con `schema` (REJ-001).
 #[test]
 fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
     let dir = tempfile::tempdir().unwrap();
@@ -492,12 +597,8 @@ fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
         .into_iter()
         .collect::<arrow_schema::Metadata>(),
     );
-    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
-    {
-        let file = File::create(&path).unwrap();
-        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
-        writer.finish().unwrap();
-    }
+    let schema = Schema::new(vec![field.clone()]);
+    ipc_vuoto(&path, &schema);
 
     let dataset = IpcDriver
         .open(Source::Path(path), opzioni_lettura())
@@ -506,6 +607,16 @@ fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
         &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
         CrsResolution::Missing
     ));
+
+    let dichiarato = dir.path().join("crs-solo-geoarrow-plenora.arrow");
+    ipc_vuoto(
+        &dichiarato,
+        &with_contract_version(Arc::new(Schema::new(vec![field]))),
+    );
+    assert_eq!(
+        categoria_in_apertura(dichiarato),
+        Some(plenora_io_model::ErrorCategory::Schema)
+    );
 }
 
 #[test]
@@ -514,6 +625,7 @@ fn unresolved_authority_without_definition_is_preserved() {
         ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
         PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
         PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+        PLENORA_FIELD_ID_KEY, PLENORA_PRECISION_KEY, PLENORA_SPATIAL_SEMANTICS_KEY,
         PLENORA_TYPES_DECLARATION_KEY,
     };
 
@@ -525,6 +637,12 @@ fn unresolved_authority_without_definition_is_preserved() {
                 ARROW_EXTENSION_NAME_KEY.to_owned(),
                 GEOARROW_WKB_EXTENSION.to_owned(),
             ),
+            (PLENORA_FIELD_ID_KEY.to_owned(), "0".to_owned()),
+            (
+                PLENORA_SPATIAL_SEMANTICS_KEY.to_owned(),
+                "geometry".to_owned(),
+            ),
+            (PLENORA_PRECISION_KEY.to_owned(), "float64".to_owned()),
             (
                 PLENORA_CRS_RESOLUTION_KEY.to_owned(),
                 "declared_unresolved".to_owned(),
@@ -565,37 +683,36 @@ fn unresolved_authority_without_definition_is_preserved() {
         .contains_key(PLENORA_CRS_DEFINITION_FORMAT_KEY));
 }
 
+/// Uno SRID da solo non e' una dichiarazione di CRS: `declared_unresolved`
+/// chiede `crs_id` o `crs_definition`, e `axis_order` (ARROW-GEOMETRY-SEMANTICS
+/// 1.0 §4, `_crs` dell'oracolo). Un tempo il file si leggeva e si riscriveva
+/// senza sintetizzare un `crs_id` dallo SRID; ora non si legge e non si
+/// produce, con la categoria `crs` in entrambe le direzioni.
+///
+/// Il vocabolario del campo e' completo: l'unico difetto e' quello del CRS,
+/// e il rifiuto e' quindi della sua classe e non di quella dello schema.
 #[test]
-fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
+fn declared_unresolved_srid_only_is_rejected_on_read_and_on_write() {
+    use plenora_io_model::contract::GeometryType;
+    use plenora_io_model::crs::{AxisOrder, RawCrs};
     use plenora_io_model::geometry::{
-        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
-        PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
-        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY,
+        PLENORA_CRS_RESOLUTION_KEY, PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY,
         PLENORA_TYPES_DECLARATION_KEY,
     };
 
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("srid-only-input.arrow");
     let output = dir.path().join("srid-only-output.arrow");
-    let field = Field::new("geom", DataType::Binary, true).with_metadata(
-        [
-            (
-                ARROW_EXTENSION_NAME_KEY.to_owned(),
-                GEOARROW_WKB_EXTENSION.to_owned(),
-            ),
-            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
-            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
-            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
-            (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
-            (
-                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
-                "declared_unresolved".to_owned(),
-            ),
-            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
-        ]
-        .into_iter()
-        .collect::<arrow_schema::Metadata>(),
-    );
+    let mut metadata = metadati_geometria_conformi();
+    for (chiave, valore) in [
+        (PLENORA_TYPES_DECLARATION_KEY, "exact"),
+        (PLENORA_GEOMETRY_TYPES_KEY, "point"),
+        (PLENORA_CRS_RESOLUTION_KEY, "declared_unresolved"),
+        (PLENORA_SRID_KEY, "4326"),
+    ] {
+        metadata.insert(chiave.to_owned(), valore.to_owned());
+    }
+    let field = Field::new("geom", DataType::Binary, true).with_metadata(metadata);
     let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
     {
         let values = BinaryArray::from(vec![Some(
@@ -608,55 +725,52 @@ fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
     }
+    assert_eq!(
+        categoria_in_apertura(input),
+        Some(plenora_io_model::ErrorCategory::Crs)
+    );
 
-    let driver = IpcDriver;
-    let dataset = driver.open(Source::Path(input), opzioni_lettura()).unwrap();
-    let layer = dataset.layers()[0].clone();
-    let geometry = layer.contract.geometry.as_ref().unwrap();
-    assert_eq!(geometry.srid, Some(4326));
-    let mut reader = dataset
-        .open_layer_reader(&ReadRequest {
-            layer: LayerId(0),
-            projected_fields: None,
-            projection_mode: ProjectionMode::BestEffort,
-            pruning_predicate: None,
-            spatial_pruning_hint: None,
-            scope: ReadScope::default(),
-            batch_target: BatchTarget::default(),
-            cancellation: CancellationToken::default(),
-        })
-        .unwrap();
-    let batch = reader.next_batch().unwrap().unwrap();
-    assert_eq!(batch.num_rows(), 1);
-    assert_eq!(batch.schema(), layer.contract.schema);
-    assert!(reader.next_batch().unwrap().is_none());
+    // La stessa dichiarazione costruita dal lato del produttore: IO non la
+    // scrive, e non la "ripara" inventando un `crs_id` dallo SRID.
+    let mut geometry = GeometryColumnContract::wkb_xy(
+        FieldId(0),
+        "geom",
+        CrsResolution::DeclaredButUnresolved(RawCrs {
+            definition: None,
+            authority_hint: None,
+            definition_format: None,
+            axis_order: AxisOrder::Unknown,
+        }),
+        true,
+    );
+    geometry.srid = Some(4326);
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "layer".to_owned(),
-            contract: layer.contract,
+            contract: DataContract {
+                schema: Arc::new(Schema::new(vec![Field::new(
+                    "geom",
+                    DataType::Binary,
+                    true,
+                )
+                .with_metadata(
+                    std::iter::once((
+                        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+                    ))
+                    .collect::<arrow_schema::Metadata>(),
+                )])),
+                geometry: Some(geometry),
+            },
         }],
     };
-    driver
-        .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
-        .unwrap()
-        .finish()
-        .unwrap();
-
-    let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
-        .unwrap()
-        .schema();
-    let metadata = output_schema.field(0).metadata();
-    assert_eq!(
-        metadata.get(PLENORA_SRID_KEY).map(String::as_str),
-        Some("4326")
-    );
-    for key in [
-        PLENORA_CRS_ID_KEY,
-        PLENORA_CRS_DEFINITION_KEY,
-        PLENORA_AXIS_ORDER_KEY,
-    ] {
-        assert!(!metadata.contains_key(key), "chiave sintetizzata: {key}");
-    }
+    let Err(errore) = IpcDriver.create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
+    else {
+        panic!("uno SRID senza crs_id ne' definizione non si scrive");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!output.exists());
 }
 
 #[test]
@@ -705,15 +819,19 @@ fn declared_unresolved_srid_only_with_axis_order_fails_at_open() {
         .is_err());
 }
 
+/// Chiavi `plenora.geometry.*` su un campo senza `geoarrow.wkb`: un tempo il
+/// campo si riconosceva come geometria dalle sole chiavi canoniche; ora e' un
+/// difetto di vocabolario (REJ-001), `schema`, con la versione e senza. Senza
+/// versione lo schema porta comunque chiavi `plenora.*`, quindi non e' un
+/// Arrow esterno ma uno schema plenora a cui manca la versione.
 #[test]
-fn canonical_metadata_without_geoarrow_extension_is_geometry() {
+fn canonical_metadata_without_geoarrow_extension_is_rejected() {
     use plenora_io_model::geometry::{
         PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
         PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
     };
 
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("canonical-only.arrow");
     let field = Field::new("geometry", DataType::Binary, true).with_metadata(
         [
             (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
@@ -726,73 +844,82 @@ fn canonical_metadata_without_geoarrow_extension_is_geometry() {
         .into_iter()
         .collect::<arrow_schema::Metadata>(),
     );
-    let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
-    {
-        let file = File::create(&path).unwrap();
-        let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
-        writer.finish().unwrap();
+    for (nome, schema) in [
+        (
+            "con-versione",
+            with_contract_version(Arc::new(Schema::new(vec![field.clone()])))
+                .as_ref()
+                .clone(),
+        ),
+        ("senza-versione", Schema::new(vec![field])),
+    ] {
+        let path = dir.path().join(format!("{nome}.arrow"));
+        ipc_vuoto(&path, &schema);
+        assert_eq!(
+            categoria_in_apertura(path),
+            Some(plenora_io_model::ErrorCategory::Schema),
+            "{nome}"
+        );
     }
-
-    let dataset = IpcDriver
-        .open(Source::Path(path), opzioni_lettura())
-        .unwrap();
-    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
-    assert_eq!(geometry.name, "geometry");
-    assert_eq!(geometry.crs.id(), Some("EPSG:4326"));
 }
 
+/// Identita' canonica incompleta o in conflitto: rifiuto della classe del
+/// vocabolario, `schema` (REJ-001). Prima la categoria era quella del
+/// contratto; ora la decide la verifica dello schema, che viene prima.
 #[test]
 fn incomplete_or_conflicting_canonical_identity_is_rejected() {
     use plenora_io_model::geometry::{
-        ARROW_EXTENSION_NAME_KEY, PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY,
-        PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_CRS_RESOLUTION_KEY,
+        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
     };
 
-    for (name, metadata) in [
-        (
-            "missing-version",
-            [
-                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
-                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
-                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
-                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
-            ]
-            .into_iter()
-            .collect::<arrow_schema::Metadata>(),
-        ),
+    let parziali = || {
+        [
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+        ]
+        .into_iter()
+        .collect::<arrow_schema::Metadata>()
+    };
+    let con = |chiave: &str, valore: &str| {
+        let mut metadata = parziali();
+        metadata.insert(chiave.to_owned(), valore.to_owned());
+        metadata
+    };
+    let mut completi_senza_versione = metadati_geometria_conformi();
+    completi_senza_versione.insert(PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned());
+
+    for (name, metadata, versione) in [
+        ("missing-version", parziali(), false),
+        ("complete-without-version", completi_senza_versione, false),
         (
             "conflicting-extension",
-            [
-                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
-                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
-                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
-                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
-                (
-                    ARROW_EXTENSION_NAME_KEY.to_owned(),
-                    "vendor.opaque".to_owned(),
-                ),
-            ]
-            .into_iter()
-            .collect(),
+            con(ARROW_EXTENSION_NAME_KEY, "vendor.opaque"),
+            true,
+        ),
+        (
+            "incomplete-with-extension",
+            con(ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION),
+            true,
         ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(format!("{name}.arrow"));
         let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadata);
-        let schema = if name == "missing-version" {
-            Arc::new(Schema::new(vec![field]))
+        let schema = Arc::new(Schema::new(vec![field]));
+        let schema = if versione {
+            with_contract_version(schema)
         } else {
-            with_contract_version(Arc::new(Schema::new(vec![field])))
+            schema
         };
-        {
-            let file = File::create(&path).unwrap();
-            let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
-            writer.finish().unwrap();
-        }
-        assert!(matches!(
-            IpcDriver.open(Source::Path(path), opzioni_lettura()),
-            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
-        ));
+        ipc_vuoto(&path, &schema);
+        assert_eq!(
+            categoria_in_apertura(path),
+            Some(plenora_io_model::ErrorCategory::Schema),
+            "{name}"
+        );
     }
 }
 
@@ -819,10 +946,17 @@ fn multiple_geoarrow_fields_are_rejected() {
         writer.finish().unwrap();
     }
 
-    assert!(matches!(
-        IpcDriver.open(Source::Path(path), opzioni_lettura()),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
-    ));
+    // GEO-012 e REJ-001: un limite di supporto, `unsupported`, anche per uno
+    // schema esterno senza versione ne' chiavi `plenora.*`; mai `invalid_plan`,
+    // che descrive la richiesta e non l'ingresso.
+    let Err(errore) = IpcDriver.open(Source::Path(path), opzioni_lettura()) else {
+        panic!("due colonne geoarrow.wkb devono essere rifiutate");
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
 }
 
 #[test]
@@ -848,13 +982,25 @@ fn round_trip_ipc_preserves_geometry_metadata() {
     )
     .unwrap();
 
+    // Il contratto geometrico esplicito, come lo porta un piano reale (il
+    // contratto del reader): e' da li' che il writer completa il vocabolario.
+    // Senza contratto il campo resterebbe con la sola estensione e il `crs`,
+    // e la guardia del produttore lo rifiuta (prova
+    // `ipc_writer_rejects_a_non_conforming_plenora_schema_before_any_effect`).
+    let mut geometry = GeometryColumnContract::wkb_passthrough(
+        FieldId(0),
+        "geometry",
+        ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+        true,
+    );
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
     let driver = IpcDriver;
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
                 schema,
-                geometry: None,
+                geometry: Some(geometry),
             },
         }],
     };
@@ -921,6 +1067,69 @@ fn round_trip_ipc_preserves_geometry_metadata() {
             .value(0),
         7
     );
+}
+
+/// La guardia del produttore: il writer IPC aggiunge `plenora.contract.version`
+/// e `plenora.field_id`, quindi cio' che scrive si dichiara plenora e deve
+/// essere conforme. Uno schema che IO stesso rifiuterebbe in lettura si
+/// rifiuta in `create`, con la categoria della sua classe, prima dello
+/// staging: nessuna destinazione e nessun residuo.
+///
+/// Senza la guardia `create` riusciva e il file si pubblicava; il rifiuto
+/// arrivava solo a chi lo rileggeva.
+#[test]
+fn ipc_writer_rejects_a_non_conforming_plenora_schema_before_any_effect() {
+    use driver_common_geometry_field as geometry_field;
+    use plenora_io_model::geometry::PLENORA_ENCODING_KEY;
+
+    let casi = [
+        // Un campo `geoarrow.wkb` senza contratto geometrico: il vocabolario
+        // resta quello del campo, senza le chiavi obbligatorie.
+        (
+            "geometria-senza-contratto",
+            Schema::new(vec![
+                geometry_field("geometry", "EPSG:4326"),
+                Field::new("id", DataType::Int64, false),
+            ]),
+        ),
+        // Una chiave `plenora.geometry.*` su un campo che non e' geometria.
+        (
+            "chiave-geometrica-su-attributo",
+            Schema::new(vec![Field::new("id", DataType::Int64, false)
+                .with_metadata(
+                    std::iter::once((PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()))
+                        .collect::<arrow_schema::Metadata>(),
+                )]),
+        ),
+    ];
+    for (nome, schema) in casi {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join(format!("{nome}.arrow"));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema: Arc::new(schema),
+                    geometry: None,
+                },
+            }],
+        };
+        let Err(errore) = IpcDriver.create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+        else {
+            panic!("{nome}: uno schema plenora non conforme non si scrive");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Schema,
+            "{nome}: {errore}"
+        );
+        assert!(!out.exists(), "{nome}: nessuna destinazione");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "{nome}: nessun residuo di staging"
+        );
+    }
 }
 
 #[test]
@@ -1066,42 +1275,62 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
     assert_eq!(geometry_array.value(0), ewkb);
 }
 
-// Il test confronta uno per uno tutti i metadati canonici pubblicati: la
-// lunghezza è la lista dei metadati, spezzarla nasconderebbe la copertura.
-#[allow(clippy::too_many_lines)]
+/// Uno schema plenora a cui mancano chiavi obbligatorie -- qui
+/// `plenora.field_id`, `spatial_semantics` e `precision` -- non si completa:
+/// si rifiuta con `schema` (REJ-001). Un tempo IO le aggiungeva in lettura;
+/// il completamento resta del solo Arrow esterno, e un passaggio fra
+/// componenti che si dichiara plenora vale per il contratto intero.
 #[test]
-fn canonical_metadata_additions_are_published_without_changing_values() {
-    use std::collections::HashMap;
-
+fn incomplete_canonical_metadata_is_rejected_not_completed() {
     use plenora_io_model::geometry::{
-        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_CRS_RESOLUTION_KEY,
-        PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_FIELD_ID_KEY,
-        PLENORA_GEOMETRY_TYPES_KEY, PLENORA_PRECISION_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        PLENORA_FIELD_ID_KEY, PLENORA_PRECISION_KEY, PLENORA_SPATIAL_SEMANTICS_KEY,
     };
 
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("physical.arrow");
+    let mut metadata = metadati_geometria_conformi();
+    for chiave in [
+        PLENORA_FIELD_ID_KEY,
+        PLENORA_PRECISION_KEY,
+        PLENORA_SPATIAL_SEMANTICS_KEY,
+    ] {
+        assert!(metadata.remove(chiave).is_some(), "{chiave}");
+    }
+    ipc_vuoto(
+        &source,
+        &with_contract_version(Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            false,
+        )
+        .with_metadata(metadata)]))),
+    );
+    assert_eq!(
+        categoria_in_apertura(source),
+        Some(plenora_io_model::ErrorCategory::Schema)
+    );
+}
+
+/// Un ingresso conforme attraversa lettura e scrittura IPC con i valori e il
+/// vocabolario invariati: ogni chiave `plenora.*` e ogni metadato del
+/// produttore escono come sono entrati, e i byte WKB sono gli stessi.
+#[test]
+fn conforming_canonical_metadata_is_published_without_changing_values() {
+    use plenora_io_model::geometry::{PLENORA_GEOMETRY_TYPES_KEY, PLENORA_TYPES_DECLARATION_KEY};
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("physical.arrow");
     let output = dir.path().join("canonical.arrow");
-    let metadata = HashMap::from([
-        (
-            ARROW_EXTENSION_NAME_KEY.to_owned(),
-            GEOARROW_WKB_EXTENSION.to_owned(),
-        ),
-        (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
-        (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
-        (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
-        (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
-        (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
-        ("producer.normative".to_owned(), "retained".to_owned()),
-    ]);
-    assert!(!metadata.contains_key(PLENORA_FIELD_ID_KEY));
-    assert!(!metadata.contains_key(PLENORA_PRECISION_KEY));
+    let mut metadata = metadati_geometria_conformi();
+    metadata.insert(PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned());
+    metadata.insert(PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned());
+    metadata.insert("producer.normative".to_owned(), "retained".to_owned());
     let physical_schema = with_contract_version(Arc::new(Schema::new(vec![Field::new(
         "geometry",
         DataType::Binary,
         false,
     )
-    .with_metadata(metadata)])));
+    .with_metadata(metadata.clone())])));
     let values = [
         geo_types::Point::new(1.0, 2.0),
         geo_types::Point::new(3.0, 4.0),
@@ -1127,28 +1356,7 @@ fn canonical_metadata_additions_are_published_without_changing_values() {
         .open(Source::Path(source), opzioni_lettura())
         .unwrap();
     let layer = dataset.layers()[0].clone();
-    let canonical_field = layer.contract.schema.field(0);
-    assert_eq!(
-        canonical_field
-            .metadata()
-            .get(PLENORA_FIELD_ID_KEY)
-            .map(String::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        canonical_field
-            .metadata()
-            .get(PLENORA_PRECISION_KEY)
-            .map(String::as_str),
-        Some("float64")
-    );
-    assert_eq!(
-        canonical_field
-            .metadata()
-            .get("producer.normative")
-            .map(String::as_str),
-        Some("retained")
-    );
+    assert_eq!(layer.contract.schema.field(0).metadata(), &metadata);
     let mut reader = dataset
         .open_layer_reader(&ReadRequest {
             layer: LayerId(0),
@@ -1176,7 +1384,8 @@ fn canonical_metadata_additions_are_published_without_changing_values() {
     writer.write(&read).unwrap();
     writer.finish().unwrap();
 
-    let mut published = FileReader::try_new(File::open(output).unwrap(), None).unwrap();
+    let mut published = FileReader::try_new(File::open(&output).unwrap(), None).unwrap();
+    assert_eq!(published.schema().field(0).metadata(), &metadata);
     let published_batch = published.next().unwrap().unwrap();
     assert_eq!(published_batch.num_rows(), 3);
     let published_values = published_batch
@@ -1187,6 +1396,8 @@ fn canonical_metadata_additions_are_published_without_changing_values() {
     for (row, expected) in values.iter().enumerate() {
         assert_eq!(published_values.value(row), expected);
     }
+    // Cio' che IO pubblica, IO lo rilegge.
+    assert_eq!(categoria_in_apertura(output), None);
 }
 
 // geometry_field locale (evita la dipendenza driver-common nei test).

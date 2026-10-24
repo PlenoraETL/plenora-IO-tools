@@ -182,6 +182,21 @@ fn pipeline_limits_default_has_no_zero_field() {
     assert_ne!(limits.decompression_ratio(), 0);
 }
 
+/// GEO-011: una quota di annidamento oltre i 32 livelli del contratto si
+/// rifiuta, invece di restare un flag che il parser ignora.
+#[test]
+fn max_wkb_depth_oltre_il_contratto_si_rifiuta() {
+    let al_contratto = PipelineLimits::default().with_max_wkb_depth(32);
+    assert!(al_contratto.validate().is_ok());
+    for oltre in [33_usize, 64, usize::MAX] {
+        let errore = PipelineLimits::default()
+            .with_max_wkb_depth(oltre)
+            .validate()
+            .expect_err("oltre il contratto");
+        assert!(errore.message.contains("GEO-011"), "{}", errore.message);
+    }
+}
+
 #[test]
 fn fluent_setters_replace_only_the_named_quota() {
     let limits = PipelineLimits::default().with_max_rows(7);
@@ -210,7 +225,7 @@ fn every_quota_has_a_setter_and_a_getter_that_agree() {
         .with_output_expansion_ratio(107)
         .with_max_wkb_cell_bytes(108)
         .with_max_wkb_components(109)
-        .with_max_wkb_depth(110)
+        .with_max_wkb_depth(11)
         .with_memory_bytes(111)
         .with_spill_bytes(112)
         .with_duration_ms(113)
@@ -225,7 +240,7 @@ fn every_quota_has_a_setter_and_a_getter_that_agree() {
     assert_eq!(limits.output_expansion_ratio(), 107);
     assert_eq!(limits.max_wkb_cell_bytes(), 108);
     assert_eq!(limits.max_wkb_components(), 109);
-    assert_eq!(limits.max_wkb_depth(), 110);
+    assert_eq!(limits.max_wkb_depth(), 11);
     assert_eq!(limits.memory_bytes(), 111);
     assert_eq!(limits.spill_bytes(), 112);
     assert_eq!(limits.duration_ms(), 113);
@@ -1386,7 +1401,8 @@ fn unified_defaults_stay_at_the_tightest_historical_values() {
     assert_eq!(unified.max_output_bytes(), 1_073_741_824);
     assert_eq!(unified.max_vertices(), 50_000_000);
     assert_eq!(unified.max_wkb_components(), 100_000);
-    assert_eq!(unified.max_wkb_depth(), 64);
+    // GEO-011: non piu' i 64 storici, ma i 32 del contratto.
+    assert_eq!(unified.max_wkb_depth(), 32);
     assert_eq!(unified.max_wkb_cell_bytes(), 64 * 1024 * 1024);
 
     // Dal vecchio `ResourceLimits`, unico a portarle.

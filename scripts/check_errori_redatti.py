@@ -196,6 +196,9 @@ def definizioni_legacy(radice: Path) -> list[str]:
     ]
 
 
+CARATTERE_LETTERALE = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'")
+
+
 def spoglia(sorgente: str) -> str:
     """Rimuove commenti e stringhe, sostituendoli con spazi.
 
@@ -239,6 +242,12 @@ def spoglia(sorgente: str) -> str:
             j = n if j == -1 else j + len(chiusura)
             fuori.append("".join(" " if ch != "\n" else "\n" for ch in sorgente[i:j]))
             i = j
+        elif c == "'" and (carattere := CARATTERE_LETTERALE.match(sorgente, i)):
+            # Un carattere letterale, anche `'"'`: senza questo ramo il suo
+            # doppio apice apriva una stringa che inghiottiva il resto del file.
+            # Un lifetime (`'a`) non chiude con un apice e non corrisponde.
+            fuori.append(" " * (carattere.end() - i))
+            i = carattere.end()
         elif c == '"':
             j = i + 1
             while j < n:

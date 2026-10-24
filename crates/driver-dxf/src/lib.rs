@@ -53,6 +53,7 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs_definizione::TestoDefinizione;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -74,17 +75,23 @@ fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("dxf", reason)
 }
 
+/// Il genere del CRS. Il proiettato si guarda **per primo**: un `PROJCS`
+/// contiene il `GEOGCS` del proprio CRS base, e fino alla 5.x il controllo
+/// del geografico, che veniva prima, classificava geografico ogni WKT 1
+/// proiettato -- e ora il genere sceglie anche fra `lon_lat` ed
+/// `easting_northing`.
 fn crs_kind(id: Option<&str>, definition: Option<&str>) -> CrsKind {
     let id = id.unwrap_or_default();
     let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if id == "OGC:CRS84"
+    if definition.contains("PROJCS[") || definition.contains("PROJCRS[") {
+        CrsKind::Projected
+    } else if id == "OGC:CRS84"
         || id == "EPSG:4326"
         || definition.contains("GEOGCS[")
         || definition.contains("GEODCRS[")
+        || definition.contains("GEOGCRS[")
     {
         CrsKind::Geographic
-    } else if definition.contains("PROJCS[") || definition.contains("PROJCRS[") {
-        CrsKind::Projected
     } else {
         CrsKind::Unknown
     }
@@ -97,14 +104,66 @@ fn digits_after(text: &str, marker: &str) -> Option<String> {
     (!digits.is_empty()).then_some(digits)
 }
 
-fn epsg_from_definition(definition: &str) -> Option<String> {
+/// Il codice di una definizione che **e'** un identificatore EPSG: tutto il
+/// testo, a meno degli spazi ai bordi, e' `EPSG:<cifre>` oppure
+/// `URN:OGC:DEF:CRS:EPSG:<versione>:<cifre>` (gia' in maiuscolo).
+///
+/// Fino a qui si prendeva ogni `EPSG:` seguito da cifre **ovunque** nel testo:
+/// il nome di un WKT (`PROJCS["Locale basato su EPSG:4326",...]`), la
+/// descrizione di un XML, un commento. Un proiettato senza `AUTHORITY` di
+/// radice usciva EPSG:4326, geografico, senza alcun segnale. Il testo libero
+/// di una definizione non dichiara un identificatore.
+fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
+    let testo = upper.trim();
+    let codice = if let Some(codice) = testo.strip_prefix("EPSG:") {
+        codice
+    } else {
+        let resto = testo.strip_prefix("URN:OGC:DEF:CRS:EPSG:")?;
+        // La versione puo' essere vuota (`EPSG::3003`); un secondo `:` resta
+        // nel codice e lo rende non numerico.
+        resto.split_once(':')?.1
+    };
+    (!codice.is_empty() && codice.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| codice.to_owned())
+}
+
+/// Il codice EPSG che la definizione del `GEODATA` dichiara.
+///
+/// Le forme sono tre: una definizione che **e'** l'identificatore
+/// (`EPSG:<codice>` o il suo URN OGC), gli identificatori di radice di un WKT,
+/// gli `<Alias>` EPSG di una definizione XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
+/// trovata: un testo con due `EPSG:` diversi, o un XML con due alias, dava il
+/// primo codice e l'altro spariva. Ora si raccolgono tutte, e codici discordi
+/// sono un conflitto: la definizione non dice quale valga.
+///
+/// Degli alias contano quelli del sistema di coordinate (`type` assente o
+/// `CoordinateSystem`): l'alias di un datum o di un ellissoide nomina una
+/// parte del CRS, come l'`AUTHORITY` annidato di un WKT, non il CRS.
+///
+/// # Errors
+///
+/// `crs` se le forme dichiarano codici EPSG diversi.
+fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
+    use plenora_io_model::crs::CrsDefinitionFormat;
     let upper = definition.to_ascii_uppercase();
-    if let Some(code) = digits_after(&upper, "EPSG:") {
-        return Some(format!("EPSG:{code}"));
-    }
-    for marker in ["AUTHORITY[\"EPSG\",", "ID[\"EPSG\","] {
-        if let Some(code) = digits_after(&upper, marker) {
-            return Some(format!("EPSG:{code}"));
+    let mut codici: BTreeSet<String> = BTreeSet::new();
+    codici.extend(epsg_che_e_la_definizione(&upper));
+    // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
+    // AUTHORITY EPSG del testo, che si leggeva fino alla 5.x, e' quello
+    // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
+    // Una definizione che non e' un WKT ben formato non ne ha.
+    for formato in [CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2] {
+        if let Ok(coppie) = plenora_io_model::crs_definizione::identificatori(definition, formato) {
+            codici.extend(
+                coppie
+                    .into_iter()
+                    .filter(|(autorita, _)| autorita.stessa_autorita("EPSG"))
+                    .filter_map(|(_, codice)| match codice {
+                        // Un WKT non ha surrogati isolati: solo PROJJSON li porta.
+                        TestoDefinizione::Unicode(testo) => Some(testo),
+                        TestoDefinizione::SurrogatiIsolati => None,
+                    }),
+            );
         }
     }
     let mut remaining = upper.as_str();
@@ -114,47 +173,88 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
             .find("</ALIAS>")
             .map_or(remaining.len(), |index| index + "</ALIAS>".len());
         let alias = &remaining[..end];
-        if alias.contains("EPSG") {
-            if let Some(code) = digits_after(alias, "ID=") {
-                return Some(format!("EPSG:{code}"));
-            }
+        let apertura = alias.find('>').map_or(alias, |fine| &alias[..fine]);
+        let del_sistema =
+            !apertura.contains("TYPE=") || apertura.contains("TYPE=\"COORDINATESYSTEM\"");
+        if del_sistema && alias.contains("EPSG") {
+            codici.extend(digits_after(alias, "ID="));
         }
         remaining = &remaining[end..];
     }
-    None
+    if codici.len() > 1 {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF: la definizione del CRS nel GEODATA dichiara codici EPSG discordi",
+        )));
+    }
+    Ok(codici.into_iter().next().map(|code| format!("EPSG:{code}")))
 }
 
-fn embedded_crs_definition(drawing: &Drawing) -> Option<String> {
-    drawing.objects().find_map(|object| match &object.specific {
-        ObjectType::GeoData(geodata) => {
-            let definition = geodata.coordinate_system_definition.trim();
-            (!definition.is_empty()).then(|| definition.to_owned())
+/// La definizione del CRS che i `GEODATA` del disegno dichiarano.
+///
+/// Un disegno ne porta di solito uno. Con piu' `GEODATA` vinceva il primo, e un
+/// secondo con una definizione diversa spariva: sono due dichiarazioni dello
+/// stesso CRS, e il file non dice quale valga. Definizioni uguali non sono un
+/// conflitto.
+///
+/// # Errors
+///
+/// `Crs` se due `GEODATA` dichiarano definizioni diverse.
+fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
+    let mut trovata: Option<&str> = None;
+    for object in drawing.objects() {
+        let ObjectType::GeoData(geodata) = &object.specific else {
+            continue;
+        };
+        let definition = geodata.coordinate_system_definition.trim();
+        if definition.is_empty() {
+            continue;
         }
-        _ => None,
-    })
+        match trovata {
+            Some(precedente) if precedente != definition => {
+                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "DXF con piu' GEODATA che dichiarano CRS diversi",
+                )));
+            }
+            _ => trovata = Some(definition),
+        }
+    }
+    Ok(trovata.map(str::to_owned))
 }
 
 fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedCrs> {
-    let Some(definition) = embedded_crs_definition(drawing) else {
+    let Some(definition) = embedded_crs_definition(drawing)? else {
         let id = options.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                 "DXF senza GEODATA risolvibile: fornire --assume-crs",
             ))
         })?;
         let kind = crs_kind(Some(&id), None);
-        return Ok(ResolvedCrs::new(Some(id), kind, None));
+        return Ok(ResolvedCrs::new(Some(id), kind, None).stored_east_first());
     };
-    let embedded_id = epsg_from_definition(&definition).or_else(|| {
+    let embedded_id = epsg_from_definition(&definition)?.or_else(|| {
         let trimmed = definition.trim();
         (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
     });
+    // Due dichiarazioni diverse dello stesso CRS: il codice incorporato
+    // vinceva e l'opzione taceva. Il controllo comune di `with_read_budget`
+    // lo rifiuterebbe comunque; il resolver non deve pero' decidere da se' di
+    // ignorare l'opzione. Concordi, vale la grafia del file.
+    if let (Some(assunta), Some(dichiarata)) = (options.assume_crs.as_deref(), &embedded_id) {
+        if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
+            )));
+        }
+    }
     let id = embedded_id.or_else(|| options.assume_crs.clone());
     let Some(id) = id else {
         let raw = RawCrs::new(definition, None);
         return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
     };
     let kind = crs_kind(Some(&id), Some(&definition));
-    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
+    // Le coordinate di disegno sono x poi y, e x e' easting o longitudine:
+    // l'ordine viene dal formato, non dal registro (GEO-002).
+    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)).stored_east_first())
 }
 
 /// Gli identificatori per cui il writer sintetizza la definizione.
@@ -322,7 +422,7 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -337,7 +437,7 @@ impl FormatDriver for DxfDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(

@@ -1784,14 +1784,17 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
     };
     let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
 
-    let dataset = with_read_budget(
+    let dataset = match with_read_budget(
         Box::new(CountingDataset {
             layers: vec![validating_contract()],
             opens: Arc::new(AtomicUsize::new(0)),
         }),
         &opts,
         true,
-    );
+    ) {
+        Ok(dataset) => dataset,
+        Err(error) => unreachable!("nessun --assume-crs da confrontare: {error:?}"),
+    };
 
     // Il posto del pool e' libero prima, occupato durante.
     let posto = match pool_lease(&pool) {
@@ -1805,6 +1808,50 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
         pool_lease(&pool).is_err(),
         "il reader deve tenere la quota di concorrenza del context collegato"
     );
+}
+
+/// Uno schema con due campi che portano il nome della colonna geometrica. Il
+/// contratto nomina la geometria per nome, e ogni ricerca per nome (la
+/// validazione dei batch, il conteggio dei componenti, l'esempio di perdita)
+/// trovava la prima occorrenza: un IPC con un `g` binario qualunque prima del
+/// `g` `GeoArrow` validava il campo sbagliato, e un `GeoParquet` con due
+/// `geometry` ne esponeva due. Il nome e' ambiguo e l'apertura si rifiuta.
+#[test]
+fn with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geometry", DataType::Binary, true),
+        Field::new("geometry", DataType::Binary, true),
+    ]));
+    let layer = LayerContract {
+        id: LayerId(0),
+        name: "values".to_owned(),
+        contract: DataContract::new(
+            schema,
+            Some(GeometryColumnContract::wkb_xy(
+                FieldId(1),
+                "geometry",
+                CrsResolution::Missing,
+                true,
+            )),
+        ),
+    };
+    let bundle = match PipelineBudget::builder().build() {
+        Ok(bundle) => bundle,
+        Err(error) => unreachable!("bundle di test: {error:?}"),
+    };
+    let esito = with_read_budget(
+        Box::new(CountingDataset {
+            layers: vec![layer],
+            opens: Arc::new(AtomicUsize::new(0)),
+        }),
+        &crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts()),
+        true,
+    );
+    let Err(errore) = esito else {
+        unreachable!("un nome geometrico ripetuto non deve aprire il dataset");
+    };
+    assert_eq!(errore.category, ErrorCategory::Schema, "{errore:?}");
+    assert!(!errore.message.contains("geometry"), "{}", errore.message);
 }
 
 // ---------------------------------------------------------------------------
