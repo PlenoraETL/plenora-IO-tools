@@ -191,14 +191,6 @@ fn le_forme_non_esprimibili_in_wkt_falliscono_invece_di_uscire_sbagliate() {
         ("poligono senza anelli", WkbValue::Polygon(vec![])),
         ("linestring vuota", WkbValue::LineString(vec![])),
         (
-            "anello di una sola coordinata",
-            WkbValue::Polygon(vec![vec![c(0.0, 0.0)]]),
-        ),
-        (
-            "anello non chiuso",
-            WkbValue::Polygon(vec![vec![c(0.0, 0.0), c(1.0, 0.0), c(1.0, 1.0)]]),
-        ),
-        (
             "multipoligono con membro senza anelli",
             WkbValue::MultiPolygon(vec![xy(WkbValue::Polygon(vec![]))]),
         ),
@@ -210,6 +202,27 @@ fn le_forme_non_esprimibili_in_wkt_falliscono_invece_di_uscire_sbagliate() {
             analizza_con_i_predefiniti(&testo).expect(nome),
             geometria,
             "{nome}: round-trip di {testo}"
+        );
+    }
+
+    // Esprimibili in WKT ma malformati per GEO-011: il testo si scrive, la
+    // rilettura li rifiuta con `data_mapping` invece di farli passare.
+    for (nome, value) in [
+        (
+            "anello di una sola coordinata",
+            WkbValue::Polygon(vec![vec![c(0.0, 0.0)]]),
+        ),
+        (
+            "anello non chiuso",
+            WkbValue::Polygon(vec![vec![c(0.0, 0.0), c(1.0, 0.0), c(1.0, 1.0)]]),
+        ),
+    ] {
+        let testo = format_wkt(&xy(value)).expect(nome);
+        let errore = analizza_con_i_predefiniti(&testo).expect_err(nome);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping,
+            "{nome}"
         );
     }
 }
@@ -297,4 +310,28 @@ fn reusable_formatter_appends_and_preserves_buffer_on_error() {
     let before = output.clone();
     assert!(format_wkt_into(&invalid, &mut output).is_err());
     assert_eq!(output, before);
+}
+
+/// Trovato dal fuzz (`wkt_parse`, CI di a7ae1e2): `POLYGON ((0 0))` era
+/// accettato dall'analisi e rifiutato soltanto dall'encoder. La buona forma di
+/// GEO-011 si decide all'ingresso, con la regola dell'encoder.
+#[test]
+fn un_anello_malformato_si_rifiuta_gia_nell_analisi() {
+    for testo in [
+        "POLYGON ((0 0))",
+        "POLYGON ((0 0, 1 0, 0 0))",
+        "POLYGON ((0 0, 1 0, 1 1, 0 1))",
+        "LINESTRING (0 0)",
+        "MULTIPOLYGON (((0 0)))",
+        "GEOMETRYCOLLECTION (POLYGON ((0 0)))",
+    ] {
+        let errore = analizza_con_i_predefiniti(testo).expect_err(testo);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping,
+            "{testo}"
+        );
+    }
+    assert!(analizza_con_i_predefiniti("POLYGON ((0 0, 1 0, 1 1, 0 0))").is_ok());
+    assert!(analizza_con_i_predefiniti("POLYGON EMPTY").is_ok());
 }

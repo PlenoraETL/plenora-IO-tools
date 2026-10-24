@@ -9,7 +9,7 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -52,7 +52,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -68,93 +68,313 @@ const ARC_SEGMENTS: usize = 24;
 const MAX_INSERT_DEPTH: usize = 16;
 /// Tetto complessivo di entità generate (anti-esplosione da array/annidamenti).
 const MAX_ENTITIES: usize = 5_000_000;
-const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
+pub const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("dxf", reason)
 }
 
-fn crs_kind(id: Option<&str>, definition: Option<&str>) -> CrsKind {
-    let id = id.unwrap_or_default();
-    let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if id == "OGC:CRS84"
-        || id == "EPSG:4326"
-        || definition.contains("GEOGCS[")
-        || definition.contains("GEODCRS[")
-    {
-        CrsKind::Geographic
-    } else if definition.contains("PROJCS[") || definition.contains("PROJCRS[") {
-        CrsKind::Projected
+/// Il codice di una definizione che **e'** un identificatore EPSG: tutto il
+/// testo, a meno degli spazi ai bordi, e' `EPSG:<cifre>` oppure
+/// `URN:OGC:DEF:CRS:EPSG:<versione>:<cifre>` (gia' in maiuscolo).
+///
+/// Fino a qui si prendeva ogni `EPSG:` seguito da cifre **ovunque** nel testo:
+/// il nome di un WKT (`PROJCS["Locale basato su EPSG:4326",...]`), la
+/// descrizione di un XML, un commento. Un proiettato senza `AUTHORITY` di
+/// radice usciva EPSG:4326, geografico, senza alcun segnale. Il testo libero
+/// di una definizione non dichiara un identificatore.
+///
+/// Il codice esce nella grafia del file, anche non canonica (`032632`): se
+/// risolverlo lo decide [`resolve_dxf_crs_testuale`], con la regola del WKT.
+fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
+    let testo = upper.trim();
+    let codice = if let Some(codice) = testo.strip_prefix("EPSG:") {
+        codice
     } else {
-        CrsKind::Unknown
-    }
+        let resto = testo.strip_prefix("URN:OGC:DEF:CRS:EPSG:")?;
+        // La versione puo' essere vuota (`EPSG::3003`); un secondo `:` resta
+        // nel codice e lo rende non numerico.
+        resto.split_once(':')?.1
+    };
+    (!codice.is_empty() && codice.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| codice.to_owned())
 }
 
-fn digits_after(text: &str, marker: &str) -> Option<String> {
-    let start = text.find(marker)? + marker.len();
-    let tail = text[start..].trim_start_matches([' ', '"', '\'', ':']);
-    let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
-    (!digits.is_empty()).then_some(digits)
-}
-
-fn epsg_from_definition(definition: &str) -> Option<String> {
-    let upper = definition.to_ascii_uppercase();
-    if let Some(code) = digits_after(&upper, "EPSG:") {
-        return Some(format!("EPSG:{code}"));
-    }
-    for marker in ["AUTHORITY[\"EPSG\",", "ID[\"EPSG\","] {
-        if let Some(code) = digits_after(&upper, marker) {
-            return Some(format!("EPSG:{code}"));
+/// Gli attributi del tag d'apertura di un `<Alias>`, a partire dal primo byte
+/// dopo il nome dell'elemento: `nome = "valore"` o `nome='valore'`, con spazi
+/// facoltativi attorno a `=`, fino a `>` o `/>`.
+///
+/// Fino al 24/10 il tipo si cercava come sottostringa `TYPE="..."`: con uno
+/// spazio attorno a `=` (`type = "Datum"`) l'alias di un datum sembrava senza
+/// tipo, e contava come quello del sistema di coordinate (`EPSG:6326`, un
+/// datum, risolto come CRS). Ora gli attributi si leggono tutti; un tag che non
+/// si legge cosi', o che ripete un attributo, e' `None`: che cosa dichiari non
+/// e' decidibile.
+fn attributi_alias(tag: &str) -> Option<BTreeMap<&str, &str>> {
+    let mut attributi = BTreeMap::new();
+    let mut resto = tag;
+    loop {
+        resto = resto.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        if resto.starts_with('>') || resto.starts_with("/>") {
+            return Some(attributi);
         }
+        let fine_nome = resto.len()
+            - resto
+                .trim_start_matches(|c: char| {
+                    c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-')
+                })
+                .len();
+        if fine_nome == 0 {
+            return None;
+        }
+        let nome = &resto[..fine_nome];
+        resto = resto[fine_nome..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        resto = resto
+            .strip_prefix('=')?
+            .trim_start_matches(|c: char| c.is_ascii_whitespace());
+        let virgolette = resto.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+        resto = &resto[1..];
+        let fine_valore = resto.find(virgolette)?;
+        if attributi.insert(nome, &resto[..fine_valore]).is_some() {
+            return None;
+        }
+        resto = &resto[fine_valore + 1..];
     }
-    let mut remaining = upper.as_str();
+}
+
+/// Il codice EPSG che una definizione del `GEODATA` **non WKT** dichiara.
+///
+/// Le forme sono due: una definizione che **e'** l'identificatore
+/// (`EPSG:<codice>` o il suo URN OGC) e gli `<Alias>` EPSG di una definizione
+/// XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
+/// trovata: un testo con due `EPSG:` diversi, o un XML con due alias, dava il
+/// primo codice e l'altro spariva. Ora si raccolgono tutte, e codici discordi
+/// sono un conflitto: la definizione non dice quale valga.
+///
+/// Una definizione WKT non passa di qui: la decide la regola unica del modello
+/// ([`plenora_io_model::crs_definizione::identificatore_wkt`]), la stessa del
+/// `.prj` di uno Shapefile. Un testo che non comincia come un WKT non e' mai un
+/// WKT ben formato, quindi la lettura della radice che c'era qui non vi trovava
+/// nulla.
+///
+/// Degli alias conta solo quello del sistema di coordinate: attributo `type`
+/// uguale a `CoordinateSystem` (ASCII case-insensitive), letto con
+/// [`attributi_alias`]. L'alias di un datum o di un ellissoide nomina una parte
+/// del CRS, come l'`AUTHORITY` annidato di un WKT, non il CRS; un alias senza
+/// `type` non dice che cosa nomina, e non conta (fino al 24/10 contava). Il
+/// codice e' l'attributo `id`, solo se e' fatto di cifre.
+///
+/// # Errors
+///
+/// `crs` se le forme dichiarano codici EPSG diversi, o se il tag di un alias
+/// non si legge.
+fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
+    let upper = definition.to_ascii_uppercase();
+    let mut codici: BTreeSet<String> = BTreeSet::new();
+    codici.extend(epsg_che_e_la_definizione(&upper));
+    let mut remaining = if upper.trim_start().starts_with('<') {
+        upper.as_str()
+    } else {
+        ""
+    };
     while let Some(start) = remaining.find("<ALIAS") {
         remaining = &remaining[start..];
         let end = remaining
             .find("</ALIAS>")
             .map_or(remaining.len(), |index| index + "</ALIAS>".len());
         let alias = &remaining[..end];
-        if alias.contains("EPSG") {
-            if let Some(code) = digits_after(alias, "ID=") {
-                return Some(format!("EPSG:{code}"));
-            }
-        }
         remaining = &remaining[end..];
+        let dopo_nome = &alias["<ALIAS".len()..];
+        // `<ALIASES>` e simili sono un altro elemento.
+        if !dopo_nome.starts_with(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/') {
+            continue;
+        }
+        let Some(attributi) = attributi_alias(dopo_nome) else {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF: un alias della definizione XML del CRS nel GEODATA non si legge",
+            )));
+        };
+        let del_sistema = attributi.get("TYPE") == Some(&"COORDINATESYSTEM");
+        if del_sistema && alias.contains("EPSG") {
+            codici.extend(
+                attributi
+                    .get("ID")
+                    .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                    .map(|id| (*id).to_owned()),
+            );
+        }
     }
-    None
+    if codici.len() > 1 {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF: la definizione del CRS nel GEODATA dichiara codici EPSG discordi",
+        )));
+    }
+    Ok(codici.into_iter().next().map(|code| format!("EPSG:{code}")))
 }
 
-fn embedded_crs_definition(drawing: &Drawing) -> Option<String> {
-    drawing.objects().find_map(|object| match &object.specific {
-        ObjectType::GeoData(geodata) => {
-            let definition = geodata.coordinate_system_definition.trim();
-            (!definition.is_empty()).then(|| definition.to_owned())
+/// La definizione del CRS che i `GEODATA` del disegno dichiarano.
+///
+/// Un disegno ne porta di solito uno. Con piu' `GEODATA` vinceva il primo, e un
+/// secondo con una definizione diversa spariva: sono due dichiarazioni dello
+/// stesso CRS, e il file non dice quale valga. Definizioni uguali non sono un
+/// conflitto.
+///
+/// Il confronto e' sulle definizioni **senza il BOM iniziale**, che non ne fa
+/// parte: fino alla rilettura 10 si confrontavano prima di toglierlo, e due
+/// `GEODATA` con la stessa definizione, uno con il BOM e uno senza, erano un
+/// conflitto. La definizione che esce e' gia' senza BOM (uno solo, come
+/// [`plenora_io_model::crs_definizione::senza_bom`]): un secondo resta, e la
+/// definizione resta malformata.
+///
+/// Gli spazi ai bordi non contano nel confronto ma **restano** nel testo: il
+/// writer la scrive tale e quale (il fork codifica gli a capo come `^M^J`)
+/// e la capability la dichiara conservata. Fino alla rilettura 12 il lettore la
+/// rifilava, e un `.prj` chiuso da CRLF usciva dal DXF diverso senza che la
+/// conversione lo dichiarasse.
+///
+/// # Errors
+///
+/// `Crs` se due `GEODATA` dichiarano definizioni diverse.
+fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
+    let mut trovata: Option<&str> = None;
+    for object in drawing.objects() {
+        let ObjectType::GeoData(geodata) = &object.specific else {
+            continue;
+        };
+        let definition = geodata.coordinate_system_definition.as_str();
+        if definition.trim().is_empty() {
+            continue;
         }
-        _ => None,
-    })
+        // Un BOM solo, come `senza_bom`, senza copiare la definizione.
+        let bom = if definition.starts_with('\u{feff}') {
+            '\u{feff}'.len_utf8()
+        } else {
+            0
+        };
+        let definition = &definition[bom..];
+        match trovata {
+            Some(precedente) if precedente.trim() != definition.trim() => {
+                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "DXF con piu' GEODATA che dichiarano CRS diversi",
+                )));
+            }
+            _ => trovata = Some(definition),
+        }
+    }
+    Ok(trovata.map(str::to_owned))
 }
 
 fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedCrs> {
-    let Some(definition) = embedded_crs_definition(drawing) else {
-        let id = options.assume_crs.clone().ok_or_else(|| {
+    let assunta = options.assume_crs.as_deref();
+    let Some(definition) = embedded_crs_definition(drawing)? else {
+        let id = assunta.ok_or_else(|| {
             PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                 "DXF senza GEODATA risolvibile: fornire --assume-crs",
             ))
         })?;
-        let kind = crs_kind(Some(&id), None);
-        return Ok(ResolvedCrs::new(Some(id), kind, None));
+        let kind = plenora_io_model::crs::crs_kind_for(Some(id), None, "dxf")?;
+        return Ok(ResolvedCrs::new(Some(id.to_owned()), kind, None).stored_east_first());
     };
-    let embedded_id = epsg_from_definition(&definition).or_else(|| {
-        let trimmed = definition.trim();
-        (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
-    });
-    let id = embedded_id.or_else(|| options.assume_crs.clone());
+    // Il BOM iniziale l'ha gia' tolto `embedded_crs_definition`, prima del
+    // confronto fra i `GEODATA`: toglierlo di nuovo qui ne toglierebbe un
+    // secondo. Una forma testuale si misura senza gli spazi ai bordi, che non
+    // entrano in nessuna definizione; un WKT entra nel contratto tale e quale.
+    let testuale = !plenora_io_model::crs_definizione::sembra_wkt(&definition);
+    let misurata = if testuale {
+        definition.trim()
+    } else {
+        definition.as_str()
+    };
+    if misurata.len() > plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
+        let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+            "DXF: la definizione del CRS nel GEODATA supera il tetto, byte",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(
+                plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS,
+            )),
+        ));
+        errore.driver = Some("dxf".to_owned());
+        return Err(errore);
+    }
+    if testuale {
+        return resolve_dxf_crs_testuale(&definition, assunta);
+    }
+    // Una definizione WKT la decide la regola unica del modello, la stessa
+    // del `.prj` (docs/PRODUCT.md, «tutti: identificatore di radice di un
+    // WKT»). Prima qui contavano solo gli `EPSG` di radice con la parola
+    // della grammatica, e l'opzione nominava tutto il resto: un `ID` in un
+    // WKT 1, un'`AUTHORITY["ESRI",...]`, un `BOUNDCRS`.
+    let id = plenora_io_model::crs_definizione::identificatore_wkt(&definition, assunta)
+        .map_err(|rifiuto| rifiuto.errore("dxf"))?;
     let Some(id) = id else {
         let raw = RawCrs::new(definition, None);
         return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
     };
-    let kind = crs_kind(Some(&id), Some(&definition));
-    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
+    // Il genere dalla radice della definizione, con la regola comune dei
+    // driver: `EPSG:4326` nominato su un `PROJCS` anonimo e' un rifiuto.
+    let kind = plenora_io_model::crs::crs_kind_for(Some(&id), Some(&definition), "dxf")?;
+    // Le coordinate di disegno sono x poi y, e x e' easting o longitudine:
+    // l'ordine viene dal formato, non dal registro (GEO-002).
+    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)).stored_east_first())
+}
+
+/// Il CRS di un `GEODATA` la cui definizione non comincia come un WKT.
+///
+/// Le forme riconosciute sono quattro, e nessuna e' una definizione WKT o
+/// PROJJSON: `EPSG:<cifre>`, `urn:ogc:def:crs:EPSG:<versione>:<cifre>`,
+/// `OGC:CRS84` (tutto il testo, a meno degli spazi) e un XML (testo che comincia
+/// con `<`) con un `<Alias>` EPSG del sistema di coordinate. Danno
+/// l'identificatore e **nessuna** definizione: la chiave `crs_definition` porta
+/// solo WKT, WKT 2 o PROJJSON (ARROW-VOCABULARY-1.0), e un nome o un XML
+/// etichettato `wkt` sono malformati per GEO-005.
+///
+/// Ogni altro testo -- un WKT preceduto da U+200B o fra virgolette, un `1`
+/// davanti a `GEOGCS[`, un XML senza alias -- non dichiara nulla che il bordo
+/// sappia leggere: senza opzione resta non risolto, con l'opzione e' `crs`.
+/// Fino al 24/10 l'opzione nominava qualunque testo, e il testo usciva come
+/// definizione `wkt`: un `GEODATA` cosi' convertito in `GeoParquet` diventava
+/// `OGC:CRS84` su dati UTM.
+fn resolve_dxf_crs_testuale(definition: &str, assunta: Option<&str>) -> Result<ResolvedCrs> {
+    let dichiarato = epsg_from_definition(definition)?.or_else(|| {
+        definition
+            .trim()
+            .eq_ignore_ascii_case("OGC:CRS84")
+            .then(|| "OGC:CRS84".to_owned())
+    });
+    let Some(dichiarato) = dichiarato else {
+        if assunta.is_some() {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF: --assume-crs non nomina un GEODATA che non e' ne' WKT ben formato ne' \
+                 una forma testuale riconosciuta",
+            )));
+        }
+        let raw = RawCrs::new(definition.to_owned(), None);
+        return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
+    };
+    // Due dichiarazioni diverse dello stesso CRS: il codice incorporato
+    // vinceva e l'opzione taceva. Il controllo comune di `with_read_budget`
+    // lo rifiuterebbe comunque; il resolver non deve pero' decidere da se'
+    // di ignorare l'opzione. Concordi, vale la grafia del file.
+    if assunta
+        .is_some_and(|assunta| !plenora_io_model::crs::stesso_identificatore(assunta, &dichiarato))
+    {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
+        )));
+    }
+    // La regola del WKT (`identificatore_wkt`, passo 5): senza opzione si
+    // risolve solo un codice EPSG canonico; con l'opzione uguale come testo
+    // (GEO-005) vale la grafia del file. Fino al 24/10 `EPSG:032632` usciva
+    // risolto cosi' com'era, mentre lo stesso codice in un `AUTHORITY` restava
+    // non risolto.
+    let canonico = dichiarato
+        .strip_prefix("EPSG:")
+        .is_none_or(|codice| plenora_io_model::crs::codice_intero_canonico(codice).is_some());
+    if assunta.is_none() && !canonico {
+        let raw = RawCrs::from_authority_hint(dichiarato);
+        return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
+    }
+    let kind = plenora_io_model::crs::crs_kind_for(Some(&dichiarato), None, "dxf")?;
+    Ok(ResolvedCrs::new(Some(dichiarato), kind, None).stored_east_first())
 }
 
 /// Gli identificatori per cui il writer sintetizza la definizione.
@@ -163,6 +383,10 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
 /// `GEODATA`, e dalla capability `crs_id`, che la dichiara.
 pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"];
 
+/// Le grammatiche che il `GEODATA` porta tali e quali.
+const GRAMMATICHE_DEL_GEODATA: &[CrsDefinitionFormat] =
+    &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2];
+
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     let resolved = geometry.resolved_crs().ok_or_else(|| {
         PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -170,20 +394,47 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
         ))
     })?;
     if let Some(definition) = &resolved.definition {
-        if !definition.trim().is_empty() {
+        // Il `GEODATA` porta un WKT (o la forma XML, che il contratto etichetta
+        // `wkt`): un PROJJSON scritto li' non si rileggeva piu', e la
+        // conversione riusciva lo stesso. Fuori da quelle grammatiche la
+        // definizione si sostituisce con quella sintetizzata, e la perdita la
+        // dichiara la capability, oppure la scrittura si rifiuta.
+        let verbatim = GRAMMATICHE_DEL_GEODATA
+            .iter()
+            .any(|ammessa| resolved.definition_format == Some(*ammessa));
+        if verbatim && !definition.trim().is_empty() {
             return Ok(definition.clone());
+        }
+        if !verbatim {
+            return match resolved.id.as_deref() {
+                Some(id) if CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(&id) => {
+                    Ok(WGS84_ESRI_WKT.to_owned())
+                }
+                _ => Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated(
+                        "DXF: il GEODATA porta un WKT, e la definizione del CRS e' in un'altra \
+                     grammatica che il writer non sa convertire",
+                    ),
+                )),
+            };
         }
     }
     match resolved.id.as_deref() {
         Some(id) if CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(&id) => Ok(WGS84_ESRI_WKT.to_owned()),
         // L'identificativo non esce: viene dal contratto, che chi legge
-        // l'errore ha gia'.
-        Some(_) => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF richiede la definizione WKT/XML del CRS, non il solo authority id",
-        ))),
-        None => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF richiede una definizione WKT/XML del CRS",
-        ))),
+        // l'errore ha gia'. Un CRS risolto noto per il solo identificatore e'
+        // un ingresso conforme che il `GEODATA` non sa scrivere: un limite del
+        // bersaglio, `unsupported` (REJ-001 «support»). Fino alla rilettura 11
+        // era `crs`, la categoria di un CRS sbagliato; e' la stessa classe del
+        // `GeoPackage` con `OGC:CRS84`.
+        Some(_) => Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "DXF richiede la definizione WKT/XML del CRS, non il solo authority id",
+            ),
+        )),
+        None => Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated("DXF richiede una definizione WKT/XML del CRS"),
+        )),
     }
 }
 
@@ -241,9 +492,16 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // scritto senza: quando la scrittura avviene, la definizione c'e'.
             CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
                 synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                synthesized_wkt: WGS84_ESRI_WKT,
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
+        )
+        // Il `GEODATA` conserva il WKT; un PROJJSON e' sostituito dal WKT che
+        // il writer sintetizza per l'identificatore, o la scrittura si rifiuta.
+        .verbatim_solo(
+            GRAMMATICHE_DEL_GEODATA,
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
@@ -322,7 +580,7 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -337,7 +595,7 @@ impl FormatDriver for DxfDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(

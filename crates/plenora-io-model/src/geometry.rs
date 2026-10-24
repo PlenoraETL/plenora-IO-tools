@@ -84,10 +84,11 @@ pub fn has_canonical_geometry_metadata(field: &arrow_schema::Field) -> bool {
 ///
 /// # Errors
 ///
-/// Restituisce [`PlenoraIoError::Contract`] se manca la versione di contratto
-/// sullo schema, se manca una delle chiavi canoniche obbligatorie, se
+/// Un errore `schema` (REJ-001, classe del vocabolario) se manca la versione di
+/// contratto sullo schema, se manca una delle chiavi canoniche obbligatorie, se
 /// l'estensione Arrow contraddice `geoarrow.wkb` o se il tipo Arrow del campo
-/// non è binario.
+/// non è binario: anche per uno schema esterno, senza versione ne' chiavi
+/// `plenora.*`, con `geoarrow.wkb` su una colonna non binaria.
 pub fn validate_geometry_field_identity(
     field: &arrow_schema::Field,
     schema_contract_version_present: bool,
@@ -145,14 +146,27 @@ pub fn with_contract_version(schema: arrow_schema::SchemaRef) -> arrow_schema::S
 ///
 /// # Errors
 ///
-/// Restituisce [`PlenoraIoError::Contract`] se lo schema dichiara una versione
-/// diversa da [`PLENORA_CONTRACT_VERSION`]. L'assenza della chiave è ammessa.
+/// Un errore `schema` se la versione non e' un intero decimale ben formato
+/// (ARROW-001), `unsupported` se e' ben formata e diversa da
+/// [`PLENORA_CONTRACT_VERSION`] (ARROW-002): le classi di REJ-001, mai
+/// `invalid_plan`. L'assenza della chiave è ammessa.
 pub fn validate_contract_version(schema: &arrow_schema::Schema) -> Result<()> {
     match schema.metadata().get(PLENORA_CONTRACT_VERSION_KEY) {
         None => Ok(()),
         Some(version) if version == PLENORA_CONTRACT_VERSION => Ok(()),
-        Some(_) => Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
-            "versione del protocollo metadati non supportata",
+        Some(version)
+            if version
+                .bytes()
+                .next()
+                .is_some_and(|b| (b'1'..=b'9').contains(&b))
+                && version.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("versione del protocollo metadati non supportata"),
+            ))
+        }
+        Some(_) => Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "versione del protocollo metadati non ben formata",
         ))),
     }
 }
@@ -403,7 +417,10 @@ pub fn with_geometry_contract_metadata(
     field.clone().with_metadata(metadata)
 }
 
-/// Un metadato di campo non valido.
+/// Un metadato di campo non valido che non e' una chiave CRS: categoria
+/// `schema` (REJ-001, classe del vocabolario), mai `invalid_plan`, che descrive
+/// la richiesta e non l'ingresso. Fino alla 5.x era `invalid_plan`; le chiavi
+/// CRS passano da [`crs_metadata`].
 ///
 /// Il **messaggio** arriva gia' fatto dal chiamante come costante: e' l'unico
 /// modo di nominare la chiave senza costruire testo a runtime, e le chiavi sono
@@ -414,10 +431,25 @@ pub fn with_geometry_contract_metadata(
 /// contesto e non nel testo: sara' il DTO a decidere se emetterlo. Qui va nel
 /// campo `field`, dove stava anche prima.
 fn invalid_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> PlenoraIoError {
-    let mut errore = PlenoraIoError::contratto_redatto(message);
+    let mut errore = PlenoraIoError::schema_redatto(message);
     errore.field = Some(field.name().clone());
     errore
 }
+
+/// Un difetto di una chiave CRS: categoria `crs` (REJ-001), qualunque sia il
+/// tipo del difetto.
+fn crs_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> PlenoraIoError {
+    let mut errore = PlenoraIoError::crs_redatto(message);
+    errore.field = Some(field.name().clone());
+    errore
+}
+
+const DEFINIZIONE_CRS_MALFORMATA: PublicMessage =
+    PublicMessage::Curated("definizione CRS non ben formata nel formato dichiarato");
+const DEFINIZIONE_CRS_CONTRADDICE_ID: PublicMessage =
+    PublicMessage::Curated("definizione CRS che descrive un CRS diverso da crs_id");
+const AUTORITA_LOCALE_RISOLTA: PublicMessage =
+    PublicMessage::Curated("crs_id di un catalogo locale dichiarato risolto");
 
 const METADATO_VERSIONE_NON_VALIDO: PublicMessage =
     PublicMessage::Curated("metadato di versione del contratto non valido");
@@ -588,7 +620,7 @@ pub fn read_geometry_contract_metadata(
                 "wkt" => Ok(CrsDefinitionFormat::Wkt),
                 "wkt2" => Ok(CrsDefinitionFormat::Wkt2),
                 "projjson" => Ok(CrsDefinitionFormat::Projjson),
-                _ => Err(invalid_metadata(
+                _ => Err(crs_metadata(
                     field,
                     &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
                 )),
@@ -603,50 +635,68 @@ pub fn read_geometry_contract_metadata(
                 "northing_easting" => Ok(AxisOrder::NorthingEasting),
                 "other" => Ok(AxisOrder::Other),
                 "unknown" => Ok(AxisOrder::Unknown),
-                _ => Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO)),
+                _ => Err(crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO)),
             })
             .transpose()?;
         if definition.is_some() != definition_format.is_some() {
-            return Err(invalid_metadata(
+            return Err(crs_metadata(
                 field,
                 &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
             ));
         }
+        // GEO-005: la definizione e' ben formata nel formato che dichiara e non
+        // descrive un CRS diverso da quello che `crs_id` nomina. Vale per ogni
+        // `crs_resolution`, perche' una definizione incoerente resta incoerente
+        // anche quando il produttore non l'ha risolta.
+        if let (Some(testo), Some(formato)) = (definition.as_deref(), definition_format) {
+            // Il tetto unico delle definizioni: prima del lettore, perche'
+            // oltre il tetto il lettore la direbbe malformata.
+            crate::crs_definizione::verifica_dimensione_definizione(testo, None).map_err(
+                |mut errore| {
+                    errore.field = Some(field.name().clone());
+                    errore
+                },
+            )?;
+            match crate::crs_definizione::contraddice(id.as_deref(), testo, formato) {
+                Err(crate::crs_definizione::Malformata) => {
+                    return Err(crs_metadata(field, &DEFINIZIONE_CRS_MALFORMATA));
+                }
+                Ok(true) => return Err(crs_metadata(field, &DEFINIZIONE_CRS_CONTRADDICE_ID)),
+                Ok(false) => {}
+            }
+        }
+        // GEO-020: un catalogo locale non e' un registro; un suo identificatore
+        // non si dichiara mai risolto.
+        if resolution == "resolved"
+            && id
+                .as_deref()
+                .is_some_and(crate::crs_definizione::autorita_locale)
+        {
+            return Err(crs_metadata(field, &AUTORITA_LOCALE_RISOLTA));
+        }
         parsed.crs = match resolution.as_str() {
             "resolved" => {
                 if id.is_none() && definition.is_none() {
-                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
+                    return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
                 let axis_order = axis_order
-                    .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
-                let kind = match axis_order {
-                    AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => {
-                        crate::crs::CrsKind::Geographic
-                    }
-                    AxisOrder::EastingNorthing | AxisOrder::NorthingEasting => {
-                        crate::crs::CrsKind::Projected
-                    }
-                    AxisOrder::Other | AxisOrder::Unknown => crate::crs::CrsKind::Unknown,
-                };
+                    .ok_or_else(|| crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
+                let kind = genere_dai_metadati(id.as_deref(), definition.as_deref(), axis_order);
                 let mut crs = ResolvedCrs::new(id, kind, definition);
                 crs.definition_format = definition_format;
                 crs.axis_order = axis_order;
                 CrsResolution::Resolved(crs)
             }
             "declared_unresolved" => {
-                let has_structured_representation = id.is_some() || definition.is_some();
-                if !has_structured_representation && parsed.srid.is_none() {
-                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
+                // ARROW-VOCABULARY-1.0, sezione 4: `crs_id` o `crs_definition`,
+                // e `axis_order`. Uno SRID da solo non dichiara un CRS: prima
+                // passava di qui, e la sola verifica del vocabolario lo
+                // fermava -- dove c'era.
+                if id.is_none() && definition.is_none() {
+                    return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
-                if !has_structured_representation && axis_order.is_some() {
-                    return Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO));
-                }
-                let axis_order = if has_structured_representation {
-                    axis_order
-                        .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?
-                } else {
-                    AxisOrder::Unknown
-                };
+                let axis_order = axis_order
+                    .ok_or_else(|| crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
                 CrsResolution::DeclaredButUnresolved(RawCrs {
                     definition,
                     authority_hint: id,
@@ -662,7 +712,7 @@ pub fn read_geometry_contract_metadata(
             {
                 CrsResolution::Missing
             }
-            _ => return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
+            _ => return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
         };
     }
     for (key, value) in metadata {
@@ -676,6 +726,38 @@ pub fn read_geometry_contract_metadata(
 
     *contract = parsed;
     Ok(presence)
+}
+
+/// Il genere di un CRS risolto letto dai metadati Arrow: il vocabolario non lo
+/// porta, e si ricava.
+///
+/// Decide la regola comune dei driver ([`crate::crs::crs_kind_for`]), dalla
+/// radice della definizione e dagli identificatori che il bordo conosce; solo
+/// se quella lo lascia ignoto, l'ordine memorizzato (`lon_lat` o `lat_lon`
+/// geografico, `easting_northing` o `northing_easting` proiettato). Fino al
+/// 24/10 decideva solo l'ordine, e un `EPSG:3031` che lo Shapefile leggeva
+/// proiettato, con gli assi `other`, si rileggeva dall'IPC di genere ignoto.
+///
+/// Una contraddizione fra identificatore e radice qui lascia il genere ignoto
+/// invece di rifiutare: il genere non e' un campo del vocabolario, e il
+/// contratto che i metadati dichiarano resta quello che la verifica GEO-005
+/// ha gia' giudicato. Ignoto e' la risposta onesta, mai un genere scelto fra
+/// i due.
+fn genere_dai_metadati(
+    id: Option<&str>,
+    definition: Option<&str>,
+    axis_order: AxisOrder,
+) -> crate::crs::CrsKind {
+    use crate::crs::CrsKind;
+    match crate::crs::crs_kind_for(id, definition, "ipc") {
+        Ok(CrsKind::Unknown) if definition.is_none() => match axis_order {
+            AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => CrsKind::Geographic,
+            AxisOrder::EastingNorthing | AxisOrder::NorthingEasting => CrsKind::Projected,
+            AxisOrder::Other | AxisOrder::Unknown => CrsKind::Unknown,
+        },
+        Ok(genere) => genere,
+        Err(_) => CrsKind::Unknown,
+    }
 }
 
 #[cfg(test)]

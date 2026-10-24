@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 /// `classe_sqlite` traduce ogni errore che sappiamo costruire.
 ///
@@ -644,7 +645,11 @@ fn il_budget_dei_componenti_coincide_con_quello_del_parser_condiviso() {
         ("LINESTRING 3 punti", sequenza(3)),
         ("POLYGON EMPTY", poligono(&[])),
         ("POLYGON un anello di 4", poligono(&[4])),
-        ("POLYGON due anelli vuoti", poligono(&[0, 0])),
+        // Due anelli di quattro punti, non due anelli vuoti: un anello vuoto
+        // e' malformato per GEO-011 e il parser condiviso lo rifiuta, mentre
+        // la classificazione del flag "empty" non giudica la struttura. Il
+        // confronto riguarda il budget, e vale sui valori ben formati.
+        ("POLYGON due anelli di 4", poligono(&[4, 4])),
         (
             "MULTIPOINT di 2",
             collezione(4, &[punto(1.0, 2.0), punto_vuoto()]),
@@ -848,32 +853,220 @@ fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
     ));
 }
 
+/// GEO-005: l'autorita' si normalizza solo in ASCII. `epſg` (U+017F) non e'
+/// `EPSG`, e la maiuscola Unicode la rietichettava come tale.
+#[test]
+fn reader_uppercases_the_organization_in_ascii_only() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'ep\u{17f}g', 3003, 'undefined'), \
+                ('y', 900002, 'epsg', 3003, 'undefined')",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        crs_for(&conn, 900_001).unwrap().id.as_deref(),
+        Some("EP\u{17f}G:3003")
+    );
+    assert_eq!(
+        crs_for(&conn, 900_002).unwrap().id.as_deref(),
+        Some("EPSG:3003")
+    );
+}
+
+/// `OGC:CRS84` non ha un codice intero, e `gpkg_spatial_ref_sys` lo vuole:
+/// il writer non lo riscrive `EPSG:4326`, e lo rifiuta come limite del
+/// bersaglio. Fino alla rilettura 11 il rifiuto era `crs` («non risolto»)
+/// per un CRS risolto.
 #[test]
 fn writer_does_not_relabel_crs84_as_epsg_4326() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
     assert!(matches!(
-        register_srs(&conn, Some("OGC:CRS84"), None),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
+        register_srs(&conn, &crs("OGC:CRS84", None)),
+        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
     ));
 }
 
+/// La riga di WGS 84 porta il WKT canonico, che la regola dei lettori
+/// rilegge `EPSG:4326`. Fino alla rilettura 11 era `GEOGCS["WGS 84"]`, che
+/// non si risolve: un `GeoPackage` convertito in Shapefile si rileggeva non
+/// risolto.
 #[test]
-fn gpkg_epsg_axis_orders_are_explicit() {
+fn la_riga_di_wgs84_porta_il_wkt_canonico() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
-    register_srs(&conn, Some("EPSG:3857"), None).unwrap();
+    let crs = crs_for(&conn, 4326).unwrap();
+    assert_eq!(crs.definition.as_deref(), Some(WKT_WGS84_GPKG));
+    assert_eq!(
+        plenora_io_model::crs_definizione::identificatore_wkt(WKT_WGS84_GPKG, None),
+        Ok(Some("EPSG:4326".to_owned()))
+    );
+}
 
-    let geographic = crs_for(&conn, 4326).unwrap();
-    let projected = crs_for(&conn, 3857).unwrap();
+/// Un CRS senza identificatore e' un limite del `GeoPackage`, non un CRS
+/// sbagliato: `unsupported` (fino alla rilettura 11 `crs`).
+#[test]
+fn un_crs_senza_identificatore_e_un_limite_del_bersaglio() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let senza = LayerCrs {
+        id: None,
+        definition: None,
+        srid: None,
+    };
+    assert!(matches!(
+        register_srs(&conn, &senza),
+        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
+    ));
+}
+
+/// GEO-020: il codice di un catalogo locale non e' un codice di registro.
+/// `POSTGIS:4326` non si lega mai alla riga EPSG:4326 built-in.
+#[test]
+fn writer_rejects_local_catalog_authority() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    for id in ["POSTGIS:4326", "mysql:3857", "SQLITE:900913"] {
+        let error = register_srs(&conn, &crs(id, None)).unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs, "{id}");
+    }
+    assert_eq!(srs_rows(&conn), 3, "nessuna riga aggiunta");
+}
+
+/// Un `srs_id` gia' occupato da un'altra organizzazione/codice e' un rifiuto,
+/// non un riuso silenzioso della riga esistente.
+#[test]
+fn writer_rejects_srs_id_owned_by_another_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let error = register_srs(&conn, &crs("ESRI:4326", None)).unwrap_err();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+
+    register_srs(&conn, &crs("ESRI:3857", None)).unwrap();
+    let error = register_srs(&conn, &crs("EPSG:3857", None)).unwrap_err();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    let (org, code): (String, i64) = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = 3857",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((org.as_str(), code), ("ESRI", 3857));
+}
+
+/// Lo stesso CRS registrato da due layer riusa la riga: non e' un conflitto.
+#[test]
+fn writer_reuses_row_of_same_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    assert_eq!(register_srs(&conn, &crs("epsg:4326", None)).unwrap(), 4326);
     assert_eq!(
-        geographic.axis_order,
-        plenora_io_model::crs::AxisOrder::LatitudeLongitude
+        register_srs(&conn, &crs("EPSG:32632", None)).unwrap(),
+        32632
     );
     assert_eq!(
-        projected.axis_order,
-        plenora_io_model::crs::AxisOrder::EastingNorthing
+        register_srs(&conn, &crs("EPSG:32632", None)).unwrap(),
+        32632
     );
+    assert_eq!(srs_rows(&conn), 4);
+}
+
+/// GEO-008: lo SRID dichiarato dal campo e' lo `srs_id`; l'identita' resta
+/// quella di `crs_id`. Uno SRID che cade su una riga di un altro CRS e' un
+/// rifiuto.
+#[test]
+fn writer_takes_srs_id_from_declared_srid() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    assert_eq!(
+        register_srs(&conn, &crs("EPSG:3857", Some(900_913))).unwrap(),
+        900_913
+    );
+    let (org, code): (String, i64) = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = 900913",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((org.as_str(), code), ("EPSG", 3857));
+    for srid in [4326, 0, -1] {
+        let error = register_srs(&conn, &crs("EPSG:32632", Some(srid))).unwrap_err();
+        assert_eq!(
+            error.category,
+            plenora_io_model::ErrorCategory::Crs,
+            "{srid}"
+        );
+    }
+}
+
+fn crs(id: &str, srid: Option<i32>) -> LayerCrs {
+    LayerCrs {
+        id: Some(id.to_owned()),
+        definition: None,
+        srid,
+    }
+}
+
+fn srs_rows(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM gpkg_spatial_ref_sys", [], |r| {
+        r.get(0)
+    })
+    .unwrap()
+}
+
+/// L'ordine dichiarato e' quello dei valori, non del registro (GEO-001).
+///
+/// `GeoPackage` memorizza x = easting o longitudine qualunque sia il CRS: il
+/// 4326 di sistema e' `lon_lat`. Fino alla 5.x la prova si chiamava
+/// `gpkg_epsg_axis_orders_are_explicit` e fissava `lat_lon`, l'ordine con cui
+/// EPSG registra il 4326. Un proiettato registrato con `definition =
+/// 'undefined'` non dice se la proiezione e' polare, e l'ordine e' `unknown`;
+/// con il WKT, gli assi decidono fra `easting_northing` e `other`.
+#[test]
+fn gpkg_axis_order_is_the_stored_one() {
+    use plenora_io_model::crs::AxisOrder;
+    const UTM: &str = r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#;
+    const POLARE: &str = r#"PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Polar_Stereographic"],UNIT["metre",1],AXIS["Easting",NORTH],AXIS["Northing",NORTH],AUTHORITY["EPSG","3031"]]"#;
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    register_srs(&conn, &crs("EPSG:3857", None)).unwrap();
+    register_srs(
+        &conn,
+        &LayerCrs {
+            id: Some("EPSG:32632".to_owned()),
+            definition: Some(UTM.to_owned()),
+            srid: None,
+        },
+    )
+    .unwrap();
+    register_srs(
+        &conn,
+        &LayerCrs {
+            id: Some("EPSG:3031".to_owned()),
+            definition: Some(POLARE.to_owned()),
+            srid: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        crs_for(&conn, 4326).unwrap().axis_order,
+        AxisOrder::LongitudeLatitude
+    );
+    assert_eq!(crs_for(&conn, 3857).unwrap().axis_order, AxisOrder::Unknown);
+    assert_eq!(
+        crs_for(&conn, 32632).unwrap().axis_order,
+        AxisOrder::EastingNorthing
+    );
+    assert_eq!(crs_for(&conn, 3031).unwrap().axis_order, AxisOrder::Other);
 }
 
 fn ids_with_spatial_hint(dataset: &dyn OpenDatasetHandle, spatial_pruning_hint: Bbox) -> Vec<i64> {
@@ -1102,6 +1295,202 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
             ),
         }
     }
+}
+
+/// Un `GeoPackage` valido con la sola feature table `features` (colonne
+/// `geom`, `id`), scritto dal driver stesso: la base che i test di questo
+/// gruppo estendono con SQL per costruire i casi non conformi.
+fn gpkg_con_un_layer_features(path: &std::path::Path) -> GpkgDriver {
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let geometry = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())])),
+            Arc::new(Int64Array::from(vec![1])),
+        ],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "features".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let driver = GpkgDriver;
+    let mut writer = driver
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    driver
+}
+
+/// Due righe di `gpkg_geometry_columns` per la stessa tabella: due colonne
+/// geometriche dichiarate. Il reader produceva un layer per riga, con lo stesso
+/// nome, e in ciascuno l'altra geometria usciva come un BLOB qualunque: e' il
+/// degrado a binario e la scelta al posto di chi legge che GEO-012 vieta.
+#[test]
+fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due-geometrie.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE features ADD COLUMN segreta_geom2 BLOB;
+         INSERT INTO gpkg_geometry_columns VALUES ('features', 'segreta_geom2', 'POINT', 4326, 0, 0);",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("una tabella con due geometrie non deve produrre layer"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            // Errori senza dati: i nomi vengono dal file.
+            assert!(!errore.message.contains("segreta"), "{}", errore.message);
+            assert!(!errore.message.contains("features"), "{}", errore.message);
+        }
+    }
+}
+
+/// La stessa tabella fisica dichiarata due volte con nomi che differiscono
+/// solo per maiuscole. `SQLite` risolve i nomi di tabella senza distinzione di
+/// maiuscole ASCII: `features` e `FEATURES` sono la stessa tabella, con due
+/// colonne geometriche. Il confronto esatto la apriva come due layer, ciascuno
+/// con l'altra geometria degradata a binario (GEO-012).
+#[test]
+fn due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiutate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due-geometrie-maiuscole.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE features ADD COLUMN geom2 BLOB;
+         INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'FEATURES', data_type, 'FEATURES', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('FEATURES', 'geom2', 'POINT', 4326, 0, 0);",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("la stessa tabella con due geometrie non deve produrre layer"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert!(!errore.message.contains("geom2"), "{}", errore.message);
+        }
+    }
+}
+
+/// Una feature table di `gpkg_contents` senza la sua riga in
+/// `gpkg_geometry_columns` (requisito 22) spariva dall'elenco dei layer: il
+/// join la lasciava cadere e il file sembrava avere un layer in meno.
+#[test]
+fn una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("feature-senza-geometria.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE seconda (fid INTEGER PRIMARY KEY, geom BLOB);
+         INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', data_type, 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("un layer dichiarato e non elencabile non deve sparire"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+            assert!(!errore.message.contains("seconda"), "{}", errore.message);
+        }
+    }
+}
+
+/// Il verso opposto: una colonna di `gpkg_geometry_columns` la cui tabella non
+/// e' una riga `features` di `gpkg_contents` -- assente, `attributes`, o
+/// `Features` con un'altra grafia -- spariva dall'elenco dei layer.
+#[test]
+fn una_geometria_dichiarata_fuori_da_una_feature_table_e_rifiutata() {
+    for scenario in [
+        "INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', 'attributes', 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', 'Features', 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("geometria-senza-layer.gpkg");
+        let driver = gpkg_con_un_layer_features(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TABLE seconda (fid INTEGER PRIMARY KEY, geom BLOB); {scenario}"
+        ))
+        .unwrap();
+        drop(conn);
+        match driver.open(Source::Path(path), opzioni_lettura()) {
+            Ok(_) => panic!("una geometria dichiarata non deve sparire: {scenario}"),
+            Err(errore) => {
+                assert_eq!(
+                    errore.code,
+                    plenora_io_model::IoErrorCode::Format,
+                    "{scenario}"
+                );
+                assert!(!errore.message.contains("seconda"), "{}", errore.message);
+            }
+        }
+    }
+}
+
+/// Un nome di colonna geometrica dichiarato con maiuscole diverse da quelle
+/// della tabella. `SQLite` risolve i nomi di colonna senza distinzione di
+/// maiuscole ASCII: `GEOM` e' la colonna `geom`. Il confronto esatto la
+/// esponeva due volte, come geometria e come attributo binario.
+#[test]
+fn la_colonna_geometrica_si_riconosce_come_la_riconosce_sqlite() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("geometria-maiuscola.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "UPDATE gpkg_geometry_columns SET column_name = 'GEOM' WHERE table_name = 'features';",
+    )
+    .unwrap();
+    drop(conn);
+
+    let dataset = match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(dataset) => dataset,
+        Err(errore) => panic!("apertura: {errore}"),
+    };
+    let layers = dataset.layers();
+    assert_eq!(layers.len(), 1);
+    let nomi: Vec<String> = layers[0]
+        .contract
+        .schema
+        .fields()
+        .iter()
+        .map(|campo| campo.name().to_ascii_lowercase())
+        .collect();
+    assert_eq!(nomi, ["geom", "id"], "la geometria esce una volta sola");
 }
 
 /// Regressione sul file che il fuzzing ha usato per portare il reader
@@ -1479,6 +1868,33 @@ fn round_trip_non_wgs84_crs() {
     assert_eq!(crs, Some("EPSG:3857"));
 }
 
+/// GEO-020 dal bordo del writer: `POSTGIS:4326` e' rifiutato prima di ogni
+/// effetto e la destinazione non nasce, invece di finire legato a EPSG:4326.
+#[test]
+fn local_catalog_crs_is_rejected_before_publishing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("locale.gpkg");
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "POSTGIS:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let Err(error) = GpkgDriver.create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+    else {
+        panic!("POSTGIS:4326 accettato dal writer GeoPackage");
+    };
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!path.exists());
+}
+
 /// Un `GeoPackage` minimo con `righe` punti, scritto dal driver stesso.
 fn scrivi_punti(path: &std::path::Path, righe: i64) {
     let schema: SchemaRef = Arc::new(Schema::new(vec![
@@ -1655,4 +2071,295 @@ fn un_geopackage_in_modalita_wal_si_legge_in_sola_lettura() {
     assert!(!dir.path().join("wal.gpkg-wal").exists());
 
     assert_eq!(righe_lette(&path), 5);
+}
+
+/// Il genere del CRS di `gpkg_spatial_ref_sys` viene dalla parola della radice
+/// della definizione: su c0e84cb si cercava `PROJCS[` nel testo, e il 3003 con
+/// una definizione `PROJECTEDCRS[...]` usciva geografico, `lon_lat`. Un
+/// `EPSG:4326` registrato con un `PROJCS` si contraddice: prima vinceva
+/// l'identificatore, geografico sui dati proiettati.
+#[test]
+fn il_genere_della_riga_srs_viene_dalla_radice() {
+    use plenora_io_model::crs::AxisOrder;
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let proiettato = r#"PROJECTEDCRS["Monte Mario / Italy zone 1",BASEGEOGCRS["Monte Mario",DATUM["Monte Mario",ELLIPSOID["International 1924",6378388,297]]],CONVERSION["Italy zone 1",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["easting",east],AXIS["northing",north],LENGTHUNIT["metre",1],ID["EPSG",3003]]"#;
+    let utm_wkt1 = r#"PROJCS ["UTM 32N",GEOGCS["WGS 84"],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["E",EAST],AXIS["N",NORTH]]"#;
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('a', 3003, 'EPSG', 3003, ?1), ('b', 900001, 'EPSG', 4326, ?2)",
+        [proiettato, utm_wkt1],
+    )
+    .unwrap();
+    let crs = crs_for(&conn, 3003).unwrap();
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Projected, AxisOrder::EastingNorthing)
+    );
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+}
+
+// --- rilettura 9 -------------------------------------------------------------
+
+/// Un `GeoPackage` con due layer, `vani` e `strade`, entrambi in `EPSG:4326`.
+fn due_layer(path: &std::path::Path) {
+    let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+            Arc::new(Int64Array::from(vec![1_i64])),
+        ],
+    )
+    .unwrap();
+    let layer = |name: &str| WriteLayer {
+        name: name.to_owned(),
+        contract: DataContract {
+            schema: schema.clone(),
+            geometry: None,
+        },
+    };
+    let plan = WritePlan {
+        layers: vec![layer("vani"), layer("strade")],
+    };
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write_to_layer(LayerId(0), &batch).unwrap();
+    writer.write_to_layer(LayerId(1), &batch).unwrap();
+    writer.finish().unwrap();
+}
+
+/// Registra una riga di `gpkg_spatial_ref_sys` e la assegna ai layer nominati.
+fn riassegna_srs(path: &std::path::Path, tabelle: &[&str], riga: Option<(&str, i64, &str)>) {
+    let conn = Connection::open(path).unwrap();
+    let srs_id = 900_001_i64;
+    if let Some((organizzazione, codice, definizione)) = riga {
+        conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+             (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+             VALUES ('x', ?1, ?2, ?3, ?4)",
+            rusqlite::params![srs_id, organizzazione, codice, definizione],
+        )
+        .unwrap();
+    }
+    for tabella in tabelle {
+        conn.execute(
+            "UPDATE gpkg_geometry_columns SET srs_id = ?1 WHERE table_name = ?2",
+            rusqlite::params![srs_id, tabella],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE gpkg_contents SET srs_id = ?1 WHERE table_name = ?2",
+            rusqlite::params![srs_id, tabella],
+        )
+        .unwrap();
+    }
+}
+
+fn richiesta(layer: LayerId) -> ReadRequest {
+    ReadRequest {
+        layer,
+        projected_fields: None,
+        projection_mode: ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        scope: ReadScope::default(),
+        batch_target: BatchTarget::default(),
+        cancellation: CancellationToken::default(),
+    }
+}
+
+fn id_del_layer(dataset: &dyn OpenDatasetHandle, nome: &str) -> LayerId {
+    dataset
+        .layers()
+        .iter()
+        .find(|layer| layer.name == nome)
+        .map(|layer| layer.id)
+        .unwrap()
+}
+
+/// Rilettura 9, punto 2: un layer il cui CRS non passa le verifiche comuni
+/// (qui una definizione PROJ, malformata per GEO-005) o non si risolve
+/// (organizzazione `NONE`, riga mancante) non rende illeggibile l'altro. Su
+/// b4d8064 l'apertura falliva per tutti, e `read --layer` del layer sano con
+/// lei.
+#[test]
+fn un_layer_dal_crs_rifiutato_non_chiude_gli_altri() {
+    let righe: [Option<(&str, i64, &str)>; 3] = [
+        Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
+        Some(("NONE", 0, "undefined")),
+        // Nessuna riga: lo `srs_id` del layer non esiste.
+        None,
+    ];
+    for riga in righe {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("due.gpkg");
+        due_layer(&path);
+        riassegna_srs(&path, &["vani"], riga);
+        let dataset = match GpkgDriver.open(Source::Path(path.clone()), opzioni_lettura()) {
+            Ok(dataset) => dataset,
+            Err(errore) => panic!("{riga:?}: {errore}"),
+        };
+        let vani = id_del_layer(dataset.as_ref(), "vani");
+        let strade = id_del_layer(dataset.as_ref(), "strade");
+        assert!(dataset.rifiuto_del_layer(strade).is_none(), "{riga:?}");
+        let rifiuto = dataset.rifiuto_del_layer(vani).expect("vani e' rifiutato");
+        assert_eq!(
+            rifiuto.category,
+            plenora_io_model::ErrorCategory::Crs,
+            "{riga:?}"
+        );
+        let Err(errore) = dataset.open_layer_reader(&richiesta(vani)) else {
+            panic!("{riga:?}: il layer rifiutato si legge");
+        };
+        assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+        let mut reader = dataset.open_layer_reader(&richiesta(strade)).unwrap();
+        let mut righe_lette = 0;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            righe_lette += batch.num_rows();
+        }
+        assert_eq!(righe_lette, 1, "{riga:?}");
+    }
+}
+
+/// Se nessun layer si legge, l'apertura fallisce con il primo rifiuto, come
+/// prima.
+#[test]
+fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due.gpkg");
+    due_layer(&path);
+    riassegna_srs(
+        &path,
+        &["vani", "strade"],
+        Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
+    );
+    let Err(errore) = GpkgDriver.open(Source::Path(path), opzioni_lettura()) else {
+        panic!("l'apertura riesce senza layer leggibili");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
+/// Rilettura 9, punto 1 nel `GeoPackage`: `EPSG:4326` registrato con una
+/// definizione `LOCAL_CS` e' `crs`. Su b4d8064 il genere restava ignoto e il
+/// CRS usciva risolto.
+#[test]
+fn un_identificatore_geografico_su_un_local_cs_e_crs() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        [r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#],
+    )
+    .unwrap();
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+}
+
+/// Rilettura 9, punto 3: la definizione di `gpkg_spatial_ref_sys` ha il tetto
+/// comune, e oltre il tetto `SQLite` non la consegna. Su b4d8064 si leggeva per
+/// intero e il genere usciva dal lettore stretto dopo averla tokenizzata.
+#[test]
+fn la_definizione_della_riga_srs_ha_il_tetto() {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let mut lunga = String::from(r#"GEOGCS["x""#);
+    while lunga.len() <= MAX_BYTE_DEFINIZIONE_CRS {
+        lunga.push_str(",1");
+    }
+    lunga.push(']');
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        [&lunga],
+    )
+    .unwrap();
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+    assert!(!errore.message.contains("GEOGCS"), "{}", errore.message);
+}
+
+/// Rilettura 10, punto 4: il tetto e' sui byte UTF-8 della definizione, non sui
+/// byte della codifica del database. In un `GeoPackage` UTF-16 una definizione
+/// ASCII di 600 KB ne misura 1,2 M nella codifica del database: su b7a6c94 la
+/// guardia SQL la rifiutava sotto il tetto di 1 MiB. Una CJK che sta sotto il
+/// tetto in UTF-16 e lo supera in UTF-8 si rifiuta, con la stessa categoria.
+#[test]
+fn il_tetto_della_definizione_e_in_utf8_anche_in_un_database_utf16() {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let definizione = |nome: &str| {
+        format!(
+            "GEOGCS[\"{nome}\",DATUM[\"D\",SPHEROID[\"S\",6378137,298.257223563]],\
+             PRIMEM[\"G\",0],UNIT[\"degree\",0.0174532925199433]]"
+        )
+    };
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA encoding = 'UTF-16le';").unwrap();
+    init_gpkg(&conn).unwrap();
+    let codifica: String = conn
+        .query_row("PRAGMA encoding", [], |riga| riga.get(0))
+        .unwrap();
+    assert_eq!(codifica, "UTF-16le", "il database della prova e' UTF-16");
+
+    let ascii = definizione(&"a".repeat(600_000));
+    assert!(ascii.len() < MAX_BYTE_DEFINIZIONE_CRS && 2 * ascii.len() > MAX_BYTE_DEFINIZIONE_CRS);
+    let cjk = definizione(&"\u{4e2d}".repeat(400_000));
+    assert!(cjk.len() > MAX_BYTE_DEFINIZIONE_CRS && 2 * 400_000 < MAX_BYTE_DEFINIZIONE_CRS);
+    for (srs_id, testo) in [(900_001, &ascii), (900_002, &cjk)] {
+        conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+             (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+             VALUES ('x', ?1, 'EPSG', 4326, ?2)",
+            rusqlite::params![srs_id, testo],
+        )
+        .unwrap();
+    }
+    let crs = crs_for(&conn, 900_001).expect("sotto il tetto in UTF-8");
+    assert_eq!(crs.definition.as_deref().map(str::len), Some(ascii.len()));
+    let errore = crs_for(&conn, 900_002).unwrap_err();
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+}
+
+/// Rilettura 9, punto 7: un BOM iniziale non fa parte della definizione. Su
+/// b4d8064 la riga si leggeva malformata.
+#[test]
+fn un_bom_iniziale_della_definizione_si_toglie() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'EPSG', 4326, ?1)",
+        ["\u{feff}GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]"],
+    )
+    .unwrap();
+    let crs = crs_for(&conn, 900_001).unwrap();
+    assert_eq!(crs.kind, CrsKind::Geographic);
+    let definizione = crs.definition.clone().unwrap();
+    assert!(definizione.starts_with("GEOGCS["), "{definizione}");
+    plenora_io_model::crs::verifica_crs_emesso(&plenora_io_model::crs::CrsResolution::Resolved(
+        crs,
+    ))
+    .unwrap();
 }

@@ -1385,6 +1385,247 @@ speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
 dell'interprete e verificare e chiudere gli eventuali processi figli e le
 risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
 
+### Arrow Geometry Semantics: la rilettura
+
+La rilettura dell'adozione restringe gli ingressi accettati e cambia la
+categoria di alcuni rifiuti; i limiti sono riportati in
+[PRODUCT](PRODUCT.md#limitazioni-di-prodotto).
+
+- **WKB ben formato ovunque (GEO-011).** Linestring di un punto, circularstring
+  pari o di meno di tre punti, anelli vuoti, di meno di quattro punti o non
+  chiusi byte per byte, triangoli di più anelli si rifiutano con
+  `data_mapping`, da qualunque formato, in lettura e in scrittura; l'encoder
+  non li emette, e il WKT di CSV e XLSX li rifiuta già all'analisi del testo.
+  Un `POLYGON EMPTY` fa andata e ritorno anche attraverso `geo-types`.
+- **Profondità 32.** Il default di `max_wkb_depth` passa da 64 a 32 e un valore
+  oltre 32 si rifiuta.
+- **La buona forma prima dello SRID (REJ-002).** Un valore malformato con uno
+  SRID diverso da quello del campo è `data_mapping`, non più `crs`.
+- **Categorie di REJ-001.** Più colonne `geoarrow.wkb` sono `unsupported` (prima
+  `invalid_plan`), anche in uno schema esterno; i difetti dei metadati
+  geometrici trovati dalla lettura del contratto sono `schema`, o `crs` per le
+  chiavi CRS (prima `invalid_plan`); una versione di contratto ben formata e
+  diversa da 1 è `unsupported`, una malformata `schema`.
+- **CRS come l'oracolo.** `crs_id` con U+001C..U+001F è malformato (`crs`), un
+  WKT con quei separatori è ben formato; un PROJJSON con un numero oltre `f64`,
+  un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
+- **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
+  con `crs` invece di essere scritto come 4326.
+- **Una sola lettura della radice WKT.** Lo SRID di radice di un WKT si legge con la grammatica di GEO-005: un CRS annidato fra parentesi tonde non espone più il suo identificatore, `XID[` non è `ID[`, e un WKT non ben formato non ha SRID.
+- **Una regola sola per l'identificatore di un WKT.** Shapefile (`.prj`) e DXF
+  (`GEODATA` in WKT) decidono l'identificatore con la stessa regola, sull'albero
+  del lettore stretto ([PRODUCT](PRODUCT.md#limitazioni-di-prodotto), «tutti:
+  identificatore di radice di un WKT»). Cambiano, rispetto ad a651844: una
+  definizione WKT malformata, o con un `AUTHORITY`/`ID` malformato alla radice,
+  è `crs` con o senza `--assume-crs`, e `io.inspect` non riporta più un
+  identificatore che `io.read` poi rifiuta; due identificatori di radice
+  diversi sono `crs` anche senza opzione; `ID` in WKT 1 e `AUTHORITY` in WKT 2
+  dichiarano anche senza opzione (`EPSG:3003` si risolve) e bloccano la
+  deduzione ESRI; la forma ESRI di WGS 84 si riconosce dal `DATUM` figlio
+  diretto della radice, non da un `DATUM["WGS_1984"` ovunque nel testo, e vale
+  anche nel DXF; il DXF rifiuta un'opzione diversa da ogni dichiarazione WKT e
+  su un `BOUNDCRS`, e un codice EPSG di radice non canonico vi resta non
+  risolto; un `.prj` che non è UTF-8 è `crs` invece di valere come assente; un
+  WKT 2 minuscolo, spaziato o con le parole chiave lunghe è `wkt2` e si legge.
+- **Il genere del CRS dalla radice, e la forma ESRI intera.** Il genere
+  (geografico, proiettato, ignoto) lo decide una funzione sola,
+  `plenora_io_model::crs::crs_kind_for`, dalla parola della radice letta con il
+  lettore stretto, per Shapefile, DXF, GeoPackage, GeoParquet, CSV e XLSX
+  ([PRODUCT](PRODUCT.md#limitazioni-di-prodotto), «tutti: genere del CRS»).
+  Cambiano, rispetto a c0e84cb: un `PROJECTEDCRS[`, `projcrs [`, `PROJCRS(`,
+  `PROJCS [`, `PROJCS(` o `PROJCS	[` è proiettato (prima geografico, e con gli
+  assi est/nord `lon_lat` su dati UTM), `GEOGCS["PROJCS[",...]` è geografico,
+  un composto, un `BOUNDCRS` o un geocentrico (`GEODCRS` senza
+  `CS[ellipsoidal]`) ha genere e ordine ignoti con un identificatore che il
+  bordo non conosce (con uno che conosce, vedi sotto); un identificatore che il bordo
+  sa geografico (`EPSG:4326`, `OGC:CRS84`) su una radice proiettata, o
+  `EPSG:3857` su una geografica, è `crs`, dichiarato o nominato da
+  `--assume-crs`; in GeoParquet un `type` `ProjectedCRS` con `id` EPSG:4326 è
+  `crs`; nel CSV e nell'XLSX `epsg:4326` minuscolo è geografico ed `EPSG:3857`
+  proiettato. La forma ESRI di WGS 84 senza autorità vale `EPSG:4326` solo
+  intera (ellissoide, meridiano e unità canonici, nessun nodo in più), e ora
+  anche nella grafia di ArcGIS (`GCS_WGS_1984`, `D_WGS_1984`); una forma
+  parziale resta non risolta.
+- **Il DXF non nomina un `GEODATA` illeggibile.** Un `GEODATA` che non è un WKT
+  ben formato né `EPSG:<codice>`, l'URN, `OGC:CRS84` o un XML con un alias EPSG
+  del sistema di coordinate è `crs` con `--assume-crs` e non risolto senza;
+  prima l'opzione lo nominava e il testo usciva come definizione `wkt`. Le
+  forme testuali riconosciute danno l'identificatore senza definizione, come il
+  `.prj` che è soltanto `OGC:CRS84` (ora `lon_lat`, e la conversione in IPC lo
+  accetta).
+- **GEO-005 e GEO-020 già in lettura.** `with_read_budget` verifica, per ogni
+  driver, la definizione e l'identificatore che il contratto emette: una
+  definizione malformata o che contraddice `crs_id`, o un catalogo locale
+  (`POSTGIS:4326` di un GeoPackage) risolto, è `crs` già in `io.inspect` e
+  `io.read`, non solo nella scrittura IPC.
+- **Tetto sulla definizione, da ogni sorgente.** Oltre 1 MiB una definizione
+  CRS è `limit_exceeded`: il `.prj`, il `GEODATA`, la riga di
+  `gpkg_spatial_ref_sys`, il `crs` di GeoParquet, il metadato di un campo
+  Arrow IPC (anche in scrittura), la definizione di FileGDB. Prima il `.prj` si
+  leggeva intero, e le definizioni di un metadato erano limitate solo dai byte
+  del metadato (8 MiB in un GeoPackage: 698 MB di picco).
+- **Un layer rifiutato non chiude gli altri.** In un GeoPackage a più layer il
+  CRS che non passa le verifiche (`--assume-crs`, GEO-005, GEO-020) o non si
+  risolve rifiuta il layer: `io.read --layer` e `io.convert --layer` su un
+  layer sano procedono, sul layer rifiutato falliscono; `io.inspect` e
+  `io.layers`, che descrivono tutti i layer, falliscono con quel rifiuto.
+  Prima il primo rifiuto chiudeva il dataset intero.
+- **Un identificatore orizzontale vuole una radice orizzontale.** `EPSG:4326`,
+  `OGC:CRS84` ed `EPSG:3857`, dichiarati o nominati da `--assume-crs`, su una
+  radice che non è un CRS orizzontale 2D (`LOCAL_CS`, `ENGCRS`, `GEOCCS`, un
+  `GEODCRS` cartesiano, verticali, composti, `DERIVEDPROJCRS`, temporali,
+  parametrici) sono `crs`; prima il genere restava ignoto e il CRS usciva
+  risolto. Un `BOUNDCRS` resta com'era.
+- **DXF: alias e codici.** Il tipo di un `<Alias>` si legge come attributo (spazi
+  attorno a `=`, virgolette semplici o doppie): `type = "Datum"` non conta più
+  come il sistema di coordinate, un alias senza `type` non conta, un tag
+  illeggibile è `crs`. Un codice testuale non canonico (`EPSG:032632`) resta non
+  risolto senza opzione, come in un `AUTHORITY`.
+- **GeoParquet `crs: null` è `missing`.** Prima era un `resolved` senza
+  identificatore né definizione, che la conversione in IPC rifiutava; ora
+  lettura e conversione concordano.
+- **Genere riletto dall'IPC.** Segue la regola comune dalla definizione e
+  dall'identificatore: un `EPSG:3031` polare torna proiettato.
+- **BOM.** Un BOM UTF-8 iniziale di un `.prj`, di una riga di
+  `gpkg_spatial_ref_sys` o di un `GEODATA` si toglie; prima la definizione era
+  malformata.
+- **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
+  la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
+  fuori da una feature table, rende il file `data_mapping` all'apertura; prima
+  quel layer spariva dall'elenco.
+- **Membri di altre dimensioni (GEO-011).** Un aggregato WKB con un membro di
+  dimensioni diverse dal contenitore si rifiuta nel codec, con `data_mapping`,
+  in decodifica, ispezione e codifica.
+- **Nomi ambigui.** Una colonna geometrica il cui nome compare più volte nello
+  schema del layer è `schema` all'apertura, per ogni formato; un
+  `wkt_column`, `x_column` o `y_column` che l'intestazione CSV o XLSX ripete è
+  `data_mapping`. Il GeoPackage confronta tabelle e colonne come SQLite, senza
+  maiuscole ASCII: la stessa tabella dichiarata due volte con due geometrie è
+  `unsupported`.
+- **CRS dichiarati, non dedotti.** `--assume-crs` su uno Shapefile si confronta
+  solo con l'autorità che il `.prj` dichiara: `OGC:CRS84` su un `.prj` ESRI di
+  WGS 84 senza `AUTHORITY` è ora ammesso, e ogni identificatore diverso dai due nomi di WGS 84 su quella forma è `crs`; un'autorità di radice non EPSG (`AUTHORITY["ESRI",...]`) è dichiarata come una EPSG. Nel `GEODATA` DXF un `EPSG:<codice>`
+  conta solo quando la definizione è l'identificatore: un codice citato nel nome
+  di un WKT non è più una dichiarazione, e quella definizione si nomina con
+  `--assume-crs`. Lo SRID di un PROJJSON segue la regola del WKT: `"04326"` non
+  è 4326.
+- **La definizione che un bersaglio non conserva si dichiara, o si rifiuta
+  (rilettura 10).** `crs_definition: preserved` vale per grammatica
+  ([PRODUCT](PRODUCT.md#che-cosa-ogni-bersaglio-fa-della-definizione-che-riceve)).
+  Cambiano, rispetto a b7a6c94: verso GeoParquet un WKT con `EPSG:4326` o
+  `OGC:CRS84` dichiara `crs_definition_not_preserved_absent` (prima
+  `lossless`), e un WKT senza identificatore è `unsupported` (prima `crs:
+  null`); verso Shapefile e DXF un PROJJSON con `EPSG:4326` o `OGC:CRS84` si
+  sostituisce con il WKT sintetizzato e dichiara
+  `crs_definition_not_preserved_derived`, con ogni altro identificatore è
+  `unsupported` (prima la conversione riusciva e il file non si rileggeva): un
+  GeoParquet in EPSG:3003 non si converte più in Shapefile né in DXF.
+- **Il bersaglio non sceglie l'identificatore.** Un identificatore orizzontale
+  noto su una radice che non lo è, o di genere opposto (`EPSG:4326` su un
+  `LOCAL_CS` o su un `PROJCS` anonimo), verso un bersaglio che terrebbe il solo
+  identificatore — GeoParquet con un WKT, GeoPackage, GeoJSON, KML — è
+  `unsupported` con la ragione `crs_representations_inconsistent`; IPC lo
+  conserva come prima. Prima GeoParquet e GeoPackage scrivevano `EPSG:4326`.
+- **GeoParquet scrive `crs: null`.** Un `missing` si scrive come CRS ignoto, e
+  `GeoParquet -> GeoParquet` di un file `crs: null` riesce (prima
+  `unsupported`). Il catalogo dichiara la nuova capability
+  `crs: "embedded_or_unknown"` per `geoparquet` (prima `embedded`); il
+  dichiarato ma non risolto resta un rifiuto. Il messaggio di `--assume-crs`
+  su un CRS ignoto non dice più che il formato non usa l'opzione.
+- **Tetto, categoria e codifica.** Una definizione IPC oltre 1 MiB è
+  `limit_exceeded` (prima `crs` «non ben formata»); in un GeoPackage UTF-16 il
+  tetto si misura sui byte UTF-8, e una definizione ASCII di 600 KB si legge
+  (prima `limit_exceeded`). Due `GEODATA` uguali a meno del BOM non sono più un
+  conflitto.
+- **Il file si rilegge come la busta lo dichiara (rilettura 11).** Una prova
+  permanente, `rilettura_dei_crs.rs`, converte ogni sorgente verso ogni
+  bersaglio senza GDAL, in due passaggi, e pretende che il file riletto dica
+  ciò che la busta ha dichiarato
+  ([PRODUCT](PRODUCT.md#il-file-si-rilegge-come-la-busta-lo-dichiara)).
+  Cambiano, rispetto a db1307d:
+  - verso GeoParquet `EPSG:4326` senza PROJJSON dichiara
+    `crs_id_not_preserved_absent` (il file si rilegge `OGC:CRS84`; prima
+    `lossless` da un IPC con il solo identificatore, e da un GeoPackage in
+    WGS 84 la sola perdita della definizione);
+  - il PROJJSON di GeoParquet si scrive e si rilegge byte per byte (prima
+    chiavi riordinate e numeri riscritti come `f64`, dichiarati conservati);
+    un PROJJSON senza `id`, con un `id` diverso dall'identificatore o di genere
+    contraddetto, o con spazi ai bordi, è `unsupported` (prima si scriveva un
+    file che non si rileggeva, o che diceva un altro identificatore);
+  - la contraddizione di genere fra identificatore e definizione è
+    `unsupported` verso ogni bersaglio che porta un CRS, tranne IPC e FileGDB:
+    anche GeoParquet con un PROJJSON, Shapefile e DXF (prima scrivevano);
+  - il GeoPackage scrive in `gpkg_spatial_ref_sys.definition` solo un WKT 1:
+    un PROJJSON o un WKT 2 diventano `undefined` e dichiarano
+    `crs_definition_not_preserved_absent` (per `EPSG:4326` resta la riga
+    canonica, `derived`); la riga di `EPSG:4326` porta il WKT 1 del registro
+    EPSG invece di `GEOGCS["WGS 84"]`, e un GeoPackage in WGS 84 convertito in
+    Shapefile si rilegge `EPSG:4326` (prima non risolto);
+  - il GeoPackage rifiuta con `unsupported`, non più `crs`, un CRS senza
+    identificatore, un codice non intero canonico e `OGC:CRS84` (un GeoJSON
+    verso GeoPackage); il DXF con `unsupported`, non più `crs`, un CRS noto per
+    il solo identificatore che non sa scrivere;
+  - verso Shapefile e DXF l'identificatore è `crs_id_not_preserved_derived`
+    solo se il WKT scritto lo restituisce, altrimenti `..._absent` (un `PROJCS`
+    anonimo con identificatore, `OGC:CRS84` che il WKT sintetizzato rilegge
+    `EPSG:4326`); un CRS risolto senza identificatore il cui WKT si
+    rileggerebbe non risolto è `unsupported` (prima `conditional` senza
+    ragioni CRS). Rientra la deviazione «Shapefile, DXF: identificatore dal
+    WKT» della rilettura 10;
+  - il catalogo pubblica `crs_definition: "conditional"` per GeoParquet,
+    Shapefile, DXF e GeoPackage (prima `preserved`, `preserved`, `preserved`,
+    `derived`): il valore è nuovo, ed entra nello schema
+    `plenora-io-catalog-v2`, che da ora enumera anche `crs` e
+    `crs_representations`
+    ([PRODUCT](PRODUCT.md#il-vocabolario-crs-del-catalogo)).
+- **Il file si rilegge come la busta lo dichiara (rilettura 12).** La prova
+  confronta anche stato, grammatica, assi e SRID, parte anche da sorgenti
+  native (GeoPackage alla GDAL, Shapefile con `.prj` CRLF, GeoParquet alla
+  geopandas) e ha un terzo passaggio
+  ([PRODUCT](PRODUCT.md#il-file-si-rilegge-come-la-busta-lo-dichiara)).
+  Cambiano, rispetto a 777c5a1:
+  - un GeoParquet scritto porta in `ARROW:schema` lo stesso `geo` del footer,
+    e non più quello della sorgente né il CRS GeoArrow
+    (`ARROW:extension:metadata`) della colonna geometria: pyarrow leggeva il
+    `geo` della sorgente (`EPSG:4326` per un file che il footer dichiara
+    `EPSG:32632`, `lossless`), e da una sorgente senza `geo` (IPC, GeoPackage,
+    Shapefile, DXF, GeoJSON) non ne leggeva nessuno, così per geopandas il file
+    non era un GeoParquet. I tipi dello schema incorporato non cambiano. Il lettore GeoParquet non
+    lascia più `geo` nei metadati dello schema del contratto, quindi un
+    GeoParquet convertito in IPC non porta un `geo` di schema; da IPC a IPC un
+    `geo` di schema passa com'era (limite dichiarato);
+  - il DXF rilegge la definizione del `GEODATA` tale e quale, con gli spazi ai
+    bordi e un CRLF finale (prima rifilata, con la definizione dichiarata
+    conservata); due `GEODATA` che differiscono solo per gli spazi ai bordi
+    restano un CRS solo;
+  - verso GeoPackage un identificatore con l'autorità minuscola (`epsg:4326`)
+    dichiara `crs_id_not_preserved_derived`: si rilegge `EPSG:4326` (prima
+    dichiarato conservato).
+- **L'epoca delle coordinate e i `geo` discordi (rilettura 13)**
+  ([PRODUCT](PRODUCT.md#lepoca-delle-coordinate-e-i-geo-discordi-rilettura-13)).
+  Cambiano, rispetto a b988e7f:
+  - il writer GeoParquet scrive l'`epoch` della colonna quando il contratto la
+    porta (da un GeoParquet, o dalla chiave nativa
+    `plenora.geometry.native.geoparquet.epoch` di un Arrow IPC), byte per byte;
+    un valore che non è un numero JSON è `schema`. Prima l'epoca spariva in una
+    conversione `lossless`;
+  - **categoria di perdita nuova** sul filo, `crs_coordinate_epoch_not_preserved`
+    (ragione `native_metadata_loss`): la dichiarano tutti i bersagli che non
+    portano l'epoca (tutti tranne GeoParquet e Arrow IPC), e il livello diventa
+    `approximating`;
+  - il valore delle chiavi native `geoparquet.epoch` e `geoparquet.column` è
+    il testo del file, non più riscritto da `serde_json::Value` (`2.0215E3`
+    resta `2.0215E3`, le chiavi della colonna restano nel loro ordine);
+  - il writer GeoParquet non copia nello schema incorporato le chiavi native
+    `geoparquet.*` della sorgente, e il lettore non le prende dallo schema
+    incorporato: le dice solo il `geo` del file;
+  - **ingressi ristretti**: un GeoParquet il cui `geo` dello schema incorporato
+    differisce da quello del footer (come quelli scritti da IO fino a
+    777c5a1), che ha un `geo` solo nello schema incorporato, o che ripete la
+    chiave `geo` con valori diversi, si rifiuta (`crs` se discordano nel CRS
+    della colonna primaria, `schema` altrimenti). Prima si leggeva il footer in
+    silenzio, mentre pyarrow e geopandas leggono l'altro.
+
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
 la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il

@@ -208,10 +208,13 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
     let uscita = dir.path().join("uscita.shp.d");
     let esito = converti("canonico_punti_dbf.geojson", &uscita, &[]);
     assert!(esito.riuscito, "{}", esito.stderr);
+    // `OGC:CRS84` non si rilegge dal `.prj` che il writer sintetizza: quel WKT
+    // si rilegge `EPSG:4326`, un altro identificatore (GEO-005), e va
+    // riportato da fuori. Fino alla rilettura 11 la perdita era `derived`.
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
-        "l'identificatore si rilegge dal .prj che il writer scrive"
+        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        "il .prj sintetizzato si rilegge EPSG:4326, non OGC:CRS84"
     );
     let righe = per_id(&uscita, &[]);
     assert_eq!(
@@ -347,13 +350,83 @@ fn geojson_a_kml_fra_due_crs_fissi_riesce() {
 
 // --- verso e da l'unico formato approssimante -------------------------------
 
+/// La fixture piena in Arrow IPC, con la definizione WKT di EPSG:3003 al posto
+/// del PROJJSON.
+///
+/// Il `GEODATA` del DXF porta un WKT, e le sorgenti canoniche senza righe prive
+/// di geometria -- la sola `canonico_pieno.parquet` -- portano un PROJJSON, che
+/// dalla rilettura 10 il writer rifiuta invece di scriverlo dove non si rilegge.
+/// L'ingresso si deriva quindi dalla fixture: la conversione in IPC e'
+/// lossless, e la definizione che la sostituisce e' quella che il `GeoPackage`
+/// canonico dichiara per lo stesso identificatore, cioe' una che GEO-005
+/// ammette.
+fn pieno_con_definizione_wkt(dir: &std::path::Path) -> std::path::PathBuf {
+    use arrow_ipc::reader::FileReader;
+    use arrow_ipc::writer::FileWriter;
+
+    let ipc = dir.join("pieno.arrow");
+    let esito = converti("canonico_pieno.parquet", &ipc, &[]);
+    assert!(esito.riuscito, "{}", esito.stdout);
+    let gpkg = canonico::cli(&[
+        "inspect",
+        canonico::fixture("canonico.gpkg")
+            .to_str()
+            .expect("percorso rappresentabile"),
+    ]);
+    assert!(gpkg.riuscito, "{}", gpkg.stdout);
+    let wkt = gpkg.documento()["layers"][0]["geometry"]["crs_resolution"]["definition"]
+        .as_str()
+        .expect("il GeoPackage canonico dichiara la definizione")
+        .to_owned();
+    assert!(wkt.starts_with("PROJCS["), "atteso un WKT 1");
+
+    let lettore =
+        FileReader::try_new(std::fs::File::open(&ipc).expect("IPC"), None).expect("IPC leggibile");
+    let schema = lettore.schema();
+    let campi: Vec<arrow_schema::Field> = schema
+        .fields()
+        .iter()
+        .map(|campo| {
+            let mut metadati = campo.metadata().clone();
+            if metadati.contains_key("plenora.geometry.crs_definition") {
+                metadati.insert("plenora.geometry.crs_definition".to_owned(), wkt.clone());
+                metadati.insert(
+                    "plenora.geometry.crs_definition_format".to_owned(),
+                    "wkt".to_owned(),
+                );
+            }
+            campo.as_ref().clone().with_metadata(metadati)
+        })
+        .collect();
+    let nuovo = std::sync::Arc::new(arrow_schema::Schema::new_with_metadata(
+        campi,
+        schema.metadata().clone(),
+    ));
+    let batches: Vec<_> = lettore.map(|batch| batch.expect("batch")).collect();
+    let uscita = dir.join("pieno_wkt.arrow");
+    let mut scrittore =
+        FileWriter::try_new(std::fs::File::create(&uscita).expect("file"), &nuovo).expect("writer");
+    for batch in batches {
+        let batch = arrow_array::RecordBatch::try_new(nuovo.clone(), batch.columns().to_vec())
+            .expect("stesse colonne");
+        scrittore.write(&batch).expect("batch scritto");
+    }
+    scrittore.finish().expect("IPC chiuso");
+    uscita
+}
+
 /// Le geometrie arrivano, gli attributi no, e ciascuno e' dichiarato per nome.
 #[test]
-fn geoparquet_a_dxf_dichiara_ogni_approssimazione() {
+fn ipc_con_wkt_a_dxf_dichiara_ogni_approssimazione() {
     let dir = temporanea();
+    let sorgente = pieno_con_definizione_wkt(dir.path());
     let uscita = dir.path().join("uscita.dxf");
-    let esito = converti("canonico_pieno.parquet", &uscita, &[]);
-    assert!(esito.riuscito, "{}", esito.stderr);
+    let esito = converti(
+        sorgente.to_str().expect("percorso rappresentabile"),
+        &uscita,
+        &[],
+    );
+    assert!(esito.riuscito, "{}", esito.stdout);
     let perdite_misurate = esito.perdite();
     for colonna in [
         "id",
@@ -376,6 +449,39 @@ fn geoparquet_a_dxf_dichiara_ogni_approssimazione() {
         4,
         "la fixture piena porta le quattro righe con geometria"
     );
+    // Il WKT si conserva nel `GEODATA`, e la perdita della definizione non
+    // c'e'; il disegno si rilegge, e l'identificatore viene dal WKT.
+    assert!(
+        !perdite_misurate.contains_key("crs_definition_not_preserved_derived"),
+        "{perdite_misurate:?}"
+    );
+    let riletto = canonico::cli(&["inspect", uscita.to_str().expect("percorso")]);
+    assert!(riletto.riuscito, "{}", riletto.stdout);
+    assert_eq!(
+        riletto.documento()["layers"][0]["geometry"]["crs"],
+        "EPSG:3003"
+    );
+}
+
+/// Un PROJJSON verso il `GEODATA`, che porta un WKT: rifiuto.
+///
+/// Fino alla rilettura 10 la conversione riusciva e scriveva il PROJJSON nel
+/// `GEODATA`, dove nessun lettore lo rilegge -- nemmeno il nostro, nemmeno con
+/// `--assume-crs` -- e la busta diceva solo `crs_id_not_preserved_derived`.
+/// Convertire il PROJJSON in WKT servirebbe un resolver, e il bordo non lo e'.
+#[test]
+fn geoparquet_proiettato_a_dxf_rifiuta_il_projjson() {
+    let dir = temporanea();
+    let uscita = dir.path().join("uscita.dxf");
+    let esito = converti("canonico_pieno.parquet", &uscita, &[]);
+    assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
+    assert_eq!(esito.errore()["category"], "unsupported");
+    assert!(
+        esito.messaggio().contains("il GEODATA porta un WKT"),
+        "atteso il rifiuto sulla grammatica, arrivato «{}»",
+        esito.messaggio()
+    );
+    assert!(!uscita.exists(), "nessun file pubblicato");
 }
 
 /// Il verso di ritorno: cio' che esce e' cio' che il DXF aveva conservato.
@@ -519,11 +625,15 @@ fn geojson_con_nome_lungo_a_shp_rifiuta_invece_di_troncare() {
 }
 
 /// Una riga senza geometria verso un formato di disegno.
+///
+/// La sorgente e' il `GeoPackage` canonico, che porta la definizione in WKT: il
+/// `GeoParquet` canonico porta un PROJJSON, e dalla rilettura 10 il DXF lo
+/// rifiuta prima di arrivare alle righe.
 #[test]
-fn geoparquet_con_riga_senza_geometria_a_dxf_rifiuta_la_riga() {
+fn gpkg_con_riga_senza_geometria_a_dxf_rifiuta_la_riga() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.dxf");
-    let esito = converti("canonico.parquet", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &[]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     let errore = esito.errore();
     let diagnostica = &errore["details"]["row_diagnostics"];

@@ -17,6 +17,8 @@ pub use geometry::{wkb_from_gj_value, write_geo_geojson};
 // La deserializzazione limitata durante il parse (S12): usata da qui,
 // non esposta. Il confine pubblico resta la lettura del dataset.
 pub(crate) mod geometria_progressiva;
+// Il membro `crs` di GeoJSON 2008: ammesso solo se nomina WGS84.
+pub(crate) mod crs_storico;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -175,7 +177,7 @@ impl FormatDriver for GeoJsonDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GeoJsonDataset {
                 path,
                 quote,
@@ -188,7 +190,7 @@ impl FormatDriver for GeoJsonDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -538,6 +540,10 @@ impl<'de> Visitor<'de> for TagVisitor {
     }
 }
 
+/// Una chiave del `FeatureCollection` che compare due volte.
+const CHIAVE_TOP_RIPETUTA: PublicMessage =
+    PublicMessage::Curated("chiave ripetuta al livello top del FeatureCollection GeoJSON");
+
 /// Livello top: `FeatureCollection`; interessa solo la chiave "features".
 struct TopVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
@@ -559,6 +565,14 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
         let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
+                // Una chiave ripetuta al livello top: due `features` si
+                // concatenavano, e il documento non dice quale valga.
+                "type" | "features"
+                    if (key == "type" && type_observed.is_some())
+                        || (key == "features" && features_observed) =>
+                {
+                    return Err(self.accs.ferma(err(&CHIAVE_TOP_RIPETUTA)));
+                }
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {
@@ -571,6 +585,11 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
                 "features" => {
                     map.next_value_seed(FeaturesSeed { accs: self.accs })?;
                     features_observed = true;
+                }
+                "crs" => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.accs.ferma(crs_storico::rifiuto()));
+                    }
                 }
                 _ => {
                     map.next_value::<IgnoredAny>()?;
@@ -660,6 +679,11 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                     type_observed = Some(value);
                 }
                 FeatKey::Geom => map.next_value_seed(TipoGeometricoSeed { accs: self.accs })?,
+                FeatKey::Crs => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.accs.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -905,6 +929,12 @@ impl<'de> Visitor<'de> for TopSink<'_> {
         let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
+                "type" | "features"
+                    if (key == "type" && type_observed)
+                        || (key == "features" && features_observed) =>
+                {
+                    return Err(self.sink.ferma(err(&CHIAVE_TOP_RIPETUTA)));
+                }
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {
@@ -917,6 +947,11 @@ impl<'de> Visitor<'de> for TopSink<'_> {
                 "features" => {
                     map.next_value_seed(FeaturesSink { sink: self.sink })?;
                     features_observed = true;
+                }
+                "crs" => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.sink.ferma(crs_storico::rifiuto()));
+                    }
                 }
                 _ => {
                     map.next_value::<IgnoredAny>()?;
@@ -1084,6 +1119,11 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                     map.next_value_seed(PropsSink { sink: self.sink })?;
                     props_seen = true;
                 }
+                FeatKey::Crs => {
+                    if !map.next_value_seed(crs_storico::CrsStorico)? {
+                        return Err(self.sink.ferma(crs_storico::rifiuto()));
+                    }
+                }
                 FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
@@ -1150,6 +1190,8 @@ enum FeatKey {
     /// controllarne il valore e rifiutare Feature con `type` diverso o
     /// mancante.
     Type,
+    /// Il membro `crs` di `GeoJSON` 2008 (vedi [`crs_storico`]).
+    Crs,
     Other,
 }
 struct FeatKeySeed;
@@ -1169,6 +1211,7 @@ impl Visitor<'_> for FeatKeySeed {
             "geometry" => FeatKey::Geom,
             "properties" => FeatKey::Props,
             "type" => FeatKey::Type,
+            "crs" => FeatKey::Crs,
             _ => FeatKey::Other,
         })
     }
@@ -1222,6 +1265,10 @@ impl<'de> Visitor<'de> for TipoGeometricoSeed<'_> {
                 // la propria diagnostica di riga.
                 if let Some(tipo) = GeometryType::from_canonical_name(&nome.to_ascii_lowercase()) {
                     self.accs.tipi_geometrici.insert(tipo);
+                }
+            } else if chiave == "crs" {
+                if !map.next_value_seed(crs_storico::CrsStorico)? {
+                    return Err(self.accs.ferma(crs_storico::rifiuto()));
                 }
             } else {
                 map.next_value::<IgnoredAny>()?;
@@ -1421,12 +1468,13 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     // con le quote della produzione mentre gira con un tetto per cella cento
     // volte piu' stretto.
     //
-    // La profondita' e' 32 e non 64, e la ragione e' misurata: `serde_json` ha
-    // un limite di ricorsione suo, 128 livelli JSON, e ogni livello GeoJSON ne
-    // costa due -- l'oggetto e la sua lista. Oltre i sessantadue livelli e'
-    // **lui** a rifiutare, quindi con il tetto di produzione il nostro non
-    // morderebbe mai e la campagna non lo eserciterebbe. A 32 morde per primo,
-    // ed e' cio' che un input ostile deve incontrare.
+    // La profondita' e' 32, come in produzione dalla 6.0 (GEO-011), e la
+    // ragione per cui lo era gia' prima e' misurata: `serde_json` ha un limite
+    // di ricorsione suo, 128 livelli JSON, e ogni livello GeoJSON ne costa due
+    // -- l'oggetto e la sua lista. Oltre i sessantadue livelli e' **lui** a
+    // rifiutare, quindi con il vecchio tetto di produzione (64) il nostro non
+    // mordeva mai. A 32 morde per primo, ed e' cio' che un input ostile deve
+    // incontrare.
     let quote = QuoteInferenza {
         cella: WkbLimits {
             max_cell_bytes: 1_048_576,

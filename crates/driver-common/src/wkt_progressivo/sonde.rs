@@ -287,6 +287,7 @@ fn accetta_esattamente_cio_che_accettava_il_parser_precedente() {
     let mut concordi = 0_usize;
     let mut solo_per_i_tetti = 0_usize;
     let mut piu_stretti = 0_usize;
+    let mut per_geo_011 = 0_usize;
     for testo in &corpus {
         let prima = super::adattatore_storico::analizza_come_prima(testo);
         let dopo = crate::wkt_lossless::parse_wkt_bounded(testo, &limiti);
@@ -296,6 +297,19 @@ fn accetta_esattamente_cio_che_accettava_il_parser_precedente() {
                 concordi += 1;
             }
             (Err(_), Err(_)) => concordi += 1,
+            (Ok(prima), Err(_))
+                if plenora_io_model::wkb::encode_wkb(
+                    &prima,
+                    plenora_io_model::wkb::WkbFlavor::Iso,
+                )
+                .is_err() =>
+            {
+                // La terza regola ammessa: la geometria che il parser
+                // precedente accettava e' malformata per GEO-011, e lo dice
+                // l'encoder, che e' dove la regola sta. Prima passava l'analisi
+                // e cadeva alla codifica.
+                per_geo_011 += 1;
+            }
             (Ok(_), Err(errore)) => {
                 let per_un_tetto = errore.code == plenora_io_model::IoErrorCode::LimitExceeded;
                 assert!(
@@ -319,7 +333,7 @@ fn accetta_esattamente_cio_che_accettava_il_parser_precedente() {
              la decisione sul testo residuo va ripresa"
     );
     assert_eq!(
-        concordi + solo_per_i_tetti + piu_stretti,
+        concordi + solo_per_i_tetti + piu_stretti + per_geo_011,
         corpus.len(),
         "ogni caso deve ricadere in una delle righe della regola"
     );

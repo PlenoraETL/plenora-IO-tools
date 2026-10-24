@@ -52,9 +52,10 @@ fn invalid_metadata_is_rejected_without_partial_mutation() {
     let mut geometry = contract();
     let original = geometry.clone();
 
+    // REJ-001: un difetto di vocabolario e' `schema`, mai `invalid_plan`.
     assert!(matches!(
         read_geometry_contract_metadata(&field, &mut geometry),
-        Err(error) if error.category == crate::ErrorCategory::InvalidPlan
+        Err(error) if error.category == crate::ErrorCategory::Schema
     ));
     assert_eq!(geometry.encoding, original.encoding);
     assert_eq!(geometry.precision, original.precision);
@@ -73,8 +74,70 @@ fn invalid_srid_and_geometry_types_are_rejected() {
     ] {
         assert!(matches!(
             read_geometry_contract_metadata(&field, &mut contract()),
-            Err(error) if error.category == crate::ErrorCategory::InvalidPlan
+            Err(error) if error.category == crate::ErrorCategory::Schema
         ));
+    }
+}
+
+/// REJ-001: ogni difetto di una chiave CRS e' `crs`, anche quando lo trova la
+/// lettura dei metadati e non il vocabolario.
+#[test]
+fn i_difetti_delle_chiavi_crs_sono_crs() {
+    let campo = |coppie: &[(&str, &str)]| {
+        Field::new("geometry", DataType::Binary, true).with_metadata(
+            coppie
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect::<HashMap<_, _>>(),
+        )
+    };
+    for field in [
+        campo(&[(PLENORA_CRS_RESOLUTION_KEY, "forse")]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+        ]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+            (PLENORA_AXIS_ORDER_KEY, "nord_est"),
+        ]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+            (PLENORA_AXIS_ORDER_KEY, "lon_lat"),
+            (PLENORA_CRS_DEFINITION_FORMAT_KEY, "wkt"),
+        ]),
+    ] {
+        let Err(errore) = read_geometry_contract_metadata(&field, &mut contract()) else {
+            panic!("un difetto CRS deve essere rifiutato");
+        };
+        assert_eq!(errore.category, crate::ErrorCategory::Crs);
+    }
+}
+
+/// ARROW-001 e ARROW-002: una versione malformata e' `schema`, una ben formata
+/// e non supportata `unsupported`.
+#[test]
+fn la_versione_si_classifica_come_in_rej_001() {
+    let schema = |versione: &str| {
+        arrow_schema::Schema::new_with_metadata(
+            Vec::<Field>::new(),
+            HashMap::from([(PLENORA_CONTRACT_VERSION_KEY.to_owned(), versione.to_owned())]),
+        )
+    };
+    assert!(validate_contract_version(&schema("1")).is_ok());
+    for (versione, attesa) in [
+        ("2", crate::ErrorCategory::Unsupported),
+        ("10", crate::ErrorCategory::Unsupported),
+        ("01", crate::ErrorCategory::Schema),
+        ("1.0", crate::ErrorCategory::Schema),
+        ("", crate::ErrorCategory::Schema),
+    ] {
+        let Err(errore) = validate_contract_version(&schema(versione)) else {
+            panic!("{versione:?} deve essere rifiutata");
+        };
+        assert_eq!(errore.category, attesa, "{versione:?}");
     }
 }
 
@@ -125,16 +188,15 @@ fn geometry_type_metadata_uses_canonical_names_without_separators() {
 
 #[test]
 fn emits_and_reads_complete_crs_and_type_contract() {
-    let mut geometry = GeometryColumnContract::wkb_xy(
-        FieldId(17),
-        "geometry",
-        ResolvedCrs::new(
-            Some("EPSG:4326".to_owned()),
-            crate::crs::CrsKind::Geographic,
-            Some("GEOGCRS[\"WGS 84\"]".to_owned()),
-        ),
-        true,
+    // L'ordine lo dichiara il produttore (GEO-002): il costruttore non lo
+    // deduce piu' dall'identificatore, e la prova lo fissa a mano.
+    let mut crs = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        crate::crs::CrsKind::Geographic,
+        Some("GEOGCRS[\"WGS 84\"]".to_owned()),
     );
+    crs.axis_order = AxisOrder::LatitudeLongitude;
+    let mut geometry = GeometryColumnContract::wkb_xy(FieldId(17), "geometry", crs, true);
     geometry.geometry_types = vec![GeometryType::Point];
     geometry.types_declaration = TypesDeclaration::Exact;
     let field =
@@ -271,8 +333,14 @@ fn unresolved_crs_roundtrips_with_authority_only() {
     assert_eq!(decoded.crs, geometry.crs);
 }
 
+/// Uno SRID da solo non e' una dichiarazione di CRS: `declared_unresolved`
+/// chiede `crs_id` o `crs_definition` (ARROW-VOCABULARY-1.0, sezione 4). Il
+/// lettore dei metadati la accettava e la faceva viaggiare, mentre la verifica
+/// del vocabolario la rifiuta: le due strade davano due risposte allo stesso
+/// campo, e quella che passa per `geometry_contracts_for_validation` -- un
+/// piano senza contratto geometrico esplicito -- non incontra la verifica.
 #[test]
-fn unresolved_crs_roundtrips_with_srid_only_without_synthesis() {
+fn unresolved_crs_with_srid_only_is_rejected() {
     let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
         (
             PLENORA_CRS_RESOLUTION_KEY.to_owned(),
@@ -282,32 +350,7 @@ fn unresolved_crs_roundtrips_with_srid_only_without_synthesis() {
     ]));
     let mut geometry = contract();
 
-    read_geometry_contract_metadata(&field, &mut geometry).unwrap();
-
-    assert_eq!(geometry.srid, Some(4326));
-    let raw = geometry.crs.raw().unwrap();
-    assert_eq!(raw.authority_hint, None);
-    assert_eq!(raw.definition, None);
-    assert_eq!(raw.definition_format, None);
-    assert_eq!(raw.axis_order, AxisOrder::Unknown);
-
-    let emitted =
-        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), &geometry);
-    assert_eq!(
-        emitted.metadata().get(PLENORA_SRID_KEY).map(String::as_str),
-        Some("4326")
-    );
-    for key in [
-        PLENORA_CRS_ID_KEY,
-        PLENORA_CRS_DEFINITION_KEY,
-        PLENORA_CRS_DEFINITION_FORMAT_KEY,
-        PLENORA_AXIS_ORDER_KEY,
-    ] {
-        assert!(
-            !emitted.metadata().contains_key(key),
-            "chiave sintetizzata: {key}"
-        );
-    }
+    assert!(read_geometry_contract_metadata(&field, &mut geometry).is_err());
 }
 
 #[test]
@@ -372,4 +415,88 @@ fn unresolved_crs_without_any_declaration_is_rejected() {
     ]));
 
     assert!(read_geometry_contract_metadata(&field, &mut contract()).is_err());
+}
+
+fn crs_risolto_da_metadati(
+    id: Option<&str>,
+    definizione: Option<&str>,
+    asse: &str,
+) -> crate::Result<CrsResolution> {
+    let mut metadati = HashMap::from([
+        (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+        (PLENORA_AXIS_ORDER_KEY.to_owned(), asse.to_owned()),
+    ]);
+    if let Some(id) = id {
+        metadati.insert(PLENORA_CRS_ID_KEY.to_owned(), id.to_owned());
+    }
+    if let Some(definizione) = definizione {
+        metadati.insert(
+            PLENORA_CRS_DEFINITION_KEY.to_owned(),
+            definizione.to_owned(),
+        );
+        metadati.insert(
+            PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
+            "wkt".to_owned(),
+        );
+    }
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadati);
+    let mut geometry = contract();
+    read_geometry_contract_metadata(&field, &mut geometry)?;
+    Ok(geometry.crs)
+}
+
+/// Rilettura 9, punto 6b: il genere riletto dall'IPC segue la regola comune
+/// dei driver, non l'ordine degli assi. Su b4d8064 un `EPSG:3031` polare
+/// (assi `other`), proiettato per lo Shapefile, si rileggeva ignoto.
+#[test]
+fn il_genere_riletto_segue_la_regola_comune() {
+    use crate::crs::CrsKind;
+    let genere = |id, definizione, asse| {
+        crs_risolto_da_metadati(id, definizione, asse)
+            .expect("metadati validi")
+            .as_resolved()
+            .map(|crs| crs.kind)
+    };
+    let polare = r#"PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84"],PROJECTION["Polar_Stereographic"],AUTHORITY["EPSG","3031"]]"#;
+    assert_eq!(
+        genere(Some("EPSG:3031"), Some(polare), "other"),
+        Some(CrsKind::Projected)
+    );
+    // Senza definizione e con un identificatore ignoto decide ancora l'ordine.
+    assert_eq!(
+        genere(Some("EPSG:3003"), None, "easting_northing"),
+        Some(CrsKind::Projected)
+    );
+    assert_eq!(
+        genere(Some("EPSG:3003"), None, "other"),
+        Some(CrsKind::Unknown)
+    );
+    // Con una definizione, l'ordine non sceglie al posto della radice.
+    assert_eq!(
+        genere(
+            Some("EPSG:3003"),
+            Some(r#"GEOCCS["x"]"#),
+            "easting_northing"
+        ),
+        Some(CrsKind::Unknown)
+    );
+    // Identificatore e radice discordi: ignoto, mai uno dei due.
+    assert_eq!(
+        genere(Some("EPSG:4326"), Some(r#"PROJCS["x"]"#), "lon_lat"),
+        Some(CrsKind::Unknown)
+    );
+}
+
+/// Rilettura 9, punto 3: la definizione di un metadato Arrow ha lo stesso
+/// tetto delle altre, `limit_exceeded` e non «malformata».
+#[test]
+fn la_definizione_di_un_metadato_ha_il_tetto_comune() {
+    let mut lunga = String::from(r#"GEOGCS["x""#);
+    while lunga.len() <= crate::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
+        lunga.push_str(",1");
+    }
+    lunga.push(']');
+    let errore = crs_risolto_da_metadati(Some("EPSG:4326"), Some(&lunga), "lon_lat").unwrap_err();
+    assert_eq!(errore.category, crate::ErrorCategory::ResourceLimit);
+    assert_eq!(errore.field.as_deref(), Some("geometry"));
 }

@@ -58,7 +58,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -140,7 +140,7 @@ pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
-const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+pub const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("shp", reason)
@@ -612,9 +612,16 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // non viene scritto niente da cui ricavarlo.
             CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
                 synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+                synthesized_wkt: WGS84_WKT,
             }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
+        )
+        // Il `.prj` conserva il WKT; un PROJJSON e' sostituito dal WKT che il
+        // writer sintetizza per l'identificatore, o la scrittura si rifiuta.
+        .verbatim_solo(
+            GRAMMATICHE_DEL_PRJ,
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
@@ -689,7 +696,7 @@ impl FormatDriver for ShpDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(ShpDataset {
                 path,
                 cols,
@@ -707,7 +714,7 @@ impl FormatDriver for ShpDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -792,7 +799,7 @@ impl FormatDriver for ShpDriver {
                 publish_mode,
                 attrs,
                 geom_idx,
-                prj: resolve_prj(layer, schema, geom_idx),
+                prj: resolve_prj(layer, schema, geom_idx)?,
                 shape_type: None,
                 rows: 0,
                 input_total: None,
@@ -1498,17 +1505,43 @@ fn wkt_for_id(id: Option<&str>) -> Option<String> {
         .map(|_| WGS84_WKT.to_owned())
 }
 
+/// Il testo del `.prj`, se ce n'e' uno da scrivere.
+///
+/// Il `.prj` e' WKT: una definizione WKT si scrive tale e quale, una in
+/// un'altra grammatica (PROJJSON) no. Fino alla rilettura 10 un PROJJSON finiva
+/// nel `.prj` cosi' com'era, e il file non si rileggeva piu' (il lettore lo
+/// rifiuta come WKT malformato) mentre la conversione riusciva. Ora, per un
+/// identificatore di cui il writer sa sintetizzare il WKT, la definizione e'
+/// sostituita e la perdita e' dichiarata (`crs_definition_not_preserved_derived`,
+/// dalla capability); per ogni altro e' un rifiuto.
+///
+/// # Errors
+///
+/// `unsupported` se la definizione non e' WKT e l'identificatore non e' fra
+/// quelli sintetizzabili.
 fn resolve_prj(
     layer: &plenora_io_core::WriteLayer,
     schema: &Schema,
     geom_idx: usize,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if let Some(g) = &layer.contract.geometry {
         if let Some(def) = g.crs.definition() {
-            return Some(def.to_owned());
+            let grammatica = g.resolved_crs().and_then(|crs| crs.definition_format);
+            if GRAMMATICHE_DEL_PRJ
+                .iter()
+                .any(|ammessa| grammatica == Some(*ammessa))
+            {
+                return Ok(Some(def.to_owned()));
+            }
+            return wkt_for_id(g.crs.id()).map(Some).ok_or_else(|| {
+                PlenoraIoError::non_supportato_redatto(&PublicMessage::Curated(
+                    "Shapefile: il .prj porta un WKT, e la definizione del CRS e' in un'altra \
+                     grammatica che il writer non sa convertire",
+                ))
+            });
         }
         if let Some(wkt) = wkt_for_id(g.crs.id()) {
-            return Some(wkt);
+            return Ok(Some(wkt));
         }
     }
     let id = schema
@@ -1516,33 +1549,109 @@ fn resolve_prj(
         .metadata()
         .get(GEO_CRS_KEY)
         .map(String::as_str);
-    wkt_for_id(id)
+    Ok(wkt_for_id(id))
 }
+
+/// Le grammatiche che il `.prj` porta tali e quali: il WKT, in una delle due
+/// versioni che il lettore legge.
+const GRAMMATICHE_DEL_PRJ: &[CrsDefinitionFormat] =
+    &[CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2];
 
 // --- lettura: helpers ------------------------------------------------------
 
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     let prj = path.with_extension("prj");
-    if let Ok(wkt) = std::fs::read_to_string(&prj) {
-        let id = opts
-            .assume_crs
-            .clone()
-            .or_else(|| authority_id_from_wkt(&wkt));
+    if let Some(wkt) = leggi_prj(&prj)? {
+        let assunta = opts.assume_crs.as_deref();
+        // Il `.prj` che e' soltanto il nome `OGC:CRS84` lo dichiara; l'opzione
+        // lo puo' solo ripetere, e l'identificatore ha la grafia canonica. Il
+        // nome non e' una definizione WKT, e non si emette come tale: fino al
+        // 24/10 usciva come definizione `wkt`, che `io.read` emetteva e la
+        // conversione in IPC rifiutava (GEO-005).
+        if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
+            if assunta.is_some_and(|assunta| {
+                !plenora_io_model::crs::stesso_identificatore(assunta, "OGC:CRS84")
+            }) {
+                return Err(contraddice_il_prj());
+            }
+            return Ok(ResolvedCrs::wgs84());
+        }
+        // Ogni altro `.prj` e' una definizione WKT, e l'identificatore lo
+        // decide la regola unica del modello, la stessa del DXF: radice letta
+        // con il lettore stretto, dichiarazioni con l'una e l'altra parola
+        // chiave, `BOUNDCRS`, forma ESRI di WGS 84 (docs/PRODUCT.md, «tutti:
+        // identificatore di radice di un WKT»). Un `.prj` malformato e' un
+        // errore anche per `io.inspect`, che prima riportava un identificatore
+        // che `io.read` poi rifiutava.
+        let id = plenora_io_model::crs_definizione::identificatore_wkt(&wkt, assunta)
+            .map_err(|rifiuto| rifiuto.errore("shp"))?;
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
         };
-        let kind = crs_kind(&id, Some(&wkt));
-        return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
+        // Il genere dalla radice della definizione, con la regola comune dei
+        // driver: `EPSG:4326` nominato su un `PROJCS` anonimo e' un rifiuto.
+        let kind = plenora_io_model::crs::crs_kind_for(Some(&id), Some(&wkt), "shp")?;
+        // Lo Shapefile memorizza x poi y, e x e' easting o longitudine:
+        // l'ordine viene dal formato, non dal registro (GEO-002).
+        return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)).stored_east_first());
     }
-    opts.assume_crs.as_ref().map_or_else(
-        || {
-            Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "Shapefile senza .prj: fornire --assume-crs",
-            )))
-        },
-        |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
-    )
+    let Some(id) = opts.assume_crs.as_deref() else {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile senza .prj: fornire --assume-crs",
+        )));
+    };
+    let kind = plenora_io_model::crs::crs_kind_for(Some(id), None, "shp")?;
+    Ok(ResolvedCrs::new(Some(id.to_owned()), kind, None).stored_east_first())
+}
+
+/// Il testo del `.prj`, oppure `None` se il file non c'e'.
+///
+/// Fino al 24/10 ogni errore di lettura valeva assenza: un `.prj` che non e'
+/// UTF-8 (un nome Latin-1) o che non si apre spariva, e `--assume-crs`
+/// nominava il CRS che il file dichiarava, qualunque fosse. Solo l'assenza e'
+/// assenza; il resto e' un errore `crs`. Il file si legge fino al tetto
+/// [`MAX_BYTE_DEFINIZIONE_CRS`](plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS)
+/// piu' un byte: fino al 24/10 si leggeva intero, qualunque ne fosse la
+/// dimensione.
+///
+/// # Errors
+///
+/// `crs` se il `.prj` esiste e non si legge come testo UTF-8;
+/// `limit_exceeded` se supera il tetto.
+fn leggi_prj(prj: &Path) -> Result<Option<String>> {
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let non_si_legge = || {
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile: il .prj esiste ma non si legge",
+        ))
+    };
+    let file = match File::open(prj) {
+        Ok(file) => file,
+        Err(errore) if errore.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(non_si_legge()),
+    };
+    let mut byte = Vec::new();
+    file.take(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS) + 1)
+        .read_to_end(&mut byte)
+        .map_err(|_| non_si_legge())?;
+    if byte.len() > MAX_BYTE_DEFINIZIONE_CRS {
+        let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+            "Shapefile: il .prj supera il tetto, byte",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
+        ));
+        errore.driver = Some("shp".to_owned());
+        return Err(errore);
+    }
+    // Un BOM iniziale non fa parte del WKT: si toglie, e la definizione
+    // emessa e' quella senza.
+    String::from_utf8(byte)
+        .map(|testo| Some(plenora_io_model::crs_definizione::senza_bom(testo)))
+        .map_err(|_| {
+            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "Shapefile: il .prj non e' testo UTF-8",
+            ))
+        })
 }
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
@@ -1553,42 +1662,10 @@ fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     })
 }
 
-fn authority_id_from_wkt(wkt: &str) -> Option<String> {
-    let upper = wkt.to_ascii_uppercase();
-    if upper.trim() == "OGC:CRS84" {
-        return Some("OGC:CRS84".to_owned());
-    }
-    // Il writer Shapefile emette questa forma ESRI WKT1 canonica, che non
-    // contiene AUTHORITY ma identifica senza ambiguità WGS 84.
-    if upper.contains("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\"") {
-        return Some("EPSG:4326".to_owned());
-    }
-    let epsg = upper.rfind("\"EPSG\"")?;
-    let tail = &upper[epsg + "\"EPSG\"".len()..];
-    let start = tail.find(char::is_numeric)?;
-    let code: String = tail[start..]
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
-    (!code.is_empty()).then(|| format!("EPSG:{code}"))
-}
-
-fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {
-    let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if definition.contains("PROJCS[")
-        || definition.contains("PROJCRS[")
-        || id.eq_ignore_ascii_case("EPSG:3857")
-    {
-        CrsKind::Projected
-    } else if id.eq_ignore_ascii_case("OGC:CRS84")
-        || id.eq_ignore_ascii_case("EPSG:4326")
-        || definition.contains("GEOGCS[")
-        || definition.contains("GEOGCRS[")
-    {
-        CrsKind::Geographic
-    } else {
-        CrsKind::Unknown
-    }
+fn contraddice_il_prj() -> PlenoraIoError {
+    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+        "Shapefile: --assume-crs contraddice il CRS del .prj",
+    ))
 }
 
 fn dbf_numeric_integer_precision_unverifiable(value: &FieldValue) -> bool {

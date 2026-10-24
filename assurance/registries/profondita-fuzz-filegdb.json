@@ -102,9 +102,9 @@
       "segmenti": [
         "gdal",
         "Dataset",
-        "open"
+        "open_ex"
       ],
-      "perche": "il fork governato di `gdal`, cioe' l'unica parte del percorso GDAL che la copertura sa contare. Che sia coperto dice che il confine e' stato attraversato; cio' che c'e' oltre non e' strumentato."
+      "perche": "il fork governato di `gdal`, cioe' l'unica parte del percorso GDAL che la copertura sa contare. Che sia coperto dice che il confine e' stato attraversato; cio' che c'e' oltre non e' strumentato. Dalla 6.0.0 il driver apre con `Dataset::open_ex` limitato a OpenFileGDB (una directory `.gdb` di CSV non si apre col driver CSV di GDAL): il segmento segue la chiamata, il requisito resta lo stesso."
     }
   ],
   "righe": [

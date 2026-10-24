@@ -1228,6 +1228,7 @@ fn concurrency_budget_is_acquired_before_reader_creation() {
         }),
         budget,
         physical_row_indices_attestable: true,
+        rifiuti: BTreeMap::new(),
     };
     let request = crate::request::ReadRequest {
         layer: LayerId(0),
@@ -1784,14 +1785,17 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
     };
     let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
 
-    let dataset = with_read_budget(
+    let dataset = match with_read_budget(
         Box::new(CountingDataset {
             layers: vec![validating_contract()],
             opens: Arc::new(AtomicUsize::new(0)),
         }),
         &opts,
         true,
-    );
+    ) {
+        Ok(dataset) => dataset,
+        Err(error) => unreachable!("nessun --assume-crs da confrontare: {error:?}"),
+    };
 
     // Il posto del pool e' libero prima, occupato durante.
     let posto = match pool_lease(&pool) {
@@ -1805,6 +1809,50 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
         pool_lease(&pool).is_err(),
         "il reader deve tenere la quota di concorrenza del context collegato"
     );
+}
+
+/// Uno schema con due campi che portano il nome della colonna geometrica. Il
+/// contratto nomina la geometria per nome, e ogni ricerca per nome (la
+/// validazione dei batch, il conteggio dei componenti, l'esempio di perdita)
+/// trovava la prima occorrenza: un IPC con un `g` binario qualunque prima del
+/// `g` `GeoArrow` validava il campo sbagliato, e un `GeoParquet` con due
+/// `geometry` ne esponeva due. Il nome e' ambiguo e l'apertura si rifiuta.
+#[test]
+fn with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geometry", DataType::Binary, true),
+        Field::new("geometry", DataType::Binary, true),
+    ]));
+    let layer = LayerContract {
+        id: LayerId(0),
+        name: "values".to_owned(),
+        contract: DataContract::new(
+            schema,
+            Some(GeometryColumnContract::wkb_xy(
+                FieldId(1),
+                "geometry",
+                CrsResolution::Missing,
+                true,
+            )),
+        ),
+    };
+    let bundle = match PipelineBudget::builder().build() {
+        Ok(bundle) => bundle,
+        Err(error) => unreachable!("bundle di test: {error:?}"),
+    };
+    let esito = with_read_budget(
+        Box::new(CountingDataset {
+            layers: vec![layer],
+            opens: Arc::new(AtomicUsize::new(0)),
+        }),
+        &crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts()),
+        true,
+    );
+    let Err(errore) = esito else {
+        unreachable!("un nome geometrico ripetuto non deve aprire il dataset");
+    };
+    assert_eq!(errore.category, ErrorCategory::Schema, "{errore:?}");
+    assert!(!errore.message.contains("geometry"), "{}", errore.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -1946,4 +1994,66 @@ fn without_a_deadline_the_reservation_overflow_stays_a_limit() {
         plenora_io_model::ErrorCategory::ResourceLimit,
         "{errore:?}"
     );
+}
+
+/// GEO-005 e GEO-020 sul CRS che il driver emette, per ogni driver: su c0e84cb
+/// `io.read` e `io.inspect` emettevano una definizione malformata o che
+/// contraddice `crs_id`, o un catalogo locale risolto, e solo la scrittura IPC
+/// li rifiutava. Una definizione
+/// ben formata e concorde apre come prima.
+#[test]
+fn with_read_budget_rifiuta_una_definizione_che_geo_005_rifiuta() {
+    use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+    let apri = |id: &str, definizione: &str| {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )]));
+        let crs = ResolvedCrs::new(
+            Some(id.to_owned()),
+            CrsKind::Unknown,
+            Some(definizione.to_owned()),
+        );
+        let layer = LayerContract {
+            id: LayerId(0),
+            name: "values".to_owned(),
+            contract: DataContract::new(
+                schema,
+                Some(GeometryColumnContract::wkb_xy(
+                    FieldId(0),
+                    "geometry",
+                    CrsResolution::Resolved(crs),
+                    true,
+                )),
+            ),
+        };
+        let bundle = match PipelineBudget::builder().build() {
+            Ok(bundle) => bundle,
+            Err(error) => unreachable!("bundle di test: {error:?}"),
+        };
+        with_read_budget(
+            Box::new(CountingDataset {
+                layers: vec![layer],
+                opens: Arc::new(AtomicUsize::new(0)),
+            }),
+            &crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts()),
+            true,
+        )
+    };
+    for (id, definizione) in [
+        ("EPSG:3003", "EPSG:3003"),
+        ("EPSG:4326", r#"GEOGCS["x""#),
+        ("EPSG:4326", r#"GEOGCS["x",AUTHORITY["EPSG","4258"]]"#),
+        // GEO-020: un catalogo locale non si dichiara risolto (la riga
+        // `organization = 'POSTGIS'` di un `GeoPackage`).
+        ("POSTGIS:4326", r#"GEOGCS["x"]"#),
+    ] {
+        let Err(errore) = apri(id, definizione) else {
+            unreachable!("{definizione}: una definizione che GEO-005 rifiuta e' stata aperta");
+        };
+        assert_eq!(errore.category, ErrorCategory::Crs, "{definizione}");
+        assert!(!errore.message.contains("4258"), "{}", errore.message);
+    }
+    assert!(apri("EPSG:4326", r#"GEOGCS["x",AUTHORITY["EPSG","4326"]]"#).is_ok());
 }

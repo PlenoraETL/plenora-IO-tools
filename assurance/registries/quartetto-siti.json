@@ -46,6 +46,9 @@
     ]
   },
   "crates/driver-csv/src/lib.rs": {
+    "colonne_geometriche": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
     "create": [
       "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never",
@@ -77,10 +80,18 @@
     ],
     "definition_for_write": [
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never"
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "dxf_contract": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "embedded_crs_definition": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "epsg_from_definition": [
+      "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never"
     ],
     "err": [
@@ -98,6 +109,13 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "resolve_dxf_crs": [
+      "Crs/Validate/Crs/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "resolve_dxf_crs_testuale": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never"
     ],
@@ -151,6 +169,14 @@
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "rifiuta_piu_geometrie": [
+      "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
+  "crates/driver-geojson/src/crs_storico.rs": {
+    "rifiuto": [
+      "Crs/Validate/Crs/Never"
     ]
   },
   "crates/driver-geojson/src/geometria_progressiva.rs": {
@@ -195,15 +221,36 @@
     ],
     "crs_da_scrivere": [
       "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "crs_from": [
       "Crs/Validate/CrsUnresolved/Never"
     ],
+    "documento_da_scrivere": [
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "epoca_da_scrivere": [
+      "Schema/Validate/Schema/Never"
+    ],
     "fmt_err": [
       "DataMapping/Read/Format/Never"
     ],
+    "geo_concordi": [
+      "Schema/Validate/Schema/Never",
+      "Crs/Validate/Crs/Never",
+      "Schema/Validate/Schema/Never"
+    ],
     "geometry_type_label": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "resolve_geometry_and_crs": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "rifiuta_le_altre_geometrie": [
       "Unsupported/Validate/Unsupported/Never"
     ]
   },
@@ -242,18 +289,27 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "crs_for": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/CrsUnresolved/Never"
     ],
     "err": [
       "DataMapping/Read/Format/Never"
     ],
+    "feature_tables": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "layer_crs": [
+      "Crs/Validate/Crs/Never"
+    ],
     "project_gpkg_layer": [
       "InvalidPlan/Validate/Contract/Never"
     ],
     "register_srs": [
+      "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/CrsUnresolved/Never"
+      "Unsupported/Validate/Unsupported/Never",
+      "Crs/Validate/Crs/Never"
     ]
   },
   "crates/driver-ipc/src/lib.rs": {
@@ -266,7 +322,7 @@
       "DataMapping/Read/Format/Never"
     ],
     "open": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "open_layer_reader": [
       "InvalidPlan/Validate/Contract/Never"
@@ -301,6 +357,9 @@
     "byte_dello_staging": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
+    "contraddice_il_prj": [
+      "Crs/Validate/Crs/Never"
+    ],
     "create": [
       "Unsupported/Validate/Unsupported/Never",
       "Conflict/Commit/OutputExists/Never",
@@ -323,6 +382,11 @@
       "esplicito/esplicito/Generic/esplicito",
       "esplicito/esplicito/Generic/esplicito"
     ],
+    "leggi_prj": [
+      "Crs/Validate/Crs/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Crs/Validate/Crs/Never"
+    ],
     "opt_in_loose_mancante": [
       "esplicito/esplicito/Unsupported/esplicito"
     ],
@@ -334,6 +398,9 @@
     "resolve_crs": [
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never"
+    ],
+    "resolve_prj": [
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "resolved_crs_id": [
       "Crs/Validate/Crs/Never"
@@ -369,6 +436,9 @@
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never"
     ],
+    "resolve_geometry": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
     "valida_riferimenti_cella": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
@@ -393,7 +463,7 @@
   },
   "crates/plenora-io-core/src/driver.rs": {
     "geometry_contracts_for_validation": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "leggendo_arrow": [
       "DataMapping/Read/Format/Never"
@@ -465,6 +535,9 @@
     "record_all": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "with_read_budget": [
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-core/src/driver/scrittura_limitata.rs": {
@@ -583,17 +656,68 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-model/src/crs.rs": {
+    "crs_kind_for": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_crs_assunto": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_crs_emesso": [
+      "Crs/Validate/Crs/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/crs_definizione.rs": {
+    "errore": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_dimensione_definizione": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
   "crates/plenora-io-model/src/format_options.rs": {
     "scarto": [
       "esplicito/esplicito/Unsupported/esplicito"
     ]
   },
   "crates/plenora-io-model/src/geometry.rs": {
+    "crs_metadata": [
+      "Crs/Validate/Crs/Never"
+    ],
     "invalid_metadata": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Schema/Validate/Schema/Never"
     ],
     "validate_contract_version": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Unsupported/Validate/Unsupported/Never",
+      "Schema/Validate/Schema/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/vocabolario.rs": {
+    "crs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_schema": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "vocabolario": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-model/src/wkb_lossless.rs": {

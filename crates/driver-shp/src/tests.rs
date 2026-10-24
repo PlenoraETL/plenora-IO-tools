@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 // --- il bundle del fuzzer, e i semi che lo alimentano -----------------
 //
@@ -1547,7 +1548,9 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         .unwrap();
     }
 
-    let mut options = read_opts();
+    // Il `.prj` dichiara EPSG:3003: un `--assume-crs` diverso sarebbe un
+    // conflitto, e l'autorita' del file basta.
+    let mut options = opzioni_lettura();
     options
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
@@ -1609,7 +1612,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         max_rows: 8,
     };
     let attribute_only_dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let mut attribute_only_reader = attribute_only_dataset
         .open_layer_reader(&attribute_only_request)
@@ -1618,7 +1621,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(attribute_rows, 0);
     assert_eq!(attribute_error.row_diagnostics.unwrap().observed_total, 3);
 
-    let mut numeric_key_options = read_opts();
+    let mut numeric_key_options = opzioni_lettura();
     numeric_key_options
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
@@ -1645,7 +1648,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     }
 
     let dataset_without_key = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let mut reader_without_key = dataset_without_key.open_layer_reader(&request).unwrap();
     let (_, error_without_key) = consume_until_error(reader_without_key.as_mut());
@@ -1656,7 +1659,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         .iter()
         .all(|example| example.key.is_none()));
 
-    let mut redacted_options = read_opts();
+    let mut redacted_options = opzioni_lettura();
     redacted_options
         .format_options
         .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
@@ -1675,7 +1678,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(redacted_key.state, RowDiagnosticKeyState::Redacted);
     assert!(redacted_key.value.is_none());
 
-    let mut missing_policy = read_opts();
+    let mut missing_policy = opzioni_lettura();
     missing_policy
         .format_options
         .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
@@ -1688,7 +1691,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         plenora_io_model::ErrorCategory::InvalidConfiguration
     );
 
-    let mut zero_limit = read_opts();
+    let mut zero_limit = opzioni_lettura();
     zero_limit
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "0".to_owned());
@@ -1727,7 +1730,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert!(cancelled.total.is_none());
 
     let partial_dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     truncate_dbf_mid_record(&path, 50);
     let mut partial_reader = partial_dataset.open_layer_reader(&request).unwrap();
@@ -1749,7 +1752,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
 
     overwrite_dbf_ascii_field(&malformed_path, 42, "INT_VALUE", "not-an-integer");
     let malformed_dataset = ShpDriver
-        .open(Source::Path(malformed_path), read_opts())
+        .open(Source::Path(malformed_path), opzioni_lettura())
         .unwrap();
     let mut malformed_reader = malformed_dataset.open_layer_reader(&request).unwrap();
     let (_, malformed_error) = consume_until_error(malformed_reader.as_mut());
@@ -1801,7 +1804,7 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
     // Fault-tail deterministico: il dataset e' inferito quando integro, poi
     // la coda oltre il prefisso richiesto diventa illeggibile.
     let dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     truncate_dbf_mid_record(&path, 200);
     let request = ReadRequest {
@@ -1864,7 +1867,7 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
     let dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let request = ReadRequest {
         scope: ReadScope::AcceptedRows(10),
@@ -1881,7 +1884,9 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     }
     assert_eq!(rows, vec![8, 8]);
 
-    let complete_dataset = ShpDriver.open(Source::Path(path), read_opts()).unwrap();
+    let complete_dataset = ShpDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
     // L'accoppiamento su cui poggia il `field_index` degli esempi: lo schema
     // mette la geometria **davanti** alle colonne DBF, e l'indice pubblicato
     // e' `posizione in cols + 1`. Se l'ordine cambiasse, quegli indici
@@ -1916,7 +1921,11 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
 }
 
 #[test]
-fn prj_authority_is_resolved_and_keeps_epsg_axis_order() {
+/// L'identificatore viene dal `.prj`, l'ordine dal formato: lo Shapefile
+/// memorizza la longitudine prima, e EPSG:4326 qui e' `lon_lat` (GEO-001).
+/// Fino alla 5.x la prova si chiamava `..._keeps_epsg_axis_order` e fissava
+/// `lat_lon`, l'ordine del registro.
+fn prj_authority_is_resolved_and_axis_order_is_the_stored_one() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("roads.shp");
     std::fs::write(
@@ -1929,8 +1938,222 @@ fn prj_authority_is_resolved_and_keeps_epsg_axis_order() {
     assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
     assert_eq!(
         crs.axis_order,
-        plenora_io_model::crs::AxisOrder::LatitudeLongitude
+        plenora_io_model::crs::AxisOrder::LongitudeLatitude
     );
+}
+
+/// Il `.prj` ESRI di WGS 84 non dichiara un'autorita': `EPSG:4326` e' una
+/// deduzione del driver, non una dichiarazione del file. `--assume-crs` e' il
+/// modo di nominare un `.prj` senza autorita', quindi non puo' contraddire una
+/// deduzione: `OGC:CRS84` veniva rifiutato come se il file dicesse altro.
+/// Senza l'opzione la deduzione resta, e con l'opzione vale l'opzione.
+#[test]
+fn assume_crs_nomina_un_prj_esri_che_non_dichiara_autorita() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri.shp");
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+
+    let dedotto = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(dedotto.id.as_deref(), Some("EPSG:4326"));
+
+    for assunto in ["OGC:CRS84", "EPSG:4326"] {
+        let crs = match resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto)) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{assunto}: {errore}"),
+        };
+        assert_eq!(crs.id.as_deref(), Some(assunto), "vale l'opzione");
+    }
+
+    // Lo stesso attraverso l'apertura completa, che porta l'opzione anche al
+    // controllo comune di `with_read_budget`: la deduzione non deve arrivarci
+    // come se il file l'avesse dichiarata.
+    let senza_prj = seme("punti-con-attributi.bundle");
+    let parti = __fuzz_dividi_bundle(&senza_prj).expect("bundle del seme");
+    assert!(parti.prj.is_empty(), "il seme non porta un `.prj`");
+    let mut bundle = senza_prj.clone();
+    bundle.extend_from_slice(WGS84_WKT.as_bytes());
+    for assunto in ["OGC:CRS84", "EPSG:4326"] {
+        let esito = __fuzz_leggi_bundle(&bundle, opzioni_di_campagna().with_assume_crs(assunto));
+        assert!(esito.is_ok(), "{assunto}: {esito:?}");
+    }
+    // Un `.prj` che dichiara davvero l'autorita' resta in conflitto.
+    let mut dichiarato = senza_prj;
+    dichiarato.extend_from_slice(b"GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]]");
+    let errore = __fuzz_leggi_bundle(
+        &dichiarato,
+        opzioni_di_campagna().with_assume_crs("OGC:CRS84"),
+    )
+    .expect_err("un'autorita' dichiarata contraddetta dall'opzione");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Crs,
+        "{errore:?}"
+    );
+}
+
+/// L'opzione nomina un `.prj` senza autorita', non lo sostituisce. Sul WGS 84
+/// ESRI che il driver riconosce ammette solo i due nomi di quel CRS: prima
+/// `EPSG:3003` usciva come identificatore sopra la definizione di WGS 84
+/// geografico. E un'autorita' di radice non EPSG e' dichiarata quanto una EPSG:
+/// `AUTHORITY["ESRI","4265"]` non si rietichetta come `EPSG:4326`.
+#[test]
+fn assume_crs_non_rietichetta_un_prj_riconosciuto_o_dichiarato() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri.shp");
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect_err("EPSG:3003 sopra WGS 84 geografico");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!errore.message.contains("3003"), "{}", errore.message);
+
+    // La stessa forma con gli spazi che la grammatica ammette fuori dalle
+    // virgolette resta riconosciuta: prima ogni opzione passava.
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS [ \"WGS 84\" , DATUM [ \"WGS_1984\" , SPHEROID [ \"WGS 84\" , 6378137 , \
+         298.257223563 ] ] , PRIMEM [ \"Greenwich\" , 0 ] , UNIT [ \"degree\" , \
+         0.0174532925199433 ] ]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect_err("EPSG:3003 sopra WGS 84 geografico scritto con spazi");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS[\"GCS_Monte_Mario\",DATUM[\"D_Monte_Mario\",SPHEROID[\"International_1924\",\
+         6378388.0,297.0]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433],\
+         AUTHORITY[\"ESRI\",\"4265\"]]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326"))
+        .expect_err("EPSG:4326 sopra un'autorita' ESRI dichiarata");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    // Concordi, l'identificatore ha la grafia del file, di qualunque autorita'.
+    match resolve_crs(&path, &opzioni_lettura().with_assume_crs("esri:4265")) {
+        Ok(crs) => assert_eq!(crs.id.as_deref(), Some("ESRI:4265")),
+        Err(errore) => panic!("{errore}"),
+    }
+}
+
+/// Un `.prj` in WKT 2 dichiara come uno in WKT 1: `ID["ESRI",4265]` alla radice
+/// di un `GEOGCRS` non si rietichetta con `--assume-crs EPSG:4326`. Prima la
+/// radice si leggeva solo nella grammatica WKT 1 e, malformata li', l'opzione
+/// passava sopra la definizione di Monte Mario.
+#[test]
+fn assume_crs_non_rietichetta_un_prj_wkt2() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wkt2.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCRS[\"Monte Mario\",DATUM[\"Monte Mario\",ELLIPSOID[\"International 1924\",\
+         6378388,297]],CS[ellipsoidal,2],AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"ESRI\",4265]]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326"))
+        .expect_err("EPSG:4326 sopra un WKT 2 che dichiara ESRI:4265");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
+/// La deduzione ESRI di WGS 84 vale solo se la radice non dichiara niente: con
+/// `AUTHORITY["ESRI","104000"]` il nome e il datum di WGS 84 non fanno di quel
+/// `.prj` un `EPSG:4326`.
+#[test]
+fn la_deduzione_esri_non_scavalca_un_autorita_di_radice() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri-104000.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,\
+         298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433],\
+         AUTHORITY[\"ESRI\",\"104000\"]]",
+    )
+    .unwrap();
+    if let Ok(crs) = resolve_crs(&path, &opzioni_lettura()) {
+        assert_ne!(
+            crs.id.as_deref(),
+            Some("EPSG:4326"),
+            "dedotto sopra la radice"
+        );
+    }
+}
+
+/// Le radici che l'opzione non puo' nominare: un `ID` in un WKT 1 (o un
+/// `AUTHORITY` in un WKT 2), che senza opzione si legge come dichiarazione;
+/// due identificatori di radice diversi; un `BOUNDCRS`, che non ha identita'
+/// propria. Prima l'opzione usciva come identificatore sopra ciascuna.
+#[test]
+fn assume_crs_non_nomina_radici_che_dichiarano_altro_o_niente_di_proprio() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("radici.shp");
+    let casi = [
+        "PROJCS[\"Monte Mario / Italy zone 1\",GEOGCS[\"Monte Mario\",DATUM[\"Monte_Mario\",\
+         SPHEROID[\"International 1924\",6378388,297]],PRIMEM[\"Greenwich\",0],\
+         UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],\
+         UNIT[\"metre\",1],ID[\"EPSG\",3003]]",
+        "PROJCS[\"x\",GEOGCS[\"y\",DATUM[\"z\",SPHEROID[\"s\",6378388,297]],PRIMEM[\"G\",0],\
+         UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],\
+         UNIT[\"metre\",1],AUTHORITY[\"EPSG\",\"3003\"],AUTHORITY[\"EPSG\",\"3004\"]]",
+        "BOUNDCRS[SOURCECRS[GEOGCRS[\"Monte Mario\",DATUM[\"Monte Mario\",\
+         ELLIPSOID[\"International 1924\",6378388,297]],CS[ellipsoidal,2],\
+         AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",4265]]],\
+         TARGETCRS[GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",\
+         ELLIPSOID[\"WGS 84\",6378137,298.257223563]],CS[ellipsoidal,2],\
+         AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",4326]]],\
+         ABRIDGEDTRANSFORMATION[\"t\",METHOD[\"Geocentric translations\"]]]",
+    ];
+    for prj in casi {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        for assunto in ["EPSG:4326", "EPSG:3004"] {
+            let esito = resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto));
+            let errore = match esito {
+                Ok(crs) => panic!("{assunto} accettato come {:?} su {prj}", crs.id),
+                Err(errore) => errore,
+            };
+            assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+        }
+    }
+}
+
+/// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della
+/// radice, non del `GEOGCS` annidato. Prima della correzione questo `.prj`
+/// usciva `EPSG:4326` con genere proiettato.
+#[test]
+fn projected_prj_on_wgs84_keeps_its_root_identifier() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("utm.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        r#"PROJCS["WGS 84 / UTM zone 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["central_meridian",9],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32632"]]"#,
+    )
+    .unwrap();
+    let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("EPSG:32632"));
+    assert_eq!(crs.kind, CrsKind::Projected);
+    assert_eq!(
+        crs.axis_order,
+        plenora_io_model::crs::AxisOrder::EastingNorthing
+    );
+}
+
+/// Senza identificatore alla radice, uno annidato non lo sostituisce: il CRS
+/// resta non risolto, e serve `--assume-crs`. Prima l'ultimo `"EPSG"` del
+/// testo -- qui l'unita' -- diventava l'identificatore.
+#[test]
+fn nested_identifier_alone_does_not_resolve_the_prj() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nested.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        r#"PROJCS["custom",GEOGCS["WGS 84",AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1,AUTHORITY["EPSG","9001"]]]"#,
+    )
+    .unwrap();
+    let error = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
 }
 
 #[test]
@@ -2094,6 +2317,30 @@ fn unresolved_prj_is_preserved_in_typed_error() {
     assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     assert_eq!(error.driver.as_deref(), Some("shp"));
     assert!(!error.to_string().contains("survey-grid-secret"));
+}
+
+/// Un `.prj` che dichiara la propria autorita' e un `--assume-crs` diverso sono
+/// due dichiarazioni in conflitto. Vinceva l'opzione, e il contratto usciva
+/// con l'identificatore dell'opzione e la definizione del `.prj`: un CRS che
+/// contraddice se stesso (GEO-005), scelto al posto di chi legge. Con la
+/// stessa autorita', o con un `.prj` che non ne dichiara, l'opzione resta
+/// ammessa.
+#[test]
+fn prj_e_assume_crs_in_conflitto_sono_rifiutati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("conflitto.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "PROJCS[\"Monte Mario / Italy zone 1\",GEOGCS[\"Monte Mario\"],AUTHORITY[\"EPSG\",\"3003\"]]",
+    )
+    .unwrap();
+
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326")).unwrap_err();
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!errore.message.contains("3003"), "{}", errore.message);
+
+    let concorde = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003")).unwrap();
+    assert_eq!(concorde.id.as_deref(), Some("EPSG:3003"));
 }
 
 #[test]
@@ -2873,10 +3120,73 @@ fn n1_resolve_crs_copre_i_quattro_incroci_di_prj_e_assume_crs() {
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::CrsUnresolved);
 
     // 5. lo stesso WKT, ma con `--assume-crs`: l'opzione vince sul silenzio
-    //    del WKT, e il WKT resta conservato accanto.
-    let risolto = resolve_crs(&shp, &con_opzione).expect("l'opzione copre il WKT muto");
-    assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+    //    del WKT, e il WKT resta conservato accanto -- se l'opzione non nomina
+    //    un CRS che il bordo sa orizzontale. `EPSG:4326` su un `LOCAL_CS` e'
+    //    `crs` (rilettura 9, punto 1: su b4d8064 usciva `EPSG:4326`).
+    let Err(errore) = resolve_crs(&shp, &con_opzione) else {
+        panic!("EPSG:4326 nominato su un LOCAL_CS");
+    };
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    let risolto = resolve_crs(&shp, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect("l'opzione copre il WKT muto");
+    assert_eq!(risolto.id.as_deref(), Some("EPSG:3003"));
     assert!(risolto.definition.is_some());
+}
+
+/// Rilettura 9, punto 1, nello Shapefile: il `.prj` del revisore,
+/// `LOCAL_CS[...]` con `--assume-crs EPSG:4326`, e le altre radici che non sono
+/// un CRS orizzontale, con i tre identificatori che il bordo conosce.
+#[test]
+fn un_identificatore_orizzontale_su_un_prj_non_orizzontale_e_crs() {
+    let radice = tempfile::tempdir().unwrap();
+    let shp = radice.path().join("dati.shp");
+    let prj = radice.path().join("dati.prj");
+    for definizione in [
+        r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#,
+        r#"GEOCCS["g",DATUM["d",SPHEROID["s",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1]]"#,
+        r#"GEODCRS["g",DATUM["d",ELLIPSOID["s",6378137,298.257223563]],CS[Cartesian,3],AXIS["X",geocentricX],AXIS["Y",geocentricY],AXIS["Z",geocentricZ]]"#,
+        r#"ENGCRS["site",EDATUM["d"],CS[Cartesian,2],AXIS["x",east],AXIS["y",north]]"#,
+        r#"VERT_CS["h",VERT_DATUM["d",2005],UNIT["metre",1]]"#,
+        r#"VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up]]"#,
+        r#"COMPD_CS["c",GEOGCS["WGS 84"],VERT_CS["h"]]"#,
+        r#"COMPOUNDCRS["c",GEOGCRS["WGS 84"],VERTCRS["h"]]"#,
+        r#"DERIVEDPROJCRS["d",BASEPROJCRS["p"],CS[Cartesian,2]]"#,
+    ] {
+        std::fs::write(&prj, definizione).unwrap();
+        for assunto in ["EPSG:4326", "OGC:CRS84", "EPSG:3857"] {
+            let Err(errore) = resolve_crs(&shp, &opzioni_lettura().with_assume_crs(assunto)) else {
+                panic!("{assunto} su {definizione}");
+            };
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Crs,
+                "{assunto} {definizione}"
+            );
+        }
+    }
+}
+
+/// Rilettura 9, punto 7: un `.prj` con un BOM UTF-8 iniziale si legge, e la
+/// definizione emessa e' senza BOM. Su b4d8064 era malformato.
+#[test]
+fn un_prj_con_il_bom_si_legge() {
+    let radice = tempfile::tempdir().unwrap();
+    let shp = radice.path().join("dati.shp");
+    std::fs::write(
+        radice.path().join("dati.prj"),
+        format!("\u{feff}{EPSG_3003_WKT}"),
+    )
+    .unwrap();
+    let crs = resolve_crs(&shp, &opzioni_lettura()).expect("il BOM non e' parte del WKT");
+    assert_eq!(crs.id.as_deref(), Some("EPSG:3003"));
+    assert!(!crs.definition.unwrap().starts_with('\u{feff}'));
+    // Due BOM: il secondo resta, e la definizione e' malformata.
+    std::fs::write(
+        radice.path().join("dati.prj"),
+        format!("\u{feff}\u{feff}{EPSG_3003_WKT}"),
+    )
+    .unwrap();
+    assert!(resolve_crs(&shp, &opzioni_lettura()).is_err());
 }
 
 /// Il piano minimo delle prove sul publish: una sola colonna geometria.
@@ -5615,4 +5925,240 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         !percorso_staging.exists(),
         "lo staging sparisce con il writer"
     );
+}
+
+/// La regola unica del modello sul `.prj`: i casi (a)..(f) che su a651844
+/// davano un'etichetta sbagliata senza errore. Le prove della regola, caso per
+/// caso, sono in `plenora-io-model` (`regola_unica_dell_identificatore_wkt`);
+/// qui si prova che il driver la usa, con e senza opzione.
+#[test]
+fn il_prj_segue_la_regola_unica_dell_identificatore() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("regola.shp");
+    let esri_con = |nodo: &str| format!("{},{nodo}]", &WGS84_WKT[..WGS84_WKT.len() - 1]);
+    let leggi = |prj: &str, assunto: Option<&str>| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        let opzioni = assunto.map_or_else(opzioni_lettura, |assunto| {
+            opzioni_lettura().with_assume_crs(assunto)
+        });
+        resolve_crs(&path, &opzioni)
+    };
+    let rifiuto = |prj: &str, assunto: Option<&str>| match leggi(prj, assunto) {
+        Ok(crs) => panic!("{prj}, {assunto:?}: accettato come {:?}", crs.id),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs, "{prj}");
+            assert_eq!(errore.driver.as_deref(), Some("shp"));
+        }
+    };
+
+    // (a) Un `ID` alla radice del WGS 84 ESRI dichiara: niente deduzione.
+    let a = esri_con(r#"ID["EPSG",4258]"#);
+    assert_eq!(leggi(&a, None).unwrap().id.as_deref(), Some("EPSG:4258"));
+    rifiuto(&a, Some("EPSG:4326"));
+    // (b) Due dichiarazioni diverse, con e senza opzione.
+    let b = r#"PROJCS["x",GEOGCS["y"],AUTHORITY["EPSG","3003"],ID["EPSG",3004]]"#;
+    rifiuto(b, None);
+    rifiuto(b, Some("EPSG:3003"));
+    // (c) Un nodo dell'altra parola malformato rende la radice indecidibile.
+    for c in ["ID[EPSG,3003]", r#"ID["EPSG"]"#, r#"ID["EPSG",3003.5]"#] {
+        let prj = format!(r#"PROJCS["x",GEOGCS["y"],{c}]"#);
+        rifiuto(&prj, None);
+        rifiuto(&prj, Some("EPSG:3003"));
+    }
+    // (e) Il `DATUM` di WGS 84 dentro un `EXTENSION` non fa la forma ESRI.
+    let e = r#"GEOGCS["WGS 84",DATUM["D_Monte_Mario"],EXTENSION["x",DATUM["WGS_1984"]]]"#;
+    let errore = leggi(e, None).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+    // (f) Malformati: errore anche senza opzione, e la stessa risposta per
+    // `inspect` e `read`, che passano entrambi di qui.
+    let senza_chiusura = &WGS84_WKT[..WGS84_WKT.len() - 1];
+    for f in [
+        esri_con(r#"AUTHORITY["EPSG",4258.0]"#),
+        senza_chiusura.to_owned(),
+        format!("{WGS84_WKT} coda"),
+    ] {
+        rifiuto(&f, None);
+        rifiuto(&f, Some("OGC:CRS84"));
+    }
+    // Un `BOUNDCRS` con spazi e minuscole resta un `BOUNDCRS`.
+    rifiuto(
+        r#"boundcrs [SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#,
+        Some("EPSG:4326"),
+    );
+    // `OGC:CRS84` come intero `.prj` resta come prima.
+    assert_eq!(
+        leggi(" ogc:crs84\n", None).unwrap().id.as_deref(),
+        Some("OGC:CRS84")
+    );
+    assert_eq!(
+        leggi("OGC:CRS84", Some("ogc:CRS84")).unwrap().id.as_deref(),
+        Some("OGC:CRS84")
+    );
+    assert!(leggi("OGC:CRS84", Some("EPSG:4326")).is_err());
+}
+
+/// Un `.prj` che non e' UTF-8 valeva come assente, e `--assume-crs` nominava
+/// il CRS che il file dichiarava, qualunque fosse.
+#[test]
+fn un_prj_non_utf8_e_un_errore_non_un_assenza() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("latin1.shp");
+    let mut prj = b"PROJCS[\"Citt\xe0\",GEOGCS[\"y\"],AUTHORITY[\"EPSG\",\"3003\"]]".to_vec();
+    std::fs::write(path.with_extension("prj"), &prj).unwrap();
+    for opzioni in [
+        opzioni_lettura(),
+        opzioni_lettura().with_assume_crs("EPSG:4326"),
+    ] {
+        let errore = resolve_crs(&path, &opzioni).unwrap_err();
+        assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    }
+    prj.retain(u8::is_ascii);
+    std::fs::write(path.with_extension("prj"), &prj).unwrap();
+    assert_eq!(
+        resolve_crs(&path, &opzioni_lettura())
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("EPSG:3003")
+    );
+}
+
+/// Un UTM 32N in WKT 2 con gli assi est/nord e l'identificatore di radice, nella
+/// parola chiave data: il `BASEGEOGCRS[` annidato contiene `GEOGCRS[`.
+fn utm_wkt2(parola: &str) -> String {
+    format!(
+        r#"{parola}["WGS 84 / UTM zone 32N",BASEGEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]]],CONVERSION["UTM zone 32N",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["easting",east],AXIS["northing",north],LENGTHUNIT["metre",1],ID["EPSG",32632]]"#
+    )
+}
+
+/// Il genere del CRS viene dalla parola della **radice**: su c0e84cb il driver
+/// cercava `PROJCS[`/`PROJCRS[` nel testo, e un `PROJECTEDCRS[`, `projcrs [` o
+/// `PROJCRS(` usciva geografico (per il `BASEGEOGCRS[`) e `lon_lat` sui dati
+/// UTM; `PROJCS [`, `PROJCS(` e `PROJCS\t[` uscivano geografici, e
+/// `GEOGCS["PROJCS[",...]` proiettato.
+#[test]
+fn il_genere_del_prj_viene_dalla_radice() {
+    use plenora_io_model::crs::AxisOrder;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("genere.shp");
+    let leggi = |prj: &str| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        match resolve_crs(&path, &opzioni_lettura()) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{prj}: {errore}"),
+        }
+    };
+    for parola in ["PROJECTEDCRS", "projcrs ", "PROJCRS"] {
+        let crs = leggi(&utm_wkt2(parola));
+        assert_eq!(crs.id.as_deref(), Some("EPSG:32632"), "{parola}");
+        assert_eq!(crs.kind, CrsKind::Projected, "{parola}");
+        assert_eq!(crs.axis_order, AxisOrder::EastingNorthing, "{parola}");
+    }
+    let tonde = utm_wkt2("PROJCRS").replacen("PROJCRS[", "PROJCRS(", 1);
+    let tonde = format!("{})", &tonde[..tonde.len() - 1]);
+    let crs = leggi(&tonde);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Projected, AxisOrder::EastingNorthing)
+    );
+    for apertura in ["PROJCS [", "PROJCS(", "PROJCS\t["] {
+        let chiusura = if apertura.ends_with('(') { ")" } else { "]" };
+        let prj = format!(
+            r#"{apertura}"UTM 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AUTHORITY["EPSG","32632"]{chiusura}"#
+        );
+        let crs = leggi(&prj);
+        assert_eq!(crs.kind, CrsKind::Projected, "{apertura}");
+        assert_eq!(crs.axis_order, AxisOrder::EastingNorthing, "{apertura}");
+    }
+    let crs = leggi(r#"GEOGCS["PROJCS[",AUTHORITY["EPSG","4326"]]"#);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Geographic, AxisOrder::LongitudeLatitude)
+    );
+    // Un composto non ha il genere di una sua parte: con un genere ignoto
+    // l'ordine resta ignoto.
+    let composto = format!(
+        r#"COMPOUNDCRS["c",{},VERTCRS["v",VDATUM["d"],CS[vertical,1],AXIS["h",up],LENGTHUNIT["metre",1]],ID["EPSG",5555]]"#,
+        utm_wkt2("PROJCRS").replace(r#",ID["EPSG",32632]"#, "")
+    );
+    let crs = leggi(&composto);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Unknown, AxisOrder::Unknown)
+    );
+}
+
+/// Un identificatore che il bordo sa geografico (`EPSG:4326`, `OGC:CRS84`) su
+/// una radice proiettata, o `EPSG:3857` su una geografica, e' una
+/// contraddizione che si vede senza risolvere: su c0e84cb l'opzione nominava
+/// il `PROJCS` anonimo e i dati UTM uscivano `EPSG:4326`, `lon_lat`.
+#[test]
+fn assume_crs_di_genere_contrario_alla_radice_e_rifiutato() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("contrario.shp");
+    let anonimo_proiettato = r#"PROJCS["UTM 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1]]"#;
+    let anonimo_geografico = r#"GEOGCS["Monte Mario",DATUM["Monte_Mario",SPHEROID["International 1924",6378388,297]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]"#;
+    let leggi = |prj: &str, assunto: &str| {
+        std::fs::write(path.with_extension("prj"), prj).unwrap();
+        resolve_crs(&path, &opzioni_lettura().with_assume_crs(assunto))
+    };
+    for assunto in ["EPSG:4326", "ogc:crs84"] {
+        let errore = leggi(anonimo_proiettato, assunto).expect_err(assunto);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+        assert_eq!(errore.driver.as_deref(), Some("shp"));
+        assert!(!errore.message.contains("4326"), "{}", errore.message);
+    }
+    assert!(leggi(anonimo_geografico, "EPSG:3857").is_err());
+    // Un identificatore che il bordo non sa classificare resta nominato: e' il
+    // rischio residuo dichiarato della regola (6).
+    assert_eq!(
+        leggi(anonimo_proiettato, "EPSG:32632").unwrap().kind,
+        CrsKind::Projected
+    );
+    assert_eq!(
+        leggi(anonimo_geografico, "EPSG:4265").unwrap().kind,
+        CrsKind::Geographic
+    );
+}
+
+/// Il `.prj` che e' soltanto `OGC:CRS84` da' l'identificatore e nessuna
+/// definizione: su c0e84cb il nome usciva come definizione `wkt`, `io.read`
+/// lo emetteva e la conversione in IPC lo rifiutava (GEO-005).
+#[test]
+fn un_prj_ogc_crs84_non_emette_una_definizione() {
+    use plenora_io_model::crs::AxisOrder;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crs84.shp");
+    std::fs::write(path.with_extension("prj"), " ogc:crs84\n").unwrap();
+    let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
+    assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+    assert_eq!(crs.definition, None);
+    assert_eq!(crs.definition_format, None);
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Geographic, AxisOrder::LongitudeLatitude)
+    );
+}
+
+/// Il `.prj` si legge fino a un tetto dichiarato di un MiB: su c0e84cb si
+/// leggeva intero, e un WKT valido seguito da oltre un MiB di spazi si
+/// risolveva.
+#[test]
+fn un_prj_oltre_il_tetto_e_un_limite() {
+    const TETTO: usize = 1 << 20;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("grande.shp");
+    let al_tetto = format!("{WGS84_WKT}{}", " ".repeat(TETTO - WGS84_WKT.len()));
+    std::fs::write(path.with_extension("prj"), &al_tetto).unwrap();
+    assert_eq!(
+        resolve_crs(&path, &opzioni_lettura())
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("EPSG:4326")
+    );
+    std::fs::write(path.with_extension("prj"), format!("{al_tetto} ")).unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    assert_eq!(errore.driver.as_deref(), Some("shp"));
 }

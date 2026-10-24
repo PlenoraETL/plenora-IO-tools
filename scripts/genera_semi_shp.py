@@ -431,7 +431,7 @@ def bundle(shp: bytes, indice: bytes, tabella: bytes, prj: bytes = b"") -> bytes
     )
 
 
-# Il `.prj` di WGS84 nella forma che `authority_id_from_wkt` sa leggere: serve a
+# Il `.prj` di WGS84 nella forma ESRI che `crs_definizione::identificatore_wkt` riconosce: serve a
 # esercitare la strada in cui il CRS **viene dal file** invece che da
 # `assume_crs`.
 PRJ_WGS84 = (

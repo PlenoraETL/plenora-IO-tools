@@ -17,6 +17,7 @@ pub mod cancellation;
 pub mod clock;
 pub mod contract;
 pub mod crs;
+pub mod crs_definizione;
 pub mod diagnostics;
 pub mod error;
 pub mod format_options;
@@ -25,6 +26,7 @@ pub mod json;
 pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod vocabolario;
 pub mod wkb;
 mod wkb_lossless;
 

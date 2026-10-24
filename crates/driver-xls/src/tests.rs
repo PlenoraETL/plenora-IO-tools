@@ -847,7 +847,49 @@ fn n1_la_larghezza_accettata_precede_i_due_rifiuti_sull_indice_di_colonna() {
 /// e' cinque, e ogni attesa lo somma. Con uno zero al suo posto la tabella
 /// resterebbe verde anche se la somma sparisse.
 #[test]
-fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_da_precedenza_al_wkt() {
+fn n1_resolve_geometry_rifiuta_un_nome_che_l_intestazione_ripete() {
+    let intestazioni: Vec<String> = ["geom", "lon", "lat", "geom", "lon", "lat"]
+        .iter()
+        .map(|nome| (*nome).to_owned())
+        .collect();
+    for (coppie, atteso) in [
+        (
+            vec![("wkt_column", "geom")],
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        ),
+        (
+            vec![("x_column", "lon"), ("y_column", "lat")],
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        ),
+    ] {
+        let opzioni: BTreeMap<String, String> = coppie
+            .iter()
+            .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+            .collect();
+        let Err(errore) = resolve_geometry(&intestazioni, 0, &opzioni) else {
+            panic!("{coppie:?}: un nome ripetuto non deve scegliere la prima colonna");
+        };
+        assert_eq!(errore.message, atteso, "{coppie:?}");
+    }
+    let solo_y: Vec<String> = ["lon", "lat", "lat"]
+        .iter()
+        .map(|nome| (*nome).to_owned())
+        .collect();
+    let opzioni: BTreeMap<String, String> = [("x_column", "lon"), ("y_column", "lat")]
+        .iter()
+        .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+        .collect();
+    let Err(errore) = resolve_geometry(&solo_y, 0, &opzioni) else {
+        panic!("un'ordinata ripetuta non deve scegliere la prima colonna");
+    };
+    assert_eq!(
+        errore.message,
+        "colonna Y ambigua: il nome compare piu' volte nell'intestazione"
+    );
+}
+
+#[test]
+fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
     const INIZIO: u32 = 5;
     let intestazioni: Vec<String> = ["id", "geom", "lon", "lat"]
         .iter()
@@ -925,24 +967,28 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_da_precedenza_al_wkt() {
     assert_eq!((x, y), (INIZIO + 2, INIZIO + 3));
     assert_eq!(colonne_xy, BTreeSet::from([INIZIO + 2, INIZIO + 3]));
 
-    // La precedenza: con tutte e tre le opzioni valide vince il WKT, e la
-    // coppia x/y non contribuisce alle colonne consumate. Senza questa
-    // riga, invertire i due `if` non romperebbe nulla.
-    let (insieme, colonne_insieme) = resolve_geometry(
-        &intestazioni,
-        INIZIO,
-        &opzioni(&[
+    // Nessuna precedenza: con `wkt_column` e anche solo una delle due
+    // coordinate la richiesta dichiara due geometrie. Vinceva il WKT, e le
+    // colonne x/y uscivano come attributi -- una scelta fatta al posto di chi
+    // legge. Ora e' una configurazione da correggere.
+    for coppie in [
+        vec![
             ("wkt_column", "geom"),
             ("x_column", "lon"),
             ("y_column", "lat"),
-        ]),
-    )
-    .expect("le tre colonne esistono tutte");
-    assert!(
-        matches!(insieme, XlsxGeomSpec::Wkt(colonna) if colonna == INIZIO + 1),
-        "wkt_column ha la precedenza sulla coppia x/y"
-    );
-    assert_eq!(colonne_insieme, BTreeSet::from([INIZIO + 1]));
+        ],
+        vec![("wkt_column", "geom"), ("x_column", "lon")],
+        vec![("wkt_column", "geom"), ("y_column", "lat")],
+    ] {
+        let Err(errore) = resolve_geometry(&intestazioni, INIZIO, &opzioni(&coppie)) else {
+            panic!("{coppie:?}: due dichiarazioni di geometria accettate");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            "{coppie:?}"
+        );
+    }
 
     // Ascissa e ordinata sulla stessa colonna sono accettate, e l'insieme
     // ne contiene una sola. Non e' una svista: `infer_layout` dimensiona
@@ -3616,4 +3662,52 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
         plenora_io_model::RemoteEffect::None,
         "{errore}"
     );
+}
+
+/// Il genere che l'XLSX dichiara viene dalla regola comune, come nel CSV:
+/// `epsg:4326` in minuscolo e' geografico, `EPSG:3857` proiettato, un codice
+/// che il bordo non conosce resta ignoto.
+#[test]
+fn il_genere_dell_opzione_segue_la_regola_comune() {
+    use plenora_io_model::crs::{AxisOrder, CrsKind};
+    let dir = tempfile::tempdir().unwrap();
+    let percorso = dir.path().join("punti.xlsx");
+    let mut cartella = Workbook::new();
+    let foglio = cartella.add_worksheet();
+    foglio.write_string(0, 0, "lon").unwrap();
+    foglio.write_string(0, 1, "lat").unwrap();
+    foglio.write_number(1, 0, 12.5).unwrap();
+    foglio.write_number(1, 1, 45.9).unwrap();
+    cartella.save(&percorso).unwrap();
+    for (assunto, genere, ordine) in [
+        (
+            "epsg:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        (
+            "EPSG:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        ("EPSG:3857", CrsKind::Projected, AxisOrder::Unknown),
+        ("EPSG:3003", CrsKind::Unknown, AxisOrder::Unknown),
+    ] {
+        let opzioni = opzioni_lettura()
+            .with_assume_crs(assunto)
+            .with_format_option("x_column", "lon")
+            .with_format_option("y_column", "lat");
+        let ds = match XlsDriver.open(Source::Path(percorso.clone()), opzioni) {
+            Ok(ds) => ds,
+            Err(errore) => panic!("{assunto}: {errore}"),
+        };
+        let crs = ds.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .and_then(|g| g.resolved_crs())
+            .cloned()
+            .unwrap();
+        assert_eq!((crs.kind, crs.axis_order), (genere, ordine), "{assunto}");
+    }
 }

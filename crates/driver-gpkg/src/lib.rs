@@ -22,11 +22,11 @@ use arrow_array::{
     StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, OpenFlags, Statement};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Statement};
 
 use driver_common::{geometry_field, geometry_index};
 use plenora_io_core::descriptor::{
@@ -50,7 +50,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 
@@ -243,7 +243,21 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             // `gpkg_spatial_ref_sys`.
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
-        ),
+        )
+        // La colonna `definition` porta un WKT 1 (GPKG 1.3, tabella 21: OGC
+        // 01-009), e il writer ci scrive solo quello. Una definizione in
+        // un'altra grammatica non si scrive: la riga di `EPSG:4326`, che
+        // `init_gpkg` registra sempre, ha il WKT canonico, ogni altra riga vale
+        // `undefined` e la definizione non si rilegge. Fino alla rilettura 11
+        // un PROJJSON finiva nella colonna, e la perdita si dichiarava derivata.
+        .verbatim_solo(
+            &[CrsDefinitionFormat::Wkt],
+            CrsRepresentationState::Derived(CrsDerivation::SynthesizedFor {
+                ids: SRS_CON_DEFINIZIONE_CANONICA,
+            }),
+        )
+        // `organization` si scrive in maiuscolo (`register_srs`).
+        .autorita_in_maiuscolo(),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
         sink_path: SinkPathConstraint::Required {
@@ -278,8 +292,30 @@ impl FormatDriver for GpkgDriver {
         }
         let mut layers = Vec::new();
         let mut metas = Vec::new();
+        let mut rifiuti = BTreeMap::new();
         for (i, table_meta) in tables.into_iter().enumerate() {
-            let crs = crs_for(&conn, table_meta.srs_id)?;
+            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
+            // e' limitato dalle righe di `sqlite_master`, molti ordini di
+            // grandezza sotto 2^32. Nessun troncamento possibile.
+            #[allow(clippy::cast_possible_truncation)]
+            let layer_id = LayerId(i as u32);
+            // Il CRS che non si risolve e' un rifiuto **del layer**: fino al
+            // 24/10 chiudeva il `GeoPackage` intero, e un layer sano diventava
+            // illeggibile per una riga di `gpkg_spatial_ref_sys` di un altro.
+            // Il layer resta nell'elenco con un contratto vuoto che nessuno
+            // emette: `rifiuto_del_layer` lo dice rifiutato a chi lo legge e a
+            // chi descrive tutti i layer, e se i rifiutati sono tutti
+            // l'apertura fallisce con il primo (`with_read_budget`).
+            let crs = match crs_for(&conn, table_meta.srs_id) {
+                Ok(crs) => crs,
+                Err(errore) => {
+                    rifiuti.insert(layer_id.0, errore);
+                    let (layer, meta) = layer_rifiutato(layer_id, table_meta);
+                    layers.push(layer);
+                    metas.push(meta);
+                    continue;
+                }
+            };
             let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
             let (schema, attrs) =
                 build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
@@ -323,11 +359,6 @@ impl FormatDriver for GpkgDriver {
             );
             let contract = DataContract::new(schema, Some(geometry));
             let runtime_schema = contract.schema.clone();
-            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
-            // e' limitato dalle righe di `sqlite_master`, molti ordini di
-            // grandezza sotto 2^32. Nessun troncamento possibile.
-            #[allow(clippy::cast_possible_truncation)]
-            let layer_id = LayerId(i as u32);
             layers.push(LayerContract {
                 id: layer_id,
                 name: table_meta.table.clone(),
@@ -354,15 +385,16 @@ impl FormatDriver for GpkgDriver {
                 layer_srs_id,
             });
         }
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GpkgDataset {
                 path,
                 layers,
                 metas,
+                rifiuti,
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -442,8 +474,7 @@ impl FormatDriver for GpkgDriver {
                     NumeroStrutturale::Indice(driver_common::saturating_u64(indice_layer)),
                 ))
             })?;
-            let (crs_id, crs_def) = layer_crs(l, geom_idx);
-            let srs_id = register_srs(&conn, crs_id.as_deref(), crs_def.as_deref())?;
+            let srs_id = register_srs(&conn, &layer_crs(l, geom_idx)?)?;
             layers.push(create_feature_table(
                 &conn,
                 &l.name,
@@ -491,11 +522,17 @@ struct GpkgDataset {
     path: PathBuf,
     layers: Vec<LayerContract>,
     metas: Vec<LayerRead>,
+    /// I layer il cui CRS non si risolve, per id: il loro contratto e' vuoto
+    /// e non si legge.
+    rifiuti: BTreeMap<u32, PlenoraIoError>,
 }
 
 impl OpenDatasetHandle for GpkgDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         use plenora_io_core::loss::FidelityReasonCode;
@@ -522,6 +559,9 @@ impl OpenDatasetHandle for GpkgDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
+            return Err(rifiuto);
+        }
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let idx = self
             .layers
@@ -1313,12 +1353,55 @@ fn sqlite_table_exists(conn: &Connection, table: &str) -> Result<bool> {
 }
 
 fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
+    // Una riga `features` di `gpkg_contents` senza la sua riga in
+    // `gpkg_geometry_columns` (GPKG 1.3, requisito 22) e' un layer che il
+    // join sotto lascerebbe cadere: il file sembrerebbe avere un layer in
+    // meno. Si rifiuta il file invece di elencarlo incompleto.
+    let senza_geometria: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM gpkg_contents c
+             WHERE c.data_type = 'features' AND NOT EXISTS (
+                 SELECT 1 FROM gpkg_geometry_columns g
+                 WHERE g.table_name = c.table_name COLLATE NOCASE)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(sql_err)?;
+    if senza_geometria > 0 {
+        return Err(err(&PublicMessage::Curated(
+            "GeoPackage: una feature table di gpkg_contents non ha la sua riga in \
+             gpkg_geometry_columns",
+        )));
+    }
+    // Il verso opposto, della stessa classe: una colonna geometrica dichiarata
+    // in `gpkg_geometry_columns` la cui tabella non e' una riga `features` di
+    // `gpkg_contents` (assente, `attributes`, o `Features` con un'altra grafia,
+    // che il filtro esatto sotto non vede) e' una geometria che sparirebbe
+    // dall'elenco. Anche qui il file si rifiuta.
+    let geometria_senza_layer: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM gpkg_geometry_columns g
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM gpkg_contents c
+                 WHERE c.table_name = g.table_name COLLATE NOCASE
+                   AND c.data_type = 'features')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(sql_err)?;
+    if geometria_senza_layer > 0 {
+        return Err(err(&PublicMessage::Curated(
+            "GeoPackage: una colonna di gpkg_geometry_columns non appartiene a una feature \
+             table di gpkg_contents",
+        )));
+    }
     let mut out = Vec::new();
     let mut stmt = conn
         .prepare(
             "SELECT c.table_name, g.column_name, g.srs_id,
                     g.geometry_type_name, g.z, g.m
-             FROM gpkg_contents c JOIN gpkg_geometry_columns g ON c.table_name = g.table_name
+             FROM gpkg_contents c JOIN gpkg_geometry_columns g
+                  ON c.table_name = g.table_name COLLATE NOCASE
              WHERE c.data_type = 'features' ORDER BY c.table_name",
         )
         .map_err(sql_err)?;
@@ -1336,6 +1419,30 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
         .map_err(sql_err)?;
     for r in rows {
         out.push(r.map_err(sql_err)?);
+    }
+    // Una tabella con piu' righe in `gpkg_geometry_columns` dichiara piu'
+    // colonne geometriche. Il modello porta una geometria per layer: un layer
+    // per riga ripeterebbe il nome della tabella e in ciascuno l'altra
+    // geometria uscirebbe come BLOB qualunque, cioe' degradata a binario e
+    // scelta al posto di chi legge (GEO-012).
+    //
+    // «La stessa tabella» si giudica come la giudica `SQLite`, che risolve i
+    // nomi di tabella senza distinzione di maiuscole ASCII: `features` e
+    // `FEATURES` in `gpkg_contents` sono due righe ma una sola tabella fisica.
+    // Per lo stesso motivo il join sopra usa `NOCASE`, che in `SQLite` piega
+    // solo l'ASCII, come la risoluzione dei nomi. Un confronto esatto qui
+    // aprirebbe la stessa tabella come due layer.
+    let mut tabelle_viste = std::collections::BTreeSet::new();
+    if !out
+        .iter()
+        .all(|riga| tabelle_viste.insert(riga.table.to_ascii_lowercase()))
+    {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoPackage: una feature table dichiara piu' colonne geometriche, e il \
+                 componente porta una sola geometria per layer (GEO-012)",
+            ),
+        ));
     }
     Ok(out)
 }
@@ -1424,15 +1531,71 @@ fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {
     })
 }
 
+/// Il segnaposto di un layer il cui CRS non si risolve: contratto vuoto, senza
+/// geometria, che `rifiuto_del_layer` impedisce di leggere e di descrivere.
+fn layer_rifiutato(layer_id: LayerId, table_meta: FeatureTable) -> (LayerContract, LayerRead) {
+    (
+        LayerContract {
+            id: layer_id,
+            name: table_meta.table.clone(),
+            contract: DataContract::new(Arc::new(Schema::empty()), None),
+        },
+        LayerRead {
+            rtree_table: None,
+            table: table_meta.table,
+            geom_col: table_meta.geom_col,
+            schema: Arc::new(Schema::empty()),
+            attrs: Vec::new(),
+            layer_srs_id: 0,
+        },
+    )
+}
+
 fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
-    let row: rusqlite::Result<(String, i64, String)> = conn.query_row(
-        "SELECT organization, organization_coordsys_id, definition FROM gpkg_spatial_ref_sys WHERE srs_id = ?1",
-        [srs_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    // La definizione si legge solo entro una guardia: `SQLite` ne misura i
+    // byte e non la consegna se la supera. Fino al 24/10 si leggeva intera, e
+    // 8 MiB costavano 700 MB di picco nel lettore stretto.
+    //
+    // La guardia e' grossolana, e il tetto esatto si applica dopo, in Rust,
+    // sul testo UTF-8. `CAST(definition AS BLOB)` misura i byte **nella
+    // codifica del database**: fino alla rilettura 10 la guardia era il tetto
+    // stesso, e in un database UTF-16 una definizione ASCII di 600 KB (1,2 MB
+    // in UTF-16) si rifiutava sotto il tetto di 1 MiB UTF-8, mentre una CJK ne
+    // passava circa una volta e mezza. Un testo che sta nel tetto in UTF-8
+    // misura al piu' il doppio in UTF-16 (ogni carattere da 1 byte UTF-8 ne
+    // prende 2; da 2 o 3 byte, 2; da 4, 4): la guardia a due volte il tetto
+    // non ne scarta nessuno, e tiene il picco di lettura a 2 MiB.
+    // Il valore entra nel testo della query da una costante, non da un valore
+    // letto: `rusqlite` non lega un `usize`.
+    const GUARDIA_SQL: usize = 2 * MAX_BYTE_DEFINIZIONE_CRS;
+    let sql = format!(
+        "SELECT organization, organization_coordsys_id, \
+         CASE WHEN length(CAST(definition AS BLOB)) <= {GUARDIA_SQL} \
+         THEN definition END, definition IS NULL \
+         FROM gpkg_spatial_ref_sys WHERE srs_id = ?1"
     );
+    let row: rusqlite::Result<(String, i64, Option<String>, bool)> =
+        conn.query_row(&sql, [srs_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        });
+    let oltre_il_tetto = || {
+        let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+            "GeoPackage: la definizione di gpkg_spatial_ref_sys supera il tetto, byte",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
+        ));
+        errore.driver = Some("gpkg".to_owned());
+        Err(errore)
+    };
     match row {
-        Ok((org, code, def)) => {
-            let id = format!("{}:{}", org.to_uppercase(), code);
+        Ok((_, _, None, false)) => oltre_il_tetto(),
+        // Il tetto esatto, sui byte UTF-8 del testo cosi' come e' scritto, BOM
+        // compreso: la stessa misura che la guardia faceva in un database UTF-8.
+        Ok((_, _, Some(def), false)) if def.len() > MAX_BYTE_DEFINIZIONE_CRS => oltre_il_tetto(),
+        Ok((org, code, Some(def), false)) => {
+            // Un BOM iniziale non fa parte della definizione.
+            let def = plenora_io_model::crs_definizione::senza_bom(def);
+            let id = format!("{}:{}", org.to_ascii_uppercase(), code);
             if org.eq_ignore_ascii_case("NONE") {
                 let raw = RawCrs::new(
                     format!("GeoPackage srs_id={srs_id}; definition={def}"),
@@ -1440,32 +1603,28 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
                 );
                 return Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw));
             }
-            let kind = if id.eq_ignore_ascii_case("EPSG:4326") {
-                CrsKind::Geographic
-            } else if id.eq_ignore_ascii_case("EPSG:3857")
-                || def.to_ascii_uppercase().contains("PROJCS[")
-                || def.to_ascii_uppercase().contains("PROJCRS[")
-            {
-                CrsKind::Projected
-            } else if def.to_ascii_uppercase().contains("GEOGCS[")
-                || def.to_ascii_uppercase().contains("GEOGCRS[")
-            {
-                CrsKind::Geographic
-            } else {
-                CrsKind::Unknown
-            };
             let definition = if def == "undefined" || def.is_empty() {
                 None
             } else {
                 Some(def)
             };
-            Ok(ResolvedCrs::new(Some(id), kind, definition))
+            // Il genere dalla radice della definizione, con la regola comune
+            // dei driver. Fino al 24/10 si cercava `PROJCS[` nel testo, e un
+            // `PROJECTEDCRS[...]` usciva geografico, `lon_lat`.
+            let kind =
+                plenora_io_model::crs::crs_kind_for(Some(&id), definition.as_deref(), "gpkg")?;
+            // GeoPackage memorizza x = easting o longitudine, y = northing o
+            // latitudine, qualunque sia il CRS (GPKG 1.3, 2.1.3.1.1): l'ordine
+            // si dichiara dal formato, non dal registro (GEO-002).
+            Ok(ResolvedCrs::new(Some(id), kind, definition).stored_east_first())
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             let raw = RawCrs::new(format!("GeoPackage srs_id={srs_id}"), None);
             Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
         }
-        Err(_) => Err(err(&PublicMessage::Curated(
+        // `definition` e' `NOT NULL` per la specifica: un `NULL` e' la lettura
+        // fallita di prima, non un tetto superato.
+        Ok((_, _, _, true)) | Err(_) => Err(err(&PublicMessage::Curated(
             "lettura di gpkg_spatial_ref_sys fallita",
         ))),
     }
@@ -1534,7 +1693,11 @@ fn build_schema(
                 "una colonna dichiarata dalla tabella oscura l'alias della chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo deterministico",
             )));
         }
-        if name == geom_col || pk > 0 {
+        // Il nome di colonna dichiarato in `gpkg_geometry_columns` si
+        // confronta come lo risolve `SQLite`, senza distinzione di maiuscole
+        // ASCII: un confronto esatto esporrebbe la colonna geometrica una
+        // seconda volta, come attributo binario.
+        if name.eq_ignore_ascii_case(geom_col) || pk > 0 {
             continue;
         }
         attrs.push((name, sqlite_declared_to_arrow(&decl)));
@@ -1727,8 +1890,15 @@ struct BudgetForma {
 
 impl BudgetForma {
     const fn nuovo(limiti: &WkbLimits) -> Self {
+        // Lo stesso tetto effettivo del parser condiviso: la profondita' di
+        // GEO-011, che una quota puo' stringere e non allargare.
+        let profondita = plenora_io_model::limits::PROFONDITA_WKB_CONTRATTO;
         Self {
-            profondita_massima: limiti.max_depth,
+            profondita_massima: if limiti.max_depth < profondita {
+                limiti.max_depth
+            } else {
+                profondita
+            },
             componenti_residui: limiti.max_components,
         }
     }
@@ -2141,6 +2311,22 @@ fn wkb_shape(payload: &[u8], limiti: &WkbLimits) -> Result<WkbShape> {
 // ed e' il posto giusto per farlo -- qui pretenderlo cambierebbe il contratto
 // di scrittura fuori dal perimetro di questo lotto.
 
+/// Gli identificatori la cui riga di `gpkg_spatial_ref_sys` il writer
+/// registra sempre, con una definizione canonica.
+pub const SRS_CON_DEFINIZIONE_CANONICA: &[&str] = &["EPSG:4326"];
+
+/// La riga `EPSG:4326` che ogni `GeoPackage` deve avere (GPKG 1.3, requisito 11).
+///
+/// E' il testo della tabella 21: un WKT 1 **senza** `AXIS`, non la forma del
+/// registro EPSG, che dichiara latitudine poi longitudine.
+///
+/// Fino alla rilettura 11 la riga portava `GEOGCS["WGS 84"]`: un WKT che la
+/// regola dei lettori non risolve, e che lo Shapefile e il DXF scrivevano tale
+/// e quale, cosi' un `GeoPackage` in WGS 84 convertito in Shapefile si
+/// rileggeva non risolto. Questa porta l'autorita' di radice, e la regola la
+/// rilegge `EPSG:4326`.
+pub const WKT_WGS84_GPKG: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]";
+
 fn init_gpkg(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA application_id = 1196444487;
@@ -2156,9 +2342,16 @@ fn init_gpkg(conn: &Connection) -> Result<()> {
             geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL,
             m TINYINT NOT NULL, PRIMARY KEY (table_name, column_name));
          INSERT INTO gpkg_spatial_ref_sys VALUES
-            ('WGS 84 geodetic', 4326, 'EPSG', 4326, 'GEOGCS[\"WGS 84\"]', 'longitude/latitude'),
             ('undefined cartesian', -1, 'NONE', -1, 'undefined', 'undefined'),
             ('undefined geographic', 0, 'NONE', 0, 'undefined', 'undefined');",
+    )
+    .map_err(sql_err)?;
+    // La riga di WGS 84 lega la definizione come parametro: il WKT porta
+    // virgolette, e nel testo SQL andrebbe riscritto a mano.
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys VALUES \
+         ('WGS 84 geodetic', 4326, 'EPSG', 4326, ?1, 'longitude/latitude')",
+        [WKT_WGS84_GPKG],
     )
     .map_err(sql_err)?;
     Ok(())
@@ -2184,61 +2377,143 @@ const fn sqlite_type(dt: &DataType) -> &'static str {
     }
 }
 
-/// CRS del layer in scrittura: dal contratto (id + WKT) se presente, altrimenti
-/// dall'id nei metadati del campo geometria.
-fn layer_crs(
-    layer: &plenora_io_core::WriteLayer,
-    geom_idx: usize,
-) -> (Option<String>, Option<String>) {
+/// CRS del layer in scrittura.
+struct LayerCrs {
+    id: Option<String>,
+    /// La definizione da scrivere in `definition`: solo un WKT 1.
+    definition: Option<String>,
+    /// `plenora.geometry.srid` (GEO-008): quando c'e' e' lo SRID dei valori,
+    /// e diventa lo `srs_id` del layer.
+    srid: Option<i32>,
+}
+
+/// CRS del layer in scrittura: dal contratto (id + WKT + SRID) se presente,
+/// altrimenti dall'id e dallo SRID nei metadati del campo geometria.
+fn layer_crs(layer: &plenora_io_core::WriteLayer, geom_idx: usize) -> Result<LayerCrs> {
     if let Some(g) = &layer.contract.geometry {
-        return (
-            g.crs.id().map(str::to_owned),
-            g.crs.definition().map(str::to_owned),
-        );
+        // La colonna `definition` porta un WKT 1: un PROJJSON o un WKT 2 non
+        // ci vanno (la capability ne dichiara la perdita, `verbatim_solo`).
+        let definition = match &g.crs {
+            CrsResolution::Resolved(crs)
+                if crs.definition_format == Some(CrsDefinitionFormat::Wkt) =>
+            {
+                crs.definition.clone()
+            }
+            _ => None,
+        };
+        return Ok(LayerCrs {
+            id: g.crs.id().map(str::to_owned),
+            definition,
+            srid: g.srid,
+        });
     }
-    let id = layer
-        .contract
-        .schema
-        .field(geom_idx)
-        .metadata()
-        .get(plenora_io_model::geometry::GEO_CRS_KEY)
-        .cloned();
-    (id, None)
+    let metadata = layer.contract.schema.field(geom_idx).metadata();
+    let srid = metadata
+        .get(plenora_io_model::geometry::PLENORA_SRID_KEY)
+        .map(|testo| {
+            // La grammatica dello SRID (`0|-?[1-9][0-9]*`), non `str::parse`,
+            // che accetterebbe `+4326` e `04326`.
+            plenora_io_model::crs::codice_intero_canonico(testo).ok_or_else(|| {
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "metadato plenora.geometry.srid non intero nel campo geometria",
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(LayerCrs {
+        id: metadata
+            .get(plenora_io_model::geometry::GEO_CRS_KEY)
+            .cloned(),
+        definition: None,
+        srid,
+    })
 }
 
 /// Risolve il `srs_id` `GeoPackage` per il CRS dato, registrandolo in
-/// `gpkg_spatial_ref_sys` se non è il WGS84 built-in. Senza WKT reale usa
+/// `gpkg_spatial_ref_sys` se la riga non c'e'. Senza WKT reale usa
 /// `definition='undefined'`: GDAL risolve comunque il CRS da organization+code.
-fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
-    let Some(id) = id else {
-        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "GeoPackage richiede un CRS esplicito; nessun default implicito",
-        )));
+///
+/// Lo `srs_id` e' `plenora.geometry.srid` quando il campo lo dichiara,
+/// altrimenti il codice dell'autorita' (la mappatura documentata di GEO-008).
+/// Una riga gia' presente con quello `srs_id` si riusa solo se descrive la
+/// stessa organizzazione e lo stesso codice: altrimenti la geometria finirebbe
+/// legata a un CRS che non e' il suo, e il conflitto si rifiuta.
+fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
+    // Un CRS senza identificatore, o con un codice che non e' un intero
+    // canonico, e' un ingresso conforme che `gpkg_spatial_ref_sys` non
+    // rappresenta: la riga vuole un'organizzazione e un codice intero. E' un
+    // limite del bersaglio, `unsupported` (REJ-001 «support»); fino alla
+    // rilettura 11 era `crs`, e un `OGC:CRS84` letto da un GeoJSON usciva «non
+    // risolto».
+    let Some(id) = crs.id.as_deref() else {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoPackage registra un CRS per organizzazione e codice, e il CRS non ha un \
+             identificatore",
+            ),
+        ));
     };
-    if id.eq_ignore_ascii_case("EPSG:4326") {
-        return Ok(4326);
+    // GEO-020: il codice di un catalogo locale identifica un CRS solo
+    // nell'installazione che l'ha scritto. Il GeoPackage e' un'altra
+    // installazione, e il lettore rifiuterebbe la riga con categoria `crs`.
+    if plenora_io_model::crs_definizione::autorita_locale(id) {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "CRS di un catalogo locale (GEO-020): il codice non identifica il CRS \
+             fuori dall'installazione d'origine",
+        )));
     }
-    if let Some((auth, code)) = id.split_once(':') {
-        if let Ok(code_i) = code.parse::<i32>() {
+    // Il codice si porta nell'intero di `organization_coordsys_id` solo se e'
+    // canonico: `EPSG:04326` o `EPSG:+4326` diventerebbero 4326 e si
+    // rileggerebbero `EPSG:4326`, un'altra identita' (GEO-005 confronta i
+    // codici come testo). Un codice cosi' non e' rappresentabile, e si rifiuta.
+    let Some((auth, code_i)) = id.split_once(':').and_then(|(auth, code)| {
+        Some((
+            auth.to_ascii_uppercase(),
+            plenora_io_model::crs::codice_intero_canonico(code)?,
+        ))
+    }) else {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "GeoPackage registra un CRS con un codice intero dell'organizzazione, e \
+             l'identificatore del CRS non ne ha uno canonico",
+            ),
+        ));
+    };
+    let srs_id = crs.srid.unwrap_or(code_i);
+    let esistente: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT organization, organization_coordsys_id FROM gpkg_spatial_ref_sys \
+             WHERE srs_id = ?1",
+            [srs_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql_err)?;
+    match esistente {
+        Some((org, code)) if org.eq_ignore_ascii_case(&auth) && code == i64::from(code_i) => {}
+        Some(_) => {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "srs_id GeoPackage gia' assegnato a un altro CRS in gpkg_spatial_ref_sys",
+            )));
+        }
+        None => {
             conn.execute(
-                "INSERT OR IGNORE INTO gpkg_spatial_ref_sys \
+                "INSERT INTO gpkg_spatial_ref_sys \
                  (srs_name, srs_id, organization, organization_coordsys_id, definition, description) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![
                     id,
+                    srs_id,
+                    auth,
                     code_i,
-                    auth.to_uppercase(),
-                    code_i,
-                    def.unwrap_or("undefined"),
+                    crs.definition.as_deref().unwrap_or("undefined"),
                     "importato da plenora-io"
                 ],
             )
             .map_err(sql_err)?;
-            return Ok(code_i);
         }
     }
-    let raw = RawCrs::new(def.unwrap_or(id).to_owned(), Some(id.to_owned()));
-    Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
+    Ok(srs_id)
 }
 
 fn create_feature_table(

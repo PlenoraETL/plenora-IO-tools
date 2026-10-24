@@ -9,6 +9,10 @@
 //! operazioni cambia, e cio' che il gruppo usa del genitore arriva per `use
 //! super::*`.
 
+use plenora_io_model::crs::CrsDefinitionFormat;
+
+use crate::descriptor::CrsRepresentationCapabilities;
+
 use super::{
     is_geometry_field, saturating_u64, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationState, CrsResolution, DataType, FidelityAssessment, FidelityReasonCode,
@@ -25,12 +29,18 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
         if let Some(geometry) = &layer.contract.geometry {
-            let (crs_id, crs_definition) = match &geometry.crs {
-                CrsResolution::Resolved(crs) => (crs.id.as_deref(), crs.definition.as_deref()),
-                CrsResolution::DeclaredButUnresolved(raw) => {
-                    (raw.authority_hint.as_deref(), raw.definition.as_deref())
-                }
-                CrsResolution::Missing => (None, None),
+            let (crs_id, crs_definition, grammatica) = match &geometry.crs {
+                CrsResolution::Resolved(crs) => (
+                    crs.id.as_deref(),
+                    crs.definition.as_deref(),
+                    crs.definition_format,
+                ),
+                CrsResolution::DeclaredButUnresolved(raw) => (
+                    raw.authority_hint.as_deref(),
+                    raw.definition.as_deref(),
+                    raw.definition_format,
+                ),
+                CrsResolution::Missing => (None, None, None),
             };
             // Le capability dicono da dove ogni rappresentazione si ricava;
             // il piano dice se quella fonte c'e'. Il verdetto e' l'incrocio
@@ -39,39 +49,40 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
                 crs_id,
                 crs_definition,
             };
+            let dove = Posizione {
+                layer_index,
+                field_index: indice_della_geometria(layer, &geometry.name),
+                type_class: None,
+            };
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
-                stato_per_il_piano(capabilities.crs_representations.crs_id, &fonti),
+                stato_dell_identificatore(&capabilities.crs_representations, &fonti, grammatica),
             );
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::Srid,
                 geometry.srid.map(|srid| srid.to_string().len()),
                 stato_per_il_piano(capabilities.crs_representations.srid, &fonti),
             );
             record_crs_representation_loss(
                 &mut loss,
-                Posizione {
-                    layer_index,
-                    field_index: indice_della_geometria(layer, &geometry.name),
-                    type_class: None,
-                },
+                dove,
                 RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
-                stato_per_il_piano(capabilities.crs_representations.crs_definition, &fonti),
+                // La grammatica decide se `Preserved` regge: un writer che
+                // conserva solo il PROJJSON non conserva un WKT.
+                stato_per_il_piano(
+                    capabilities
+                        .crs_representations
+                        .crs_definition_per(grammatica),
+                    &fonti,
+                ),
             );
+            record_coordinate_epoch_loss(&mut loss, descriptor.id(), geometry, dove);
         }
 
         let geometry_name = layer
@@ -147,17 +158,51 @@ pub fn stato_per_il_piano(
         return stato;
     };
     let disponibile = match derivazione {
-        CrsDerivation::FromDefinition { synthesized_for } => {
+        CrsDerivation::FromDefinition {
+            synthesized_for, ..
+        } => {
             fonti.crs_definition.is_some()
                 || definizione_sintetizzabile(fonti.crs_id, synthesized_for)
         }
         CrsDerivation::FromIdentifier => fonti.crs_id.is_some(),
+        CrsDerivation::SynthesizedFor { ids } => definizione_sintetizzabile(fonti.crs_id, ids),
         CrsDerivation::FixedByFormat | CrsDerivation::RuntimeResolved => true,
     };
     if disponibile {
         stato
     } else {
         CrsRepresentationState::Absent
+    }
+}
+
+/// Lo stato dell'identificatore **per questo piano**.
+///
+/// Due raffinamenti sopra [`stato_per_il_piano`]. Il primo e' della capability
+/// ([`CrsRepresentationCapabilities::crs_id_per`]): senza la definizione che lo
+/// porta, l'identificatore di `GeoParquet` si rilegge come il default del
+/// formato. Il secondo e' della derivazione dalla definizione: `derived` vale
+/// solo se il WKT che il writer emette si rilegge, con la regola dei lettori,
+/// nello **stesso** identificatore (GEO-005). Un `.prj` sintetizzato per
+/// `OGC:CRS84` si rilegge `EPSG:4326`, un `PROJCS` anonimo si rilegge non
+/// risolto: in entrambi l'identificatore va riportato da fuori, e lo stato
+/// onesto e' `absent`. Fino alla rilettura 11 erano `derived` (era la deviazione
+/// dichiarata «Shapefile, DXF: identificatore dal WKT»).
+pub fn stato_dell_identificatore(
+    rappresentazioni: &CrsRepresentationCapabilities,
+    fonti: &FontiDelPiano,
+    grammatica: Option<CrsDefinitionFormat>,
+) -> CrsRepresentationState {
+    let stato = rappresentazioni.crs_id_per(fonti.crs_id, fonti.crs_definition, grammatica);
+    match rappresentazioni.identificatore_riletto(fonti.crs_id, fonti.crs_definition, grammatica) {
+        None => stato_per_il_piano(stato, fonti),
+        Some(Ok(Some(riletto)))
+            if fonti
+                .crs_id
+                .is_some_and(|id| plenora_io_model::crs::stesso_identificatore(&riletto, id)) =>
+        {
+            stato
+        }
+        Some(_) => CrsRepresentationState::Absent,
     }
 }
 
@@ -209,6 +254,43 @@ const SRID_NOT_PRESERVED_ABSENT: &str = "srid_not_preserved_absent";
 const SRID_NOT_PRESERVED_DERIVED: &str = "srid_not_preserved_derived";
 const CRS_DEFINITION_NOT_PRESERVED_ABSENT: &str = "crs_definition_not_preserved_absent";
 const CRS_DEFINITION_NOT_PRESERVED_DERIVED: &str = "crs_definition_not_preserved_derived";
+
+/// L'epoca delle coordinate di un CRS dinamico (`GeoParquet` 1.1, `epoch`), come
+/// il contratto la porta: un metadato nativo, perche' il vocabolario Arrow non
+/// ha una chiave per lei (rilettura 13).
+const EPOCA_DELLE_COORDINATE: &str = "geoparquet.epoch";
+
+/// I formati che scrivono l'epoca: `GeoParquet` nel campo `epoch` della
+/// colonna, Arrow IPC nella chiave nativa del campo. Gli altri non hanno dove
+/// metterla, e senza l'epoca le coordinate di un CRS dinamico si leggono a
+/// un'altra data: la perdita si dichiara (`crs_coordinate_epoch_not_preserved`).
+/// Fino alla rilettura 13 spariva in una conversione `lossless`.
+const PORTANO_L_EPOCA: [&str; 2] = ["geoparquet", "ipc"];
+
+const CRS_COORDINATE_EPOCH_NOT_PRESERVED: &str = "crs_coordinate_epoch_not_preserved";
+
+pub fn record_coordinate_epoch_loss(
+    loss: &mut LossReport,
+    formato: &str,
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+    dove: Posizione,
+) {
+    let Some(epoca) = geometry.native_metadata.get(EPOCA_DELLE_COORDINATE) else {
+        return;
+    };
+    if PORTANO_L_EPOCA.contains(&formato) {
+        return;
+    }
+    loss.record(CRS_COORDINATE_EPOCH_NOT_PRESERVED, 1);
+    loss.add_example(LossExample {
+        category: CRS_COORDINATE_EPOCH_NOT_PRESERVED.to_owned(),
+        posizione: dove,
+        context: format!(
+            "representation=coordinate_epoch value_bytes={}",
+            epoca.len()
+        ),
+    });
+}
 
 /// L'indice della colonna geometrica in `schema.fields()`.
 ///

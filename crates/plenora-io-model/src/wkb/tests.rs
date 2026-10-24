@@ -135,10 +135,13 @@ fn extended_geometries() -> Vec<WkbGeometry> {
             xy(2.0, 0.0),
         ]))
     };
+    // Anelli di quattro punti chiusi: tre punti non fanno un anello lineare
+    // (GEO-011), e fino alla 6.0 queste prove ne usavano tre.
     let polygon = || {
         child(WkbValue::Polygon(vec![vec![
             xy(0.0, 0.0),
             xy(2.0, 0.0),
+            xy(2.0, 2.0),
             xy(0.0, 0.0),
         ]]))
     };
@@ -146,6 +149,7 @@ fn extended_geometries() -> Vec<WkbGeometry> {
         child(WkbValue::Triangle(vec![vec![
             xy(0.0, 0.0),
             xy(2.0, 0.0),
+            xy(2.0, 2.0),
             xy(0.0, 0.0),
         ]]))
     };
@@ -406,4 +410,350 @@ fn encoder_rejects_incoherent_ordinates() {
         srid: None,
     };
     assert!(encode_wkb(&invalid, WkbFlavor::Iso).is_err());
+}
+
+// --- GEO-011: forma dei conteggi, chiusura degli anelli, annidamento ---------
+//
+// I byte sono scritti a mano, come li scrive `genera.py` del revisore e come li
+// decide l'oracolo `arrow_data.py` dei contratti (`_geometry`): un encoder che
+// sbagliasse nei due versi renderebbe la prova verde per costruzione.
+
+/// Un'intestazione WKB ISO, little o big endian.
+fn intestazione(little: bool, codice: u32) -> Vec<u8> {
+    let mut byte = vec![u8::from(little)];
+    byte.extend_from_slice(&u32_wkb(little, codice));
+    byte
+}
+
+const fn u32_wkb(little: bool, valore: u32) -> [u8; 4] {
+    if little {
+        valore.to_le_bytes()
+    } else {
+        valore.to_be_bytes()
+    }
+}
+
+fn ordinate(little: bool, valori: &[f64]) -> Vec<u8> {
+    valori
+        .iter()
+        .flat_map(|v| {
+            if little {
+                v.to_le_bytes()
+            } else {
+                v.to_be_bytes()
+            }
+        })
+        .collect()
+}
+
+/// Una sequenza di `n` punti XY distinti, l'ultimo uguale al primo se
+/// `chiusa`.
+fn punti(little: bool, n: u32, chiusa: bool) -> Vec<u8> {
+    let mut byte = u32_wkb(little, n).to_vec();
+    for i in 0..n {
+        let punto = if chiusa && i + 1 == n {
+            [0.0, 0.0]
+        } else {
+            [f64::from(i), f64::from(i * i)]
+        };
+        byte.extend(ordinate(little, &punto));
+    }
+    byte
+}
+
+fn sequenza(little: bool, base: u32, n: u32, chiusa: bool) -> Vec<u8> {
+    let mut byte = intestazione(little, base);
+    byte.extend(punti(little, n, chiusa));
+    byte
+}
+
+/// Un poligono (3) o triangolo (17) con gli anelli dati, gia' codificati.
+fn con_anelli(little: bool, base: u32, anelli: &[Vec<u8>]) -> Vec<u8> {
+    let mut byte = intestazione(little, base);
+    byte.extend_from_slice(&u32_wkb(little, u32::try_from(anelli.len()).unwrap()));
+    for anello in anelli {
+        byte.extend_from_slice(anello);
+    }
+    byte
+}
+
+/// Un anello XY con i punti dati, codificati tali e quali.
+fn anello(little: bool, coordinate: &[[f64; 2]]) -> Vec<u8> {
+    let mut byte = u32_wkb(little, u32::try_from(coordinate.len()).unwrap()).to_vec();
+    for [x, y] in coordinate {
+        byte.extend(ordinate(little, &[*x, *y]));
+    }
+    byte
+}
+
+const QUADRATO: [[f64; 2]; 5] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]];
+const TRIANGOLO: [[f64; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]];
+
+/// `profondita` collezioni attorno a un punto: il punto sta al livello
+/// `profondita`.
+fn collezioni_annidate(profondita: usize) -> Vec<u8> {
+    let mut byte = intestazione(true, 1);
+    byte.extend(ordinate(true, &[1.0, 2.0]));
+    for _ in 0..profondita {
+        let mut esterna = intestazione(true, 7);
+        esterna.extend_from_slice(&1_u32.to_le_bytes());
+        esterna.extend(byte);
+        byte = esterna;
+    }
+    byte
+}
+
+fn rifiutato_ovunque(caso: &str, byte: &[u8], limiti: &WkbLimits) {
+    assert!(
+        inspect_wkb(byte, limiti).is_err(),
+        "{caso}: l'ispezione deve rifiutarlo"
+    );
+    assert!(
+        decode_wkb(byte, limiti).is_err(),
+        "{caso}: il decoder deve rifiutarlo"
+    );
+}
+
+fn accettato_ovunque(caso: &str, byte: &[u8], limiti: &WkbLimits) {
+    assert!(
+        inspect_wkb(byte, limiti).is_ok(),
+        "{caso}: l'ispezione deve accettarlo"
+    );
+    assert!(
+        decode_wkb(byte, limiti).is_ok(),
+        "{caso}: il decoder deve accettarlo"
+    );
+}
+
+/// I valori che GEO-011 rifiuta e l'oracolo dichiara `data_mapping`: una
+/// linestring di un punto, una circularstring pari o di meno di tre punti, un
+/// anello di meno di quattro punti o non chiuso, un triangolo di due anelli.
+/// In entrambi gli ordini dei byte, e per entrambi i parser.
+#[test]
+fn geo_011_i_conteggi_e_gli_anelli_malformati_si_rifiutano() {
+    let limiti = WkbLimits::default();
+    for little in [true, false] {
+        let casi: Vec<(&str, Vec<u8>)> = vec![
+            ("linestring di un punto", sequenza(little, 2, 1, false)),
+            ("circularstring di un punto", sequenza(little, 8, 1, false)),
+            ("circularstring di due punti", sequenza(little, 8, 2, false)),
+            (
+                "circularstring di quattro punti",
+                sequenza(little, 8, 4, false),
+            ),
+            ("circularstring di sei punti", sequenza(little, 8, 6, false)),
+            (
+                "anello non chiuso",
+                con_anelli(little, 3, &[punti(little, 4, false)]),
+            ),
+            (
+                "anello di tre punti chiuso",
+                con_anelli(little, 3, &[punti(little, 3, true)]),
+            ),
+            (
+                "anello vuoto",
+                con_anelli(little, 3, &[punti(little, 0, false)]),
+            ),
+            (
+                "secondo anello non chiuso",
+                con_anelli(
+                    little,
+                    3,
+                    &[anello(little, &QUADRATO), punti(little, 5, false)],
+                ),
+            ),
+            (
+                "triangolo di due anelli",
+                con_anelli(
+                    little,
+                    17,
+                    &[anello(little, &TRIANGOLO), anello(little, &TRIANGOLO)],
+                ),
+            ),
+            (
+                "triangolo con anello non chiuso",
+                con_anelli(little, 17, &[punti(little, 4, false)]),
+            ),
+        ];
+        for (caso, byte) in casi {
+            rifiutato_ovunque(&format!("{caso}, little={little}"), &byte, &limiti);
+        }
+    }
+}
+
+/// I conteggi che GEO-011 ammette: zero punti dove il vuoto e' ammesso, tre o
+/// cinque per una circularstring, un poligono e un triangolo senza anelli.
+#[test]
+fn geo_011_i_conteggi_ammessi_passano() {
+    let limiti = WkbLimits::default();
+    for little in [true, false] {
+        let casi: Vec<(&str, Vec<u8>)> = vec![
+            ("linestring vuota", sequenza(little, 2, 0, false)),
+            ("linestring di due punti", sequenza(little, 2, 2, false)),
+            ("circularstring vuota", sequenza(little, 8, 0, false)),
+            ("circularstring di tre punti", sequenza(little, 8, 3, false)),
+            (
+                "circularstring di cinque punti",
+                sequenza(little, 8, 5, false),
+            ),
+            ("poligono vuoto", con_anelli(little, 3, &[])),
+            ("triangolo vuoto", con_anelli(little, 17, &[])),
+            (
+                "poligono con buco",
+                con_anelli(
+                    little,
+                    3,
+                    &[anello(little, &QUADRATO), anello(little, &QUADRATO)],
+                ),
+            ),
+            (
+                "triangolo di un anello",
+                con_anelli(little, 17, &[anello(little, &TRIANGOLO)]),
+            ),
+        ];
+        for (caso, byte) in casi {
+            accettato_ovunque(&format!("{caso}, little={little}"), &byte, &limiti);
+        }
+    }
+}
+
+/// La chiusura e' l'uguaglianza dei **byte** del primo e dell'ultimo punto,
+/// come in `arrow_data.py` (`data[:width] != data[-width:]`): un NaN con gli
+/// stessi bit chiude, `-0.0` non chiude `0.0`, e la Z o la M diverse aprono un
+/// anello chiuso in XY.
+#[test]
+fn geo_011_la_chiusura_e_byte_per_byte_anche_per_z_m_e_nan() {
+    let limiti = WkbLimits::default();
+    let nan = f64::NAN;
+    let chiuso_nan = con_anelli(
+        true,
+        3,
+        &[anello(
+            true,
+            &[[nan, 0.0], [1.0, 0.0], [1.0, 1.0], [nan, 0.0]],
+        )],
+    );
+    accettato_ovunque("NaN con gli stessi bit", &chiuso_nan, &limiti);
+
+    let zero_negativo = con_anelli(
+        true,
+        3,
+        &[anello(
+            true,
+            &[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [-0.0, 0.0]],
+        )],
+    );
+    rifiutato_ovunque("-0.0 contro 0.0", &zero_negativo, &limiti);
+
+    // XYZ ISO (1003) e XYM ISO (2003): la terza ordinata del primo e
+    // dell'ultimo punto differisce.
+    for codice in [1003_u32, 2003] {
+        let mut byte = intestazione(true, codice);
+        byte.extend_from_slice(&1_u32.to_le_bytes());
+        byte.extend_from_slice(&4_u32.to_le_bytes());
+        for [x, y, terza] in [
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 0.0, 2.0],
+        ] {
+            byte.extend(ordinate(true, &[x, y, terza]));
+        }
+        rifiutato_ovunque(
+            &format!("terza ordinata diversa, codice {codice}"),
+            &byte,
+            &limiti,
+        );
+    }
+}
+
+/// GEO-011: al piu' 32 livelli di annidamento oltre l'esterno, qualunque sia il
+/// tetto configurato. Con 64, il default storico, 40 collezioni passavano.
+#[test]
+fn geo_011_l_annidamento_si_ferma_a_32_qualunque_sia_il_tetto() {
+    for tetto in [32_usize, 64, 1_000, usize::MAX] {
+        let limiti = WkbLimits {
+            max_depth: tetto,
+            ..WkbLimits::default()
+        };
+        accettato_ovunque(
+            &format!("32 livelli, tetto {tetto}"),
+            &collezioni_annidate(32),
+            &limiti,
+        );
+        for profondita in [33_usize, 40] {
+            rifiutato_ovunque(
+                &format!("{profondita} livelli, tetto {tetto}"),
+                &collezioni_annidate(profondita),
+                &limiti,
+            );
+        }
+    }
+    // Un tetto piu' stretto resta piu' stretto.
+    let stretto = WkbLimits {
+        max_depth: 3,
+        ..WkbLimits::default()
+    };
+    accettato_ovunque("3 livelli, tetto 3", &collezioni_annidate(3), &stretto);
+    rifiutato_ovunque("4 livelli, tetto 3", &collezioni_annidate(4), &stretto);
+}
+
+/// L'encoder non emette cio' che il decoder rifiuterebbe: le stesse forme di
+/// GEO-011 dall'AST, anche dentro un membro.
+#[test]
+fn geo_011_l_encoder_non_emette_valori_malformati() {
+    let geometria = |value| WkbGeometry {
+        value,
+        dimensions: CoordinateDimensions::Xy,
+        srid: None,
+    };
+    let aperto = vec![xy(0.0, 0.0), xy(1.0, 0.0), xy(1.0, 1.0), xy(0.0, 1.0)];
+    let chiuso = vec![xy(0.0, 0.0), xy(1.0, 0.0), xy(1.0, 1.0), xy(0.0, 0.0)];
+    for (caso, valore) in [
+        (
+            "linestring di un punto",
+            WkbValue::LineString(vec![xy(0.0, 0.0)]),
+        ),
+        (
+            "circularstring di due punti",
+            WkbValue::CircularString(vec![xy(0.0, 0.0), xy(1.0, 1.0)]),
+        ),
+        ("anello non chiuso", WkbValue::Polygon(vec![aperto.clone()])),
+        (
+            "anello di tre punti",
+            WkbValue::Polygon(vec![vec![xy(0.0, 0.0), xy(1.0, 0.0), xy(0.0, 0.0)]]),
+        ),
+        (
+            "triangolo di due anelli",
+            WkbValue::Triangle(vec![chiuso.clone(), chiuso.clone()]),
+        ),
+        (
+            "anello non chiuso in un membro",
+            WkbValue::MultiPolygon(vec![geometria(WkbValue::Polygon(vec![aperto]))]),
+        ),
+    ] {
+        for flavor in [WkbFlavor::Iso, WkbFlavor::Ewkb] {
+            assert!(
+                encode_wkb(&geometria(valore.clone()), flavor).is_err(),
+                "{caso}: l'encoder deve rifiutarlo"
+            );
+        }
+    }
+    assert!(encode_wkb(&geometria(WkbValue::Polygon(vec![chiuso])), WkbFlavor::Iso).is_ok());
+}
+
+/// Trovato dal fuzz (`from_wkb`, CI di a7ae1e2): `POLYGON EMPTY` (zero anelli)
+/// si decodificava in `geo-types` con un esterno vuoto, che tornava WKB come un
+/// anello di zero punti, malformato per GEO-011.
+#[test]
+fn un_poligono_vuoto_fa_andata_e_ritorno() {
+    let vuoto = [0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let geometria = match from_wkb(&vuoto, &WkbLimits::default()) {
+        Ok(geometria) => geometria,
+        Err(errore) => panic!("{errore}"),
+    };
+    match to_wkb(&geometria) {
+        Ok(byte) => assert_eq!(byte, vuoto),
+        Err(errore) => panic!("{errore}"),
+    }
 }

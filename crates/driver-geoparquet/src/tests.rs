@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 /// Opzioni di lettura sul modello unificato.
 ///
@@ -444,7 +445,7 @@ fn una_geometria_con_la_misura_m_non_e_scrivibile() {
 fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     // `null` e' un'affermazione: dice che il CRS non c'e'. L'omissione ne
     // sarebbe un'altra -- direbbe CRS84 -- e le due non si scambiano.
-    let geo = build_geo_metadata("geometry", &BTreeSet::new(), &CrsDaScrivere::Nullo)
+    let geo = build_geo_metadata("geometry", &BTreeSet::new(), &CrsDaScrivere::Nullo, None)
         .expect("il documento si costruisce");
     let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
     assert_eq!(
@@ -456,12 +457,11 @@ fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     // E in lettura `null` non diventa CRS84: diventa «non lo so».
     let letti = metadati::analizza(&geo, false).expect("conforme");
     assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
-    let crs = crs_from(Some(&letti)).expect("risolto");
-    assert_eq!(
-        crs.id.as_deref(),
-        None,
-        "un CRS assente non ha identificatore"
-    );
+    // Rilettura 9, punto 6a: e' `missing`, lo stato del vocabolario per un
+    // CRS ignoto. Su b4d8064 era un `resolved` senza identificatore ne'
+    // definizione, che la conversione in IPC rifiutava.
+    let crs = crs_from(&letti).expect("letto");
+    assert_eq!(crs, CrsResolution::Missing);
 }
 
 #[test]
@@ -492,6 +492,7 @@ fn una_definizione_projjson_si_scrive_per_intero() {
         "geometry",
         &BTreeSet::new(),
         &CrsDaScrivere::Documento(projjson.to_string()),
+        None,
     )
     .expect("il documento si costruisce");
     let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
@@ -2014,6 +2015,37 @@ fn un_parquet_senza_geo_resta_leggibile_come_parquet_semplice() {
     assert!(!geometria.native_metadata.contains_key("geoparquet.version"));
 }
 
+/// Senza `geo` la geometria si riconosce dal nome, fra `geometry`, `geom` e
+/// `wkb`. Con due di quei nomi nel file vinceva il primo dell'elenco, e
+/// l'altra colonna usciva come un binario qualunque: una scelta che il file
+/// non autorizza. Ora il file e' ambiguo, e lo si dice.
+#[test]
+fn un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("ambiguo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geom", DataType::Binary, true),
+        Field::new("geometry", DataType::Binary, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    match GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura()) {
+        Ok(_) => panic!("due colonne candidate alla geometria: il driver ne ha scelta una"),
+        Err(errore) => assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported),
+    }
+}
+
 #[test]
 fn un_geo_malformato_ferma_l_apertura_invece_di_passare_per_assente() {
     // Il difetto che il lotto chiude: `serde_json::from_str(..).ok()`
@@ -2182,6 +2214,10 @@ fn i_campi_validati_arrivano_al_contratto() {
         nativi.get("geoparquet.epoch").map(String::as_str),
         Some("2021.5")
     );
+    // La colonna e' il testo del file, con le chiavi nel suo ordine: su
+    // b988e7f passava da `Value`, riordinata.
+    let colonna = nativi.get("geoparquet.column").expect("la colonna");
+    assert!(colonna.starts_with(r#"{"encoding":"WKB","#), "{colonna}");
 }
 
 #[test]
@@ -2212,6 +2248,163 @@ fn le_colonne_geometriche_secondarie_sono_nominate_dal_contratto() {
             .get("geoparquet.altre_colonne")
             .map(String::as_str),
         Some("altra")
+    );
+}
+
+// --- piu' colonne geometriche: GEO-012 ----------------------------------
+
+/// Il documento con due colonne geometriche, `geometry` primaria e `altra`.
+const GEO_DUE_GEOMETRIE: &str = concat!(
+    r#"{"version":"1.1.0","primary_column":"geometry","columns":{"#,
+    r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
+    r#""altra":{"encoding":"WKB","geometry_types":[]}}}"#,
+);
+
+/// La richiesta che proietta i campi dati, in modalita' `Required`.
+fn richiesta_proiettata(campi: &[u32]) -> ReadRequest {
+    ReadRequest {
+        projected_fields: Some(campi.iter().copied().map(FieldId).collect()),
+        projection_mode: ProjectionMode::Required,
+        ..richiesta_semplice()
+    }
+}
+
+/// L'esito di `open_layer_reader`, ridotto al codice d'errore e al messaggio.
+fn esito_lettura(
+    dataset: &dyn OpenDatasetHandle,
+    richiesta: &ReadRequest,
+) -> Option<(plenora_io_model::IoErrorCode, String)> {
+    match dataset.open_layer_reader(richiesta) {
+        Ok(_) => None,
+        Err(errore) => Some((errore.code, errore.message)),
+    }
+}
+
+#[test]
+fn due_geometrie_senza_selezione_sono_rifiutate_come_non_supportate() {
+    // Il difetto: la primaria diventava la geometria e `altra` usciva come un
+    // binario qualunque, nominata solo in un metadato nativo. GEO-012 vieta
+    // proprio questo -- degradare un campo geometrico a binario o sceglierne
+    // uno -- e chiede il rifiuto `unsupported` prima di ogni effetto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("la scoperta resta possibile: e' li' che il limite si vede");
+    let Some((codice, messaggio)) = esito_lettura(dataset.as_ref(), &richiesta_semplice()) else {
+        panic!("una lettura con due geometrie non deve degradarne una a binario");
+    };
+    assert_eq!(codice, plenora_io_model::IoErrorCode::Unsupported);
+    // Errori senza dati: il nome della colonna viene dal file.
+    assert!(!messaggio.contains("altra"), "{messaggio}");
+}
+
+#[test]
+fn una_projection_che_tiene_entrambe_le_geometrie_e_rifiutata() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[0, 1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_secondaria_e_rifiutata() {
+    // Senza la primaria `altra` sarebbe l'unica colonna, ma il contratto
+    // geometrico e' quello della primaria: uscirebbe binaria, cioe' degradata.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[1, 2]));
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
+    );
+}
+
+#[test]
+fn una_projection_sulla_sola_primaria_resta_leggibile() {
+    // Leggere cio' che si e' chiesto non e' scegliere al posto di qualcuno:
+    // la geometria che esce e' una sola, e porta il proprio contratto.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    let mut lettore = dataset
+        .open_layer_reader(&richiesta_proiettata(&[0, 2]))
+        .expect("la sola primaria si legge");
+    let geometria = lettore
+        .contract()
+        .contract
+        .geometry
+        .clone()
+        .expect("la primaria porta il contratto geometrico");
+    assert_eq!(geometria.name, "geometry");
+    let batch = lettore.next_batch().expect("batch").expect("una riga");
+    assert_eq!(batch.num_columns(), 2);
+    assert!(batch.schema().index_of("altra").is_err());
+}
+
+#[test]
+fn un_campo_geoarrow_non_dichiarato_da_geo_e_rifiutato() {
+    // Lo schema Arrow incorporato puo' marcare `geoarrow.wkb` una colonna che
+    // il documento `geo` non nomina. Passava con l'estensione e senza alcun
+    // contratto: una seconda geometria che nessuno validava.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("estensione_su_altra.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let estensione = HashMap::from([(
+        ARROW_EXTENSION_NAME_KEY.to_owned(),
+        GEOARROW_WKB_EXTENSION.to_owned(),
+    )]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geometry", DataType::Binary, true),
+        Field::new("altra", DataType::Binary, true).with_metadata(estensione),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
+    writer.close().unwrap();
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("apertura");
+    // La scoperta deve dire cio' che la lettura rifiutera': anche questa
+    // colonna e' un'altra geometria, e il contratto la nomina come le
+    // secondarie del documento `geo`. Prima la nominava solo se il documento
+    // la dichiarava, e la scoperta descriveva un layer leggibile.
+    let geometria = dataset.layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .expect("colonna geometria");
+    assert_eq!(
+        geometria
+            .native_metadata
+            .get("geoparquet.altre_colonne")
+            .map(String::as_str),
+        Some("altra")
+    );
+    let esito = esito_lettura(dataset.as_ref(), &richiesta_semplice());
+    assert_eq!(
+        esito.map(|(codice, _)| codice),
+        Some(plenora_io_model::IoErrorCode::Unsupported)
     );
 }
 
@@ -2774,14 +2967,87 @@ fn legacy_bbox_names_are_hidden_with_explicit_opt_in() {
     assert!(contract_schema.index_of("geometry").is_ok());
 }
 
+/// Un Parquet con una colonna `geometry` e senza metadato `geo`.
+fn parquet_senza_geo(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let percorso = dir.path().join("senza_geo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "geometry",
+        DataType::Binary,
+        true,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    percorso
+}
+
+/// Senza metadato `geo` il file non e' `GeoParquet`, e niente gli assegna un
+/// CRS: il default `OGC:CRS84` della specifica vale per una colonna dichiarata
+/// nel metadato senza `crs`. Il driver lo etichettava WGS84 lo stesso; ora il
+/// CRS e' `missing`, oppure quello che `--assume-crs` nomina.
 #[test]
-fn default_crs_is_crs84_with_longitude_latitude_axis_order() {
-    let crs = crs_from(None).unwrap();
-    assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+fn un_parquet_senza_geo_non_afferma_un_crs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_senza_geo(&dir);
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap();
+    let geometria = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs, CrsResolution::Missing);
+
+    let assunto = GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs("EPSG:3003"),
+        )
+        .unwrap();
+    let geometria = assunto.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometria.crs.id(), Some("EPSG:3003"));
+    // Senza metadato nessuno dichiara l'ordine memorizzato.
     assert_eq!(
-        crs.axis_order,
-        plenora_io_model::crs::AxisOrder::LongitudeLatitude
+        geometria.resolved_crs().map(|crs| crs.axis_order),
+        Some(plenora_io_model::crs::AxisOrder::Unknown)
     );
+}
+
+/// Un `GeoParquet` che dichiara il proprio CRS e un `--assume-crs` diverso sono
+/// due dichiarazioni in conflitto: l'opzione si ignorava in silenzio.
+#[test]
+fn assume_crs_in_conflitto_col_metadato_geo_e_rifiutato() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_, percorso) = geo_di_un_file_scritto(&dir);
+    let dichiarato = GeoParquetDriver
+        .open(Source::Path(percorso.clone()), opzioni_lettura())
+        .unwrap()
+        .layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .and_then(|g| g.crs.id().map(str::to_owned))
+        .expect("il file scritto dichiara un CRS");
+    let Err(errore) = GeoParquetDriver.open(
+        Source::Path(percorso.clone()),
+        opzioni_lettura().with_assume_crs("EPSG:3003"),
+    ) else {
+        panic!("--assume-crs in conflitto col metadato geo: ignorato");
+    };
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    // Lo stesso identificatore, con l'autorita' in minuscolo, e' concorde.
+    let (autorita, codice) = dichiarato.split_once(':').unwrap();
+    let concorde = format!("{}:{codice}", autorita.to_ascii_lowercase());
+    assert!(GeoParquetDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura().with_assume_crs(concorde),
+        )
+        .is_ok());
 }
 
 #[test]
@@ -2847,9 +3113,154 @@ fn projjson_crs84() -> String {
                     {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
                     {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
                 ]
-            }
+            },
+            // Dalla rilettura 11 il documento porta l'identificatore: e' il
+            // solo posto in cui GeoParquet lo scrive.
+            "id": {"authority": "OGC", "code": "CRS84"}
         })
         .to_string()
+}
+
+/// Un contratto con identificatore e PROJJSON, nel genere dato.
+fn con_projjson(id: Option<&str>, kind: CrsKind, projjson: &str) -> GeometryColumnContract {
+    let crs = ResolvedCrs::new(id.map(str::to_owned), kind, Some(projjson.to_owned()))
+        .with_definition_format(CrsDefinitionFormat::Projjson);
+    GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true)
+}
+
+/// Rilettura 11: il writer scrive un PROJJSON solo se il file lo rilegge con
+/// lo stesso identificatore. Su `db1307d` tutti e tre si scrivevano.
+#[test]
+fn un_projjson_che_il_file_non_rilegge_uguale_non_si_scrive() {
+    let crs84 = projjson_crs84();
+    let senza_id = {
+        let mut valore: serde_json::Value = serde_json::from_str(&crs84).expect("JSON");
+        valore.as_object_mut().expect("oggetto").remove("id");
+        valore.to_string()
+    };
+    // Senza `id`: il lettore lo rifiuta come CRS non risolto.
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(None, CrsKind::Geographic, &senza_id)),
+        None,
+    )
+    .expect_err("senza id non si scrive");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    assert!(errore.to_string().contains("senza `id`"), "{errore}");
+    // Un `id` diverso da quello del contratto, anche solo nella grafia.
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("ogc:crs84"),
+            CrsKind::Geographic,
+            &crs84,
+        )),
+        None,
+    )
+    .expect_err("un id diverso non si scrive");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert_eq!(
+        errore.capability_reason,
+        Some(plenora_io_model::CapabilityReason::CrsRepresentationsInconsistent)
+    );
+    // Un `id` che contraddice il genere del documento.
+    let ingegneria = r#"{"type":"EngineeringCRS","name":"x","datum":{"name":"d"},"coordinate_system":{"subtype":"Cartesian","axis":[{"name":"X","abbreviation":"X","direction":"east","unit":"metre"},{"name":"Y","abbreviation":"Y","direction":"north","unit":"metre"}]},"id":{"authority":"EPSG","code":4326}}"#;
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("EPSG:4326"),
+            CrsKind::Geographic,
+            ingegneria,
+        )),
+        None,
+    )
+    .expect_err("il genere contraddetto non si scrive");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+    assert!(
+        errore.to_string().contains("si contraddicono nel genere"),
+        "{errore}"
+    );
+    // Un contratto senza identificatore e un documento che lo porta: si
+    // scrive, e il file ne dice uno in piu', non uno diverso.
+    assert_eq!(
+        crs_da_scrivere(Some(&con_projjson(None, CrsKind::Geographic, &crs84)), None)
+            .expect("si scrive"),
+        CrsDaScrivere::Documento(crs84)
+    );
+}
+
+/// Rilettura 11: il documento esce e rientra **byte per byte**. Su `db1307d`
+/// passava da `serde_json::Value`, e `0.99960000000000000000000001` usciva
+/// `0.9996`, `9E0` usciva `9.0`, le chiavi uscivano riordinate.
+#[test]
+fn il_projjson_si_scrive_e_si_rilegge_byte_per_byte() {
+    // Numeri che `f64` non rappresenta, un esponente, una parentesi in escape
+    // e `type` dopo `name`: tutti testi che una riscrittura cambia.
+    let barra = char::from(0x5c_u8);
+    let nome_in_escape = format!("WGS 84 {barra}u0028CRS84)");
+    let testo = projjson_crs84()
+        .replace("298.257223563", "298.2572235630000000000001")
+        .replace("6378137", "6378137E0")
+        .replace(
+            r#""name":"WGS 84 (CRS84)","type":"GeographicCRS""#,
+            &format!(r#""type":"GeographicCRS","name":"{nome_in_escape}""#),
+        );
+    assert!(
+        testo.contains("E0") && testo.contains(&nome_in_escape),
+        "{testo}"
+    );
+    let geo = build_geo_metadata(
+        "geometry",
+        &BTreeSet::new(),
+        &CrsDaScrivere::Documento(testo.clone()),
+        None,
+    )
+    .expect("il documento si costruisce");
+    assert!(
+        geo.contains(&testo),
+        "il documento non e' incorporato tale e quale: {geo}"
+    );
+    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let metadati::Crs::Documento { testo: riletto, .. } = &letti.primaria.crs else {
+        panic!("atteso un documento: {:?}", letti.primaria.crs);
+    };
+    assert_eq!(riletto, &testo);
+    // Il resto del metadato e' quello di prima, con le stesse chiavi.
+    let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
+    schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
+}
+
+/// Un testo con spazi ai bordi non si incorporerebbe byte per byte.
+#[test]
+fn un_projjson_con_spazi_ai_bordi_non_si_scrive() {
+    let testo = format!(" {} ", projjson_crs84());
+    let errore = crs_da_scrivere(
+        Some(&con_projjson(
+            Some("OGC:CRS84"),
+            CrsKind::Geographic,
+            &testo,
+        )),
+        None,
+    )
+    .expect_err("non si incorpora byte per byte");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+}
+
+/// Il lettore consegna il testo del file, anche quando il file non e' nostro.
+#[test]
+fn il_lettore_consegna_il_testo_del_documento() {
+    let crs = r#"{ "type" : "GeographicCRS", "name":"WGS 84 (CRS84)","datum":{"type":"GeodeticReferenceFrame","name":"World Geodetic System 1984","ellipsoid":{"name":"WGS 84","semi_major_axis":6378137,"inverse_flattening":298.2572235630000000000001}},"coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"},{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"}]},"id":{"authority":"OGC","code":"CRS84"} }"#;
+    let geo = format!(
+        r#"{{"version":"1.1.0","primary_column":"geometry","columns":{{"geometry":{{"encoding":"WKB","geometry_types":[],"crs": {crs} }}}}}}"#
+    );
+    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let metadati::Crs::Documento { testo, .. } = &letti.primaria.crs else {
+        panic!("atteso un documento");
+    };
+    assert_eq!(testo, crs);
 }
 
 #[test]
@@ -2897,6 +3308,55 @@ fn crs84_omette_il_campo_e_un_crs_mancante_scrive_null() {
         crs_da_scrivere(None, None).expect("scrivibile"),
         CrsDaScrivere::Nullo
     );
+}
+
+/// Rilettura 10, punti 1 e 2, al writer: che cosa esce per ogni stato che non
+/// e' un PROJJSON.
+#[test]
+fn le_definizioni_che_non_sono_projjson_non_spariscono_in_silenzio() {
+    const WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+    let colonna =
+        |crs: CrsResolution| GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true);
+    // Un `missing` e' `crs: null`, e il metadato legacy della colonna non lo
+    // trasforma in un CRS che il contratto non dichiara.
+    assert_eq!(
+        crs_da_scrivere(
+            Some(&colonna(CrsResolution::Missing)),
+            Some("OGC:CRS84".to_owned())
+        )
+        .expect("scrivibile"),
+        CrsDaScrivere::Nullo
+    );
+    // Il dichiarato ma non risolto non diventa CRS84 per il suo suggerimento.
+    let errore = crs_da_scrivere(
+        Some(&colonna(CrsResolution::DeclaredButUnresolved(
+            RawCrs::from_authority_hint("OGC:CRS84".to_owned()),
+        ))),
+        None,
+    )
+    .expect_err("non risolto");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    // Un WKT senza identificatore usciva `crs: null`.
+    let anonimo = ResolvedCrs::new(None, CrsKind::Geographic, Some(WKT.to_owned()));
+    let errore = crs_da_scrivere(Some(&colonna(anonimo.into())), None).expect_err("anonimo");
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    // Un WKT con `EPSG:4326` si omette: la perdita la dichiara il piano.
+    let wgs84 = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Geographic,
+        Some(WKT.to_owned()),
+    );
+    assert_eq!(
+        crs_da_scrivere(Some(&colonna(wgs84.into())), None).expect("scrivibile"),
+        CrsDaScrivere::Omesso
+    );
+    // Su un `LOCAL_CS` il writer, come seconda guardia, non sceglie.
+    let locale = ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Unknown,
+        Some("LOCAL_CS[\"x\",LOCAL_DATUM[\"d\",0],UNIT[\"metre\",1]]".to_owned()),
+    );
+    assert!(crs_da_scrivere(Some(&colonna(locale.into())), None).is_err());
 }
 
 #[test]
@@ -2957,7 +3417,7 @@ fn projjson_without_identifier_is_a_typed_unresolved_crs() {
             false,
         )
         .expect("il documento e' conforme");
-    let error = crs_from(Some(&geo)).unwrap_err();
+    let error = crs_from(&geo).unwrap_err();
     assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     assert_eq!(error.driver.as_deref(), Some("geoparquet"));
     assert!(!error.to_string().contains("survey-grid-secret"));
@@ -3715,4 +4175,352 @@ fn zstd_round_trip() {
         .downcast_ref::<BinaryArray>()
         .unwrap();
     assert_eq!(col.value(0), wkb.as_slice());
+}
+
+/// Il genere di un documento `crs` viene dal suo `type` con la regola comune
+/// dei driver: su c0e84cb l'identificatore `EPSG:4326` vinceva su un `type`
+/// `ProjectedCRS`, e il documento usciva geografico, `lon_lat` sui dati
+/// proiettati.
+#[test]
+fn il_genere_del_documento_crs_viene_dal_type() {
+    let asse = |nome: &str, direzione: &str, unita: &str| serde_json::json!({"name": nome, "abbreviation": nome, "direction": direzione, "unit": unita});
+    let crs = serde_json::json!({
+        "type": "ProjectedCRS",
+        "name": "x",
+        "base_crs": {
+            "type": "GeographicCRS",
+            "name": "WGS 84",
+            "datum": {
+                "type": "GeodeticReferenceFrame",
+                "name": "World Geodetic System 1984",
+                "ellipsoid": {"name": "WGS 84", "semi_major_axis": 6_378_137, "inverse_flattening": 298.257_223_563}
+            },
+            "coordinate_system": {
+                "subtype": "ellipsoidal",
+                "axis": [asse("Lon", "east", "degree"), asse("Lat", "north", "degree")]
+            }
+        },
+        "conversion": {"name": "unnamed", "method": {"name": "Transverse Mercator"}},
+        "coordinate_system": {
+            "subtype": "Cartesian",
+            "axis": [asse("E", "east", "metre"), asse("N", "north", "metre")]
+        },
+        "id": {"authority": "EPSG", "code": 4326}
+    });
+    let geo = metadati::analizza(
+        &serde_json::json!({
+            "version": "1.1.0",
+            "primary_column": "geometry",
+            "columns": {"geometry": {"encoding": "WKB", "geometry_types": ["Point"], "crs": crs}}
+        })
+        .to_string(),
+        false,
+    )
+    .expect("il documento e' conforme");
+    let errore = crs_from(&geo).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("geoparquet"));
+}
+
+// --- rilettura 12: le chiavi del formato non attraversano il contratto ------
+
+/// Un `geo` che dichiara `EPSG:4326`, diverso dal CRS del campo.
+const GEO_STANTIO: &str = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],"crs":{"type":"GeographicCRS","name":"stantio","id":{"authority":"EPSG","code":4326}}}}}"#;
+
+/// Lo schema Arrow incorporato in `ARROW:schema`, senza le chiavi del footer:
+/// e' cio' che pyarrow rende come metadati dello schema.
+fn schema_incorporato(percorso: &std::path::Path) -> (Schema, Vec<String>) {
+    use parquet::file::reader::FileReader as _;
+    let lettore =
+        parquet::file::reader::SerializedFileReader::new(File::open(percorso).unwrap()).unwrap();
+    let chiavi = lettore
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .cloned()
+        .expect("il footer porta metadati");
+    let solo: Vec<KeyValue> = chiavi
+        .iter()
+        .filter(|voce| voce.key == "ARROW:schema")
+        .cloned()
+        .collect();
+    assert_eq!(solo.len(), 1, "un solo ARROW:schema");
+    let schema = parquet::arrow::parquet_to_arrow_schema(
+        lettore.metadata().file_metadata().schema_descr(),
+        Some(&solo),
+    )
+    .unwrap();
+    let geo = chiavi
+        .iter()
+        .filter(|voce| voce.key == "geo")
+        .filter_map(|voce| voce.value.clone())
+        .collect();
+    (schema, geo)
+}
+
+/// Su 777c5a1 lo schema di scrittura copiava i metadati della sorgente, e il
+/// `geo` stantio finiva in `ARROW:schema`: pyarrow rendeva `EPSG:4326` per un
+/// file che il footer dichiara `EPSG:32632`. Su c5abbdb lo schema incorporato
+/// non portava nessun `geo`, e per pyarrow e geopandas il file non era un
+/// `GeoParquet`: ora porta il `geo` del footer, identico.
+#[test]
+fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
+    let dir = tempfile::tempdir().unwrap();
+    let percorso = dir.path().join("stantio.parquet");
+    let mut campo = geometry_field_meta("EPSG:4326");
+    campo.insert(
+        "ARROW:extension:metadata".to_owned(),
+        r#"{"crs":"EPSG:3857"}"#.to_owned(),
+    );
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("geometry", DataType::Binary, true).with_metadata(campo),
+            Field::new("id", DataType::Int64, false),
+        ],
+        HashMap::from([
+            ("geo".to_owned(), GEO_STANTIO.to_owned()),
+            ("altro".to_owned(), "v".to_owned()),
+        ]),
+    ));
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(9.0, 45.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(Int64Array::from(vec![1_i64])),
+        ],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let mut writer = GeoParquetDriver
+        .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+        .expect("il writer si apre");
+    writer.write(&batch).expect("scrittura");
+    writer.finish().expect("chiusura");
+
+    let (incorporato, geo) = schema_incorporato(&percorso);
+    assert_eq!(geo.len(), 1, "il footer porta il solo `geo` del writer");
+    assert_eq!(incorporato.metadata().get("geo"), Some(&geo[0]));
+    assert!(!geo[0].contains("stantio"));
+    // Una chiave che non appartiene al formato passa (ARROW-010).
+    assert_eq!(
+        incorporato.metadata().get("altro").map(String::as_str),
+        Some("v")
+    );
+    let geometria = incorporato.field_with_name("geometry").unwrap();
+    assert!(!geometria
+        .metadata()
+        .contains_key("ARROW:extension:metadata"));
+}
+
+/// In lettura il `geo` e' consumato nel contratto: su 777c5a1 restava nei
+/// metadati dello schema, e un `GeoParquet` convertito in IPC lo portava con
+/// se'.
+#[test]
+fn il_geo_letto_non_resta_nei_metadati_del_contratto() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = parquet_con_geo(&dir, Some(&geo_con("")));
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("si apre");
+    let contratto = &dataset.layers()[0].contract;
+    assert!(!contratto.schema.metadata().contains_key("geo"));
+    assert!(!contratto.schema.metadata().contains_key("ARROW:schema"));
+}
+
+// --- rilettura 13: l'epoca delle coordinate e i `geo` discordi -------------
+
+/// Il contratto con un'epoca nativa, come la porta un `GeoParquet` riletto o
+/// un Arrow IPC.
+fn con_epoca(epoca: &str) -> GeometryColumnContract {
+    let mut geometria = con_projjson(Some("OGC:CRS84"), CrsKind::Geographic, &projjson_crs84());
+    geometria
+        .native_metadata
+        .insert("geoparquet.epoch".to_owned(), epoca.to_owned());
+    geometria
+}
+
+/// L'epoca entra nel `geo` con i suoi byte, anche quando `f64` la
+/// riscriverebbe. Su b988e7f il writer non la emetteva affatto.
+#[test]
+fn l_epoca_si_scrive_byte_per_byte_e_si_rilegge_uguale() {
+    for testo in ["2021.5", "2021.50000000000000001", "2.0215E3", "2021"] {
+        let epoca = epoca_da_scrivere(Some(&con_epoca(testo))).expect("un numero JSON");
+        for crs in [
+            CrsDaScrivere::Omesso,
+            CrsDaScrivere::Nullo,
+            CrsDaScrivere::Documento(projjson_crs84()),
+        ] {
+            let geo = build_geo_metadata("geometry", &BTreeSet::new(), &crs, epoca.as_deref())
+                .expect("il documento si costruisce");
+            assert!(geo.contains(&format!(r#""epoch":{testo}"#)), "{geo}");
+            let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
+            schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
+            let letti = metadati::analizza(&geo, false).expect("conforme");
+            assert_eq!(letti.primaria.epoch.as_deref(), Some(testo));
+        }
+    }
+    // Senza epoca il documento resta quello di prima, byte per byte.
+    assert_eq!(
+        build_geo_metadata("geometry", &BTreeSet::new(), &CrsDaScrivere::Omesso, None)
+            .expect("si costruisce"),
+        r#"{"columns":{"geometry":{"covering":{"bbox":{"xmax":["bbox","xmax"],"xmin":["bbox","xmin"],"ymax":["bbox","ymax"],"ymin":["bbox","ymin"]}},"encoding":"WKB","geometry_types":[]}},"primary_column":"geometry","version":"1.1.0"}"#
+    );
+}
+
+/// Un'epoca che non e' un numero JSON non si scrive, e non si omette: `schema`.
+#[test]
+fn un_epoca_che_non_e_un_numero_si_rifiuta() {
+    for testo in [
+        "abc",
+        "\"2021.5\"",
+        " 2021.5",
+        "2021.5 ",
+        "",
+        "null",
+        "[2021]",
+        "1e400",
+    ] {
+        let errore = epoca_da_scrivere(Some(&con_epoca(testo))).expect_err(testo);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Schema,
+            "{testo}"
+        );
+    }
+    assert_eq!(epoca_da_scrivere(None).expect("nessun contratto"), None);
+}
+
+/// Le chiavi native `geoparquet.*` della sorgente non entrano nello schema
+/// incorporato: descrivono un `geo` che il footer sostituisce.
+#[test]
+fn le_chiavi_native_geoparquet_non_passano_nello_schema_scritto() {
+    let campo = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
+        (
+            "plenora.geometry.native.geoparquet.epoch".to_owned(),
+            "2021.5".to_owned(),
+        ),
+        (
+            "plenora.geometry.native.geoparquet.column".to_owned(),
+            "{}".to_owned(),
+        ),
+        (
+            "plenora.geometry.native.gpkg.altro".to_owned(),
+            "v".to_owned(),
+        ),
+        ("ARROW:extension:metadata".to_owned(), "{}".to_owned()),
+    ]));
+    let chiavi: Vec<String> = senza_crs_geoarrow(&campo)
+        .metadata()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(chiavi, ["plenora.geometry.native.gpkg.altro"]);
+}
+
+/// Footer e schema incorporato: identici o solo footer passano; discordi nel
+/// CRS sono `crs`, discordi altrove o solo incorporati sono `schema`.
+#[test]
+fn i_geo_di_footer_e_schema_incorporato_devono_concordare() {
+    use plenora_io_model::ErrorCategory::{Crs, Schema};
+    let pj = |id: &str| {
+        format!(
+            r#","crs":{{"type":"GeographicCRS","name":"x","id":{{"authority":"EPSG","code":{id}}}}}"#
+        )
+    };
+    let a = geo_con(&pj("4326"));
+    let b = geo_con(&pj("32632"));
+    let a_con_epoca = geo_con(&format!("{},\"epoch\":2021.5", pj("4326")));
+    let categoria = |footer: &[Option<&str>], incorporati: &[&str]| {
+        let incorporati: Vec<String> = incorporati.iter().map(|t| (*t).to_owned()).collect();
+        geo_concordi(footer, &incorporati).err().map(|e| e.category)
+    };
+    assert_eq!(categoria(&[], &[]), None);
+    assert_eq!(categoria(&[Some(&a)], &[]), None);
+    assert_eq!(categoria(&[Some(&a)], &[&a]), None);
+    assert_eq!(categoria(&[Some(&b)], &[&a]), Some(Crs));
+    assert_eq!(categoria(&[Some(&a), Some(&b)], &[]), Some(Crs));
+    assert_eq!(categoria(&[Some(&a)], &[&a_con_epoca]), Some(Schema));
+    assert_eq!(categoria(&[Some(&a)], &["non json"]), Some(Schema));
+    assert_eq!(categoria(&[], &[&a]), Some(Schema));
+    // Lo stesso CRS con altri byte e' un'altra dichiarazione: il confronto e'
+    // sul testo, non sul valore.
+    let a_spazi = a.replace(r#""name":"x""#, r#""name": "x""#);
+    assert_eq!(categoria(&[Some(&a)], &[&a_spazi]), Some(Crs));
+}
+
+/// Il file come lo scriveva IO fino a 777c5a1: il footer dichiara il CRS del
+/// contratto, `ARROW:schema` il `geo` stantio della sorgente. pyarrow lo legge
+/// con il secondo, questo lettore con il primo; su b988e7f si apriva.
+#[test]
+fn un_geoparquet_con_il_geo_stantio_nello_schema_si_rifiuta() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("stantio.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let stantio = geo_con(
+        r#","crs":{"type":"GeographicCRS","name":"stantio","id":{"authority":"EPSG","code":4326}}"#,
+    );
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![Field::new("geometry", DataType::Binary, true)],
+        HashMap::from([("geo".to_owned(), stantio)]),
+    ));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+    let mut writer = ArrowWriter::try_new(File::create(&percorso).unwrap(), schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    // Il footer: lo stesso documento senza `crs`, cioe' CRS84.
+    writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
+    writer.close().unwrap();
+    let errore = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .err()
+        .expect("due `geo` discordi nel CRS");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
+/// Un'epoca nativa nello schema incorporato non entra nel contratto: a dirla
+/// e' il `geo` del file. Su b988e7f la chiave scritta da IO passava, e il
+/// contratto portava un'epoca che il `geo` non dichiarava.
+#[test]
+fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("nativa.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let campo = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
+        "plenora.geometry.native.geoparquet.epoch".to_owned(),
+        "1999.0".to_owned(),
+    )]));
+    let schema = Arc::new(Schema::new(vec![campo]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+    )
+    .unwrap();
+    let mut writer = ArrowWriter::try_new(File::create(&percorso).unwrap(), schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
+    writer.close().unwrap();
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .expect("si apre");
+    let contratto = &dataset.layers()[0].contract;
+    let geometria = contratto.geometry.as_ref().expect("geometria");
+    assert!(!geometria.native_metadata.contains_key("geoparquet.epoch"));
+    assert!(!contratto
+        .schema
+        .field_with_name("geometry")
+        .unwrap()
+        .metadata()
+        .contains_key("plenora.geometry.native.geoparquet.epoch"));
 }

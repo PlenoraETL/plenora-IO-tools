@@ -5,6 +5,7 @@ use serde::Serialize;
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
 };
+use plenora_io_model::crs::{AxisOrder, CrsDefinitionFormat};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -246,7 +247,40 @@ pub struct GeometryWriteSupport {
     /// Tipi geometrici accettati dal formato nel profilo corrente.
     pub geometry_types: &'static [GeometryType],
     pub mixed_types: bool,
+    /// Gli ordini memorizzati (`plenora.geometry.axis_order`, GEO-001) che il
+    /// formato rappresenta. Chi fissa easting o longitudine prima non
+    /// rappresenta latitudine o northing prima: scritto com'e', il campo
+    /// uscirebbe invertito, e il bordo non ha una conversione qualificata.
+    ///
+    /// Non serializzato: `io.catalog` e' fissato da
+    /// `release/cli-protocol-v2.json`, e una chiave nuova e' una decisione di
+    /// protocollo. Il limite si legge dal rifiuto, con la sua ragione.
+    #[serde(skip)]
+    pub axis_orders: &'static [AxisOrder],
 }
+
+/// Gli ordini di un formato con l'ascissa memorizzata per prima.
+///
+/// `other` (una polare, memorizzata come i propri x e y) e `unknown` passano:
+/// non contraddicono il formato in un modo che il bordo sappia provare.
+/// Garanzia indebolita, dichiarata in `docs/PRODUCT.md` («Ordine degli
+/// assi»): la rilettura dichiara l'ordine del formato.
+pub const EAST_FIRST_AXIS_ORDERS: &[AxisOrder] = &[
+    AxisOrder::LongitudeLatitude,
+    AxisOrder::EastingNorthing,
+    AxisOrder::Other,
+    AxisOrder::Unknown,
+];
+
+/// Tutti gli ordini: un formato che porta la dichiarazione con i valori.
+pub const ALL_AXIS_ORDERS: &[AxisOrder] = &[
+    AxisOrder::LongitudeLatitude,
+    AxisOrder::LatitudeLongitude,
+    AxisOrder::EastingNorthing,
+    AxisOrder::NorthingEasting,
+    AxisOrder::Other,
+    AxisOrder::Unknown,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -256,6 +290,16 @@ pub enum CrsWriteSupport {
     /// Il formato incorpora senza perdita anche gli stati dichiarato ma non
     /// risolto e assente.
     EmbeddedOptional,
+    /// Il formato incorpora un CRS risolto e ha un modo suo di dire «CRS
+    /// ignoto», con cui scrive lo stato `missing`; il dichiarato ma non
+    /// risolto non lo rappresenta, e lo rifiuta.
+    ///
+    /// E' `GeoParquet`: `crs: null` e' la sua affermazione «non lo so»
+    /// (`GeoParquet` 1.1). Fino alla rilettura 10 il formato si dichiarava
+    /// `Embedded`, e un `missing` letto da un `GeoParquet` `crs: null` non si
+    /// riscriveva nello stesso formato, contro cio' che `PRODUCT.md`
+    /// prometteva.
+    EmbeddedOrUnknown,
     Fixed(&'static str),
     None,
 }
@@ -297,11 +341,28 @@ pub enum CrsDerivation {
     /// invece che come variante sorella perche' non e' una provenienza a se' —
     /// e' cio' che rende vera `FromDefinition` quando il WKT non arriva da
     /// fuori.
+    ///
+    /// `synthesized_wkt` e' il WKT che il writer emette per quegli
+    /// identificatori: il verdetto per piano lo rilegge con la regola dei
+    /// lettori ([`plenora_io_model::crs_definizione::identificatore_wkt`]) per
+    /// sapere **quale** identificatore il file restituira'. Fino alla rilettura
+    /// 11 la derivazione si dava per buona appena una definizione c'era, e un
+    /// `OGC:CRS84` che il `.prj` sintetizzato rilegge `EPSG:4326`, o un
+    /// `PROJCS` anonimo che si rilegge non risolto, si dichiaravano `derived`.
     FromDefinition {
         synthesized_for: &'static [&'static str],
+        synthesized_wkt: &'static str,
     },
     /// Si ricava dall'**identificatore** conservato nel file.
     FromIdentifier,
+    /// Si ricava da una definizione che il writer scrive **solo** per questi
+    /// identificatori, e per nessun altro.
+    ///
+    /// E' il `GeoPackage` con una definizione che non e' WKT 1: la colonna
+    /// `definition` porta un WKT, e la riga di `EPSG:4326`, che il writer
+    /// registra sempre, ne ha uno canonico; per ogni altro identificatore la
+    /// colonna vale `undefined`, e la definizione non si rilegge.
+    SynthesizedFor { ids: &'static [&'static str] },
     /// La fissa il formato: e' disponibile per costruzione, sempre.
     FixedByFormat,
     /// La ricava il runtime che scrive il file, non il nostro codice.
@@ -349,11 +410,89 @@ impl Serialize for CrsRepresentationState {
 /// È distinta da [`CrsWriteSupport`]: quest'ultima stabilisce se il formato
 /// richiede/incorpora un CRS, questa struttura stabilisce cosa sopravvive
 /// davvero al bordo di scrittura.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CrsRepresentationCapabilities {
     pub crs_id: CrsRepresentationState,
     pub srid: CrsRepresentationState,
     pub crs_definition: CrsRepresentationState,
+    /// In quali grammatiche la definizione esce nello stato `crs_definition`.
+    ///
+    /// Sul filo diventa il valore `conditional` di `crs_definition` (vedi
+    /// l'implementazione di `Serialize`); le grammatiche le dice
+    /// `PRODUCT.md`, e il verdetto per piano vive nel `LossReport`.
+    pub definizione_verbatim: DefinizioneVerbatim,
+    /// Che cosa resta dell'identificatore quando la definizione non si
+    /// conserva tale e quale. Non va sul filo: e' un raffinamento per piano.
+    pub identificatore_senza_definizione: IdentificatoreSenzaDefinizione,
+    /// Il writer scrive l'autorita' in maiuscolo (il `GeoPackage`, nella
+    /// colonna `organization`): `epsg:4326` si rilegge `EPSG:4326`, uguale per
+    /// GEO-005 ma non byte per byte, e l'identificatore e' `derived`. Fino alla
+    /// rilettura 12 era `preserved`. Non va sul filo.
+    pub autorita_in_maiuscolo: bool,
+}
+
+/// Il catalogo dice la capability statica, e una capability che dipende dalla
+/// grammatica della definizione non e' `preserved`: fino alla rilettura 11
+/// `GeoParquet`, Shapefile e DXF pubblicavano `crs_definition: "preserved"`
+/// mentre conservano solo il PROJJSON (il primo) o solo il WKT (gli altri due).
+/// Il valore e' ora `conditional`, nello schema del catalogo di IO.
+impl Serialize for CrsRepresentationCapabilities {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut stato = serializer.serialize_struct("CrsRepresentationCapabilities", 3)?;
+        stato.serialize_field("crs_id", &self.crs_id)?;
+        stato.serialize_field("srid", &self.srid)?;
+        match self.definizione_verbatim {
+            DefinizioneVerbatim::Tutte => {
+                stato.serialize_field("crs_definition", &self.crs_definition)?;
+            }
+            DefinizioneVerbatim::Solo { .. } => {
+                stato.serialize_field("crs_definition", "conditional")?;
+            }
+        }
+        stato.end()
+    }
+}
+
+/// Che cosa resta dell'identificatore di un piano la cui definizione il writer
+/// non scrive tale e quale.
+///
+/// E' `GeoParquet`: l'identificatore vive **dentro** il documento PROJJSON, e
+/// senza documento il writer omette il campo `crs`, che per la specifica vale
+/// `OGC:CRS84`. Un `EPSG:4326` scritto cosi' si rilegge `OGC:CRS84`, che per
+/// GEO-005 e' un altro identificatore: fino alla rilettura 11 la conversione si
+/// dichiarava `lossless`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentificatoreSenzaDefinizione {
+    /// L'identificatore esce nello stato `crs_id`, con o senza definizione.
+    ComeDichiarato,
+    /// Senza definizione conservata, solo questi identificatori si rileggono
+    /// uguali; ogni altro esce nello stato `altrimenti`.
+    SoloQuesti {
+        identificatori: &'static [&'static str],
+        altrimenti: CrsRepresentationState,
+    },
+}
+
+/// Le grammatiche della definizione che un writer scrive **tali e quali**.
+///
+/// `crs_definition: Preserved` era un'affermazione senza condizioni, e non era
+/// vera per tre writer: `GeoParquet` conserva solo il PROJJSON (un WKT con
+/// `EPSG:4326` spariva, e il file si rileggeva `OGC:CRS84` senza definizione),
+/// Shapefile e DXF solo il WKT (un PROJJSON finiva nel `.prj` o nel `GEODATA`,
+/// e il file non si rileggeva piu'). La conversione si dichiarava `lossless`
+/// in tutti e tre i casi. La condizione ora e' scritta, e il verdetto per
+/// piano la legge ([`CrsRepresentationCapabilities::crs_definition_per`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefinizioneVerbatim {
+    /// Ogni grammatica.
+    Tutte,
+    /// Solo queste. Una definizione in un'altra grammatica, quando la
+    /// scrittura riesce, esce nello stato `altrimenti`: mai `Preserved`.
+    Solo {
+        grammatiche: &'static [CrsDefinitionFormat],
+        altrimenti: CrsRepresentationState,
+    },
 }
 
 impl CrsRepresentationCapabilities {
@@ -367,6 +506,154 @@ impl CrsRepresentationCapabilities {
             crs_id,
             srid,
             crs_definition,
+            definizione_verbatim: DefinizioneVerbatim::Tutte,
+            identificatore_senza_definizione: IdentificatoreSenzaDefinizione::ComeDichiarato,
+            autorita_in_maiuscolo: false,
+        }
+    }
+
+    /// Il writer scrive l'autorita' dell'identificatore in maiuscolo.
+    #[must_use]
+    pub const fn autorita_in_maiuscolo(mut self) -> Self {
+        self.autorita_in_maiuscolo = true;
+        self
+    }
+
+    /// Senza una definizione conservata tale e quale, l'identificatore si
+    /// rilegge uguale solo se e' uno di `identificatori`; ogni altro esce
+    /// `altrimenti`.
+    #[must_use]
+    pub const fn identificatore_senza_definizione(
+        mut self,
+        identificatori: &'static [&'static str],
+        altrimenti: CrsRepresentationState,
+    ) -> Self {
+        self.identificatore_senza_definizione = IdentificatoreSenzaDefinizione::SoloQuesti {
+            identificatori,
+            altrimenti,
+        };
+        self
+    }
+
+    /// Lo stato di `crs_id` per questo identificatore e questa definizione.
+    ///
+    /// La derivazione dalla definizione (`FromDefinition`) la raffina il
+    /// verdetto per piano, che sa quale WKT il writer emette; qui si applica
+    /// soltanto [`IdentificatoreSenzaDefinizione`].
+    #[must_use]
+    pub fn crs_id_per(
+        &self,
+        id: Option<&str>,
+        definizione: Option<&str>,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> CrsRepresentationState {
+        let conservata = definizione.is_some()
+            && self.crs_definition_per(grammatica) == CrsRepresentationState::Preserved;
+        let stato = match self.identificatore_senza_definizione {
+            IdentificatoreSenzaDefinizione::SoloQuesti {
+                identificatori,
+                altrimenti,
+            } if !conservata && !id.is_some_and(|id| identificatori.contains(&id)) => altrimenti,
+            _ => self.crs_id,
+        };
+        let riscritta = self.autorita_in_maiuscolo
+            && id
+                .and_then(|id| id.split_once(':'))
+                .is_some_and(|(autorita, _)| autorita.bytes().any(|b| b.is_ascii_lowercase()));
+        if riscritta && stato == CrsRepresentationState::Preserved {
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier)
+        } else {
+            stato
+        }
+    }
+
+    /// Che cosa i lettori rileggono come identificatore dal WKT che il writer
+    /// emette, quando `crs_id` si ricava dalla definizione (`FromDefinition`).
+    ///
+    /// Il WKT emesso e' la definizione del piano, se il writer la conserva in
+    /// quella grammatica, altrimenti quello sintetizzato per gli identificatori
+    /// che lo prevedono. `None` se `crs_id` non si ricava dalla definizione o
+    /// se il writer non emette nessun WKT; altrimenti l'esito della regola dei
+    /// lettori ([`plenora_io_model::crs_definizione::identificatore_wkt`],
+    /// senza opzione): `Ok(None)` e' un CRS che si rilegge non risolto, un
+    /// errore uno che non si rilegge affatto.
+    #[must_use]
+    pub fn identificatore_riletto(
+        &self,
+        id: Option<&str>,
+        definizione: Option<&str>,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> Option<
+        std::result::Result<Option<String>, plenora_io_model::crs_definizione::RifiutoIdentita>,
+    > {
+        let CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+            synthesized_for,
+            synthesized_wkt,
+        }) = self.crs_id
+        else {
+            return None;
+        };
+        let emesso = match definizione {
+            Some(testo)
+                if self.crs_definition_per(grammatica) == CrsRepresentationState::Preserved =>
+            {
+                testo
+            }
+            _ if id.is_some_and(|id| synthesized_for.contains(&id)) => synthesized_wkt,
+            _ => return None,
+        };
+        Some(plenora_io_model::crs_definizione::identificatore_wkt(
+            emesso, None,
+        ))
+    }
+
+    /// Il writer conserva identificatore e definizione **insieme**, in ogni
+    /// grammatica: la coppia si rilegge com'e', anche quando si contraddice
+    /// nel genere (IPC).
+    #[must_use]
+    pub fn conserva_la_coppia(&self) -> bool {
+        self.crs_id == CrsRepresentationState::Preserved
+            && self.crs_definition == CrsRepresentationState::Preserved
+            && self.definizione_verbatim == DefinizioneVerbatim::Tutte
+            && self.identificatore_senza_definizione
+                == IdentificatoreSenzaDefinizione::ComeDichiarato
+    }
+
+    /// Una definizione in `grammatiche` esce nello stato `crs_definition`;
+    /// nelle altre esce `altrimenti`.
+    #[must_use]
+    pub const fn verbatim_solo(
+        mut self,
+        grammatiche: &'static [CrsDefinitionFormat],
+        altrimenti: CrsRepresentationState,
+    ) -> Self {
+        self.definizione_verbatim = DefinizioneVerbatim::Solo {
+            grammatiche,
+            altrimenti,
+        };
+        self
+    }
+
+    /// Lo stato di `crs_definition` per una definizione in questa grammatica.
+    ///
+    /// Una grammatica ignota (`None`) non e' fra quelle dichiarate: il verdetto
+    /// prudente e' quello che dichiara la perdita. La restrizione vale per
+    /// qualunque stato di base: fino alla rilettura 11 valeva solo per
+    /// `Preserved`, e il `GeoPackage`, che riscrive la definizione
+    /// dall'identificatore, non poteva dire che un PROJJSON non lo riscrive.
+    #[must_use]
+    pub fn crs_definition_per(
+        &self,
+        grammatica: Option<CrsDefinitionFormat>,
+    ) -> CrsRepresentationState {
+        match self.definizione_verbatim {
+            DefinizioneVerbatim::Solo {
+                grammatiche,
+                altrimenti,
+            } if !grammatica.is_some_and(|grammatica| grammatiche.contains(&grammatica)) => {
+                altrimenti
+            }
+            _ => self.crs_definition,
         }
     }
 }
@@ -570,6 +857,7 @@ pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
 /// `GeoJSON`/KML-like geometry support: XY plus an interoperable altitude Z.
@@ -586,6 +874,7 @@ pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
 pub const WKB_SINGLE_TYPE_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
@@ -614,11 +903,14 @@ pub const WKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport 
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
+    axis_orders: EAST_FIRST_AXIS_ORDERS,
 };
 
+/// Arrow IPC: la dichiarazione dell'ordine viaggia con i valori.
 pub const WKB_EWKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     encodings: &[GeometryEncoding::Wkb, GeometryEncoding::Ewkb],
     spatial_semantics: &[SpatialSemantics::Geometry, SpatialSemantics::Geography],
+    axis_orders: ALL_AXIS_ORDERS,
     ..WKB_PASSTHROUGH_GEOMETRY
 };
 
@@ -629,6 +921,7 @@ pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     spatial_semantics: &[],
     geometry_types: &[],
     mixed_types: false,
+    axis_orders: &[],
 };
 
 /// Garanzia offerta dal reader per `ReadRequest::projected_fields` (`ENGINEERING.md § Projection e pruning`).

@@ -599,6 +599,20 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
     Ok((driver, path))
 }
 
+/// `io.inspect` e `io.layers` descrivono **tutti** i layer: un layer rifiutato
+/// ([`plenora_io_core::driver::OpenDatasetHandle::rifiuto_del_layer`], un CRS
+/// che non passa le verifiche comuni) li fa fallire con il suo rifiuto, invece di comparire nell'elenco
+/// come se fosse leggibile. Gli altri layer restano leggibili con
+/// `io.read --layer`.
+fn tutti_i_layer_descrivibili(
+    ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
+) -> Result<(), PlenoraIoError> {
+    ds.layers()
+        .iter()
+        .find_map(|layer| ds.rifiuto_del_layer(layer.id))
+        .map_or(Ok(()), Err)
+}
+
 /// `io.inspect`. La porta pubblica e' `operazioni::inspect`.
 ///
 /// # Errors
@@ -609,6 +623,7 @@ pub fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
+    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
     Ok(json!({
@@ -628,6 +643,7 @@ pub fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
+    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -1067,6 +1083,11 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
             )
         })?
         .clone();
+    // Un layer rifiutato si rifiuta prima di preparare il sink: il rifiuto
+    // che esce e' il suo, non quello di un writer che ne vede il contratto.
+    if let Some(rifiuto) = ds.rifiuto_del_layer(contract.id) {
+        return Err(map_err(rifiuto));
+    }
 
     let scopo = cli.limit.map_or(ReadScope::Complete, |limit| {
         ReadScope::AcceptedRows(limit as u64)
@@ -1367,6 +1388,14 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
         );
     }
 
+    // Un layer rifiutato si rifiuta prima di preparare il sink, come in
+    // `io.read`: il rifiuto che esce e' il suo.
+    if let Some(rifiuto) = selected
+        .iter()
+        .find_map(|layer| ds.rifiuto_del_layer(layer.id))
+    {
+        return Err(map_err(rifiuto));
+    }
     let (plan, da_ewkb) =
         piano_di_scrittura(&selected, dst.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
     wopts.durable = cli.durable;

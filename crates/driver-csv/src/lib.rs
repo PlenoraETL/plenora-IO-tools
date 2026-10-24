@@ -31,6 +31,7 @@ use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
+use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -52,7 +53,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::crs::ResolvedCrs;
 #[cfg(test)]
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
@@ -202,29 +203,54 @@ fn colonne_geometriche(
     headers: &[String],
     format_options: &std::collections::BTreeMap<String, String>,
 ) -> Result<(GeomSpec, HashSet<usize>)> {
-    let idx = |name: &str| headers.iter().position(|h| h == name);
+    // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
+    // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
+    let idx = |name: &str, assente: &'static str, ambigua: &'static str| match colonna_per_nome(
+        headers, name,
+    ) {
+        ColonnaPerNome::Unica(indice) => Ok(indice),
+        ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+        ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+    };
+    // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
+    // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
+    // chi legge. La richiesta si contraddice, e si corregge la richiesta.
+    if format_options.contains_key("wkt_column")
+        && (format_options.contains_key("x_column") || format_options.contains_key("y_column"))
+    {
+        return Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            plenora_io_model::ErrorPhase::Validate,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            &PublicMessage::Curated(
+                "csv: wkt_column esclude x_column e y_column; dichiarare una sola geometria",
+            ),
+        ));
+    }
     if let Some(w) = format_options.get("wkt_column") {
-        let wi = idx(w).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna WKT assente dall'intestazione",
-            ))
-        })?;
+        let wi = idx(
+            w,
+            "colonna WKT assente dall'intestazione",
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((GeomSpec::Wkt(wi), HashSet::from([wi])));
     }
     if let (Some(x), Some(y)) = (
         format_options.get("x_column"),
         format_options.get("y_column"),
     ) {
-        let xi = idx(x).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna X assente dall'intestazione",
-            ))
-        })?;
-        let yi = idx(y).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna Y assente dall'intestazione",
-            ))
-        })?;
+        let xi = idx(
+            x,
+            "colonna X assente dall'intestazione",
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
+        let yi = idx(
+            y,
+            "colonna Y assente dall'intestazione",
+            "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((GeomSpec::Xy(xi, yi), HashSet::from([xi, yi])));
     }
     Err(err(&PublicMessage::Curated(
@@ -301,17 +327,21 @@ impl FormatDriver for CsvDriver {
             GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
             GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
         };
-        let kind = if crs == "OGC:CRS84" || crs == "EPSG:4326" {
-            CrsKind::Geographic
-        } else {
-            CrsKind::Unknown
+        // Il genere con la regola comune dei driver: prima un elenco proprio, che
+        // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
+        // `EPSG:3857`.
+        let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
+        // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
+        // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
+        // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
+        // produttore non lo sa, e dichiara `unknown`.
+        let crs_dichiarato = ResolvedCrs::new(Some(crs.clone()), kind, None);
+        let crs_dichiarato = match geom {
+            GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+            GeomSpec::Wkt(_) => crs_dichiarato,
         };
-        let mut geometry_contract = GeometryColumnContract::wkb_xy(
-            FieldId(0),
-            GEOMETRY,
-            ResolvedCrs::new(Some(crs.clone()), kind, None),
-            true,
-        );
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
         geometry_contract.dimensions = dimensions;
         geometry_contract.set_exact_geometry_types(geometry_types);
         let native_encoding = match geom {
@@ -336,7 +366,7 @@ impl FormatDriver for CsvDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(CsvDataset {
                 path,
                 delim,
@@ -351,7 +381,7 @@ impl FormatDriver for CsvDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(

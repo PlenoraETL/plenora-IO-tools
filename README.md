@@ -188,7 +188,7 @@ Zero è rifiutato da ciascuna; i default sono quelli del modello.
 | `--max-vertices` | `50000000` | i vertici complessivi |
 | `--max-wkb-cell-bytes` | `67108864` | i byte di **una** geometria; non può superare `--memory-bytes` |
 | `--max-wkb-components` | `100000` | i componenti di una geometria |
-| `--max-wkb-depth` | `64` | l'annidamento di una geometria |
+| `--max-wkb-depth` | `32` | l'annidamento di una geometria; non può superare i 32 livelli di GEO-011 |
 
 Due vincoli di coerenza si notano solo quando si stringe:
 
