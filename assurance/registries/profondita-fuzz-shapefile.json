@@ -3,6 +3,14 @@
   "descrizione": "Che cosa il target `shp_reader` deve **raggiungere** perche' si possa dire che il reader Shapefile e' esercitato. Una build che compila e un replay senza crash non lo dicono: un bundle rifiutato all'apertura non fa crashare niente ed e', da fuori, indistinguibile da uno letto per intero.",
   "target": "shp_reader",
   "artefatto": "assurance/profondita-fuzz-shapefile.json",
+  "rimisurazione_dovuta": {
+    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro Shapefile: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori.",
+    "impronta_della_misura": "d3f86ba8dfbd6099e0222bb0971015ebc6a2875d93988847575b2588c4cb7867",
+    "impronta_attesa": "5383a7bb0c8bfc9d1147958a335172547b4ed4d19330c30c2b2b04b9d87d597c",
+    "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
+    "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
+    "comando": "scripts/fuzz-profondita.sh shp_reader"
+  },
   "perimetro": {
     "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
     "perche_non_lo_sha": "Legare la misura a uno SHA la farebbe scadere al primo commit di documentazione, e il commit che pubblica la misura ha per forza uno SHA diverso da quello su cui e' girata. Legarla al **contenuto** che la determina la fa scadere quando deve.",

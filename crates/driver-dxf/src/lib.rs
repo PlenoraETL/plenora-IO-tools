@@ -109,7 +109,7 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
         return Some(format!("EPSG:{code}"));
     }
     // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
-    // `AUTHORITY["EPSG",` del testo, che si leggeva fino alla 5.x, e' quello
+    // AUTHORITY EPSG del testo, che si leggeva fino alla 5.x, e' quello
     // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
     if let Some(code) = plenora_io_model::crs::definition_authority_srid(
         definition,

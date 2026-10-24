@@ -281,6 +281,25 @@ impl PlenoraIoError {
             self.albero({"crates/driver-finto/src/lib.rs": con_ignore})
         )
         self.assertEqual(errori, [], f"il blocco ignore e' stato contato: {errori}")
+class Spoglio(unittest.TestCase):
+    """Il carattere letterale `'"'` apriva una stringa che inghiottiva il resto
+    del file: ogni funzione successiva finiva attribuita alla prima, e il
+    registro dei quartetti vedeva sparire siti che c'erano ancora."""
+
+    def test_i_caratteri_letterali_non_aprono_stringhe(self) -> None:
+        for sorgente in [
+            r"""let x = ['"']; fn f() { }""",
+            r"""let c = '\''; fn f() { }""",
+            r"""let u = '\u{1F600}'; fn f() { }""",
+            r"""let b = b'"'; fn f() { }""",
+        ]:
+            with self.subTest(sorgente=sorgente):
+                spogliato = gate.spoglia(sorgente)
+                self.assertIn("fn f() { }", spogliato)
+
+    def test_i_lifetime_restano(self) -> None:
+        sorgente = "fn f<'a>(x: &'a str) -> &'a str { x }"
+        self.assertEqual(gate.spoglia(sorgente), sorgente)
 
 
 if __name__ == "__main__":

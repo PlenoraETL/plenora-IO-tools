@@ -1,5 +1,6 @@
-//! La verifica dello schema Arrow in ingresso nelle classi e nell'ordine di
-//! Arrow Geometry Semantics 1.0 (REJ-001, REJ-002): versione del contratto,
+//! La verifica dello schema Arrow in ingresso (REJ-001, REJ-002).
+//!
+//! Classi e ordine di Arrow Geometry Semantics 1.0: versione del contratto,
 //! vocabolario, CRS, supporto. I valori si verificano dopo, riga per riga.
 //!
 //! Ogni classe ha una categoria sola: versione assente o malformata e ogni
@@ -109,7 +110,6 @@ const VERSIONE_ASSENTE_O_MALFORMATA: PublicMessage = PublicMessage::Curated(
 );
 const VERSIONE_NON_SUPPORTATA: PublicMessage =
     PublicMessage::Curated("versione del contratto non supportata");
-const VOCABOLARIO: PublicMessage = PublicMessage::Curated("metadato del vocabolario non valido");
 const FIELD_ID_NON_CANONICO: PublicMessage =
     PublicMessage::Curated("plenora.field_id non decimale canonico");
 const GEOMETRIA_SU_NON_GEOMETRIA: PublicMessage =
@@ -250,7 +250,7 @@ fn vocabolario(schema: &Schema) -> Result<()> {
         }
         if OBBLIGATORIE
             .iter()
-            .any(|k| !CHIAVI_CRS.contains(k) && !md.contains_key(*k))
+            .any(|k| !CHIAVI_CRS.contains(k) && !md.contains_key(k))
         {
             return Err(PlenoraIoError::schema_redatto(&CHIAVE_OBBLIGATORIA));
         }
