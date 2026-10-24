@@ -741,3 +741,19 @@ fn geo_011_l_encoder_non_emette_valori_malformati() {
     }
     assert!(encode_wkb(&geometria(WkbValue::Polygon(vec![chiuso])), WkbFlavor::Iso).is_ok());
 }
+
+/// Trovato dal fuzz (`from_wkb`, CI di a7ae1e2): `POLYGON EMPTY` (zero anelli)
+/// si decodificava in `geo-types` con un esterno vuoto, che tornava WKB come un
+/// anello di zero punti, malformato per GEO-011.
+#[test]
+fn un_poligono_vuoto_fa_andata_e_ritorno() {
+    let vuoto = [0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let geometria = match from_wkb(&vuoto, &WkbLimits::default()) {
+        Ok(geometria) => geometria,
+        Err(errore) => panic!("{errore}"),
+    };
+    match to_wkb(&geometria) {
+        Ok(byte) => assert_eq!(byte, vuoto),
+        Err(errore) => panic!("{errore}"),
+    }
+}

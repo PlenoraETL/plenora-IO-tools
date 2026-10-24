@@ -102,7 +102,10 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # (`wkb_lossless/tests.rs`): decodifica e ispeziona byte scritti a mano sotto
 # la quota predefinita, che li' e' il contesto; cio' che si prova e' il rifiuto
 # di GEO-011 per un membro di altre dimensioni, non un tetto.
-ATTESI = {"test": 96, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 96 a 97 con `un_poligono_vuoto_fa_andata_e_ritorno` (il
+# poligono vuoto che il fuzz `from_wkb` ha trovato, CI di a7ae1e2): una prova
+# che decodifica con i tetti predefiniti, non un uso nuovo in produzione.
+ATTESI = {"test": 97, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

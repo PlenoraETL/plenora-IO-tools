@@ -6,7 +6,7 @@
   "rimisurazione_dovuta": {
     "perche": "La seconda rilettura cambia `driver-common/src`, che il perimetro comprende: la ricerca di una colonna per nome (`colonna_per_nome`) distingue il nome assente da quello che l'intestazione ripete, per i driver CSV e XLSX. Il parser WKT non cambia, ma la misura e' legata al contenuto del perimetro, non a cio' che il target raggiunge.",
     "impronta_della_misura": "16894603ebf708b0453551c3c4d342846300587ecece9389da4341a0b69091cb",
-    "impronta_attesa": "f6be50fd6696ded2ca1cf9815af139d9757d3811262017f66c0e197ad17cd29b",
+    "impronta_attesa": "de3926d0fa5a01b3d454af45b8e3d1c9bfae81a222784d6c24f6cf02f139aad6",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh wkt_parse"

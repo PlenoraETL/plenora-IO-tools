@@ -1395,7 +1395,8 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   pari o di meno di tre punti, anelli vuoti, di meno di quattro punti o non
   chiusi byte per byte, triangoli di più anelli si rifiutano con
   `data_mapping`, da qualunque formato, in lettura e in scrittura; l'encoder
-  non li emette.
+  non li emette, e il WKT di CSV e XLSX li rifiuta già all'analisi del testo.
+  Un `POLYGON EMPTY` fa andata e ritorno anche attraverso `geo-types`.
 - **Profondità 32.** Il default di `max_wkb_depth` passa da 64 a 32 e un valore
   oltre 32 si rifiuta.
 - **La buona forma prima dello SRID (REJ-002).** Un valore malformato con uno

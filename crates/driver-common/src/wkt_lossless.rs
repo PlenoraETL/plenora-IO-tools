@@ -93,6 +93,17 @@ pub fn parse_wkt_bounded(text: &str, limiti: &WkbLimits) -> Result<WkbGeometry> 
     // riprodurre — e non toglie nulla, perche' `POLYGON(EMPTY)` non ha mai
     // fatto round-trip: veniva riletto come poligono senza anelli.
     verifica_esprimibile(&geometria)?;
+    // La buona forma di GEO-011 (anelli chiusi di almeno quattro punti,
+    // linestring di almeno due, membri delle dimensioni del contenitore, la
+    // profondita') la decide l'encoder WKB, che e' l'unico posto in cui sta:
+    // `POLYGON ((0 0))` veniva accettato qui e rifiutato soltanto alla
+    // codifica, piu' avanti. Una regola sola, applicata all'ingresso.
+    let variante = if geometria.srid.is_some() {
+        plenora_io_model::wkb::WkbFlavor::Ewkb
+    } else {
+        plenora_io_model::wkb::WkbFlavor::Iso
+    };
+    plenora_io_model::wkb::encode_wkb(&geometria, variante)?;
     Ok(geometria)
 }
 

@@ -117,6 +117,13 @@ impl WkbGeometry {
         }
 
         fn polygon(polygon: &Polygon<f64>) -> Vec<Vec<WkbCoordinate>> {
+            // `geo-types` rappresenta `POLYGON EMPTY` con un esterno vuoto, che
+            // e' come `to_geo_xy` lo legge: in WKB e' un poligono di zero
+            // anelli. Scritto come un anello vuoto era malformato (GEO-011), e
+            // l'andata e ritorno di un poligono vuoto falliva.
+            if polygon.exterior().0.is_empty() && polygon.interiors().is_empty() {
+                return Vec::new();
+            }
             std::iter::once(polygon.exterior())
                 .chain(polygon.interiors())
                 .map(line_string)
