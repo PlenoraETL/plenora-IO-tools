@@ -108,8 +108,13 @@
     ],
     "resolve_dxf_crs": [
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "resolve_dxf_crs_testuale": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/Crs/Never"
     ],
     "write": [
       "ResourceLimit/Validate/LimitExceeded/Never",
@@ -360,6 +365,7 @@
     ],
     "leggi_prj": [
       "Crs/Validate/Crs/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/Crs/Never"
     ],
     "opt_in_loose_mancante": [
@@ -629,9 +635,15 @@
     ]
   },
   "crates/plenora-io-model/src/crs.rs": {
+    "crs_kind_for": [
+      "Crs/Validate/Crs/Never"
+    ],
     "verifica_crs_assunto": [
       "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
+    ],
+    "verifica_crs_emesso": [
       "Crs/Validate/Crs/Never"
     ]
   },

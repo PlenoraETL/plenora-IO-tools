@@ -475,16 +475,27 @@ fn un_epsg_nel_testo_della_definizione_non_e_l_identificatore() {
             plenora_io_model::ErrorCategory::Crs,
             "{definizione}"
         );
-        // Con l'opzione la definizione si nomina, come per ogni `GEODATA`
-        // che non dichiara un'autorita'.
-        let risolto = match resolve_dxf_crs(
+        // Con l'opzione si nomina solo il WKT ben formato senza autorita':
+        // un XML senza alias e un testo libero non sono definizioni che il
+        // bordo sappia leggere, e l'opzione non le nomina (dal 24/10).
+        let assunto = resolve_dxf_crs(
             &con_geodata(definizione),
             &opzioni_lettura().with_assume_crs("EPSG:32632"),
-        ) {
-            Ok(risolto) => risolto,
-            Err(errore) => panic!("{definizione}: {errore}"),
-        };
-        assert_eq!(risolto.id.as_deref(), Some("EPSG:32632"), "{definizione}");
+        );
+        if plenora_io_model::crs_definizione::sembra_wkt(definizione) {
+            let risolto = match assunto {
+                Ok(risolto) => risolto,
+                Err(errore) => panic!("{definizione}: {errore}"),
+            };
+            assert_eq!(risolto.id.as_deref(), Some("EPSG:32632"), "{definizione}");
+        } else {
+            let errore = assunto.expect_err(definizione);
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Crs,
+                "{definizione}"
+            );
+        }
     }
 
     // La definizione che e' l'identificatore resta riconosciuta.
@@ -2476,4 +2487,119 @@ fn il_wkt_del_geodata_segue_la_regola_unica() {
     )
     .unwrap();
     assert_eq!(concorde.id.as_deref(), Some("epsg:3003"));
+}
+
+/// Il genere del CRS di un `GEODATA` WKT viene dalla parola della radice: su
+/// c0e84cb `PROJECTEDCRS[` usciva geografico per il `BASEGEOGCRS[` annidato,
+/// `lon_lat` su dati UTM, e la conversione in IPC lo scriveva.
+#[test]
+fn il_genere_del_geodata_viene_dalla_radice() {
+    use plenora_io_model::crs::{AxisOrder, CrsKind};
+    let utm = |parola: &str| {
+        format!(
+            r#"{parola}["WGS 84 / UTM zone 32N",BASEGEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]]],CONVERSION["UTM zone 32N",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["easting",east],AXIS["northing",north],LENGTHUNIT["metre",1],ID["EPSG",32632]]"#
+        )
+    };
+    for parola in ["PROJECTEDCRS", "projcrs ", "PROJCRS"] {
+        let crs = match resolve_dxf_crs(&con_geodata(&utm(parola)), &opzioni_lettura()) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{parola}: {errore}"),
+        };
+        assert_eq!(crs.id.as_deref(), Some("EPSG:32632"), "{parola}");
+        assert_eq!(
+            (crs.kind, crs.axis_order),
+            (CrsKind::Projected, AxisOrder::EastingNorthing),
+            "{parola}"
+        );
+    }
+    // Un `GEODCRS` senza `CS[ellipsoidal,...]` e' geocentrico, non geografico.
+    let geocentrico = r#"GEODCRS["WGS 84 (geocentrico)",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]],CS[Cartesian,3],AXIS["X",geocentricX],AXIS["Y",geocentricY],AXIS["Z",geocentricZ],LENGTHUNIT["metre",1],ID["EPSG",4978]]"#;
+    let crs = resolve_dxf_crs(&con_geodata(geocentrico), &opzioni_lettura()).unwrap();
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Unknown, AxisOrder::Unknown)
+    );
+}
+
+/// Un `GEODATA` che non e' ne' un WKT ben formato ne' una forma testuale
+/// riconosciuta non si nomina con l'opzione, e senza resta non risolto. Su
+/// c0e84cb l'opzione nominava qualunque testo, e il testo usciva come
+/// definizione `wkt`: convertito in `GeoParquet` diventava `OGC:CRS84` su dati
+/// UTM. Le forme riconosciute danno l'identificatore e nessuna definizione.
+#[test]
+fn un_geodata_non_riconosciuto_non_si_nomina() {
+    let wkt =
+        r#"PROJCS["UTM 32N",GEOGCS["WGS 84"],PROJECTION["Transverse_Mercator"],UNIT["metre",1]]"#;
+    let non_riconosciuti = [
+        format!("\u{200b}{wkt}"),
+        format!("\"{wkt}\""),
+        format!("1{wkt}"),
+        "<Dictionary><CoordinateSystem/></Dictionary>".to_owned(),
+        "OGC:CRS84 approssimato".to_owned(),
+    ];
+    for definizione in &non_riconosciuti {
+        let errore = resolve_dxf_crs(
+            &con_geodata(definizione),
+            &opzioni_lettura().with_assume_crs("OGC:CRS84"),
+        )
+        .expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::Crs,
+            "{definizione}"
+        );
+        let errore =
+            resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()).expect_err(definizione);
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::CrsUnresolved,
+            "{definizione}"
+        );
+    }
+    let xml = r#"<Dictionary><Alias id="3003" type="CoordinateSystem"><Authority>EPSG</Authority></Alias></Dictionary>"#;
+    for (definizione, atteso) in [
+        ("EPSG:3003", "EPSG:3003"),
+        ("urn:ogc:def:crs:EPSG::3003", "EPSG:3003"),
+        (" ogc:crs84 ", "OGC:CRS84"),
+        (xml, "EPSG:3003"),
+    ] {
+        let crs = match resolve_dxf_crs(&con_geodata(definizione), &opzioni_lettura()) {
+            Ok(crs) => crs,
+            Err(errore) => panic!("{definizione}: {errore}"),
+        };
+        assert_eq!(crs.id.as_deref(), Some(atteso), "{definizione}");
+        assert_eq!(crs.definition, None, "{definizione}");
+        assert_eq!(crs.definition_format, None, "{definizione}");
+    }
+}
+
+/// Un identificatore che il bordo sa geografico, nominato su un `PROJCS`
+/// anonimo, e' un rifiuto: su c0e84cb usciva `EPSG:4326`, `lon_lat`.
+#[test]
+fn assume_crs_geografico_su_un_proiettato_anonimo_e_rifiutato() {
+    let anonimo = r#"PROJCS["UTM 32N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1]]"#;
+    for assunto in ["EPSG:4326", "OGC:CRS84"] {
+        let errore = resolve_dxf_crs(
+            &con_geodata(anonimo),
+            &opzioni_lettura().with_assume_crs(assunto),
+        )
+        .expect_err(assunto);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+        assert_eq!(errore.driver.as_deref(), Some("dxf"));
+    }
+}
+
+/// La definizione del `GEODATA` ha lo stesso tetto del `.prj`.
+#[test]
+fn una_definizione_del_geodata_oltre_il_tetto_e_un_limite() {
+    let definizione = format!("EPSG:3003{}", " ".repeat(1 << 20));
+    // `embedded_crs_definition` toglie gli spazi ai bordi: il riempimento sta
+    // dentro un WKT.
+    let wkt = format!(
+        r#"GEOGCS["{}",AUTHORITY["EPSG","4326"]]"#,
+        "x".repeat(1 << 20)
+    );
+    assert!(resolve_dxf_crs(&con_geodata(&definizione), &opzioni_lettura()).is_ok());
+    let errore = resolve_dxf_crs(&con_geodata(&wkt), &opzioni_lettura()).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }

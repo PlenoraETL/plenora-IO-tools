@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 /// `classe_sqlite` traduce ogni errore che sappiamo costruire.
 ///
@@ -2033,4 +2034,33 @@ fn un_geopackage_in_modalita_wal_si_legge_in_sola_lettura() {
     assert!(!dir.path().join("wal.gpkg-wal").exists());
 
     assert_eq!(righe_lette(&path), 5);
+}
+
+/// Il genere del CRS di `gpkg_spatial_ref_sys` viene dalla parola della radice
+/// della definizione: su c0e84cb si cercava `PROJCS[` nel testo, e il 3003 con
+/// una definizione `PROJECTEDCRS[...]` usciva geografico, `lon_lat`. Un
+/// `EPSG:4326` registrato con un `PROJCS` si contraddice: prima vinceva
+/// l'identificatore, geografico sui dati proiettati.
+#[test]
+fn il_genere_della_riga_srs_viene_dalla_radice() {
+    use plenora_io_model::crs::AxisOrder;
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    let proiettato = r#"PROJECTEDCRS["Monte Mario / Italy zone 1",BASEGEOGCRS["Monte Mario",DATUM["Monte Mario",ELLIPSOID["International 1924",6378388,297]]],CONVERSION["Italy zone 1",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["easting",east],AXIS["northing",north],LENGTHUNIT["metre",1],ID["EPSG",3003]]"#;
+    let utm_wkt1 = r#"PROJCS ["UTM 32N",GEOGCS["WGS 84"],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AXIS["E",EAST],AXIS["N",NORTH]]"#;
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('a', 3003, 'EPSG', 3003, ?1), ('b', 900001, 'EPSG', 4326, ?2)",
+        [proiettato, utm_wkt1],
+    )
+    .unwrap();
+    let crs = crs_for(&conn, 3003).unwrap();
+    assert_eq!(
+        (crs.kind, crs.axis_order),
+        (CrsKind::Projected, AxisOrder::EastingNorthing)
+    );
+    let errore = crs_for(&conn, 900_001).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
 }

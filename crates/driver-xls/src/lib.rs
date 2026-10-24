@@ -44,7 +44,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
@@ -1607,11 +1607,10 @@ where
     } else {
         CoordinateDimensions::Unknown
     };
-    let kind = if crs == "OGC:CRS84" || crs == "EPSG:4326" {
-        CrsKind::Geographic
-    } else {
-        CrsKind::Unknown
-    };
+    // Il genere con la regola comune dei driver: prima un elenco proprio, che
+    // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
+    // `EPSG:3857`.
+    let kind = plenora_io_model::crs::crs_kind_for(Some(crs), None, "xls")?;
     // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
     // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
     let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);

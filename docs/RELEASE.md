@@ -1427,6 +1427,38 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   su un `BOUNDCRS`, e un codice EPSG di radice non canonico vi resta non
   risolto; un `.prj` che non è UTF-8 è `crs` invece di valere come assente; un
   WKT 2 minuscolo, spaziato o con le parole chiave lunghe è `wkt2` e si legge.
+- **Il genere del CRS dalla radice, e la forma ESRI intera.** Il genere
+  (geografico, proiettato, ignoto) lo decide una funzione sola,
+  `plenora_io_model::crs::crs_kind_for`, dalla parola della radice letta con il
+  lettore stretto, per Shapefile, DXF, GeoPackage, GeoParquet, CSV e XLSX
+  ([PRODUCT](PRODUCT.md#limitazioni-di-prodotto), «tutti: genere del CRS»).
+  Cambiano, rispetto a c0e84cb: un `PROJECTEDCRS[`, `projcrs [`, `PROJCRS(`,
+  `PROJCS [`, `PROJCS(` o `PROJCS	[` è proiettato (prima geografico, e con gli
+  assi est/nord `lon_lat` su dati UTM), `GEOGCS["PROJCS[",...]` è geografico,
+  un composto, un `BOUNDCRS` o un geocentrico (`GEODCRS` senza
+  `CS[ellipsoidal]`) ha genere e ordine ignoti; un identificatore che il bordo
+  sa geografico (`EPSG:4326`, `OGC:CRS84`) su una radice proiettata, o
+  `EPSG:3857` su una geografica, è `crs`, dichiarato o nominato da
+  `--assume-crs`; in GeoParquet un `type` `ProjectedCRS` con `id` EPSG:4326 è
+  `crs`; nel CSV e nell'XLSX `epsg:4326` minuscolo è geografico ed `EPSG:3857`
+  proiettato. La forma ESRI di WGS 84 senza autorità vale `EPSG:4326` solo
+  intera (ellissoide, meridiano e unità canonici, nessun nodo in più), e ora
+  anche nella grafia di ArcGIS (`GCS_WGS_1984`, `D_WGS_1984`); una forma
+  parziale resta non risolta.
+- **Il DXF non nomina un `GEODATA` illeggibile.** Un `GEODATA` che non è un WKT
+  ben formato né `EPSG:<codice>`, l'URN, `OGC:CRS84` o un XML con un alias EPSG
+  del sistema di coordinate è `crs` con `--assume-crs` e non risolto senza;
+  prima l'opzione lo nominava e il testo usciva come definizione `wkt`. Le
+  forme testuali riconosciute danno l'identificatore senza definizione, come il
+  `.prj` che è soltanto `OGC:CRS84` (ora `lon_lat`, e la conversione in IPC lo
+  accetta).
+- **GEO-005 e GEO-020 già in lettura.** `with_read_budget` verifica, per ogni
+  driver, la definizione e l'identificatore che il contratto emette: una
+  definizione malformata o che contraddice `crs_id`, o un catalogo locale
+  (`POSTGIS:4326` di un GeoPackage) risolto, è `crs` già in `io.inspect` e
+  `io.read`, non solo nella scrittura IPC.
+- **Tetto sulla definizione del `.prj` e del `GEODATA`.** Oltre 1 MiB è
+  `limit_exceeded`; prima il `.prj` si leggeva intero.
 - **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
   la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
   fuori da una feature table, rende il file `data_mapping` all'apertura; prima

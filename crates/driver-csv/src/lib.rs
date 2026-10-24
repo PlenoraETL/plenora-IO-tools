@@ -53,7 +53,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::crs::ResolvedCrs;
 #[cfg(test)]
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
@@ -327,11 +327,10 @@ impl FormatDriver for CsvDriver {
             GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
             GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
         };
-        let kind = if crs == "OGC:CRS84" || crs == "EPSG:4326" {
-            CrsKind::Geographic
-        } else {
-            CrsKind::Unknown
-        };
+        // Il genere con la regola comune dei driver: prima un elenco proprio, che
+        // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
+        // `EPSG:3857`.
+        let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
         // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
         // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
         // colonna WKT non fissa l'ordine e la richiesta non lo dice: il

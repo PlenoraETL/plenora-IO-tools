@@ -82,6 +82,9 @@ pub fn with_read_budget(
                 opts.assume_crs.as_deref(),
                 &geometria.crs,
             )?;
+            // GEO-005 e GEO-020 sul CRS emesso, per ogni driver: nessuno emette
+            // una definizione o un identificatore che la scrittura IPC rifiuterebbe.
+            plenora_io_model::crs::verifica_crs_emesso(&geometria.crs)?;
         }
     }
     Ok(Box::new(BudgetedDataset {

@@ -167,6 +167,131 @@ pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
     }
 }
 
+/// Il genere di un CRS letto da un driver che ha un identificatore e, forse,
+/// una definizione: la **regola unica** di Shapefile, DXF, `GeoPackage` e
+/// `GeoParquet`.
+///
+/// La definizione decide con la parola della propria radice
+/// ([`crate::crs_definizione::genere_radice`]); una definizione ben formata di
+/// genere ignoto (`BOUNDCRS`, composto, geocentrico) lascia il genere ignoto
+/// qualunque sia l'identificatore, e una malformata pure (la rifiuta la verifica
+/// GEO-005 di [`verifica_crs_emesso`]). Senza definizione decide
+/// l'identificatore, solo se il bordo lo conosce gia': `OGC:CRS84` ed
+/// `EPSG:4326` geografici ([`crs_kind_for_authority_id`]), `EPSG:3857`
+/// proiettato. Un genere ignoto da' sempre un ordine ignoto
+/// ([`east_first_axis_order`]).
+///
+/// Fino al 24/10 ogni driver cercava `PROJCS[` e `GEOGCS[` nel testo, ciascuno
+/// con un suo elenco: un `PROJECTEDCRS[` usciva geografico per il
+/// `BASEGEOGCRS[` annidato e con gli assi est/nord diventava `lon_lat`, e
+/// `GEOGCS["PROJCS[",...]` usciva proiettato.
+///
+/// # Errors
+///
+/// `crs`, con il driver, se l'identificatore e' uno di quelli noti e il suo
+/// genere contraddice quello della definizione (`EPSG:4326` su un `PROJCS`,
+/// dichiarato o nominato da `--assume-crs`): il bordo non e' un resolver, ma
+/// questa contraddizione la vede senza risolvere niente.
+pub fn crs_kind_for(
+    id: Option<&str>,
+    definition: Option<&str>,
+    driver: &'static str,
+) -> crate::Result<CrsKind> {
+    let dall_id = id.map_or(CrsKind::Unknown, |id| {
+        if id.eq_ignore_ascii_case("EPSG:3857") {
+            CrsKind::Projected
+        } else {
+            crs_kind_for_authority_id(id)
+        }
+    });
+    let Some(definition) = definition else {
+        return Ok(dall_id);
+    };
+    let dalla_definizione =
+        match crate::crs_definizione::genere_radice(definition, definition_format(definition)) {
+            Ok(Some(genere)) => genere,
+            // Un PROJJSON senza `type` non dice il genere: decide l'identificatore.
+            Ok(None) => return Ok(dall_id),
+            Err(crate::crs_definizione::Malformata) => CrsKind::Unknown,
+        };
+    match (dalla_definizione, dall_id) {
+        (CrsKind::Unknown, _) => Ok(CrsKind::Unknown),
+        (genere, CrsKind::Unknown) => Ok(genere),
+        (genere, noto) if genere == noto => Ok(genere),
+        _ => {
+            let mut errore = crate::PlenoraIoError::crs_redatto(&crate::PublicMessage::Curated(
+                "il genere dell'identificatore del CRS (geografico o proiettato) contraddice \
+                     quello della radice della definizione",
+            ));
+            errore.driver = Some(driver.to_owned());
+            Err(errore)
+        }
+    }
+}
+
+/// GEO-005 e GEO-020 sul CRS che un driver **emette**.
+///
+/// La definizione e' ben formata nel formato che dichiara e non porta un
+/// identificatore di radice dell'autorita' di `crs_id` diverso da `crs_id`; un
+/// `crs_id` di un catalogo locale non si dichiara risolto.
+///
+/// Sono le verifiche che la scrittura Arrow IPC fa sul campo
+/// (`read_geometry_contract_metadata`), anticipate alla lettura: fino al 24/10
+/// `io.read` e `io.inspect` emettevano una definizione, o un `POSTGIS:4326`
+/// risolto di un `GeoPackage`, che la conversione in IPC poi rifiutava, e una
+/// conversione verso un altro formato li portava con se'. La chiama
+/// `with_read_budget`, per ogni driver.
+///
+/// # Errors
+///
+/// `crs` se la definizione e' malformata o contraddice l'identificatore, o se
+/// un identificatore di un catalogo locale e' dichiarato risolto.
+pub fn verifica_crs_emesso(crs: &CrsResolution) -> crate::Result<()> {
+    let errore = |messaggio| {
+        Err(crate::PlenoraIoError::crs_redatto(
+            &crate::PublicMessage::Curated(messaggio),
+        ))
+    };
+    let (id, definition, format) = match crs {
+        CrsResolution::Resolved(crs) => {
+            if crs
+                .id
+                .as_deref()
+                .is_some_and(crate::crs_definizione::autorita_locale)
+            {
+                return errore(
+                    "CRS di un catalogo locale dichiarato risolto (GEO-020): il codice non \
+                     identifica il CRS fuori dall'installazione d'origine",
+                );
+            }
+            (
+                crs.id.as_deref(),
+                crs.definition.as_deref(),
+                crs.definition_format,
+            )
+        }
+        CrsResolution::DeclaredButUnresolved(raw) => (
+            raw.authority_hint.as_deref(),
+            raw.definition.as_deref(),
+            raw.definition_format,
+        ),
+        CrsResolution::Missing => return Ok(()),
+    };
+    let Some(definition) = definition else {
+        return Ok(());
+    };
+    // Un contratto costruito a mano puo' non dire il formato: vale quello che
+    // la scrittura dei metadati gli darebbe.
+    let format = format.unwrap_or_else(|| definition_format(definition));
+    match crate::crs_definizione::contraddice(id, definition, format) {
+        Ok(false) => Ok(()),
+        Ok(true) => errore("la definizione del CRS contraddice il suo identificatore (GEO-005)"),
+        Err(crate::crs_definizione::Malformata) => {
+            errore("la definizione del CRS non e' ben formata nel formato che dichiara (GEO-005)")
+        }
+    }
+}
+
 /// Due identificatori `AUTORITA:CODICE` nominano lo stesso CRS (GEO-005):
 /// autorita' uguali ignorando le maiuscole ASCII, codici uguali **come testo**.
 ///

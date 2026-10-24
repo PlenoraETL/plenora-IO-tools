@@ -12,6 +12,18 @@ use crate::crs::CrsDefinitionFormat;
 /// la stessa del contratto per la geometria.
 const PROFONDITA_MASSIMA: usize = 32;
 
+/// Il tetto sui byte di una definizione CRS che un driver legge da un testo
+/// proprio del formato: il `.prj` di uno Shapefile, il `GEODATA` di un DXF.
+///
+/// Una definizione reale e' di qualche KiB; il lettore stretto tiene in memoria
+/// un token per ogni elemento, qualche decina di byte per byte d'ingresso nel
+/// caso peggiore (`,,,,`), quindi un MiB costa qualche decina di MB.
+/// Fino al 24/10 il `.prj` si leggeva intero, senza tetto. Oltre il tetto il
+/// driver rifiuta con `limit_exceeded`; le definizioni che arrivano da un
+/// metadato (`GeoPackage`, Arrow IPC, `GeoParquet`) restano limitate dai byte
+/// del metadato che le porta.
+pub const MAX_BYTE_DEFINIZIONE_CRS: usize = 1 << 20;
+
 /// Una definizione che non e' ben formata nel formato che dichiara.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Malformata;
@@ -285,12 +297,16 @@ enum Identita {
 ///    intero canonico, come `EPSG:<codice>` (le altre autorita', `OGC:CRS84`
 ///    compreso, restano non risolte); con l'opzione, l'opzione deve essere
 ///    uguale alla dichiarazione, e l'identificatore ha la grafia del file;
-/// 6. nessuna dichiarazione: la forma ESRI di WGS 84 (`wgs84_esri`) e'
+/// 6. nessuna dichiarazione: la forma ESRI **intera** di WGS 84
+///    (`wgs84_esri`: nomi, ellissoide, meridiano e unita' canonici) e'
 ///    `EPSG:4326` senza opzione, e con l'opzione ammette solo `EPSG:4326` o
 ///    `OGC:CRS84`; ogni altra definizione resta non risolta senza opzione, e
-///    con l'opzione l'opzione la nomina. Quest'ultimo e' il rischio residuo
-///    dichiarato: il bordo non e' un resolver, e non sa dire se un `PROJCS`
-///    anonimo e' davvero il CRS che l'opzione nomina.
+///    con l'opzione l'opzione la nomina. Il driver poi confronta il genere
+///    ([`crate::crs::crs_kind_for`]): un identificatore che il bordo sa
+///    geografico su una radice proiettata, o `EPSG:3857` su una geografica, e'
+///    `crs`. Resta il rischio residuo dichiarato: il bordo non e' un resolver,
+///    e non sa dire se un `PROJCS` anonimo e' davvero il proiettato che
+///    l'opzione nomina (`EPSG:3003` su un UTM).
 ///
 /// # Errors
 /// [`RifiutoIdentita`], nei casi elencati.
@@ -338,49 +354,190 @@ fn identita_wkt(testo: &str) -> Result<Identita, Malformata> {
         Ok(radice) => (radice, "AUTHORITY", "ID"),
         Err(Malformata) => (radice_wkt(testo, &RADICI_WKT2)?, "ID", "AUTHORITY"),
     };
-    let mut dichiarate: Vec<(String, String)> = Vec::new();
-    for (autorita, codice) in identificatori_wkt(&radice, propria)?
+    // Ogni nodo dell'una e dell'altra parola si legge (uno malformato rende la
+    // radice indecidibile), e ciascuno si confronta solo con il primo: la
+    // prima dichiarazione diversa basta a dire `Ambigua`. Fino al 24/10 ogni
+    // nodo si cercava fra tutti quelli gia' visti, quadratico nel numero.
+    let mut dichiarate = identificatori_wkt(&radice, propria)?
         .into_iter()
-        .chain(identificatori_wkt(&radice, altra)?)
-    {
-        let gia_vista = dichiarate
-            .iter()
-            .any(|(a, c)| a.eq_ignore_ascii_case(&autorita) && *c == codice);
-        if !gia_vista {
-            dichiarate.push((autorita, codice));
-        }
-    }
+        .chain(identificatori_wkt(&radice, altra)?);
     if radice.parola.eq_ignore_ascii_case("BOUNDCRS") {
         return Ok(Identita::Legata);
     }
-    let mut dichiarate = dichiarate.into_iter();
-    Ok(match (dichiarate.next(), dichiarate.next()) {
-        (None, _) if wgs84_esri(&radice) => Identita::Wgs84Esri,
-        (None, _) => Identita::Anonima,
-        (Some((autorita, codice)), None) => Identita::Dichiarata(autorita, codice),
-        (Some(_), Some(_)) => Identita::Ambigua,
+    let Some((autorita, codice)) = dichiarate.next() else {
+        return Ok(if wgs84_esri(&radice) {
+            Identita::Wgs84Esri
+        } else {
+            Identita::Anonima
+        });
+    };
+    let diversa = dichiarate.any(|(a, c)| !(a.eq_ignore_ascii_case(&autorita) && c == codice));
+    Ok(if diversa {
+        Identita::Ambigua
+    } else {
+        Identita::Dichiarata(autorita, codice)
     })
 }
 
-/// La forma ESRI WKT 1 di WGS 84, quella che il writer Shapefile emette e che
-/// non porta un'autorita': una radice `GEOGCS` chiamata `WGS 84` con **un
-/// solo** `DATUM` figlio diretto, chiamato `WGS_1984`. I nomi si confrontano
-/// interi, ASCII case-insensitive (come la lettura in maiuscolo che c'era
-/// prima); `D_WGS_1984`, la grafia di `ArcGIS`, non e' riconosciuta, come prima.
-/// Un `DATUM` annidato altrove (in un `EXTENSION`, in un CRS base) non conta.
+/// La forma ESRI WKT 1 di WGS 84 senza autorita', **intera**: quella che il
+/// writer Shapefile emette e quella di `ArcGIS` e GDAL (`GCS_WGS_1984`,
+/// `D_WGS_1984`).
+///
+/// La radice e' `GEOGCS[nome, DATUM, PRIMEM, UNIT]` e nient'altro; il `DATUM`
+/// e' `[nome, SPHEROID]`; lo `SPHEROID` e' `[nome, 6378137, 298.257223563]`; il
+/// `PRIMEM` e' `["Greenwich", 0]`; lo `UNIT` e' `["degree", 0.0174532925199433]`.
+/// I nomi sono interi, ASCII case-insensitive: `WGS 84` o `GCS_WGS_1984` per la
+/// radice, `WGS_1984` o `D_WGS_1984` per il datum, `WGS 84` o `WGS_1984` per
+/// l'ellissoide. I numeri si confrontano come decimali esatti
+/// ([`stesso_decimale`]): `6378137.0` e' `6378137`, `0.0174532925199433` non
+/// ammette un'altra cifra, una forma esponenziale non e' riconosciuta.
+///
+/// Fino al 24/10 bastavano i due nomi, e `GEOGCS["WGS 84",DATUM["WGS_1984",
+/// SPHEROID["GRS 1980",...]],PRIMEM["Paris",2.337],UNIT["grad",...]]` diventava
+/// `EPSG:4326`, come un `DATUM` senza ellissoide. Un nodo in piu' (`AXIS`,
+/// `TOWGS84`, un `AUTHORITY` annidato) toglie la forma: la deduzione vale solo
+/// dove la definizione non puo' dire altro. Una forma non riconosciuta resta
+/// anonima: non risolta senza opzione, e l'opzione la nomina.
 fn wgs84_esri(radice: &Nodo) -> bool {
-    let chiamato = |nodo: &Nodo, nome: &str| matches!(nodo.voci.first(), Some(Voce::Stringa(valore)) if valore.eq_ignore_ascii_case(nome));
-    let mut datum = radice.voci.iter().filter_map(|voce| match voce {
-        Voce::Nodo(figlio) if figlio.parola.eq_ignore_ascii_case("DATUM") => Some(figlio),
-        _ => None,
-    });
-    let unico = match (datum.next(), datum.next()) {
-        (Some(datum), None) => Some(datum),
-        _ => None,
+    let chiamato = |nome: &str, nomi: &[&str]| nomi.iter().any(|n| nome.eq_ignore_ascii_case(n));
+    let e = |nodo: &Nodo, parola: &str| nodo.parola.eq_ignore_ascii_case(parola);
+    let [Voce::Stringa(nome), Voce::Nodo(datum), Voce::Nodo(primem), Voce::Nodo(unit)] =
+        radice.voci.as_slice()
+    else {
+        return false;
     };
-    radice.parola.eq_ignore_ascii_case("GEOGCS")
-        && chiamato(radice, "WGS 84")
-        && unico.is_some_and(|datum| chiamato(datum, "WGS_1984"))
+    let [Voce::Stringa(nome_datum), Voce::Nodo(sferoide)] = datum.voci.as_slice() else {
+        return false;
+    };
+    let [Voce::Stringa(nome_sferoide), Voce::Numero(semiasse), Voce::Numero(appiattimento)] =
+        sferoide.voci.as_slice()
+    else {
+        return false;
+    };
+    let [Voce::Stringa(nome_primem), Voce::Numero(longitudine)] = primem.voci.as_slice() else {
+        return false;
+    };
+    let [Voce::Stringa(nome_unit), Voce::Numero(radianti)] = unit.voci.as_slice() else {
+        return false;
+    };
+    e(radice, "GEOGCS")
+        && e(datum, "DATUM")
+        && e(sferoide, "SPHEROID")
+        && e(primem, "PRIMEM")
+        && e(unit, "UNIT")
+        && chiamato(nome, &["WGS 84", "GCS_WGS_1984"])
+        && chiamato(nome_datum, &["WGS_1984", "D_WGS_1984"])
+        && chiamato(nome_sferoide, &["WGS 84", "WGS_1984"])
+        && chiamato(nome_primem, &["Greenwich"])
+        && chiamato(nome_unit, &["degree"])
+        && stesso_decimale(semiasse, "6378137")
+        && stesso_decimale(appiattimento, "298.257223563")
+        && stesso_decimale(longitudine, "0")
+        && stesso_decimale(radianti, "0.0174532925199433")
+}
+
+/// Due numeri WKT valgono lo stesso decimale, esattamente: segno, cifre intere
+/// senza zeri iniziali e cifre decimali senza zeri finali uguali (`-0` vale
+/// `0`). Un numero con esponente non e' uguale a niente: nessuna conversione in
+/// virgola mobile decide un'identita'.
+fn stesso_decimale(testo: &str, canonico: &str) -> bool {
+    fn normale(testo: &str) -> Option<(bool, &str, &str)> {
+        let (negativo, cifre) = match testo.as_bytes().first() {
+            Some(b'-') => (true, &testo[1..]),
+            Some(b'+') => (false, &testo[1..]),
+            _ => (false, testo),
+        };
+        let (intera, frazione) = cifre.split_once('.').unwrap_or((cifre, ""));
+        if !intera
+            .bytes()
+            .chain(frazione.bytes())
+            .all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+        let intera = intera.trim_start_matches('0');
+        let frazione = frazione.trim_end_matches('0');
+        Some((
+            negativo && !(intera.is_empty() && frazione.is_empty()),
+            intera,
+            frazione,
+        ))
+    }
+    matches!((normale(testo), normale(canonico)), (Some(a), Some(b)) if a == b)
+}
+
+/// Il genere del CRS che la definizione descrive, dalla parola della **radice**
+/// letta con il lettore stretto, o dal `type` della radice di un PROJJSON.
+///
+/// `GEOGCS`, `GEOGCRS`, `GEOGRAPHICCRS` (`GeographicCRS`) sono geografici;
+/// `PROJCS`, `PROJCRS`, `PROJECTEDCRS` (`ProjectedCRS`) sono proiettati; un
+/// `GEODCRS` o `GEODETICCRS` (`GeodeticCRS`) e' geografico solo con un
+/// `CS[ellipsoidal,...]` figlio diretto (`coordinate_system.subtype`
+/// `ellipsoidal`), perche' altrimenti e' geocentrico. Ogni altra radice --
+/// `GEOCCS`, `BOUNDCRS`, `COMPOUNDCRS`, `COMPD_CS`, `DERIVEDPROJCRS`, verticali,
+/// ingegneristici -- ha genere ignoto: quello di un CRS composto o vincolato
+/// non e' quello di una sua parte. `None` per un PROJJSON senza `type`, che
+/// del genere non dice niente: decide l'identificatore.
+///
+/// Fino al 24/10 i driver cercavano `PROJCS[` e `GEOGCS[` **nel testo**: un
+/// `PROJECTEDCRS[`, `projcrs [` o `PROJCS(` usciva geografico per il
+/// `BASEGEOGCRS[` annidato, e con gli assi est/nord diventava `lon_lat`.
+///
+/// # Errors
+/// [`Malformata`] se la definizione non e' ben formata nel formato dichiarato.
+pub fn genere_radice(
+    testo: &str,
+    formato: CrsDefinitionFormat,
+) -> Result<Option<crate::crs::CrsKind>, Malformata> {
+    use crate::crs::CrsKind;
+    let parola_di = |radice: &Nodo, elenco: &[&str]| {
+        elenco
+            .iter()
+            .any(|parola| radice.parola.eq_ignore_ascii_case(parola))
+    };
+    let (geografiche, proiettate, radice): (&[&str], &[&str], Nodo) = match formato {
+        CrsDefinitionFormat::Projjson => return genere_projjson(testo),
+        CrsDefinitionFormat::Wkt => (&["GEOGCS"], &["PROJCS"], radice_wkt(testo, &RADICI_WKT1)?),
+        CrsDefinitionFormat::Wkt2 => (
+            &["GEOGCRS", "GEOGRAPHICCRS"],
+            &["PROJCRS", "PROJECTEDCRS"],
+            radice_wkt(testo, &RADICI_WKT2)?,
+        ),
+    };
+    let geodetica_ellissoidale = parola_di(&radice, &["GEODCRS", "GEODETICCRS"])
+        && radice.voci.iter().any(|voce| {
+            matches!(voce, Voce::Nodo(cs) if cs.parola.eq_ignore_ascii_case("CS")
+                && matches!(cs.voci.first(), Some(Voce::Parola(tipo)) if tipo.eq_ignore_ascii_case("ellipsoidal")))
+        });
+    Ok(Some(
+        if parola_di(&radice, geografiche) || geodetica_ellissoidale {
+            CrsKind::Geographic
+        } else if parola_di(&radice, proiettate) {
+            CrsKind::Projected
+        } else {
+            CrsKind::Unknown
+        },
+    ))
+}
+
+// Lo stesso limite dichiarato di `assi_projjson` (docs/PRODUCT.md, «CRS:
+// PROJJSON»): un documento che `serde_json` rifiuta e' trattato come
+// malformato, e il chiamante ne fa un genere ignoto.
+fn genere_projjson(testo: &str) -> Result<Option<crate::crs::CrsKind>, Malformata> {
+    use crate::crs::CrsKind;
+    let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
+    let radice = radice.as_object().ok_or(Malformata)?;
+    let ellissoidale = radice
+        .get("coordinate_system")
+        .and_then(|cs| cs.get("subtype"))
+        .and_then(serde_json::Value::as_str)
+        == Some("ellipsoidal");
+    Ok(radice.get("type").map(|tipo| match tipo.as_str() {
+        Some("GeographicCRS") => CrsKind::Geographic,
+        Some("GeodeticCRS") if ellissoidale => CrsKind::Geographic,
+        Some("ProjectedCRS") => CrsKind::Projected,
+        _ => CrsKind::Unknown,
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq)]
