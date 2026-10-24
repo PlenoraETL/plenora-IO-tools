@@ -1383,6 +1383,45 @@ fn una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata() {
     }
 }
 
+/// Il verso opposto: una colonna di `gpkg_geometry_columns` la cui tabella non
+/// e' una riga `features` di `gpkg_contents` -- assente, `attributes`, o
+/// `Features` con un'altra grafia -- spariva dall'elenco dei layer.
+#[test]
+fn una_geometria_dichiarata_fuori_da_una_feature_table_e_rifiutata() {
+    for scenario in [
+        "INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', 'attributes', 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'seconda', 'Features', 'seconda', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('seconda', 'geom', 'POINT', 4326, 0, 0);",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("geometria-senza-layer.gpkg");
+        let driver = gpkg_con_un_layer_features(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TABLE seconda (fid INTEGER PRIMARY KEY, geom BLOB); {scenario}"
+        ))
+        .unwrap();
+        drop(conn);
+        match driver.open(Source::Path(path), opzioni_lettura()) {
+            Ok(_) => panic!("una geometria dichiarata non deve sparire: {scenario}"),
+            Err(errore) => {
+                assert_eq!(
+                    errore.code,
+                    plenora_io_model::IoErrorCode::Format,
+                    "{scenario}"
+                );
+                assert!(!errore.message.contains("seconda"), "{}", errore.message);
+            }
+        }
+    }
+}
+
 /// Un nome di colonna geometrica dichiarato con maiuscole diverse da quelle
 /// della tabella. `SQLite` risolve i nomi di colonna senza distinzione di
 /// maiuscole ASCII: `GEOM` e' la colonna `geom`. Il confronto esatto la

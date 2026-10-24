@@ -1332,6 +1332,28 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
              gpkg_geometry_columns",
         )));
     }
+    // Il verso opposto, della stessa classe: una colonna geometrica dichiarata
+    // in `gpkg_geometry_columns` la cui tabella non e' una riga `features` di
+    // `gpkg_contents` (assente, `attributes`, o `Features` con un'altra grafia,
+    // che il filtro esatto sotto non vede) e' una geometria che sparirebbe
+    // dall'elenco. Anche qui il file si rifiuta.
+    let geometria_senza_layer: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM gpkg_geometry_columns g
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM gpkg_contents c
+                 WHERE c.table_name = g.table_name COLLATE NOCASE
+                   AND c.data_type = 'features')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(sql_err)?;
+    if geometria_senza_layer > 0 {
+        return Err(err(&PublicMessage::Curated(
+            "GeoPackage: una colonna di gpkg_geometry_columns non appartiene a una feature \
+             table di gpkg_contents",
+        )));
+    }
     let mut out = Vec::new();
     let mut stmt = conn
         .prepare(

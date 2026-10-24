@@ -1544,28 +1544,39 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
         // nomi di quel CRS: un altro identificatore su una definizione che il
         // driver riconosce come WGS 84 geografico unirebbe un CRS diverso alla
         // definizione di WGS 84.
-        if let Some(assunta) = opts.assume_crs.as_deref() {
-            let radice = identificatori_di_radice(&wkt);
-            let contraddice_la_radice = !radice.is_empty()
-                && !radice
-                    .iter()
-                    .any(|id| plenora_io_model::crs::stesso_identificatore(assunta, id));
-            let contraddice_la_deduzione = radice.is_empty()
-                && authority_deduced_from_esri_wkt(&wkt).is_some()
-                && !["EPSG:4326", "OGC:CRS84"]
+        let radice = identificatori_di_radice(&wkt);
+        // La deduzione ESRI vale solo per un `.prj` che alla radice non dichiara
+        // niente: un `AUTHORITY["ESRI","104000"]` sopra un nome e un datum di
+        // WGS 84 dice un altro CRS, e dedurre `EPSG:4326` lo sovrascriverebbe.
+        let dedotta = if radice.is_empty() {
+            authority_deduced_from_esri_wkt(&wkt)
+        } else {
+            None
+        };
+        let id = if let Some(assunta) = opts.assume_crs.as_deref() {
+            if radice.is_empty() {
+                let nomina_la_deduzione = ["EPSG:4326", "OGC:CRS84"]
                     .iter()
                     .any(|nome| plenora_io_model::crs::stesso_identificatore(assunta, nome));
-            if contraddice_la_radice || contraddice_la_deduzione {
-                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                    "Shapefile: --assume-crs contraddice il CRS del .prj",
-                )));
+                if dedotta.is_some() && !nomina_la_deduzione {
+                    return Err(contraddice_il_prj());
+                }
+                Some(assunta.to_owned())
+            } else {
+                // Concordi, vale la grafia del file: l'opzione puo' scrivere
+                // l'autorita' in minuscolo, e l'identificatore e' quello del
+                // `.prj`, di qualunque autorita'.
+                let Some(dal_file) = radice
+                    .into_iter()
+                    .find(|id| plenora_io_model::crs::stesso_identificatore(assunta, id))
+                else {
+                    return Err(contraddice_il_prj());
+                };
+                Some(dal_file)
             }
-        }
-        // Concordi, vale la grafia del file: l'opzione puo' scrivere
-        // l'autorita' in minuscolo, e l'identificatore e' quello del `.prj`.
-        let id = dichiarata
-            .or_else(|| opts.assume_crs.clone())
-            .or_else(|| authority_deduced_from_esri_wkt(&wkt));
+        } else {
+            dichiarata.or(dedotta)
+        };
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
@@ -1619,13 +1630,29 @@ fn authority_declared_by_wkt(wkt: &str) -> Option<String> {
 
 /// Gli identificatori che la radice del `.prj` dichiara, di ogni autorita',
 /// nella forma `AUTORITA:codice`; `OGC:CRS84` per il `.prj` che e' soltanto
-/// quel nome. Un testo che non e' un WKT ben formato non ne dichiara.
+/// quel nome. Un testo che non e' un WKT ben formato, ne' 1 ne' 2, non ne
+/// dichiara: l'opzione allora lo nomina, e la definizione malformata si
+/// rifiuta a valle, alla verifica GEO-005 del contratto.
+fn contraddice_il_prj() -> PlenoraIoError {
+    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+        "Shapefile: --assume-crs contraddice il CRS del .prj",
+    ))
+}
+
 fn identificatori_di_radice(wkt: &str) -> Vec<String> {
     use plenora_io_model::crs_definizione::{identificatori, TestoDefinizione};
     if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
         return vec!["OGC:CRS84".to_owned()];
     }
-    let Ok(coppie) = identificatori(wkt, plenora_io_model::crs::CrsDefinitionFormat::Wkt) else {
+    // `.prj` e' di solito WKT 1, ma un WKT 2 (`GEOGCRS[...,ID[...]]`) dichiara
+    // quanto l'altro: si legge nella grammatica in cui e' ben formato.
+    let coppie = [
+        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
+        plenora_io_model::crs::CrsDefinitionFormat::Wkt2,
+    ]
+    .into_iter()
+    .find_map(|formato| identificatori(wkt, formato).ok());
+    let Some(coppie) = coppie else {
         return Vec::new();
     };
     coppie

@@ -2015,8 +2015,54 @@ fn assume_crs_non_rietichetta_un_prj_riconosciuto_o_dichiarato() {
     let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326"))
         .expect_err("EPSG:4326 sopra un'autorita' ESRI dichiarata");
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
-    let concorde = resolve_crs(&path, &opzioni_lettura().with_assume_crs("esri:4265"));
-    assert!(concorde.is_ok(), "{concorde:?}");
+    // Concordi, l'identificatore ha la grafia del file, di qualunque autorita'.
+    match resolve_crs(&path, &opzioni_lettura().with_assume_crs("esri:4265")) {
+        Ok(crs) => assert_eq!(crs.id.as_deref(), Some("ESRI:4265")),
+        Err(errore) => panic!("{errore}"),
+    }
+}
+
+/// Un `.prj` in WKT 2 dichiara come uno in WKT 1: `ID["ESRI",4265]` alla radice
+/// di un `GEOGCRS` non si rietichetta con `--assume-crs EPSG:4326`. Prima la
+/// radice si leggeva solo nella grammatica WKT 1 e, malformata li', l'opzione
+/// passava sopra la definizione di Monte Mario.
+#[test]
+fn assume_crs_non_rietichetta_un_prj_wkt2() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wkt2.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCRS[\"Monte Mario\",DATUM[\"Monte Mario\",ELLIPSOID[\"International 1924\",\
+         6378388,297]],CS[ellipsoidal,2],AXIS[\"latitude\",north],AXIS[\"longitude\",east],\
+         ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"ESRI\",4265]]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326"))
+        .expect_err("EPSG:4326 sopra un WKT 2 che dichiara ESRI:4265");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+}
+
+/// La deduzione ESRI di WGS 84 vale solo se la radice non dichiara niente: con
+/// `AUTHORITY["ESRI","104000"]` il nome e il datum di WGS 84 non fanno di quel
+/// `.prj` un `EPSG:4326`.
+#[test]
+fn la_deduzione_esri_non_scavalca_un_autorita_di_radice() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("esri-104000.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,\
+         298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433],\
+         AUTHORITY[\"ESRI\",\"104000\"]]",
+    )
+    .unwrap();
+    if let Ok(crs) = resolve_crs(&path, &opzioni_lettura()) {
+        assert_ne!(
+            crs.id.as_deref(),
+            Some("EPSG:4326"),
+            "dedotto sopra la radice"
+        );
+    }
 }
 
 /// Un `PROJCS` su WGS 84 non e' EPSG:4326: l'identificatore e' quello della

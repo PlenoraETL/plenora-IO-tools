@@ -333,6 +333,9 @@
     "byte_dello_staging": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
+    "contraddice_il_prj": [
+      "Crs/Validate/Crs/Never"
+    ],
     "create": [
       "Unsupported/Validate/Unsupported/Never",
       "Conflict/Commit/OutputExists/Never",
@@ -364,7 +367,6 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "resolve_crs": [
-      "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never"
     ],
