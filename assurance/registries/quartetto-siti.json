@@ -248,12 +248,17 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
+    "layer_crs": [
+      "Crs/Validate/Crs/Never"
+    ],
     "project_gpkg_layer": [
       "InvalidPlan/Validate/Contract/Never"
     ],
     "register_srs": [
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/CrsUnresolved/Never"
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/Crs/Never"
     ]
   },
   "crates/driver-ipc/src/lib.rs": {
@@ -589,6 +594,9 @@
     ]
   },
   "crates/plenora-io-model/src/geometry.rs": {
+    "crs_metadata": [
+      "Crs/Validate/Crs/Never"
+    ],
     "invalid_metadata": [
       "InvalidPlan/Validate/Contract/Never"
     ],
