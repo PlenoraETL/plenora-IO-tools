@@ -3,14 +3,6 @@
   "descrizione": "Che cosa il target `filegdb_reader` deve **raggiungere** perche' si possa dire che il percorso FileGDB e' esercitato. Una build che compila e un replay senza crash non lo dicono: una `.gdb` rifiutata al riconoscimento del formato non fa crashare niente ed e', da fuori, indistinguibile da una letta per intero.",
   "target": "filegdb_reader",
   "artefatto": "assurance/profondita-fuzz-filegdb.json",
-  "rimisurazione_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: apertura col solo driver `OpenFileGDB` e rifiuto dei layer con piu' campi geometrici. Poi `--assume-crs` contro il CRS dichiarato: il controllo nell'adapter comune `with_read_budget`, che ogni apertura attraversa, e il confronto GEO-005 degli identificatori in scrittura. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
-    "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "e225d71a552d3b94c110c3da8416ff62ba83cdce91c217d26bbb89aa58c4b5d7",
-    "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
-    "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
-    "comando": "scripts/fuzz-profondita.sh filegdb_reader"
-  },
   "che_cosa_questa_misura_non_conta": "la copertura dentro `libgdal.so`. La libreria e' di sistema, collegata dinamicamente e **non strumentata**: non porta contatori, e questa misura conta cio' che la copertura vede. Il confine esatto e' misurato in `assurance/registries/asan-filegdb.json`. Cio' che segue dice che il percorso Rust arriva fino a GDAL e ne riporta indietro delle righe, non che GDAL sia stato esplorato.",
   "perimetro": {
     "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
