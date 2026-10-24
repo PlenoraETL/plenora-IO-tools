@@ -486,7 +486,12 @@ fn il_genere_segue_la_radice_e_rifiuta_l_identificatore_contrario() {
         (Some("EPSG:3857"), None, Projected),
         (Some("EPSG:3003"), None, Unknown),
         (None, Some(r#"GEOGCS["x"]"#), Geographic),
-        (Some("EPSG:4326"), Some(r#"GEOCCS["x"]"#), Unknown),
+        (Some("EPSG:3003"), Some(r#"GEOCCS["x"]"#), Unknown),
+        (
+            Some("EPSG:4326"),
+            Some(r#"BOUNDCRS[SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#),
+            Unknown,
+        ),
         (Some("EPSG:4326"), Some(r#"GEOGCS["x""#), Unknown),
         (Some("EPSG:3857"), Some(r#"PROJCS["x"]"#), Projected),
     ] {
@@ -545,4 +550,102 @@ fn verifica_crs_emesso_applica_geo_005() {
         "POSTGIS:4326".to_owned(),
     ));
     assert!(verifica_crs_emesso(&locale).is_ok());
+}
+
+/// Rilettura 9, punto 1: un identificatore che il bordo sa orizzontale
+/// (`EPSG:4326`, `OGC:CRS84`, `EPSG:3857`) su una radice che non e' un CRS
+/// orizzontale 2D e' `crs`. Su b4d8064 il genere restava ignoto e il CRS usciva
+/// risolto: `LOCAL_CS` con `--assume-crs EPSG:4326` era `EPSG:4326`.
+#[test]
+fn un_identificatore_orizzontale_su_una_radice_che_non_lo_e_si_rifiuta() {
+    let radici = [
+        r#"GEOCCS["g",DATUM["d",SPHEROID["s",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1]]"#,
+        r#"GEODCRS["g",DATUM["d",ELLIPSOID["s",6378137,298.257223563]],CS[Cartesian,3],AXIS["X",geocentricX],AXIS["Y",geocentricY],AXIS["Z",geocentricZ]]"#,
+        r#"GEODCRS["g",DATUM["d",ELLIPSOID["s",6378137,298.257223563]]]"#,
+        r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#,
+        r#"ENGCRS["site",EDATUM["d"],CS[Cartesian,2],AXIS["x",east],AXIS["y",north]]"#,
+        r#"ENGINEERINGCRS["site",EDATUM["d"]]"#,
+        r#"VERT_CS["h",VERT_DATUM["d",2005],UNIT["metre",1]]"#,
+        r#"VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up]]"#,
+        r#"COMPD_CS["c",GEOGCS["WGS 84"],VERT_CS["h"]]"#,
+        r#"COMPOUNDCRS["c",GEOGCRS["WGS 84"],VERTCRS["h"]]"#,
+        r#"DERIVEDPROJCRS["d",BASEPROJCRS["p"],CS[Cartesian,2]]"#,
+        r#"TIMECRS["t",TDATUM["d"]]"#,
+        r#"PARAMETRICCRS["p",PDATUM["d"]]"#,
+        r#"FITTED_CS["f",PARAM_MT["x"],LOCAL_CS["l"]]"#,
+        r#"{"type":"VerticalCRS","name":"h"}"#,
+        r#"{"type":"CompoundCRS","name":"c"}"#,
+        r#"{"type":"EngineeringCRS","name":"e"}"#,
+        r#"{"type":"GeodeticCRS","name":"g","coordinate_system":{"subtype":"Cartesian"}}"#,
+        r#"{"type":"DerivedProjectedCRS","name":"d"}"#,
+    ];
+    for id in ["EPSG:4326", "epsg:4326", "OGC:CRS84", "EPSG:3857"] {
+        for radice in radici {
+            let errore = crs_kind_for(Some(id), Some(radice), "shp").unwrap_err();
+            assert_eq!(errore.code, crate::IoErrorCode::Crs, "{id} {radice}");
+            assert_eq!(errore.driver.as_deref(), Some("shp"));
+            assert!(!errore.message.contains("site"), "{}", errore.message);
+        }
+        // Un `BOUNDCRS` resta ignoto: lo rifiuta solo `--assume-crs`.
+        for legata in [
+            r#"BOUNDCRS[SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#,
+            r#"{"type":"BoundCRS"}"#,
+        ] {
+            assert_eq!(
+                crs_kind_for(Some(id), Some(legata), "shp").ok(),
+                Some(CrsKind::Unknown),
+                "{id} {legata}"
+            );
+        }
+    }
+    // Un identificatore che il bordo non conosce lascia il genere ignoto.
+    for radice in radici {
+        assert_eq!(
+            crs_kind_for(Some("EPSG:3003"), Some(radice), "shp").ok(),
+            Some(CrsKind::Unknown),
+            "{radice}"
+        );
+    }
+}
+
+/// Rilettura 9, punto 3: una definizione oltre il tetto e' `limit_exceeded`
+/// in `crs_kind_for` e in `verifica_crs_emesso`, da qualunque driver. Su
+/// b4d8064 si leggeva per intero (8 MiB: 700 MB di picco).
+#[test]
+fn una_definizione_oltre_il_tetto_e_un_limite() {
+    use crate::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    let mut lunga = String::from(r#"GEOGCS["x""#);
+    while lunga.len() <= MAX_BYTE_DEFINIZIONE_CRS {
+        lunga.push_str(",1");
+    }
+    lunga.push(']');
+    let errore = crs_kind_for(Some("EPSG:4326"), Some(&lunga), "gpkg").unwrap_err();
+    assert_eq!(
+        errore.category,
+        crate::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+    assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+    let risolta = CrsResolution::Resolved(ResolvedCrs::new(
+        Some("EPSG:4326".to_owned()),
+        CrsKind::Unknown,
+        Some(lunga.clone()),
+    ));
+    let errore = verifica_crs_emesso(&risolta).unwrap_err();
+    assert_eq!(
+        errore.category,
+        crate::ErrorCategory::ResourceLimit,
+        "{errore:?}"
+    );
+    // Al tetto esatto passa: la forma non conta, conta la misura.
+    let mut al_tetto = String::from(r#"GEOGCS["x""#);
+    while al_tetto.len() < MAX_BYTE_DEFINIZIONE_CRS - 1 {
+        al_tetto.push(' ');
+    }
+    al_tetto.push(']');
+    assert_eq!(al_tetto.len(), MAX_BYTE_DEFINIZIONE_CRS);
+    assert_eq!(
+        crs_kind_for(Some("EPSG:4326"), Some(&al_tetto), "gpkg").ok(),
+        Some(CrsKind::Geographic)
+    );
 }

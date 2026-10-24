@@ -649,6 +649,14 @@ pub fn read_geometry_contract_metadata(
         // `crs_resolution`, perche' una definizione incoerente resta incoerente
         // anche quando il produttore non l'ha risolta.
         if let (Some(testo), Some(formato)) = (definition.as_deref(), definition_format) {
+            // Il tetto unico delle definizioni: prima del lettore, perche'
+            // oltre il tetto il lettore la direbbe malformata.
+            crate::crs_definizione::verifica_dimensione_definizione(testo, None).map_err(
+                |mut errore| {
+                    errore.field = Some(field.name().clone());
+                    errore
+                },
+            )?;
             match crate::crs_definizione::contraddice(id.as_deref(), testo, formato) {
                 Err(crate::crs_definizione::Malformata) => {
                     return Err(crs_metadata(field, &DEFINIZIONE_CRS_MALFORMATA));
@@ -673,15 +681,7 @@ pub fn read_geometry_contract_metadata(
                 }
                 let axis_order = axis_order
                     .ok_or_else(|| crs_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
-                let kind = match axis_order {
-                    AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => {
-                        crate::crs::CrsKind::Geographic
-                    }
-                    AxisOrder::EastingNorthing | AxisOrder::NorthingEasting => {
-                        crate::crs::CrsKind::Projected
-                    }
-                    AxisOrder::Other | AxisOrder::Unknown => crate::crs::CrsKind::Unknown,
-                };
+                let kind = genere_dai_metadati(id.as_deref(), definition.as_deref(), axis_order);
                 let mut crs = ResolvedCrs::new(id, kind, definition);
                 crs.definition_format = definition_format;
                 crs.axis_order = axis_order;
@@ -726,6 +726,38 @@ pub fn read_geometry_contract_metadata(
 
     *contract = parsed;
     Ok(presence)
+}
+
+/// Il genere di un CRS risolto letto dai metadati Arrow: il vocabolario non lo
+/// porta, e si ricava.
+///
+/// Decide la regola comune dei driver ([`crate::crs::crs_kind_for`]), dalla
+/// radice della definizione e dagli identificatori che il bordo conosce; solo
+/// se quella lo lascia ignoto, l'ordine memorizzato (`lon_lat` o `lat_lon`
+/// geografico, `easting_northing` o `northing_easting` proiettato). Fino al
+/// 24/10 decideva solo l'ordine, e un `EPSG:3031` che lo Shapefile leggeva
+/// proiettato, con gli assi `other`, si rileggeva dall'IPC di genere ignoto.
+///
+/// Una contraddizione fra identificatore e radice qui lascia il genere ignoto
+/// invece di rifiutare: il genere non e' un campo del vocabolario, e il
+/// contratto che i metadati dichiarano resta quello che la verifica GEO-005
+/// ha gia' giudicato. Ignoto e' la risposta onesta, mai un genere scelto fra
+/// i due.
+fn genere_dai_metadati(
+    id: Option<&str>,
+    definition: Option<&str>,
+    axis_order: AxisOrder,
+) -> crate::crs::CrsKind {
+    use crate::crs::CrsKind;
+    match crate::crs::crs_kind_for(id, definition, "ipc") {
+        Ok(CrsKind::Unknown) if definition.is_none() => match axis_order {
+            AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => CrsKind::Geographic,
+            AxisOrder::EastingNorthing | AxisOrder::NorthingEasting => CrsKind::Projected,
+            AxisOrder::Other | AxisOrder::Unknown => CrsKind::Unknown,
+        },
+        Ok(genere) => genere,
+        Err(_) => CrsKind::Unknown,
+    }
 }
 
 #[cfg(test)]

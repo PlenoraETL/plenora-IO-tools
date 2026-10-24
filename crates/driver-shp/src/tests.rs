@@ -3120,10 +3120,73 @@ fn n1_resolve_crs_copre_i_quattro_incroci_di_prj_e_assume_crs() {
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::CrsUnresolved);
 
     // 5. lo stesso WKT, ma con `--assume-crs`: l'opzione vince sul silenzio
-    //    del WKT, e il WKT resta conservato accanto.
-    let risolto = resolve_crs(&shp, &con_opzione).expect("l'opzione copre il WKT muto");
-    assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+    //    del WKT, e il WKT resta conservato accanto -- se l'opzione non nomina
+    //    un CRS che il bordo sa orizzontale. `EPSG:4326` su un `LOCAL_CS` e'
+    //    `crs` (rilettura 9, punto 1: su b4d8064 usciva `EPSG:4326`).
+    let Err(errore) = resolve_crs(&shp, &con_opzione) else {
+        panic!("EPSG:4326 nominato su un LOCAL_CS");
+    };
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs);
+    let risolto = resolve_crs(&shp, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect("l'opzione copre il WKT muto");
+    assert_eq!(risolto.id.as_deref(), Some("EPSG:3003"));
     assert!(risolto.definition.is_some());
+}
+
+/// Rilettura 9, punto 1, nello Shapefile: il `.prj` del revisore,
+/// `LOCAL_CS[...]` con `--assume-crs EPSG:4326`, e le altre radici che non sono
+/// un CRS orizzontale, con i tre identificatori che il bordo conosce.
+#[test]
+fn un_identificatore_orizzontale_su_un_prj_non_orizzontale_e_crs() {
+    let radice = tempfile::tempdir().unwrap();
+    let shp = radice.path().join("dati.shp");
+    let prj = radice.path().join("dati.prj");
+    for definizione in [
+        r#"LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]"#,
+        r#"GEOCCS["g",DATUM["d",SPHEROID["s",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1]]"#,
+        r#"GEODCRS["g",DATUM["d",ELLIPSOID["s",6378137,298.257223563]],CS[Cartesian,3],AXIS["X",geocentricX],AXIS["Y",geocentricY],AXIS["Z",geocentricZ]]"#,
+        r#"ENGCRS["site",EDATUM["d"],CS[Cartesian,2],AXIS["x",east],AXIS["y",north]]"#,
+        r#"VERT_CS["h",VERT_DATUM["d",2005],UNIT["metre",1]]"#,
+        r#"VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up]]"#,
+        r#"COMPD_CS["c",GEOGCS["WGS 84"],VERT_CS["h"]]"#,
+        r#"COMPOUNDCRS["c",GEOGCRS["WGS 84"],VERTCRS["h"]]"#,
+        r#"DERIVEDPROJCRS["d",BASEPROJCRS["p"],CS[Cartesian,2]]"#,
+    ] {
+        std::fs::write(&prj, definizione).unwrap();
+        for assunto in ["EPSG:4326", "OGC:CRS84", "EPSG:3857"] {
+            let Err(errore) = resolve_crs(&shp, &opzioni_lettura().with_assume_crs(assunto)) else {
+                panic!("{assunto} su {definizione}");
+            };
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Crs,
+                "{assunto} {definizione}"
+            );
+        }
+    }
+}
+
+/// Rilettura 9, punto 7: un `.prj` con un BOM UTF-8 iniziale si legge, e la
+/// definizione emessa e' senza BOM. Su b4d8064 era malformato.
+#[test]
+fn un_prj_con_il_bom_si_legge() {
+    let radice = tempfile::tempdir().unwrap();
+    let shp = radice.path().join("dati.shp");
+    std::fs::write(
+        radice.path().join("dati.prj"),
+        format!("\u{feff}{EPSG_3003_WKT}"),
+    )
+    .unwrap();
+    let crs = resolve_crs(&shp, &opzioni_lettura()).expect("il BOM non e' parte del WKT");
+    assert_eq!(crs.id.as_deref(), Some("EPSG:3003"));
+    assert!(!crs.definition.unwrap().starts_with('\u{feff}'));
+    // Due BOM: il secondo resta, e la definizione e' malformata.
+    std::fs::write(
+        radice.path().join("dati.prj"),
+        format!("\u{feff}\u{feff}{EPSG_3003_WKT}"),
+    )
+    .unwrap();
+    assert!(resolve_crs(&shp, &opzioni_lettura()).is_err());
 }
 
 /// Il piano minimo delle prove sul publish: una sola colonna geometria.

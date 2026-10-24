@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 
 /// Opzioni di lettura sul modello unificato.
 ///
@@ -456,12 +457,11 @@ fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     // E in lettura `null` non diventa CRS84: diventa «non lo so».
     let letti = metadati::analizza(&geo, false).expect("conforme");
     assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
-    let crs = crs_from(&letti).expect("risolto");
-    assert_eq!(
-        crs.id.as_deref(),
-        None,
-        "un CRS assente non ha identificatore"
-    );
+    // Rilettura 9, punto 6a: e' `missing`, lo stato del vocabolario per un
+    // CRS ignoto. Su b4d8064 era un `resolved` senza identificatore ne'
+    // definizione, che la conversione in IPC rifiutava.
+    let crs = crs_from(&letti).expect("letto");
+    assert_eq!(crs, CrsResolution::Missing);
 }
 
 #[test]

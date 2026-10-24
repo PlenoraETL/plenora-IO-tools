@@ -12,17 +12,59 @@ use crate::crs::CrsDefinitionFormat;
 /// la stessa del contratto per la geometria.
 const PROFONDITA_MASSIMA: usize = 32;
 
-/// Il tetto sui byte di una definizione CRS che un driver legge da un testo
-/// proprio del formato: il `.prj` di uno Shapefile, il `GEODATA` di un DXF.
+/// Il tetto sui byte di **ogni** definizione CRS che entra nel lettore stretto.
+///
+/// Vale da qualunque sorgente: il `.prj` di uno Shapefile, il `GEODATA` di un
+/// DXF, la riga di `gpkg_spatial_ref_sys`, il `crs` di `GeoParquet`, il
+/// metadato di un campo Arrow IPC, la definizione di `FileGDB`.
 ///
 /// Una definizione reale e' di qualche KiB; il lettore stretto tiene in memoria
 /// un token per ogni elemento, qualche decina di byte per byte d'ingresso nel
 /// caso peggiore (`,,,,`), quindi un MiB costa qualche decina di MB.
-/// Fino al 24/10 il `.prj` si leggeva intero, senza tetto. Oltre il tetto il
-/// driver rifiuta con `limit_exceeded`; le definizioni che arrivano da un
-/// metadato (`GeoPackage`, Arrow IPC, `GeoParquet`) restano limitate dai byte
-/// del metadato che le porta.
+/// Fino al 24/10 il `.prj` si leggeva intero, senza tetto, e le definizioni di
+/// un metadato erano limitate solo dai byte del metadato: una riga di
+/// `gpkg_spatial_ref_sys` di 8 MiB costava 700 MB di picco, una di 32 MiB
+/// esauriva la scadenza. Ora la regola e' una: oltre il tetto e'
+/// `limit_exceeded` ([`verifica_dimensione_definizione`], chiamata da
+/// [`crate::crs::crs_kind_for`], da [`crate::crs::verifica_crs_emesso`] e dalla
+/// lettura dei metadati Arrow), e il lettore stretto non apre un testo piu'
+/// lungo (lo tratta come malformato, una difesa che non decide da sola).
 pub const MAX_BYTE_DEFINIZIONE_CRS: usize = 1 << 20;
+
+/// La definizione sta nel tetto [`MAX_BYTE_DEFINIZIONE_CRS`].
+///
+/// # Errors
+///
+/// `limit_exceeded`, con il driver se dato, se lo supera.
+pub fn verifica_dimensione_definizione(
+    testo: &str,
+    driver: Option<&'static str>,
+) -> crate::Result<()> {
+    if testo.len() <= MAX_BYTE_DEFINIZIONE_CRS {
+        return Ok(());
+    }
+    let mut errore = crate::PlenoraIoError::limite_redatto(&crate::PublicMessage::CuratedWith(
+        "la definizione del CRS supera il tetto, byte",
+        crate::NumeroStrutturale::Limite(MAX_BYTE_DEFINIZIONE_CRS as u64),
+    ));
+    errore.driver = driver.map(str::to_owned);
+    Err(errore)
+}
+
+/// Il testo senza un BOM UTF-8 iniziale (uno solo).
+///
+/// Il BOM non fa parte del WKT ne' del JSON: un `.prj` o una riga di
+/// `gpkg_spatial_ref_sys` scritti da un editor che lo antepone si leggevano
+/// malformati. Lo tolgono i driver all'ingresso, cosi' la definizione emessa
+/// e' quella senza BOM, la stessa che il lettore stretto legge; un secondo BOM
+/// resta, e la definizione resta malformata.
+#[must_use]
+pub fn senza_bom(mut testo: String) -> String {
+    if testo.starts_with('\u{feff}') {
+        testo.replace_range(..'\u{feff}'.len_utf8(), "");
+    }
+    testo
+}
 
 /// Una definizione che non e' ben formata nel formato che dichiara.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -520,11 +562,32 @@ pub fn genere_radice(
     ))
 }
 
+/// La radice e' un `BOUNDCRS` (WKT 2) o un `BoundCRS` (PROJJSON): lega un CRS
+/// sorgente a uno di destinazione e non ha un genere proprio. `false` per un
+/// testo malformato.
+#[must_use]
+pub fn radice_legata(testo: &str, formato: CrsDefinitionFormat) -> bool {
+    match formato {
+        CrsDefinitionFormat::Projjson => {
+            testo.len() <= MAX_BYTE_DEFINIZIONE_CRS
+                && crate::json::from_str::<serde_json::Value>(testo).is_ok_and(|radice| {
+                    radice.get("type").and_then(serde_json::Value::as_str) == Some("BoundCRS")
+                })
+        }
+        CrsDefinitionFormat::Wkt => false,
+        CrsDefinitionFormat::Wkt2 => radice_wkt(testo, &RADICI_WKT2)
+            .is_ok_and(|radice| radice.parola.eq_ignore_ascii_case("BOUNDCRS")),
+    }
+}
+
 // Lo stesso limite dichiarato di `assi_projjson` (docs/PRODUCT.md, «CRS:
 // PROJJSON»): un documento che `serde_json` rifiuta e' trattato come
 // malformato, e il chiamante ne fa un genere ignoto.
 fn genere_projjson(testo: &str) -> Result<Option<crate::crs::CrsKind>, Malformata> {
     use crate::crs::CrsKind;
+    if testo.len() > MAX_BYTE_DEFINIZIONE_CRS {
+        return Err(Malformata);
+    }
     let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
     let radice = radice.as_object().ok_or(Malformata)?;
     let ellissoidale = radice
@@ -675,6 +738,11 @@ enum Voce {
 }
 
 fn radice_wkt(testo: &str, ammesse: &[&str]) -> Result<Nodo, Malformata> {
+    // La difesa del lettore: oltre il tetto non si apre. A dire
+    // `limit_exceeded` e' `verifica_dimensione_definizione`, prima.
+    if testo.len() > MAX_BYTE_DEFINIZIONE_CRS {
+        return Err(Malformata);
+    }
     let token = token_wkt(testo)?;
     let mut posizione = 0;
     let radice = nodo(&token, &mut posizione, 0)?;
@@ -895,6 +963,9 @@ fn novanta(valore: &str) -> bool {
 // 128 livelli. Il chiamante tratta il rifiuto come assi ignoti, quindi `unknown`:
 // un'informazione in meno, mai un ordine sbagliato.
 fn assi_projjson(testo: &str) -> Result<AssiDichiarati, Malformata> {
+    if testo.len() > MAX_BYTE_DEFINIZIONE_CRS {
+        return Err(Malformata);
+    }
     let radice: serde_json::Value = crate::json::from_str(testo).map_err(|_| Malformata)?;
     let radice = radice.as_object().ok_or(Malformata)?;
     let tipo = radice.get("type").and_then(serde_json::Value::as_str);

@@ -1053,3 +1053,52 @@ fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
         "lo staging deve essere ripulito"
     );
 }
+
+/// Il genere che il CSV dichiara viene dalla regola comune: `epsg:4326` in
+/// minuscolo e' geografico come `EPSG:4326`, `EPSG:3857` e' proiettato, un
+/// codice che il bordo non conosce resta ignoto. Con le colonne x/y l'ordine
+/// memorizzato segue il genere.
+#[test]
+fn il_genere_dell_opzione_segue_la_regola_comune() {
+    use plenora_io_model::crs::{AxisOrder, CrsKind};
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("in.csv");
+    std::fs::write(&src, "lon,lat\n12.5,45.9\n").unwrap();
+    for (assunto, genere, ordine) in [
+        (
+            "epsg:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        (
+            "EPSG:4326",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        (
+            "ogc:crs84",
+            CrsKind::Geographic,
+            AxisOrder::LongitudeLatitude,
+        ),
+        ("EPSG:3857", CrsKind::Projected, AxisOrder::Unknown),
+        ("epsg:3857", CrsKind::Projected, AxisOrder::Unknown),
+        ("EPSG:3003", CrsKind::Unknown, AxisOrder::Unknown),
+    ] {
+        let opzioni = opzioni_lettura()
+            .with_assume_crs(assunto)
+            .with_format_options(opts(&[("x_column", "lon"), ("y_column", "lat")]));
+        let ds = match CsvDriver.open(Source::Path(src.clone()), opzioni) {
+            Ok(ds) => ds,
+            Err(errore) => panic!("{assunto}: {errore}"),
+        };
+        let crs = ds.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .and_then(|g| g.resolved_crs())
+            .cloned()
+            .unwrap();
+        assert_eq!((crs.kind, crs.axis_order), (genere, ordine), "{assunto}");
+        assert_eq!(crs.id.as_deref(), Some(assunto));
+    }
+}

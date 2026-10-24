@@ -678,6 +678,18 @@ pub trait OpenDatasetHandle: Send + Sync {
     /// projection non è soddisfacibile o se il driver non ammette un ulteriore
     /// reader concorrente.
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>>;
+    /// Il rifiuto di un layer di un dataset a piu' layer, se il layer non si
+    /// puo' leggere ne' descrivere: il suo CRS non passa le verifiche comuni
+    /// (`verifica_crs_emesso`, `--assume-crs`) o il driver non l'ha risolto.
+    ///
+    /// Un layer rifiutato non rende illeggibili gli altri: `open_layer_reader`
+    /// su di lui restituisce questo errore, e chi descrive tutti i layer
+    /// (`io.inspect`, `io.layers`) deve chiederlo e fallire, perche' il suo
+    /// contratto non e' una descrizione di cui il bordo risponda. Il default e'
+    /// nessun rifiuto: un dataset a un layer fallisce gia' all'apertura.
+    fn rifiuto_del_layer(&self, _layer: LayerId) -> Option<PlenoraIoError> {
+        None
+    }
 }
 
 pub trait LayerReader {

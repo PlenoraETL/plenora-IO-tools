@@ -1228,6 +1228,7 @@ fn concurrency_budget_is_acquired_before_reader_creation() {
         }),
         budget,
         physical_row_indices_attestable: true,
+        rifiuti: BTreeMap::new(),
     };
     let request = crate::request::ReadRequest {
         layer: LayerId(0),

@@ -9,7 +9,7 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -74,13 +74,6 @@ fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("dxf", reason)
 }
 
-fn digits_after(text: &str, marker: &str) -> Option<String> {
-    let start = text.find(marker)? + marker.len();
-    let tail = text[start..].trim_start_matches([' ', '"', '\'', ':']);
-    let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
-    (!digits.is_empty()).then_some(digits)
-}
-
 /// Il codice di una definizione che **e'** un identificatore EPSG: tutto il
 /// testo, a meno degli spazi ai bordi, e' `EPSG:<cifre>` oppure
 /// `URN:OGC:DEF:CRS:EPSG:<versione>:<cifre>` (gia' in maiuscolo).
@@ -90,6 +83,9 @@ fn digits_after(text: &str, marker: &str) -> Option<String> {
 /// descrizione di un XML, un commento. Un proiettato senza `AUTHORITY` di
 /// radice usciva EPSG:4326, geografico, senza alcun segnale. Il testo libero
 /// di una definizione non dichiara un identificatore.
+///
+/// Il codice esce nella grafia del file, anche non canonica (`032632`): se
+/// risolverlo lo decide [`resolve_dxf_crs_testuale`], con la regola del WKT.
 fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
     let testo = upper.trim();
     let codice = if let Some(codice) = testo.strip_prefix("EPSG:") {
@@ -102,6 +98,48 @@ fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
     };
     (!codice.is_empty() && codice.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| codice.to_owned())
+}
+
+/// Gli attributi del tag d'apertura di un `<Alias>`, a partire dal primo byte
+/// dopo il nome dell'elemento: `nome = "valore"` o `nome='valore'`, con spazi
+/// facoltativi attorno a `=`, fino a `>` o `/>`.
+///
+/// Fino al 24/10 il tipo si cercava come sottostringa `TYPE="..."`: con uno
+/// spazio attorno a `=` (`type = "Datum"`) l'alias di un datum sembrava senza
+/// tipo, e contava come quello del sistema di coordinate (`EPSG:6326`, un
+/// datum, risolto come CRS). Ora gli attributi si leggono tutti; un tag che non
+/// si legge cosi', o che ripete un attributo, e' `None`: che cosa dichiari non
+/// e' decidibile.
+fn attributi_alias(tag: &str) -> Option<BTreeMap<&str, &str>> {
+    let mut attributi = BTreeMap::new();
+    let mut resto = tag;
+    loop {
+        resto = resto.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        if resto.starts_with('>') || resto.starts_with("/>") {
+            return Some(attributi);
+        }
+        let fine_nome = resto.len()
+            - resto
+                .trim_start_matches(|c: char| {
+                    c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-')
+                })
+                .len();
+        if fine_nome == 0 {
+            return None;
+        }
+        let nome = &resto[..fine_nome];
+        resto = resto[fine_nome..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        resto = resto
+            .strip_prefix('=')?
+            .trim_start_matches(|c: char| c.is_ascii_whitespace());
+        let virgolette = resto.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+        resto = &resto[1..];
+        let fine_valore = resto.find(virgolette)?;
+        if attributi.insert(nome, &resto[..fine_valore]).is_some() {
+            return None;
+        }
+        resto = &resto[fine_valore + 1..];
+    }
 }
 
 /// Il codice EPSG che una definizione del `GEODATA` **non WKT** dichiara.
@@ -119,13 +157,17 @@ fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
 /// WKT ben formato, quindi la lettura della radice che c'era qui non vi trovava
 /// nulla.
 ///
-/// Degli alias contano quelli del sistema di coordinate (`type` assente o
-/// `CoordinateSystem`): l'alias di un datum o di un ellissoide nomina una
-/// parte del CRS, come l'`AUTHORITY` annidato di un WKT, non il CRS.
+/// Degli alias conta solo quello del sistema di coordinate: attributo `type`
+/// uguale a `CoordinateSystem` (ASCII case-insensitive), letto con
+/// [`attributi_alias`]. L'alias di un datum o di un ellissoide nomina una parte
+/// del CRS, come l'`AUTHORITY` annidato di un WKT, non il CRS; un alias senza
+/// `type` non dice che cosa nomina, e non conta (fino al 24/10 contava). Il
+/// codice e' l'attributo `id`, solo se e' fatto di cifre.
 ///
 /// # Errors
 ///
-/// `crs` se le forme dichiarano codici EPSG diversi.
+/// `crs` se le forme dichiarano codici EPSG diversi, o se il tag di un alias
+/// non si legge.
 fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
     let upper = definition.to_ascii_uppercase();
     let mut codici: BTreeSet<String> = BTreeSet::new();
@@ -141,13 +183,26 @@ fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
             .find("</ALIAS>")
             .map_or(remaining.len(), |index| index + "</ALIAS>".len());
         let alias = &remaining[..end];
-        let apertura = alias.find('>').map_or(alias, |fine| &alias[..fine]);
-        let del_sistema =
-            !apertura.contains("TYPE=") || apertura.contains("TYPE=\"COORDINATESYSTEM\"");
-        if del_sistema && alias.contains("EPSG") {
-            codici.extend(digits_after(alias, "ID="));
-        }
         remaining = &remaining[end..];
+        let dopo_nome = &alias["<ALIAS".len()..];
+        // `<ALIASES>` e simili sono un altro elemento.
+        if !dopo_nome.starts_with(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/') {
+            continue;
+        }
+        let Some(attributi) = attributi_alias(dopo_nome) else {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF: un alias della definizione XML del CRS nel GEODATA non si legge",
+            )));
+        };
+        let del_sistema = attributi.get("TYPE") == Some(&"COORDINATESYSTEM");
+        if del_sistema && alias.contains("EPSG") {
+            codici.extend(
+                attributi
+                    .get("ID")
+                    .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                    .map(|id| (*id).to_owned()),
+            );
+        }
     }
     if codici.len() > 1 {
         return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -200,6 +255,8 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         let kind = plenora_io_model::crs::crs_kind_for(Some(id), None, "dxf")?;
         return Ok(ResolvedCrs::new(Some(id.to_owned()), kind, None).stored_east_first());
     };
+    // Un BOM iniziale non fa parte della definizione.
+    let definition = plenora_io_model::crs_definizione::senza_bom(definition);
     if definition.len() > plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
         let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
             "DXF: la definizione del CRS nel GEODATA supera il tetto, byte",
@@ -275,6 +332,18 @@ fn resolve_dxf_crs_testuale(definition: &str, assunta: Option<&str>) -> Result<R
         return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
             "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
         )));
+    }
+    // La regola del WKT (`identificatore_wkt`, passo 5): senza opzione si
+    // risolve solo un codice EPSG canonico; con l'opzione uguale come testo
+    // (GEO-005) vale la grafia del file. Fino al 24/10 `EPSG:032632` usciva
+    // risolto cosi' com'era, mentre lo stesso codice in un `AUTHORITY` restava
+    // non risolto.
+    let canonico = dichiarato
+        .strip_prefix("EPSG:")
+        .is_none_or(|codice| plenora_io_model::crs::codice_intero_canonico(codice).is_some());
+    if assunta.is_none() && !canonico {
+        let raw = RawCrs::from_authority_hint(dichiarato);
+        return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
     }
     let kind = plenora_io_model::crs::crs_kind_for(Some(&dichiarato), None, "dxf")?;
     Ok(ResolvedCrs::new(Some(dichiarato), kind, None).stored_east_first())

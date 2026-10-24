@@ -416,3 +416,87 @@ fn unresolved_crs_without_any_declaration_is_rejected() {
 
     assert!(read_geometry_contract_metadata(&field, &mut contract()).is_err());
 }
+
+fn crs_risolto_da_metadati(
+    id: Option<&str>,
+    definizione: Option<&str>,
+    asse: &str,
+) -> crate::Result<CrsResolution> {
+    let mut metadati = HashMap::from([
+        (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+        (PLENORA_AXIS_ORDER_KEY.to_owned(), asse.to_owned()),
+    ]);
+    if let Some(id) = id {
+        metadati.insert(PLENORA_CRS_ID_KEY.to_owned(), id.to_owned());
+    }
+    if let Some(definizione) = definizione {
+        metadati.insert(
+            PLENORA_CRS_DEFINITION_KEY.to_owned(),
+            definizione.to_owned(),
+        );
+        metadati.insert(
+            PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
+            "wkt".to_owned(),
+        );
+    }
+    let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadati);
+    let mut geometry = contract();
+    read_geometry_contract_metadata(&field, &mut geometry)?;
+    Ok(geometry.crs)
+}
+
+/// Rilettura 9, punto 6b: il genere riletto dall'IPC segue la regola comune
+/// dei driver, non l'ordine degli assi. Su b4d8064 un `EPSG:3031` polare
+/// (assi `other`), proiettato per lo Shapefile, si rileggeva ignoto.
+#[test]
+fn il_genere_riletto_segue_la_regola_comune() {
+    use crate::crs::CrsKind;
+    let genere = |id, definizione, asse| {
+        crs_risolto_da_metadati(id, definizione, asse)
+            .expect("metadati validi")
+            .as_resolved()
+            .map(|crs| crs.kind)
+    };
+    let polare = r#"PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84"],PROJECTION["Polar_Stereographic"],AUTHORITY["EPSG","3031"]]"#;
+    assert_eq!(
+        genere(Some("EPSG:3031"), Some(polare), "other"),
+        Some(CrsKind::Projected)
+    );
+    // Senza definizione e con un identificatore ignoto decide ancora l'ordine.
+    assert_eq!(
+        genere(Some("EPSG:3003"), None, "easting_northing"),
+        Some(CrsKind::Projected)
+    );
+    assert_eq!(
+        genere(Some("EPSG:3003"), None, "other"),
+        Some(CrsKind::Unknown)
+    );
+    // Con una definizione, l'ordine non sceglie al posto della radice.
+    assert_eq!(
+        genere(
+            Some("EPSG:3003"),
+            Some(r#"GEOCCS["x"]"#),
+            "easting_northing"
+        ),
+        Some(CrsKind::Unknown)
+    );
+    // Identificatore e radice discordi: ignoto, mai uno dei due.
+    assert_eq!(
+        genere(Some("EPSG:4326"), Some(r#"PROJCS["x"]"#), "lon_lat"),
+        Some(CrsKind::Unknown)
+    );
+}
+
+/// Rilettura 9, punto 3: la definizione di un metadato Arrow ha lo stesso
+/// tetto delle altre, `limit_exceeded` e non «malformata».
+#[test]
+fn la_definizione_di_un_metadato_ha_il_tetto_comune() {
+    let mut lunga = String::from(r#"GEOGCS["x""#);
+    while lunga.len() <= crate::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS {
+        lunga.push_str(",1");
+    }
+    lunga.push(']');
+    let errore = crs_risolto_da_metadati(Some("EPSG:4326"), Some(&lunga), "lon_lat").unwrap_err();
+    assert_eq!(errore.category, crate::ErrorCategory::ResourceLimit);
+    assert_eq!(errore.field.as_deref(), Some("geometry"));
+}

@@ -90,6 +90,7 @@
       "Crs/Validate/Crs/Never"
     ],
     "epsg_from_definition": [
+      "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never"
     ],
     "err": [
@@ -114,7 +115,8 @@
     "resolve_dxf_crs_testuale": [
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
-      "Crs/Validate/Crs/Never"
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never"
     ],
     "write": [
       "ResourceLimit/Validate/LimitExceeded/Never",
@@ -271,6 +273,7 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "crs_for": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/CrsUnresolved/Never"
     ],
@@ -650,6 +653,9 @@
   "crates/plenora-io-model/src/crs_definizione.rs": {
     "errore": [
       "Crs/Validate/Crs/Never"
+    ],
+    "verifica_dimensione_definizione": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/plenora-io-model/src/format_options.rs": {

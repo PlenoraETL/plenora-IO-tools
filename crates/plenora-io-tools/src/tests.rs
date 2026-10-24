@@ -2385,3 +2385,53 @@ fn documento_incorporato_rifiuta_duplicati() {
         assert!(leggi_protocollo(testo).is_err());
     }
 }
+
+/// Rilettura 9, punto 2: `io.inspect` e `io.layers` descrivono tutti i layer, e
+/// un layer rifiutato li fa fallire con il suo rifiuto invece di comparire
+/// nell'elenco come leggibile. Senza rifiuti passano.
+#[test]
+fn un_layer_rifiutato_ferma_la_descrizione_di_tutti_i_layer() {
+    use plenora_io_model::contract::{DataContract, LayerId};
+    struct Finto {
+        layers: Vec<LayerContract>,
+        rifiutato: Option<u32>,
+    }
+    impl plenora_io_core::driver::OpenDatasetHandle for Finto {
+        fn layers(&self) -> &[LayerContract] {
+            &self.layers
+        }
+        fn fidelity_assessment(&self) -> FidelityAssessment {
+            FidelityAssessment::lossless()
+        }
+        fn open_layer_reader(
+            &self,
+            _request: &plenora_io_core::request::ReadRequest,
+        ) -> Result<Box<dyn plenora_io_core::driver::LayerReader>, PlenoraIoError> {
+            Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("non letto"),
+            ))
+        }
+        fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+            (self.rifiutato == Some(layer.0))
+                .then(|| PlenoraIoError::crs_redatto(&PublicMessage::Curated("rifiutato")))
+        }
+    }
+    let layer = |id| LayerContract {
+        id: LayerId(id),
+        name: format!("l{id}"),
+        contract: DataContract::new(std::sync::Arc::new(arrow_schema::Schema::empty()), None),
+    };
+    let sano = Finto {
+        layers: vec![layer(0), layer(1)],
+        rifiutato: None,
+    };
+    assert!(tutti_i_layer_descrivibili(&sano).is_ok());
+    let con_rifiuto = Finto {
+        layers: vec![layer(0), layer(1)],
+        rifiutato: Some(1),
+    };
+    let Err(errore) = tutti_i_layer_descrivibili(&con_rifiuto) else {
+        panic!("un layer rifiutato descritto come leggibile");
+    };
+    assert_eq!(errore.category, ErrorCategory::Crs);
+}

@@ -22,7 +22,7 @@ use arrow_array::{
     StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
@@ -278,8 +278,30 @@ impl FormatDriver for GpkgDriver {
         }
         let mut layers = Vec::new();
         let mut metas = Vec::new();
+        let mut rifiuti = BTreeMap::new();
         for (i, table_meta) in tables.into_iter().enumerate() {
-            let crs = crs_for(&conn, table_meta.srs_id)?;
+            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
+            // e' limitato dalle righe di `sqlite_master`, molti ordini di
+            // grandezza sotto 2^32. Nessun troncamento possibile.
+            #[allow(clippy::cast_possible_truncation)]
+            let layer_id = LayerId(i as u32);
+            // Il CRS che non si risolve e' un rifiuto **del layer**: fino al
+            // 24/10 chiudeva il `GeoPackage` intero, e un layer sano diventava
+            // illeggibile per una riga di `gpkg_spatial_ref_sys` di un altro.
+            // Il layer resta nell'elenco con un contratto vuoto che nessuno
+            // emette: `rifiuto_del_layer` lo dice rifiutato a chi lo legge e a
+            // chi descrive tutti i layer, e se i rifiutati sono tutti
+            // l'apertura fallisce con il primo (`with_read_budget`).
+            let crs = match crs_for(&conn, table_meta.srs_id) {
+                Ok(crs) => crs,
+                Err(errore) => {
+                    rifiuti.insert(layer_id.0, errore);
+                    let (layer, meta) = layer_rifiutato(layer_id, table_meta);
+                    layers.push(layer);
+                    metas.push(meta);
+                    continue;
+                }
+            };
             let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
             let (schema, attrs) =
                 build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
@@ -323,11 +345,6 @@ impl FormatDriver for GpkgDriver {
             );
             let contract = DataContract::new(schema, Some(geometry));
             let runtime_schema = contract.schema.clone();
-            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
-            // e' limitato dalle righe di `sqlite_master`, molti ordini di
-            // grandezza sotto 2^32. Nessun troncamento possibile.
-            #[allow(clippy::cast_possible_truncation)]
-            let layer_id = LayerId(i as u32);
             layers.push(LayerContract {
                 id: layer_id,
                 name: table_meta.table.clone(),
@@ -359,6 +376,7 @@ impl FormatDriver for GpkgDriver {
                 path,
                 layers,
                 metas,
+                rifiuti,
             }),
             &opts,
             false,
@@ -490,11 +508,17 @@ struct GpkgDataset {
     path: PathBuf,
     layers: Vec<LayerContract>,
     metas: Vec<LayerRead>,
+    /// I layer il cui CRS non si risolve, per id: il loro contratto e' vuoto
+    /// e non si legge.
+    rifiuti: BTreeMap<u32, PlenoraIoError>,
 }
 
 impl OpenDatasetHandle for GpkgDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         use plenora_io_core::loss::FidelityReasonCode;
@@ -521,6 +545,9 @@ impl OpenDatasetHandle for GpkgDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
+            return Err(rifiuto);
+        }
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let idx = self
             .layers
@@ -1490,14 +1517,55 @@ fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {
     })
 }
 
+/// Il segnaposto di un layer il cui CRS non si risolve: contratto vuoto, senza
+/// geometria, che `rifiuto_del_layer` impedisce di leggere e di descrivere.
+fn layer_rifiutato(layer_id: LayerId, table_meta: FeatureTable) -> (LayerContract, LayerRead) {
+    (
+        LayerContract {
+            id: layer_id,
+            name: table_meta.table.clone(),
+            contract: DataContract::new(Arc::new(Schema::empty()), None),
+        },
+        LayerRead {
+            rtree_table: None,
+            table: table_meta.table,
+            geom_col: table_meta.geom_col,
+            schema: Arc::new(Schema::empty()),
+            attrs: Vec::new(),
+            layer_srs_id: 0,
+        },
+    )
+}
+
 fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
-    let row: rusqlite::Result<(String, i64, String)> = conn.query_row(
-        "SELECT organization, organization_coordsys_id, definition FROM gpkg_spatial_ref_sys WHERE srs_id = ?1",
-        [srs_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    use plenora_io_model::crs_definizione::MAX_BYTE_DEFINIZIONE_CRS;
+    // La definizione si legge solo entro il tetto comune: `SQLite` ne misura i
+    // byte e non la consegna se lo supera. Fino al 24/10 si leggeva intera, e
+    // 8 MiB costavano 700 MB di picco nel lettore stretto.
+    // Il tetto entra nel testo della query da una costante, non da un valore
+    // letto: `rusqlite` non lega un `usize`.
+    let sql = format!(
+        "SELECT organization, organization_coordsys_id, \
+         CASE WHEN length(CAST(definition AS BLOB)) <= {MAX_BYTE_DEFINIZIONE_CRS} \
+         THEN definition END, definition IS NULL \
+         FROM gpkg_spatial_ref_sys WHERE srs_id = ?1"
     );
+    let row: rusqlite::Result<(String, i64, Option<String>, bool)> =
+        conn.query_row(&sql, [srs_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        });
     match row {
-        Ok((org, code, def)) => {
+        Ok((_, _, None, false)) => {
+            let mut errore = PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                "GeoPackage: la definizione di gpkg_spatial_ref_sys supera il tetto, byte",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_BYTE_DEFINIZIONE_CRS)),
+            ));
+            errore.driver = Some("gpkg".to_owned());
+            Err(errore)
+        }
+        Ok((org, code, Some(def), false)) => {
+            // Un BOM iniziale non fa parte della definizione.
+            let def = plenora_io_model::crs_definizione::senza_bom(def);
             let id = format!("{}:{}", org.to_ascii_uppercase(), code);
             if org.eq_ignore_ascii_case("NONE") {
                 let raw = RawCrs::new(
@@ -1525,7 +1593,9 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
             let raw = RawCrs::new(format!("GeoPackage srs_id={srs_id}"), None);
             Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
         }
-        Err(_) => Err(err(&PublicMessage::Curated(
+        // `definition` e' `NOT NULL` per la specifica: un `NULL` e' la lettura
+        // fallita di prima, non un tetto superato.
+        Ok((_, _, _, true)) | Err(_) => Err(err(&PublicMessage::Curated(
             "lettura di gpkg_spatial_ref_sys fallita",
         ))),
     }
