@@ -11,14 +11,6 @@
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
   },
-  "rimisurazione_asan_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB (ordine degli assi memorizzato, verifica delle definizioni CRS, SRID sul membro EWKB, ordine REJ-002). Il binario misurato non e' piu' quello che il codice corrente produce; il replay strumentato non e' stato rieseguito in questo worktree Windows. Poi `--assume-crs` contro il CRS dichiarato, verificato all'apertura nell'adapter comune. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
-    "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "e225d71a552d3b94c110c3da8416ff62ba83cdce91c217d26bbb89aa58c4b5d7",
-    "non_promette": "La misura archiviata non attesta il confine AddressSanitizer del perimetro aggiornato.",
-    "quando": "prima della qualificazione del candidato 6.0.0, sulla VM .138",
-    "comando": "bash scripts/asan-filegdb.sh"
-  },
   "che_cosa_questa_misura_non_conta": "la copertura dentro `libgdal.so`. La libreria e' di sistema, collegata dinamicamente e **non strumentata**: non porta contatori, e questa misura conta cio' che la copertura vede. Il confine esatto e' misurato in `assurance/registries/asan-filegdb.json`. Cio' che segue dice che il percorso Rust arriva fino a GDAL e ne riporta indietro delle righe, non che GDAL sia stato esplorato.",
   "perimetro": {
     "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",

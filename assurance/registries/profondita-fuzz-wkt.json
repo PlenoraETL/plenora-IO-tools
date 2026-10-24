@@ -3,14 +3,6 @@
   "descrizione": "I requisiti di profondita' del target `wkt_parse`: che cosa il replay dei semi versionati deve attraversare perche' l'analisi WKT limitata durante il parse sia esercitata e non solo compilata.",
   "target": "wkt_parse",
   "artefatto": "assurance/profondita-fuzz-wkt.json",
-  "rimisurazione_dovuta": {
-    "perche": "La seconda rilettura cambia `driver-common/src`, che il perimetro comprende: la ricerca di una colonna per nome (`colonna_per_nome`) distingue il nome assente da quello che l'intestazione ripete, per i driver CSV e XLSX. Il parser WKT non cambia, ma la misura e' legata al contenuto del perimetro, non a cio' che il target raggiunge. Regola unica dell'identificatore WKT (24/10): cambiano anche `plenora-io-model/src/crs.rs` e `crs_definizione.rs`, nel perimetro, senza toccare il parser WKT delle geometrie. Rilettura 12 (24/10): `plenora-io-core` dichiara derivato l'identificatore che un writer riscrive con l'autorita' in maiuscolo (`autorita_in_maiuscolo`), e i writer GeoParquet e DXF cambiano (chiavi del formato fuori dallo schema incorporato, definizione del `GEODATA` tale e quale); il nucleo che il target attraversa cambia, e il rinvio resta dovuto.",
-    "impronta_della_misura": "16894603ebf708b0453551c3c4d342846300587ecece9389da4341a0b69091cb",
-    "impronta_attesa": "18c8c2564f90b6b15a908fe6ec356b7509b7ae533a9570b899bd1cbe44863779",
-    "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
-    "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
-    "comando": "scripts/fuzz-profondita.sh wkt_parse"
-  },
   "che_cosa_questa_misura_non_conta": "il tetto sui **componenti**. Centomila coordinate non stanno in un input da quattro kilobyte, che e' il cap del harness: da qui quel ramo non e' raggiungibile, e dichiararlo raggiunto sarebbe falso. A provarlo sono le sonde unitarie di `wkt_progressivo`, che dal default derivano quote strette e verificano anche **dove** l'analisi si ferma. Il tetto sull'annidamento invece e' qui, perche' sessantacinque livelli di `GEOMETRYCOLLECTION` stanno in milleduecento byte.",
   "perimetro": {
     "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
