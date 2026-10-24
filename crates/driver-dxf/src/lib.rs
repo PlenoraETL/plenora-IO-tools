@@ -53,7 +53,6 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_io_model::crs_definizione::TestoDefinizione;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -127,14 +126,20 @@ fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
         .then(|| codice.to_owned())
 }
 
-/// Il codice EPSG che la definizione del `GEODATA` dichiara.
+/// Il codice EPSG che una definizione del `GEODATA` **non WKT** dichiara.
 ///
-/// Le forme sono tre: una definizione che **e'** l'identificatore
-/// (`EPSG:<codice>` o il suo URN OGC), gli identificatori di radice di un WKT,
-/// gli `<Alias>` EPSG di una definizione XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
+/// Le forme sono due: una definizione che **e'** l'identificatore
+/// (`EPSG:<codice>` o il suo URN OGC) e gli `<Alias>` EPSG di una definizione
+/// XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
 /// trovata: un testo con due `EPSG:` diversi, o un XML con due alias, dava il
 /// primo codice e l'altro spariva. Ora si raccolgono tutte, e codici discordi
 /// sono un conflitto: la definizione non dice quale valga.
+///
+/// Una definizione WKT non passa di qui: la decide la regola unica del modello
+/// ([`plenora_io_model::crs_definizione::identificatore_wkt`]), la stessa del
+/// `.prj` di uno Shapefile. Un testo che non comincia come un WKT non e' mai un
+/// WKT ben formato, quindi la lettura della radice che c'era qui non vi trovava
+/// nulla.
 ///
 /// Degli alias contano quelli del sistema di coordinate (`type` assente o
 /// `CoordinateSystem`): l'alias di un datum o di un ellissoide nomina una
@@ -144,28 +149,9 @@ fn epsg_che_e_la_definizione(upper: &str) -> Option<String> {
 ///
 /// `crs` se le forme dichiarano codici EPSG diversi.
 fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
-    use plenora_io_model::crs::CrsDefinitionFormat;
     let upper = definition.to_ascii_uppercase();
     let mut codici: BTreeSet<String> = BTreeSet::new();
     codici.extend(epsg_che_e_la_definizione(&upper));
-    // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
-    // AUTHORITY EPSG del testo, che si leggeva fino alla 5.x, e' quello
-    // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
-    // Una definizione che non e' un WKT ben formato non ne ha.
-    for formato in [CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2] {
-        if let Ok(coppie) = plenora_io_model::crs_definizione::identificatori(definition, formato) {
-            codici.extend(
-                coppie
-                    .into_iter()
-                    .filter(|(autorita, _)| autorita.stessa_autorita("EPSG"))
-                    .filter_map(|(_, codice)| match codice {
-                        // Un WKT non ha surrogati isolati: solo PROJJSON li porta.
-                        TestoDefinizione::Unicode(testo) => Some(testo),
-                        TestoDefinizione::SurrogatiIsolati => None,
-                    }),
-            );
-        }
-    }
     let mut remaining = upper.as_str();
     while let Some(start) = remaining.find("<ALIAS") {
         remaining = &remaining[start..];
@@ -231,22 +217,33 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         let kind = crs_kind(Some(&id), None);
         return Ok(ResolvedCrs::new(Some(id), kind, None).stored_east_first());
     };
-    let embedded_id = epsg_from_definition(&definition)?.or_else(|| {
-        let trimmed = definition.trim();
-        (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
-    });
-    // Due dichiarazioni diverse dello stesso CRS: il codice incorporato
-    // vinceva e l'opzione taceva. Il controllo comune di `with_read_budget`
-    // lo rifiuterebbe comunque; il resolver non deve pero' decidere da se' di
-    // ignorare l'opzione. Concordi, vale la grafia del file.
-    if let (Some(assunta), Some(dichiarata)) = (options.assume_crs.as_deref(), &embedded_id) {
-        if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
-            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
-            )));
+    let assunta = options.assume_crs.as_deref();
+    let id = if plenora_io_model::crs_definizione::sembra_wkt(&definition) {
+        // Una definizione WKT la decide la regola unica del modello, la stessa
+        // del `.prj` (docs/PRODUCT.md, «tutti: identificatore di radice di un
+        // WKT»). Prima qui contavano solo gli `EPSG` di radice con la parola
+        // della grammatica, e l'opzione nominava tutto il resto: un `ID` in un
+        // WKT 1, un'`AUTHORITY["ESRI",...]`, un `BOUNDCRS`.
+        plenora_io_model::crs_definizione::identificatore_wkt(&definition, assunta)
+            .map_err(|rifiuto| rifiuto.errore("dxf"))?
+    } else {
+        let embedded_id = epsg_from_definition(&definition)?.or_else(|| {
+            let trimmed = definition.trim();
+            (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
+        });
+        // Due dichiarazioni diverse dello stesso CRS: il codice incorporato
+        // vinceva e l'opzione taceva. Il controllo comune di `with_read_budget`
+        // lo rifiuterebbe comunque; il resolver non deve pero' decidere da se'
+        // di ignorare l'opzione. Concordi, vale la grafia del file.
+        if let (Some(assunta), Some(dichiarata)) = (assunta, &embedded_id) {
+            if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
+                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
+                )));
+            }
         }
-    }
-    let id = embedded_id.or_else(|| options.assume_crs.clone());
+        embedded_id.or_else(|| options.assume_crs.clone())
+    };
     let Some(id) = id else {
         let raw = RawCrs::new(definition, None);
         return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));

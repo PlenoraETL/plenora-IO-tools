@@ -1411,7 +1411,22 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
 - **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
   con `crs` invece di essere scritto come 4326.
-- **Una sola lettura della radice WKT.** Lo SRID di radice di un WKT si legge con la grammatica di GEO-005: un CRS annidato fra parentesi tonde non espone più il suo identificatore, `XID[` non è `ID[`, e un WKT non ben formato non ha SRID. Uno Shapefile che prima usciva con un identificatore letto così ora esce non risolto, e si nomina con `--assume-crs`.
+- **Una sola lettura della radice WKT.** Lo SRID di radice di un WKT si legge con la grammatica di GEO-005: un CRS annidato fra parentesi tonde non espone più il suo identificatore, `XID[` non è `ID[`, e un WKT non ben formato non ha SRID.
+- **Una regola sola per l'identificatore di un WKT.** Shapefile (`.prj`) e DXF
+  (`GEODATA` in WKT) decidono l'identificatore con la stessa regola, sull'albero
+  del lettore stretto ([PRODUCT](PRODUCT.md#limitazioni-di-prodotto), «tutti:
+  identificatore di radice di un WKT»). Cambiano, rispetto ad a651844: una
+  definizione WKT malformata, o con un `AUTHORITY`/`ID` malformato alla radice,
+  è `crs` con o senza `--assume-crs`, e `io.inspect` non riporta più un
+  identificatore che `io.read` poi rifiuta; due identificatori di radice
+  diversi sono `crs` anche senza opzione; `ID` in WKT 1 e `AUTHORITY` in WKT 2
+  dichiarano anche senza opzione (`EPSG:3003` si risolve) e bloccano la
+  deduzione ESRI; la forma ESRI di WGS 84 si riconosce dal `DATUM` figlio
+  diretto della radice, non da un `DATUM["WGS_1984"` ovunque nel testo, e vale
+  anche nel DXF; il DXF rifiuta un'opzione diversa da ogni dichiarazione WKT e
+  su un `BOUNDCRS`, e un codice EPSG di radice non canonico vi resta non
+  risolto; un `.prj` che non è UTF-8 è `crs` invece di valere come assente; un
+  WKT 2 minuscolo, spaziato o con le parole chiave lunghe è `wkt2` e si legge.
 - **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
   la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
   fuori da una feature table, rende il file `data_mapping` all'apertura; prima

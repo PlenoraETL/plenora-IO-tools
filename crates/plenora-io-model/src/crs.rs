@@ -90,10 +90,21 @@ impl ResolvedCrs {
     }
 }
 
+/// Il formato di una definizione: PROJJSON se comincia con `{`, altrimenti la
+/// grammatica WKT in cui il lettore stretto la legge ben formata.
+///
+/// Fino al 24/10 il WKT 2 si riconosceva solo da un prefisso maiuscolo esatto
+/// (`PROJCRS[`): `PROJCRS [`, `projcrs[` o `PROJECTEDCRS[` diventavano `wkt`, e
+/// la verifica GEO-005, che legge nella grammatica dichiarata, rifiutava come
+/// malformata una definizione ben formata. Il prefisso resta solo per un testo
+/// che non e' ben formato in nessuna delle due: li' il formato e' soltanto
+/// un'etichetta, e la verifica lo rifiuta comunque.
 pub(crate) fn definition_format(definition: &str) -> CrsDefinitionFormat {
     let definition = definition.trim_start();
     if definition.starts_with('{') {
         CrsDefinitionFormat::Projjson
+    } else if let Some(formato) = crate::crs_definizione::grammatica_wkt(definition) {
+        formato
     } else if [
         "GEOGCRS[",
         "PROJCRS[",

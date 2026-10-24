@@ -1523,93 +1523,27 @@ fn resolve_prj(
 
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     let prj = path.with_extension("prj");
-    if let Ok(wkt) = std::fs::read_to_string(&prj) {
-        let dichiarata = authority_declared_by_wkt(&wkt);
-        // Due dichiarazioni diverse dello stesso CRS: vinceva l'opzione, e il
-        // contratto univa il suo identificatore alla definizione del `.prj`,
-        // cioe' un CRS che contraddice se stesso (GEO-005). L'opzione resta il
-        // modo di nominare un `.prj` che non dichiara un'autorita'.
-        //
-        // Il confronto e' solo con cio' che il `.prj` **dichiara**. La forma
-        // ESRI di WGS 84 non porta un'autorita': `EPSG:4326` e' una deduzione
-        // del driver, e confrontarla con l'opzione rifiutava proprio il caso
-        // per cui l'opzione esiste (`--assume-crs OGC:CRS84` su quel `.prj`).
-        // La deduzione vale solo in assenza dell'opzione, e allora nessun
-        // controllo a valle la confronta con niente.
-        //
-        // Dichiarata e' ogni identificatore di radice, di qualunque autorita':
-        // un `AUTHORITY["ESRI","4265"]` (Monte Mario) non e' EPSG ma dice gia'
-        // quale CRS e', e un `--assume-crs EPSG:4326` sopra quella definizione
-        // la rietichetterebbe. La deduzione ESRI, invece, ammette solo i due
-        // nomi di quel CRS: un altro identificatore su una definizione che il
-        // driver riconosce come WGS 84 geografico unirebbe un CRS diverso alla
-        // definizione di WGS 84.
-        //
-        // Le due letture della radice si uniscono: `identificatori` segue la
-        // grammatica stretta (`AUTHORITY` in WKT 1, `ID` in WKT 2), la lettura
-        // dello SRID accetta l'una e l'altra parola. Un testo che senza opzione
-        // si legge come dichiarazione lo e' anche con l'opzione.
-        let mut radice = identificatori_di_radice(&wkt);
-        if let Some(epsg) = &dichiarata {
-            if !radice
-                .iter()
-                .any(|id| plenora_io_model::crs::stesso_identificatore(id, epsg))
-            {
-                radice.push(epsg.clone());
-            }
-        }
-        // La deduzione ESRI vale solo per un `.prj` che alla radice non dichiara
-        // niente: un `AUTHORITY["ESRI","104000"]` sopra un nome e un datum di
-        // WGS 84 dice un altro CRS, e dedurre `EPSG:4326` lo sovrascriverebbe.
-        let dedotta = if radice.is_empty() {
-            authority_deduced_from_esri_wkt(&wkt)
-        } else {
-            None
-        };
-        let id = if let Some(assunta) = opts.assume_crs.as_deref() {
-            // Una radice che dichiara due CRS diversi, o un `BOUNDCRS`, che non
-            // ha un'identita' propria ma lega un CRS sorgente a uno di
-            // destinazione, non si nomina con l'opzione: qualunque nome
-            // sceglierebbe una delle due parti al posto di chi legge.
-            let ambigua = radice
-                .iter()
-                .skip(1)
-                .any(|id| !plenora_io_model::crs::stesso_identificatore(id, &radice[0]));
-            let legata = wkt
-                .trim_start()
-                .get(..9)
-                .is_some_and(|testa| testa.eq_ignore_ascii_case("BOUNDCRS["));
-            // `ID` in un WKT 1 o `AUTHORITY` in un WKT 2 non dichiara per il
-            // contratto, ma chi legge il `.prj` lo legge come una dichiarazione:
-            // l'opzione non lo scavalca.
-            let altra_parola =
-                !plenora_io_model::crs_definizione::identificatori_con_l_altra_parola(&wkt)
-                    .is_empty();
-            if ambigua || legata || altra_parola {
+    if let Some(wkt) = leggi_prj(&prj)? {
+        let assunta = opts.assume_crs.as_deref();
+        // Il `.prj` che e' soltanto il nome `OGC:CRS84` lo dichiara; l'opzione
+        // lo puo' solo ripetere, e l'identificatore ha la grafia canonica.
+        let id = if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
+            if assunta.is_some_and(|assunta| {
+                !plenora_io_model::crs::stesso_identificatore(assunta, "OGC:CRS84")
+            }) {
                 return Err(contraddice_il_prj());
             }
-            if radice.is_empty() {
-                let nomina_la_deduzione = ["EPSG:4326", "OGC:CRS84"]
-                    .iter()
-                    .any(|nome| plenora_io_model::crs::stesso_identificatore(assunta, nome));
-                if dedotta.is_some() && !nomina_la_deduzione {
-                    return Err(contraddice_il_prj());
-                }
-                Some(assunta.to_owned())
-            } else {
-                // Concordi, vale la grafia del file: l'opzione puo' scrivere
-                // l'autorita' in minuscolo, e l'identificatore e' quello del
-                // `.prj`, di qualunque autorita'.
-                let Some(dal_file) = radice
-                    .into_iter()
-                    .find(|id| plenora_io_model::crs::stesso_identificatore(assunta, id))
-                else {
-                    return Err(contraddice_il_prj());
-                };
-                Some(dal_file)
-            }
+            Some("OGC:CRS84".to_owned())
         } else {
-            dichiarata.or(dedotta)
+            // Ogni altro `.prj` e' una definizione WKT, e l'identificatore lo
+            // decide la regola unica del modello, la stessa del DXF: radice letta
+            // con il lettore stretto, dichiarazioni con l'una e l'altra parola
+            // chiave, `BOUNDCRS`, forma ESRI di WGS 84 (docs/PRODUCT.md, «tutti:
+            // identificatore di radice di un WKT»). Un `.prj` malformato e' un
+            // errore anche per `io.inspect`, che prima riportava un identificatore
+            // che `io.read` poi rifiutava.
+            plenora_io_model::crs_definizione::identificatore_wkt(&wkt, assunta)
+                .map_err(|rifiuto| rifiuto.errore("shp"))?
         };
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
@@ -1630,6 +1564,33 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     )
 }
 
+/// Il testo del `.prj`, oppure `None` se il file non c'e'.
+///
+/// Fino al 24/10 ogni errore di lettura valeva assenza: un `.prj` che non e'
+/// UTF-8 (un nome Latin-1) o che non si apre spariva, e `--assume-crs`
+/// nominava il CRS che il file dichiarava, qualunque fosse. Solo l'assenza e'
+/// assenza; il resto e' un errore `crs`.
+///
+/// # Errors
+///
+/// `crs` se il `.prj` esiste e non si legge come testo UTF-8.
+fn leggi_prj(prj: &Path) -> Result<Option<String>> {
+    let byte = match std::fs::read(prj) {
+        Ok(byte) => byte,
+        Err(errore) if errore.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "Shapefile: il .prj esiste ma non si legge",
+            )));
+        }
+    };
+    String::from_utf8(byte).map(Some).map_err(|_| {
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile: il .prj non e' testo UTF-8",
+        ))
+    })
+}
+
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     crs.id.as_deref().ok_or_else(|| {
         PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -1638,94 +1599,10 @@ fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     })
 }
 
-/// L'identificatore del CRS che il `.prj` dichiara **alla radice**.
-///
-/// Fino alla 5.x la forma ESRI di WGS 84 si riconosceva cercando
-/// `GEOGCS["WGS 84"` **ovunque** nel testo, e l'ultimo `"EPSG"` faceva da
-/// riserva: un `PROJCS` su WGS 84 -- ogni UTM WGS 84, EPSG:3031, EPSG:3857 --
-/// contiene quel `GEOGCS` annidato e diventava `EPSG:4326`, con la sua stessa
-/// `AUTHORITY` di radice che lo contraddiceva (GEO-005). L'identificatore di un
-/// CRS base annidato non descrive il CRS esterno: si legge solo la radice.
-///
-/// Solo cio' che il testo **dichiara**: il riconoscimento della forma ESRI,
-/// che e' una deduzione, sta in [`authority_deduced_from_esri_wkt`].
-fn authority_declared_by_wkt(wkt: &str) -> Option<String> {
-    if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
-        return Some("OGC:CRS84".to_owned());
-    }
-    // `.prj` e' WKT 1 (ESRI o OGC); questa lettura della radice accetta
-    // `AUTHORITY[` e `ID[` in entrambe le grammatiche, piu' larga di
-    // `identificatori_di_radice`: `resolve_crs` unisce le due.
-    plenora_io_model::crs::definition_authority_srid(
-        wkt,
-        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
-    )
-    .map(|code| format!("EPSG:{code}"))
-}
-
 fn contraddice_il_prj() -> PlenoraIoError {
     PlenoraIoError::crs_redatto(&PublicMessage::Curated(
         "Shapefile: --assume-crs contraddice il CRS del .prj",
     ))
-}
-
-/// Gli identificatori che la radice del `.prj` dichiara, di ogni autorita',
-/// nella forma `AUTORITA:codice`; `OGC:CRS84` per il `.prj` che e' soltanto
-/// quel nome. Un testo che non e' un WKT ben formato, ne' 1 ne' 2, non ne
-/// dichiara: l'opzione allora lo nomina, e la definizione malformata si
-/// rifiuta a valle, alla verifica GEO-005 del contratto.
-fn identificatori_di_radice(wkt: &str) -> Vec<String> {
-    use plenora_io_model::crs_definizione::{identificatori, TestoDefinizione};
-    if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
-        return vec!["OGC:CRS84".to_owned()];
-    }
-    // `.prj` e' di solito WKT 1, ma un WKT 2 (`GEOGCRS[...,ID[...]]`) dichiara
-    // quanto l'altro: si legge nella grammatica in cui e' ben formato.
-    let coppie = [
-        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
-        plenora_io_model::crs::CrsDefinitionFormat::Wkt2,
-    ]
-    .into_iter()
-    .find_map(|formato| identificatori(wkt, formato).ok());
-    let Some(coppie) = coppie else {
-        return Vec::new();
-    };
-    coppie
-        .into_iter()
-        .filter_map(|coppia| match coppia {
-            (TestoDefinizione::Unicode(autorita), TestoDefinizione::Unicode(codice)) => {
-                Some(format!("{autorita}:{codice}"))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// L'identificatore che il driver **deduce** dalla forma ESRI WKT1 canonica di
-/// WGS 84, quella che il writer Shapefile emette: non contiene `AUTHORITY`, ma
-/// identifica senza ambiguita' WGS 84. Il riconoscimento vale solo per un
-/// `GEOGCS` che **e'** la radice.
-///
-/// E' una deduzione e non una dichiarazione: l'identificatore del contratto
-/// lo da' solo quando l'opzione manca, e un'opzione la puo' soltanto nominare
-/// con uno dei due nomi di WGS 84 geografico.
-fn authority_deduced_from_esri_wkt(wkt: &str) -> Option<String> {
-    // Gli spazi fuori dalle virgolette non contano per la grammatica WKT
-    // (`GEOGCS [ "WGS 84", ...`): senza toglierli la forma si mancava, e su un
-    // WGS 84 non riconosciuto l'opzione passava con qualunque nome.
-    let mut tra_virgolette = false;
-    let compatto: String = wkt
-        .chars()
-        .filter(|&c| {
-            if c == '"' {
-                tra_virgolette = !tra_virgolette;
-            }
-            tra_virgolette || !c.is_ascii_whitespace()
-        })
-        .collect();
-    let upper = compatto.to_ascii_uppercase();
-    (upper.starts_with("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\""))
-        .then(|| "EPSG:4326".to_owned())
 }
 
 fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {

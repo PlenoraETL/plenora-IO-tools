@@ -359,3 +359,478 @@ fn l_autorita_si_confronta_solo_in_ascii() {
     assert!(!autorita_locale("POSTG\u{131}S:4326"));
     assert!(autorita_locale("postgis:4326"));
 }
+
+/// Il WGS 84 nella forma ESRI che il writer Shapefile emette, senza autorita'.
+const ESRI_WGS84: &str = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]"#;
+
+/// La forma ESRI di WGS 84 con un nodo in piu' alla radice, prima della `]`
+/// finale.
+fn esri_con(nodo: &str) -> String {
+    format!("{},{nodo}]", &ESRI_WGS84[..ESRI_WGS84.len() - 1])
+}
+
+/// Un `PROJCS` di Monte Mario senza identificatori di radice, con un nodo in
+/// piu' alla radice (vuoto: nessuno).
+fn projcs_con(nodo: &str) -> String {
+    let separatore = if nodo.is_empty() { "" } else { "," };
+    format!(
+        r#"PROJCS["Monte Mario / Italy zone 1",GEOGCS["Monte Mario",DATUM["Monte_Mario",SPHEROID["International 1924",6378388,297]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4265"]],PROJECTION["Transverse_Mercator"],UNIT["metre",1]{separatore}{nodo}]"#
+    )
+}
+
+const BOUNDCRS: &str = r#"BOUNDCRS[SOURCECRS[GEOGCRS["Monte Mario",DATUM["Monte Mario",ELLIPSOID["International 1924",6378388,297]],CS[ellipsoidal,2],AXIS["latitude",north],AXIS["longitude",east],ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",4265]]],TARGETCRS[GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],AXIS["latitude",north],AXIS["longitude",east],ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",4326]]],ABRIDGEDTRANSFORMATION["t",METHOD["Geocentric translations"]]]"#;
+
+type Atteso = Result<Option<&'static str>, RifiutoIdentita>;
+
+fn verifica(casi: Vec<(&str, String, Option<&str>, Atteso)>) {
+    for (nome, testo, assunto, atteso) in casi {
+        assert_eq!(
+            identificatore_wkt(&testo, assunto),
+            atteso.map(|id| id.map(str::to_owned)),
+            "{nome}, opzione {assunto:?}"
+        );
+    }
+}
+
+// La regola unica dell'identificatore di un WKT, caso per caso, senza e con
+// `--assume-crs`, in quattro prove. Le righe marcate (a)..(f) sono le
+// etichette sbagliate trovate dalle riletture fino al 24/10 sulle letture
+// parziali dei driver: ognuna, sul codice di a651844, dava un identificatore o
+// accettava un'opzione dove qui c'e' un rifiuto o un altro identificatore
+// (sonda sui driver, prove `il_prj_segue_la_regola_unica_dell_identificatore`
+// e `il_wkt_del_geodata_segue_la_regola_unica`).
+
+/// 6. Nessuna dichiarazione: la forma ESRI di WGS 84, decisa sull'albero; (a) un `ID` alla radice e' una dichiarazione e la deduzione non c'e'.
+#[test]
+fn regola_wkt_senza_dichiarazioni_e_forma_esri() {
+    use RifiutoIdentita::Contraddetta;
+    let esri_estensione = r#"GEOGCS["WGS 84",DATUM["D_Monte_Mario",SPHEROID["International_1924",6378388,297]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],EXTENSION["x",DATUM["WGS_1984"]]]"#.to_owned();
+    let esri_due_datum = esri_con(r#"DATUM["Monte_Mario"]"#);
+    let esri_minuscolo =
+        r#"geogcs ( "wgs 84" , datum ( "wgs_1984" , SPHEROID["WGS 84",6378137,298.257223563] ) )"#
+            .to_owned();
+    verifica(vec![
+        // 6. Nessuna dichiarazione, forma ESRI di WGS 84.
+        ("esri", ESRI_WGS84.to_owned(), None, Ok(Some("EPSG:4326"))),
+        (
+            "esri",
+            ESRI_WGS84.to_owned(),
+            Some("OGC:CRS84"),
+            Ok(Some("OGC:CRS84")),
+        ),
+        (
+            "esri",
+            ESRI_WGS84.to_owned(),
+            Some("epsg:4326"),
+            Ok(Some("epsg:4326")),
+        ),
+        (
+            "esri",
+            ESRI_WGS84.to_owned(),
+            Some("EPSG:3003"),
+            Err(Contraddetta),
+        ),
+        (
+            "esri minuscolo",
+            esri_minuscolo,
+            None,
+            Ok(Some("EPSG:4326")),
+        ),
+        // (e) Il `DATUM` di WGS 84 dentro un `EXTENSION` non e' quello della
+        // radice: prima bastava trovarlo nel testo.
+        (
+            "(e) datum annidato",
+            esri_estensione.clone(),
+            None,
+            Ok(None),
+        ),
+        (
+            "(e) datum annidato",
+            esri_estensione,
+            Some("EPSG:3003"),
+            Ok(Some("EPSG:3003")),
+        ),
+        ("due datum", esri_due_datum.clone(), None, Ok(None)),
+        (
+            "due datum",
+            esri_due_datum,
+            Some("EPSG:3003"),
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "D_WGS_1984",
+            ESRI_WGS84.replace("WGS_1984", "D_WGS_1984"),
+            None,
+            Ok(None),
+        ),
+        // (a) Un `ID` con la parola dell'altra grammatica alla radice e' una
+        // dichiarazione: niente deduzione.
+        (
+            "(a)",
+            esri_con(r#"ID["EPSG",4258]"#),
+            None,
+            Ok(Some("EPSG:4258")),
+        ),
+        (
+            "(a)",
+            esri_con(r#"ID["EPSG",4258]"#),
+            Some("EPSG:4326"),
+            Err(Contraddetta),
+        ),
+        (
+            "(a)",
+            esri_con(r#"ID["EPSG",4258]"#),
+            Some("OGC:CRS84"),
+            Err(Contraddetta),
+        ),
+    ]);
+}
+
+/// 5. Una dichiarazione, con l'una o l'altra parola chiave; (d) `ID` in WKT 1 e `AUTHORITY` in WKT 2.
+#[test]
+fn regola_wkt_con_una_dichiarazione() {
+    use RifiutoIdentita::Contraddetta;
+    verifica(vec![
+        // Un'autorita' non EPSG dichiarata non si risolve, e non si rietichetta.
+        (
+            "esri 104000",
+            esri_con(r#"AUTHORITY["ESRI","104000"]"#),
+            None,
+            Ok(None),
+        ),
+        (
+            "esri 104000",
+            esri_con(r#"AUTHORITY["ESRI","104000"]"#),
+            Some("EPSG:4326"),
+            Err(Contraddetta),
+        ),
+        (
+            "esri 104000",
+            esri_con(r#"AUTHORITY["ESRI","104000"]"#),
+            Some("esri:104000"),
+            Ok(Some("ESRI:104000")),
+        ),
+        (
+            "ogc crs84 di radice",
+            esri_con(r#"AUTHORITY["OGC","CRS84"]"#),
+            None,
+            Ok(None),
+        ),
+        (
+            "ogc crs84 di radice",
+            esri_con(r#"AUTHORITY["OGC","CRS84"]"#),
+            Some("OGC:CRS84"),
+            Ok(Some("OGC:CRS84")),
+        ),
+        // 5. Una dichiarazione.
+        (
+            "3003",
+            projcs_con(r#"AUTHORITY["EPSG","3003"]"#),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "3003",
+            projcs_con(r#"AUTHORITY["epsg","3003"]"#),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "3003",
+            projcs_con(r#"AUTHORITY["epsg","3003"]"#),
+            Some("EPSG:3003"),
+            Ok(Some("epsg:3003")),
+        ),
+        (
+            "3003",
+            projcs_con(r#"AUTHORITY["EPSG","3003"]"#),
+            Some("EPSG:4326"),
+            Err(Contraddetta),
+        ),
+        (
+            "3003 numero",
+            projcs_con(r#"AUTHORITY["EPSG",+03003]"#),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "codice non canonico",
+            projcs_con(r#"AUTHORITY["EPSG","03003"]"#),
+            None,
+            Ok(None),
+        ),
+        (
+            "codice non canonico",
+            projcs_con(r#"AUTHORITY["EPSG","03003"]"#),
+            Some("EPSG:3003"),
+            Err(Contraddetta),
+        ),
+        (
+            "codice non canonico",
+            projcs_con(r#"AUTHORITY["EPSG","03003"]"#),
+            Some("EPSG:03003"),
+            Ok(Some("EPSG:03003")),
+        ),
+        (
+            "duplicato",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],ID["epsg",3003]"#),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "duplicato",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],ID["epsg",3003]"#),
+            Some("epsg:3003"),
+            Ok(Some("EPSG:3003")),
+        ),
+    ]);
+}
+
+/// (d) `ID` in un WKT 1 e `AUTHORITY` in un WKT 2 dichiarano; la radice si
+/// legge con ogni spaziatura, maiuscola e parentesi che la grammatica ammette.
+#[test]
+fn regola_wkt_con_l_altra_parola_chiave() {
+    use RifiutoIdentita::Contraddetta;
+    verifica(vec![
+        // (d) `ID` in un WKT 1, `AUTHORITY` in un WKT 2: dichiarano.
+        (
+            "(d) id in wkt1",
+            projcs_con(r#"ID["EPSG",3003]"#),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "(d) id in wkt1",
+            projcs_con(r#"ID["EPSG",3003]"#),
+            Some("EPSG:4326"),
+            Err(Contraddetta),
+        ),
+        (
+            "(d) authority in wkt2",
+            r#"PROJCRS["x",AUTHORITY["EPSG","3003"]]"#.to_owned(),
+            Some("EPSG:4326"),
+            Err(Contraddetta),
+        ),
+        (
+            "(d) authority in wkt2",
+            r#"PROJCRS["x",AUTHORITY["EPSG","3003"]]"#.to_owned(),
+            None,
+            Ok(Some("EPSG:3003")),
+        ),
+        (
+            "wkt2",
+            r#"geogcrs [ "WGS 84" , ID ( "EPSG" , 4326 ) ]"#.to_owned(),
+            None,
+            Ok(Some("EPSG:4326")),
+        ),
+        (
+            "tonde",
+            r#"GEOGCS("WGS 84",AUTHORITY("EPSG","4326"))"#.to_owned(),
+            None,
+            Ok(Some("EPSG:4326")),
+        ),
+    ]);
+}
+
+/// 4. Due dichiarazioni diverse (b) e 3. `BOUNDCRS`, letto dalla parola della radice; senza dichiarazioni l'opzione nomina.
+#[test]
+fn regola_wkt_ambigua_o_legata() {
+    use RifiutoIdentita::{Ambigua, Legata};
+    let bound_spazi = BOUNDCRS.replacen("BOUNDCRS[", "boundcrs [", 1);
+    let bound_con_id = format!("{},ID[\"EPSG\",4326]]", &BOUNDCRS[..BOUNDCRS.len() - 1]);
+    verifica(vec![
+        // 4. (b) Due dichiarazioni diverse.
+        (
+            "(b)",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],ID["EPSG",3004]"#),
+            None,
+            Err(Ambigua),
+        ),
+        (
+            "(b)",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],ID["EPSG",3004]"#),
+            Some("EPSG:3003"),
+            Err(Ambigua),
+        ),
+        (
+            "due authority",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],AUTHORITY["EPSG","3004"]"#),
+            None,
+            Err(Ambigua),
+        ),
+        (
+            "due autorita",
+            projcs_con(r#"AUTHORITY["EPSG","3003"],AUTHORITY["ESRI","3003"]"#),
+            Some("EPSG:3003"),
+            Err(Ambigua),
+        ),
+        // 3. `BOUNDCRS`, letto dalla parola della radice.
+        ("boundcrs", BOUNDCRS.to_owned(), None, Ok(None)),
+        (
+            "boundcrs",
+            BOUNDCRS.to_owned(),
+            Some("EPSG:4326"),
+            Err(Legata),
+        ),
+        (
+            "(f) boundcrs con spazi",
+            bound_spazi.clone(),
+            None,
+            Ok(None),
+        ),
+        (
+            "(f) boundcrs con spazi",
+            bound_spazi,
+            Some("EPSG:4265"),
+            Err(Legata),
+        ),
+        ("boundcrs con id", bound_con_id.clone(), None, Ok(None)),
+        (
+            "boundcrs con id",
+            bound_con_id,
+            Some("EPSG:4326"),
+            Err(Legata),
+        ),
+        // Nessuna dichiarazione, nessuna forma: l'opzione nomina.
+        ("anonimo", projcs_con(""), None, Ok(None)),
+        (
+            "anonimo",
+            projcs_con(""),
+            Some("EPSG:3003"),
+            Ok(Some("EPSG:3003")),
+        ),
+        ("local", r#"LOCAL_CS["griglia"]"#.to_owned(), None, Ok(None)),
+    ]);
+}
+
+/// 1. e 2. Radice o nodo identificatore malformati: (c) e (f), con e senza opzione.
+#[test]
+fn regola_wkt_malformata() {
+    use RifiutoIdentita::Malformata as Mal;
+    verifica(vec![
+        // 1. e 2. Malformati: radice o nodo identificatore.
+        (
+            "(c) id senza virgolette",
+            projcs_con("ID[EPSG,3003]"),
+            None,
+            Err(Mal),
+        ),
+        (
+            "(c) id senza virgolette",
+            projcs_con("ID[EPSG,3003]"),
+            Some("EPSG:3003"),
+            Err(Mal),
+        ),
+        (
+            "(c) id senza codice",
+            projcs_con(r#"ID["EPSG"]"#),
+            Some("EPSG:3003"),
+            Err(Mal),
+        ),
+        (
+            "(c) id decimale",
+            projcs_con(r#"ID["EPSG",3003.5]"#),
+            Some("EPSG:3003"),
+            Err(Mal),
+        ),
+        (
+            "authority senza codice",
+            projcs_con(r#"AUTHORITY["EPSG"]"#),
+            None,
+            Err(Mal),
+        ),
+        (
+            "wkt2 authority malformata",
+            r#"PROJCRS["x",AUTHORITY[EPSG,3003]]"#.to_owned(),
+            Some("EPSG:3003"),
+            Err(Mal),
+        ),
+        (
+            "(f) codice decimale",
+            esri_con(r#"AUTHORITY["EPSG",4258.0]"#),
+            None,
+            Err(Mal),
+        ),
+        (
+            "(f) codice decimale",
+            esri_con(r#"AUTHORITY["EPSG",4258.0]"#),
+            Some("OGC:CRS84"),
+            Err(Mal),
+        ),
+        (
+            "(f) senza ] finale",
+            ESRI_WGS84[..ESRI_WGS84.len() - 1].to_owned(),
+            None,
+            Err(Mal),
+        ),
+        (
+            "(f) senza ] finale",
+            ESRI_WGS84[..ESRI_WGS84.len() - 1].to_owned(),
+            Some("EPSG:4326"),
+            Err(Mal),
+        ),
+        (
+            "(f) testo in coda",
+            format!("{ESRI_WGS84} coda"),
+            None,
+            Err(Mal),
+        ),
+        (
+            "(f) testo in coda",
+            format!("{ESRI_WGS84} coda"),
+            Some("OGC:CRS84"),
+            Err(Mal),
+        ),
+        ("non wkt", "WGS 84".to_owned(), None, Err(Mal)),
+        ("non wkt", "WGS 84".to_owned(), Some("EPSG:4326"), Err(Mal)),
+        ("vuoto", String::new(), Some("EPSG:4326"), Err(Mal)),
+        (
+            "radice ignota",
+            r#"FOOCS["x",AUTHORITY["EPSG","3003"]]"#.to_owned(),
+            None,
+            Err(Mal),
+        ),
+    ]);
+}
+
+#[test]
+fn i_rifiuti_dell_identificatore_sono_errori_crs_senza_dati() {
+    for rifiuto in [
+        RifiutoIdentita::Malformata,
+        RifiutoIdentita::Ambigua,
+        RifiutoIdentita::Legata,
+        RifiutoIdentita::Contraddetta,
+    ] {
+        let errore = rifiuto.errore("shp");
+        assert_eq!(errore.category, crate::ErrorCategory::Crs);
+        assert_eq!(errore.driver.as_deref(), Some("shp"));
+        assert!(
+            !errore.message.bytes().any(|b| b.is_ascii_digit()),
+            "{}",
+            errore.message
+        );
+    }
+}
+
+/// `sembra_wkt` decide quali definizioni vanno alla regola: le stesse due
+/// condizioni con cui il lettore apre la radice, mai di meno.
+#[test]
+fn sembra_wkt_come_il_lettore_apre_la_radice() {
+    for wkt in ["GEOGCS[", " \u{1c}geogcs (", "_x [", "BOUNDCRS\t["] {
+        assert!(sembra_wkt(wkt), "{wkt:?}");
+    }
+    for altro in [
+        "EPSG:3003",
+        "<xml>",
+        "OGC:CRS84",
+        "",
+        "1GEOGCS[",
+        "\"GEOGCS\"[",
+    ] {
+        assert!(!sembra_wkt(altro), "{altro:?}");
+    }
+    // Un testo che il lettore legge ben formato sembra sempre un WKT.
+    for testo in [ESRI_WGS84, BOUNDCRS, WKT1_3003, WKT2_4326] {
+        assert!(grammatica_wkt(testo).is_some() && sembra_wkt(testo));
+    }
+}

@@ -4,9 +4,9 @@
   "target": "wkt_parse",
   "artefatto": "assurance/profondita-fuzz-wkt.json",
   "rimisurazione_dovuta": {
-    "perche": "La seconda rilettura cambia `driver-common/src`, che il perimetro comprende: la ricerca di una colonna per nome (`colonna_per_nome`) distingue il nome assente da quello che l'intestazione ripete, per i driver CSV e XLSX. Il parser WKT non cambia, ma la misura e' legata al contenuto del perimetro, non a cio' che il target raggiunge.",
+    "perche": "La seconda rilettura cambia `driver-common/src`, che il perimetro comprende: la ricerca di una colonna per nome (`colonna_per_nome`) distingue il nome assente da quello che l'intestazione ripete, per i driver CSV e XLSX. Il parser WKT non cambia, ma la misura e' legata al contenuto del perimetro, non a cio' che il target raggiunge. Regola unica dell'identificatore WKT (24/10): cambiano anche `plenora-io-model/src/crs.rs` e `crs_definizione.rs`, nel perimetro, senza toccare il parser WKT delle geometrie.",
     "impronta_della_misura": "16894603ebf708b0453551c3c4d342846300587ecece9389da4341a0b69091cb",
-    "impronta_attesa": "de3926d0fa5a01b3d454af45b8e3d1c9bfae81a222784d6c24f6cf02f139aad6",
+    "impronta_attesa": "9e832dffed9bca56cbb8123db276457dad187e8629f77b26dcec2ac714ad1afd",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh wkt_parse"

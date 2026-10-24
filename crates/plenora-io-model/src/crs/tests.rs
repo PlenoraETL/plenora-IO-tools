@@ -441,3 +441,31 @@ fn verifica_crs_assunto_rifiuta_cio_che_non_puo_confermare() {
         assert!(!errore.message.contains("4326"), "{}", errore.message);
     }
 }
+
+/// (g) Il formato WKT si decide con il lettore stretto, non con un prefisso
+/// maiuscolo esatto: su a651844 `PROJCRS [`, `projcrs[` e `PROJECTEDCRS[`
+/// erano `wkt`, e la verifica GEO-005 rifiutava una definizione ben formata.
+#[test]
+fn definition_format_decide_la_grammatica_con_il_lettore() {
+    for wkt2 in [
+        r#"PROJCRS ["x",ID["EPSG",3003]]"#,
+        r#"projcrs["x"]"#,
+        r#"PROJECTEDCRS["x"]"#,
+        r#"GEOGRAPHICCRS("x")"#,
+        r#" boundcrs [SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#,
+    ] {
+        assert_eq!(definition_format(wkt2), CrsDefinitionFormat::Wkt2, "{wkt2}");
+    }
+    for wkt1 in [r#"GEOGCS ["x"]"#, r#"projcs("x")"#] {
+        assert_eq!(definition_format(wkt1), CrsDefinitionFormat::Wkt, "{wkt1}");
+    }
+    // Un testo malformato tiene l'etichetta del prefisso, come prima.
+    assert_eq!(
+        definition_format("PROJCRS[\"x\""),
+        CrsDefinitionFormat::Wkt2
+    );
+    assert_eq!(
+        definition_format("PROJCRS [\"x\""),
+        CrsDefinitionFormat::Wkt
+    );
+}

@@ -2420,3 +2420,60 @@ fn un_datatable_che_la_specifica_non_rappresenta_si_rifiuta_in_scrittura() {
         );
     }
 }
+
+/// (d) Una definizione WKT del `GEODATA` passa dalla regola unica del modello,
+/// la stessa del `.prj`. Su a651844 contavano solo gli `EPSG` di radice con la
+/// parola della grammatica, e `--assume-crs EPSG:4326` passava sopra un `ID`
+/// in un WKT 1, un'autorita' ESRI, un `BOUNDCRS`, un `AUTHORITY` in un WKT 2;
+/// un WKT malformato era «senza autorita'» e l'opzione lo nominava.
+#[test]
+fn il_wkt_del_geodata_segue_la_regola_unica() {
+    let rifiutati = [
+        r#"PROJCS["x",GEOGCS["y"],PROJECTION["Transverse_Mercator"],UNIT["metre",1],ID["EPSG",3003]]"#,
+        r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["ESRI","104000"]]"#,
+        r#"BOUNDCRS[SOURCECRS[GEOGCRS["a",ID["EPSG",4265]]],TARGETCRS[GEOGCRS["b",ID["EPSG",4326]]]]"#,
+        r#"boundcrs [SOURCECRS[GEOGCRS["a"]],TARGETCRS[GEOGCRS["b"]]]"#,
+        r#"PROJCRS["x",AUTHORITY["EPSG","3003"]]"#,
+        r#"PROJCS["x",AUTHORITY["EPSG","3003"],ID["EPSG",3004]]"#,
+        r#"PROJCS["x",ID[EPSG,3003]]"#,
+        r#"GEOGCS["WGS 84",DATUM["WGS_1984"]"#,
+        r#"GEOGCS["WGS 84",DATUM["WGS_1984"]] coda"#,
+    ];
+    for definizione in rifiutati {
+        let opzioni = opzioni_lettura().with_assume_crs("EPSG:4326");
+        match resolve_dxf_crs(&con_geodata(definizione), &opzioni) {
+            Ok(crs) => panic!("{definizione}: accettato come {:?}", crs.id),
+            Err(errore) => {
+                assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+                assert!(!errore.message.contains("4326"), "{}", errore.message);
+            }
+        }
+    }
+    // La forma ESRI di WGS 84 senza autorita' e' `EPSG:4326` come nel `.prj`,
+    // e con l'opzione ammette solo i due nomi di WGS 84.
+    let esri = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]"#;
+    let dedotto = resolve_dxf_crs(&con_geodata(esri), &opzioni_lettura()).unwrap();
+    assert_eq!(dedotto.id.as_deref(), Some("EPSG:4326"));
+    let nominato = resolve_dxf_crs(
+        &con_geodata(esri),
+        &opzioni_lettura().with_assume_crs("OGC:CRS84"),
+    )
+    .unwrap();
+    assert_eq!(nominato.id.as_deref(), Some("OGC:CRS84"));
+    assert!(resolve_dxf_crs(
+        &con_geodata(esri),
+        &opzioni_lettura().with_assume_crs("EPSG:3003")
+    )
+    .is_err());
+    // Un `ID` in un WKT 1 dichiara anche senza opzione, con la grafia del file
+    // quando l'opzione concorda.
+    let id_wkt1 = r#"PROJCS["x",GEOGCS["y"],ID["epsg",3003]]"#;
+    let dichiarato = resolve_dxf_crs(&con_geodata(id_wkt1), &opzioni_lettura()).unwrap();
+    assert_eq!(dichiarato.id.as_deref(), Some("EPSG:3003"));
+    let concorde = resolve_dxf_crs(
+        &con_geodata(id_wkt1),
+        &opzioni_lettura().with_assume_crs("EPSG:3003"),
+    )
+    .unwrap();
+    assert_eq!(concorde.id.as_deref(), Some("epsg:3003"));
+}
