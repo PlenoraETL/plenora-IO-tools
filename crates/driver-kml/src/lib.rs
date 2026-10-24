@@ -395,7 +395,7 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -408,7 +408,7 @@ impl FormatDriver for KmlDriver {
             }),
             &opts,
             true,
-        ))
+        )
     }
 
     fn create(

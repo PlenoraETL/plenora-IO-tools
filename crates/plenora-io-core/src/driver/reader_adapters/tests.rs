@@ -1784,14 +1784,17 @@ fn with_read_budget_collega_il_budget_dell_operazione() {
     };
     let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
 
-    let dataset = with_read_budget(
+    let dataset = match with_read_budget(
         Box::new(CountingDataset {
             layers: vec![validating_contract()],
             opens: Arc::new(AtomicUsize::new(0)),
         }),
         &opts,
         true,
-    );
+    ) {
+        Ok(dataset) => dataset,
+        Err(error) => unreachable!("nessun --assume-crs da confrontare: {error:?}"),
+    };
 
     // Il posto del pool e' libero prima, occupato durante.
     let posto = match pool_lease(&pool) {

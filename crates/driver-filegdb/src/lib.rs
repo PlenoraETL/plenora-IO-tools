@@ -485,7 +485,7 @@ impl FormatDriver for FileGdbDriver {
             radici::applica();
             let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return Ok(plenora_io_core::with_read_budget(dataset, &opts, false));
+            return plenora_io_core::with_read_budget(dataset, &opts, false);
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -790,7 +790,9 @@ mod backend {
         })?;
         if let (Some(expected), Some(actual)) = (resolved.id.as_deref(), authority_id(&spatial_ref))
         {
-            if !expected.eq_ignore_ascii_case(&actual) {
+            // Lo stesso confronto di `--assume-crs` (GEO-005): autorita'
+            // senza maiuscole, codice come testo.
+            if !plenora_io_model::crs::stesso_identificatore(expected, &actual) {
                 return Err(PlenoraIoError::crs_non_risolto_redatto(
                     "filegdb",
                     &RawCrs::new(definition.to_owned(), resolved.id.clone()),
@@ -2680,6 +2682,61 @@ mod backend {
                     m: None,
                 })
             );
+        }
+
+        /// Un `FileGDB` con un CRS incorporato e un `--assume-crs` diverso: l'opzione
+        /// si ignorava, e il layer usciva col CRS del file senza dirlo. Lo stesso
+        /// identificatore, con l'autorita' in minuscolo, resta ammesso.
+        #[test]
+        fn assume_crs_in_conflitto_col_crs_incorporato_e_rifiutato() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("incorporato.gdb");
+            let schema: SchemaRef =
+                Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+            let wkb = point_wkb(CoordinateDimensions::Xy, None, None);
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "punti".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+            let driver = super::super::FileGdbDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+
+            let Err(errore) = driver.open(
+                Source::Path(path.clone()),
+                opzioni_lettura().with_assume_crs("EPSG:3003"),
+            ) else {
+                panic!("--assume-crs in conflitto col CRS incorporato: ignorato");
+            };
+            assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+            let concorde = driver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("epsg:3857"),
+                )
+                .unwrap();
+            let crs = &concorde.layers()[0].contract.geometry.as_ref().unwrap().crs;
+            assert_eq!(crs.id(), Some("EPSG:3857"));
         }
 
         #[test]

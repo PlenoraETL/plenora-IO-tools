@@ -103,19 +103,44 @@ fn digits_after(text: &str, marker: &str) -> Option<String> {
     (!digits.is_empty()).then_some(digits)
 }
 
-fn epsg_from_definition(definition: &str) -> Option<String> {
+/// Il codice EPSG che la definizione del `GEODATA` dichiara.
+///
+/// Le forme sono tre: un `EPSG:<codice>` nel testo (anche dentro un URN), gli
+/// identificatori di radice di un WKT, gli `<Alias>` EPSG di una definizione
+/// XML Autodesk. Fino a qui vinceva la **prima** occorrenza della prima forma
+/// trovata: un testo con due `EPSG:` diversi, o un XML con due alias, dava il
+/// primo codice e l'altro spariva. Ora si raccolgono tutte, e codici discordi
+/// sono un conflitto: la definizione non dice quale valga.
+///
+/// Degli alias contano quelli del sistema di coordinate (`type` assente o
+/// `CoordinateSystem`): l'alias di un datum o di un ellissoide nomina una
+/// parte del CRS, come l'`AUTHORITY` annidato di un WKT, non il CRS.
+///
+/// # Errors
+///
+/// `crs` se le forme dichiarano codici EPSG diversi.
+fn epsg_from_definition(definition: &str) -> Result<Option<String>> {
+    use plenora_io_model::crs::CrsDefinitionFormat;
     let upper = definition.to_ascii_uppercase();
-    if let Some(code) = digits_after(&upper, "EPSG:") {
-        return Some(format!("EPSG:{code}"));
+    let mut codici: BTreeSet<String> = BTreeSet::new();
+    let mut remaining = upper.as_str();
+    while let Some(start) = remaining.find("EPSG:") {
+        codici.extend(digits_after(remaining, "EPSG:"));
+        remaining = &remaining[start + "EPSG:".len()..];
     }
     // In un WKT conta solo l'identificatore della radice (GEO-005). Il primo
     // AUTHORITY EPSG del testo, che si leggeva fino alla 5.x, e' quello
     // dello `SPHEROID` in ogni WKT 1 di GDAL: EPSG:7030 al posto di EPSG:4326.
-    if let Some(code) = plenora_io_model::crs::definition_authority_srid(
-        definition,
-        plenora_io_model::crs::CrsDefinitionFormat::Wkt,
-    ) {
-        return Some(format!("EPSG:{code}"));
+    // Una definizione che non e' un WKT ben formato non ne ha.
+    for formato in [CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2] {
+        if let Ok(coppie) = plenora_io_model::crs_definizione::identificatori(definition, formato) {
+            codici.extend(
+                coppie
+                    .into_iter()
+                    .filter(|(autorita, _)| autorita.eq_ignore_ascii_case("EPSG"))
+                    .map(|(_, codice)| codice),
+            );
+        }
     }
     let mut remaining = upper.as_str();
     while let Some(start) = remaining.find("<ALIAS") {
@@ -124,14 +149,20 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
             .find("</ALIAS>")
             .map_or(remaining.len(), |index| index + "</ALIAS>".len());
         let alias = &remaining[..end];
-        if alias.contains("EPSG") {
-            if let Some(code) = digits_after(alias, "ID=") {
-                return Some(format!("EPSG:{code}"));
-            }
+        let apertura = alias.find('>').map_or(alias, |fine| &alias[..fine]);
+        let del_sistema =
+            !apertura.contains("TYPE=") || apertura.contains("TYPE=\"COORDINATESYSTEM\"");
+        if del_sistema && alias.contains("EPSG") {
+            codici.extend(digits_after(alias, "ID="));
         }
         remaining = &remaining[end..];
     }
-    None
+    if codici.len() > 1 {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF: la definizione del CRS nel GEODATA dichiara codici EPSG discordi",
+        )));
+    }
+    Ok(codici.into_iter().next().map(|code| format!("EPSG:{code}")))
 }
 
 /// La definizione del CRS che i `GEODATA` del disegno dichiarano.
@@ -176,7 +207,7 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
         let kind = crs_kind(Some(&id), None);
         return Ok(ResolvedCrs::new(Some(id), kind, None).stored_east_first());
     };
-    let embedded_id = epsg_from_definition(&definition).or_else(|| {
+    let embedded_id = epsg_from_definition(&definition)?.or_else(|| {
         let trimmed = definition.trim();
         (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
     });
@@ -356,7 +387,7 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -371,7 +402,7 @@ impl FormatDriver for DxfDriver {
             }),
             &opts,
             false,
-        ))
+        )
     }
 
     fn create(

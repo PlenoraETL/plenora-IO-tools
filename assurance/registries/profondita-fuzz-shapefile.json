@@ -4,9 +4,9 @@
   "target": "shp_reader",
   "artefatto": "assurance/profondita-fuzz-shapefile.json",
   "rimisurazione_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro Shapefile: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: un `--assume-crs` in conflitto con l'autorita' del `.prj` si rifiuta.",
+    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro Shapefile: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: un `--assume-crs` in conflitto con l'autorita' del `.prj` si rifiuta. Poi il confronto GEO-005 degli identificatori e il controllo di `--assume-crs` nell'adapter comune `with_read_budget`.",
     "impronta_della_misura": "d3f86ba8dfbd6099e0222bb0971015ebc6a2875d93988847575b2588c4cb7867",
-    "impronta_attesa": "00cab19cac1206bf3bce1f2dbbf374af27d86d84b52b3251157fd974df18057e",
+    "impronta_attesa": "1a2c5a93077cccdd714e95c1ee920584bf0640eb074083ca2178d47134aa17ce",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh shp_reader"

@@ -4,9 +4,9 @@
   "target": "geojson_reader",
   "artefatto": "assurance/profondita-fuzz-geojson.json",
   "rimisurazione_dovuta": {
-    "perche": "La classe delle geometrie ambigue cambia il perimetro GeoJSON: le chiavi ripetute nell'oggetto geometria e al livello del FeatureCollection si rifiutano invece di tenere l'ultimo valore.",
+    "perche": "La classe delle geometrie ambigue cambia il perimetro GeoJSON: le chiavi ripetute nell'oggetto geometria e al livello del FeatureCollection si rifiutano invece di tenere l'ultimo valore. Poi il membro `crs` di GeoJSON 2008, su collezione, feature e geometria, letto da un seme dedicato e rifiutato se non nomina WGS84.",
     "impronta_della_misura": "d4798eb5278dbfcc53621dc16c5c23a77f801fe04bf5836a50789d0e8e1bb7bf",
-    "impronta_attesa": "692c78eb9a149bd72671fc52db79fc41bfed9ed69499dcced343e0015decbe84",
+    "impronta_attesa": "d15334f66d6f15c643049d3744b5b783f4dd14ea064e2e36133b311730c7d483",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh geojson_reader"

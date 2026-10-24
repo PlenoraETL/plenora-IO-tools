@@ -639,6 +639,115 @@ fn chiavi_ripetute_nella_geometria_e_nella_collezione_sono_rifiutate() {
     }
 }
 
+/// Apre e legge tutto `documento`: l'esito della lettura completa.
+fn leggi_documento(dir: &tempfile::TempDir, nome: &str, documento: &str) -> Result<LayerContract> {
+    let src = dir.path().join(format!("{nome}.geojson"));
+    std::fs::write(&src, documento).unwrap();
+    let dataset = GeoJsonDriver.open(Source::Path(src), opzioni_lettura())?;
+    let mut reader = dataset.open_layer_reader(&ReadRequest {
+        layer: LayerId(0),
+        projected_fields: None,
+        projection_mode: ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        scope: ReadScope::default(),
+        batch_target: BatchTarget::default(),
+        cancellation: CancellationToken::default(),
+    })?;
+    while reader.next_batch()?.is_some() {}
+    Ok(dataset.layers()[0].clone())
+}
+
+/// Il membro `crs` di `GeoJSON` 2008 si ignorava, e ogni documento usciva
+/// `OGC:CRS84`: un file che dichiarava `EPSG:3003` diventava WGS84. Ora un
+/// `crs` che nomina CRS84 o EPSG:4326, nelle forme brevi, URN o URI, e'
+/// ammesso; ogni altro, `null` e le forme malformate si rifiutano con `crs`,
+/// sulla collezione, sulla feature, sulla geometria e su una figlia di una
+/// `GeometryCollection`.
+#[test]
+fn il_membro_crs_storico_deve_nominare_wgs84() {
+    let con_crs = |crs: &str, dove: &str| -> String {
+        let collezione = if dove == "collezione" {
+            format!(r#","crs":{crs}"#)
+        } else {
+            String::new()
+        };
+        let feature = if dove == "feature" {
+            format!(r#","crs":{crs}"#)
+        } else {
+            String::new()
+        };
+        let geometria = if dove == "geometria" {
+            format!(r#","crs":{crs}"#)
+        } else {
+            String::new()
+        };
+        let figlia = if dove == "figlia" {
+            format!(r#","crs":{crs}"#)
+        } else {
+            String::new()
+        };
+        format!(
+            r#"{{"type":"FeatureCollection"{collezione},"features":[{{"type":"Feature"{feature},"geometry":{{"type":"GeometryCollection"{geometria},"geometries":[{{"type":"Point","coordinates":[9.19,45.46]{figlia}}}]}},"properties":{{"n":1}}}}]}}"#
+        )
+    };
+    let nominato = |nome: &str| format!(r#"{{"type":"name","properties":{{"name":"{nome}"}}}}"#);
+    let dir = tempfile::tempdir().unwrap();
+    let dove_tutti = ["collezione", "feature", "geometria", "figlia"];
+
+    let ammessi = [
+        "urn:ogc:def:crs:OGC:1.3:CRS84",
+        "urn:ogc:def:crs:OGC::CRS84",
+        "urn:ogc:def:crs:EPSG::4326",
+        "urn:ogc:def:crs:EPSG:6.6:4326",
+        "EPSG:4326",
+        "OGC:CRS84",
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    ];
+    for (i, nome) in ammessi.iter().enumerate() {
+        for dove in dove_tutti {
+            let layer = match leggi_documento(
+                &dir,
+                &format!("ammesso-{i}-{dove}"),
+                &con_crs(&nominato(nome), dove),
+            ) {
+                Ok(layer) => layer,
+                Err(errore) => panic!("{nome} su {dove}: {errore}"),
+            };
+            let geometria = layer.contract.geometry.unwrap();
+            assert_eq!(geometria.crs.id(), Some("OGC:CRS84"));
+        }
+    }
+
+    let rifiutati = [
+        nominato("urn:ogc:def:crs:EPSG::3003"),
+        nominato("EPSG:3857"),
+        nominato("urn:ogc:def:crs:EPSG::4326:extra"),
+        r#"{"type":"link","properties":{"href":"http://example.com/crs","type":"proj4"}}"#
+            .to_owned(),
+        "null".to_owned(),
+        r#""EPSG:4326""#.to_owned(),
+        r#"{"type":"name"}"#.to_owned(),
+        r#"{"type":"name","properties":{"name":4326}}"#.to_owned(),
+        r#"{"type":"name","properties":{"name":"EPSG:4326","name":"EPSG:3003"}}"#.to_owned(),
+        r#"{"type":"name","type":"name","properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":"name","properties":{"name":"EPSG:4326","href":"x"}}"#.to_owned(),
+    ];
+    for (i, crs) in rifiutati.iter().enumerate() {
+        for dove in dove_tutti {
+            let errore =
+                leggi_documento(&dir, &format!("rifiutato-{i}-{dove}"), &con_crs(crs, dove))
+                    .expect_err(&format!("crs {crs} su {dove} accettato"));
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::Crs,
+                "crs {crs} su {dove}: {errore}"
+            );
+            assert!(!errore.message.contains("3003"), "{}", errore.message);
+        }
+    }
+}
+
 #[test]
 fn duplicate_property_outside_projection_is_rejected() {
     let dir = tempfile::tempdir().unwrap();

@@ -156,6 +156,79 @@ pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
     }
 }
 
+/// Due identificatori `AUTORITA:CODICE` nominano lo stesso CRS (GEO-005):
+/// autorita' uguali ignorando le maiuscole ASCII, codici uguali **come testo**.
+///
+/// Nessuna equivalenza fra autorita' diverse: `OGC:CRS84` ed `EPSG:4326` non
+/// sono lo stesso identificatore, e decidere che descrivono lo stesso CRS
+/// sarebbe il lavoro di un resolver. Un codice scritto in due modi
+/// (`EPSG:04326`) non e' uguale: il confronto non normalizza, e un falso
+/// «diverso» si risolve scrivendo l'identificatore com'e' nella sorgente.
+#[must_use]
+pub fn stesso_identificatore(primo: &str, secondo: &str) -> bool {
+    match (primo.split_once(':'), secondo.split_once(':')) {
+        (Some((autorita_a, codice_a)), Some((autorita_b, codice_b))) => {
+            autorita_a.eq_ignore_ascii_case(autorita_b) && codice_a == codice_b
+        }
+        _ => false,
+    }
+}
+
+/// Verifica `--assume-crs` contro il CRS che la sorgente dichiara.
+///
+/// L'opzione **nomina** un CRS che la sorgente non dichiara (CSV, XLSX, un
+/// `.prj` senza autorita', un DXF senza `GEODATA`). Dove la sorgente dichiara
+/// il proprio, i driver la ignoravano in silenzio: chi chiedeva `EPSG:3003` su
+/// un `GeoPackage` in `EPSG:4326` riceveva `EPSG:4326` senza saperlo, cioe'
+/// un'opzione accettata e non applicata. Ora le due dichiarazioni si
+/// confrontano: uguali (GEO-005, [`stesso_identificatore`]) vanno bene,
+/// diverse sono un conflitto.
+///
+/// Si rifiutano anche i casi in cui l'opzione non si puo' confrontare: un CRS
+/// dichiarato senza identificatore (`crs: null` di `GeoParquet`, una
+/// definizione senza autorita') e una geometria che resta senza CRS perche' il
+/// formato l'opzione non la usa. In entrambi l'alternativa sarebbe tacere che
+/// l'opzione non ha avuto effetto.
+///
+/// # Errors
+///
+/// Categoria `crs`, con un messaggio curato che non riporta gli
+/// identificatori: chi legge l'errore ha gia' l'opzione, e il CRS della
+/// sorgente lo dice `io.inspect` senza l'opzione.
+pub fn verifica_crs_assunto(
+    assunto: Option<&str>,
+    dichiarato: &CrsResolution,
+) -> crate::Result<()> {
+    let Some(assunto) = assunto else {
+        return Ok(());
+    };
+    let identificatore = match dichiarato {
+        CrsResolution::Resolved(crs) => crs.id.as_deref(),
+        CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
+        CrsResolution::Missing => {
+            return Err(crate::PlenoraIoError::crs_redatto(
+                &crate::PublicMessage::Curated(
+                    "--assume-crs non applicato: il formato non usa l'opzione e la sorgente \
+                     non dichiara un CRS",
+                ),
+            ));
+        }
+    };
+    match identificatore {
+        Some(dichiarato) if stesso_identificatore(assunto, dichiarato) => Ok(()),
+        Some(_) => Err(crate::PlenoraIoError::crs_redatto(
+            &crate::PublicMessage::Curated(
+                "--assume-crs contraddice il CRS che la sorgente dichiara",
+            ),
+        )),
+        None => Err(crate::PlenoraIoError::crs_redatto(
+            &crate::PublicMessage::Curated(
+                "--assume-crs non confrontabile: la sorgente dichiara un CRS senza identificatore",
+            ),
+        )),
+    }
+}
+
 /// Estrae il codice numerico da un identificatore di autorità EPSG.
 ///
 /// Gli altri namespace non sono interpretati come SRID: una loro eventuale

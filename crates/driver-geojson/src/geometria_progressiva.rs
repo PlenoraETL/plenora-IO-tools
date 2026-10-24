@@ -500,7 +500,15 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
                         profondita: self.profondita,
                     })?);
                 }
-                // `bbox`, `crs` e i membri estranei restano ignorati, come li
+                // Il membro `crs` di GeoJSON 2008 puo' stare anche sulla
+                // geometria, e in una `GeometryCollection` su ogni figlia: un
+                // CRS che non e' WGS84 si rifiuta (vedi `crs_storico`).
+                "crs" => {
+                    if !map.next_value_seed(crate::crs_storico::CrsStorico)? {
+                        return Err(self.budget.ferma(crate::crs_storico::rifiuto()));
+                    }
+                }
+                // `bbox` e i membri estranei restano ignorati, come li
                 // ignorava la deserializzazione precedente: il lotto sposta il
                 // confine, non l'insieme accettato.
                 _ => {

@@ -89,6 +89,9 @@
     "embedded_crs_definition": [
       "Crs/Validate/Crs/Never"
     ],
+    "epsg_from_definition": [
+      "Crs/Validate/Crs/Never"
+    ],
     "err": [
       "DataMapping/Read/Format/Never"
     ],
@@ -160,6 +163,11 @@
     ],
     "rifiuta_piu_geometrie": [
       "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
+  "crates/driver-geojson/src/crs_storico.rs": {
+    "rifiuto": [
+      "Crs/Validate/Crs/Never"
     ]
   },
   "crates/driver-geojson/src/geometria_progressiva.rs": {
@@ -608,6 +616,13 @@
   "crates/plenora-io-model/src/clock.rs": {
     "advance": [
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/crs.rs": {
+    "verifica_crs_assunto": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
     ]
   },
   "crates/plenora-io-model/src/format_options.rs": {
