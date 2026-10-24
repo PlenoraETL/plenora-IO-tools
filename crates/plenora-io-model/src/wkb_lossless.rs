@@ -15,6 +15,17 @@ fn error(message: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::wkb_redatto(message)
 }
 
+/// GEO-011: un membro di un aggregato ha le dimensioni del contenitore, e un
+/// valore che lo viola e' malformato. Il rifiuto e' del codec -- decodifica,
+/// ispezione e codifica -- e non dei soli percorsi che lo controllavano dopo:
+/// un percorso che non lo facesse avrebbe accettato, o emesso, un valore che il
+/// contratto respinge.
+fn membro_di_altre_dimensioni() -> PlenoraIoError {
+    error(&PublicMessage::Curated(
+        "aggregato WKB con un membro di dimensioni diverse dal contenitore (GEO-011)",
+    ))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WkbFlavor {
     /// OGC/ISO WKB: dimensioni tramite offset 1000/2000/3000, nessun SRID.
@@ -64,6 +75,12 @@ pub struct WkbInspection {
     pub geometry_type: GeometryType,
     pub dimensions: CoordinateDimensions,
     pub srid: Option<i32>,
+    /// Le dimensioni dei membri coincidono con quelle del contenitore.
+    ///
+    /// Dopo la 5.0.1 e' sempre `true` per un'ispezione riuscita: un membro di
+    /// altre dimensioni e' malformato (GEO-011) e [`inspect_wkb`] lo rifiuta.
+    /// Il campo resta per chi lo legge, e i controlli a valle che lo
+    /// consultano restano come difesa.
     pub nested_dimensions_coherent: bool,
     pub contains_srid: bool,
     /// Un membro di una collezione porta uno SRID: sotto `ewkb` lo SRID sta
@@ -653,6 +670,9 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
                     "aggregato WKB con membro di tipo non ammesso",
                 )));
             }
+            if values.iter().any(|child| child.dimensions != dimensions) {
+                return Err(membro_di_altre_dimensioni());
+            }
             match base {
                 4 => WkbValue::MultiPoint(values),
                 5 => WkbValue::MultiLineString(values),
@@ -727,7 +747,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
     } else {
         None
     };
-    let mut nested_dimensions_coherent = true;
+    let nested_dimensions_coherent = true;
     let mut contains_srid = srid.is_some();
     let mut srid_on_member = false;
 
@@ -766,8 +786,12 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
                         "aggregato WKB con membro di tipo non ammesso",
                     )));
                 }
-                nested_dimensions_coherent &=
-                    child.dimensions == dimensions && child.nested_dimensions_coherent;
+                // GEO-011: un membro ha le dimensioni del contenitore. Fino
+                // alla 5.0.1 l'ispezione lo annotava soltanto, e il rifiuto
+                // arrivava a valle, nei percorsi che leggevano il flag.
+                if child.dimensions != dimensions || !child.nested_dimensions_coherent {
+                    return Err(membro_di_altre_dimensioni());
+                }
                 contains_srid |= child.contains_srid;
                 srid_on_member |= child.contains_srid;
             }
@@ -1068,6 +1092,12 @@ fn write_geometry_at(
                 return Err(error(&PublicMessage::Curated(
                     "aggregato WKB con membro di tipo non ammesso",
                 )));
+            }
+            if values
+                .iter()
+                .any(|child| child.dimensions != geometry.dimensions)
+            {
+                return Err(membro_di_altre_dimensioni());
             }
             output.extend_from_slice(&count_u32(values.len())?.to_le_bytes())?;
             for value in values {

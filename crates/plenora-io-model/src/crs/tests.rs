@@ -337,6 +337,48 @@ fn definition_authority_srid_distingue_il_numero_dalla_stringa() {
     }
 }
 
+/// Nel PROJJSON vale la stessa regola del WKT: un codice **numerico** e' un
+/// intero, come per l'oracolo; un codice **stringa** e' testo. `"04326"` e
+/// `"+4326"` davano 4326 per `str::parse`, mentre lo stesso codice in un WKT
+/// dava `None`: due bordi, due verdetti sullo stesso testo.
+#[test]
+fn definition_authority_srid_projjson_distingue_il_numero_dalla_stringa() {
+    let projjson = |codice: &str| format!(r#"{{"id":{{"authority":"EPSG","code":{codice}}}}}"#);
+    for (codice, atteso) in [
+        ("\"4326\"", Some(4326)),
+        ("4326", Some(4326)),
+        ("-0", Some(0)),
+        ("\"04326\"", None),
+        ("\"+4326\"", None),
+        ("\"-4326\"", None),
+        ("\" 4326\"", None),
+        ("4326.0", None),
+        ("-4326", None),
+    ] {
+        assert_eq!(
+            definition_authority_srid(&projjson(codice), CrsDefinitionFormat::Projjson),
+            atteso,
+            "{codice}"
+        );
+    }
+    // L'autorita' si confronta in ASCII: `EPſG` non e' EPSG.
+    assert_eq!(
+        definition_authority_srid(
+            r#"{"id":{"authority":"EPſG","code":4326}}"#,
+            CrsDefinitionFormat::Projjson
+        ),
+        None
+    );
+    // Un documento malformato per l'oracolo (chiave ripetuta) non da' SRID.
+    assert_eq!(
+        definition_authority_srid(
+            r#"{"id":{"authority":"EPSG","code":4326,"code":3003}}"#,
+            CrsDefinitionFormat::Projjson
+        ),
+        None
+    );
+}
+
 /// GEO-005: l'autorita' si confronta senza maiuscole, il codice come testo, e
 /// due autorita' diverse non sono mai lo stesso identificatore.
 #[test]

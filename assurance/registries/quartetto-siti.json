@@ -108,6 +108,7 @@
     ],
     "resolve_dxf_crs": [
       "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never"
     ],
     "write": [
@@ -500,6 +501,9 @@
     "record_all": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "with_read_budget": [
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-core/src/driver/scrittura_limitata.rs": {

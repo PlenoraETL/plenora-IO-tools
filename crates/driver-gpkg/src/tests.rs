@@ -1259,14 +1259,10 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
     }
 }
 
-/// Due righe di `gpkg_geometry_columns` per la stessa tabella: due colonne
-/// geometriche dichiarate. Il reader produceva un layer per riga, con lo stesso
-/// nome, e in ciascuno l'altra geometria usciva come un BLOB qualunque: e' il
-/// degrado a binario e la scelta al posto di chi legge che GEO-012 vieta.
-#[test]
-fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("due-geometrie.gpkg");
+/// Un `GeoPackage` valido con la sola feature table `features` (colonne
+/// `geom`, `id`), scritto dal driver stesso: la base che i test di questo
+/// gruppo estendono con SQL per costruire i casi non conformi.
+fn gpkg_con_un_layer_features(path: &std::path::Path) -> GpkgDriver {
     let schema: SchemaRef = Arc::new(Schema::new(vec![
         geometry_field("geom", "EPSG:4326"),
         Field::new("id", DataType::Int64, false),
@@ -1291,10 +1287,23 @@ fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
     };
     let driver = GpkgDriver;
     let mut writer = driver
-        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
         .unwrap();
     writer.write(&batch).unwrap();
     writer.finish().unwrap();
+
+    driver
+}
+
+/// Due righe di `gpkg_geometry_columns` per la stessa tabella: due colonne
+/// geometriche dichiarate. Il reader produceva un layer per riga, con lo stesso
+/// nome, e in ciascuno l'altra geometria usciva come un BLOB qualunque: e' il
+/// degrado a binario e la scelta al posto di chi legge che GEO-012 vieta.
+#[test]
+fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due-geometrie.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
 
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(
@@ -1313,6 +1322,70 @@ fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
             assert!(!errore.message.contains("features"), "{}", errore.message);
         }
     }
+}
+
+/// La stessa tabella fisica dichiarata due volte con nomi che differiscono
+/// solo per maiuscole. `SQLite` risolve i nomi di tabella senza distinzione di
+/// maiuscole ASCII: `features` e `FEATURES` sono la stessa tabella, con due
+/// colonne geometriche. Il confronto esatto la apriva come due layer, ciascuno
+/// con l'altra geometria degradata a binario (GEO-012).
+#[test]
+fn due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiutate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due-geometrie-maiuscole.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE features ADD COLUMN geom2 BLOB;
+         INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id)
+             SELECT 'FEATURES', data_type, 'FEATURES', last_change, srs_id
+             FROM gpkg_contents WHERE table_name = 'features';
+         INSERT INTO gpkg_geometry_columns VALUES ('FEATURES', 'geom2', 'POINT', 4326, 0, 0);",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("la stessa tabella con due geometrie non deve produrre layer"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert!(!errore.message.contains("geom2"), "{}", errore.message);
+        }
+    }
+}
+
+/// Un nome di colonna geometrica dichiarato con maiuscole diverse da quelle
+/// della tabella. `SQLite` risolve i nomi di colonna senza distinzione di
+/// maiuscole ASCII: `GEOM` e' la colonna `geom`. Il confronto esatto la
+/// esponeva due volte, come geometria e come attributo binario.
+#[test]
+fn la_colonna_geometrica_si_riconosce_come_la_riconosce_sqlite() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("geometria-maiuscola.gpkg");
+    let driver = gpkg_con_un_layer_features(&path);
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "UPDATE gpkg_geometry_columns SET column_name = 'GEOM' WHERE table_name = 'features';",
+    )
+    .unwrap();
+    drop(conn);
+
+    let dataset = match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(dataset) => dataset,
+        Err(errore) => panic!("apertura: {errore}"),
+    };
+    let layers = dataset.layers();
+    assert_eq!(layers.len(), 1);
+    let nomi: Vec<String> = layers[0]
+        .contract
+        .schema
+        .fields()
+        .iter()
+        .map(|campo| campo.name().to_ascii_lowercase())
+        .collect();
+    assert_eq!(nomi, ["geom", "id"], "la geometria esce una volta sola");
 }
 
 /// Regressione sul file che il fuzzing ha usato per portare il reader

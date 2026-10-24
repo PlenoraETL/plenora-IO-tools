@@ -1317,7 +1317,8 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
         .prepare(
             "SELECT c.table_name, g.column_name, g.srs_id,
                     g.geometry_type_name, g.z, g.m
-             FROM gpkg_contents c JOIN gpkg_geometry_columns g ON c.table_name = g.table_name
+             FROM gpkg_contents c JOIN gpkg_geometry_columns g
+                  ON c.table_name = g.table_name COLLATE NOCASE
              WHERE c.data_type = 'features' ORDER BY c.table_name",
         )
         .map_err(sql_err)?;
@@ -1340,11 +1341,18 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
     // colonne geometriche. Il modello porta una geometria per layer: un layer
     // per riga ripeterebbe il nome della tabella e in ciascuno l'altra
     // geometria uscirebbe come BLOB qualunque, cioe' degradata a binario e
-    // scelta al posto di chi legge (GEO-012). Le righe sono ordinate per
-    // tabella, quindi i doppioni sono adiacenti.
-    if out
-        .windows(2)
-        .any(|coppia| coppia[0].table == coppia[1].table)
+    // scelta al posto di chi legge (GEO-012).
+    //
+    // «La stessa tabella» si giudica come la giudica `SQLite`, che risolve i
+    // nomi di tabella senza distinzione di maiuscole ASCII: `features` e
+    // `FEATURES` in `gpkg_contents` sono due righe ma una sola tabella fisica.
+    // Per lo stesso motivo il join sopra usa `NOCASE`, che in `SQLite` piega
+    // solo l'ASCII, come la risoluzione dei nomi. Un confronto esatto qui
+    // aprirebbe la stessa tabella come due layer.
+    let mut tabelle_viste = std::collections::BTreeSet::new();
+    if !out
+        .iter()
+        .all(|riga| tabelle_viste.insert(riga.table.to_ascii_lowercase()))
     {
         return Err(PlenoraIoError::non_supportato_redatto(
             &PublicMessage::Curated(
@@ -1553,7 +1561,11 @@ fn build_schema(
                 "una colonna dichiarata dalla tabella oscura l'alias della chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo deterministico",
             )));
         }
-        if name == geom_col || pk > 0 {
+        // Il nome di colonna dichiarato in `gpkg_geometry_columns` si
+        // confronta come lo risolve `SQLite`, senza distinzione di maiuscole
+        // ASCII: un confronto esatto esporrebbe la colonna geometrica una
+        // seconda volta, come attributo binario.
+        if name.eq_ignore_ascii_case(geom_col) || pk > 0 {
             continue;
         }
         attrs.push((name, sqlite_declared_to_arrow(&decl)));

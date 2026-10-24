@@ -1410,6 +1410,22 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
 - **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
   con `crs` invece di essere scritto come 4326.
+- **Membri di altre dimensioni (GEO-011).** Un aggregato WKB con un membro di
+  dimensioni diverse dal contenitore si rifiuta nel codec, con `data_mapping`,
+  in decodifica, ispezione e codifica.
+- **Nomi ambigui.** Una colonna geometrica il cui nome compare più volte nello
+  schema del layer è `schema` all'apertura, per ogni formato; un
+  `wkt_column`, `x_column` o `y_column` che l'intestazione CSV o XLSX ripete è
+  `data_mapping`. Il GeoPackage confronta tabelle e colonne come SQLite, senza
+  maiuscole ASCII: la stessa tabella dichiarata due volte con due geometrie è
+  `unsupported`.
+- **CRS dichiarati, non dedotti.** `--assume-crs` su uno Shapefile si confronta
+  solo con l'autorità che il `.prj` dichiara: `OGC:CRS84` su un `.prj` ESRI di
+  WGS 84 senza `AUTHORITY` è ora ammesso. Nel `GEODATA` DXF un `EPSG:<codice>`
+  conta solo quando la definizione è l'identificatore: un codice citato nel nome
+  di un WKT non è più una dichiarazione, e quella definizione si nomina con
+  `--assume-crs`. Lo SRID di un PROJJSON segue la regola del WKT: `"04326"` non
+  è 4326.
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è

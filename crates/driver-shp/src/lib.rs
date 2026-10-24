@@ -1524,11 +1524,18 @@ fn resolve_prj(
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     let prj = path.with_extension("prj");
     if let Ok(wkt) = std::fs::read_to_string(&prj) {
-        let dichiarata = authority_id_from_wkt(&wkt);
+        let dichiarata = authority_declared_by_wkt(&wkt);
         // Due dichiarazioni diverse dello stesso CRS: vinceva l'opzione, e il
         // contratto univa il suo identificatore alla definizione del `.prj`,
         // cioe' un CRS che contraddice se stesso (GEO-005). L'opzione resta il
         // modo di nominare un `.prj` che non dichiara un'autorita'.
+        //
+        // Il confronto e' solo con cio' che il `.prj` **dichiara**. La forma
+        // ESRI di WGS 84 non porta un'autorita': `EPSG:4326` e' una deduzione
+        // del driver, e confrontarla con l'opzione rifiutava proprio il caso
+        // per cui l'opzione esiste (`--assume-crs OGC:CRS84` su quel `.prj`).
+        // La deduzione vale solo in assenza dell'opzione, e allora nessun
+        // controllo a valle la confronta con niente.
         if let (Some(assunta), Some(dichiarata)) = (opts.assume_crs.as_deref(), &dichiarata) {
             if !plenora_io_model::crs::stesso_identificatore(assunta, dichiarata) {
                 return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -1538,7 +1545,9 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
         }
         // Concordi, vale la grafia del file: l'opzione puo' scrivere
         // l'autorita' in minuscolo, e l'identificatore e' quello del `.prj`.
-        let id = dichiarata.or_else(|| opts.assume_crs.clone());
+        let id = dichiarata
+            .or_else(|| opts.assume_crs.clone())
+            .or_else(|| authority_deduced_from_esri_wkt(&wkt));
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
@@ -1573,27 +1582,34 @@ fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
 /// riserva: un `PROJCS` su WGS 84 -- ogni UTM WGS 84, EPSG:3031, EPSG:3857 --
 /// contiene quel `GEOGCS` annidato e diventava `EPSG:4326`, con la sua stessa
 /// `AUTHORITY` di radice che lo contraddiceva (GEO-005). L'identificatore di un
-/// CRS base annidato non descrive il CRS esterno: si legge solo la radice, e
-/// il riconoscimento ESRI vale solo per un `GEOGCS` che **e'** la radice.
-fn authority_id_from_wkt(wkt: &str) -> Option<String> {
-    let upper = wkt.trim().to_ascii_uppercase();
-    if upper == "OGC:CRS84" {
+/// CRS base annidato non descrive il CRS esterno: si legge solo la radice.
+///
+/// Solo cio' che il testo **dichiara**: il riconoscimento della forma ESRI,
+/// che e' una deduzione, sta in [`authority_deduced_from_esri_wkt`].
+fn authority_declared_by_wkt(wkt: &str) -> Option<String> {
+    if wkt.trim().eq_ignore_ascii_case("OGC:CRS84") {
         return Some("OGC:CRS84".to_owned());
     }
     // `.prj` e' WKT 1 (ESRI o OGC); la lettura della radice e' la stessa per
     // `AUTHORITY[` e `ID[`, quindi copre anche un WKT 2.
-    if let Some(code) = plenora_io_model::crs::definition_authority_srid(
+    plenora_io_model::crs::definition_authority_srid(
         wkt,
         plenora_io_model::crs::CrsDefinitionFormat::Wkt,
-    ) {
-        return Some(format!("EPSG:{code}"));
-    }
-    // Il writer Shapefile emette questa forma ESRI WKT1 canonica, che non
-    // contiene AUTHORITY ma identifica senza ambiguità WGS 84.
-    if upper.starts_with("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\"") {
-        return Some("EPSG:4326".to_owned());
-    }
-    None
+    )
+    .map(|code| format!("EPSG:{code}"))
+}
+
+/// L'identificatore che il driver **deduce** dalla forma ESRI WKT1 canonica di
+/// WGS 84, quella che il writer Shapefile emette: non contiene `AUTHORITY`, ma
+/// identifica senza ambiguita' WGS 84. Il riconoscimento vale solo per un
+/// `GEOGCS` che **e'** la radice.
+///
+/// E' una deduzione e non una dichiarazione: non si confronta con
+/// `--assume-crs`, e vale solo quando l'opzione manca.
+fn authority_deduced_from_esri_wkt(wkt: &str) -> Option<String> {
+    let upper = wkt.trim().to_ascii_uppercase();
+    (upper.starts_with("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\""))
+        .then(|| "EPSG:4326".to_owned())
 }
 
 fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {

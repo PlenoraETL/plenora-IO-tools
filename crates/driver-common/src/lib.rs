@@ -556,6 +556,39 @@ pub fn geometry_field(name: &str, crs_id: &str) -> Field {
     Field::new(name, DataType::Binary, true).with_metadata(md)
 }
 
+/// Esito della ricerca di una colonna per nome in un'intestazione.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColonnaPerNome {
+    /// Nessuna colonna ha quel nome.
+    Assente,
+    /// Una e una sola colonna ha quel nome: il suo indice.
+    Unica(usize),
+    /// Piu' colonne hanno quel nome. Scegliere la prima sarebbe una scelta
+    /// fatta al posto di chi legge, e la geometria potrebbe uscire dalla
+    /// colonna sbagliata senza alcun segnale: il chiamante rifiuta.
+    Ambigua,
+}
+
+/// Cerca `nome` in `intestazione` per uguaglianza esatta, distinguendo il
+/// nome assente da quello ripetuto.
+///
+/// Un'intestazione CSV o XLSX puo' ripetere un nome; `position` restituiva la
+/// prima occorrenza e la richiesta veniva soddisfatta da una colonna scelta in
+/// silenzio.
+#[must_use]
+pub fn colonna_per_nome<S: AsRef<str>>(intestazione: &[S], nome: &str) -> ColonnaPerNome {
+    let mut trovate = intestazione
+        .iter()
+        .enumerate()
+        .filter(|(_, candidato)| candidato.as_ref() == nome)
+        .map(|(indice, _)| indice);
+    match (trovate.next(), trovate.next()) {
+        (None, _) => ColonnaPerNome::Assente,
+        (Some(indice), None) => ColonnaPerNome::Unica(indice),
+        (Some(_), Some(_)) => ColonnaPerNome::Ambigua,
+    }
+}
+
 /// Indice della prima colonna dichiarata come geometria `GeoArrow` WKB.
 #[must_use]
 pub fn geometry_index(schema: &Schema) -> Option<usize> {

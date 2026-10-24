@@ -847,6 +847,48 @@ fn n1_la_larghezza_accettata_precede_i_due_rifiuti_sull_indice_di_colonna() {
 /// e' cinque, e ogni attesa lo somma. Con uno zero al suo posto la tabella
 /// resterebbe verde anche se la somma sparisse.
 #[test]
+fn n1_resolve_geometry_rifiuta_un_nome_che_l_intestazione_ripete() {
+    let intestazioni: Vec<String> = ["geom", "lon", "lat", "geom", "lon", "lat"]
+        .iter()
+        .map(|nome| (*nome).to_owned())
+        .collect();
+    for (coppie, atteso) in [
+        (
+            vec![("wkt_column", "geom")],
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        ),
+        (
+            vec![("x_column", "lon"), ("y_column", "lat")],
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        ),
+    ] {
+        let opzioni: BTreeMap<String, String> = coppie
+            .iter()
+            .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+            .collect();
+        let Err(errore) = resolve_geometry(&intestazioni, 0, &opzioni) else {
+            panic!("{coppie:?}: un nome ripetuto non deve scegliere la prima colonna");
+        };
+        assert_eq!(errore.message, atteso, "{coppie:?}");
+    }
+    let solo_y: Vec<String> = ["lon", "lat", "lat"]
+        .iter()
+        .map(|nome| (*nome).to_owned())
+        .collect();
+    let opzioni: BTreeMap<String, String> = [("x_column", "lon"), ("y_column", "lat")]
+        .iter()
+        .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+        .collect();
+    let Err(errore) = resolve_geometry(&solo_y, 0, &opzioni) else {
+        panic!("un'ordinata ripetuta non deve scegliere la prima colonna");
+    };
+    assert_eq!(
+        errore.message,
+        "colonna Y ambigua: il nome compare piu' volte nell'intestazione"
+    );
+}
+
+#[test]
 fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
     const INIZIO: u32 = 5;
     let intestazioni: Vec<String> = ["id", "geom", "lon", "lat"]

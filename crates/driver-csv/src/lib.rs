@@ -31,6 +31,7 @@ use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
+use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -202,7 +203,15 @@ fn colonne_geometriche(
     headers: &[String],
     format_options: &std::collections::BTreeMap<String, String>,
 ) -> Result<(GeomSpec, HashSet<usize>)> {
-    let idx = |name: &str| headers.iter().position(|h| h == name);
+    // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
+    // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
+    let idx = |name: &str, assente: &'static str, ambigua: &'static str| match colonna_per_nome(
+        headers, name,
+    ) {
+        ColonnaPerNome::Unica(indice) => Ok(indice),
+        ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+        ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+    };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
     // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
     // chi legge. La richiesta si contraddice, e si corregge la richiesta.
@@ -221,27 +230,27 @@ fn colonne_geometriche(
         ));
     }
     if let Some(w) = format_options.get("wkt_column") {
-        let wi = idx(w).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna WKT assente dall'intestazione",
-            ))
-        })?;
+        let wi = idx(
+            w,
+            "colonna WKT assente dall'intestazione",
+            "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((GeomSpec::Wkt(wi), HashSet::from([wi])));
     }
     if let (Some(x), Some(y)) = (
         format_options.get("x_column"),
         format_options.get("y_column"),
     ) {
-        let xi = idx(x).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna X assente dall'intestazione",
-            ))
-        })?;
-        let yi = idx(y).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "colonna Y assente dall'intestazione",
-            ))
-        })?;
+        let xi = idx(
+            x,
+            "colonna X assente dall'intestazione",
+            "colonna X ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
+        let yi = idx(
+            y,
+            "colonna Y assente dall'intestazione",
+            "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
+        )?;
         return Ok((GeomSpec::Xy(xi, yi), HashSet::from([xi, yi])));
     }
     Err(err(&PublicMessage::Curated(

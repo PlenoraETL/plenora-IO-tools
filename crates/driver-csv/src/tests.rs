@@ -607,6 +607,39 @@ fn wkt_column_insieme_a_x_y_e_una_configurazione_ambigua() {
     }
 }
 
+/// Un'intestazione che ripete il nome della colonna dichiarata: la geometria
+/// usciva dalla prima occorrenza, scelta in silenzio, e la seconda diventava
+/// un attributo. Il nome e' ambiguo e la lettura si rifiuta.
+#[test]
+fn una_colonna_geometrica_dal_nome_ripetuto_e_rifiutata() {
+    let dir = tempfile::tempdir().unwrap();
+    let casi: [(&str, &[(&str, &str)]); 3] = [
+        (
+            "geo_segreta,id,geo_segreta\nPOINT (1 2),1,POINT (3 4)\n",
+            &[("wkt_column", "geo_segreta")],
+        ),
+        (
+            "x_segreta,y_segreta,x_segreta\n1,2,3\n",
+            &[("x_column", "x_segreta"), ("y_column", "y_segreta")],
+        ),
+        (
+            "x_segreta,y_segreta,y_segreta\n1,2,3\n",
+            &[("x_column", "x_segreta"), ("y_column", "y_segreta")],
+        ),
+    ];
+    for (indice, (testo, opzioni)) in casi.into_iter().enumerate() {
+        let src = dir.path().join(format!("dup{indice}.csv"));
+        std::fs::write(&src, testo).unwrap();
+        match CsvDriver.open(Source::Path(src), read_opts(opzioni)) {
+            Ok(_) => panic!("{opzioni:?}: nome di colonna ripetuto accettato"),
+            Err(errore) => {
+                assert!(errore.message.contains("ambigua"), "{}", errore.message);
+                assert!(!errore.message.contains("segreta"), "{}", errore.message);
+            }
+        }
+    }
+}
+
 #[test]
 fn round_trip_csv_xy() {
     let dir = tempfile::tempdir().unwrap();
