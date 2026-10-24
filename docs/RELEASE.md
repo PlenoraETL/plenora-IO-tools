@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `732fba3` |
-| candidate, versione del manifesto | `5.0.1` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
-| candidate, versione del workspace | `5.0.1` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v5.0.1` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `6.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `6.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v6.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 6 |
-| release_authorized | `true` |
+| release pubblicate | 7 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)

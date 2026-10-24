@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -430,6 +430,67 @@
         "versione_pacchetto_python": "5.0.0",
         "evidenza": "assurance/evidence/checkpoint-a70501e.json",
         "perche_e_qui": "La 5.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 5.0.1. Lo spostamento non ne allenta niente: i campi restano quelli della registrazione pubblicata, e il gate rilegge dall'archivio le stesse domande."
+      },
+      {
+        "versione_manifesto": "5.0.1",
+        "tag_previsto": "v5.0.1",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate **attiva**, congelata su `732fba3`: il merge della PR #72, che porta l'apertura difensiva dei GeoPackage ricevuti e il ritiro della candidate precedente. Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\n**La candidate precedente, congelata su `30dc486`, e' stata ritirata**: il suo livello 2 ha chiuso 108/111 per un SEGV di AddressSanitizer dentro il SQLite incluso, osservato dallo smoke di `gpkg_reader` e non riproducibile (input conservato e seme su sei ricostruzioni del corpus). La correzione del difetto di classe -- il GeoPackage ricevuto si apriva in lettura-scrittura senza le difese per i database ostili, e con un journal caldo la lettura modificava il file dell'utente -- e' in #72; trenta minuti di `gpkg_reader` con la correzione, 3.036.830 esecuzioni, nessun crash. Il confine ASan su SQLite e' dichiarato in ENGINEERING.md con la sua condizione di rientro.\n\n**Le misure del perimetro valgono su questa revisione** senza rimisura: `driver-gpkg` non e' nel perimetro di nessun bersaglio di profondita' ne' del confine ASan, e il gate lo conferma (9/9, 35/35, 9/9, 12/12; ASan 170038 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32).\n\n**I sette artefatti sono fissati dalla provenance della distribuzione candidate 39930822573**, canale candidate su questa revisione; il gate finale dei referti e' verde. Wheel e sdist Python coincidono al bit con quelli della candidate ritirata (l'SDK non e' cambiato), i binari no (il driver si').\n\n**Che cosa resta, intero.** Livello 2 sulla stessa revisione, draft release riscaricata e verificata, attestazioni del profilo pubblico, decisione di rilascio del titolare (release_authorized resta false finche' non e' registrata), tag v5.0.1 sulla candidate, pubblicazione dalla draft immutata e verifica post-pubblicazione.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.1 il 2026-10-23: alla richiesta esplicita di autorizzare IO 5.0.1 e storage 3.0.2, presentata con livello 2 111/111 e attestazioni 32/32 su quattro archivi, il titolare ha risposto «continua». `release_authorized` registra quella decisione e non la deriva da niente. `release_action_allowed` e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione.\n\n**Pubblicata il 2026-10-23** alle 21:45:15Z, dalla draft immutata, come release `v5.0.1` (latest) con 23 asset. Il gate `check_release_contract.py --release` e' stato eseguito verde in CI sul commit di registrazione `6bb5a81` (release-qualification 40021454014, manifesto materializzato dalla distribuzione 39930822573, contratti al pin); la qualifica sul push del tag e' rossa per costruzione, perche' sul commit del tag la candidate e' ancora quella ritirata. Il permesso operativo `release_action_allowed` e' speso e torna `false`.\n\n**Verifica dopo la pubblicazione**: i sette artefatti riscaricati dalla release pubblicata sono byte-identici ai fissati qui, e i 23 asset coincidono con quelli della draft verificata.",
+        "revisione_candidate": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+        "assurance_entro_l_allowlist": true,
+        "artefatti": [
+          {
+            "nome": "plenora-io-5.0.1-linux-x86_64-base.tar.gz",
+            "sha256": "bce3d4bfe094bc13a836a8e17183a6af8b935948f58478b1ff77fcdd49701d09",
+            "dimensione": 8855949,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora-io-5.0.1-linux-x86_64-filegdb.tar.gz",
+            "sha256": "8f46bc883a38b720c4ad442188f21db79e1610f59cc57781861bb3671838b8f0",
+            "dimensione": 64708974,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora_io-5.0.1-py3-none-any.whl",
+            "sha256": "427b9f73e1b63d35a18f28c1e1c6cd52876f718cc3773d08f21ddb03753cc380",
+            "dimensione": 114515,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora_io-5.0.1.tar.gz",
+            "sha256": "1d0e29fe05be6c60062d3fdc713a6423454995591f02b56136cd8b140bf3d640",
+            "dimensione": 209917,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora-io-5.0.1-windows-x86_64-base.zip",
+            "sha256": "590f7ce807ec1a55a113ac6f9064c443646c3abcce12fa6d5e0ce56c279d2e72",
+            "dimensione": 9641306,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora-io-5.0.1-windows-x86_64-filegdb.zip",
+            "sha256": "1e2a2c93bf6545d763e339e1bf0144f46767e1820840037310796a8331e678c7",
+            "dimensione": 48700041,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          },
+          {
+            "nome": "plenora-io-5.0.1-src.tar.gz",
+            "sha256": "d7a142689a44fa165727adfad54a890d6fb4c4c4b37292e0fca1c045f793de26",
+            "dimensione": 20945344,
+            "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
+          }
+        ],
+        "tag_revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+        "commit_di_assurance": "0fd44a85bb60c5dd810fea4f117d3171aad72108",
+        "release_action_allowed": false,
+        "versione_pacchetto_python": "5.0.1",
+        "evidenza": "assurance/evidence/checkpoint-732fba3.json",
+        "perche_e_qui": "La 5.0.1 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 6.0.0. Lo spostamento non ne allenta niente: i campi restano quelli della registrazione pubblicata, e il gate rilegge dall'archivio le stesse domande."
       }
     ]
   },
@@ -462,63 +523,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "5.0.1",
-      "versione_workspace": "5.0.1",
-      "tag_previsto": "v5.0.1",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "6.0.0",
+      "versione_workspace": "6.0.0",
+      "tag_previsto": "v6.0.0",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "Candidate **attiva**, congelata su `732fba3`: il merge della PR #72, che porta l'apertura difensiva dei GeoPackage ricevuti e il ritiro della candidate precedente. Questo commit la nomina, perche' un commit non puo' nominare se stesso.\n\n**La candidate precedente, congelata su `30dc486`, e' stata ritirata**: il suo livello 2 ha chiuso 108/111 per un SEGV di AddressSanitizer dentro il SQLite incluso, osservato dallo smoke di `gpkg_reader` e non riproducibile (input conservato e seme su sei ricostruzioni del corpus). La correzione del difetto di classe -- il GeoPackage ricevuto si apriva in lettura-scrittura senza le difese per i database ostili, e con un journal caldo la lettura modificava il file dell'utente -- e' in #72; trenta minuti di `gpkg_reader` con la correzione, 3.036.830 esecuzioni, nessun crash. Il confine ASan su SQLite e' dichiarato in ENGINEERING.md con la sua condizione di rientro.\n\n**Le misure del perimetro valgono su questa revisione** senza rimisura: `driver-gpkg` non e' nel perimetro di nessun bersaglio di profondita' ne' del confine ASan, e il gate lo conferma (9/9, 35/35, 9/9, 12/12; ASan 170038 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32).\n\n**I sette artefatti sono fissati dalla provenance della distribuzione candidate 39930822573**, canale candidate su questa revisione; il gate finale dei referti e' verde. Wheel e sdist Python coincidono al bit con quelli della candidate ritirata (l'SDK non e' cambiato), i binari no (il driver si').\n\n**Che cosa resta, intero.** Livello 2 sulla stessa revisione, draft release riscaricata e verificata, attestazioni del profilo pubblico, decisione di rilascio del titolare (release_authorized resta false finche' non e' registrata), tag v5.0.1 sulla candidate, pubblicazione dalla draft immutata e verifica post-pubblicazione.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 5.0.1 il 2026-10-23: alla richiesta esplicita di autorizzare IO 5.0.1 e storage 3.0.2, presentata con livello 2 111/111 e attestazioni 32/32 su quattro archivi, il titolare ha risposto «continua». `release_authorized` registra quella decisione e non la deriva da niente. `release_action_allowed` e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione.\n\n**Pubblicata il 2026-10-23** alle 21:45:15Z, dalla draft immutata, come release `v5.0.1` (latest) con 23 asset. Il gate `check_release_contract.py --release` e' stato eseguito verde in CI sul commit di registrazione `6bb5a81` (release-qualification 40021454014, manifesto materializzato dalla distribuzione 39930822573, contratti al pin); la qualifica sul push del tag e' rossa per costruzione, perche' sul commit del tag la candidate e' ancora quella ritirata. Il permesso operativo `release_action_allowed` e' speso e torna `false`.\n\n**Verifica dopo la pubblicazione**: i sette artefatti riscaricati dalla release pubblicata sono byte-identici ai fissati qui, e i 23 asset coincidono con quelli della draft verificata.",
-      "revisione_candidate": "732fba374cd12aed7995c11c3ed48128e8f5992b",
-      "artefatti": [
-        {
-          "nome": "plenora-io-5.0.1-linux-x86_64-base.tar.gz",
-          "sha256": "bce3d4bfe094bc13a836a8e17183a6af8b935948f58478b1ff77fcdd49701d09",
-          "dimensione": 8855949,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora-io-5.0.1-linux-x86_64-filegdb.tar.gz",
-          "sha256": "8f46bc883a38b720c4ad442188f21db79e1610f59cc57781861bb3671838b8f0",
-          "dimensione": 64708974,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora_io-5.0.1-py3-none-any.whl",
-          "sha256": "427b9f73e1b63d35a18f28c1e1c6cd52876f718cc3773d08f21ddb03753cc380",
-          "dimensione": 114515,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora_io-5.0.1.tar.gz",
-          "sha256": "1d0e29fe05be6c60062d3fdc713a6423454995591f02b56136cd8b140bf3d640",
-          "dimensione": 209917,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora-io-5.0.1-windows-x86_64-base.zip",
-          "sha256": "590f7ce807ec1a55a113ac6f9064c443646c3abcce12fa6d5e0ce56c279d2e72",
-          "dimensione": 9641306,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora-io-5.0.1-windows-x86_64-filegdb.zip",
-          "sha256": "1e2a2c93bf6545d763e339e1bf0144f46767e1820840037310796a8331e678c7",
-          "dimensione": 48700041,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        },
-        {
-          "nome": "plenora-io-5.0.1-src.tar.gz",
-          "sha256": "d7a142689a44fa165727adfad54a890d6fb4c4c4b37292e0fca1c045f793de26",
-          "dimensione": 20945344,
-          "revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b"
-        }
-      ],
-      "assurance_entro_l_allowlist": true,
-      "tag_revisione": "732fba374cd12aed7995c11c3ed48128e8f5992b",
-      "commit_di_assurance": "0fd44a85bb60c5dd810fea4f117d3171aad72108"
+      "stato": "iniziale",
+      "nota": "Candidate **iniziale**: la 6.0.0 segue la 5.0.1. Major: la rilettura dell'adozione di Arrow Geometry Semantics (#75) restringe gli ingressi accettati e cambia la categoria di alcuni rifiuti (le voci sono nelle note della prossima release di RELEASE.md). Il bump cambia `Cargo.lock`, che sta nel perimetro di ogni misura: le profondita' dei quattro bersagli e il confine ASan sono GIA' rimisurati su quest'albero, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica: 12/12 filegdb, 35/35 shp, 9/9 geojson, 9/9 wkt; confine ASan 176237 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32. Cambiano le sole impronte. L'albero non e' ancora congelato: finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata. Il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso."
     }
   },
   "docset": {
