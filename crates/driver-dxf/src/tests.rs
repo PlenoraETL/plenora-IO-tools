@@ -299,6 +299,32 @@ fn missing_geodata_requires_explicit_assumption() {
     assert_eq!(resolved.id.as_deref(), Some("EPSG:3857"));
 }
 
+/// Due `GEODATA` con definizioni diverse sono due dichiarazioni del CRS del
+/// disegno: vinceva la prima, e l'altra non lasciava traccia. Due definizioni
+/// uguali non sono un conflitto.
+#[test]
+fn due_geodata_discordi_sono_rifiutati() {
+    let mut drawing = Drawing::new();
+    for definizione in [WGS84_ESRI_WKT, "EPSG:3857"] {
+        drawing.add_object(Object::new(ObjectType::GeoData(GeoData {
+            coordinate_system_definition: definizione.to_owned(),
+            ..Default::default()
+        })));
+    }
+    let errore = resolve_dxf_crs(&drawing, &opzioni_lettura()).unwrap_err();
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+
+    let mut concordi = Drawing::new();
+    for _ in 0..2 {
+        concordi.add_object(Object::new(ObjectType::GeoData(GeoData {
+            coordinate_system_definition: WGS84_ESRI_WKT.to_owned(),
+            ..Default::default()
+        })));
+    }
+    let risolto = resolve_dxf_crs(&concordi, &opzioni_lettura()).unwrap();
+    assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+}
+
 #[test]
 fn geodata_epsg_is_resolved_without_fallback() {
     let mut drawing = Drawing::new();

@@ -104,3 +104,18 @@ fn open_without_gdal_feature_is_typed() {
         error if error.code == plenora_io_model::IoErrorCode::Unsupported
     ));
 }
+
+/// Un layer con due campi geometrici non si legge: il reader prendeva il primo
+/// e gli altri sparivano dallo schema (GEO-012). Zero e uno restano leggibili:
+/// una tabella non ne ha, una feature class ne ha uno.
+#[test]
+fn piu_campi_geometrici_rendono_il_layer_non_supportato() {
+    assert!(rifiuta_piu_geometrie(0).is_ok());
+    assert!(rifiuta_piu_geometrie(1).is_ok());
+    let errore = rifiuta_piu_geometrie(2).unwrap_err();
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::Unsupported
+    );
+}

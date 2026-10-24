@@ -1146,6 +1146,23 @@ fn resolve_geometry(
             .and_then(|offset| u32::try_from(offset).ok())
             .and_then(|offset| start_column.checked_add(offset))
     };
+    // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
+    // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
+    // chi legge. La richiesta si contraddice, e si corregge la richiesta.
+    if opts.contains_key("wkt_column")
+        && (opts.contains_key("x_column") || opts.contains_key("y_column"))
+    {
+        return Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            plenora_io_model::ErrorPhase::Validate,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            &PublicMessage::Curated(
+                "xlsx: wkt_column esclude x_column e y_column; dichiarare una sola geometria",
+            ),
+        ));
+    }
     if let Some(wkt_name) = opts.get("wkt_column") {
         // I nomi delle colonne non escono: sono valori d'opzione, e l'unico
         // testo runtime ammesso e' il token del validatore centrale, che qui

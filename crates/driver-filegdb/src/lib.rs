@@ -106,6 +106,35 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
 
 pub struct FileGdbDriver;
 
+/// Rifiuta la lettura di un layer che dichiara piu' di un campo geometrico.
+///
+/// Il modello porta un contratto geometrico per layer, e il reader prendeva il
+/// primo campo: gli altri non comparivano nemmeno nello schema, e sparivano.
+/// E' la scelta al posto di chi legge che GEO-012 vieta. Il layer resta
+/// enumerato -- rifiutare all'apertura chiuderebbe anche i layer leggibili
+/// accanto a lui -- e la scoperta ne dichiara il numero in
+/// `filegdb.geometry_field_count`.
+///
+/// Sta fuori dal backend perche' la decisione non dipende da GDAL e si prova
+/// anche senza: `OpenFileGDB` non scrive layer con due geometrie, e nessuna
+/// fixture del driver saprebbe produrne uno.
+///
+/// # Errors
+///
+/// `Unsupported` con piu' di un campo geometrico.
+#[cfg_attr(not(feature = "gdal-backend"), allow(dead_code))]
+fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()> {
+    if campi_geometrici > 1 {
+        return Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
+            &plenora_io_model::PublicMessage::Curated(
+                "FileGDB: il layer dichiara piu' campi geometrici, e il componente porta una \
+                 sola geometria per layer (GEO-012)",
+            ),
+        ));
+    }
+    Ok(())
+}
+
 // --- la superficie del fuzz target -----------------------------------------
 //
 // Vive qui, e non dentro `fuzz/fuzz_targets/`, per la stessa ragione per cui ci
@@ -1427,12 +1456,33 @@ mod backend {
         geometry
     }
 
+    /// Apre il percorso con il **solo** driver `OpenFileGDB`.
+    ///
+    /// `Dataset::open` lascia scegliere a GDAL fra tutti i driver registrati,
+    /// e una directory `.gdb` che contiene altro -- per esempio dei CSV, che il
+    /// driver CSV di GDAL apre come directory -- veniva letta come se fosse un
+    /// `FileGDB`: un'interpretazione scelta da GDAL al posto di chi legge, con
+    /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
+    /// fallisce.
+    fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
+        Dataset::open_ex(
+            path,
+            gdal::DatasetOptions {
+                open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
+                    | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
+                allowed_drivers: Some(&["OpenFileGDB"]),
+                open_options: None,
+                sibling_files: None,
+            },
+        )
+    }
+
     pub fn open(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
-        let ds = Dataset::open(path)
+        let ds = apri_solo_filegdb(path)
             .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
@@ -1458,6 +1508,10 @@ mod backend {
                 .geom_fields()
                 .next()
                 .map(|field| field.field_type());
+            // Quanti campi geometrici il layer dichiara. Il contratto ne porta
+            // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
+            // li conta, e la lettura del layer si rifiuta (GEO-012).
+            let campi_geometrici = layer.defn().geom_fields().count();
             // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
             // una tabella significava chiedere un `--assume-crs` per dei dati
             // che non sono spaziali, con un messaggio che parlava di geometria.
@@ -1474,10 +1528,16 @@ mod backend {
                             ))
                         })?
                         .to_owned();
-                    Some((
-                        crs_label,
-                        geometry_contract_from_ogr(ogr_geometry_type, crs),
-                    ))
+                    let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
+                    if campi_geometrici > 1 {
+                        // Il limite si vede dalla scoperta, come chiede
+                        // GEO-012: il numero e' strutturale, non un dato.
+                        geometria.native_metadata.insert(
+                            "filegdb.geometry_field_count".to_owned(),
+                            campi_geometrici.to_string(),
+                        );
+                    }
+                    Some((crs_label, geometria))
                 }
                 None => None,
             };
@@ -1542,6 +1602,7 @@ mod backend {
                 gdal_idx: i,
                 fields,
                 ha_geometria,
+                campi_geometrici,
             });
         }
         Ok(Box::new(GdbDataset {
@@ -1618,6 +1679,9 @@ mod backend {
         /// zero. Il reader sottraeva sempre uno, e su una tabella avrebbe
         /// letto il campo sbagliato -- o nessuno.
         ha_geometria: bool,
+        /// I campi geometrici che il layer dichiara; piu' di uno rende il
+        /// layer illeggibile, vedi [`super::rifiuta_piu_geometrie`].
+        campi_geometrici: usize,
     }
 
     struct GdbDataset {
@@ -1650,6 +1714,7 @@ mod backend {
                     ))
                 })?;
             let m = &self.metas[idx];
+            super::rifiuta_piu_geometrie(m.campi_geometrici)?;
             let (indices, layer_contract) =
                 plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
             // In una feature class l'indice Arrow zero e' la geometria e gli
@@ -1744,7 +1809,7 @@ mod backend {
             contract,
             2,
             move |emitter: BatchEmitter| {
-                let ds = Dataset::open(&path)
+                let ds = apri_solo_filegdb(&path)
                     .map_err(|_| err(&PublicMessage::Curated("apertura del FileGDB fallita")))?;
                 let mut layer = ds.layer(gdal_idx).map_err(|_| {
                     err(&PublicMessage::Curated(
@@ -3322,6 +3387,31 @@ mod backend {
         /// indici di layer sotto i piedi di chi li ha letti dal catalogo, e un
         /// `--layer 1` significherebbe due cose diverse a seconda di quali
         /// layer il driver ha deciso di nascondere.
+        /// Una directory `.gdb` che non e' un `FileGDB` non si legge come tale.
+        ///
+        /// `Dataset::open` lasciava scegliere a GDAL il driver, e il driver CSV
+        /// di GDAL apre una directory di CSV: un `.csvt` che marca due colonne
+        /// `WKT` ne fa un layer con **due** campi geometrici, di cui il reader
+        /// prendeva il primo. Due scelte silenziose in una: il formato e la
+        /// geometria.
+        #[test]
+        fn una_directory_gdb_che_non_e_un_filegdb_non_si_apre() {
+            let dir = tempfile::tempdir().unwrap();
+            let percorso = dir.path().join("travestito.gdb");
+            std::fs::create_dir(&percorso).unwrap();
+            std::fs::write(
+                percorso.join("a.csv"),
+                "g1,g2,id\n\"POINT (1 2)\",\"POINT (3 4)\",1\n",
+            )
+            .unwrap();
+            std::fs::write(percorso.join("a.csvt"), "WKT,WKT,Integer\n").unwrap();
+
+            assert!(
+                open(&percorso, Some("EPSG:4326")).is_err(),
+                "una directory di CSV non e' un FileGDB"
+            );
+        }
+
         #[test]
         fn una_tabella_non_spaziale_non_impedisce_di_aprire_la_gdb() {
             let dir = tempfile::tempdir().unwrap();

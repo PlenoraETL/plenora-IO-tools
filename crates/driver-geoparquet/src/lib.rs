@@ -1150,16 +1150,18 @@ impl FormatDriver for GeoParquetDriver {
             out_schema.field(geom_idx).is_nullable(),
         );
         apply_geo_column_metadata(&mut geometry, geo.as_ref());
+        // Le altre geometrie si contano sullo schema esposto **prima** del
+        // contratto: `DataContract::new` riscrive i metadati della sola
+        // primaria e non sposta i campi, quindi gli indici restano validi per
+        // lo schema che esce, e il loro elenco puo' entrare nel contratto.
+        let altre_geometrie =
+            indici_delle_altre_geometrie(&out_schema, Some(geometry.name.as_str()), geo.as_ref());
+        nomina_le_altre_geometrie(&mut geometry, &out_schema, &altre_geometrie);
         let contract = DataContract::new(out_schema, Some(geometry));
         // `DataContract::new` rende i metadati geometrici del contratto
         // autoritativi; anche i batch runtime devono essere retaggati con
         // quello stesso schema, non con la versione intermedia.
         let out_schema = contract.schema.clone();
-        let altre_geometrie = indici_delle_altre_geometrie(
-            &out_schema,
-            contract.geometry.as_ref().map(|g| g.name.as_str()),
-            geo.as_ref(),
-        );
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -2081,8 +2083,25 @@ fn resolve_geometry_and_crs(
     }
 
     // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria si
-    // riconosce dal nome. Resta il comportamento di sempre.
-    let primary = ["geometry", "geom", "wkb"]
+    // riconosce dal nome. Resta il comportamento di sempre, con un limite: se
+    // i nomi riconosciuti sono piu' d'uno vinceva il primo dell'elenco e
+    // l'altra colonna usciva come binario qualunque. Il file non dice quale
+    // sia la geometria, e scegliere al posto suo e' cio' che GEO-012 vieta.
+    let candidati = ["geometry", "geom", "wkb"];
+    if candidati
+        .iter()
+        .filter(|n| schema.index_of(n).is_ok())
+        .count()
+        > 1
+    {
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "Parquet senza metadato `geo` con piu' colonne dai nomi riconosciuti come \
+                 geometria (geometry, geom, wkb): il file non dice quale sia la geometria",
+            ),
+        ));
+    }
+    let primary = candidati
         .iter()
         .find(|n| schema.index_of(n).is_ok())
         .map(std::string::ToString::to_string)
@@ -2180,17 +2199,10 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
             "crs_storico_solo_identificatore_non_conforme".to_owned(),
         );
     }
-    // Le altre colonne geometriche del file. Un GeoParquet puo' averne piu' di
-    // una, e finora il contratto non nominava quelle che non erano la primaria:
-    // un consumatore non aveva modo di sapere che esistessero. Nominarle e' cio'
-    // che rende il limite prevedibile dalla scoperta (GEO-012): una lettura che
-    // le tocca e' rifiutata, vedi `rifiuta_le_altre_geometrie`.
-    if !geo.secondarie.is_empty() {
-        let altre: Vec<&str> = geo.secondarie.keys().map(String::as_str).collect();
-        contract
-            .native_metadata
-            .insert("geoparquet.altre_colonne".to_owned(), altre.join(","));
-    }
+    // Le altre colonne geometriche del file non si nominano qui: questa
+    // funzione vede solo il documento `geo`, e un campo che lo schema Arrow
+    // incorporato marca come geometria ne resterebbe fuori. Vedi
+    // `nomina_le_altre_geometrie`.
     // I campi che la validazione legge arrivano **fino al contratto**.
     //
     // Validarli e poi buttarli via sarebbe stata la meta' del lavoro: chi legge
@@ -2277,6 +2289,35 @@ fn indici_delle_altre_geometrie(
         })
         .map(|(indice, _)| indice)
         .collect()
+}
+
+/// Nomina nel contratto della primaria le altre colonne geometriche del file.
+///
+/// Un `GeoParquet` puo' averne piu' di una, e la scoperta deve rendere il limite
+/// prevedibile (GEO-012): una lettura che le tocca e' rifiutata, vedi
+/// [`rifiuta_le_altre_geometrie`]. Le fonti sono le stesse di quel rifiuto --
+/// [`indici_delle_altre_geometrie`] -- e non solo il documento `geo`: prima un
+/// campo marcato come geometria dallo schema Arrow incorporato, ma non
+/// dichiarato da `geo`, era rifiutato in lettura senza che la scoperta lo
+/// nominasse, e il layer si descriveva leggibile.
+///
+/// L'elenco e' in ordine alfabetico, separato da virgole.
+fn nomina_le_altre_geometrie(
+    contract: &mut GeometryColumnContract,
+    schema: &Schema,
+    altre: &[usize],
+) {
+    if altre.is_empty() {
+        return;
+    }
+    let nomi: BTreeSet<&str> = altre
+        .iter()
+        .map(|&indice| schema.field(indice).name().as_str())
+        .collect();
+    contract.native_metadata.insert(
+        "geoparquet.altre_colonne".to_owned(),
+        nomi.into_iter().collect::<Vec<_>>().join(","),
+    );
 }
 
 /// Rifiuta una lettura che porterebbe fuori una colonna geometrica che non e'

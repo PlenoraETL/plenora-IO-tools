@@ -270,8 +270,14 @@ fn unresolved_crs_roundtrips_with_authority_only() {
     assert_eq!(decoded.crs, geometry.crs);
 }
 
+/// Uno SRID da solo non e' una dichiarazione di CRS: `declared_unresolved`
+/// chiede `crs_id` o `crs_definition` (ARROW-VOCABULARY-1.0, sezione 4). Il
+/// lettore dei metadati la accettava e la faceva viaggiare, mentre la verifica
+/// del vocabolario la rifiuta: le due strade davano due risposte allo stesso
+/// campo, e quella che passa per `geometry_contracts_for_validation` -- un
+/// piano senza contratto geometrico esplicito -- non incontra la verifica.
 #[test]
-fn unresolved_crs_roundtrips_with_srid_only_without_synthesis() {
+fn unresolved_crs_with_srid_only_is_rejected() {
     let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
         (
             PLENORA_CRS_RESOLUTION_KEY.to_owned(),
@@ -281,32 +287,7 @@ fn unresolved_crs_roundtrips_with_srid_only_without_synthesis() {
     ]));
     let mut geometry = contract();
 
-    read_geometry_contract_metadata(&field, &mut geometry).unwrap();
-
-    assert_eq!(geometry.srid, Some(4326));
-    let raw = geometry.crs.raw().unwrap();
-    assert_eq!(raw.authority_hint, None);
-    assert_eq!(raw.definition, None);
-    assert_eq!(raw.definition_format, None);
-    assert_eq!(raw.axis_order, AxisOrder::Unknown);
-
-    let emitted =
-        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), &geometry);
-    assert_eq!(
-        emitted.metadata().get(PLENORA_SRID_KEY).map(String::as_str),
-        Some("4326")
-    );
-    for key in [
-        PLENORA_CRS_ID_KEY,
-        PLENORA_CRS_DEFINITION_KEY,
-        PLENORA_CRS_DEFINITION_FORMAT_KEY,
-        PLENORA_AXIS_ORDER_KEY,
-    ] {
-        assert!(
-            !emitted.metadata().contains_key(key),
-            "chiave sintetizzata: {key}"
-        );
-    }
+    assert!(read_geometry_contract_metadata(&field, &mut geometry).is_err());
 }
 
 #[test]

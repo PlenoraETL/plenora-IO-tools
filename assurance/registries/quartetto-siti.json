@@ -46,6 +46,9 @@
     ]
   },
   "crates/driver-csv/src/lib.rs": {
+    "colonne_geometriche": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
     "create": [
       "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never",
@@ -81,6 +84,9 @@
       "Crs/Validate/Crs/Never"
     ],
     "dxf_contract": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "embedded_crs_definition": [
       "Crs/Validate/Crs/Never"
     ],
     "err": [
@@ -151,6 +157,9 @@
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "rifiuta_piu_geometrie": [
+      "Unsupported/Validate/Unsupported/Never"
     ]
   },
   "crates/driver-geojson/src/geometria_progressiva.rs": {
@@ -206,6 +215,9 @@
     "geometry_type_label": [
       "Unsupported/Validate/Unsupported/Never"
     ],
+    "resolve_geometry_and_crs": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
     "rifiuta_le_altre_geometrie": [
       "Unsupported/Validate/Unsupported/Never"
     ]
@@ -250,6 +262,9 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
+    ],
+    "feature_tables": [
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "layer_crs": [
       "Crs/Validate/Crs/Never"
@@ -340,6 +355,7 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "resolve_crs": [
+      "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never"
     ],
@@ -376,6 +392,9 @@
     "open": [
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never"
+    ],
+    "resolve_geometry": [
+      "esplicito/esplicito/Generic/esplicito"
     ],
     "valida_riferimenti_cella": [
       "ResourceLimit/Validate/LimitExceeded/Never",

@@ -1547,7 +1547,9 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         .unwrap();
     }
 
-    let mut options = read_opts();
+    // Il `.prj` dichiara EPSG:3003: un `--assume-crs` diverso sarebbe un
+    // conflitto, e l'autorita' del file basta.
+    let mut options = opzioni_lettura();
     options
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
@@ -1609,7 +1611,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         max_rows: 8,
     };
     let attribute_only_dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let mut attribute_only_reader = attribute_only_dataset
         .open_layer_reader(&attribute_only_request)
@@ -1618,7 +1620,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(attribute_rows, 0);
     assert_eq!(attribute_error.row_diagnostics.unwrap().observed_total, 3);
 
-    let mut numeric_key_options = read_opts();
+    let mut numeric_key_options = opzioni_lettura();
     numeric_key_options
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
@@ -1645,7 +1647,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     }
 
     let dataset_without_key = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let mut reader_without_key = dataset_without_key.open_layer_reader(&request).unwrap();
     let (_, error_without_key) = consume_until_error(reader_without_key.as_mut());
@@ -1656,7 +1658,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         .iter()
         .all(|example| example.key.is_none()));
 
-    let mut redacted_options = read_opts();
+    let mut redacted_options = opzioni_lettura();
     redacted_options
         .format_options
         .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
@@ -1675,7 +1677,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(redacted_key.state, RowDiagnosticKeyState::Redacted);
     assert!(redacted_key.value.is_none());
 
-    let mut missing_policy = read_opts();
+    let mut missing_policy = opzioni_lettura();
     missing_policy
         .format_options
         .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
@@ -1688,7 +1690,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         plenora_io_model::ErrorCategory::InvalidConfiguration
     );
 
-    let mut zero_limit = read_opts();
+    let mut zero_limit = opzioni_lettura();
     zero_limit
         .format_options
         .insert("row_diagnostics.examples_limit".to_owned(), "0".to_owned());
@@ -1727,7 +1729,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert!(cancelled.total.is_none());
 
     let partial_dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     truncate_dbf_mid_record(&path, 50);
     let mut partial_reader = partial_dataset.open_layer_reader(&request).unwrap();
@@ -1749,7 +1751,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
 
     overwrite_dbf_ascii_field(&malformed_path, 42, "INT_VALUE", "not-an-integer");
     let malformed_dataset = ShpDriver
-        .open(Source::Path(malformed_path), read_opts())
+        .open(Source::Path(malformed_path), opzioni_lettura())
         .unwrap();
     let mut malformed_reader = malformed_dataset.open_layer_reader(&request).unwrap();
     let (_, malformed_error) = consume_until_error(malformed_reader.as_mut());
@@ -1801,7 +1803,7 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
     // Fault-tail deterministico: il dataset e' inferito quando integro, poi
     // la coda oltre il prefisso richiesto diventa illeggibile.
     let dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     truncate_dbf_mid_record(&path, 200);
     let request = ReadRequest {
@@ -1864,7 +1866,7 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
     let dataset = ShpDriver
-        .open(Source::Path(path.clone()), read_opts())
+        .open(Source::Path(path.clone()), opzioni_lettura())
         .unwrap();
     let request = ReadRequest {
         scope: ReadScope::AcceptedRows(10),
@@ -1881,7 +1883,9 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     }
     assert_eq!(rows, vec![8, 8]);
 
-    let complete_dataset = ShpDriver.open(Source::Path(path), read_opts()).unwrap();
+    let complete_dataset = ShpDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
     // L'accoppiamento su cui poggia il `field_index` degli esempi: lo schema
     // mette la geometria **davanti** alle colonne DBF, e l'indice pubblicato
     // e' `posizione in cols + 1`. Se l'ordine cambiasse, quegli indici
@@ -2135,6 +2139,30 @@ fn unresolved_prj_is_preserved_in_typed_error() {
     assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     assert_eq!(error.driver.as_deref(), Some("shp"));
     assert!(!error.to_string().contains("survey-grid-secret"));
+}
+
+/// Un `.prj` che dichiara la propria autorita' e un `--assume-crs` diverso sono
+/// due dichiarazioni in conflitto. Vinceva l'opzione, e il contratto usciva
+/// con l'identificatore dell'opzione e la definizione del `.prj`: un CRS che
+/// contraddice se stesso (GEO-005), scelto al posto di chi legge. Con la
+/// stessa autorita', o con un `.prj` che non ne dichiara, l'opzione resta
+/// ammessa.
+#[test]
+fn prj_e_assume_crs_in_conflitto_sono_rifiutati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("conflitto.shp");
+    std::fs::write(
+        path.with_extension("prj"),
+        "PROJCS[\"Monte Mario / Italy zone 1\",GEOGCS[\"Monte Mario\"],AUTHORITY[\"EPSG\",\"3003\"]]",
+    )
+    .unwrap();
+
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4326")).unwrap_err();
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    assert!(!errore.message.contains("3003"), "{}", errore.message);
+
+    let concorde = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003")).unwrap();
+    assert_eq!(concorde.id.as_deref(), Some("EPSG:3003"));
 }
 
 #[test]

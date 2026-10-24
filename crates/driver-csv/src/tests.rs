@@ -574,6 +574,39 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
     assert!(testo.contains("POINT"), "e il valore ci arriva: «{testo}»");
 }
 
+/// `wkt_column` insieme a `x_column`/`y_column` dichiara due geometrie per lo
+/// stesso layer. Vinceva `wkt_column` in silenzio, e le colonne x/y uscivano
+/// come attributi: una scelta fatta al posto di chi legge. La richiesta e'
+/// contraddittoria, quindi si corregge la richiesta.
+#[test]
+fn wkt_column_insieme_a_x_y_e_una_configurazione_ambigua() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("in.csv");
+    std::fs::write(&src, "wkt,lon,lat\nPOINT (1 2),1,2\n").unwrap();
+    let combinazioni: [&[(&str, &str)]; 3] = [
+        &[
+            ("wkt_column", "wkt"),
+            ("x_column", "lon"),
+            ("y_column", "lat"),
+        ],
+        &[("wkt_column", "wkt"), ("x_column", "lon")],
+        &[("wkt_column", "wkt"), ("y_column", "lat")],
+    ];
+    for opzioni in combinazioni {
+        match CsvDriver.open(Source::Path(src.clone()), read_opts(opzioni)) {
+            Ok(_) => panic!("{opzioni:?}: due dichiarazioni di geometria accettate"),
+            Err(errore) => {
+                assert_eq!(
+                    errore.category,
+                    plenora_io_model::ErrorCategory::InvalidConfiguration,
+                    "{opzioni:?}"
+                );
+                assert!(!errore.message.contains("lon"), "{}", errore.message);
+            }
+        }
+    }
+}
+
 #[test]
 fn round_trip_csv_xy() {
     let dir = tempfile::tempdir().unwrap();

@@ -134,18 +134,40 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
     None
 }
 
-fn embedded_crs_definition(drawing: &Drawing) -> Option<String> {
-    drawing.objects().find_map(|object| match &object.specific {
-        ObjectType::GeoData(geodata) => {
-            let definition = geodata.coordinate_system_definition.trim();
-            (!definition.is_empty()).then(|| definition.to_owned())
+/// La definizione del CRS che i `GEODATA` del disegno dichiarano.
+///
+/// Un disegno ne porta di solito uno. Con piu' `GEODATA` vinceva il primo, e un
+/// secondo con una definizione diversa spariva: sono due dichiarazioni dello
+/// stesso CRS, e il file non dice quale valga. Definizioni uguali non sono un
+/// conflitto.
+///
+/// # Errors
+///
+/// `Crs` se due `GEODATA` dichiarano definizioni diverse.
+fn embedded_crs_definition(drawing: &Drawing) -> Result<Option<String>> {
+    let mut trovata: Option<&str> = None;
+    for object in drawing.objects() {
+        let ObjectType::GeoData(geodata) = &object.specific else {
+            continue;
+        };
+        let definition = geodata.coordinate_system_definition.trim();
+        if definition.is_empty() {
+            continue;
         }
-        _ => None,
-    })
+        match trovata {
+            Some(precedente) if precedente != definition => {
+                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "DXF con piu' GEODATA che dichiarano CRS diversi",
+                )));
+            }
+            _ => trovata = Some(definition),
+        }
+    }
+    Ok(trovata.map(str::to_owned))
 }
 
 fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedCrs> {
-    let Some(definition) = embedded_crs_definition(drawing) else {
+    let Some(definition) = embedded_crs_definition(drawing)? else {
         let id = options.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::crs_redatto(&PublicMessage::Curated(
                 "DXF senza GEODATA risolvibile: fornire --assume-crs",

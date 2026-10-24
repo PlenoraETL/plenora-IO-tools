@@ -133,6 +133,33 @@ fn event_parser_rejects_model_track_and_multitrack() {
     }
 }
 
+/// Le geometrie che il parser riduceva a una delle letture possibili: un
+/// `Point` con piu' tuple teneva la prima, un `coordinates` ripetuto teneva
+/// l'ultimo, un `outerBoundaryIs` con due anelli teneva il primo e un
+/// `outerBoundaryIs` ripetuto l'ultimo. In ogni caso il resto spariva.
+#[test]
+fn event_parser_rejects_geometries_it_used_to_truncate() {
+    for geometria in [
+        "<Point><coordinates>1,2 3,4</coordinates></Point>",
+        "<Point><coordinates>1,2</coordinates><coordinates>3,4</coordinates></Point>",
+        "<LineString><coordinates>0,0 1,1</coordinates><coordinates>2,2 3,3</coordinates></LineString>",
+        "<Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 1,1 0,0</coordinates></LinearRing><LinearRing><coordinates>5,5 6,5 6,6 5,5</coordinates></LinearRing></outerBoundaryIs></Polygon>",
+        "<Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 1,1 0,0</coordinates></LinearRing></outerBoundaryIs><outerBoundaryIs><LinearRing><coordinates>5,5 6,5 6,6 5,5</coordinates></LinearRing></outerBoundaryIs></Polygon>",
+    ] {
+        let xml = format!(
+            r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark>{geometria}</Placemark></kml>"#
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("troncata.kml");
+        std::fs::write(&path, &xml).unwrap();
+        let mut stream = PlacemarkStream::open(&path).unwrap();
+        assert!(
+            stream.next_placemark(&CancellationToken::new(), 0).is_err(),
+            "{geometria}: letta tenendone solo una parte"
+        );
+    }
+}
+
 #[test]
 fn event_parser_rejects_multiple_top_level_geometries() {
     let error = event_parser_error(

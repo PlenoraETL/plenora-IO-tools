@@ -203,6 +203,23 @@ fn colonne_geometriche(
     format_options: &std::collections::BTreeMap<String, String>,
 ) -> Result<(GeomSpec, HashSet<usize>)> {
     let idx = |name: &str| headers.iter().position(|h| h == name);
+    // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
+    // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
+    // chi legge. La richiesta si contraddice, e si corregge la richiesta.
+    if format_options.contains_key("wkt_column")
+        && (format_options.contains_key("x_column") || format_options.contains_key("y_column"))
+    {
+        return Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            plenora_io_model::ErrorPhase::Validate,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            &PublicMessage::Curated(
+                "csv: wkt_column esclude x_column e y_column; dichiarare una sola geometria",
+            ),
+        ));
+    }
     if let Some(w) = format_options.get("wkt_column") {
         let wi = idx(w).ok_or_else(|| {
             err(&PublicMessage::Curated(

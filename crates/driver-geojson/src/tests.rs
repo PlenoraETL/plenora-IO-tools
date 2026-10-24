@@ -599,6 +599,46 @@ fn duplicate_keys_are_rejected_instead_of_using_first_value_wins() {
     assert!(diagnostics.validate().is_ok());
 }
 
+/// Le chiavi ripetute dentro l'oggetto geometria, e al livello del
+/// `FeatureCollection`, sono la stessa ambiguita' delle chiavi ripetute della
+/// feature: il parser teneva l'ultima `coordinates` (o l'ultimo `type`), e
+/// concatenava due `features`. Il documento non dice quale valga.
+#[test]
+fn chiavi_ripetute_nella_geometria_e_nella_collezione_sono_rifiutate() {
+    let documenti = [
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2],"coordinates":[3,4]},"properties":{}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","type":"MultiPoint","coordinates":[1,2]},"properties":{}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"GeometryCollection","geometries":[],"geometries":[{"type":"Point","coordinates":[1,2]}]},"properties":{}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{}}],"features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[3,4]},"properties":{}}]}"#,
+        r#"{"type":"FeatureCollection","type":"FeatureCollection","features":[]}"#,
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    for (indice, documento) in documenti.iter().enumerate() {
+        let src = dir.path().join(format!("ripetute-{indice}.geojson"));
+        std::fs::write(&src, documento).unwrap();
+        let esito = GeoJsonDriver
+            .open(Source::Path(src), opzioni_lettura())
+            .and_then(|dataset| {
+                let mut reader = dataset.open_layer_reader(&ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::default(),
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })?;
+                while reader.next_batch()?.is_some() {}
+                Ok(())
+            });
+        assert!(
+            esito.is_err(),
+            "documento {indice}: chiave ripetuta accettata"
+        );
+    }
+}
+
 #[test]
 fn duplicate_property_outside_projection_is_rejected() {
     let dir = tempfile::tempdir().unwrap();

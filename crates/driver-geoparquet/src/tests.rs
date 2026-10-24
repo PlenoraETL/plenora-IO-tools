@@ -2014,6 +2014,37 @@ fn un_parquet_senza_geo_resta_leggibile_come_parquet_semplice() {
     assert!(!geometria.native_metadata.contains_key("geoparquet.version"));
 }
 
+/// Senza `geo` la geometria si riconosce dal nome, fra `geometry`, `geom` e
+/// `wkb`. Con due di quei nomi nel file vinceva il primo dell'elenco, e
+/// l'altra colonna usciva come un binario qualunque: una scelta che il file
+/// non autorizza. Ora il file e' ambiguo, e lo si dice.
+#[test]
+fn un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let percorso = dir.path().join("ambiguo.parquet");
+    let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("geom", DataType::Binary, true),
+        Field::new("geometry", DataType::Binary, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(&percorso).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    match GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura()) {
+        Ok(_) => panic!("due colonne candidate alla geometria: il driver ne ha scelta una"),
+        Err(errore) => assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported),
+    }
+}
+
 #[test]
 fn un_geo_malformato_ferma_l_apertura_invece_di_passare_per_assente() {
     // Il difetto che il lotto chiude: `serde_json::from_str(..).ok()`
@@ -2349,6 +2380,22 @@ fn un_campo_geoarrow_non_dichiarato_da_geo_e_rifiutato() {
     let dataset = GeoParquetDriver
         .open(Source::Path(percorso), opzioni_lettura())
         .expect("apertura");
+    // La scoperta deve dire cio' che la lettura rifiutera': anche questa
+    // colonna e' un'altra geometria, e il contratto la nomina come le
+    // secondarie del documento `geo`. Prima la nominava solo se il documento
+    // la dichiarava, e la scoperta descriveva un layer leggibile.
+    let geometria = dataset.layers()[0]
+        .contract
+        .geometry
+        .as_ref()
+        .expect("colonna geometria");
+    assert_eq!(
+        geometria
+            .native_metadata
+            .get("geoparquet.altre_colonne")
+            .map(String::as_str),
+        Some("altra")
+    );
     let esito = esito_lettura(dataset.as_ref(), &richiesta_semplice());
     assert_eq!(
         esito.map(|(codice, _)| codice),
