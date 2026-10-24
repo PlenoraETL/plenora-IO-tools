@@ -538,6 +538,10 @@ impl<'de> Visitor<'de> for TagVisitor {
     }
 }
 
+/// Una chiave del `FeatureCollection` che compare due volte.
+const CHIAVE_TOP_RIPETUTA: PublicMessage =
+    PublicMessage::Curated("chiave ripetuta al livello top del FeatureCollection GeoJSON");
+
 /// Livello top: `FeatureCollection`; interessa solo la chiave "features".
 struct TopVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
@@ -559,6 +563,14 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
         let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
+                // Una chiave ripetuta al livello top: due `features` si
+                // concatenavano, e il documento non dice quale valga.
+                "type" | "features"
+                    if (key == "type" && type_observed.is_some())
+                        || (key == "features" && features_observed) =>
+                {
+                    return Err(self.accs.ferma(err(&CHIAVE_TOP_RIPETUTA)));
+                }
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {
@@ -905,6 +917,12 @@ impl<'de> Visitor<'de> for TopSink<'_> {
         let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
+                "type" | "features"
+                    if (key == "type" && type_observed)
+                        || (key == "features" && features_observed) =>
+                {
+                    return Err(self.sink.ferma(err(&CHIAVE_TOP_RIPETUTA)));
+                }
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {

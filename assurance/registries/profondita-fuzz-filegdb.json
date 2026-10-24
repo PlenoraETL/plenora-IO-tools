@@ -4,9 +4,9 @@
   "target": "filegdb_reader",
   "artefatto": "assurance/profondita-fuzz-filegdb.json",
   "rimisurazione_dovuta": {
-    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori.",
+    "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: apertura col solo driver `OpenFileGDB` e rifiuto dei layer con piu' campi geometrici.",
     "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "04789ac1034f0f65c67d409815a5e8d1294a777117ec1b6d22915cd1efcc9609",
+    "impronta_attesa": "eb2240758fae7e04486ef0e2c704de002335e175079a4fb6aa295a323be21a6f",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
@@ -14,7 +14,7 @@
   "rimisurazione_asan_dovuta": {
     "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro FileGDB (ordine degli assi memorizzato, verifica delle definizioni CRS, SRID sul membro EWKB, ordine REJ-002). Il binario misurato non e' piu' quello che il codice corrente produce; il replay strumentato non e' stato rieseguito in questo worktree Windows.",
     "impronta_della_misura": "005a098cdf55a4d417af7fbf7aff59216566114eb76f1ef4fb2fc30bd7a78245",
-    "impronta_attesa": "04789ac1034f0f65c67d409815a5e8d1294a777117ec1b6d22915cd1efcc9609",
+    "impronta_attesa": "eb2240758fae7e04486ef0e2c704de002335e175079a4fb6aa295a323be21a6f",
     "non_promette": "La misura archiviata non attesta il confine AddressSanitizer del perimetro aggiornato.",
     "quando": "prima della qualificazione del candidato 6.0.0, sulla VM .138",
     "comando": "bash scripts/asan-filegdb.sh"

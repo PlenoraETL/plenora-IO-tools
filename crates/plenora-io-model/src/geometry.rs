@@ -671,19 +671,15 @@ pub fn read_geometry_contract_metadata(
                 CrsResolution::Resolved(crs)
             }
             "declared_unresolved" => {
-                let has_structured_representation = id.is_some() || definition.is_some();
-                if !has_structured_representation && parsed.srid.is_none() {
+                // ARROW-VOCABULARY-1.0, sezione 4: `crs_id` o `crs_definition`,
+                // e `axis_order`. Uno SRID da solo non dichiara un CRS: prima
+                // passava di qui, e la sola verifica del vocabolario lo
+                // fermava -- dove c'era.
+                if id.is_none() && definition.is_none() {
                     return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
-                if !has_structured_representation && axis_order.is_some() {
-                    return Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO));
-                }
-                let axis_order = if has_structured_representation {
-                    axis_order
-                        .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?
-                } else {
-                    AxisOrder::Unknown
-                };
+                let axis_order = axis_order
+                    .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
                 CrsResolution::DeclaredButUnresolved(RawCrs {
                     definition,
                     authority_hint: id,

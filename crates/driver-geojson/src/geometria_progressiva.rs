@@ -470,6 +470,15 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
 
         while let Some(chiave) = map.next_key::<String>()? {
             match chiave.as_str() {
+                // Una chiave ripetuta e' un documento ambiguo: teneva l'ultimo
+                // valore, e il documento non dice quale valga.
+                "type" if tipo.is_some() => return Err(self.budget.di_formato(&CHIAVE_RIPETUTA)),
+                "coordinates" if coordinate.is_some() => {
+                    return Err(self.budget.di_formato(&CHIAVE_RIPETUTA))
+                }
+                "geometries" if figlie.is_some() => {
+                    return Err(self.budget.di_formato(&CHIAVE_RIPETUTA))
+                }
                 "type" => {
                     let nome = map.next_value::<String>()?;
                     let letto = Tipo::dal_nome(&nome).ok_or_else(|| {
@@ -509,6 +518,10 @@ impl<'de> Visitor<'de> for SemeGeometria<'_> {
             .map_err(|errore| self.budget.ferma(errore))
     }
 }
+
+/// Una chiave dell'oggetto geometria che compare due volte.
+const CHIAVE_RIPETUTA: PublicMessage =
+    PublicMessage::Curated("chiave ripetuta nell'oggetto geometria GeoJSON");
 
 /// Il seme della lista `geometries` di una `GeometryCollection`.
 struct SemeGeometrie<'a> {

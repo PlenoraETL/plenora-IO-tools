@@ -1231,6 +1231,62 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
     }
 }
 
+/// Due righe di `gpkg_geometry_columns` per la stessa tabella: due colonne
+/// geometriche dichiarate. Il reader produceva un layer per riga, con lo stesso
+/// nome, e in ciascuno l'altra geometria usciva come un BLOB qualunque: e' il
+/// degrado a binario e la scelta al posto di chi legge che GEO-012 vieta.
+#[test]
+fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("due-geometrie.gpkg");
+    let schema: SchemaRef = Arc::new(Schema::new(vec![
+        geometry_field("geom", "EPSG:4326"),
+        Field::new("id", DataType::Int64, false),
+    ]));
+    let geometry = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())])),
+            Arc::new(Int64Array::from(vec![1])),
+        ],
+    )
+    .unwrap();
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "features".to_owned(),
+            contract: DataContract {
+                schema,
+                geometry: None,
+            },
+        }],
+    };
+    let driver = GpkgDriver;
+    let mut writer = driver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE features ADD COLUMN segreta_geom2 BLOB;
+         INSERT INTO gpkg_geometry_columns VALUES ('features', 'segreta_geom2', 'POINT', 4326, 0, 0);",
+    )
+    .unwrap();
+    drop(conn);
+
+    match driver.open(Source::Path(path), opzioni_lettura()) {
+        Ok(_) => panic!("una tabella con due geometrie non deve produrre layer"),
+        Err(errore) => {
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            // Errori senza dati: i nomi vengono dal file.
+            assert!(!errore.message.contains("segreta"), "{}", errore.message);
+            assert!(!errore.message.contains("features"), "{}", errore.message);
+        }
+    }
+}
+
 /// Regressione sul file che il fuzzing ha usato per portare il reader
 /// oltre 4 GiB residenti: 32 KiB di `GeoPackage` in cui 228 byte sono
 /// stati scritti nello spazio libero delle pagine. `SQLite` legge la

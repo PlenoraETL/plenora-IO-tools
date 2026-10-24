@@ -1524,10 +1524,19 @@ fn resolve_prj(
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     let prj = path.with_extension("prj");
     if let Ok(wkt) = std::fs::read_to_string(&prj) {
-        let id = opts
-            .assume_crs
-            .clone()
-            .or_else(|| authority_id_from_wkt(&wkt));
+        let dichiarata = authority_id_from_wkt(&wkt);
+        // Due dichiarazioni diverse dello stesso CRS: vinceva l'opzione, e il
+        // contratto univa il suo identificatore alla definizione del `.prj`,
+        // cioe' un CRS che contraddice se stesso (GEO-005). L'opzione resta il
+        // modo di nominare un `.prj` che non dichiara un'autorita'.
+        if let (Some(assunta), Some(dichiarata)) = (opts.assume_crs.as_deref(), &dichiarata) {
+            if !assunta.eq_ignore_ascii_case(dichiarata) {
+                return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "Shapefile: --assume-crs contraddice l'autorita' dichiarata dal .prj",
+                )));
+            }
+        }
+        let id = opts.assume_crs.clone().or(dichiarata);
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
             return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
