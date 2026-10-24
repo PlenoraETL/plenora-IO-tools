@@ -1579,7 +1579,13 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
                 .trim_start()
                 .get(..9)
                 .is_some_and(|testa| testa.eq_ignore_ascii_case("BOUNDCRS["));
-            if ambigua || legata {
+            // `ID` in un WKT 1 o `AUTHORITY` in un WKT 2 non dichiara per il
+            // contratto, ma chi legge il `.prj` lo legge come una dichiarazione:
+            // l'opzione non lo scavalca.
+            let altra_parola =
+                !plenora_io_model::crs_definizione::identificatori_con_l_altra_parola(&wkt)
+                    .is_empty();
+            if ambigua || legata || altra_parola {
                 return Err(contraddice_il_prj());
             }
             if radice.is_empty() {
@@ -1704,7 +1710,20 @@ fn identificatori_di_radice(wkt: &str) -> Vec<String> {
 /// lo da' solo quando l'opzione manca, e un'opzione la puo' soltanto nominare
 /// con uno dei due nomi di WGS 84 geografico.
 fn authority_deduced_from_esri_wkt(wkt: &str) -> Option<String> {
-    let upper = wkt.trim().to_ascii_uppercase();
+    // Gli spazi fuori dalle virgolette non contano per la grammatica WKT
+    // (`GEOGCS [ "WGS 84", ...`): senza toglierli la forma si mancava, e su un
+    // WGS 84 non riconosciuto l'opzione passava con qualunque nome.
+    let mut tra_virgolette = false;
+    let compatto: String = wkt
+        .chars()
+        .filter(|&c| {
+            if c == '"' {
+                tra_virgolette = !tra_virgolette;
+            }
+            tra_virgolette || !c.is_ascii_whitespace()
+        })
+        .collect();
+    let upper = compatto.to_ascii_uppercase();
     (upper.starts_with("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\""))
         .then(|| "EPSG:4326".to_owned())
 }

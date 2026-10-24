@@ -2005,6 +2005,20 @@ fn assume_crs_non_rietichetta_un_prj_riconosciuto_o_dichiarato() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
     assert!(!errore.message.contains("3003"), "{}", errore.message);
 
+    // La stessa forma con gli spazi che la grammatica ammette fuori dalle
+    // virgolette resta riconosciuta: prima ogni opzione passava.
+    std::fs::write(
+        path.with_extension("prj"),
+        "GEOGCS [ \"WGS 84\" , DATUM [ \"WGS_1984\" , SPHEROID [ \"WGS 84\" , 6378137 , \
+         298.257223563 ] ] , PRIMEM [ \"Greenwich\" , 0 ] , UNIT [ \"degree\" , \
+         0.0174532925199433 ] ]",
+    )
+    .unwrap();
+    let errore = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:3003"))
+        .expect_err("EPSG:3003 sopra WGS 84 geografico scritto con spazi");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    std::fs::write(path.with_extension("prj"), WGS84_WKT).unwrap();
+
     std::fs::write(
         path.with_extension("prj"),
         "GEOGCS[\"GCS_Monte_Mario\",DATUM[\"D_Monte_Mario\",SPHEROID[\"International_1924\",\

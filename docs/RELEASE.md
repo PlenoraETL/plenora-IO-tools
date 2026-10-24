@@ -1410,6 +1410,7 @@ categoria di alcuni rifiuti; i limiti sono riportati in
   un surrogato isolato, più di 128 livelli o un codice `-0` non si rifiuta più.
 - **GeoPackage.** Un `crs_id` con codice non canonico (`EPSG:04326`) si rifiuta
   con `crs` invece di essere scritto come 4326.
+- **Una sola lettura della radice WKT.** Lo SRID di radice di un WKT si legge con la grammatica di GEO-005: un CRS annidato fra parentesi tonde non espone più il suo identificatore, `XID[` non è `ID[`, e un WKT non ben formato non ha SRID. Uno Shapefile che prima usciva con un identificatore letto così ora esce non risolto, e si nomina con `--assume-crs`.
 - **GeoPackage: layer dichiarati.** Una feature table di `gpkg_contents` senza
   la sua riga in `gpkg_geometry_columns`, o una colonna geometrica dichiarata
   fuori da una feature table, rende il file `data_mapping` all'apertura; prima

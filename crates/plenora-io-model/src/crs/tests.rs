@@ -22,9 +22,16 @@ use super::*;
 fn una_definizione_wkt_multibyte_non_fa_panicare_il_bordo() {
     // L'ideogramma dell'input del fuzzer: tre byte, e l'indice ci finisce
     // dentro mentre si scorre il contenuto di primo livello.
+    // Il nome senza virgolette non e' un WKT ben formato per la grammatica del
+    // contratto: nessuno SRID, e soprattutto nessun panic.
     let ostile = "PROJCS[\u{9f5a}\u{9f5a}\u{9f5a},AUTHORITY[\"EPSG\",\"3857\"]]";
     assert_eq!(
         definition_authority_srid(ostile, CrsDefinitionFormat::Wkt),
+        None
+    );
+    let ben_formato = "PROJCS[\"\u{9f5a}\u{9f5a}\u{9f5a}\",AUTHORITY[\"EPSG\",\"3857\"]]";
+    assert_eq!(
+        definition_authority_srid(ben_formato, CrsDefinitionFormat::Wkt),
         Some(3857),
         "l'identificatore radice resta leggibile anche con caratteri multi-byte"
     );
@@ -286,10 +293,30 @@ fn definition_epsg_rejects_ambiguous_or_nested_only_ids() {
         ),
         None
     );
+    // `ID` in un WKT 1 non e' un identificatore per la grammatica del contratto
+    // (GEO-005): la radice dichiara solo `AUTHORITY["EPSG","4326"]`.
     assert_eq!(
         definition_authority_srid(
             "GEOGCS[\"x\",AUTHORITY[\"EPSG\",\"4326\"],ID[\"EPSG\",4326]]",
             CrsDefinitionFormat::Wkt
+        ),
+        Some(4326)
+    );
+    // Dalla sesta seconda lettura: un CRS annidato fra parentesi tonde non
+    // espone il suo identificatore come di radice, e `XID[` non e' `ID[`.
+    assert_eq!(
+        definition_authority_srid(
+            "PROJCS[\"p\",GEOGCS(\"g\",DATUM[\"d\",SPHEROID[\"s\",6378388,297]],\
+             PRIMEM[\"G\",0],UNIT[\"degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4265\"]),\
+             PROJECTION[\"Transverse_Mercator\"],UNIT[\"Meter\",1.0]]",
+            CrsDefinitionFormat::Wkt
+        ),
+        None
+    );
+    assert_eq!(
+        definition_authority_srid(
+            "GEOGCRS[\"x\",XID[\"EPSG\",4326],ID[\"ESRI\",4265]]",
+            CrsDefinitionFormat::Wkt2
         ),
         None
     );

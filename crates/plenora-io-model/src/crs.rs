@@ -281,24 +281,27 @@ pub fn codice_intero_canonico(code: &str) -> Option<i32> {
 #[must_use]
 pub fn definition_authority_srid(definition: &str, format: CrsDefinitionFormat) -> Option<u32> {
     match format {
-        CrsDefinitionFormat::Projjson => projjson_root_epsg(definition),
+        CrsDefinitionFormat::Projjson => {
+            epsg_unico(&crate::crs_definizione::identificatori(definition, format).ok()?)
+        }
         CrsDefinitionFormat::Wkt | CrsDefinitionFormat::Wkt2 => wkt_root_epsg(definition),
     }
 }
 
-/// Lo SRID dell'unico identificatore EPSG di primo livello (`id` o `ids`) di
-/// un PROJJSON, letto con il lettore dei contratti
-/// ([`crate::crs_definizione::identificatori`]), non con `serde_json`.
+/// Lo SRID dell'unico identificatore EPSG fra gli identificatori di radice,
+/// letti con il lettore dei contratti ([`crate::crs_definizione::identificatori`]).
 ///
-/// Il codice segue la regola del WKT: un numero JSON e' un intero, nella forma
-/// dell'oracolo (`-0` vale `0`); una stringa e' testo, e si legge solo se
-/// canonica ([`codice_intero_canonico`]). Fino a qui una stringa passava da
-/// `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in
-/// un WKT dava `None`. Due codici EPSG diversi sono ambigui: `None`.
-fn projjson_root_epsg(definition: &str) -> Option<u32> {
+/// Il codice segue la stessa regola in ogni formato: un numero (JSON o WKT) e'
+/// un intero, nella forma dell'oracolo (`-0` vale `0`); una stringa e' testo,
+/// e si legge solo se canonica ([`codice_intero_canonico`]). Due codici EPSG
+/// diversi sono ambigui: `None`.
+fn epsg_unico(
+    coppie: &[(
+        crate::crs_definizione::TestoDefinizione,
+        crate::crs_definizione::TestoDefinizione,
+    )],
+) -> Option<u32> {
     use crate::crs_definizione::TestoDefinizione;
-    let coppie =
-        crate::crs_definizione::identificatori(definition, CrsDefinitionFormat::Projjson).ok()?;
     let mut codici = coppie
         .iter()
         .filter(|(autorita, _)| autorita.stessa_autorita("EPSG"))
@@ -313,78 +316,22 @@ fn projjson_root_epsg(definition: &str) -> Option<u32> {
     codice_intero_canonico(primo).and_then(|codice| u32::try_from(codice).ok())
 }
 
+/// Lo SRID della radice di un WKT, con la **stessa grammatica** della verifica
+/// GEO-005 del contratto: WKT 1 o WKT 2, in quella in cui il testo e' ben
+/// formato.
+///
+/// Fino alla rilettura del 24/10 qui c'era uno scanner di byte, piu' largo
+/// della grammatica: contava solo le parentesi quadre (un `GEOGCS(...)`
+/// annidato tondo esponeva il suo `AUTHORITY` come se fosse di radice),
+/// cercava `ID[` a ogni byte (anche dentro `XID[`) e accettava `ID` in un WKT 1
+/// e `AUTHORITY` in un WKT 2. Due letture diverse della stessa radice davano
+/// due risposte, e ogni divergenza era un CRS dichiarato da una parte e non
+/// dall'altra. Ora ce n'e' una sola.
 fn wkt_root_epsg(definition: &str) -> Option<u32> {
-    let upper = definition.to_ascii_uppercase();
-    let bytes = upper.as_bytes();
-    let mut depth = 0_u32;
-    let mut quoted = false;
-    let mut index = 0_usize;
-    let mut root_code = None;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' => quoted = !quoted,
-            b'[' if !quoted => depth = depth.checked_add(1)?,
-            b']' if !quoted => depth = depth.checked_sub(1)?,
-            _ if !quoted && depth == 1 => {
-                for marker in ["AUTHORITY[", "ID["] {
-                    // Il confronto e' **sui byte**, non sulla stringa.
-                    //
-                    // `index` scorre `bytes`, quindi puo' cadere dentro un
-                    // carattere multi-byte; `upper[index..]` in quel caso
-                    // panicava — trovato dal fuzzer su un WKT contenente un
-                    // ideogramma. Un `&[u8]` non ha confini di carattere da
-                    // rispettare, e il marcatore e' ASCII: nessun byte ASCII
-                    // compare mai dentro una sequenza UTF-8 multi-byte, quindi
-                    // se il confronto riesce `index` e' per forza un confine.
-                    if bytes[index..].starts_with(marker.as_bytes()) {
-                        // `get` invece dell'indicizzazione: la deduzione sopra
-                        // e' vera, ma affidarle un panic significa che se un
-                        // giorno smettesse di esserlo il difetto tornerebbe
-                        // ad abortire il processo invece di dare `None`.
-                        let Some(tail) = definition.get(index + marker.len()..) else {
-                            continue;
-                        };
-                        if let Some(code) = parse_epsg_wkt_identifier(tail) {
-                            // Più identificatori EPSG alla radice sono
-                            // ambigui: in quel caso non scegliamo.
-                            if root_code.replace(code).is_some() {
-                                return None;
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    root_code
-}
-
-fn parse_epsg_wkt_identifier(tail: &str) -> Option<u32> {
-    let mut parts = tail.splitn(3, ',');
-    let authority = parts.next()?.trim().trim_matches(['"', '\'']);
-    if !authority.eq_ignore_ascii_case("EPSG") {
-        return None;
-    }
-    // Il codice finisce alla chiusura del nodo. Un codice **stringa** e' testo
-    // (GEO-005): `"04326"` non e' 4326, e si legge solo se canonico. Un codice
-    // **numerico** e' un intero, come per l'oracolo (`str(int(...))`): zeri
-    // iniziali e `+` non contano, una frazione lo rende illeggibile.
-    let campo = parts.next()?.split(']').next()?.trim();
-    let virgolette = ['"', '\''];
-    if let Some(interno) = campo
-        .strip_prefix(virgolette)
-        .and_then(|resto| resto.strip_suffix(virgolette))
-    {
-        return codice_intero_canonico(interno).and_then(|codice| u32::try_from(codice).ok());
-    }
-    let cifre = campo.strip_prefix('+').unwrap_or(campo);
-    if cifre.is_empty() || !cifre.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    cifre.parse().ok()
+    [CrsDefinitionFormat::Wkt, CrsDefinitionFormat::Wkt2]
+        .into_iter()
+        .find_map(|formato| crate::crs_definizione::identificatori(definition, formato).ok())
+        .and_then(|coppie| epsg_unico(&coppie))
 }
 
 /// Rappresentazione CRS presente nella sorgente ma non risolta in modo

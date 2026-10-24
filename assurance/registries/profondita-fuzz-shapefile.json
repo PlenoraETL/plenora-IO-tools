@@ -6,7 +6,7 @@
   "rimisurazione_dovuta": {
     "perche": "L'adozione di Arrow Geometry Semantics 1.0 cambia il modello condiviso attraversato dal perimetro Shapefile: ordine degli assi memorizzato invece che dedotto, verifica delle definizioni CRS (GEO-005, GEO-020), SRID sul membro EWKB e ordine REJ-002 della validazione dei valori. Poi la classe delle geometrie ambigue: un `--assume-crs` in conflitto con l'autorita' del `.prj` si rifiuta. Poi il confronto GEO-005 degli identificatori e il controllo di `--assume-crs` nell'adapter comune `with_read_budget`. Poi il `.prj` senza autorita': l'identificatore dedotto dalla forma ESRI di WGS 84 non si confronta piu' con `--assume-crs`, e l'adapter comune rifiuta una colonna geometrica dal nome ripetuto.",
     "impronta_della_misura": "d3f86ba8dfbd6099e0222bb0971015ebc6a2875d93988847575b2588c4cb7867",
-    "impronta_attesa": "653837028265973773c996f5ded1ab61b08d65d0b39df6f2021c548b028e61d2",
+    "impronta_attesa": "f89d9995f40597bf161f70165c1ac50f73525e8ef955143b312960067c5cf867",
     "non_promette": "Questo e' un rinvio dichiarato, non una misura: la profondita' del target sul nuovo perimetro non e' attestata.",
     "quando": "Prima della qualifica del candidato 6.0.0, sulla VM .138.",
     "comando": "scripts/fuzz-profondita.sh shp_reader"

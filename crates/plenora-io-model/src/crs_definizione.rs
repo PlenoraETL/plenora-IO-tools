@@ -170,6 +170,25 @@ pub fn identificatori(
     }
 }
 
+/// Gli identificatori che la radice di un WKT porta con la parola dell'**altra**
+/// grammatica: `ID` in un WKT 1, `AUTHORITY` in un WKT 2.
+///
+/// Per GEO-005 non sono identificatori, e [`identificatori`] non li vede. Un
+/// lettore umano o un altro strumento li legge pero' come tali: chi deve
+/// decidere se un nome dato da fuori contraddice la definizione li usa per
+/// rifiutare, mai per accettare. Vuoto se il testo non e' un WKT ben formato.
+#[must_use]
+pub fn identificatori_con_l_altra_parola(testo: &str) -> Vec<(String, String)> {
+    let leggi = |radici: &[&str], parola: &str| {
+        radice_wkt(testo, radici)
+            .and_then(|radice| identificatori_wkt(&radice, parola))
+            .ok()
+    };
+    leggi(&RADICI_WKT1, "ID")
+        .or_else(|| leggi(&RADICI_WKT2, "AUTHORITY"))
+        .unwrap_or_default()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Token<'a> {
     Apre(u8),
