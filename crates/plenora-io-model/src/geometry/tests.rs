@@ -52,9 +52,10 @@ fn invalid_metadata_is_rejected_without_partial_mutation() {
     let mut geometry = contract();
     let original = geometry.clone();
 
+    // REJ-001: un difetto di vocabolario e' `schema`, mai `invalid_plan`.
     assert!(matches!(
         read_geometry_contract_metadata(&field, &mut geometry),
-        Err(error) if error.category == crate::ErrorCategory::InvalidPlan
+        Err(error) if error.category == crate::ErrorCategory::Schema
     ));
     assert_eq!(geometry.encoding, original.encoding);
     assert_eq!(geometry.precision, original.precision);
@@ -73,8 +74,70 @@ fn invalid_srid_and_geometry_types_are_rejected() {
     ] {
         assert!(matches!(
             read_geometry_contract_metadata(&field, &mut contract()),
-            Err(error) if error.category == crate::ErrorCategory::InvalidPlan
+            Err(error) if error.category == crate::ErrorCategory::Schema
         ));
+    }
+}
+
+/// REJ-001: ogni difetto di una chiave CRS e' `crs`, anche quando lo trova la
+/// lettura dei metadati e non il vocabolario.
+#[test]
+fn i_difetti_delle_chiavi_crs_sono_crs() {
+    let campo = |coppie: &[(&str, &str)]| {
+        Field::new("geometry", DataType::Binary, true).with_metadata(
+            coppie
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect::<HashMap<_, _>>(),
+        )
+    };
+    for field in [
+        campo(&[(PLENORA_CRS_RESOLUTION_KEY, "forse")]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+        ]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+            (PLENORA_AXIS_ORDER_KEY, "nord_est"),
+        ]),
+        campo(&[
+            (PLENORA_CRS_RESOLUTION_KEY, "resolved"),
+            (PLENORA_CRS_ID_KEY, "EPSG:4326"),
+            (PLENORA_AXIS_ORDER_KEY, "lon_lat"),
+            (PLENORA_CRS_DEFINITION_FORMAT_KEY, "wkt"),
+        ]),
+    ] {
+        let Err(errore) = read_geometry_contract_metadata(&field, &mut contract()) else {
+            panic!("un difetto CRS deve essere rifiutato");
+        };
+        assert_eq!(errore.category, crate::ErrorCategory::Crs);
+    }
+}
+
+/// ARROW-001 e ARROW-002: una versione malformata e' `schema`, una ben formata
+/// e non supportata `unsupported`.
+#[test]
+fn la_versione_si_classifica_come_in_rej_001() {
+    let schema = |versione: &str| {
+        arrow_schema::Schema::new_with_metadata(
+            Vec::<Field>::new(),
+            HashMap::from([(PLENORA_CONTRACT_VERSION_KEY.to_owned(), versione.to_owned())]),
+        )
+    };
+    assert!(validate_contract_version(&schema("1")).is_ok());
+    for (versione, attesa) in [
+        ("2", crate::ErrorCategory::Unsupported),
+        ("10", crate::ErrorCategory::Unsupported),
+        ("01", crate::ErrorCategory::Schema),
+        ("1.0", crate::ErrorCategory::Schema),
+        ("", crate::ErrorCategory::Schema),
+    ] {
+        let Err(errore) = validate_contract_version(&schema(versione)) else {
+            panic!("{versione:?} deve essere rifiutata");
+        };
+        assert_eq!(errore.category, attesa, "{versione:?}");
     }
 }
 

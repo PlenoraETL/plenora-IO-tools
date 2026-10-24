@@ -644,7 +644,11 @@ fn il_budget_dei_componenti_coincide_con_quello_del_parser_condiviso() {
         ("LINESTRING 3 punti", sequenza(3)),
         ("POLYGON EMPTY", poligono(&[])),
         ("POLYGON un anello di 4", poligono(&[4])),
-        ("POLYGON due anelli vuoti", poligono(&[0, 0])),
+        // Due anelli di quattro punti, non due anelli vuoti: un anello vuoto
+        // e' malformato per GEO-011 e il parser condiviso lo rifiuta, mentre
+        // la classificazione del flag "empty" non giudica la struttura. Il
+        // confronto riguarda il budget, e vale sui valori ben formati.
+        ("POLYGON due anelli di 4", poligono(&[4, 4])),
         (
             "MULTIPOINT di 2",
             collezione(4, &[punto(1.0, 2.0), punto_vuoto()]),
@@ -846,6 +850,30 @@ fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
         crs_for(&conn, 4326),
         Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
     ));
+}
+
+/// GEO-005: l'autorita' si normalizza solo in ASCII. `epſg` (U+017F) non e'
+/// `EPSG`, e la maiuscola Unicode la rietichettava come tale.
+#[test]
+fn reader_uppercases_the_organization_in_ascii_only() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO gpkg_spatial_ref_sys \
+         (srs_name, srs_id, organization, organization_coordsys_id, definition) \
+         VALUES ('x', 900001, 'ep\u{17f}g', 3003, 'undefined'), \
+                ('y', 900002, 'epsg', 3003, 'undefined')",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        crs_for(&conn, 900_001).unwrap().id.as_deref(),
+        Some("EP\u{17f}G:3003")
+    );
+    assert_eq!(
+        crs_for(&conn, 900_002).unwrap().id.as_deref(),
+        Some("EPSG:3003")
+    );
 }
 
 #[test]

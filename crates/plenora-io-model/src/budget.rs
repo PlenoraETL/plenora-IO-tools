@@ -150,6 +150,8 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 const LIMIT_MUST_BE_POSITIVE: &str = "i limiti di pipeline devono essere maggiori di zero";
 const CELL_BYTES_ABOVE_MEMORY: &str = "max_wkb_cell_bytes supera il budget di memoria";
 const CELL_BYTES_NOT_REPRESENTABLE: &str = "max_wkb_cell_bytes non rappresentabile in u64";
+const WKB_DEPTH_ABOVE_CONTRACT: &str =
+    "max_wkb_depth oltre i 32 livelli di annidamento del contratto (GEO-011)";
 const DEADLINE_BEYOND_INSTANT: &str = "deadline della pipeline oltre Instant";
 const LEASE_MUST_BE_POSITIVE: &str = "una lease deve essere maggiore di zero";
 const MEMORY_EXHAUSTED: &str = "budget di memoria esaurito";
@@ -600,7 +602,8 @@ impl Default for PipelineLimits {
             output_expansion_ratio: 1_000,
             max_wkb_cell_bytes: 64 * 1024 * 1024,
             max_wkb_components: 100_000,
-            max_wkb_depth: 64,
+            // GEO-011: la profondita' del contratto, non piu' i 64 storici.
+            max_wkb_depth: crate::limits::PROFONDITA_WKB_CONTRATTO,
             max_vertices: 50_000_000,
             memory_bytes: 512 * 1024 * 1024,
             spill_bytes: 4 * 1024 * 1024 * 1024,
@@ -678,7 +681,8 @@ impl PipelineLimits {
     ///
     /// Restituisce [`PlenoraIoError::LimitExceeded`] se una quota e' nulla,
     /// se `max_wkb_cell_bytes` non e' rappresentabile in `u64` o se supera
-    /// il budget di memoria.
+    /// il budget di memoria, o se `max_wkb_depth` supera la profondita' del
+    /// contratto ([`crate::limits::PROFONDITA_WKB_CONTRATTO`]).
     pub fn validate(&self) -> Result<()> {
         let positive_u64 = [
             self.max_input_bytes,
@@ -709,6 +713,12 @@ impl PipelineLimits {
             .map_err(|_| limit_error(CELL_BYTES_NOT_REPRESENTABLE))?;
         if cell_bytes > self.memory_bytes {
             return Err(limit_error(CELL_BYTES_ABOVE_MEMORY));
+        }
+        // GEO-011: oltre 32 livelli un valore e' malformato, qualunque sia la
+        // quota. Il parser non li supera comunque; una quota piu' larga si
+        // rifiuta qui invece di restare un flag senza effetto.
+        if self.max_wkb_depth > crate::limits::PROFONDITA_WKB_CONTRATTO {
+            return Err(limit_error(WKB_DEPTH_ABOVE_CONTRACT));
         }
         Ok(())
     }

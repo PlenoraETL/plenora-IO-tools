@@ -890,9 +890,12 @@ fn geometry_contracts_for_validation(
                 if fields.next().is_some() {
                     // Il nome del layer non entra nel testo: il layer si nomina
                     // per indice nel piano.
-                    return Err(PlenoraIoError::contratto_redatto(
+                    // GEO-012, REJ-001: piu' campi geometria sono un limite di
+                    // supporto del componente, `unsupported`, non un difetto
+                    // del piano.
+                    return Err(PlenoraIoError::non_supportato_redatto(
                         &PublicMessage::CuratedWith(
-                            "più colonne GeoArrow senza contratto geometrico esplicito al layer",
+                            "più colonne GeoArrow senza contratto geometrico esplicito al layer (GEO-012)",
                             NumeroStrutturale::Indice(saturating_u64(indice_layer)),
                         ),
                     ));

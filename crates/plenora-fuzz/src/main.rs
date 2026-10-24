@@ -480,7 +480,8 @@ fn lossless_finite(geometry: &WkbGeometry) -> bool {
 const LIM: WkbLimits = WkbLimits {
     max_cell_bytes: 1 << 20,
     max_components: 1 << 20,
-    max_depth: 64,
+    // La profondita' di GEO-011: il parser non va oltre qualunque sia il tetto.
+    max_depth: plenora_io_model::limits::PROFONDITA_WKB_CONTRATTO,
 };
 
 /// Invarianti sul codec WKB e sullo scanner bbox, da byte grezzi.

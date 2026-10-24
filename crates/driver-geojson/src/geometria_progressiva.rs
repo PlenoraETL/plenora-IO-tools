@@ -54,10 +54,11 @@
 //! formato.
 //!
 //! Attribuire al nostro tetto un rifiuto prodotto da serde sarebbe falso, e la
-//! differenza si vede: con `max_depth` a 64 -- il valore di produzione -- e'
-//! serde a rifiutare per primo, e il nostro non morde mai. Il punto d'ingresso
-//! del fuzzing ne dichiara percio' 32, cosi' la campagna esercita **il
-//! nostro**; una sonda misura la soglia e non la deduce.
+//! differenza si vede: con `max_depth` a 64 -- il valore di produzione fino
+//! alla 5.x -- era serde a rifiutare per primo, e il nostro non mordeva mai.
+//! Dalla 6.0 il valore di produzione e' 32, la profondita' di GEO-011, la
+//! stessa che il punto d'ingresso del fuzzing dichiarava gia': morde per primo
+//! **il nostro**. Una sonda misura la soglia di serde e non la deduce.
 //!
 //! Sono tre cose diverse e portano tre codici diversi: dire «limite superato» a
 //! chi ha scritto `"type": "Punto"` lo manderebbe ad allargare una quota che
