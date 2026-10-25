@@ -748,7 +748,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: PlenoraETL/plenora-contracts
-          ref: 3aec9f724f5a0ad21366f293895b4d0dbcd0aad1
+          ref: 7f82263921132226814f9829b0669ef34eae5624
           path: .plenora-contracts
 
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0

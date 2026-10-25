@@ -6,7 +6,7 @@
   "profile": "plenora-io-tools-profile-v3",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "3aec9f724f5a0ad21366f293895b4d0dbcd0aad1"
+    "revision": "7f82263921132226814f9829b0669ef34eae5624"
   },
   "contracts": [
     {
@@ -133,7 +133,7 @@
       ]
     }
   ],
-  "perche_not_applicable_non_e_una_deviazione": "Python SDK non richiesto dal profilo v3; la wheel resta verificata ma non dichiara la superficie comune della bozza #32. Runtime conditional: essendo esposto, adotta 2.0 con le deviazioni elencate.",
+  "perche_not_applicable_non_e_una_deviazione": "Python SDK: a 7f82263 la superficie e' conditional e, poiche' la wheel e' pubblicata, si applica; `not_applicable` qui vuol dire «non rivendicato», perche' lo schema v4 non ha un terzo stato. E' una garanzia indebolita, non una conformita': vedi requisiti_7f82263, voce IO-PY-001. La wheel resta verificata come artefatto nostro. Runtime conditional: essendo esposto, adotta 2.0 con le deviazioni elencate.",
   "deviations": [
     {
       "rule": "catalogo io-tools (io.read.side_effect)",
@@ -182,13 +182,6 @@
       "surface": "runtime",
       "observed_behavior": "Regola 4; i vettori io-read-v1 fissano io.read@1 (il registro runtime-v1 include anche @2); il profilo v3 serve io.read@2. Gli originali restano immutati: @1 e rifiutato unsupported; i test applicano esplicitamente @2 e il contratto risultato v2 ai casi di esecuzione. Hazard: copiare il selettore storico impedisce la lettura.",
       "tracking": "Rientro: vettori successori del catalogo v3 in contracts; prove runtime_vettori e docs/PRODUCT.md.",
-      "detectable_before_invocation": true
-    },
-    {
-      "rule": "ARROW-001 / REJ-001 (versione del contratto assente)",
-      "surface": "cli",
-      "observed_behavior": "Uno schema Arrow senza `plenora.contract.version` e senza chiavi `plenora.` (di schema o di campo) e' letto come sorgente esterna e accettato; il contratto lo rifiuta con `schema`. Con una qualunque chiave `plenora.` vale REJ-001 per intero. Hazard: un produttore Plenora che omettesse tutte le chiavi sarebbe trattato come esterno; le sue geometrie senza tipi dichiarati sono rifiutate in scrittura (`unsupported`), non perse.",
-      "tracking": "Rientro: regola di profilo IO-ARROW-001 proposta in plenora-contracts (accettazione di profilo ammessa da GEO-000); la deviazione si ritira all'adozione del pin che la contiene.",
       "detectable_before_invocation": true
     },
     {
@@ -260,7 +253,7 @@
     {
       "regola": "GEO-000..020 / REJ-001..004",
       "stato": "implementato",
-      "motivo": "Arrow Geometry Semantics 1.0 rivendicato: vettori arrow-data-v1 168 conformi e 4 rifiuti di supporto (piu' campi geometria, GEO-012), con gli assi del rifiuto di REJ-003 verificati; ordine degli assi memorizzato e rifiutato verso i formati che non lo rappresentano. Lo schema esterno senza chiavi plenora e' fra le deviations."
+      "motivo": "Arrow Geometry Semantics 1.0 rivendicato: vettori arrow-data-v1 168 conformi e 4 rifiuti di supporto (piu' campi geometria, GEO-012), con gli assi del rifiuto di REJ-003 verificati; ordine degli assi memorizzato e rifiutato verso i formati che non lo rappresentano. Lo schema esterno senza chiavi plenora era fra le deviations fino a 7f82263 (IO-ARROW-001, sotto)."
     },
     {
       "regola": "ERR-016",
@@ -281,6 +274,33 @@
       "regola": "contracts #32",
       "stato": "non_applicabile",
       "motivo": "Bozza SDK non adottata; Python non diventa superficie dichiarata."
+    }
+  ],
+  "requisiti_7f82263": [
+    {
+      "regola": "IO-ARROW-001 (contracts #52)",
+      "stato": "implementato",
+      "motivo": "Uno schema Arrow senza `plenora.contract.version` e senza chiavi `plenora.` e' una sorgente esterna e si accetta; con una qualunque chiave `plenora.` vale REJ-001 per intero; ogni flusso Arrow prodotto dichiara la versione (ARROW-001). Era gia' il comportamento: la deviation «ARROW-001 / REJ-001 (versione del contratto assente)» si ritira, come il suo rientro prescriveva."
+    },
+    {
+      "regola": "decisione 0022 (contracts #49)",
+      "stato": "implementato",
+      "motivo": "Vettori arrow-data-v1 a 7f82263: 88 su due operazioni, 172 esiti conformi e 4 rifiuti di supporto (GEO-012), compresi field-id-round-trip e store-field-without-id. `mixed` senza elenco omette `plenora.geometry.types` (IO #66, chiusa)."
+    },
+    {
+      "regola": "contracts #32 / decisione 0016 / IO-PY-001",
+      "stato": "non_rivendicato",
+      "motivo": "Garanzia indebolita, dichiarata. A 7f82263 il catalogo io-tools-v3 dichiara `python_sdk` conditional e il profilo governa con PYTHON-SDK-1.0 l'SDK pubblicato, che IO spedisce: la superficie si applica. Questa adozione non la rivendica: il manifesto non elenca la wheel con `api_modes`, e il documento capabilities non porta `plenora.surface_side_effects` con `python_sdk: local` per io.read (IO-PY-001). Lo schema v4 non ha uno stato «applicabile, non rivendicato»: `not_applicable` di plenora-python-sdk-v1 va letto cosi'. Hazard: chi legge il manifesto non ha una dichiarazione di conformita' dell'SDK. Rientro: rivendicare plenora-python-sdk-v1 con l'artefatto wheel e le deviazioni di IO-PY-001, in una PR propria."
+    },
+    {
+      "regola": "FILE-INTERCHANGE-1.0 (contracts #48) e vettori interop file",
+      "stato": "non_applicabile",
+      "motivo": "Contratto opt-in non rivendicato, come INTEROP-001..005."
+    },
+    {
+      "regola": "contracts #43, #44, #45, #46, #50, #53, #54",
+      "stato": "non_applicabile",
+      "motivo": "Proposta, guida, tooling, gate e dipendenze del repository dei contratti; #53 corregge l'oracolo senza cambiare il verdetto di alcun vettore."
     }
   ]
 }
