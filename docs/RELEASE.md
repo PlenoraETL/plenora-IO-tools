@@ -36,44 +36,44 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `732fba3` |
-| revisione misurata | `732fba3` |
+| ultima qualificata | `1e3f047` |
+| revisione misurata | `1e3f047` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 144 |
+| input di replay | 145 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,43% |
-| righe coperte LCOV | 27 163 |
-| righe strumentate LCOV | 31 067 |
-| copertura cargo | 85,12% |
+| copertura LCOV | 88,14% |
+| righe coperte LCOV | 29 627 |
+| righe strumentate LCOV | 33 612 |
+| copertura cargo | 86,03% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
-| esito differenziale | 88.59% |
+| baseline differenziale | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
+| esito differenziale | 94.02% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `732fba3` |
+| S9, qualificato su | `1e3f047` |
 | candidate, versione del manifesto | `6.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | pubblicata |
+| candidate, revisione congelata | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
 | candidate, versione del workspace | `6.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v6.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
+| candidate, tag sulla candidate | sì |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 7 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)

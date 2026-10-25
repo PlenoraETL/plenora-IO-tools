@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "732fba3",
+      "sha": "1e3f047",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "732fba3",
-    "evidenza": "assurance/evidence/checkpoint-732fba3.json",
+    "sha": "1e3f047",
+    "evidenza": "assurance/evidence/checkpoint-1e3f047.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 144,
+      "replay_input": 145,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,27 +33,27 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.43,
-      "lcov_righe_coperte": 27163,
-      "lcov_righe_strumentate": 31067,
-      "cargo_lines_percentuale": 85.12,
+      "lcov_percentuale": 88.14,
+      "lcov_righe_coperte": 29627,
+      "lcov_righe_strumentate": 33612,
+      "cargo_lines_percentuale": 86.03,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
       "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
     },
     "diagnostica_differenziale": {
-      "baseline": "a70501edee79e57a7db2af8e361f34b8f55a1674",
-      "esito": "88.59%",
-      "righe_cambiate_eseguibili": 149,
-      "coperte": 132,
-      "scoperte": 17,
-      "cambiate_non_eseguibili": 471,
-      "ragione": "misurata fra `a70501e`, l'ultimo checkpoint superato e registrato, e `732fba3`, nel perimetro di libreria.",
+      "baseline": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+      "esito": "94.02%",
+      "righe_cambiate_eseguibili": 3128,
+      "coperte": 2941,
+      "scoperte": 187,
+      "cambiate_non_eseguibili": 12238,
+      "ragione": "misurata fra `732fba3`, l'ultimo checkpoint superato e registrato, e `1e3f047`, nel perimetro di libreria.",
       "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza. `cargo llvm-cov` non gira sui fuzzer: scoperta si legge come non provata dai test, non come non raggiunta dal fuzzing."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+    "sha": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
     "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- Â«e' il verbale di questa corsa?Â» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
@@ -62,7 +62,7 @@
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "732fba3"
+      "qualificato_su": "1e3f047"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -526,12 +526,60 @@
       "versione_manifesto": "6.0.0",
       "versione_workspace": "6.0.0",
       "tag_previsto": "v6.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate **iniziale**: la 6.0.0 segue la 5.0.1. Major: la rilettura dell'adozione di Arrow Geometry Semantics (#75) restringe gli ingressi accettati e cambia la categoria di alcuni rifiuti (le voci sono nelle note della prossima release di RELEASE.md). Il bump cambia `Cargo.lock`, che sta nel perimetro di ogni misura: le profondita' dei quattro bersagli e il confine ASan sono GIA' rimisurati su quest'albero, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica: 12/12 filegdb, 35/35 shp, 9/9 geojson, 9/9 wkt; confine ASan 176237 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32. Cambiano le sole impronte. L'albero non e' ancora congelato: finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata. Il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso."
+      "stato": "pubblicata",
+      "nota": "Candidate **attiva**, congelata su `1e3f047`: la testa della PR #76 (bump a 6.0.0, rimisure sul candidato, candidate iniziale), come `a70501e` per la 5.0.0. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La PR #76 va fusa con un merge commit: lo SHA congelato resta cosi' antenato di `main` e fra lui e HEAD cambia solo l'allowlist.\n\nLa 6.0.0 e' una major: la rilettura dell'adozione di Arrow Geometry Semantics (#75) restringe gli ingressi accettati e cambia la categoria di alcuni rifiuti.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli (12/12 filegdb, 35/35 shp, 9/9 geojson, 9/9 wkt) e confine ASan (176237 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32) misurate sull'albero del bump, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica, dentro la revisione congelata; il loro perimetro non comprende assurance, quindi valgono invariate.\n\n**I sette artefatti sono fissati dalla provenance della distribuzione candidate 40145155276**, canale candidate su questa revisione (ref release/6.0.0): i quattro archivi CLI, wheel e sdist Python, l'archivio sorgente. I digest sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati; il gate finale dei referti (check-distribuzione-completa, 32 referti) e' verde.\n\n**Che cosa resta, intero.** Livello 2 sulla stessa revisione, draft release riscaricata e verificata, attestazioni del profilo pubblico, decisione di rilascio del titolare (release_authorized resta false finche' non e' registrata), tag v6.0.0 sulla candidate, pubblicazione dalla draft immutata e verifica post-pubblicazione.\n\n**Autorizzata.** La decisione di rilascio e' del titolare, data per la 6.0.0 il 2026-10-25 («vai procedi con io 6.0.0»), a candidate congelata su `1e3f047`, livello 2 verde 111/111 sulla stessa revisione e attestazioni del profilo pubblico 32/32 in modalita' esigente sui quattro archivi CLI: release_authorized registra quella decisione e non la deriva da niente. release_action_allowed e' il permesso di pubblicare la draft immutata, e si spende con la pubblicazione. Il tag annotato v6.0.0 va su `1e3f047`, la revisione congelata. Le note della release portano anche i cambiamenti della 5.0.0 non annunciati nel corpo di quella release, per scelta del titolare.\n\n**Pubblicata il 2026-10-25** alle 20:17:21Z, dalla draft immutata, come release `v6.0.0` (latest) con 23 asset. Il gate `check_release_contract.py --release` e' stato eseguito verde in CI sul commit `5cb5936` (release-qualification 40227336849, manifesto materializzato dalla distribuzione 40145155276, contratti al pin): 37 invarianti, nessun blocco, 9 condizioni verificate, i due rinvii dichiarati (sistema.qualifica-cross-component e distribuzione.licenza-first-party). La qualifica sul push del tag e' stata annullata: sul commit del tag la decisione non c'e' ancora, ed e' rossa per costruzione. Il permesso operativo `release_action_allowed` e' speso e torna `false`.\n\n**Verifica dopo la pubblicazione**: i sette artefatti riscaricati dalla release pubblicata sono byte-identici ai fissati qui, e i 23 asset coincidono con quelli della draft verificata.",
+      "revisione_candidate": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+      "artefatti": [
+        {
+          "nome": "plenora-io-6.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "a88a7728c148b6a3d9cecdf882975ae6713d6401766ab822615fcf42cac06866",
+          "dimensione": 8981298,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "b86c152931a14dd8054198f0391fa061505721ba3e772163e0246764b83a9051",
+          "dimensione": 64825628,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora_io-6.0.0-py3-none-any.whl",
+          "sha256": "75237287453dc092bef536743e7c8b26a8025fe9976362adcc0ddb07c4626746",
+          "dimensione": 114515,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora_io-6.0.0.tar.gz",
+          "sha256": "0fb83321ed2ce2752ea5710da0832a96dc2113fa03cb12ea8fa09306b4fb853c",
+          "dimensione": 209908,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-windows-x86_64-base.zip",
+          "sha256": "cb251dff4ac703810f4835526e6ba1eb74632a8881802051d4a62cd4dbdbfbc4",
+          "dimensione": 9771991,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "be425def08223f8cfd2342743a0619c313bb531ae18b3c42e956d87ccf6a6438",
+          "dimensione": 48824200,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-src.tar.gz",
+          "sha256": "01c315bd951aa920f936a15f06dea1eea65e1bfcdd8bce69234386c8755d7e94",
+          "dimensione": 21144447,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        }
+      ],
+      "assurance_entro_l_allowlist": true,
+      "tag_revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+      "commit_di_assurance": "812ec1e8188514798352442f6e1d4e979c6e4baf"
     }
   },
   "docset": {
