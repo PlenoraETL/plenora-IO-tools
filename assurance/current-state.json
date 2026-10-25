@@ -578,7 +578,8 @@
         }
       ],
       "assurance_entro_l_allowlist": true,
-      "tag_revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+      "tag_revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+      "commit_di_assurance": "812ec1e8188514798352442f6e1d4e979c6e4baf"
     }
   },
   "docset": {
