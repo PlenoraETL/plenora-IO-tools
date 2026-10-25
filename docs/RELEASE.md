@@ -71,9 +71,9 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
+| candidate, release_action consentita | sì |
 | release pubblicate | 7 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
