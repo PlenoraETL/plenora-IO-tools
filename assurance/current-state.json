@@ -530,8 +530,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate **iniziale**: la 6.0.0 segue la 5.0.1. Major: la rilettura dell'adozione di Arrow Geometry Semantics (#75) restringe gli ingressi accettati e cambia la categoria di alcuni rifiuti (le voci sono nelle note della prossima release di RELEASE.md). Il bump cambia `Cargo.lock`, che sta nel perimetro di ogni misura: le profondita' dei quattro bersagli e il confine ASan sono GIA' rimisurati su quest'albero, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica: 12/12 filegdb, 35/35 shp, 9/9 geojson, 9/9 wkt; confine ASan 176237 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32. Cambiano le sole impronte. L'albero non e' ancora congelato: finche' `stato` resta `iniziale` nessuna revisione e' dichiarata candidata. Il congelamento e' il passaggio ad `attiva`, e lo registra un commit successivo a quello congelato, perche' un commit non puo' nominare se stesso."
+      "stato": "attiva",
+      "nota": "Candidate **attiva**, congelata su `1e3f047`: la testa della PR #76 (bump a 6.0.0, rimisure sul candidato, candidate iniziale), come `a70501e` per la 5.0.0. Questo commit la nomina, perche' un commit non puo' nominare se stesso. La PR #76 va fusa con un merge commit: lo SHA congelato resta cosi' antenato di `main` e fra lui e HEAD cambia solo l'allowlist.\n\nLa 6.0.0 e' una major: la rilettura dell'adozione di Arrow Geometry Semantics (#75) restringe gli ingressi accettati e cambia la categoria di alcuni rifiuti.\n\n**Le misure del perimetro valgono su questa revisione.** Profondita' dei quattro bersagli (12/12 filegdb, 35/35 shp, 9/9 geojson, 9/9 wkt) e confine ASan (176237 contatori su 1 modulo, zero simboli del runtime in libgdal.so.32) misurate sull'albero del bump, nell'immagine plenora-io-dev:qualifica-501 sulla VM di qualifica, dentro la revisione congelata; il loro perimetro non comprende assurance, quindi valgono invariate.\n\n**I sette artefatti sono fissati dalla provenance della distribuzione candidate 40145155276**, canale candidate su questa revisione (ref release/6.0.0): i quattro archivi CLI, wheel e sdist Python, l'archivio sorgente. I digest sono quelli degli archivi scaricati e verificati contro i .sha256 pubblicati; il gate finale dei referti (check-distribuzione-completa, 32 referti) e' verde.\n\n**Che cosa resta, intero.** Livello 2 sulla stessa revisione, draft release riscaricata e verificata, attestazioni del profilo pubblico, decisione di rilascio del titolare (release_authorized resta false finche' non e' registrata), tag v6.0.0 sulla candidate, pubblicazione dalla draft immutata e verifica post-pubblicazione.",
+      "revisione_candidate": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+      "artefatti": [
+        {
+          "nome": "plenora-io-6.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "a88a7728c148b6a3d9cecdf882975ae6713d6401766ab822615fcf42cac06866",
+          "dimensione": 8981298,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "b86c152931a14dd8054198f0391fa061505721ba3e772163e0246764b83a9051",
+          "dimensione": 64825628,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora_io-6.0.0-py3-none-any.whl",
+          "sha256": "75237287453dc092bef536743e7c8b26a8025fe9976362adcc0ddb07c4626746",
+          "dimensione": 114515,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora_io-6.0.0.tar.gz",
+          "sha256": "0fb83321ed2ce2752ea5710da0832a96dc2113fa03cb12ea8fa09306b4fb853c",
+          "dimensione": 209908,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-windows-x86_64-base.zip",
+          "sha256": "cb251dff4ac703810f4835526e6ba1eb74632a8881802051d4a62cd4dbdbfbc4",
+          "dimensione": 9771991,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "be425def08223f8cfd2342743a0619c313bb531ae18b3c42e956d87ccf6a6438",
+          "dimensione": 48824200,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        },
+        {
+          "nome": "plenora-io-6.0.0-src.tar.gz",
+          "sha256": "01c315bd951aa920f936a15f06dea1eea65e1bfcdd8bce69234386c8755d7e94",
+          "dimensione": 21144447,
+          "revisione": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3"
+        }
+      ],
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {
