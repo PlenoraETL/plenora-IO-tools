@@ -53,7 +53,7 @@
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "732fba374cd12aed7995c11c3ed48128e8f5992b",
+    "sha": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
     "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `e0270b5`, la revisione congelata. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- Â«e' il verbale di questa corsa?Â» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
   },
