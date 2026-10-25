@@ -36,23 +36,23 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `732fba3` |
-| revisione misurata | `732fba3` |
+| ultima qualificata | `1e3f047` |
+| revisione misurata | `1e3f047` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 144 |
+| input di replay | 145 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,43% |
-| righe coperte LCOV | 27 163 |
-| righe strumentate LCOV | 31 067 |
-| copertura cargo | 85,12% |
+| copertura LCOV | 88,14% |
+| righe coperte LCOV | 29 627 |
+| righe strumentate LCOV | 33 612 |
+| copertura cargo | 86,03% |
 | soglia di copertura | 80,00% |
 | baseline differenziale | `a70501edee79e57a7db2af8e361f34b8f55a1674` |
 | esito differenziale | 88.59% |
