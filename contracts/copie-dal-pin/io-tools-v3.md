@@ -23,6 +23,7 @@ implements exactly one of the catalog versions (Surface Bindings 1.0 §1).
 - [Arrow Vocabulary 1.0](../specs/data/ARROW-VOCABULARY-1.0.md)
 - [Row Diagnostics 1.0](../specs/diagnostics/ROW-DIAGNOSTICS-1.0.md)
 - [CLI 2.0](../specs/cli/CLI-2.0.md)
+- [Python SDK 1.0](../specs/sdk/PYTHON-SDK-1.0.md), when exposed
 - [Public Catalogs 2.0](../specs/catalogs/PUBLIC-CATALOGS-2.0.md), for the
   catalog of this profile
 - [Runtime Binding 2.0](../specs/runtime/RUNTIME-BINDING-2.0.md), when exposed
@@ -113,12 +114,51 @@ a typed failure (Typed Errors 1.0), not through `null`.
 
 - Rust API: required.
 - CLI: required and governed by CLI 2.0.
-- Python SDK: not required by this profile.
+- Python SDK: optional (`conditional` in the catalog); when published it is
+  governed by Python SDK 1.0 and the binding map, binds all six operations
+  and exposes `plenora_io.version()` and `Client.capabilities()`.
 - Runtime: conditional. An artifact that publishes the runtime surface
   follows Runtime Binding 2.0 for every operation it exposes there; an
   artifact without it omits `runtime` from its capability document and
   records no deviation, and the catalog's runtime entries are planned for it
   (CAT-001, CAT-002).
+
+**IO-PY-001** — The Python SDK exposes the semantics of the CLI protocol
+through synchronous methods; each Python artifact records `api_modes: ["sync"]`
+in its adoption manifest (Python SDK 1.0 section 4). Execution may use the
+native module shipped in an abi3 wheel (`NativeRunner`) or a CLI process.
+`Client.backend` reports `"native"` or `"process"`; neither path changes
+operation identity, validation, results, error axes or side effects.
+`plenora_io.version()` returns the installed package version;
+`Client.version()` describes the selected backend. `Client.capabilities()`
+MUST describe that artifact, including the Python interface and the
+`python_sdk` surface on the operations it exposes (CAT-001).
+
+`Client.read` writes the dataset to the caller's destination. For `io.read`,
+the capability attribute `plenora.surface_side_effects` MUST include
+`{"python_sdk": "local"}` alongside any other surface effects (SB-001);
+the catalog operation retains `side_effect: none`. `Client.validate` reads
+without delivering a dataset. `Client.read_table` returns `TableRead`, with
+both the PyArrow table and the structured read result, including fidelity;
+its temporary IPC file is cleaned up on success or failure, with cleanup
+failures reported as typed errors. All three methods bind `io.read` version 2.
+`Client.write` accepts an IPC path or a supported Arrow object through the
+optional PyArrow adapter. Without supported PyArrow, `read_table` and Arrow
+object input MUST fail with a typed `unsupported` error before execution,
+never silently convert or discard fidelity information.
+
+Controls MUST describe their actual scope. The native backend's client
+timeout requests cooperative cancellation and waits for the worker to stop;
+it is not a hard bound on return time. A client timeout is a `ProtocolError`,
+distinct from the operation deadline in `Limits`. SIGINT handled on the main
+thread requests cancellation (also on Windows with the native backend); an
+operation's cancellation result is exposed as `CancelledError`, with its
+error axes, rather than replaced by an untyped interruption. Cancellation
+availability is reported by `Client.cancellable`; the process backend has
+platform and thread restrictions. Neither timeout nor cancellation proves
+rollback: a client timeout or protocol failure after a writing command has
+started MUST preserve conservative `remote_effect: unknown` and `retry: never`;
+a typed operation failure preserves the effect the operation reports.
 
 ## Interchange
 
@@ -138,6 +178,18 @@ silent.
 Row-scoped format or mapping failures use
 `plenora-row-diagnostics-v1` when diagnostics are advertised.
 
+**IO-ARROW-001** — An Arrow input whose schema carries neither
+`plenora.contract.version` nor any key in the `plenora.` namespace, on the
+schema or on any field, is an external Arrow source and not a Plenora
+contract stream. Every IO operation that reads Arrow accepts it, although
+Arrow Interchange 1.0 rejects a missing contract version with `schema`
+(ARROW-001), and reads each missing declaration without asserting more than
+the source carries. An input that carries the version or any `plenora.` key
+is a contract stream and follows Arrow Vocabulary 1.0 and, where IO claims
+it, Arrow Geometry Semantics 1.0 in full: a missing or malformed version is
+then `schema` (REJ-001). Every Arrow stream IO produces declares the contract
+version.
+
 ## External outcomes
 
 Write and convert operations declare local or remote side effects and distinguish
@@ -150,8 +202,8 @@ Profile version 2, whose operations this profile keeps unchanged, was a
 component major change for IO-tools: the three operations changed version and
 output contract. CLI protocol v2 and the rules of profile version 1 on
 deprecated command spellings continue to apply. From profile version 2 to
-this profile no operation changes: only the contracts 2.0 and the runtime
-applicability.
+this profile no operation changes: the contracts 2.0, runtime applicability
+and optional Python surface change.
 ## Not specified here
 
 This profile does not prescribe drivers, parsers, temporary files, spooling,

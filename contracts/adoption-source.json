@@ -3,10 +3,10 @@
   "component": "plenora-io-tools",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "3aec9f724f5a0ad21366f293895b4d0dbcd0aad1"
+    "revision": "7f82263921132226814f9829b0669ef34eae5624"
   },
   "profile": "plenora-io-tools-profile-v3",
-  "perche_questa_revisione": "Adozione locale di 3aec9f7: Public Catalogs 2.0, profilo io-tools v3, Runtime Binding 2.0. Le versioni operative di catalog/read/write diventano 2; wire runtime e discovery restano 1. Non si adotta la bozza SDK #32.",
+  "perche_questa_revisione": "Adozione di 7f82263, dopo la 6.0.0: porta la regola di profilo IO-ARROW-001 (sorgente Arrow esterna), che ritira la deviazione ARROW-001 / REJ-001, la decisione 0022 e i vettori arrow-data-v1 nuovi. Resta da 3aec9f7: Public Catalogs 2.0, profilo io-tools v3, Runtime Binding 2.0, catalog/read/write@2, wire runtime e discovery 1. Il pin porta anche la superficie Python dichiarata (contracts #32, decisione 0016): questa adozione non la rivendica, vedi `not_applicable`.",
   "contracts": [
     "plenora-public-surfaces-v1",
     "plenora-public-catalog-v2",
@@ -23,7 +23,7 @@
     "plenora-arrow-geometry-semantics-v1"
   ],
   "not_applicable": {
-    "plenora-python-sdk-v1": "il profilo io-tools dichiara `python_sdk: not_applicable`, e il contratto comune fissa le distribuzioni per database-tools e rest-tools. Lo SDK Python di IO-tools resta e viene spedito, ma non reclama questo contratto: e' verificato come artefatto nostro, dalla wheel installata, perche' avvolge il CLI e deve restare coerente con la sua busta."
+    "plenora-python-sdk-v1": "garanzia indebolita, dichiarata come tale. A 7f82263 il catalogo io-tools-v3 dichiara `python_sdk` conditional e il profilo governa con PYTHON-SDK-1.0 l'SDK pubblicato: poiche' IO spedisce la wheel, la superficie si applica. Questa adozione non la rivendica ancora (manca la wheel con `api_modes` nel manifesto, e `plenora.surface_side_effects` con `python_sdk: local` per io.read, IO-PY-001), e lo schema del manifesto v4 non ha uno stato fra `conforming` e `not_applicable`. Lo SDK resta verificato come artefatto nostro, dalla wheel installata. Rientro: rivendicare il contratto con l'artefatto wheel e le deviazioni di IO-PY-001."
   },
   "superfici": {
     "rust": {
@@ -36,14 +36,14 @@
       "canale": "i quattro archivi nativi della distribuzione"
     },
     "python_sdk": {
-      "stato": "fuori dal profilo, spedita e verificata",
+      "stato": "nel profilo (conditional da 7f82263), spedita e verificata, non rivendicata",
       "canale": "wheel e sdist della distribuzione",
       "nota": "aggiornata insieme al CLI e verificata dalla wheel **installata**, fuori dall'albero sorgente. Non reclama `plenora-python-sdk-v1`."
     },
     "runtime": {
       "stato": "adottata",
       "canale": "il modulo `plenora_io_tools::runtime` dell'archivio sorgente, lo stesso artefatto della superficie Rust",
-      "nota": "Destinazione Runtime Binding 2.0 con deviazione RT-024 dichiarata; wire 1, discovery capabilities@1, catalog/read/write@2 e inspect/layers/convert@1. Negoziazione e limiti del trasporto competono all?host."
+      "nota": "Destinazione Runtime Binding 2.0 con deviazione RT-024 dichiarata; wire 1, discovery capabilities@1, catalog/read/write@2 e inspect/layers/convert@1. Negoziazione e limiti del trasporto competono all'host."
     }
   },
   "catalog": "catalogs/io-tools-v3.json",

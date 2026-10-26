@@ -67,8 +67,10 @@ USCITA = RADICE / "contracts" / "adoption-manifest.json"
 SCHEMA = "adoption-manifest-v4.schema.json"
 
 #: Le superfici che questo componente dichiara. `python_sdk` non c'e': lo SDK
-#: esiste e viene spedito, ma il profilo non lo richiede e il manifesto lo
-#: dichiara `not_applicable` -- elencarne un artefatto direbbe il contrario.
+#: esiste e viene spedito, e dal pin 7f82263 il profilo lo rende conditional,
+#: ma il manifesto non lo rivendica ancora e lo tiene `not_applicable`
+#: (`contracts/adozione-4.0.0.json`, requisiti_7f82263, IO-PY-001): elencarne
+#: un artefatto direbbe il contrario.
 SUPERFICI = {"cli", "rust"}
 
 

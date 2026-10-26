@@ -19,9 +19,9 @@ La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
 Il pacchetto e' scritto contro `plenora-python-sdk-v1` (PYTHON-SDK-1.0 di
 plenora-contracts), requisito per requisito: la tabella di conformita' e le
 deviazioni dichiarate stanno in `sdk/python/README.md`. `capabilities()`
-dichiara la superficie `python_sdk` (PYTHON-SDK-1.0 §7); il manifesto di
-adozione la reclamera' quando il catalogo dei contratti la dichiarera' per
-IO-tools.
+dichiara la superficie `python_sdk` (PYTHON-SDK-1.0 §7). Il catalogo dei
+contratti la dichiara per IO-tools dalla revisione `7f82263`; il manifesto di
+adozione non la rivendica ancora (vedi `sdk/python/README.md`).
 
 # Gli errori si distinguono per **categoria**, non per messaggio
 

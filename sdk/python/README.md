@@ -85,11 +85,15 @@ di pyarrow installata a mano, le due chiamate si rifiutano con
 ## Conformita' a `plenora-python-sdk-v1`
 
 Il contratto e' PYTHON-SDK-1.0 di plenora-contracts (identico fra la revisione
-fissata in `contracts/adoption-source.json` e la v1.1.0, `3c395a8`). Il profilo
-io-tools non richiede la superficie Python e il catalogo comune non la dichiara
-per IO-tools: il pacchetto e' scritto contro il contratto, e lo **reclamera'**
-quando il catalogo lo fara'. Fino ad allora `contracts/adoption-source.json` lo
-tiene fuori dal profilo.
+fissata in `contracts/adoption-source.json` e la v1.1.0, `3c395a8`). Dalla
+revisione `7f82263` il catalogo comune dichiara la superficie Python per
+IO-tools (`conditional`) e il profilo aggiunge IO-PY-001: il pacchetto e'
+scritto contro il contratto, ma il manifesto di adozione **non lo rivendica
+ancora** e lo tiene `not_applicable`, che li' vuol dire «non rivendicato». Per
+rivendicarlo mancano la wheel con `api_modes` fra gli artefatti del manifesto e
+`plenora.surface_side_effects` con `python_sdk: local` per `io.read`
+(IO-PY-001). E' una garanzia indebolita, dichiarata in
+`contracts/adozione-4.0.0.json`.
 
 | § | requisito | stato |
 |---|---|---|
@@ -175,7 +179,8 @@ Ogni argomento si converte all'ingresso nel tipo base esatto (`str`, `int`,
 legati del tipo base: una sottoclasse con `__str__`, `__format__` o
 `__contains__` ridefiniti non esegue codice dopo il confine. Un intero oltre
 64 bit si rifiuta prima di ogni conversione. E' un cambiamento incompatibile,
-dichiarato in `docs/RELEASE.md`, «Note della prossima release».
+dichiarato nelle note della
+[6.0.0](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
 
 **La rete.** Ogni callable di ogni tipo esportato -- metodi speciali,
 setter e deleter compresi, con le sole eccezioni di `_confine.NON_AVVOLTI` --
