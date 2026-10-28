@@ -1421,7 +1421,7 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
         out.push(r.map_err(sql_err)?);
     }
     // Una tabella con piu' righe in `gpkg_geometry_columns` dichiara piu'
-    // colonne geometriche. Il modello porta una geometria per layer: un layer
+    // colonne geometriche, vietate dal requisito 30 GeoPackage: un layer
     // per riga ripeterebbe il nome della tabella e in ciascuno l'altra
     // geometria uscirebbe come BLOB qualunque, cioe' degradata a binario e
     // scelta al posto di chi legge (GEO-012).
@@ -1439,8 +1439,8 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
     {
         return Err(PlenoraIoError::non_supportato_redatto(
             &PublicMessage::Curated(
-                "GeoPackage: una feature table dichiara piu' colonne geometriche, e il \
-                 componente porta una sola geometria per layer (GEO-012)",
+                "GeoPackage: una feature table dichiara piu' colonne geometriche, \
+                 vietate dal requisito 30 della specifica",
             ),
         ));
     }

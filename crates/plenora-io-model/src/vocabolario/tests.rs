@@ -177,7 +177,7 @@ fn precedenza_versione_vocabolario_crs_supporto() {
         ],
         HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]),
     );
-    assert_eq!(categoria(&due), Some(ErrorCategory::Unsupported));
+    assert_eq!(categoria(&due), None);
 }
 
 /// GEO-016: il codice di `crs_id` non ha spazi nel senso di `\s` di Python, che

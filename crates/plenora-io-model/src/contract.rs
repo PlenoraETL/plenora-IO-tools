@@ -309,11 +309,47 @@ impl GeometryColumnContract {
 #[derive(Clone, Debug)]
 pub struct DataContract {
     pub schema: SchemaRef,
-    /// v1: al massimo una colonna geometria.
+    /// Geometria primaria esplicita. Le altre geometrie hanno metadati per campo.
     pub geometry: Option<GeometryColumnContract>,
 }
 
 impl DataContract {
+    /// Restituisce tutti i contratti geometrici in ordine fisico.
+    /// La primaria esplicita prevale sui suoi metadati; nessun altro campo
+    /// viene promosso a primaria. Gli indici sono posizioni, non `field_id` wire.
+    ///
+    /// # Errors
+    /// Metadati geometrici non interpretabili o indice non rappresentabile.
+    pub fn geometries(&self) -> crate::Result<Vec<GeometryColumnContract>> {
+        let mut geometries = Vec::new();
+        for (index, field) in self.schema.fields().iter().enumerate() {
+            if let Some(primary) = self.geometry.as_ref().filter(|g| &g.name == field.name()) {
+                geometries.push(primary.clone());
+            } else if crate::geometry::is_geometry_field(field) {
+                let index = u32::try_from(index).map_err(|_| {
+                    crate::PlenoraIoError::schema_redatto(&crate::PublicMessage::Curated(
+                        "indice geometrico non rappresentabile",
+                    ))
+                })?;
+                let mut geometry = GeometryColumnContract::wkb_xy(
+                    FieldId(index),
+                    field.name(),
+                    crate::crs::CrsResolution::Missing,
+                    field.is_nullable(),
+                );
+                crate::geometry::read_geometry_contract_metadata(field, &mut geometry)?;
+                geometry.field_id = FieldId(index);
+                geometries.push(geometry);
+            }
+        }
+        if let Some(primary) = &self.geometry {
+            if !geometries.iter().any(|g| g.name == primary.name) {
+                geometries.push(primary.clone());
+            }
+        }
+        Ok(geometries)
+    }
+
     /// Costruisce il contratto e inserisce la versione del protocollo nei
     /// metadati di schema quando sono presenti chiavi geometriche canoniche.
     ///

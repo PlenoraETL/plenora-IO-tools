@@ -1191,6 +1191,7 @@ impl FormatDriver for GeoParquetDriver {
         // opt-in conserva tutte le colonne utente esattamente come sono.
         let strip_names: Option<Vec<String>> = covering.as_ref().map(radici_del_covering);
         let out_schema = retag_schema(&parquet_schema, &geom_name, &crs, strip_names.as_deref());
+        let out_schema = multigeometria::completa_schema(out_schema, geo.as_ref())?;
         // Il covering utilizzabile per il pruning e' quello che si e' ottenuto:
         // se e' dichiarato, la riconciliazione ha gia' preteso che i quattro
         // percorsi esistano -- e se non esistevano non siamo arrivati fin qui --
@@ -1241,10 +1242,16 @@ impl FormatDriver for GeoParquetDriver {
         plenora_io_core::with_read_budget(
             Box::new(GeoParquetDataset {
                 path,
-                out_schema,
+                out_schema: out_schema.clone(),
                 bbox_covering,
                 visible_to_physical,
-                altre_geometrie,
+                altre_geometrie: altre_geometrie
+                    .into_iter()
+                    .filter(|&i| {
+                        !geo.as_ref()
+                            .is_some_and(|g| g.secondarie.contains_key(out_schema.field(i).name()))
+                    })
+                    .collect(),
                 layers: vec![layer],
                 tetto_pagina: tetto_pagina(opts.budget().context()),
             }),
@@ -1314,7 +1321,20 @@ impl FormatDriver for GeoParquetDriver {
                  scrittura",
             )));
         }
-        let (geom_idx, geom_name, legacy_crs_meta) = geometry_field(&schema)?;
+        let (geom_idx, geom_name, legacy_crs_meta) = if let Some(primary) = &layer.contract.geometry
+        {
+            let index = schema
+                .index_of(&primary.name)
+                .map_err(|_| fmt_err(&PublicMessage::Curated("primaria assente dallo schema")))?;
+            (
+                index,
+                primary.name.clone(),
+                schema.field(index).metadata().get(GEO_CRS_KEY).cloned(),
+            )
+        } else {
+            geometry_field(&schema)?
+        };
+        let secondarie = multigeometria::colonne_da_scrivere(&layer.contract, &geom_name)?;
         // Il CRS si decide **all'apertura**, non alla chiusura: se non e'
         // scrivibile in modo conforme, e' meglio saperlo prima di aver scritto
         // un file intero.
@@ -1329,6 +1349,9 @@ impl FormatDriver for GeoParquetDriver {
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
         aug_fields[geom_idx] = senza_crs_geoarrow(&aug_fields[geom_idx]);
+        for colonna in &secondarie {
+            aug_fields[colonna.indice] = senza_crs_geoarrow(&aug_fields[colonna.indice]);
+        }
         aug_fields.push(bbox_field(geometria_nullable));
         let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
             aug_fields,
@@ -1368,6 +1391,7 @@ impl FormatDriver for GeoParquetDriver {
                 crs_meta,
                 epoca,
                 geometry_types: BTreeSet::new(),
+                secondarie,
                 wkb_limits: opts.wkb_limits(),
                 geometria_nullable,
             }),
@@ -1694,8 +1718,8 @@ struct GeoParquetDataset {
     /// all'apertura e ogni projection la usa per tradurre.
     visible_to_physical: Vec<usize>,
     /// Gli indici logici, nello schema esposto, delle colonne geometriche che
-    /// non sono la primaria: le secondarie del documento `geo` e i campi che
-    /// lo schema Arrow incorporato marca come geometria. Vedi
+    /// non sono dichiarate in `geo.columns`, ma sono marcate come geometria
+    /// dallo schema Arrow incorporato. Vedi
     /// [`rifiuta_le_altre_geometrie`].
     altre_geometrie: Vec<usize>,
     layers: Vec<LayerContract>,
@@ -1977,6 +2001,7 @@ struct GeoParquetWriter {
     /// Il testo dell'epoca delle coordinate, gia' verificato come numero JSON.
     epoca: Option<String>,
     geometry_types: BTreeSet<(GeometryType, CoordinateDimensions)>,
+    secondarie: Vec<multigeometria::ColonnaScritta>,
     wkb_limits: WkbLimits,
     /// La nullabilita' della geometria, che la colonna `bbox` segue.
     geometria_nullable: bool,
@@ -1984,6 +2009,13 @@ struct GeoParquetWriter {
 
 impl FormatWriter for GeoParquetWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        for colonna in &mut self.secondarie {
+            accumulate_geometry_types(
+                batch.column(colonna.indice),
+                &mut colonna.tipi,
+                &self.wkb_limits,
+            )?;
+        }
         let geom = batch.column(self.geom_idx);
         accumulate_geometry_types(geom, &mut self.geometry_types, &self.wkb_limits)?;
         // Aggiunge la colonna struct `bbox` del covering, per il pruning.
@@ -2020,6 +2052,8 @@ impl FormatWriter for GeoParquetWriter {
             &self.crs_meta,
             self.epoca.as_deref(),
         )?;
+
+        let geo = multigeometria::aggiungi_colonne(geo, &self.secondarie)?;
 
         // Ultimo cancello prima della pubblicazione, e lo tiene l'autorita'.
         //
@@ -2430,7 +2464,11 @@ fn resolve_geometry_and_crs(
 ///   coordinate in WGS84 dove nessuno lo ha detto;
 /// * **documento** -- il PROJJSON dichiarato.
 fn crs_from(geo: &MetadatiGeo) -> Result<CrsResolution> {
-    match &geo.primaria.crs {
+    crs_della_colonna(&geo.primaria)
+}
+
+fn crs_della_colonna(colonna: &metadati::ColonnaGeo) -> Result<CrsResolution> {
+    match &colonna.crs {
         metadati::Crs::Assente => Ok(ResolvedCrs::wgs84().into()),
         // `null` e' un CRS ignoto (GeoParquet 1.1, «crs»): nel vocabolario e'
         // `missing`, l'unico stato senza identificatore ne' definizione
@@ -2483,7 +2521,11 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
     let Some(geo) = geo else {
         return;
     };
-    let colonna = &geo.primaria;
+    let colonna = geo.secondarie.get(&contract.name).unwrap_or(&geo.primaria);
+    contract.native_metadata.insert(
+        "geoparquet.primary_column".to_owned(),
+        geo.nome_primaria.clone(),
+    );
     contract
         .native_metadata
         .insert("geoparquet.column".to_owned(), colonna.grezza.clone());
@@ -2593,17 +2635,8 @@ fn indici_delle_altre_geometrie(
         .collect()
 }
 
-/// Nomina nel contratto della primaria le altre colonne geometriche del file.
-///
-/// Un `GeoParquet` puo' averne piu' di una, e la scoperta deve rendere il limite
-/// prevedibile (GEO-012): una lettura che le tocca e' rifiutata, vedi
-/// [`rifiuta_le_altre_geometrie`]. Le fonti sono le stesse di quel rifiuto --
-/// [`indici_delle_altre_geometrie`] -- e non solo il documento `geo`: prima un
-/// campo marcato come geometria dallo schema Arrow incorporato, ma non
-/// dichiarato da `geo`, era rifiutato in lettura senza che la scoperta lo
-/// nominasse, e il layer si descriveva leggibile.
-///
-/// L'elenco e' in ordine alfabetico, separato da virgole.
+/// Elenco storico delle secondarie, mantenuto per la scoperta esistente.
+/// I contratti completi sono nei metadati di ciascun campo.
 fn nomina_le_altre_geometrie(
     contract: &mut GeometryColumnContract,
     schema: &Schema,
@@ -2622,26 +2655,8 @@ fn nomina_le_altre_geometrie(
     );
 }
 
-/// Rifiuta una lettura che porterebbe fuori una colonna geometrica che non e'
-/// la primaria.
-///
-/// Il modello di questo componente porta **un** contratto geometrico per
-/// layer, quello della primaria. Una seconda colonna geometrica uscirebbe come
-/// binario qualunque, o con un'estensione senza contratto: e' il degrado che
-/// GEO-012 vieta, insieme alla scelta di una colonna al posto di chi legge.
-/// Prima questo driver lo faceva, nominando le altre solo in
-/// `native_metadata["geoparquet.altre_colonne"]`.
-///
-/// Una projection che seleziona la sola primaria -- o nessuna geometria -- e'
-/// un'altra cosa: lo schema che esce ha al piu' una geometria, ed e' quella
-/// che il chiamante ha chiesto. Si rifiuta solo cio' che la richiesta lascia
-/// passare senza averlo scelto da sola: nessuna projection, o una projection
-/// che comprende una delle altre colonne geometriche.
-///
-/// # Errors
-///
-/// `Unsupported` se la selezione comprende una colonna geometrica diversa
-/// dalla primaria. Il messaggio non nomina la colonna: il nome viene dal file.
+/// Rifiuta i campi marcati `GeoArrow` ma non dichiarati in `geo.columns`.
+/// La selezione esplicita puo' escluderli senza degradarli a binario.
 fn rifiuta_le_altre_geometrie(altre: &[usize], selezione: Option<&[FieldId]>) -> Result<()> {
     // Senza projection esce tutto lo schema; con una projection, cio' che
     // nomina.
@@ -2653,9 +2668,7 @@ fn rifiuta_le_altre_geometrie(altre: &[usize], selezione: Option<&[FieldId]>) ->
     if toccata {
         return Err(PlenoraIoError::non_supportato_redatto(
             &PublicMessage::Curated(
-                "GeoParquet: la lettura comprende una colonna geometrica che non e' la primaria, \
-                 e il componente porta una sola geometria per layer (GEO-012); proiettare la \
-                 sola primaria, o nessuna geometria",
+                "GeoParquet: la lettura comprende una geometria Arrow non dichiarata in geo.columns",
             ),
         ));
     }
@@ -3446,6 +3459,8 @@ fn geo_con_documento(
     );
     testo_di(&radice)
 }
+
+mod multigeometria;
 
 #[cfg(test)]
 mod tests;

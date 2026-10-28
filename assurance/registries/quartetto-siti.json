@@ -225,7 +225,7 @@
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
-    "crs_from": [
+    "crs_della_colonna": [
       "Crs/Validate/CrsUnresolved/Never"
     ],
     "documento_da_scrivere": [
@@ -455,16 +455,15 @@
   },
   "crates/plenora-io-core/src/capabilities.rs": {
     "validate_write": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "violation": [
       "Unsupported/Validate/Capability/Never"
     ]
   },
   "crates/plenora-io-core/src/driver.rs": {
-    "geometry_contracts_for_validation": [
-      "Unsupported/Validate/Unsupported/Never"
-    ],
     "leggendo_arrow": [
       "DataMapping/Read/Format/Never"
     ],
@@ -505,6 +504,11 @@
       "Schema/Validate/Schema/Never",
       "esplicito/esplicito/Generic/esplicito"
     ],
+    "column_geometry_components": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "drain_operation": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
@@ -515,8 +519,6 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "geometry_components": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "into_error": [
@@ -551,7 +553,7 @@
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
       "Unsupported/Validate/Capability/Never",
-      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "commit": [
@@ -656,6 +658,11 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-model/src/contract.rs": {
+    "geometries": [
+      "Schema/Validate/Schema/Never"
+    ]
+  },
   "crates/plenora-io-model/src/crs.rs": {
     "crs_kind_for": [
       "Crs/Validate/Crs/Never"
@@ -704,7 +711,6 @@
     "verifica_schema": [
       "Schema/Validate/Schema/Never",
       "Schema/Validate/Schema/Never",
-      "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "vocabolario": [

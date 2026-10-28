@@ -2281,52 +2281,37 @@ fn esito_lettura(
 }
 
 #[test]
-fn due_geometrie_senza_selezione_sono_rifiutate_come_non_supportate() {
-    // Il difetto: la primaria diventava la geometria e `altra` usciva come un
-    // binario qualunque, nominata solo in un metadato nativo. GEO-012 vieta
-    // proprio questo -- degradare un campo geometrico a binario o sceglierne
-    // uno -- e chiede il rifiuto `unsupported` prima di ogni effetto.
-    let dir = tempfile::tempdir().expect("tempdir");
+fn due_geometrie_e_projection_preservano_i_contratti() {
+    let dir = tempfile::tempdir().unwrap();
     let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
     let dataset = GeoParquetDriver
         .open(Source::Path(percorso), opzioni_lettura())
-        .expect("la scoperta resta possibile: e' li' che il limite si vede");
-    let Some((codice, messaggio)) = esito_lettura(dataset.as_ref(), &richiesta_semplice()) else {
-        panic!("una lettura con due geometrie non deve degradarne una a binario");
-    };
-    assert_eq!(codice, plenora_io_model::IoErrorCode::Unsupported);
-    // Errori senza dati: il nome della colonna viene dal file.
-    assert!(!messaggio.contains("altra"), "{messaggio}");
-}
-
-#[test]
-fn una_projection_che_tiene_entrambe_le_geometrie_e_rifiutata() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
-    let dataset = GeoParquetDriver
-        .open(Source::Path(percorso), opzioni_lettura())
-        .expect("apertura");
-    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[0, 1, 2]));
-    assert_eq!(
-        esito.map(|(codice, _)| codice),
-        Some(plenora_io_model::IoErrorCode::Unsupported)
-    );
-}
-
-#[test]
-fn una_projection_sulla_sola_secondaria_e_rifiutata() {
-    // Senza la primaria `altra` sarebbe l'unica colonna, ma il contratto
-    // geometrico e' quello della primaria: uscirebbe binaria, cioe' degradata.
-    let dir = tempfile::tempdir().expect("tempdir");
-    let percorso = parquet_con_due_binarie(&dir, GEO_DUE_GEOMETRIE);
-    let dataset = GeoParquetDriver
-        .open(Source::Path(percorso), opzioni_lettura())
-        .expect("apertura");
-    let esito = esito_lettura(dataset.as_ref(), &richiesta_proiettata(&[1, 2]));
-    assert_eq!(
-        esito.map(|(codice, _)| codice),
-        Some(plenora_io_model::IoErrorCode::Unsupported)
-    );
+        .unwrap();
+    for richiesta in [
+        richiesta_semplice(),
+        richiesta_proiettata(&[0, 1, 2]),
+        richiesta_proiettata(&[1, 2]),
+    ] {
+        let mut reader = dataset.open_layer_reader(&richiesta).unwrap();
+        let geometrie = reader.contract().contract.geometries().unwrap();
+        let solo_secondaria = richiesta
+            .projected_fields
+            .as_ref()
+            .is_some_and(|f| !f.contains(&FieldId(0)));
+        assert_eq!(geometrie.len(), if solo_secondaria { 1 } else { 2 });
+        assert_eq!(
+            reader.contract().contract.geometry.is_none(),
+            solo_secondaria
+        );
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        for geometria in geometrie {
+            assert!(plenora_io_model::geometry::is_geometry_field(
+                batch.schema().field_with_name(&geometria.name).unwrap()
+            ));
+        }
+        assert!(reader.next_batch().unwrap().is_none());
+    }
 }
 
 #[test]
@@ -4524,3 +4509,5 @@ fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
         .metadata()
         .contains_key("plenora.geometry.native.geoparquet.epoch"));
 }
+
+mod multigeometria;

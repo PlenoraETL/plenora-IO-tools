@@ -20,15 +20,22 @@ use super::{
     TypeCoercionPolicy, WritePlan,
 };
 
-pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossReport {
+pub fn planned_write_loss(
+    descriptor: &FormatDescriptor,
+    plan: &WritePlan,
+) -> plenora_io_model::Result<LossReport> {
     let mut loss = LossReport::default();
     let Some(capabilities) = descriptor.write_capabilities() else {
-        return loss;
+        return Ok(loss);
     };
 
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
-        if let Some(geometry) = &layer.contract.geometry {
+        let geometries = layer.contract.geometries()?;
+        for geometry in geometries
+            .iter()
+            .filter(|_| layer.contract.geometry.is_some() || geometries.len() > 1)
+        {
             let (crs_id, crs_definition, grammatica) = match &geometry.crs {
                 CrsResolution::Resolved(crs) => (
                     crs.id.as_deref(),
@@ -120,7 +127,7 @@ pub fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> Lo
             }
         }
     }
-    loss
+    Ok(loss)
 }
 
 /// Le fonti che il **piano** mette a disposizione della derivazione.
