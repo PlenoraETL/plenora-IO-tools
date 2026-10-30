@@ -1108,19 +1108,19 @@
     },
     {
       "crate": "zstd",
-      "versione": "0.14.1",
+      "versione": "0.14.3",
       "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
     {
       "crate": "zstd-safe",
-      "versione": "8.1.0",
+      "versione": "8.2.0",
       "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     },
     {
       "crate": "zstd-sys",
-      "versione": "2.1.1+zstd.1.5.7",
+      "versione": "2.1.2+zstd.1.5.7",
       "licenza": "BSD-3-Clause",
       "origine": "prodotto"
     }
