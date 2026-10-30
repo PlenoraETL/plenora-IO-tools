@@ -51,6 +51,27 @@ def genera():
     with pq.ParquetWriter(percorso, schema, compression="NONE", store_schema=False) as writer:
         writer.add_key_value_metadata({"geo": json.dumps(geo, separators=(",", ":"))})
         writer.write_table(tabella)
+    # Seconda fixture: schema Arrow incorporato e identita' diversa dall'indice.
+    # L'anello esterno percorre un quadrato in senso antiorario.
+    geo["columns"]["traccia"].update({
+        "geometry_types": ["Polygon"],
+        "bbox": [500000, 4982950, 500010, 4982960],
+        "orientation": "counterclockwise",
+    })
+    geo["columns"]["posizione"]["bbox"] = [9, 45, 9, 45]
+    geo["columns"]["posizione"]["orientation"] = "counterclockwise"
+    poligono = struct.pack("<BIII10d", 1, 3, 1, 5,
+                          500000, 4982950, 500010, 4982950, 500010, 4982960,
+                          500000, 4982960, 500000, 4982950)
+    schema = pa.schema([
+        pa.field("traccia", pa.binary(), metadata={b"plenora.field_id": b"42"}),
+        pa.field("id", pa.int64()),
+        pa.field("posizione", pa.binary(), metadata={b"plenora.field_id": b"73"}),
+    ], metadata={b"geo": json.dumps(geo, separators=(",", ":")).encode()})
+    tabella = pa.Table.from_arrays([pa.array([poligono, None, poligono]), pa.array([1, 2, 3]),
+                                   pa.array([punto, punto, None])], schema=schema)
+    pq.write_table(tabella, percorso.with_name("multigeometria-metadati-pyarrow.parquet"),
+                   compression="NONE", store_schema=True)
     print(f"{percorso.name}: PyArrow {pa.__version__}")
 
 

@@ -1223,6 +1223,12 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
         "postgis.typmod".to_owned(),
         "geography(PointZM,4326)".to_owned(),
     );
+    geometry
+        .native_metadata
+        .insert("geoparquet.bbox".into(), "1,2,3,1,2,3".into());
+    geometry
+        .native_metadata
+        .insert("geoparquet.orientation".into(), "counterclockwise".into());
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
@@ -1237,10 +1243,15 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
         .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
         .unwrap();
     writer.write(&batch).unwrap();
-    writer.finish().unwrap();
+    assert!(writer.finish().unwrap().loss.is_empty());
 
     let dataset = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
     let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.native_metadata["geoparquet.bbox"], "1,2,3,1,2,3");
+    assert_eq!(
+        geometry.native_metadata["geoparquet.orientation"],
+        "counterclockwise"
+    );
     assert_eq!(geometry.encoding, GeometryEncoding::Ewkb);
     assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
     assert_eq!(geometry.spatial_semantics, SpatialSemantics::Geography);

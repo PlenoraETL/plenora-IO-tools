@@ -90,6 +90,7 @@ pub fn planned_write_loss(
                 ),
             );
             record_coordinate_epoch_loss(&mut loss, descriptor.id(), geometry, dove);
+            record_geometry_metadata_loss(&mut loss, descriptor.id(), geometry, dove);
         }
 
         let geometry_name = layer
@@ -275,6 +276,39 @@ const EPOCA_DELLE_COORDINATE: &str = "geoparquet.epoch";
 const PORTANO_L_EPOCA: [&str; 2] = ["geoparquet", "ipc"];
 
 const CRS_COORDINATE_EPOCH_NOT_PRESERVED: &str = "crs_coordinate_epoch_not_preserved";
+
+/// IPC conserva le chiavi native. Gli altri writer non verificano bbox e
+/// orientamento della sorgente sui batch ricevuti: potrebbero essere cambiati
+/// o filtrati. Non copiare dichiarazioni non verificate e non perderle mute.
+pub(super) fn record_geometry_metadata_loss(
+    loss: &mut LossReport,
+    formato: &str,
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+    dove: Posizione,
+) {
+    if formato == "ipc" {
+        return;
+    }
+    if geometry.native_metadata.contains_key("geoparquet.bbox") {
+        loss.record("geometry_bbox_not_preserved", 1);
+        loss.add_example(LossExample {
+            category: "geometry_bbox_not_preserved".to_owned(),
+            posizione: dove,
+            context: "riquadro non verificato sui dati scritti".to_owned(),
+        });
+    }
+    if geometry
+        .native_metadata
+        .contains_key("geoparquet.orientation")
+    {
+        loss.record("geometry_orientation_not_preserved", 1);
+        loss.add_example(LossExample {
+            category: "geometry_orientation_not_preserved".to_owned(),
+            posizione: dove,
+            context: "orientamento non verificato sui dati scritti".to_owned(),
+        });
+    }
+}
 
 pub fn record_coordinate_epoch_loss(
     loss: &mut LossReport,

@@ -2084,3 +2084,57 @@ fn a_deadline_inside_write_to_layer_beats_its_quota_error() {
     );
     assert_eq!(errore.phase, ErrorPhase::Write, "{errore:?}");
 }
+
+#[test]
+fn bbox_e_orientamento_perduti_sono_dichiarati_tranne_in_ipc() {
+    let dove = Posizione {
+        layer_index: Some(1),
+        field_index: Some(3),
+        type_class: None,
+    };
+    let mut geometria = xy_contract(true);
+    geometria
+        .native_metadata
+        .insert("geoparquet.bbox".into(), "dato-riservato".into());
+    geometria
+        .native_metadata
+        .insert("geoparquet.orientation".into(), "dato-riservato".into());
+    for formato in [
+        "ipc",
+        "geoparquet",
+        "gpkg",
+        "shp",
+        "csv",
+        "geojson",
+        "kml",
+        "dxf",
+        "xls",
+        "filegdb",
+    ] {
+        let mut loss = LossReport::default();
+        super::perdita_pianificata::record_geometry_metadata_loss(
+            &mut loss, formato, &geometria, dove,
+        );
+        for categoria in [
+            "geometry_bbox_not_preserved",
+            "geometry_orientation_not_preserved",
+        ] {
+            assert_eq!(
+                loss.counts.get(categoria),
+                (formato != "ipc").then_some(&1),
+                "{formato}"
+            );
+        }
+        assert!(loss
+            .esempi_canonici()
+            .all(|e| !e.context.contains("dato-riservato") && e.posizione == dove));
+        let mut senza = LossReport::default();
+        super::perdita_pianificata::record_geometry_metadata_loss(
+            &mut senza,
+            formato,
+            &xy_contract(true),
+            dove,
+        );
+        assert!(senza.is_empty());
+    }
+}

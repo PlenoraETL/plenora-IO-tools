@@ -465,16 +465,25 @@ le sostituisce: il writer GeoParquet non le copia più nello schema incorporato
 (fino a b988e7f pyarrow vi leggeva un'epoca o una colonna che il footer non
 dichiarava), e il lettore GeoParquet non le prende dallo schema incorporato di
 un file (un'epoca nativa lì, senza `epoch` nel `geo`, entrava nel contratto e
-da IPC sarebbe tornata nel `geo` di un GeoParquet). Degli altri membri della
-colonna nessuno è una perdita silenziosa, ed è una decisione: `edges` è sempre
-`planar` (lo sferico si rifiuta in lettura), cioè il default; `bbox` e
-`orientation` sono affermazioni **sui valori** — ricavabili dalle geometrie, che
-non cambiano — e riscriverle da un contratto che ha attraversato altri passaggi
-affermerebbe un ingombro o un verso degli anelli che nessuno ha verificato,
-mentre la loro assenza non afferma niente; il `covering` lo ricalcola il writer
-per ogni riga; `creator` (al livello del documento) è la provenienza di chi ha
-scritto il file, e non si eredita. L'epoca è l'unico membro che dice che cosa
-le coordinate **significano**.
+da IPC sarebbe tornata nel `geo` di un GeoParquet). `edges` resta `planar`
+(lo sferico si rifiuta in lettura), cioè il default. `bbox` e `orientation`
+sono affermazioni sui valori: il writer non le verifica sui batch ricevuti,
+che possono essere stati filtrati o modificati. Perciò non le copia e dichiara
+rispettivamente `geometry_bbox_not_preserved` e
+`geometry_orientation_not_preserved` in `planned_write_loss`, una volta per
+colonna che le porta, con posizione di layer e campo. La regola vale per la
+primaria e per ogni secondaria, anche verso gli altri formati; Arrow IPC
+conserva entrambe nelle chiavi native e non dichiara questa perdita.
+Il `covering` della primaria viene invece ricalcolato per ogni riga;
+`creator` (al livello del documento) descrive chi ha scritto il file e non
+si eredita. L'epoca conserva il significato temporale delle coordinate.
+
+Le identità `plenora.field_id` dichiarate nello schema Arrow incorporato
+si conservano per primaria e secondarie tramite il parser comune; gli indici
+fisici restano distinti. CRS e tipi continuano a provenire dal `geo` del footer.
+La fixture `multigeometria-metadati-pyarrow.parquet`, generata con PyArrow e
+`store_schema=True`, prova identità diverse dagli indici, bbox per entrambe
+le colonne e orientamento antiorario di una secondaria Polygon.
 
 **`geo` del footer contro `geo` dello schema incorporato.** Il lettore legge il
 `geo` del footer (in `arrow-rs` le chiavi del footer vincono); pyarrow, e
@@ -520,7 +529,7 @@ scrittura viola la regola stretta.
 - **`geo` solo nel footer.** IO lo legge, come prescrive la specifica; pyarrow, che con `ARROW:schema` presente rende i metadati dello schema incorporato, non lo vede e il file per lui non è GeoParquet: un errore di geopandas, non una lettura diversa. IO scrive il `geo` in entrambi i posti.
 - **Chiavi native diverse da `geoparquet.*` nello schema incorporato** di un GeoParquet esterno (per esempio `plenora.geometry.native.gpkg.srs_id`) entrano nel contratto. Nessun writer di IO ne consuma oggi; un writer che ne consumasse una dovrà prima applicare loro lo stesso trattamento di `geoparquet.epoch`.
 - **IPC → IPC con un'epoca nativa non numerica** passa tale e quale (ARROW-010): la rifiuta la prima scrittura GeoParquet, con `schema`.
-- **`orientation` e `bbox` della colonna** non si ereditano più da chiavi native: un'affermazione sui valori tolta, non una sbagliata (vedi sopra).
+- **`orientation` e `bbox` della colonna** non si ereditano da chiavi native in GeoParquet; la perdita viene dichiarata per ogni colonna (vedi sopra).
 - **IPC → IPC con un `geo` di schema stantio** e un'epoca nativa diversa conserva entrambi (ARROW-010): un lettore che legge il `geo` di schema dell'IPC vede l'epoca stantia. È il limite del `geo` di schema IPC già dichiarato, esteso all'epoca.
 
 #### Il vocabolario CRS del catalogo

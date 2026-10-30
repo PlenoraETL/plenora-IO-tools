@@ -29,6 +29,13 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
             crs,
             schema.field(indice).is_nullable(),
         );
+        // CRS e tipi vengono dal geo del footer, identita' dal campo Arrow.
+        let mut dichiarato = contratto.clone();
+        plenora_io_model::geometry::read_geometry_contract_metadata(
+            schema.field(indice),
+            &mut dichiarato,
+        )?;
+        contratto.identita_dichiarata = dichiarato.identita_dichiarata;
         apply_geo_column_metadata(&mut contratto, Some(geo));
         schema = DataContract::new(schema, Some(contratto)).schema;
     }

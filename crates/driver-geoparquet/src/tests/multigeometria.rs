@@ -231,3 +231,58 @@ fn projection_secondaria_non_diventa_primaria_in_scrittura() {
     );
     assert!(!uscita.exists());
 }
+
+#[test]
+fn pyarrow_identita_e_perdite_metadati_per_ogni_colonna() {
+    let percorso = fixture().with_file_name("multigeometria-metadati-pyarrow.parquet");
+    let (contratto, batch) = leggi(percorso);
+    let geometrie = contratto.geometries().unwrap();
+    for (g, id) in geometrie.iter().zip([42, 73]) {
+        assert_eq!(g.identita_dichiarata, Some(id));
+        assert!(g.native_metadata.contains_key("geoparquet.bbox"));
+        assert_eq!(
+            g.native_metadata["geoparquet.orientation"],
+            "counterclockwise"
+        );
+    }
+    assert_eq!(geometrie[0].field_id, FieldId(0));
+    assert_eq!(geometrie[1].field_id, FieldId(2));
+    assert_eq!(geometrie[0].geometry_types, [GeometryType::Polygon]);
+    assert_eq!(
+        geometrie[0].native_metadata["geoparquet.bbox"],
+        "500000,4982950,500010,4982960"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let uscita = dir.path().join("metadati.parquet");
+    let piano = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".into(),
+            contract: contratto,
+        }],
+    };
+    let mut writer = GeoParquetDriver
+        .create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    let esito = writer.finish().unwrap();
+    for categoria in [
+        "geometry_bbox_not_preserved",
+        "geometry_orientation_not_preserved",
+    ] {
+        assert_eq!(esito.loss.counts.get(categoria), Some(&2));
+        let posizioni: Vec<_> = esito
+            .loss
+            .esempi_canonici()
+            .filter(|e| e.category == categoria)
+            .map(|e| (e.posizione.layer_index, e.posizione.field_index))
+            .collect();
+        assert_eq!(posizioni, [(Some(0), Some(0)), (Some(0), Some(2))]);
+    }
+    let (riletto, dati) = leggi(uscita);
+    assert_eq!(batch.columns(), dati.columns());
+    for (g, id) in riletto.geometries().unwrap().iter().zip([42, 73]) {
+        assert_eq!(g.identita_dichiarata, Some(id));
+        assert!(!g.native_metadata.contains_key("geoparquet.bbox"));
+        assert!(!g.native_metadata.contains_key("geoparquet.orientation"));
+    }
+}

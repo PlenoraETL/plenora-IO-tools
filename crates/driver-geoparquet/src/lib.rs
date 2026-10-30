@@ -1216,6 +1216,14 @@ impl FormatDriver for GeoParquetDriver {
             crs,
             out_schema.field(geom_idx).is_nullable(),
         );
+        // Il geo del footer resta autoritativo per il CRS; dal campo Arrow
+        // recuperiamo l'identita' senza reintrodurre il CRS della sorgente.
+        let mut dichiarato = geometry.clone();
+        plenora_io_model::geometry::read_geometry_contract_metadata(
+            out_schema.field(geom_idx),
+            &mut dichiarato,
+        )?;
+        geometry.identita_dichiarata = dichiarato.identita_dichiarata;
         apply_geo_column_metadata(&mut geometry, geo.as_ref());
         // Le altre geometrie si contano sullo schema esposto **prima** del
         // contratto: `DataContract::new` riscrive i metadati della sola
