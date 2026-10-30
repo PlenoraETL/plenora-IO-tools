@@ -2,12 +2,12 @@
   "schema_version": 1,
   "descrizione": "Il confine di AddressSanitizer nel target `filegdb_reader`, misurato sul binario strumentato e sulla libreria che collega. Prodotto da scripts/asan-filegdb.sh; letto da scripts/check_asan_filegdb.py, che rimisura la libreria locale invece di credere a questo file.",
   "target": "filegdb_reader",
-  "impronta_perimetro": "4ef0519861a2da28f5f25b03399d319fdf9ed0d43e4ed881fb9673f703e111c8",
+  "impronta_perimetro": "fe8c62da04613c9976a0161b834d7b0ab528f3b37950de751b0eb0d98269d457",
   "libreria_collegata": {
-    "soname": "libgdal.so.32",
-    "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.32",
-    "build_id": "0352ff263e6c85fc19040c196aeae35fdb431d7f",
-    "sha256": "59b5a1cb3376aec055631f0407f7bb8fd57de477d930ff1136049eb19ee7d594",
+    "soname": "libgdal.so.34",
+    "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.34",
+    "build_id": "768e4e0cd29e37ab1cba2b5cfd3b42984a861919",
+    "sha256": "ea0cc2d10ca69e428cc4d70ea9c1e7e2f5af2108bc2339e7ed653f6508655ebb",
     "come_e_stata_misurata": "ldd sul binario strumentato risolve il soname come lo risolvera' il processo; build-id da readelf -n e digest da sha256sum sulla libreria risolta"
   },
   "simboli_asan_nella_libreria": 0,
