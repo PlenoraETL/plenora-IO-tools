@@ -36,7 +36,7 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
             &mut dichiarato,
         )?;
         contratto.identita_dichiarata = dichiarato.identita_dichiarata;
-        apply_geo_column_metadata(&mut contratto, Some(geo));
+        apply_geo_column_metadata(&mut contratto, Some(geo))?;
         schema = DataContract::new(schema, Some(contratto)).schema;
     }
     Ok(schema)

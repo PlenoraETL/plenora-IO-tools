@@ -16,6 +16,26 @@ fn leggi(percorso: PathBuf) -> (DataContract, RecordBatch) {
 }
 
 #[test]
+fn un_nome_sconosciuto_non_eredita_i_metadati_della_primaria() {
+    let (contratto, _) = leggi(fixture());
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let geo = read_geo_meta(&builder, false).unwrap().unwrap();
+    for nome in ["posizione-segreta", "traccia-segreta", ""] {
+        let mut geometria = contratto.geometry.clone().unwrap();
+        geometria.name = nome.to_owned();
+        geometria.native_metadata.clear();
+        let tipi = geometria.geometry_types.clone();
+        let errore = apply_geo_column_metadata(&mut geometria, Some(&geo)).unwrap_err();
+        assert!(errore
+            .to_string()
+            .contains("colonna geometrica assente dai metadati GeoParquet"));
+        assert!(!errore.to_string().contains("segreta"));
+        assert!(geometria.native_metadata.is_empty());
+        assert_eq!(geometria.geometry_types, tipi);
+    }
+}
+
+#[test]
 fn pyarrow_multigeometria_round_trip_esatto_con_primaria_non_iniziale() {
     let (contratto, batch) = leggi(fixture());
     assert_eq!(contratto.geometry.as_ref().unwrap().name, "posizione");

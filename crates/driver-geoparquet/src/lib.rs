@@ -1224,7 +1224,7 @@ impl FormatDriver for GeoParquetDriver {
             &mut dichiarato,
         )?;
         geometry.identita_dichiarata = dichiarato.identita_dichiarata;
-        apply_geo_column_metadata(&mut geometry, geo.as_ref());
+        apply_geo_column_metadata(&mut geometry, geo.as_ref())?;
         // Le altre geometrie si contano sullo schema esposto **prima** del
         // contratto: `DataContract::new` riscrive i metadati della sola
         // primaria e non sposta i campi, quindi gli indici restano validi per
@@ -2525,11 +2525,22 @@ fn crs_della_colonna(colonna: &metadati::ColonnaGeo) -> Result<CrsResolution> {
     }
 }
 
-fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<&MetadatiGeo>) {
+fn apply_geo_column_metadata(
+    contract: &mut GeometryColumnContract,
+    geo: Option<&MetadatiGeo>,
+) -> Result<()> {
     let Some(geo) = geo else {
-        return;
+        return Ok(());
     };
-    let colonna = geo.secondarie.get(&contract.name).unwrap_or(&geo.primaria);
+    let colonna = if contract.name == geo.nome_primaria {
+        &geo.primaria
+    } else {
+        geo.secondarie.get(&contract.name).ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "colonna geometrica assente dai metadati GeoParquet",
+            ))
+        })?
+    };
     contract.native_metadata.insert(
         "geoparquet.primary_column".to_owned(),
         geo.nome_primaria.clone(),
@@ -2614,6 +2625,7 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
         .and_then(|id| id.strip_prefix("EPSG:"))
         // Solo un codice canonico: `EPSG:04326` non ha lo SRID 4326 (GEO-005).
         .and_then(plenora_io_model::crs::codice_intero_canonico);
+    Ok(())
 }
 
 /// Gli indici, nello schema esposto, delle colonne geometriche diverse dalla
