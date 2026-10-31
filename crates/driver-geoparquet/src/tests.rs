@@ -377,7 +377,7 @@ fn una_geometria_con_la_misura_m_non_e_scrivibile() {
         DataType::Binary,
         true,
     )
-    .with_metadata(geometry_field_meta("EPSG:4326"))]));
+    .with_metadata(geometry_field_meta("OGC:CRS84"))]));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
@@ -653,27 +653,27 @@ fn un_file_storico_senza_opt_in_e_rifiutato() {
 
 #[test]
 fn un_file_storico_con_opt_in_si_apre_e_conserva_il_crs() {
-    // Con l'opzione il file si apre, l'identificatore che dichiarava e'
-    // conservato -- ignorarlo direbbe CRS84 di un dato che CRS84 non e' --
-    // e il contratto **dichiara** che il file e' entrato da una via non
-    // conforme: una deroga che non si vede diventa il comportamento
-    // normale.
+    let dir = tempfile::tempdir().unwrap();
+    let geo = r#"{"version":"1.0.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],"crs":{"id":{"authority":"EPSG","code":4326}}}}}"#;
+    let path = parquet_con_geo(&dir, Some(geo));
     let dataset = GeoParquetDriver
-        .open(Source::Path(seme_storico()), opzioni_lettura_legacy())
-        .expect("con l'opt-in il file storico si apre");
-    let geometria = dataset.layers()[0]
-        .contract
-        .geometry
-        .as_ref()
-        .expect("colonna geometria");
-    assert_eq!(geometria.crs.id(), Some("EPSG:4326"));
+        .open(Source::Path(path), opzioni_lettura_legacy())
+        .unwrap();
+    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.crs.id(), Some("EPSG:4326"));
     assert_eq!(
-        geometria
-            .native_metadata
-            .get("geoparquet.compatibilita")
-            .map(String::as_str),
-        Some("crs_storico_solo_identificatore_non_conforme")
+        geometry.native_metadata["geoparquet.compatibilita"],
+        "crs_storico_solo_identificatore_non_conforme"
     );
+}
+
+#[test]
+fn un_file_storico_con_assi_contraddittori_e_rifiutato_anche_con_opt_in() {
+    let error = GeoParquetDriver
+        .open(Source::Path(seme_storico()), opzioni_lettura_legacy())
+        .err()
+        .unwrap();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
 }
 
 use arrow_array::Int64Array;
@@ -1312,28 +1312,16 @@ fn una_pagina_oltre_il_proprio_chunk_e_rifiutata_prima_dell_allocazione() {
         .join("../../fuzz/seeds/geoparquet_reader/pagina-oltre-il-chunk.parquet");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
 
-    let dataset = GeoParquetDriver
-        // Seme storico: `crs` nella forma non conforme, quindi opt-in.
-        .open(Source::Path(seme), opzioni_lettura_legacy())
-        .expect("l'apertura legge i soli metadati e riesce");
-    let richiesta = ReadRequest {
-        layer: LayerId(0),
-        projected_fields: None,
-        projection_mode: ProjectionMode::BestEffort,
-        pruning_predicate: None,
-        spatial_pruning_hint: None,
-        scope: ReadScope::default(),
-        batch_target: BatchTarget::default(),
-        cancellation: CancellationToken::default(),
-    };
-
-    let errore = match dataset.open_layer_reader(&richiesta) {
-        Err(errore) => errore,
-        Ok(mut lettore) => match lettore.next_batch() {
-            Err(errore) => errore,
-            Ok(_) => panic!("il file doveva essere rifiutato"),
-        },
-    };
+    let file = File::open(seme).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file.try_clone().unwrap()).unwrap();
+    let errore = prevalida_cio_che_il_decoder_leggera(
+        &Arc::new(file),
+        builder.metadata(),
+        &ProjectionMask::all(),
+        None,
+        64 * 1024 * 1024,
+    )
+    .unwrap_err();
 
     assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
     assert_eq!(
@@ -1432,30 +1420,18 @@ fn un_bit_width_di_dizionario_fuori_intervallo_e_rifiutato_prima_del_decoder() {
         .join("../../fuzz/seeds/geoparquet_reader/bit-width-dizionario-fuori-intervallo.parquet");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
 
-    let dataset = GeoParquetDriver
-        // Seme storico: `crs` nella forma non conforme, quindi opt-in.
-        .open(Source::Path(seme), opzioni_lettura_legacy())
-        .expect("l'apertura legge i soli metadati e riesce");
-    let richiesta = ReadRequest {
-        layer: LayerId(0),
-        projected_fields: None,
-        projection_mode: ProjectionMode::BestEffort,
-        pruning_predicate: None,
-        spatial_pruning_hint: None,
-        scope: ReadScope::default(),
-        batch_target: BatchTarget::default(),
-        cancellation: CancellationToken::default(),
-    };
-
-    // Il rifiuto arriva da `open_layer_reader`, dove projection e pruning
-    // sono noti: e' li' che la prevalidazione guarda i chunk selezionati.
-    let errore = match dataset.open_layer_reader(&richiesta) {
-        Err(errore) => errore,
-        Ok(mut lettore) => match lettore.next_batch() {
-            Err(errore) => errore,
-            Ok(_) => panic!("il file doveva essere rifiutato"),
-        },
-    };
+    // Il seme storico ha anche assi CRS contraddittori: la sonda del
+    // decoder raggiunge direttamente la prevalidazione, senza mascherarla.
+    let file = File::open(seme).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file.try_clone().unwrap()).unwrap();
+    let errore = prevalida_cio_che_il_decoder_leggera(
+        &Arc::new(file),
+        builder.metadata(),
+        &ProjectionMask::all(),
+        None,
+        64 * 1024 * 1024,
+    )
+    .unwrap_err();
 
     assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
@@ -4255,7 +4231,7 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     let mut campo = geometry_field_meta("EPSG:4326");
     campo.insert(
         "ARROW:extension:metadata".to_owned(),
-        r#"{"crs":"EPSG:3857"}"#.to_owned(),
+        r#"{"crs":"EPSG:4326","crs_type":"authority_code"}"#.to_owned(),
     );
     let schema = Arc::new(Schema::new_with_metadata(
         vec![

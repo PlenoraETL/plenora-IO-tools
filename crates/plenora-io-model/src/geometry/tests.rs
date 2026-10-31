@@ -12,6 +12,139 @@ use super::*;
 use crate::contract::FieldId;
 use crate::crs::CrsResolution;
 
+#[test]
+fn estensione_crs_invalida_non_diventa_missing() {
+    for text in [
+        "not-json",
+        r#"{"crs":"EPSG:3857","crs_type":"unknown"}"#,
+        r#"{"crs":null,"crs":"EPSG:3857","crs_type":"authority_code"}"#,
+        r#"{"crs":{"id":{"authority":"EPSG","code":3857}},"crs_type":"authority_code"}"#,
+    ] {
+        let field = field_with("ARROW:extension:metadata", text);
+        assert_eq!(
+            read_geometry_contract_metadata(&field, &mut contract())
+                .unwrap_err()
+                .category,
+            crate::ErrorCategory::Crs
+        );
+    }
+}
+
+#[test]
+fn primaria_e_secondaria_usano_le_stesse_dichiarazioni_crs() {
+    use crate::contract::DataContract;
+    for primary_index in [0, 1] {
+        let mut primary = contract();
+        primary.name = ["g0", "g1"][primary_index].into();
+        primary.crs = ResolvedCrs::wgs84().into();
+        for key in ["crs", "ARROW:extension:metadata"] {
+            let fields = ["g0", "g1"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    let id = if index == primary_index {
+                        "OGC:CRS84"
+                    } else {
+                        "EPSG:3857"
+                    };
+                    let value = if key == "crs" {
+                        id.to_owned()
+                    } else {
+                        format!(r#"{{"crs":"{id}","crs_type":"authority_code"}}"#)
+                    };
+                    Field::new(name, DataType::Binary, true).with_metadata(HashMap::from([
+                        (
+                            ARROW_EXTENSION_NAME_KEY.to_owned(),
+                            GEOARROW_WKB_EXTENSION.to_owned(),
+                        ),
+                        (key.to_owned(), value),
+                    ]))
+                })
+                .collect::<Vec<_>>();
+            let contract = DataContract::new(
+                Arc::new(arrow_schema::Schema::new(fields)),
+                Some(primary.clone()),
+            );
+            let geometries = contract.geometries().unwrap();
+            assert_eq!(geometries[primary_index].crs.id(), Some("OGC:CRS84"));
+            assert_eq!(geometries[1 - primary_index].crs.id(), Some("EPSG:3857"));
+        }
+    }
+}
+
+#[test]
+fn il_costruttore_non_cancella_un_crs_canonico_contraddittorio() {
+    let mut primary = contract();
+    primary.crs = ResolvedCrs::wgs84().into();
+    let field =
+        with_geometry_contract_metadata(&Field::new("geometry", DataType::Binary, true), &primary);
+    primary.crs = ResolvedCrs::new(
+        Some("EPSG:3857".into()),
+        crate::crs::CrsKind::Projected,
+        None,
+    )
+    .into();
+    let data = crate::contract::DataContract::new(
+        Arc::new(arrow_schema::Schema::new(vec![field])),
+        Some(primary),
+    );
+    assert_eq!(
+        data.geometries().unwrap_err().category,
+        crate::ErrorCategory::Crs
+    );
+}
+
+#[test]
+fn ogni_forma_crs_si_legge_e_i_conflitti_non_hanno_precedenza() {
+    let mut canonical = contract();
+    canonical.crs = ResolvedCrs::new(
+        Some("EPSG:3857".into()),
+        crate::crs::CrsKind::Projected,
+        None,
+    )
+    .into();
+    let field = with_geometry_contract_metadata(
+        &Field::new("geometry", DataType::Binary, true),
+        &canonical,
+    );
+    for legacy in [false, true] {
+        for extension in [false, true] {
+            let mut md = field.metadata().clone();
+            if legacy {
+                md.insert("crs", "EPSG:3857");
+            }
+            if extension {
+                md.insert(
+                    "ARROW:extension:metadata",
+                    r#"{"crs":"EPSG:3857","crs_type":"authority_code"}"#,
+                );
+            }
+            let mut decoded = contract();
+            read_geometry_contract_metadata(&field.clone().with_metadata(md.clone()), &mut decoded)
+                .unwrap();
+            assert_eq!(decoded.crs.id(), Some("EPSG:3857"));
+            for (key, value) in [
+                ("crs", "EPSG:4326"),
+                (
+                    "ARROW:extension:metadata",
+                    r#"{"crs":"EPSG:4326","crs_type":"authority_code"}"#,
+                ),
+                ("ARROW:extension:metadata", r#"{"crs":null}"#),
+            ] {
+                let mut conflicting = md.clone();
+                conflicting.insert(key, value);
+                let error = read_geometry_contract_metadata(
+                    &field.clone().with_metadata(conflicting),
+                    &mut decoded,
+                )
+                .unwrap_err();
+                assert_eq!(error.category, crate::ErrorCategory::Crs);
+                assert_eq!(decoded.crs.id(), Some("EPSG:3857"));
+            }
+        }
+    }
+}
+
 fn contract() -> GeometryColumnContract {
     GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true)
 }

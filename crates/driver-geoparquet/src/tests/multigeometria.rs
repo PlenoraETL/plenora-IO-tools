@@ -1,5 +1,144 @@
 use super::*;
 
+#[test]
+fn parquet_senza_footer_geo_conserva_il_crs_arrow_dichiarato() {
+    for key in ["crs", "ARROW:extension:metadata"] {
+        let value = if key == "crs" {
+            "EPSG:3857"
+        } else {
+            r#"{"crs":"EPSG:3857","crs_type":"authority_code"}"#
+        };
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            std::iter::once((key.to_owned(), value.to_owned())).collect::<arrow_schema::Metadata>(),
+        );
+        let (_, crs) = resolve_geometry_and_crs(&Schema::new(vec![field]), None, None).unwrap();
+        assert_eq!(crs.id(), Some("EPSG:3857"));
+    }
+}
+
+#[test]
+fn crs_legacy_secondario_senza_projjson_non_diventa_null() {
+    let (mut contratto, _) = leggi(fixture());
+    let mut fields: Vec<Field> = contratto
+        .schema
+        .fields()
+        .iter()
+        .map(|f| f.as_ref().clone())
+        .collect();
+    let mut md = fields[0].metadata().clone();
+    md.retain(|key, _| {
+        !key.starts_with("plenora.geometry.crs_") && key != "plenora.geometry.axis_order"
+    });
+    md.insert("crs", "EPSG:3857");
+    fields[0] = driver_common::geometry_field("traccia", "EPSG:3857").with_metadata(md);
+    contratto.schema = Arc::new(Schema::new(fields));
+    assert_eq!(
+        contratto.geometries().unwrap()[0].crs.id(),
+        Some("EPSG:3857")
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rifiutato.parquet");
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".into(),
+            contract: contratto,
+        }],
+    };
+    let error = GeoParquetDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .err()
+        .unwrap();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+    let crs_error = crs_da_scrivere(
+        Some(&plan.layers[0].contract.geometries().unwrap()[0]),
+        None,
+    )
+    .unwrap_err();
+    assert!(crs_error.message.contains("PROJJSON"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn crs_geoarrow_per_colonna_round_trip_con_coordinate_asimmetriche() {
+    let (mut contratto, batch) = leggi(fixture());
+    let geometries = contratto.geometries().unwrap();
+    let fields = contratto
+        .schema
+        .fields()
+        .iter()
+        .map(|field| {
+            let Some(g) = geometries.iter().find(|g| &g.name == field.name()) else {
+                return field.as_ref().clone();
+            };
+            let extension = g.crs.definition().map_or_else(
+                || {
+                    format!(
+                        r#"{{"crs":"{}","crs_type":"authority_code"}}"#,
+                        g.crs.id().unwrap()
+                    )
+                },
+                |definition| format!(r#"{{"crs":{definition},"crs_type":"projjson"}}"#),
+            );
+            let mut md = field.metadata().clone();
+            md.retain(|key, _| {
+                !key.starts_with("plenora.geometry.crs_")
+                    && key != "plenora.geometry.axis_order"
+                    && key != "crs"
+            });
+            md.insert("ARROW:extension:metadata", extension);
+            field.as_ref().clone().with_metadata(md)
+        })
+        .collect::<Vec<_>>();
+    contratto.schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(contratto.schema.clone(), batch.columns().to_vec()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("estensioni.parquet");
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".into(),
+            contract: contratto,
+        }],
+    };
+    let mut writer = GeoParquetDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    let (read, values) = leggi(path);
+    assert_eq!(batch.columns(), values.columns());
+    for (before, after) in geometries.iter().zip(read.geometries().unwrap()) {
+        assert_eq!(before.crs, after.crs);
+    }
+}
+
+#[test]
+fn footer_e_dichiarazioni_arrow_in_conflitto_su_ogni_colonna_sono_rifiutati() {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let geo = read_geo_meta(&builder, false).unwrap().unwrap();
+    for index in [0, 2] {
+        for key in ["crs", "ARROW:extension:metadata"] {
+            let mut fields: Vec<Field> = builder
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect();
+            let value = if key == "crs" {
+                "EPSG:3857"
+            } else {
+                r#"{"crs":"EPSG:3857","crs_type":"authority_code"}"#
+            };
+            fields[index] = fields[index].clone().with_metadata(
+                std::iter::once((key.to_owned(), value.to_owned()))
+                    .collect::<arrow_schema::Metadata>(),
+            );
+            let error =
+                crate::multigeometria::verifica_crs(&Schema::new(fields), &geo).unwrap_err();
+            assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+        }
+    }
+}
+
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/multigeometria-pyarrow.parquet")
 }

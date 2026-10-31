@@ -8,6 +8,39 @@ use super::{
 };
 use std::collections::BTreeMap;
 
+/// Confronto prima del retag, su ogni colonna dichiarata nel footer.
+pub fn verifica_crs(schema: &arrow_schema::Schema, geo: &MetadatiGeo) -> Result<()> {
+    for (nome, colonna) in
+        std::iter::once((&geo.nome_primaria, &geo.primaria)).chain(geo.secondarie.iter())
+    {
+        let field = schema.field_with_name(nome).map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "colonna geometrica assente dallo schema",
+            ))
+        })?;
+        let mut dichiarato = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            nome,
+            plenora_io_model::crs::CrsResolution::Missing,
+            field.is_nullable(),
+        );
+        plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut dichiarato)?;
+        let md = field.metadata();
+        let esplicito = md.contains_key(plenora_io_model::geometry::PLENORA_CRS_RESOLUTION_KEY)
+            || md.contains_key(plenora_io_model::geometry::GEO_CRS_KEY)
+            || md.get("ARROW:extension:metadata").is_some_and(|s| {
+                serde_json::from_str::<serde_json::Value>(s).is_ok_and(|v| v.get("crs").is_some())
+            });
+        if esplicito {
+            plenora_io_model::geometry::reconcile_crs_declarations(
+                &crs_della_colonna(colonna)?,
+                &dichiarato.crs,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Result<SchemaRef> {
     let Some(geo) = geo else { return Ok(schema) };
     for (nome, colonna) in &geo.secondarie {
@@ -45,7 +78,7 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
 pub struct ColonnaScritta {
     pub indice: usize,
     nome: String,
-    crs: CrsDaScrivere,
+    pub crs: CrsDaScrivere,
     epoca: Option<String>,
     pub tipi: BTreeSet<(GeometryType, CoordinateDimensions)>,
 }

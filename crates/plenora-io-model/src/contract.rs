@@ -315,8 +315,9 @@ pub struct DataContract {
 
 impl DataContract {
     /// Restituisce tutti i contratti geometrici in ordine fisico.
-    /// La primaria esplicita prevale sui suoi metadati; nessun altro campo
-    /// viene promosso a primaria. Gli indici sono posizioni, non `field_id` wire.
+    /// Il CRS della primaria esplicita si confronta con i metadati del campo;
+    /// nessun altro campo viene promosso a primaria. Gli indici sono posizioni,
+    /// non `field_id` wire.
     ///
     /// # Errors
     /// Metadati geometrici non interpretabili o indice non rappresentabile.
@@ -324,7 +325,12 @@ impl DataContract {
         let mut geometries = Vec::new();
         for (index, field) in self.schema.fields().iter().enumerate() {
             if let Some(primary) = self.geometry.as_ref().filter(|g| &g.name == field.name()) {
-                geometries.push(primary.clone());
+                let mut declared = primary.clone();
+                crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
+                let mut primary = primary.clone();
+                primary.crs =
+                    crate::geometry::reconcile_crs_declarations(&primary.crs, &declared.crs)?;
+                geometries.push(primary);
             } else if crate::geometry::is_geometry_field(field) {
                 let index = u32::try_from(index).map_err(|_| {
                     crate::PlenoraIoError::schema_redatto(&crate::PublicMessage::Curated(
@@ -391,6 +397,24 @@ impl DataContract {
                     .iter()
                     .map(|field| {
                         if field.name() == &geometry.name {
+                            // Il costruttore e' infallibile: conserva una
+                            // dichiarazione invalida o discorde affinche' il
+                            // lettore comune la rifiuti, senza cancellarla.
+                            let mut declared = geometry.clone();
+                            if crate::geometry::read_geometry_contract_metadata(
+                                field,
+                                &mut declared,
+                            )
+                            .and_then(|_| {
+                                crate::geometry::reconcile_crs_declarations(
+                                    &geometry.crs,
+                                    &declared.crs,
+                                )
+                            })
+                            .is_err()
+                            {
+                                return field.as_ref().clone();
+                            }
                             crate::geometry::with_geometry_contract_metadata(field, geometry)
                         } else {
                             field.as_ref().clone()

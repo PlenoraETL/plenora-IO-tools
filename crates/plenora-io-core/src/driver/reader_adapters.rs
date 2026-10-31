@@ -76,7 +76,21 @@ pub fn with_read_budget(
         if dataset.rifiuto_del_layer(layer.id).is_some() {
             continue;
         }
-        for geometria in &layer.contract.geometries()? {
+        let geometrie = match layer.contract.geometries() {
+            Ok(geometrie) => geometrie,
+            Err(errore)
+                if matches!(
+                    errore.category,
+                    plenora_io_model::ErrorCategory::Crs
+                        | plenora_io_model::ErrorCategory::ResourceLimit
+                ) =>
+            {
+                rifiuti.insert(layer.id.0, errore);
+                continue;
+            }
+            Err(errore) => return Err(errore),
+        };
+        for geometria in &geometrie {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
             // batch -- la validazione, il conteggio dei componenti, gli esempi
             // di perdita, chi consuma l'Arrow -- la cerca per nome. Un nome

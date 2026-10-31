@@ -18,4 +18,4 @@ arrow-array.workspace = true
 arrow-schema.workspace = true
 geo-types.workspace = true
 serde = { workspace = true }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }

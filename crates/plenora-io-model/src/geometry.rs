@@ -11,6 +11,9 @@ use crate::{PlenoraIoError, PublicMessage, Result};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+mod crs_metadata;
+pub use crs_metadata::reconcile_crs_declarations;
+
 /// Nome dell'estensione `GeoArrow` per una colonna geometria WKB.
 pub const GEOARROW_WKB_EXTENSION: &str = "geoarrow.wkb";
 /// Chiave dei metadati di estensione a livello di campo Arrow.
@@ -715,6 +718,7 @@ pub fn read_geometry_contract_metadata(
             _ => return Err(crs_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
         };
     }
+    parsed.crs = crs_metadata::read(field, resolution.map(|_| &parsed.crs))?.unwrap_or(parsed.crs);
     for (key, value) in metadata {
         if let Some(key) = key.strip_prefix(PLENORA_NATIVE_PREFIX) {
             if key.is_empty() {

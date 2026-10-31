@@ -1156,6 +1156,7 @@ impl FormatDriver for GeoParquetDriver {
         // vorrebbe dire aver gia' tolto colonne sulla fiducia.
         if let Some(geo) = geo.as_ref() {
             riconcilia_con_lo_schema_fisico(&parquet_schema, builder.parquet_schema(), geo)?;
+            multigeometria::verifica_crs(&parquet_schema, geo)?;
         }
         // Finding #4 follow-up follow-up review 2026-08-15: il fallback
         // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
@@ -1329,8 +1330,7 @@ impl FormatDriver for GeoParquetDriver {
                  scrittura",
             )));
         }
-        let (geom_idx, geom_name, legacy_crs_meta) = if let Some(primary) = &layer.contract.geometry
-        {
+        let (geom_idx, geom_name, _) = if let Some(primary) = &layer.contract.geometry {
             let index = schema
                 .index_of(&primary.name)
                 .map_err(|_| fmt_err(&PublicMessage::Curated("primaria assente dallo schema")))?;
@@ -1346,8 +1346,10 @@ impl FormatDriver for GeoParquetDriver {
         // Il CRS si decide **all'apertura**, non alla chiusura: se non e'
         // scrivibile in modo conforme, e' meglio saperlo prima di aver scritto
         // un file intero.
-        let crs_meta = crs_da_scrivere(layer.contract.geometry.as_ref(), legacy_crs_meta)?;
-        let epoca = epoca_da_scrivere(layer.contract.geometry.as_ref())?;
+        let geometries = layer.contract.geometries()?;
+        let primary = geometries.iter().find(|g| g.name == geom_name);
+        let crs_meta = crs_da_scrivere(primary, None)?;
+        let epoca = epoca_da_scrivere(primary)?;
         // Schema di scrittura = utente + la colonna struct `bbox` del covering.
         //
         // Una colonna sola, con quattro figli: e' la forma che il covering
@@ -1356,9 +1358,9 @@ impl FormatDriver for GeoParquetDriver {
         let geometria_nullable = schema.field(geom_idx).is_nullable();
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
-        aug_fields[geom_idx] = senza_crs_geoarrow(&aug_fields[geom_idx]);
+        aug_fields[geom_idx] = campo_scritto(&aug_fields[geom_idx], &crs_meta);
         for colonna in &secondarie {
-            aug_fields[colonna.indice] = senza_crs_geoarrow(&aug_fields[colonna.indice]);
+            aug_fields[colonna.indice] = campo_scritto(&aug_fields[colonna.indice], &colonna.crs);
         }
         aug_fields.push(bbox_field(geometria_nullable));
         let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
@@ -1422,9 +1424,8 @@ impl FormatDriver for GeoParquetDriver {
 const CHIAVI_DEL_FORMATO: [&str; 2] =
     [plenora_io_model::geometry::GEO_METADATA_KEY, "ARROW:schema"];
 
-/// Il CRS `GeoArrow` (`ARROW:extension:metadata`) della colonna geometria: IO non
-/// lo legge (docs/PRODUCT.md), e qui e' una seconda dichiarazione del CRS che
-/// il `geo` del file puo' contraddire. Non entra ne' esce.
+/// Il CRS `GeoArrow` viene verificato prima del retag; in uscita il footer
+/// e lo schema incorporato dichiarano il CRS effettivamente scritto.
 const CHIAVE_ESTENSIONE_GEOARROW: &str = "ARROW:extension:metadata";
 
 fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::Metadata {
@@ -1477,6 +1478,26 @@ fn senza_crs_geoarrow(campo: &Field) -> Field {
     );
     metadati.retain(|chiave, _| !chiave.starts_with(&nativo));
     campo.clone().with_metadata(metadati)
+}
+
+// L'omissione GeoParquet dichiara CRS84: anche lo schema incorporato deve
+// dichiarare quello, non l'alias o la definizione che il footer non conserva.
+fn campo_scritto(campo: &Field, crs: &CrsDaScrivere) -> Field {
+    use plenora_io_model::geometry::{
+        PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
+    };
+    let campo = senza_crs_geoarrow(campo);
+    if !matches!(crs, CrsDaScrivere::Omesso) {
+        return campo;
+    }
+    let mut md = campo.metadata().clone();
+    md.insert(GEO_CRS_KEY.to_owned(), "OGC:CRS84".to_owned());
+    if md.contains_key(PLENORA_CRS_ID_KEY) {
+        md.insert(PLENORA_CRS_ID_KEY.to_owned(), "OGC:CRS84".to_owned());
+    }
+    md.remove(PLENORA_CRS_DEFINITION_KEY);
+    md.remove(PLENORA_CRS_DEFINITION_FORMAT_KEY);
+    campo.with_metadata(md)
 }
 
 /// L'epoca delle coordinate che il contratto porta, se e' un numero JSON.
@@ -2452,6 +2473,21 @@ fn resolve_geometry_and_crs(
     // L'ordine degli assi resta `unknown`: la convenzione «x = longitudine o
     // easting» e' di GeoParquet, e senza metadato il file non la dichiara --
     // come il WKT di un CSV (`PRODUCT.md`, ordine degli assi).
+    let field = schema.field_with_name(&primary).map_err(|_| {
+        fmt_err(&PublicMessage::Curated(
+            "colonna geometrica assente dallo schema",
+        ))
+    })?;
+    let mut declared = GeometryColumnContract::wkb_passthrough(
+        FieldId(0),
+        &primary,
+        CrsResolution::Missing,
+        field.is_nullable(),
+    );
+    plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut declared)?;
+    if !matches!(declared.crs, CrsResolution::Missing) {
+        return Ok((primary, declared.crs));
+    }
     let crs = assume_crs.map_or(CrsResolution::Missing, |id| {
         CrsResolution::Resolved(ResolvedCrs::new(
             Some(id.to_owned()),

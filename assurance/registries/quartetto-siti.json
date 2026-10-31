@@ -701,6 +701,11 @@
       "Schema/Validate/Schema/Never"
     ]
   },
+  "crates/plenora-io-model/src/geometry/crs_metadata.rs": {
+    "incoerente": [
+      "Crs/Validate/Crs/Never"
+    ]
+  },
   "crates/plenora-io-model/src/vocabolario.rs": {
     "crs": [
       "Crs/Validate/Crs/Never",
