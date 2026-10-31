@@ -309,11 +309,53 @@ impl GeometryColumnContract {
 #[derive(Clone, Debug)]
 pub struct DataContract {
     pub schema: SchemaRef,
-    /// v1: al massimo una colonna geometria.
+    /// Geometria primaria esplicita. Le altre geometrie hanno metadati per campo.
     pub geometry: Option<GeometryColumnContract>,
 }
 
 impl DataContract {
+    /// Restituisce tutti i contratti geometrici in ordine fisico.
+    /// Il CRS della primaria esplicita si confronta con i metadati del campo;
+    /// nessun altro campo viene promosso a primaria. Gli indici sono posizioni,
+    /// non `field_id` wire.
+    ///
+    /// # Errors
+    /// Metadati geometrici non interpretabili o indice non rappresentabile.
+    pub fn geometries(&self) -> crate::Result<Vec<GeometryColumnContract>> {
+        let mut geometries = Vec::new();
+        for (index, field) in self.schema.fields().iter().enumerate() {
+            if let Some(primary) = self.geometry.as_ref().filter(|g| &g.name == field.name()) {
+                let mut declared = primary.clone();
+                crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
+                let mut primary = primary.clone();
+                primary.crs =
+                    crate::geometry::reconcile_crs_declarations(&primary.crs, &declared.crs)?;
+                geometries.push(primary);
+            } else if crate::geometry::is_geometry_field(field) {
+                let index = u32::try_from(index).map_err(|_| {
+                    crate::PlenoraIoError::schema_redatto(&crate::PublicMessage::Curated(
+                        "indice geometrico non rappresentabile",
+                    ))
+                })?;
+                let mut geometry = GeometryColumnContract::wkb_xy(
+                    FieldId(index),
+                    field.name(),
+                    crate::crs::CrsResolution::Missing,
+                    field.is_nullable(),
+                );
+                crate::geometry::read_geometry_contract_metadata(field, &mut geometry)?;
+                geometry.field_id = FieldId(index);
+                geometries.push(geometry);
+            }
+        }
+        if let Some(primary) = &self.geometry {
+            if !geometries.iter().any(|g| g.name == primary.name) {
+                geometries.push(primary.clone());
+            }
+        }
+        Ok(geometries)
+    }
+
     /// Costruisce il contratto e inserisce la versione del protocollo nei
     /// metadati di schema quando sono presenti chiavi geometriche canoniche.
     ///
@@ -355,6 +397,24 @@ impl DataContract {
                     .iter()
                     .map(|field| {
                         if field.name() == &geometry.name {
+                            // Il costruttore e' infallibile: conserva una
+                            // dichiarazione invalida o discorde affinche' il
+                            // lettore comune la rifiuti, senza cancellarla.
+                            let mut declared = geometry.clone();
+                            if crate::geometry::read_geometry_contract_metadata(
+                                field,
+                                &mut declared,
+                            )
+                            .and_then(|_| {
+                                crate::geometry::reconcile_crs_declarations(
+                                    &geometry.crs,
+                                    &declared.crs,
+                                )
+                            })
+                            .is_err()
+                            {
+                                return field.as_ref().clone();
+                            }
                             crate::geometry::with_geometry_contract_metadata(field, geometry)
                         } else {
                             field.as_ref().clone()

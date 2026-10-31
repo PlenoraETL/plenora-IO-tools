@@ -1,0 +1,101 @@
+{
+  "id": "io-una-geometria",
+  "data": "2026-10-28",
+  "stato": "parziale: GeoParquet sviluppato; IPC aperto",
+  "contratto": {
+    "primaria": "DataContract.geometry; geo.primary_column in GeoParquet; geoparquet.primary_column nei metadati nativi per campo",
+    "geometrie": "DataContract.geometries(), metadati per campo; nessuna promozione in projection",
+    "encoding": "WKB; le codifiche GeoArrow native restano unsupported",
+    "crs": "indipendente per colonna; PROJJSON conservato byte per byte",
+    "validazione": "tutte le geometrie, CRS, tipi, dimensioni, encoding e quote cumulative; nessuna nuova dipendenza di prodotto"
+  },
+  "formati": [
+    {
+      "id": "geoparquet",
+      "stato": "supportato WKB R/W",
+      "fonte": "https://geoparquet.org/releases/v1.1.0/",
+      "prove": [
+        "pyarrow_multigeometria_round_trip_esatto_con_primaria_non_iniziale",
+        "secondaria_invalida_non_si_scrive_ne_si_pubblica",
+        "assume_crs_si_verifica_anche_sulla_secondaria",
+        "scrittura_multigeometria_senza_primaria_non_sceglie",
+        "tipi_della_secondaria_si_verificano_in_lettura",
+        "quota_componenti_somma_primaria_e_secondaria",
+        "projection_secondaria_non_diventa_primaria_in_scrittura"
+      ]
+    },
+    {
+      "id": "gpkg",
+      "stato": "rifiuto del formato",
+      "regola": "GeoPackage requisito 30: una geometria per tabella/vista",
+      "categoria": "unsupported",
+      "exit": 3,
+      "prova_lettura": "due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate"
+    },
+    {
+      "id": "shp",
+      "stato": "rifiuto del formato",
+      "regola": "una shape per record e attributi DBF",
+      "categoria": "unsupported",
+      "exit": 3
+    },
+    {
+      "id": "geojson",
+      "stato": "rifiuto del formato",
+      "regola": "RFC 7946 3.2: un membro geometry per Feature",
+      "categoria": "unsupported",
+      "exit": 3
+    },
+    {
+      "id": "dxf",
+      "stato": "rifiuto del mapping",
+      "regola": "entità grafiche, nessun mapping adottato per colonne con CRS indipendenti",
+      "categoria": "unsupported",
+      "exit": 3,
+      "proposta": "mapping esplicito verso entità/layer, nessuna esplosione automatica"
+    },
+    {
+      "id": "filegdb",
+      "stato": "rifiuto del modello feature class",
+      "regola": "Esri: un campo geometria per feature class",
+      "categoria": "unsupported",
+      "exit": 3,
+      "limite_prove": "backend richiede gdal-backend"
+    },
+    {
+      "id": "flatgeobuf",
+      "stato": "driver assente",
+      "regola": "Feature.geometry singola nello schema FlatBuffers",
+      "proposta": "rifiutare più colonne senza trasformarle in properties"
+    },
+    {
+      "id": "ipc",
+      "stato": "aperto: rifiuto di supporto del driver",
+      "categoria": "unsupported",
+      "exit": 3,
+      "rientro": "convenzione esplicita di primaria sull’interchange, metadati CRS GeoArrow standard; il formato ammette più geometrie"
+    }
+  ],
+  "prova_rifiuti_cli": "crates/plenora-io-tools/tests/geometrie_multiple.rs::sink_monogeometria_rifiutano_con_categoria_exit_e_nessun_output",
+  "fixture": {
+    "path": "crates/driver-geoparquet/tests/fixtures/multigeometria-pyarrow.parquet",
+    "sha256": "dd929de573f64b67e7b8b7cc07ac5013fc3bd2e78f0f7d9e76a0d080e3f53ec8",
+    "produttore": "PyArrow 25.0.1",
+    "generatore": "scripts/genera_fixture_multigeometria.py",
+    "motivazione": "nessuno dei 38 file Parquet tracciati al momento del censimento aveva più voci geo.columns",
+    "contenuto": "3 righe; traccia LineString EPSG:32632, posizione Point CRS84 primaria fisica 2; null indipendenti"
+  },
+  "matrice_interop_tutta_verde": false,
+  "gate": {
+    "test_workspace": "cargo test --workspace --all-targets --locked: tutte le suite passate; ultime prove GeoParquet anche in corsa dedicata",
+    "clippy": "cargo clippy --workspace --all-targets --locked -- -D warnings: passato",
+    "all_features": "bloccato in gdal-sys: gdal_i.lib assente per Windows MSVC",
+    "release_contract": "bloccato: comando di gate non disponibile su PATH (WinError 2; python3 assente)",
+    "parallelismo": "CARGO_BUILD_JOBS=4, una compilazione alla volta",
+    "doctest": "cargo test --workspace --doc --locked: passato",
+    "safety": "clippy --workspace --lib --bins (senza gdal-backend), deny unsafe/unwrap/expect/panic/unreachable/todo/unimplemented: passato",
+    "guardie": "305 test Python passati; guardie docset, dimensione, quartetto, unsafe, metadati/schemi GeoParquet, decoder, errori redatti, niente leak, budget e protocollo passate",
+    "cli_oracolo": "GeoParquet -> GeoParquet via CLI, output letto con PyArrow: byte, null, primaria, CRS, tipi e encoding uguali"
+  },
+  "variazioni_errori": "Rimosso il rifiuto di cardinalita globale da verifica_schema e geometry_contracts_for_validation: la cardinalita ora dipende dal sink in validate_write, con lo stesso quartetto Unsupported/Validate/Unsupported/Never. crs_from delega a crs_della_colonna senza cambiare quartetto. Il conteggio cumulativo ha un controllo overflow aggiuntivo; account riusa il layer_rows gia verificato invece di ripetere la guardia."
+}

@@ -1129,7 +1129,7 @@ fn l_epoca_delle_coordinate_perduta_si_dichiara() {
             },
         }],
     };
-    let loss = planned_write_loss(&descrittore_che_dichiara_perdite(), &piano);
+    let loss = planned_write_loss(&descrittore_che_dichiara_perdite(), &piano).unwrap();
     assert_eq!(
         loss.counts.get("crs_coordinate_epoch_not_preserved"),
         Some(&1)
@@ -1603,12 +1603,9 @@ fn legacy_geometry_defaults_xy_only_when_dimensions_are_absent() {
     )]))
     .unwrap();
 
+    assert_eq!(absent[0][0].dimensions, CoordinateDimensions::Xy);
     assert_eq!(
-        absent[0].as_ref().unwrap().dimensions,
-        CoordinateDimensions::Xy
-    );
-    assert_eq!(
-        explicit_unknown[0].as_ref().unwrap().dimensions,
+        explicit_unknown[0][0].dimensions,
         CoordinateDimensions::Unknown
     );
 }
@@ -1621,15 +1618,10 @@ fn ambiguous_or_invalid_legacy_geometry_metadata_is_rejected() {
     ]);
     let invalid = legacy_plan(vec![geoarrow_field("geometry", Some("future"))]);
 
-    // REJ-001: due campi geometria sono un limite di supporto (GEO-012), un
-    // valore fuori dall'insieme chiuso un difetto di vocabolario; nessuno dei
-    // due e' `invalid_plan`, anche quando lo schema arriva da un piano.
-    let Err(errore) = geometry_contracts_for_validation(&ambiguous) else {
-        panic!("due campi geometria devono essere rifiutati");
-    };
+    // La cardinalità appartiene alle capability del sink, non al parsing.
     assert_eq!(
-        errore.category,
-        plenora_io_model::ErrorCategory::Unsupported
+        geometry_contracts_for_validation(&ambiguous).unwrap()[0].len(),
+        2
     );
     let Err(errore) = geometry_contracts_for_validation(&invalid) else {
         panic!("dimensioni fuori dall'insieme chiuso devono essere rifiutate");
@@ -2091,4 +2083,58 @@ fn a_deadline_inside_write_to_layer_beats_its_quota_error() {
         "{errore:?}"
     );
     assert_eq!(errore.phase, ErrorPhase::Write, "{errore:?}");
+}
+
+#[test]
+fn bbox_e_orientamento_perduti_sono_dichiarati_tranne_in_ipc() {
+    let dove = Posizione {
+        layer_index: Some(1),
+        field_index: Some(3),
+        type_class: None,
+    };
+    let mut geometria = xy_contract(true);
+    geometria
+        .native_metadata
+        .insert("geoparquet.bbox".into(), "dato-riservato".into());
+    geometria
+        .native_metadata
+        .insert("geoparquet.orientation".into(), "dato-riservato".into());
+    for formato in [
+        "ipc",
+        "geoparquet",
+        "gpkg",
+        "shp",
+        "csv",
+        "geojson",
+        "kml",
+        "dxf",
+        "xls",
+        "filegdb",
+    ] {
+        let mut loss = LossReport::default();
+        super::perdita_pianificata::record_geometry_metadata_loss(
+            &mut loss, formato, &geometria, dove,
+        );
+        for categoria in [
+            "geometry_bbox_not_preserved",
+            "geometry_orientation_not_preserved",
+        ] {
+            assert_eq!(
+                loss.counts.get(categoria),
+                (formato != "ipc").then_some(&1),
+                "{formato}"
+            );
+        }
+        assert!(loss
+            .esempi_canonici()
+            .all(|e| !e.context.contains("dato-riservato") && e.posizione == dove));
+        let mut senza = LossReport::default();
+        super::perdita_pianificata::record_geometry_metadata_loss(
+            &mut senza,
+            formato,
+            &xy_contract(true),
+            dove,
+        );
+        assert!(senza.is_empty());
+    }
 }

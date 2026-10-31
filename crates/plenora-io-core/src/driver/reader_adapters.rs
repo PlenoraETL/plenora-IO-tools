@@ -76,7 +76,21 @@ pub fn with_read_budget(
         if dataset.rifiuto_del_layer(layer.id).is_some() {
             continue;
         }
-        if let Some(geometria) = &layer.contract.geometry {
+        let geometrie = match layer.contract.geometries() {
+            Ok(geometrie) => geometrie,
+            Err(errore)
+                if matches!(
+                    errore.category,
+                    plenora_io_model::ErrorCategory::Crs
+                        | plenora_io_model::ErrorCategory::ResourceLimit
+                ) =>
+            {
+                rifiuti.insert(layer.id.0, errore);
+                continue;
+            }
+            Err(errore) => return Err(errore),
+        };
+        for geometria in &geometrie {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
             // batch -- la validazione, il conteggio dei componenti, gli esempi
             // di perdita, chi consuma l'Arrow -- la cerca per nome. Un nome
@@ -832,7 +846,7 @@ fn collect_read_violations(
             }
         }
     }
-    if let Some(geometry) = &contract.contract.geometry {
+    for geometry in &contract.contract.geometries()? {
         let index = usize::try_from(geometry.field_id.0).map_err(|_| {
             PlenoraIoError::schema_redatto(&PublicMessage::Curated(
                 "field_id geometrico fuori intervallo",
@@ -1322,9 +1336,24 @@ fn geometry_components(
     batch: &RecordBatch,
     budget: &OperationBudget,
 ) -> Result<u64> {
-    let Some(geometry) = &contract.contract.geometry else {
-        return Ok(0);
-    };
+    let mut total = 0_u64;
+    for geometry in &contract.contract.geometries()? {
+        total = total
+            .checked_add(column_geometry_components(geometry, batch, budget)?)
+            .ok_or_else(|| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio dei componenti geometrici",
+                ))
+            })?;
+    }
+    Ok(total)
+}
+
+fn column_geometry_components(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+    batch: &RecordBatch,
+    budget: &OperationBudget,
+) -> Result<u64> {
     let Some(index) = batch
         .schema()
         .fields()
