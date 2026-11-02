@@ -102,8 +102,8 @@ class SondeGrafo(unittest.TestCase):
 
 
 class SondeConsumatore(unittest.TestCase):
-    def test_il_lock_distribuito_precede_cargo_e_non_puo_mancare(self) -> None:
-        """La prova usa il lock dell'archivio e rifiuta un archivio senza."""
+    def test_il_consumatore_risolve_senza_copia_del_lock(self) -> None:
+        """La prova parte senza lock anche se l'archivio ne contiene uno."""
         for con_lock in (True, False):
             with self.subTest(con_lock=con_lock), tempfile.TemporaryDirectory() as tmp:
                 lavoro = pathlib.Path(tmp)
@@ -131,9 +131,8 @@ class SondeConsumatore(unittest.TestCase):
                         with tarfile.open(uscita / "src.tar", "w") as archivio:
                             archivio.add(sorgente, arcname="plenora-io-prova")
                         return subprocess.CompletedProcess(comando, 0)
-                    self.assertTrue(con_lock, "cargo non deve partire senza lock")
                     self.assertEqual(comando, ["cargo", "run", "--quiet"])
-                    self.assertEqual((opzioni["cwd"] / "Cargo.lock").read_bytes(), lock)
+                    self.assertFalse((opzioni["cwd"] / "Cargo.lock").exists())
                     # Arresta la simulazione dopo aver osservato il confine cargo.
                     return subprocess.CompletedProcess(comando, 1, "", "fine sonda")
 
@@ -141,7 +140,7 @@ class SondeConsumatore(unittest.TestCase):
                      mock.patch.object(gate, "inclusioni_fuori_dal_crate", return_value=[]):
                     problemi = gate.compila_dall_archivio(lavoro)
                 self.assertTrue(any(
-                    ("fine sonda" if con_lock else "non contiene `Cargo.lock`") in p
+                    "fine sonda" in p
                     for p in problemi
                 ), problemi)
 
