@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `1e3f047` |
-| revisione misurata | `1e3f047` |
+| ultima qualificata | `fc98634` |
+| revisione misurata | `fc98634` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,18 +49,18 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,14% |
-| righe coperte LCOV | 29 627 |
-| righe strumentate LCOV | 33 612 |
-| copertura cargo | 86,03% |
+| copertura LCOV | 88,68% |
+| righe coperte LCOV | 31 277 |
+| righe strumentate LCOV | 35 271 |
+| copertura cargo | 86,54% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
-| esito differenziale | 94.02% |
+| baseline differenziale | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
+| esito differenziale | 93.38% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `1e3f047` |
+| S9, qualificato su | `fc98634` |
 | candidate, versione del manifesto | `7.0.0` |
 | candidate, stato | attiva |
 | candidate, revisione congelata | `fc98634b9cde7f1204aaace098ff48def957c943` |

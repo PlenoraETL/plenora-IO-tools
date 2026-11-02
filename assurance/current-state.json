@@ -8,20 +8,20 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "1e3f047",
+      "sha": "fc98634",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "1e3f047",
-    "evidenza": "assurance/evidence/checkpoint-1e3f047.json",
+    "sha": "fc98634",
+    "evidenza": "assurance/evidence/checkpoint-fc98634.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "111 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
+      "riconciliazione": "111 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
       "replay_input": 145,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.14,
-      "lcov_righe_coperte": 29627,
-      "lcov_righe_strumentate": 33612,
-      "cargo_lines_percentuale": 86.03,
+      "lcov_percentuale": 88.68,
+      "lcov_righe_coperte": 31277,
+      "lcov_righe_strumentate": 35271,
+      "cargo_lines_percentuale": 86.54,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`, perimetro senza `plenora-bench` e `plenora-fuzz`.",
-      "nota": "il report lcov e il sommario di riga di `cargo llvm-cov` contano insiemi di righe leggermente diversi; stanno entrambi qui perche' sceglierne uno nasconderebbe che la domanda ha due risposte."
+      "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
+      "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "baseline": "732fba374cd12aed7995c11c3ed48128e8f5992b",
-      "esito": "94.02%",
-      "righe_cambiate_eseguibili": 3128,
-      "coperte": 2941,
-      "scoperte": 187,
-      "cambiate_non_eseguibili": 12238,
-      "ragione": "misurata fra `732fba3`, l'ultimo checkpoint superato e registrato, e `1e3f047`, nel perimetro di libreria.",
-      "che_cosa_sono_le_scoperte": "righe cambiate ed eseguibili non esercitate dai **test**, elencate una per una nell'evidenza. `cargo llvm-cov` non gira sui fuzzer: scoperta si legge come non provata dai test, non come non raggiunta dal fuzzing."
+      "baseline": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+      "esito": "93.38%",
+      "righe_cambiate_eseguibili": 1933,
+      "coperte": 1805,
+      "scoperte": 128,
+      "cambiate_non_eseguibili": 4579,
+      "ragione": "Confronto di libreria fra ultimo livello 2 registrato 1e3f047 e fc98634.",
+      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "1e3f047e134cf03667b1cd86b6fc2115ab846dd3",
+    "sha": "fc98634b9cde7f1204aaace098ff48def957c943",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "La campagna di smoke che il verbale registra, e la revisione su cui e' **davvero** girata -- che non e' HEAD, e non deve esserlo. Una misura appartiene al codice su cui e' girata; il commit che ne pubblica l'evidenza ha uno SHA diverso e non la eredita, esattamente come per i checkpoint. Il gate non pretende l'uguaglianza con HEAD: pretende che questa revisione sia HEAD oppure un suo antenato da cui siano cambiati soltanto file dell'allowlist dell'assurance. Questa corsa -- 15 bersagli dichiarati, 15 arrivati a fine tempo con il riepilogo conclusivo di libFuzzer, nessuno fermato a un finding noto, nessuno illeggibile -- e' lo smoke del livello 2 su `1e3f047`, la revisione congelata della 6.0.0. Il soak che segue lo smoke e' un'altra misura: vedi l'evidenza. Il checkpoint pone invece una domanda piu' stretta -- «e' il verbale di questa corsa?» -- e pretende l'uguaglianza esatta: il verbale lo produce lo smoke fuori dall'albero, nella directory della corsa, e `registra-evidenza-s9.py` lo pubblica qui dopo. Cosi' un passo non scrive piu' un file tracciato dentro l'albero che sta qualificando."
+    "significato": "Smoke del livello 2 sulla candidate fc98634: 15/15 bersagli arrivati a fine tempo, 60 secondi ciascuno; 0 fermati a finding noto, 0 falliti su finding nuovo, 0 illeggibili. Verbale copiato byte per byte dalla corsa dal registratore. Non e un soak mirato; nessuna campagna della 6.0.0 trasferita. La misura appartiene alla revisione dichiarata, non al commit che la registra."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "1e3f047"
+      "qualificato_su": "fc98634"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -592,7 +592,7 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate **attiva**, congelata su `fc98634b9cde7f1204aaace098ff48def957c943`, branch `rilascio/7.0.0`. Il congelamento e' registrato dopo la revisione candidata, nei soli percorsi dell'allowlist di docs/RELEASE.md sezione 5-bis.\n\nLa 7.0.0 e' una major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0.\n\nLe profondita' filegdb_reader (12/12), shp_reader (35/35), geojson_reader (9/9), wkt_parse (9/9) e il confine ASan sono rimisurati nella revisione congelata; i gate ne verificano le impronte sul perimetro corrente. Le modifiche di assurance non cambiano quel perimetro.\n\nI sette artefatti sono fissati dai byte della distribuzione candidate 41481022901 (https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/41481022901): quattro archivi CLI, wheel e sdist Python, archivio sorgente. SHA-256, dimensioni e revisione sono verificati contro checksum e provenance (MANIFEST-sorgente.json per il sorgente) con check-deliverable.py. Il gate check-distribuzione-completa.py e' verde: 32/32 referti, canale candidate.\n\nRestano il livello 2 e la registrazione della sua evidenza, le attestazioni del profilo pubblico dei quattro archivi CLI, la draft riscaricata e verificata e la decisione esplicita del titolare. release_authorized resta false. Tag v7.0.0 sulla revisione candidata, pubblicazione della draft immutata e verifica post-pubblicazione restano passi successivi all'autorizzazione.",
+      "nota": "Candidate **attiva**, congelata su `fc98634b9cde7f1204aaace098ff48def957c943`, branch `rilascio/7.0.0`. Il congelamento e' registrato dopo la revisione candidata, nei soli percorsi dell'allowlist di docs/RELEASE.md sezione 5-bis.\n\nLa 7.0.0 e' una major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0.\n\nLe profondita' filegdb_reader (12/12), shp_reader (35/35), geojson_reader (9/9), wkt_parse (9/9) e il confine ASan sono rimisurati nella revisione congelata; i gate ne verificano le impronte sul perimetro corrente. Le modifiche di assurance non cambiano quel perimetro.\n\nI sette artefatti sono fissati dai byte della distribuzione candidate 41481022901 (https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/41481022901): quattro archivi CLI, wheel e sdist Python, archivio sorgente. SHA-256, dimensioni e revisione sono verificati contro checksum e provenance (MANIFEST-sorgente.json per il sorgente) con check-deliverable.py. Il gate check-distribuzione-completa.py e' verde: 32/32 referti, canale candidate.\n\nRegistrato il livello 2 su fc98634: 111/111 passi verdi, albero pulito e invariato; misure e diagnostica differenziale derivate dai log in assurance/evidence/checkpoint-fc98634.json. Le quattro attestazioni esigenti del profilo pubblico sono 32/32 ciascuna, sui byte congelati e al pin 7f82263. Il set locale dei sette deliverable e verificato contro la candidate.\n\nRestano i soak mirati dxf_reader/shp_reader sulla revisione congelata richiesti da RELEASE.md sezione 6, non documentati dalla corsa; la draft riscaricata e verificata; la decisione esplicita del titolare. release_authorized e release_action_allowed restano false. Dopo autorizzazione: tag annotato v7.0.0 sulla candidate, commit di assurance, gate finale --release, pubblicazione della draft immutata e verifica post-pubblicazione. Restano i rinvii e i limiti elencati nel giudizio della corsa.",
       "revisione_candidate": "fc98634b9cde7f1204aaace098ff48def957c943",
       "artefatti": [
         {
