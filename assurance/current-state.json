@@ -591,8 +591,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate **iniziale**: la 7.0.0 segue la 6.0.0. Major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni dei difetti silenziosi DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0 di RELEASE.md. La scelta del numero non autorizza la pubblicazione. Il bump modifica Cargo.lock e fuzz/Cargo.lock nel perimetro delle misure: prima del congelamento occorre rimisurare le profondita' filegdb_reader, shp_reader, geojson_reader e wkt_parse e il confine ASan. Le misure precedenti non sono attestazioni della 7.0.0 e le loro impronte restano invariate fino alla rimisura. Nessuna revisione o artefatto e' congelato: il passaggio ad attiva sara' registrato da un commit successivo a quello candidato, rispettando docs/RELEASE.md sezione 5-bis."
+      "stato": "attiva",
+      "nota": "Candidate **attiva**, congelata su `fc98634b9cde7f1204aaace098ff48def957c943`, branch `rilascio/7.0.0`. Il congelamento e' registrato dopo la revisione candidata, nei soli percorsi dell'allowlist di docs/RELEASE.md sezione 5-bis.\n\nLa 7.0.0 e' una major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0.\n\nLe profondita' filegdb_reader (12/12), shp_reader (35/35), geojson_reader (9/9), wkt_parse (9/9) e il confine ASan sono rimisurati nella revisione congelata; i gate ne verificano le impronte sul perimetro corrente. Le modifiche di assurance non cambiano quel perimetro.\n\nI sette artefatti sono fissati dai byte della distribuzione candidate 41481022901 (https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/41481022901): quattro archivi CLI, wheel e sdist Python, archivio sorgente. SHA-256, dimensioni e revisione sono verificati contro checksum e provenance (MANIFEST-sorgente.json per il sorgente) con check-deliverable.py. Il gate check-distribuzione-completa.py e' verde: 32/32 referti, canale candidate.\n\nRestano il livello 2 e la registrazione della sua evidenza, le attestazioni del profilo pubblico dei quattro archivi CLI, la draft riscaricata e verificata e la decisione esplicita del titolare. release_authorized resta false. Tag v7.0.0 sulla revisione candidata, pubblicazione della draft immutata e verifica post-pubblicazione restano passi successivi all'autorizzazione.",
+      "revisione_candidate": "fc98634b9cde7f1204aaace098ff48def957c943",
+      "artefatti": [
+        {
+          "nome": "plenora-io-7.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "7bf425a6911554ff1acae25e97c30ac5fa9f58f7c218afb18f5aafcca318cd88",
+          "dimensione": 9073506,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora-io-7.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "7645fdd53912a59e912744124d9dc623bc184477e4ba5eb1a4b59abdfe827495",
+          "dimensione": 64917936,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora-io-7.0.0-src.tar.gz",
+          "sha256": "5634b146f681c7ffffff02934f4c458c3188755fe8bd4bc28170a9411a19a988",
+          "dimensione": 21218565,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora-io-7.0.0-windows-x86_64-base.zip",
+          "sha256": "18e5761b9cdbce859d49c7e25db9dec91229ff9c96c90aa7866ca4b6f350a1b7",
+          "dimensione": 9863960,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora-io-7.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "495c5e65d7fc9b08eb4369576adb957c0f16c0b0ed17847338152cd1a1378223",
+          "dimensione": 48920777,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora_io-7.0.0-py3-none-any.whl",
+          "sha256": "fd8f46e66ae7e3cd39b7c65ffed264e53c885d71456b2bf021fad9d979bbd1d5",
+          "dimensione": 114722,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        },
+        {
+          "nome": "plenora_io-7.0.0.tar.gz",
+          "sha256": "8892e735f7cd0d743ee67a1655215fd72ebfb07d294f7b7dcfb8ff05ef5cab4f",
+          "dimensione": 210664,
+          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+        }
+      ],
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {
