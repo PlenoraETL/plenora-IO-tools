@@ -18,7 +18,7 @@
     "invarianti_nota": "Nessun nuovo invariante chiuso automaticamente; registra la qualifica tecnica della revisione congelata.",
     "candidate": "fc98634b9cde7f1204aaace098ff48def957c943",
     "che_cosa_e_provato": "111 identificatori distinti, tutti verdi, nessun omesso o fallito; albero pulito e invariato; replay e smoke della corsa e copertura sopra soglia.",
-    "criterio_d_uscita": "Livello 2 superato; criterio completo della sezione 6 non dichiarato soddisfatto: mancano evidenze di soak mirati sulla revisione."
+    "criterio_d_uscita": "Livello 2 e due soak mirati superati sulla candidate; restano draft riscaricata e verificata, decisione esplicita, gate finale --release ed evidenza in commit separato. Nessuna autorizzazione automatica."
   },
   "provenienza_della_corsa": {
     "originale": "/var/tmp/s9-700-fc98634",
@@ -27,8 +27,220 @@
   },
   "campagne_mirate": {
     "soak": {
-      "eseguito": null,
-      "nota": "Nessun soak dxf_reader/shp_reader documentato su fc98634; richiesto da RELEASE.md sezione 6. Lo smoke da 60 secondi per target non lo sostituisce."
+      "eseguito": true,
+      "nota": "Due campagne successive al checkpoint, sulla stessa candidate: dxf_reader monotonic/boottime/realtime 3823,438642146/3823,438642754/3823,438643456 s; shp_reader 3823,181138732/3823,181138840/3823,181138992 s. LibFuzzer 3601 s ciascuno, exit 0, nessun finding, durata dimostrata, esito completa. Esecuzione parallela sulla stessa VM 4 vCPU; nessuna soglia CPU o esclusivita richiesta.",
+      "verbale": {
+        "schema_version": 1,
+        "revisione": "fc98634b9cde7f1204aaace098ff48def957c943",
+        "provenienza": {
+          "dichiarazione_operatore": "Ubuntu 24.04, checkout pulito di fc98634b9cde7f1204aaace098ff48def957c943, nightly-2026-07-21; due soak eseguiti in parallelo sulla stessa VM con 4 vCPU. SHA, pulizia e ambiente dichiarati dal titolare: i referti del misuratore non li rilevano autonomamente.",
+          "originali": "/var/tmp/soak-700-<bersaglio>",
+          "copie_locali": "target/soak-700/soak-700-<bersaglio>"
+        },
+        "criterio": "RELEASE.md sezione 6 e scripts/soak_misurato.py non richiedono saturazione o esclusivita della CPU. CPU dei figli diagnostica, include preparazione/build, nessuna soglia. Il tempo wrapper non e il solo tempo di fuzzing: entrambi i riepiloghi libFuzzer dichiarano 3601 s.",
+        "limite": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza.",
+        "verifica_locale": "SHA-256 dei log ricalcolati; digest del misuratore confrontato con il blob della candidate; giudizio ricalcolato dai log e tempi originali, con identita di tutti i campi prodotti da giudica.",
+        "bersagli": {
+          "dxf_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py dxf_reader --seconds 3600 --output-dir /var/tmp/soak-700-dxf_reader",
+            "referto": "target/soak-700/soak-700-dxf_reader/referto.json",
+            "referto_sha256": "e200519dbb2e9b388c4d27767012d2cfaa2fa4ed1801333382de561b50c0137e",
+            "log": "target/soak-700/soak-700-dxf_reader/campagna.log",
+            "log_sha256": "14f8e3c68276fdc81120c1630357177038a4b767968b4258f1a9640cf9cc2457",
+            "log_dimensione": 6260698,
+            "tempi_grezzi": {
+              "monotonic_s": 3823.4386421460003,
+              "boottime_s": 3823.4386427539976,
+              "parete_s": 3823.4386434555054,
+              "cpu_figli_s": 4417.574877
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 10242106,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "10242106",
+                "average_exec_per_sec": "2844",
+                "new_units_added": "46605",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "629"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 4417.574877,
+              "quota_cpu_intervallo": 1.1553931658023224,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "dxf_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3823.4386421460003,
+                "boottime_s": 3823.4386427539976,
+                "parete_s": 3823.4386434555054,
+                "cpu_figli_s": 4417.574877
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 6.079972081352025e-07,
+                "parete_meno_monotonic_s": 1.3095050235278904e-06
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 4417.574877,
+                "quota_cpu_intervallo": 1.1553931658023224,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 10242106,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "10242106",
+                  "average_exec_per_sec": "2844",
+                  "new_units_added": "46605",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "629"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "dxf_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "14f8e3c68276fdc81120c1630357177038a4b767968b4258f1a9640cf9cc2457",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 32466.198430142,
+                  "boottime_s": 32466.198434142,
+                  "parete_s": 1793644059.6671674,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 36289.637072288,
+                  "boottime_s": 36289.637076896,
+                  "parete_s": 1793647883.1058109,
+                  "cpu_figli_s": 4417.574877
+                }
+              },
+              "errore_avvio": null
+            }
+          },
+          "shp_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py shp_reader --seconds 3600 --output-dir /var/tmp/soak-700-shp_reader",
+            "referto": "target/soak-700/soak-700-shp_reader/referto.json",
+            "referto_sha256": "f3788649a4618673c0fd714cbe0725285300eca106061245a56d621cb28481ee",
+            "log": "target/soak-700/soak-700-shp_reader/campagna.log",
+            "log_sha256": "cbd36dd84fb40c94f4885e0d11ddf27399d07c7c72fd6bafed435de36736aca1",
+            "log_dimensione": 344935,
+            "tempi_grezzi": {
+              "monotonic_s": 3823.1811387320013,
+              "boottime_s": 3823.181138840002,
+              "parete_s": 3823.1811389923096,
+              "cpu_figli_s": 3640.7151089999998
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 5749588,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "5749588",
+                "average_exec_per_sec": "1596",
+                "new_units_added": "2451",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "493"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3640.7151089999998,
+              "quota_cpu_intervallo": 0.9522737680714447,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "shp_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3823.1811387320013,
+                "boottime_s": 3823.181138840002,
+                "parete_s": 3823.1811389923096,
+                "cpu_figli_s": 3640.7151089999998
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 1.0800067684613168e-07,
+                "parete_meno_monotonic_s": 2.6030829758383334e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3640.7151089999998,
+                "quota_cpu_intervallo": 0.9522737680714447,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 5749588,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "5749588",
+                  "average_exec_per_sec": "1596",
+                  "new_units_added": "2451",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "493"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "shp_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "cbd36dd84fb40c94f4885e0d11ddf27399d07c7c72fd6bafed435de36736aca1",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 32466.200409342,
+                  "boottime_s": 32466.200413542,
+                  "parete_s": 1793644059.6691468,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 36289.381548074,
+                  "boottime_s": 36289.381552382,
+                  "parete_s": 1793647882.8502858,
+                  "cpu_figli_s": 3640.7151089999998
+                }
+              },
+              "errore_avvio": null
+            }
+          }
+        }
+      }
     },
     "oom": {
       "eseguito": null,
@@ -57,7 +269,6 @@
     }
   },
   "resta_aperto": {
-    "soak_mirati": "Produrre e registrare le campagne dxf_reader e shp_reader su fc98634 richieste dalla sezione 6.",
     "draft": "Preparare la draft con i sette deliverable e i sidecar; riscaricare e verificare contro la candidate. Nessuna draft verificata da questa registrazione.",
     "decisione": "Autorizzazione esplicita del titolare assente; release_authorized e release_action_allowed restano false.",
     "tag_e_pubblicazione": "Dopo autorizzazione: tag annotato v7.0.0 sulla candidate, commit di assurance, gate finale --release, pubblicazione immutata e verifica dopo pubblicazione.",
@@ -79,23 +290,23 @@
         "detectable_before_invocation": true
       },
       {
-        "rule": "RUNTIME-VECTORS-1.0 §5 (payload di io-read-request)",
+        "rule": "RUNTIME-VECTORS-1.0 Ã‚Â§5 (payload di io-read-request)",
         "surface": "runtime",
         "observed_behavior": "il payload della fixture (`artifact_source`, `format`, `layer` stringa) non e' un `plenora-io-read-input-v1`, che richiede `source`, chiude i campi e vuole `layer` intero: il binding lo rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Gli stessi metadati con un payload del nostro schema sullo stesso riferimento rendono il risultato di `io-read-success.json`. Per il consumatore: un payload modellato sulla fixture riceve un rifiuto tipizzato.",
         "tracking": "tests/runtime_vettori.rs fissa la differenza; si chiude in plenora-contracts allineando la fixture a plenora-io-read-input-v1, o con una v2 dello schema d'ingresso di IO-tools.",
         "detectable_before_invocation": true
       },
       {
-        "rule": "RUNTIME-VECTORS-1.0 §3 (assi di io-read-cancelled-error)",
+        "rule": "RUNTIME-VECTORS-1.0 Ã‚Â§3 (assi di io-read-cancelled-error)",
         "surface": "runtime",
-        "observed_behavior": "la cancellazione rende `category: cancelled` e `remote_effect: none` come la fixture, ma `phase: probe` invece di `read`, `retry: never` invece di `safe` e `code: CANCELLED` invece di `READ_CANCELLED`: sono gli assi che CLI e superficie Rust gia' rendono, e il binding non puo' cambiarli (SURFACE-BINDINGS-1.0 §1). Per il consumatore: una lettura cancellata non viene ritentata in automatico.",
+        "observed_behavior": "la cancellazione rende `category: cancelled` e `remote_effect: none` come la fixture, ma `phase: probe` invece di `read`, `retry: never` invece di `safe` e `code: CANCELLED` invece di `READ_CANCELLED`: sono gli assi che CLI e superficie Rust gia' rendono, e il binding non puo' cambiarli (SURFACE-BINDINGS-1.0 Ã‚Â§1). Per il consumatore: una lettura cancellata non viene ritentata in automatico.",
         "tracking": "tests/runtime_vettori.rs fissa la differenza; si chiude allineando la fixture in plenora-contracts, o cambiando gli assi della cancellazione su tutte le superfici in una release che lo dichiari.",
         "detectable_before_invocation": false
       },
       {
-        "rule": "CLI-2.0 §4 e §8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
+        "rule": "CLI-2.0 Ã‚Â§4 e Ã‚Â§8 (busta d'errore su stdout, exit della categoria) sotto esaurimento di memoria",
         "surface": "cli",
-        "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category né retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare. Caso noto a monte: un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 ~2,3 GB da 3966 byte.",
+        "observed_behavior": "se un'allocazione fallisce o lo stack trabocca il processo abortisce: nessuna busta su stdout, il messaggio del runtime su stderr, exit fuori tabella (134 su Linux, 0xC0000409 su Windows, o OOM killer). Hazard: chi orchestra non riceve category nÃƒÂ© retry, e un ingresso ostile consuma la memoria dell'host prima del rifiuto. Va trattato come `internal`, senza ritentare. Caso noto a monte: un footer GeoParquet con elenchi Thrift enormi fa prenotare a `parquet` 59.3 ~2,3 GB da 3966 byte.",
         "tracking": "assurance/registries/vendor-dxf-fork.json (2026-10-05); rientra con un processo sorvegliante che traduca l'abort nella busta `internal` (exit 70), o con un gancio OOM stabile: `unsafe` e' vietato; GeoParquet: chiuso nella 4.2.0, vedi docs/PRODUCT.md",
         "detectable_before_invocation": false
       },
@@ -124,15 +335,16 @@
         "rule": "ARROW-VOCABULARY-1.0 / GEO-005 (definizione CRS oltre 1 MiB)",
         "surface": "cli",
         "observed_behavior": "Una `plenora.geometry.crs_definition` (o una definizione da formato nativo) oltre 1 MiB si rifiuta con `limit_exceeded`, anche quando e' ben formata: il contratto non fissa un tetto. Il tetto limita memoria e tempo del lettore stretto (un PROJJSON di 8 MiB arrivava a ~700 MB). Hazard: un ingresso conforme con una definizione enorme non si legge; nessun valore sbagliato.",
-        "tracking": "Rientro: un tetto di contratto per la definizione CRS in plenora-contracts, o un lettore a memoria costante; docs/PRODUCT.md riga «tutti: tetto della definizione».",
+        "tracking": "Rientro: un tetto di contratto per la definizione CRS in plenora-contracts, o un lettore a memoria costante; docs/PRODUCT.md riga Ã‚Â«tutti: tetto della definizioneÃ‚Â».",
         "detectable_before_invocation": true
       }
-    ]
+    ],
+    "soak": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza."
   },
-  "non_significa": "Non autorizza il rilascio, non attesta draft o pubblicazione, non sostituisce il soak richiesto, non trasferisce campagne storiche e non chiude rinvii o deviazioni.",
+  "non_significa": "Non autorizza il rilascio, non attesta draft o pubblicazione, non trasferisce campagne storiche e non chiude rinvii o deviazioni.",
   "diagnostica_cli": {
     "log": "coverage_diff_cli.log",
-    "riepilogo": "copertura delle righe cambiate fra 1e3f047e134cf03667b1cd86b6fc2115ab846dd3 e fc98634b9cde7f1204aaace098ff48def957c943 (crate Â«plenora-io-toolsÂ»)\n  righe cambiate ed eseguibili: 0\n  coperte:                      0\n  scoperte:                     0\n  cambiate ma non eseguibili:   321 (fuori misura)\n  percentuale:                  n/d (nessuna riga eseguibile cambiata)"
+    "riepilogo": "copertura delle righe cambiate fra 1e3f047e134cf03667b1cd86b6fc2115ab846dd3 e fc98634b9cde7f1204aaace098ff48def957c943 (crate Ãƒâ€šÃ‚Â«plenora-io-toolsÃƒâ€šÃ‚Â»)\n  righe cambiate ed eseguibili: 0\n  coperte:                      0\n  scoperte:                     0\n  cambiate ma non eseguibili:   321 (fuori misura)\n  percentuale:                  n/d (nessuna riga eseguibile cambiata)"
   },
   "corsa": {
     "revisione_iniziale": "fc98634b9cde7f1204aaace098ff48def957c943",

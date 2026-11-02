@@ -1256,6 +1256,24 @@ pubblicato ciò che si era caricato.
 
 ### 6. Decisione finale di rilascio
 
+**Soak della candidate 7.0.0 registrati.** Su `fc98634`, `dxf_reader` misura
+3823,438642146 s monotonic, 3823,438642754 s boottime e 3823,438643456 s
+realtime; `shp_reader` misura rispettivamente 3823,181138732 s,
+3823,181138840 s e 3823,181138992 s. Il wrapper include preparazione e build;
+libFuzzer dichiara 3601 s per bersaglio, con 10.242.106 e 5.749.588 esecuzioni.
+Entrambi hanno exit 0, nessun finding, durata dimostrata ed esito `completa`.
+Il [verbale](../assurance/evidence/checkpoint-fc98634.json) conserva digest dei log,
+provenienza e riferimenti ai referti originali; la verifica locale ha ricalcolato
+hash e giudizi senza rieseguire le campagne.
+
+I due soak sono girati in parallelo sulla stessa VM Ubuntu 24.04 a 4 vCPU,
+con nightly-2026-07-21 e checkout pulito della candidate, come dichiarato dal
+titolare. Il criterio e il misuratore non richiedono esclusività o saturazione
+CPU: la CPU dei figli è diagnostica e include la build. La misura resta
+inalterata; la concordanza degli orologi indica soltanto nessuna discontinuità
+rilevata. Restano draft riscaricata e verificata, decisione esplicita, gate
+finale ed evidenza in commit separato; entrambi i permessi restano `false`.
+
 **Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
 rinvio ritira; `check_release_contract.py --release` verde, cioè nessun
