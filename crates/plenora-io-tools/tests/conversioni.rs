@@ -437,11 +437,12 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
+            ("coercion tipo attributo", 5),
             ("crs_definition_not_preserved_absent", 1),
             ("crs_id_not_preserved_absent", 1),
             ("srid_not_preserved_absent", 1),
         ]),
-        "tre rappresentazioni, tre dichiarazioni: nessuna di esse e' derivabile \
+        "cinque tipi normalizzati e tre rappresentazioni CRS: nessuna di esse e' derivabile \
          da un CSV, e `absent` e' la categoria che lo dice"
     );
     let righe = per_id(&uscita, &con(CRS_PROIETTATO, WKT));
@@ -449,7 +450,7 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
     assert_eq!(
         righe["r1"]["istante"].as_deref(),
         Some("2026-01-15"),
-        "la colonna temporale arriva in ISO: e' cio' che `ExplicitText` promette"
+        "la colonna temporale arriva in ISO: con perdita del tipo dichiarata"
     );
 }
 

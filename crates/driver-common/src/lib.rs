@@ -366,19 +366,15 @@ impl InferredColumnBuilder {
 
     /// Accoda una cella CSV grezza, applicando il parsing del tipo inferito.
     ///
-    /// La cella con soli spazi vale null; la colonna testuale conserva la
-    /// cella originale senza `trim`.
+    /// La presenza viene decisa dal chiamante prima del parsing; una colonna
+    /// testuale conserva anche stringhe vuote e spazi senza `trim`.
     ///
     /// # Errors
     ///
     /// Restituisce [`PlenoraIoError::Schema`] se la cella non è parsabile nel
     /// tipo inferito o se il numero risultante non è finito.
     pub fn append_csv_cell(&mut self, cell: &str) -> Result<()> {
-        let trimmed = cell.trim();
-        if trimmed.is_empty() {
-            self.append_null();
-            return Ok(());
-        }
+        let trimmed = cell;
         let column_type = self.column_type();
         match &mut self.inner {
             InferredColumnBuilderInner::Integer(builder) => builder.append_value(
@@ -705,10 +701,38 @@ fn testo_istante(valore: i64, per_secondo: i64, cifre: usize, utc: bool) -> Stri
     )
 }
 
+/// Arrow Date64 impone giorni interi; gli orari devono stare nel giorno.
+fn validate_temporal_cell(col: &ArrayRef, row: usize) -> Result<()> {
+    use arrow_array::{
+        Date64Array, Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
+        Time64NanosecondArray,
+    };
+    let a = col.as_any();
+    let valid = a
+        .downcast_ref::<Date64Array>()
+        .is_none_or(|a| a.value(row) % 86_400_000 == 0)
+        && a.downcast_ref::<Time32SecondArray>()
+            .is_none_or(|a| (0..86_400).contains(&a.value(row)))
+        && a.downcast_ref::<Time32MillisecondArray>()
+            .is_none_or(|a| (0..86_400_000).contains(&a.value(row)))
+        && a.downcast_ref::<Time64MicrosecondArray>()
+            .is_none_or(|a| (0..86_400_000_000).contains(&a.value(row)))
+        && a.downcast_ref::<Time64NanosecondArray>()
+            .is_none_or(|a| (0..86_400_000_000_000).contains(&a.value(row)));
+    if valid {
+        Ok(())
+    } else {
+        Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "valore temporale non rappresentabile esattamente",
+        )))
+    }
+}
+
 /// Il testo di una cella temporale, o `None` se il tipo non e' un istante.
-fn testo_temporale(array: &ArrayRef, row: usize) -> Option<String> {
+fn testo_temporale(array: &ArrayRef, row: usize) -> Result<Option<String>> {
+    validate_temporal_cell(array, row)?;
     let a = array.as_any();
-    match array.data_type() {
+    Ok(match array.data_type() {
         DataType::Date32 => a
             .downcast_ref::<Date32Array>()
             .map(|x| testo_data(i64::from(x.value(row)))),
@@ -762,7 +786,7 @@ fn testo_temporale(array: &ArrayRef, row: usize) -> Option<String> {
             }
         }
         _ => None,
-    }
+    })
 }
 
 /// Valore JSON di una cella Arrow (per la scrittura verso formati testuali).
@@ -770,7 +794,8 @@ fn testo_temporale(array: &ArrayRef, row: usize) -> Option<String> {
 /// # Errors
 ///
 /// Restituisce [`PlenoraIoError::Schema`] per un `Float32`/`Float64` non
-/// finito e [`PlenoraIoError::Unsupported`] per un tipo Arrow non
+/// finito, un Date64 non allineato al giorno o un orario fuori intervallo,
+/// e [`PlenoraIoError::Unsupported`] per un tipo Arrow non
 /// convertibile in JSON senza perdita.
 pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if array.is_null(row) {
@@ -814,7 +839,7 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if let Some(x) = a.downcast_ref::<StringArray>() {
         return Ok(JsonValue::String(x.value(row).to_owned()));
     }
-    if let Some(testo) = testo_temporale(array, row) {
+    if let Some(testo) = testo_temporale(array, row)? {
         return Ok(JsonValue::String(testo));
     }
     // Il `Debug` di `DataType` e' testo di una dipendenza: puo' contenere

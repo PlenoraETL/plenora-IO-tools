@@ -531,7 +531,7 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
 
     let testo = std::fs::read_to_string(&uscita).unwrap();
     assert_eq!(
-        testo, "nota,peso\nprimo,10\nsecondo,20\n",
+        testo, "nota,peso\r\n\"primo\",10\r\n\"secondo\",20\r\n",
         "gli attributi, tutti, e nessuna colonna geometrica inventata"
     );
 
@@ -568,7 +568,7 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
 
     let testo = std::fs::read_to_string(&uscita).unwrap();
     assert!(
-        testo.starts_with("nota,geometry\n"),
+        testo.starts_with("nota,geometry\r\n"),
         "con una geometria l'intestazione la porta, arrivata «{testo}»"
     );
     assert!(testo.contains("POINT"), "e il valore ci arriva: «{testo}»");
@@ -954,9 +954,7 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         opzioni.budget().context(),
     )
     .expect("lo staging si crea");
-    let writer = csv::WriterBuilder::new()
-        .delimiter(b',')
-        .from_writer(staging.reopen().expect("lo staging si riapre"));
+    let writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     let mut sotto_prova = CsvWriter {
         staging,
         writer: Some(writer),
@@ -1020,9 +1018,7 @@ fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
     )
     .expect("lo staging si crea");
     let percorso_staging = staging.path().expect("percorso").to_path_buf();
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b',')
-        .from_writer(staging.reopen().expect("lo staging si riapre"));
+    let mut writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     writer.write_record(["id"]).expect("intestazione");
     let sotto_prova = Box::new(CsvWriter {
         staging,
@@ -1102,3 +1098,5 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
         assert_eq!(crs.id.as_deref(), Some(assunto));
     }
 }
+
+mod presenza;

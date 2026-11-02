@@ -1373,6 +1373,7 @@ fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions
     }
     let mut has_z = None;
     for coordinate in coords {
+        validate_kml_coordinate(coordinate)?;
         let current = coordinate.z.is_some();
         if has_z.is_some_and(|known| known != current) {
             return Err(err(&PublicMessage::Curated(
@@ -1386,6 +1387,16 @@ fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions
     } else {
         CoordinateDimensions::Xy
     })
+}
+
+fn validate_kml_coordinate(coordinate: &KmlCoord) -> Result<()> {
+    if !coordinate.x.is_finite()
+        || !coordinate.y.is_finite()
+        || coordinate.z.is_some_and(|z| !z.is_finite())
+    {
+        return Err(err(&PublicMessage::Curated("coordinate KML non finite")));
+    }
+    Ok(())
 }
 
 fn wkb_coords_from_kml_cancellable(
@@ -1403,6 +1414,7 @@ fn wkb_coords_from_kml_cancellable(
     for coordinate in coords {
         check_cancelled_periodically(cancellation, ErrorPhase::Read, *visited)?;
         *visited = visited.saturating_add(1);
+        validate_kml_coordinate(coordinate)?;
         let current = coordinate.z.is_some();
         if has_z.is_some_and(|known| known != current) {
             return Err(err(&PublicMessage::Curated(
@@ -1433,19 +1445,22 @@ fn wkb_geometry_from_kml_cancellable(
     check_cancelled_periodically(cancellation, ErrorPhase::Read, *visited)?;
     *visited = visited.saturating_add(1);
     let (value, dimensions) = match geometry {
-        KmlGeometry::Point(point) => (
-            WkbValue::Point(WkbCoordinate {
-                x: point.coord.x,
-                y: point.coord.y,
-                z: point.coord.z,
-                m: None,
-            }),
-            if point.coord.z.is_some() {
-                CoordinateDimensions::Xyz
-            } else {
-                CoordinateDimensions::Xy
-            },
-        ),
+        KmlGeometry::Point(point) => {
+            validate_kml_coordinate(&point.coord)?;
+            (
+                WkbValue::Point(WkbCoordinate {
+                    x: point.coord.x,
+                    y: point.coord.y,
+                    z: point.coord.z,
+                    m: None,
+                }),
+                if point.coord.z.is_some() {
+                    CoordinateDimensions::Xyz
+                } else {
+                    CoordinateDimensions::Xy
+                },
+            )
+        }
         KmlGeometry::LineString(line) => {
             let (coordinates, dimensions) =
                 wkb_coords_from_kml_cancellable(&line.coords, cancellation, visited)?;
