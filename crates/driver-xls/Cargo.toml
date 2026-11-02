@@ -16,7 +16,7 @@ driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 calamine.workspace = true
-rust_xlsxwriter.workspace = true
+rust_xlsxwriter = { workspace = true, features = ["ryu"] }
 zip.workspace = true
 quick-xml.workspace = true
 serde_json.workspace = true

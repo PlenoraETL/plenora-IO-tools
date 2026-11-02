@@ -251,9 +251,10 @@ def nel_perimetro(estensione: str) -> list[str]:
     visti = _elenco([estensione]) + _elenco(
         ["--others", "--exclude-standard", estensione]
     )
+    # Anche le cancellazioni non staged appartengono allo stato da verificare.
     fuori: list[str] = []
     for percorso in visti:
-        if percorso not in fuori:
+        if percorso not in fuori and (ROOT / percorso).is_file():
             fuori.append(percorso)
     return sorted(fuori)
 

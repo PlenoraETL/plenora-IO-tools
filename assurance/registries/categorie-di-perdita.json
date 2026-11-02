@@ -130,11 +130,6 @@
       "forma": "costante"
     },
     {
-      "id": "dbf_numeric_integer_precision_unverifiable",
-      "superficie": "driver-shp",
-      "forma": "costante"
-    },
-    {
       "id": "inconsistent_crs_representations",
       "superficie": "plenora-io-core",
       "forma": "costante"

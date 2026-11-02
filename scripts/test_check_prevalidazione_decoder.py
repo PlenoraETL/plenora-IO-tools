@@ -128,6 +128,19 @@ class SondeChiamataNuda(unittest.TestCase):
     def test_albero_conforme_non_produce_violazioni(self) -> None:
         self.assertEqual(self.violazioni(verifica(self.albero())), [])
 
+    def test_il_decoder_dbf_ritirato_puo_essere_assente(self) -> None:
+        mutato = SHP_CONFORME[:SHP_CONFORME.index("fn read_dbf_layout")]
+        self.assertEqual(self.violazioni(verifica(self.albero({
+            "crates/driver-shp/src/lib.rs": mutato,
+        }))), [])
+
+    def test_reintrodurre_dbf_senza_prevalidazione_resta_rosso(self) -> None:
+        mutato = SHP_CONFORME.replace("    valida_intestazione_dbf(&path)?;", "")
+        errori = self.violazioni(verifica(self.albero({
+            "crates/driver-shp/src/lib.rs": mutato,
+        })))
+        self.assertTrue(any("dbase::Reader::from_path" in e for e in errori), errori)
+
     def test_il_codice_di_test_e_riconosciuto(self) -> None:
         """L'esclusione dei test e' mirata, non un'amnistia sul file intero."""
         righe = righe_di_test(IPC_CONFORME)

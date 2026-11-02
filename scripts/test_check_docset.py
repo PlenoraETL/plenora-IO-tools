@@ -230,6 +230,18 @@ class SondeUntracked(unittest.TestCase):
                 errori = gate.allowlist()
         self.assertTrue(any("docs/APPUNTI.md" in e for e in errori), errori)
 
+    def test_un_documento_cancellato_non_resta_nel_perimetro(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            radice = pathlib.Path(tmp)
+            with mock.patch.object(gate, "ROOT", radice), mock.patch.object(
+                gate, "_elenco", side_effect=[["docs/APPUNTI.md"], []]
+            ):
+                self.assertEqual(gate.nel_perimetro("*.md"), [])
+
+    def test_un_canonico_cancellato_resta_un_errore(self) -> None:
+        with mock.patch.object(gate, "nel_perimetro", return_value=[]):
+            self.assertTrue(any("README.md" in e for e in gate.allowlist()))
+
     def test_l_unione_non_ripete_un_file(self) -> None:
         with RepositoryFinto() as finto:
             radice = finto.radice

@@ -1378,7 +1378,7 @@ i rami che scartavano storage incompatibili, `String::from_utf8_lossy`,
 l'esclusione della PK, gli attributi sempre nullable, la nuova `fid` e
 `geometry_types.first()` sono presenti in tutti. Le prove eseguibili della
 correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs` e
-`crates/driver-gpkg/src/affinity_tests.rs`.
+`crates/driver-gpkg/src/tests/affinity.rs`.
 
 - Lo zero negativo `-0.0` perdeva silenziosamente il segno: in scrittura
   Float16/32/64 verso REAL (anche FLOAT/DOUBLE), per la memorizzazione SQLite
@@ -1450,6 +1450,77 @@ affermare POINT pur contenendo LineString. Riconvertire dalla sorgente con un
 contratto che dichiara tutti i tipi; correggere soltanto il metadato non recupera
 attributi o identita' gia' perduti. Controllare ogni layer e ogni report, non
 soltanto il successo del comando o il numero di righe.
+
+### XLSX: date native leggibili e perdite silenziose corrette
+
+Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
+4.1.1, 5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-xls/src/lib.rs` su ogni tag: `write_cell`
+convertiva il numero con `as_f64()` senza controllo di esattezza; il mapping
+(e, dove presente, lo spool) mandava date seriali ed errori nel ramo null.
+Gli stessi percorsi esistono nelle prerelease `v0.1.0-rc.1`,
+`v0.1.0-rc.2`, `v0.1.0-rc.3`, `v0.1.0-rc.4`, `v1.0.0-rc.1` e
+`v1.0.0-rc.2`. Nella 2.0.0 e 3.0.0 il riferimento a `Data::Error`
+compare anche in un test che pretendeva proprio null, non in una difesa.
+
+- Scrittura: gli interi fuori da **[-2^53, 2^53]** sono ora rifiutati
+  prima di pubblicare il file. Per esempio 9007199254740993 diventava
+  9007199254740992 senza perdita dichiarata. Il limite e' conservativo:
+  fuori dall'intervallo esistono interi esatti in binary64, ma anche la resa
+  decimale XML del writer puo' cambiare l'intero (per esempio i64::MIN).
+  Float32 viene ampliato esattamente a Float64; i float finiti conservano il
+  valore binario nella rilettura. Il formatter `ryu` usa notazione esponenziale
+  per i float estremi, evitando numeri XML di centinaia di cifre.
+  Decimali e float non finiti restano rifiutati. U+FFFE e U+FFFF sono
+  rifiutati in scrittura: gli escape del writer non tornano identici con
+  il decoder calamine corrente.
+- Lettura: `Data::DateTime` ora produce Date32 per formato solo data e
+  seriale intero, Timestamp(Microsecond, None) per data/ora, oppure
+  Duration(Microsecond) per stili durata come `[h]:mm:ss`. L'epoca 1900/1904
+  viene letta direttamente da `workbook/workbookPr` nel namespace principale
+  SpreadsheetML (booleani XML `1`, `true`, `0`, `false`); l'estensione
+  `x15:workbookPr` di Excel non puo' sovrascriverla. Anche fogli, relazioni,
+  formati, stili e celle sono selezionati per namespace e percorso XML.
+  I formati incorporati CJK 27-36 e 50-58 sono riconosciuti, inclusi quelli
+  orari 32/33/55/56. Un seriale in [0,1) con formato solo ora produce
+  Time64(Microsecond), in entrambi i calendari. Nel 1900 i giorni 1-59 sono
+  mappati esattamente; [0,1) con formato data e il falso 29/02/1900
+  (intervallo [60,61)) sono rifiutati. Nel 1904 il giorno zero e' 1904-01-01. Seriali negativi,
+  non finiti o oltre il 9999-12-31 sono rifiutati.
+- Precisione Excel al millisecondo: si calcola il candidato ms dal seriale
+  binary64 con decodifica IEEE esatta e arrotondamento razionale al piu'
+  vicino (round-half-even). Dal rapporto canonico ms/86_400_000 si ricava
+  il binary64 con arrotondamento razionale; si accettano i suoi bit oppure
+  quelli ottenuti stampandolo a 15, 16 o 17 cifre significative e rileggendolo
+  come f64. Il confronto e' esatto, senza tolleranze: riconosce anche le
+  serializzazioni di openpyxl/pandas. La stessa regola vale per ore e durate; l'unita' Arrow resta il
+  microsecondo (ms * 1000). Date32 richiede ms multiplo di 86_400_000.
+  Sono ammessi 13:17:42, 23:59:59.999, 00:00:00.001 e la durata 37:15:30.5;
+  seriali con informazione sub-ms non canonica sono rifiutati esplicitamente.
+  La precedente regola sperimentale dei microsecondi razionalmente interi
+  rifiutava anche orari Excel ordinari ed e' stata sostituita.
+- Colonne con valori temporali e altri tipi (o tipi temporali diversi) sono
+  rifiutate prima della consegna; i vuoti nella colonna restano null.
+  `Data::Error` e numeri non finiti restano rifiutati. Date/durate ISO restano
+  testo. Nessuna data nativa valida nel dominio esatto diventa null.
+
+La scrittura temporale conserva la resa ISO gia' documentata: questa
+correzione riguarda la lettura nativa. `planned_write_loss` non concede un
+arrotondamento implicito dei valori. I test rileggono fixture OOXML 1900 e
+1904 e confrontano esattamente i valori Arrow, inclusi vuoti ed errori.
+
+**File gia' prodotti:** conservare e confrontare la sorgente originale.
+Aprire XLSX come ZIP e confrontare gli interi sorgente con i valori `<v>`
+delle celle numeriche in `xl/worksheets/sheet*.xml`, usando un parser decimale
+esatto, non f64. Cercare anzitutto colonne Int64/UInt64 con valori fuori da
+[-2^53, 2^53]; un valore arrotondato puo' cadere proprio sul confine, quindi
+il solo output non basta a diagnosticare o recuperare il valore originario.
+Per le letture precedenti, controllare nei workbook sorgente celle `t="e"`,
+stili data/durata in `xl/styles.xml` e `date1904` in `xl/workbook.xml`;
+confrontare le celle corrispondenti negli output derivati, che possono avere
+null al posto dei valori. Rigenerare dalla sorgente dopo aver gestito
+esplicitamente le celle rifiutate. Il dato originale non si ricostruisce dal
+null o dal numero arrotondato.
 
 ### Contratti: pin `7f82263`
 

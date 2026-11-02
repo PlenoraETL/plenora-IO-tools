@@ -606,6 +606,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "driver-common",
+ "encoding_rs",
  "geo-types",
  "plenora-fork-shapefile",
  "plenora-io-core",
@@ -1791,6 +1792,7 @@ version = "0.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c44904ffb6c57b148ffcc8ce3011c28bc49b97e1a8343b2d632283cd566e1393"
 dependencies = [
+ "ryu",
  "zip",
 ]
 
