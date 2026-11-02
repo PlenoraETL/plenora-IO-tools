@@ -166,7 +166,7 @@ const SATURATION_BOUND: f64 = 9_223_372_036_854_775_808.0;
 enum Coercion {
     IncompatibleStorage,
     InvalidUtf8,
-    /// REAL con parte frazionaria in colonna INTEGER: il valore cambia.
+    /// REAL frazionario o zero negativo in colonna INTEGER: il valore cambia.
     RealTruncated,
     /// REAL fuori dall'intervallo di `i64`: il valore satura ai limiti.
     RealSaturated,
@@ -193,7 +193,7 @@ impl Coercion {
         match self {
             Self::IncompatibleStorage => "classe di storage incompatibile scartata come null",
             Self::InvalidUtf8 => "sequenza UTF-8 invalida sostituita",
-            Self::RealTruncated => "REAL con parte frazionaria troncato verso zero",
+            Self::RealTruncated => "REAL troncato verso zero o con segno dello zero perso",
             Self::RealSaturated => "REAL fuori dall'intervallo i64 saturato ai limiti",
             Self::NonFiniteDiscarded => "valore non finito scartato come null",
             Self::IntegerPrecisionUnverifiable => {
@@ -1006,7 +1006,7 @@ impl ColBuilder {
                     b.append_value(r as i64);
                     if saturated {
                         Some(Coercion::RealSaturated)
-                    } else if r.fract() == 0.0 {
+                    } else if r.fract() == 0.0 && !(r == 0.0 && r.is_sign_negative()) {
                         None
                     } else {
                         Some(Coercion::RealTruncated)
@@ -1194,7 +1194,9 @@ fn execute_insert_row(
     let mut params = Vec::with_capacity(1 + attribute_indices.len());
     params.push(geometry.map_or(BorrowedSqlValue::Null, BorrowedSqlValue::Blob));
     for &index in attribute_indices {
-        params.push(arrow_cell_to_sql_ref(batch.column(index), row)?);
+        let value = arrow_cell_to_sql_ref(batch.column(index), row)?;
+        affinity::validate_value(batch.schema().field(index), &value)?;
+        params.push(value);
     }
     statement
         .execute(rusqlite::params_from_iter(params.iter()))
@@ -1264,7 +1266,7 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
                 "Float16 non finito non rappresentabile in GeoPackage",
             )));
         }
-        return Ok(BorrowedSqlValue::Real(value));
+        return real_to_sql_ref(value);
     }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         let value = f64::from(x.value(row));
@@ -1273,7 +1275,7 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
                 "Float32 non finito non rappresentabile in GeoPackage",
             )));
         }
-        return Ok(BorrowedSqlValue::Real(value));
+        return real_to_sql_ref(value);
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         let value = x.value(row);
@@ -1282,7 +1284,7 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
                 "Float64 non finito non rappresentabile in GeoPackage",
             )));
         }
-        return Ok(BorrowedSqlValue::Real(value));
+        return real_to_sql_ref(value);
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
         return Ok(BorrowedSqlValue::Integer(i64::from(x.value(row))));
@@ -1317,6 +1319,15 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
 }
 
 // --- helpers comuni --------------------------------------------------------
+
+fn real_to_sql_ref(value: f64) -> Result<BorrowedSqlValue<'static>> {
+    if value == 0.0 && value.is_sign_negative() {
+        return Err(err(&PublicMessage::Curated(
+            "zero negativo non rappresentabile senza perdita del segno in REAL GeoPackage",
+        )));
+    }
+    Ok(BorrowedSqlValue::Real(value))
+}
 
 struct FeatureTable {
     table: String,
@@ -1668,6 +1679,7 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
     }
 }
 
+mod affinity;
 mod schema;
 use schema::{build_schema, schema_read_loss, validate_sqlite_metadata};
 

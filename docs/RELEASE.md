@@ -1326,15 +1326,40 @@ numero di versione, `__version__` e il README dell'SDK si allineano al momento
 del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
 [GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
 
-### GeoPackage: quattro classi di perdite silenziose
+### GeoPackage: perdite silenziose di valori e schema
 
-Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0, 4.1.1,
+Versioni colpite: **0.1.0-rc.1, 0.1.0-rc.2, 0.1.0-rc.3, 0.1.0-rc.4,
+1.0.0-rc.1, 1.0.0-rc.2, 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0, 4.1.1,
 5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
-`git show <tag>:crates/driver-gpkg/src/lib.rs` su ciascuno dei dieci tag:
+`git show <tag>:crates/driver-gpkg/src/lib.rs` su ciascuno dei sedici tag:
 i rami che scartavano storage incompatibili, `String::from_utf8_lossy`,
 l'esclusione della PK, gli attributi sempre nullable, la nuova `fid` e
 `geometry_types.first()` sono presenti in tutti. Le prove eseguibili della
-correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs`.
+correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs` e
+`crates/driver-gpkg/src/affinity_tests.rs`.
+
+- Lo zero negativo `-0.0` perdeva silenziosamente il segno: in scrittura
+  Float16/32/64 verso REAL (anche FLOAT/DOUBLE), per la memorizzazione SQLite
+  come intero zero; in lettura REAL verso Int64, anche per BOOLEAN e gli altri
+  tipi interi. I sedici tag contengono il binding REAL senza controllo del
+  segno e il cast `r as i64` senza segnalazione per `-0.0`. Ora la scrittura
+  rifiuta il valore; la lettura conta `gpkg_integer_column_real_truncated`
+  anche per il segno dello zero perso. `+0.0` resta accettato senza perdita.
+  Il segno gia' perso non e' recuperabile dal risultato: confrontare i bit
+  con la sorgente originale.
+
+La conservazione di `gpkg.declared_type` introdotta dalla PR #82 aveva inoltre
+un difetto nuovo, non attribuito ai tag: DATE/DATETIME su Utf8 applicavano
+affinita' NUMERIC, convertendo testi come `007`, `1e3` o `1.50` in numeri.
+Ora ogni valore non nullo viene controllato, anche con metadati minuscoli:
+la dichiarazione si conserva solo per testi che SQLite lascia TEXT; un
+letterale numerico ben formato causa il rifiuto della scrittura. La scelta
+evita di modificare lo schema a meta' di uno stream o di dichiarare conservato
+un tipo normalizzato. Non si usa CAST, che accetterebbe anche prefissi numerici.
+La matrice nei test copre tutte le tredici dichiarazioni ammesse e tutti i tipi
+Arrow scrivibili, con le cinque affinita' SQLite; gli abbinamenti incompatibili
+sono rifiutati prima del DDL. Le fixture verificano storage e valori con SQLite
+diretto, incluso REAL `-0.0` ottenuto senza conversione tramite `writable_schema`.
 
 - Storage SQLite incompatibili con il tipo dichiarato diventavano NULL senza
   report. Ora ogni valore scartato conta in

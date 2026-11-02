@@ -2370,4 +2370,6 @@ fn un_bom_iniziale_della_definizione_si_toglie() {
     .unwrap();
 }
 
+#[path = "affinity_tests.rs"]
+mod affinity;
 mod storage_schema;

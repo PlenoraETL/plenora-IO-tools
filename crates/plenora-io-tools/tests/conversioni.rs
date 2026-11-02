@@ -47,6 +47,106 @@ fn temporanea() -> tempfile::TempDir {
     tempfile::tempdir().expect("directory temporanea")
 }
 
+#[test]
+fn ipc_a_gpkg_non_perde_testi_numerici_temporali_o_zero_negativo() {
+    use arrow_array::{ArrayRef, BinaryArray, Float64Array, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+    use std::sync::Arc;
+
+    for declared in ["DATE", "DATETIME", "date", "datetime", "REAL"] {
+        for safe in [false, true] {
+            let dir = temporanea();
+            let input = dir.path().join("input.arrow");
+            let output = dir.path().join("output.gpkg");
+            let values: ArrayRef = if declared == "REAL" {
+                Arc::new(Float64Array::from(vec![if safe { 0.0 } else { -0.0 }]))
+            } else {
+                Arc::new(StringArray::from(vec![if safe {
+                    "2026-01-01"
+                } else {
+                    "007"
+                }]))
+            };
+            let geometry: std::collections::HashMap<String, String> = [
+                ("ARROW:extension:name", "geoarrow.wkb"),
+                ("plenora.field_id", "0"),
+                ("plenora.geometry.encoding", "wkb"),
+                ("plenora.geometry.dimensions", "xy"),
+                ("plenora.geometry.spatial_semantics", "geometry"),
+                ("plenora.geometry.precision", "float64"),
+                ("plenora.geometry.types_declaration", "exact"),
+                ("plenora.geometry.types", "point"),
+                ("plenora.geometry.crs_resolution", "resolved"),
+                ("plenora.geometry.axis_order", "lon_lat"),
+                ("plenora.geometry.crs_id", "EPSG:4326"),
+                ("crs", "EPSG:4326"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+            let schema = Arc::new(Schema::new_with_metadata(
+                vec![
+                    Field::new("geom", DataType::Binary, true).with_metadata(geometry),
+                    Field::new("value", values.data_type().clone(), true)
+                        .with_metadata([("gpkg.declared_type".to_owned(), declared.to_owned())]),
+                ],
+                std::collections::HashMap::from([(
+                    "plenora.contract.version".to_owned(),
+                    "1".to_owned(),
+                )]),
+            ));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![None::<&[u8]>])), values],
+            )
+            .unwrap();
+            let mut writer = arrow_ipc::writer::FileWriter::try_new(
+                std::fs::File::create(&input).unwrap(),
+                &schema,
+            )
+            .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+            drop(writer);
+            let result = canonico::cli(&[
+                "convert",
+                input.to_str().unwrap(),
+                output.to_str().unwrap(),
+                "--from",
+                "ipc",
+                "--to",
+                "gpkg",
+            ]);
+            assert_eq!(result.riuscito, safe, "{}", result.stdout);
+            if safe {
+                let conn = rusqlite::Connection::open(&output).unwrap();
+                let table: String = conn
+                    .query_row("SELECT table_name FROM gpkg_contents", [], |r| r.get(0))
+                    .unwrap();
+                let sql = format!("SELECT value FROM \"{}\"", table.replace('"', "\"\""));
+                if declared == "REAL" {
+                    let actual: f64 = conn.query_row(&sql, [], |r| r.get(0)).unwrap();
+                    assert_eq!(actual.to_bits(), 0.0_f64.to_bits());
+                } else {
+                    let actual: String = conn.query_row(&sql, [], |r| r.get(0)).unwrap();
+                    assert_eq!(actual, "2026-01-01");
+                }
+            } else {
+                assert!(
+                    result.messaggio().contains(if declared == "REAL" {
+                        "zero negativo"
+                    } else {
+                        "testo numerico"
+                    }),
+                    "{}",
+                    result.stdout
+                );
+                assert!(!output.exists(), "un rifiuto non pubblica il file");
+            }
+        }
+    }
+}
+
 /// Le perdite attese, per intero: quelle presenti e nessun'altra.
 fn perdite(attese: &[(&str, u64)]) -> BTreeMap<String, u64> {
     attese
