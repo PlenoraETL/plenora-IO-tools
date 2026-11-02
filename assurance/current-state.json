@@ -587,8 +587,8 @@
       "versione_manifesto": "7.0.0",
       "versione_workspace": "7.0.0",
       "tag_previsto": "v7.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": true,
       "release_blocking": false,
       "stato": "attiva",
@@ -638,7 +638,8 @@
           "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
         }
       ],
-      "assurance_entro_l_allowlist": true
+      "assurance_entro_l_allowlist": true,
+      "tag_revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
     }
   },
   "docset": {

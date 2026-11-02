@@ -67,9 +67,9 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, versione del workspace | `7.0.0` |
 | candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `fc98634b9cde7f1204aaace098ff48def957c943` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | sì |
 | release pubblicate | 8 |
