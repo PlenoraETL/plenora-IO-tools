@@ -1368,6 +1368,89 @@ numero di versione, `__version__` e il README dell'SDK si allineano al momento
 del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
 [GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
 
+### GeoPackage: perdite silenziose di valori e schema
+
+Versioni colpite: **0.1.0-rc.1, 0.1.0-rc.2, 0.1.0-rc.3, 0.1.0-rc.4,
+1.0.0-rc.1, 1.0.0-rc.2, 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0, 4.1.1,
+5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-gpkg/src/lib.rs` su ciascuno dei sedici tag:
+i rami che scartavano storage incompatibili, `String::from_utf8_lossy`,
+l'esclusione della PK, gli attributi sempre nullable, la nuova `fid` e
+`geometry_types.first()` sono presenti in tutti. Le prove eseguibili della
+correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs` e
+`crates/driver-gpkg/src/affinity_tests.rs`.
+
+- Lo zero negativo `-0.0` perdeva silenziosamente il segno: in scrittura
+  Float16/32/64 verso REAL (anche FLOAT/DOUBLE), per la memorizzazione SQLite
+  come intero zero; in lettura REAL verso Int64, anche per BOOLEAN e gli altri
+  tipi interi. I sedici tag contengono il binding REAL senza controllo del
+  segno e il cast `r as i64` senza segnalazione per `-0.0`. Ora la scrittura
+  rifiuta il valore; la lettura conta `gpkg_integer_column_real_truncated`
+  anche per il segno dello zero perso. `+0.0` resta accettato senza perdita.
+  Il segno gia' perso non e' recuperabile dal risultato: confrontare i bit
+  con la sorgente originale.
+
+La conservazione di `gpkg.declared_type` introdotta dalla PR #82 aveva inoltre
+un difetto nuovo, non attribuito ai tag: DATE/DATETIME su Utf8 applicavano
+affinita' NUMERIC, convertendo testi come `007`, `1e3` o `1.50` in numeri.
+Ora ogni valore non nullo viene controllato, anche con metadati minuscoli:
+la dichiarazione si conserva solo per testi che SQLite lascia TEXT; un
+letterale numerico ben formato causa il rifiuto della scrittura. La scelta
+evita di modificare lo schema a meta' di uno stream o di dichiarare conservato
+un tipo normalizzato. Non si usa CAST, che accetterebbe anche prefissi numerici.
+La matrice nei test copre tutte le tredici dichiarazioni ammesse e tutti i tipi
+Arrow scrivibili, con le cinque affinita' SQLite; gli abbinamenti incompatibili
+sono rifiutati prima del DDL. Le fixture verificano storage e valori con SQLite
+diretto, incluso REAL `-0.0` ottenuto senza conversione tramite `writable_schema`.
+
+- Storage SQLite incompatibili con il tipo dichiarato diventavano NULL senza
+  report. Ora ogni valore scartato conta in
+  `gpkg_incompatible_storage_discarded`; un NULL originale non conta. Se il
+  vincolo NOT NULL rende impossibile il batch, la lettura fallisce.
+- Testo SQLite con UTF-8 invalido veniva sostituito senza report. Ora conta in
+  `gpkg_invalid_utf8_replaced`; un U+FFFD realmente presente resta distinto
+  nel report. Gli esempi riportano posizione e causa, mai dati delle righe.
+- La lettura espone ora anche la PK INTEGER come attributo non nullable con
+  `gpkg.primary_key=true`; la riscrittura ne conserva i valori (anche 10/100),
+  anziche' generarne altri. Conserva NOT NULL e i tipi dichiarati riconosciuti
+  tramite `gpkg.declared_type`, validato prima di creare il file. BOOLEAN usa
+  Int64 nel batch e DATE/DATETIME Utf8, mantenendo la dichiarazione SQL nel
+  metadato. I tipi non riconosciuti e le parti SQL non ricostruite (default,
+  vincoli ulteriori, indici, trigger) producono `gpkg_schema_normalized` con
+  ragione strutturale; anche il riordino (geometria prima, PK ultima) viene
+  dichiarato quando avviene. Le colonne generate conservano i valori, con
+  perdita della regola SQL dichiarata. Chi consumava uno schema senza PK deve tenere conto
+  della colonna aggiuntiva. La chiave composta o diversa da un singolo
+  INTEGER viene rifiutata. Senza metadato di PK nel contratto il writer genera
+  una chiave nuova, scegliendo un nome che non collide con gli attributi.
+- Un contratto con piu' tipi geometrici scrive `GEOMETRY` in
+  `gpkg_geometry_columns`, senza dichiarare il solo primo tipo. La rilettura
+  ricava i tipi osservati. Resta il rifiuto delle geometrie multiple per tabella:
+  un insieme di tipi nella stessa colonna non e' un insieme di colonne.
+
+Le normalizzazioni gia' dichiarate per Boolean/interi stretti/unsigned/float
+stretti in scrittura non sono nuovi difetti e restano segnalate dal modello
+comune delle perdite pianificate.
+
+**Controllare i file gia' prodotti.** Conservare una copia e confrontarla con
+la sorgente originale: NULL e U+FFFD sostitutivi, chiavi rigenerate, dichiarazioni
+e vincoli eliminati non sono ricostruibili dal solo risultato. Per ogni feature
+table leggere `PRAGMA table_xinfo(...)`, i valori della PK e `typeof(...)` degli
+attributi; confrontare NULL, testo e byte con gli originali. In particolare,
+TEXT/BLOB in colonne numeriche, BLOB in TEXT e valori non BLOB in BLOB richiedono
+una nuova lettura con il driver corretto e controllo del report. Un NULL nel
+vecchio risultato da solo non prova che fosse NULL nella sorgente. Verificare
+il testo originale come byte, per distinguere UTF-8 invalido da `EF BF BD`.
+Confrontare anche default, CHECK, UNIQUE, chiavi esterne, indici e trigger nel
+catalogo SQLite: NOT NULL e PK da soli non descrivono tutti i vincoli.
+
+Per geometrie miste, confrontare **tutte** le geometrie con
+`gpkg_geometry_columns.geometry_type_name`: l'intestazione del vecchio file puo'
+affermare POINT pur contenendo LineString. Riconvertire dalla sorgente con un
+contratto che dichiara tutti i tipi; correggere soltanto il metadato non recupera
+attributi o identita' gia' perduti. Controllare ogni layer e ogni report, non
+soltanto il successo del comando o il numero di righe.
+
 ### Contratti: pin `7f82263`
 
 Il pin di plenora-contracts passa da `3aec9f7` a `7f82263`, che porta la regola

@@ -281,9 +281,6 @@
     "arrow_cell_to_sql_ref": [
       "Unsupported/Validate/Unsupported/Never"
     ],
-    "build_schema": [
-      "Crs/Validate/Crs/Never"
-    ],
     "create": [
       "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never"
@@ -309,6 +306,11 @@
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
       "Unsupported/Validate/Unsupported/Never",
+      "Crs/Validate/Crs/Never"
+    ]
+  },
+  "crates/driver-gpkg/src/schema.rs": {
+    "build_schema": [
       "Crs/Validate/Crs/Never"
     ]
   },
