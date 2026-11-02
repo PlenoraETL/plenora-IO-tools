@@ -7,6 +7,7 @@
 use super::*;
 use plenora_io_model::crs::CrsKind;
 
+mod dbf_lettura;
 mod dbf_scrittura;
 
 // --- il bundle del fuzzer, e i semi che lo alimentano -----------------
@@ -1496,6 +1497,9 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     let mut writer = Writer::from_path(&path, table).unwrap();
 
     let key_base = 9_007_199_254_740_992_u64;
+    // Le chiavi Character restano oltre 2^53. NUM_KEY deve ora essere
+    // rappresentabile: le frazioni oltre la precisione sono rifiutate in open.
+    let numeric_key_base = 1_000_000_u64;
     for source_index in 0..128 {
         let points = vec![
             Point::new(0.0, 0.0),
@@ -1536,7 +1540,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
             &path,
             source_index,
             "NUM_KEY",
-            &format!("{}.25", key_base + source_index),
+            &format!("{}.25", numeric_key_base + source_index),
         );
     }
     std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
@@ -1644,7 +1648,7 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
             example.key.as_ref().and_then(|key| key.value.as_ref()),
             Some(&plenora_io_model::RowDiagnosticKeyValue::String(format!(
                 "{}.25",
-                key_base + source_index
+                numeric_key_base + source_index
             )))
         );
     }
@@ -2224,7 +2228,7 @@ fn wide_zero_decimal_dbf_numeric_is_read_exactly_as_i64() {
     let loss = reader.loss_report();
     assert!(!loss
         .counts
-        .contains_key(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE));
+        .contains_key("dbf_numeric_integer_precision_unverifiable"));
     let batch = reader.next_batch().unwrap().unwrap();
     let ids = batch
         .column(1)
@@ -4375,11 +4379,13 @@ fn n1_next_physical_rifiuta_il_campo_che_non_sta_nel_record() {
     // fuori. `exact_integer_slot` deve essere pieno, altrimenti il ciclo
     // salta il campo e la riga non viene mai raggiunta.
     let incoerente = DbfLayout {
+        encoding: dbf_fidelity::TextEncoding::Ascii,
         header_length: letto.header_length,
         record_length: letto.record_length,
         record_count: 1,
         fields: vec![DbfFieldLayout {
             name: "CODICE".to_owned(),
+            source_name: "CODICE".to_owned(),
             field_type: b'N',
             offset: 1,
             width: letto.record_length + 10,
@@ -5234,9 +5240,9 @@ fn n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata() {
         errore.message
     );
 
-    // La forma a file sciolti: **ciascuna** delle quattro estensioni
+    // La forma a file sciolti: **ciascuna** delle cinque estensioni
     // compagne blocca la pubblicazione, anche quando il `.shp` non c'e'.
-    for estensione in ["shp", "shx", "dbf", "prj"] {
+    for estensione in ["shp", "shx", "dbf", "prj", "cpg"] {
         let destinazione = dir.path().join(format!("occupato-{estensione}.shp"));
         std::fs::write(destinazione.with_extension(estensione), b"").unwrap();
         let Err(errore) = ShpDriver.create(
@@ -5561,7 +5567,7 @@ fn n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare() {
         "il messaggio deve dire qual e' il limite: «{}»",
         errore.message
     );
-    for estensione in ["shp", "shx", "dbf", "prj"] {
+    for estensione in ["shp", "shx", "dbf", "prj", "cpg"] {
         assert!(
             !destinazione.with_extension(estensione).exists(),
             "il rifiuto precede la pubblicazione: `.{estensione}` non deve esistere"
@@ -5601,12 +5607,14 @@ fn schema_di_prova() -> (Vec<ShpColumn>, DbfLayout) {
         },
     ];
     let layout = DbfLayout {
+        encoding: dbf_fidelity::TextEncoding::Ascii,
         header_length: 65,
         record_length: 21,
         record_count: 0,
         fields: vec![
             DbfFieldLayout {
                 name: "NOME".to_owned(),
+                source_name: "NOME".to_owned(),
                 field_type: b'C',
                 offset: 1,
                 width: 10,
@@ -5614,6 +5622,7 @@ fn schema_di_prova() -> (Vec<ShpColumn>, DbfLayout) {
             },
             DbfFieldLayout {
                 name: "CODICE".to_owned(),
+                source_name: "CODICE".to_owned(),
                 field_type: b'N',
                 offset: 11,
                 width: 10,
@@ -5917,7 +5926,7 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         plenora_io_model::ErrorPhase::Finalize,
         "{errore}"
     );
-    for estensione in ["shp", "shx", "dbf", "prj"] {
+    for estensione in ["shp", "shx", "dbf", "prj", "cpg"] {
         assert!(
             !destinazione.with_extension(estensione).exists(),
             "nessun companion pubblicato ({estensione})"

@@ -42,7 +42,7 @@ use plenora_io_core::driver::{
     spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
-use plenora_io_core::loss::{LossExample, LossReport, Posizione};
+use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
@@ -71,13 +71,12 @@ use plenora_io_model::{
     ROW_DIAGNOSTICS_INDEX_BASIS,
 };
 
+mod dbf_fidelity;
+
 const GEOMETRY: &str = "geometry";
 const DIRECTORY_DATASET_SUFFIX: &str = ".shp.d";
 const DIRECTORY_DATASET_MODE: &str = "shapefile_directory_dataset";
 const LOOSE_SET_MODE: &str = "loose_shapefile_set";
-const DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE: &str =
-    "dbf_numeric_integer_precision_unverifiable";
-const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
 const DBF_HEADER_SIZE: usize = 32;
 const DBF_FIELD_DESCRIPTOR_SIZE: usize = 32;
 const DBF_HEADER_TERMINATOR_SIZE: usize = 1;
@@ -744,7 +743,7 @@ impl FormatDriver for ShpDriver {
             }
             ShapefilePublishMode::LooseSet => {
                 // no-clobber sull'intero set.
-                for ext in ["shp", "shx", "dbf", "prj"] {
+                for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
                     let sibling = dest.with_extension(ext);
                     if sibling.exists() {
                         return Err(PlenoraIoError::destinazione_esistente());
@@ -1051,7 +1050,9 @@ impl FormatWriter for ShpWriter {
             std::fs::write(staging.path().join("data.prj"), wkt)?;
         }
 
-        let dimensioni = ["dbf", "shx", "prj", "shp"]
+        std::fs::write(staging.path().join("data.cpg"), b"UTF-8")?;
+
+        let dimensioni = ["dbf", "shx", "prj", "cpg", "shp"]
             .into_iter()
             .map(|ext| staging.path().join(format!("data.{ext}")))
             .filter(|path| path.exists())
@@ -1081,7 +1082,7 @@ impl FormatWriter for ShpWriter {
             }
             ShapefilePublishMode::LooseSet => {
                 // Companion prima, .shp marker per ultimo.
-                let files = ["dbf", "shx", "prj", "shp"]
+                let files = ["dbf", "shx", "prj", "cpg", "shp"]
                     .into_iter()
                     .map(|extension| {
                         (
@@ -1512,8 +1513,15 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldVal
                 };
                 // UTF-8 esplicito nel builder: len misura i byte codificati,
                 // non i caratteri. Mai lasciare il taglio a dbase.
-                if text.len() > 254 {
-                    return Err(err(&PublicMessage::Curated("testo oltre la larghezza DBF")));
+                if text.len() > 254
+                    || text.is_empty()
+                    || text.starts_with(' ')
+                    || text.ends_with(' ')
+                    || text.contains('\0')
+                {
+                    return Err(err(&PublicMessage::Curated(
+                        "testo DBF non rappresentabile esattamente",
+                    )));
                 }
                 Some(text)
             }
@@ -1719,16 +1727,6 @@ fn contraddice_il_prj() -> PlenoraIoError {
     ))
 }
 
-fn dbf_numeric_integer_precision_unverifiable(value: &FieldValue) -> bool {
-    matches!(
-        value,
-        FieldValue::Numeric(Some(number))
-            if number.is_finite()
-                && number.fract() == 0.0
-                && number.abs() >= FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION
-    )
-}
-
 /// Classe dbf per l'inferenza (Numeric/Double/Float=numero, Integer=int).
 const fn classify(v: &FieldValue) -> ObservedValueClass {
     match v {
@@ -1745,6 +1743,7 @@ const fn classify(v: &FieldValue) -> ObservedValueClass {
 #[derive(Clone, Debug)]
 struct DbfFieldLayout {
     name: String,
+    source_name: String,
     field_type: u8,
     offset: usize,
     width: usize,
@@ -1753,6 +1752,7 @@ struct DbfFieldLayout {
 
 #[derive(Clone, Debug)]
 struct DbfLayout {
+    encoding: dbf_fidelity::TextEncoding,
     header_length: usize,
     record_length: usize,
     record_count: u32,
@@ -1788,7 +1788,7 @@ fn leggi_descrittori_dbf(
                 "descrittore di campo DBF incompleto",
             ))
         })?;
-        let name = decoded_name;
+        let name = decoded_name.clone();
         if name.is_empty() {
             return Err(err(&PublicMessage::CuratedWith(
                 "nome campo DBF vuoto, indice",
@@ -1820,6 +1820,7 @@ fn leggi_descrittori_dbf(
             });
         fields.push(DbfFieldLayout {
             name,
+            source_name: decoded_name,
             field_type: descriptor[11],
             offset,
             width,
@@ -2671,7 +2672,8 @@ fn descrittori_concordi(dichiarati: usize, decodificati: usize) -> Result<()> {
 fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
     let path = shp_path.with_extension("dbf");
     valida_intestazione_dbf(&path)?;
-    let decoded_names = shapefile::dbase::Reader::from_path(&path)
+    let encoding = dbf_fidelity::TextEncoding::from_path(&path)?;
+    let decoded_names = dbf_fidelity::reader(&path)
         .map_err(|_| err(&PublicMessage::Curated("apertura dello schema DBF fallita")))?
         .fields()
         .iter()
@@ -2709,8 +2711,9 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
 
     let field_count = descriptor_bytes / DBF_FIELD_DESCRIPTOR_SIZE;
     descrittori_concordi(field_count, decoded_names.len())?;
-    let (fields, offset, exact_integer_count) =
+    let (mut fields, offset, exact_integer_count) =
         leggi_descrittori_dbf(&mut reader, decoded_names, field_count)?;
+    dbf_fidelity::restore_names(&path, &mut fields, encoding)?;
     let mut terminator = [0_u8; 1];
     reader.read_exact(&mut terminator).map_err(|_| {
         err(&PublicMessage::Curated(
@@ -2731,6 +2734,7 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
         )));
     }
     Ok(DbfLayout {
+        encoding,
         header_length,
         // `dbase` adotta la lunghezza calcolata quando un produttore omette il
         // deletion flag dalla lunghezza dichiarata; il lettore raw deve restare
@@ -2800,6 +2804,7 @@ impl DbfExactIntegerRows {
                 )));
             }
         }
+        self.validate_raw_fields()?;
         let mut values = vec![None; self.layout.exact_integer_count];
         let mut rejection_cause = None;
         for field in &self.layout.fields {
@@ -3296,7 +3301,7 @@ fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometry
 
 /// Pass 1: nomi campo, tipo DBF e contratto geometrico nativo, a RAM O(ncol).
 // Passata unica sul DBF: layout, accumulatori di tipo, righe cancellate e
-// rischio di precisione condividono lo stesso scorrimento dei record. Spezzarla
+// verifica di precisione condividono lo stesso scorrimento dei record. Spezzarla
 // significherebbe rileggere il file e perdere la garanzia O(ncol).
 #[allow(clippy::too_many_lines)]
 fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
@@ -3312,7 +3317,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     // perche' li' il valore, non il descrittore, e' cio' che puo' fermare il
     // lettore.
     valida_intestazione_dbf(&path.with_extension("dbf"))?;
-    let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+    let mut reader = dbf_fidelity::reader(&path.with_extension("dbf"))
         .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
     let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
         .fields
@@ -3333,8 +3338,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
             (field.name.clone(), accumulator)
         })
         .collect();
-    let mut loss = LossReport::default();
-    let mut precision_risk_fields = BTreeSet::new();
+    let loss = LossReport::default();
     let mut active_row_count = 0_u64;
     let mut records = reader.iter_records();
     while let Some(physical_row) = exact_rows.next_physical(None)? {
@@ -3347,7 +3351,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 "numero di record DBF fuori intervallo u64",
             ))
         })?;
-        let record = match records.next() {
+        let mut record = match records.next() {
             Some(Ok(record)) => record,
             Some(Err(_)) => continue,
             None => {
@@ -3356,6 +3360,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 )))
             }
         };
+        exact_rows.restore_fields(&mut record)?;
         for field in &dbf_layout.fields {
             let accumulator = accs.get_mut(&field.name).ok_or_else(|| {
                 err(&PublicMessage::Curated(
@@ -3368,10 +3373,6 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 continue;
             }
             let value = record.get(&field.name);
-            if value.is_some_and(dbf_numeric_integer_precision_unverifiable) {
-                loss.record(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE, 1);
-                precision_risk_fields.insert(field.name.clone());
-            }
             accumulator.observe(value.map_or(ObservedValueClass::Null, classify));
         }
     }
@@ -3405,31 +3406,6 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    for name in precision_risk_fields {
-        loss.add_example(LossExample {
-            category: DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE.to_owned(),
-            posizione: Posizione {
-                layer_index: None,
-                // L'indice in `schema.fields()`, non in `cols`: lo schema mette
-                // la geometria **prima** delle colonne DBF, quindi la colonna
-                // `i`-esima di `cols` e' la `i+1`-esima dello schema. Il numero
-                // deve essere confrontabile con gli altri `field_index`, che
-                // quella sequenza indicizzano. L'accoppiamento e' verificato
-                // dalla sonda `la_geometria_e_il_primo_campo_dello_schema`:
-                // se un giorno lo schema cambiasse ordine, questo `+ 1`
-                // sarebbe sbagliato e nessuno se ne accorgerebbe.
-                field_index: columns
-                    .iter()
-                    .position(|column| column.name == name)
-                    // `saturating_add` prima della conversione: sommare e poi
-                    // convertire potrebbe traboccare prima di saturare.
-                    .map(|i| plenora_io_core::driver::saturating_u64(i.saturating_add(1))),
-                type_class: None,
-            },
-            context: "DBF Numeric già decodificato come f64 senza precisione intera unitaria"
-                .to_owned(),
-        });
-    }
     Ok(ShpInference {
         cols: columns,
         dbf_layout,
@@ -3490,7 +3466,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
         }
         let mut shape_reader = shapefile::ShapeReader::from_path(&path)
             .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
-        let mut dbf_reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+        let mut dbf_reader = dbf_fidelity::reader(&path.with_extension("dbf"))
             .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
         let mut shapes = shape_reader.iter_shapes();
         let mut records = dbf_reader.iter_records();
@@ -3574,7 +3550,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                     "numero di record DBF attivi fuori intervallo u64",
                 ))
             })?;
-            let record = match records.next() {
+            let mut record = match records.next() {
                 Some(Ok(record)) => record,
                 Some(Err(_)) => {
                     let cause = physical_rejection
@@ -3591,6 +3567,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                     ));
                 }
             };
+            exact_rows.restore_fields(&mut record)?;
             if let Some(cause) = physical_rejection {
                 diagnostics.record(
                     source_index,

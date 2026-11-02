@@ -62,7 +62,7 @@ fn rifiutato(array: ArrayRef) {
         );
         assert!(w.finish().is_err());
         assert!(!path.exists());
-        for ext in ["shp", "shx", "dbf", "prj"] {
+        for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
             assert!(!path.with_extension(ext).exists());
         }
     }
@@ -79,6 +79,7 @@ fn scritto(array: ArrayRef, expected: &[u8], width: usize, scale: u8) {
     let start = usize::from(u16::from_le_bytes([dbf[8], dbf[9]]));
     assert_eq!(usize::from(dbf[48]), width);
     assert_eq!(dbf[49], scale);
+    assert_eq!(std::fs::read(path.with_extension("cpg")).unwrap(), b"UTF-8");
     assert_eq!(dbf[29], 0xf0, "codepage UTF-8 dichiarata");
     assert_eq!(dbf[start], b' ');
     assert_eq!(&dbf[start + 1..start + 1 + width], expected);
@@ -272,4 +273,34 @@ fn temporali_conservano_tutte_le_cifre() {
         20,
         8,
     );
+}
+
+#[test]
+fn character_non_invertibili_sono_rifiutati() {
+    for text in ["", "   ", "  a", "a  ", "  a  ", "p\0q"] {
+        rifiutato(Arc::new(StringArray::from(vec![text])));
+    }
+}
+
+#[test]
+fn cpg_pubblicato_e_contato_in_entrambe_le_modalita() {
+    for name in ["out.shp", "out.shp.d"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        let batch = batch(Arc::new(StringArray::from(vec!["Citt?"])));
+        let mut w = writer(&path, &batch);
+        w.write(&batch).unwrap();
+        let published = w.finish().unwrap();
+        let base = if path.is_dir() {
+            path.join("data.shp")
+        } else {
+            path
+        };
+        assert_eq!(std::fs::read(base.with_extension("cpg")).unwrap(), b"UTF-8");
+        let total: u64 = ["shp", "shx", "dbf", "prj", "cpg"]
+            .iter()
+            .map(|ext| std::fs::metadata(base.with_extension(ext)).unwrap().len())
+            .sum();
+        assert_eq!(published.bytes, total);
+    }
 }

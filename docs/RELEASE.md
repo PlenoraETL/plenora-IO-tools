@@ -8,11 +8,23 @@ perdere cifre passando a `f64`, essere arrotondati a otto decimali o troncati
 alla larghezza del campo. L'operazione restituiva successo senza dichiarare
 la perdita originaria. Ora questi valori sono rifiutati prima della scrittura
 del batch; anche dopo batch precedenti validi, `finish` non pubblica nulla.
-La codepage di uscita e' esplicitamente UTF-8. Anche un `Date64` non multiplo
+L'header dichiarava gia' UTF-8 (LDID 0xF0); ora viene pubblicato anche il
+`.cpg` con contenuto `UTF-8`. Anche un `Date64` non multiplo
 di un giorno viene rifiutato anziche' perdere la frazione temporale.
 
+Sono inoltre rifiutati i Character vuoti, con spazi iniziali/finali o NUL;
+i Float32 non diadici (per esempio 0.1f32), la cui promozione esatta a f64
+non torna identica dopo il rendering a otto decimali, sono rifiutati.
+In lettura N/F vengono confrontati con il testo decimale originale: F non
+passa piu' da f32 e una perdita decimale comporta rifiuto, senza promozione
+implicita a Decimal. Gli spazi iniziali Character sono conservati, quelli
+finali sono padding; il NUL e' rifiutato. La decodifica usa `.cpg` prima
+dell'LDID, senza replacement; codepage sconosciute o byte non decodificabili
+sono rifiutati. LDID 0 senza `.cpg` ammette solo ASCII; 0x57 usa Latin-1.
+
 Versioni verificate con `git show <tag>:crates/driver-shp/src/lib.rs` e
-`git show <tag>:Cargo.lock`: 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
+`git show <tag>:Cargo.lock`: v0.1.0-rc.1, v0.1.0-rc.2, v0.1.0-rc.3,
+v0.1.0-rc.4, v1.0.0-rc.1, v1.0.0-rc.2, 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
 4.1.1, 5.0.0, 5.0.1 e 6.0.0. Tutte hanno larghezze 254, 18/0 e 20/8 e
 conversione numerica tramite `as_f64`. Il troncamento della dipendenza e'
 confermato per 3.0.0–6.0.0 (`dbase 0.8.0`, `writing.rs`, `field/types.rs`);
