@@ -366,19 +366,15 @@ impl InferredColumnBuilder {
 
     /// Accoda una cella CSV grezza, applicando il parsing del tipo inferito.
     ///
-    /// La cella con soli spazi vale null; la colonna testuale conserva la
-    /// cella originale senza `trim`.
+    /// La presenza viene decisa dal chiamante prima del parsing; una colonna
+    /// testuale conserva anche stringhe vuote e spazi senza `trim`.
     ///
     /// # Errors
     ///
     /// Restituisce [`PlenoraIoError::Schema`] se la cella non è parsabile nel
     /// tipo inferito o se il numero risultante non è finito.
     pub fn append_csv_cell(&mut self, cell: &str) -> Result<()> {
-        let trimmed = cell.trim();
-        if trimmed.is_empty() {
-            self.append_null();
-            return Ok(());
-        }
+        let trimmed = cell;
         let column_type = self.column_type();
         match &mut self.inner {
             InferredColumnBuilderInner::Integer(builder) => builder.append_value(

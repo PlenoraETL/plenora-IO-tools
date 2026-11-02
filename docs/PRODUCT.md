@@ -42,6 +42,59 @@ codifiche native GeoArrow e i bordi sferici, entrambi validi in GeoParquet 1.1
 e non implementati qui. Gli altri driver dichiarano `null`: i loro formati non
 si versionano in un modo che il driver possa dichiarare per intero.
 
+### CSV: presenza, testo e tipi
+
+La convenzione di IO distingue il **campo vuoto non quotato** (null) da `""`
+(stringa vuota). Il writer quota sempre gli attributi testuali, raddoppia le
+virgolette interne e termina i record con CRLF. Spazi, separatori e newline
+interni sono conservati. Una riga vuota rappresenta un record con un solo
+null, non viene saltata. Il quoting malformato e UTF-8 invalido sono errori.
+Il separatore deve essere ASCII, diverso da virgolette, CR e LF.
+
+In lettura un attributo quotato forza la colonna a Utf8, anche se contiene
+`"true"`, `"001"` o `"NaN"`. Nessun trim si applica agli attributi. Fra i valori
+non quotati, l'inferenza accetta Int64 o Float64 soltanto quando parse e
+formattazione canonica Rust (`Display`) restituiscono **gli stessi byte**;
+la promozione di interi a Float64 esclude gli interi oltre la precisione esatta.
+Tutte le righe partecipano: un solo valore incompatibile rende testuale tutta
+la colonna. `001`, `1e3`, `1.0`, ` 12 `, `+1`, `TRUE` restano testo;
+`true`/`false` non quotati possono diventare Boolean. Una colonna solo null
+si legge Utf8 nullable. Le colonne geometriche dichiarate sono interpretate
+come WKT o X/Y: un vuoto quotato o soli spazi non è una geometria null valida.
+
+| Tipo Arrow attributo in scrittura | Esito |
+|---|---|
+| Utf8 | valore e validità esatti, compresi vuoto, spazi e testo numerico |
+| LargeUtf8 | testo esatto; perdita della larghezza del tipo dichiarata |
+| Boolean; Int8/16/32/64; UInt8/16/32/64 | cifre e valori esatti nel file; schema originale non conservato, `coercion tipo attributo` nel report |
+| Float32/64 finiti | rappresentazione decimale del valore, incluso il segno di zero; tipo originale e possibile rilettura testuale dichiarati con `coercion tipo attributo` |
+| Float32/64 NaN (anche payload diversi), +inf, -inf | rifiuto senza pubblicazione, nessun payload NaN appiattito |
+| Float16, Null, Utf8View | rifiuto del piano anche senza righe |
+| Date32/64; Time32 secondi/millisecondi, Time64 micro/nanosecondi; Timestamp con/senza fuso, tutte le unità | testo ISO quotato, tipo/unità/fuso originali non conservati: perdita pianificata `coercion tipo attributo`; timestamp con fuso espresso in UTC con `Z` |
+| Date64 non multiplo di un giorno; orari negativi o fuori dal giorno | rifiuto senza pubblicazione, nessun troncamento |
+| Time32 micro/nanosecondi, Time64 secondi/millisecondi; Duration; Interval | rifiuto del piano |
+| Decimal32/64/128/256 (precisione e scala) | rifiuto del piano |
+| Binary, LargeBinary, FixedSizeBinary, BinaryView | rifiuto come attributi; la geometria Binary dichiarata resta WKB→WKT/X/Y |
+| List, LargeList, FixedSizeList, ListView, LargeListView, Struct, Map, Union, Dictionary, RunEndEncoded | rifiuto del piano |
+
+Il CSV non porta uno schema Arrow: gli scalari diversi da Utf8 dichiarano
+prudenzialmente la normalizzazione anche quando un particolare file si rilegge
+con lo stesso tipo. Non confondere testo esatto con ricostruzione dello schema.
+Le prove permanenti sono in `crates/driver-csv/src/tests/presenza.rs`.
+
+La sintassi segue [RFC 4180](https://www.rfc-editor.org/rfc/rfc4180), che conserva
+gli spazi ma **non definisce null né tipi**: la distinzione tramite quoting è
+una convenzione di IO, non una garanzia universale. [GDAL CSV](https://gdal.org/en/stable/drivers/vector/csv.html)
+offre `QUOTED_FIELDS_AS_STRING=YES` e `EMPTY_STRING_AS_NULL`, da impostare e
+verificare sul proprio percorso. [pandas read_csv](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
+riconosce valori mancanti per default e non preserva questa distinzione tramite
+quoting: `dtype=str` da solo non basta; `keep_default_na=False` conserva il testo
+ma non ricostruisce la validità originale. [Excel](https://support.microsoft.com/en-us/excel/keeping-leading-zeros-and-large-numbers)
+richiede importazione come testo per conservare zeri iniziali e numeri lunghi.
+Non affidare a un'apertura e successivo salvataggio in Excel la conservazione di null, stringhe vuote e tipi: usare uno
+schema e un formato tipizzato (Arrow IPC) per lo scambio esatto. Un sentinel null
+non è stato scelto perché collide con testo legittimo e richiede escaping privato.
+
 ### Determinismo
 
 I driver garantiscono **determinismo semantico**, non byte per byte: a parità di
@@ -129,7 +182,7 @@ destinazione.
 | | |
 |---|---|
 | **lossless** | il formato rappresenta il contratto senza perdita |
-| **condizionale** | la perdita dipende dal contratto, non dal formato: un CSV senza colonne esotiche è lossless, con un tipo temporale non lo è |
+| **condizionale** | la perdita dipende dal contratto, non dal formato: il CSV conserva i valori testuali; la perdita dello schema Arrow degli altri scalari è dichiarata |
 | **approssimante** | il formato approssima per costruzione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
 
 Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il

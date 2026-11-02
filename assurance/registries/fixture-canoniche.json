@@ -173,8 +173,8 @@
     },
     {
       "percorso": "canonico.csv",
-      "byte": 538,
-      "sha256": "3a18429a0438dfed6a06f6d7f1877299f8b9ba3a797d25e5b6b7b403ed672518"
+      "byte": 536,
+      "sha256": "96ac5f4d646ba622b2599e9c1eb8dba954769d711c120c7ca1b696ec10c83b3c"
     },
     {
       "percorso": "canonico.dxf",
@@ -373,8 +373,8 @@
     },
     {
       "percorso": "canonico_filegdb.csv",
-      "byte": 144,
-      "sha256": "5414e46d457be9a62d7addcba668d75bdd17d77c413e42a8a120a0ab09ff419a"
+      "byte": 142,
+      "sha256": "8904f70ecca02fa8e6e01eb5b84da5674afb691ea47b44e405ebc5e2414afd16"
     },
     {
       "percorso": "canonico_geografico.dxf",

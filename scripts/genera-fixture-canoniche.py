@@ -241,7 +241,7 @@ def scrivi_csv(percorso: pathlib.Path) -> None:
                     "" if r["misura"] is None else repr(r["misura"]),
                     "" if r["attivo"] is None else ("true" if r["attivo"] else "false"),
                     r["istante"],
-                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"',
+                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"' if r["geometria"] else "",
                 ]
             )
         )
@@ -292,7 +292,7 @@ def scrivi_csv_filegdb(percorso: pathlib.Path) -> None:
                     "" if r["etichetta"] is None else f'"{r["etichetta"]}"',
                     "" if r["misura"] is None else repr(r["misura"]),
                     r["istante"],
-                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"',
+                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"' if r["geometria"] else "",
                 ]
             )
         )

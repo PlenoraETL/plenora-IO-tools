@@ -96,7 +96,8 @@ fn inferred_builder_preserves_csv_text_and_null_semantics() {
     let strings = array.as_any().downcast_ref::<StringArray>().unwrap();
 
     assert_eq!(strings.value(0), "  value  ");
-    assert!(strings.is_null(1));
+    assert!(strings.is_valid(1));
+    assert_eq!(strings.value(1), "   ");
 }
 
 #[test]

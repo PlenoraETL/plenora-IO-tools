@@ -1472,6 +1472,12 @@
           ],
           "sempre": true
         },
+        ".result.write_loss.esempi[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
         ".result.write_loss.lossless": {
           "tipi": [
             "boolean"
@@ -3679,6 +3685,12 @@
             "integer"
           ],
           "sempre": true
+        },
+        ".result.write_loss.esempi[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         },
         ".result.write_loss.lossless": {
           "tipi": [
