@@ -207,7 +207,33 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.shp.d");
     let esito = converti("canonico_punti_dbf.geojson", &uscita, &[]);
-    assert!(esito.riuscito, "{}", esito.stderr);
+    // La fixture originale porta 2^53+1. Prima passava perche' questa
+    // prova guardava soltanto la geometria: l'intero era gia' arrotondato.
+    assert!(!esito.riuscito, "{}", esito.stdout);
+    assert_eq!(esito.errore()["category"], "data_mapping");
+    assert_eq!(
+        esito.errore()["details"]["row_diagnostics"]["counts"]["shapefile.cell_not_representable"],
+        1
+    );
+    assert!(!uscita.exists());
+
+    let sorgente = dir.path().join("rappresentabile.geojson");
+    let mut documento: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(canonico::fixture("canonico_punti_dbf.geojson")).unwrap(),
+    )
+    .unwrap();
+    documento["features"][0]["properties"]["largo"] = serde_json::json!(9_007_199_254_740_992_i64);
+    std::fs::write(&sorgente, serde_json::to_vec(&documento).unwrap()).unwrap();
+    let esito = canonico::cli(&[
+        "convert",
+        sorgente.to_str().unwrap(),
+        uscita.to_str().unwrap(),
+        "--from",
+        "geojson",
+        "--to",
+        "shp",
+    ]);
+    assert!(esito.riuscito, "{}", esito.stdout);
     // `OGC:CRS84` non si rilegge dal `.prj` che il writer sintetizza: quel WKT
     // si rilegge `EPSG:4326`, un altro identificatore (GEO-005), e va
     // riportato da fuori. Fino alla rilettura 11 la perdita era `derived`.
@@ -223,6 +249,7 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
         "entrambe le righe, compresa quella senza geometria"
     );
     assert!(righe["r1"]["geometry"].is_some(), "il punto c'e'");
+    assert_eq!(righe["r1"]["largo"].as_deref(), Some("9007199254740992"));
     assert_eq!(
         righe["r5"]["geometry"], None,
         "e la geometria assente e' arrivata come assente, non come una riga persa"

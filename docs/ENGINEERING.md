@@ -159,6 +159,33 @@ letture puramente tabellari.
 
 ## Pipeline di scrittura
 
+### Rappresentabilita' dei valori DBF
+
+Il driver Shapefile rifiuta i valori che non entrano nei campi DBF. La perdita
+pianificata in `driver/perdita_pianificata.rs` descrive coercizioni di tipo e
+metadati, non autorizza tagli o arrotondamenti di celle neppure con policy che
+accettano perdite. E' la stessa scelta dei rifiuti numerici di GeoPackage.
+Il rifiuto usa `shapefile.cell_not_representable` e la diagnostica strutturale
+di riga; nessun valore entra nel messaggio. La prevalidazione del batch precede
+il writer della dipendenza, e l'adapter comune vieta `finish` dopo un errore.
+
+| Tipi Arrow al confine DBF | Percorso e controllo |
+|---|---|
+| Int8/16/32/64, UInt8/16/32/64 | Numeric 18/0: il testo prodotto dal `f64` deve coincidere con l'intero originale e occupare al massimo 18 byte, segno compreso. Non si usa un cast inverso saturante. |
+| Float32/64 | Numeric 20/8: formattazione identica a `dbase`, massimo 20 byte; il testo deve tornare allo stesso valore binario, incluso il segno dello zero. Non finiti rifiutati. Float32 viene promosso esattamente a Float64. |
+| Boolean | Logical: vero, falso e null, senza passaggio numerico. |
+| Utf8 | Character 254: lunghezza in byte UTF-8, la codepage fissata dal builder e dichiarata nell'header; nessun taglio. |
+| Date32, Date64 | Character: data civile; Date64 deve essere multiplo di 86.400.000 ms, anche prima dell'epoca. |
+| Time32(s/ms), Time64(us/ns), Timestamp(s/ms/us/ns, con/senza timezone) | Character: renderer temporale comune con tutte le cifre dell'unita', poi controllo dei 254 byte. |
+| Float16, Decimal32/64/128/256, LargeUtf8/Utf8View, Binary/LargeBinary/BinaryView/FixedSizeBinary | Celle non nulle rifiutate dal renderer comune; nessun fallback numerico o testuale approssimato. |
+| Duration, Interval, List/LargeList/FixedSizeList/ListView/LargeListView, Struct, Map, Union, Dictionary, RunEndEncoded | Non supportati: rifiuto nella capability o nel renderer, mai riduzione silenziosa. |
+| Null e celle nulle | Restano null nella rappresentazione DBF del tipo scelto; non si legge il payload di una cella nulla. |
+
+Le prove offline in `driver-shp/src/tests/dbf_scrittura.rs` confrontano anche
+descrittori e byte dei record, e verificano il mancato publish dopo un batch
+valido seguito da uno non rappresentabile. La misura delle righe di prodotto
+viene aggiornata senza cambiare il tetto.
+
 ```
 WritePlan ──validate_write──> create ──> write_to_layer* ──> finish ──> Published
               │                                                 │

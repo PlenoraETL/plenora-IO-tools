@@ -762,7 +762,8 @@ impl FormatDriver for ShpDriver {
         })?;
 
         // Capability-check (`ENGINEERING.md § Pipeline di scrittura (capability-check`)): costruisce il dbf, fail-closed sui nomi.
-        let mut table = TableWriterBuilder::new();
+        // La lunghezza dei Character e' in byte della codepage del file.
+        let mut table = TableWriterBuilder::with_encoding(shapefile::dbase::encoding::Unicode);
         let mut attrs: Vec<(usize, String, DbfKind)> = Vec::new();
         for (i, f) in schema.fields().iter().enumerate() {
             if i == geom_idx {
@@ -1488,14 +1489,64 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
 }
 
 fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldValue> {
+    // Date64 ammette solo giorni interi: il renderer comune divide per il
+    // giorno e non deve nascondere una frazione presente nell'input.
+    if !array.is_null(row)
+        && array
+            .as_any()
+            .downcast_ref::<arrow_array::Date64Array>()
+            .is_some_and(|dates| dates.value(row) % 86_400_000 != 0)
+    {
+        return Err(err(&PublicMessage::Curated(
+            "data DBF non rappresentabile esattamente",
+        )));
+    }
     let v = json_from_array(array, row)?;
     Ok(match kind {
         DbfKind::Char => FieldValue::Character(match v {
             JsonValue::Null => None,
-            JsonValue::String(s) => Some(s),
-            other => Some(other.to_string()),
+            other => {
+                let text = match other {
+                    JsonValue::String(s) => s,
+                    other => other.to_string(),
+                };
+                // UTF-8 esplicito nel builder: len misura i byte codificati,
+                // non i caratteri. Mai lasciare il taglio a dbase.
+                if text.len() > 254 {
+                    return Err(err(&PublicMessage::Curated("testo oltre la larghezza DBF")));
+                }
+                Some(text)
+            }
         }),
-        DbfKind::Int | DbfKind::Float => FieldValue::Numeric(v.as_f64()),
+        DbfKind::Int | DbfKind::Float if v.is_null() => FieldValue::Numeric(None),
+        DbfKind::Int | DbfKind::Float => {
+            let number = v
+                .as_f64()
+                .ok_or_else(|| err(&PublicMessage::Curated("numero DBF non rappresentabile")))?;
+            let (width, scale) = match kind {
+                DbfKind::Int => (18, 0),
+                _ => (20, 8),
+            };
+            // Stessa formattazione di WritableAsDbaseField, prima che il
+            // writer tronchi. Per gli interi confrontare il testo originale
+            // evita anche le conversioni float->int saturanti ai limiti.
+            let rendered = format!("{number:.scale$}");
+            let exact = match kind {
+                DbfKind::Int => {
+                    let original = v.to_string();
+                    rendered == original
+                }
+                _ => rendered
+                    .parse::<f64>()
+                    .is_ok_and(|back| back.to_bits() == number.to_bits()),
+            };
+            if !number.is_finite() || rendered.len() > width || !exact {
+                return Err(err(&PublicMessage::Curated(
+                    "numero oltre la precisione o larghezza DBF",
+                )));
+            }
+            FieldValue::Numeric(Some(number))
+        }
         DbfKind::Logical => FieldValue::Logical(v.as_bool()),
     })
 }

@@ -7,6 +7,8 @@
 use super::*;
 use plenora_io_model::crs::CrsKind;
 
+mod dbf_scrittura;
+
 // --- il bundle del fuzzer, e i semi che lo alimentano -----------------
 //
 // Una build che compila e un replay senza crash non dimostrano che i semi
