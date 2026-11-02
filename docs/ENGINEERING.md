@@ -194,16 +194,23 @@ un numero attestato non riceve un falso avviso, uno alterato viene rifiutato.
 Character conserva gli spazi iniziali (`TrimOption::End`); gli spazi ASCII
 finali sono convenzionalmente padding e un campo interamente padding e' null.
 Il formato non distingue null da stringa vuota: il writer rifiuta quest'ultima.
-NUL nei Character viene rifiutato prima del parser che troncherebbe il campo.
+I NUL finali sono padding: si rimuovono prima degli spazi finali. Un NUL
+seguito da byte non NUL resta rifiutato prima del parser che troncherebbe il campo.
 
-Il `.cpg` (massimo 128 byte) prevale sull'LDID. Supportiamo UTF-8/65001,
+Il `.cpg` (massimo 128 byte) deve concordare con la codepage specifica
+dichiarata dall'LDID; dichiarazioni discordi sono rifiutate. LDID 0x00 e 0x57
+sono compatibili con qualunque `.cpg` supportato. Supportiamo UTF-8/65001,
 ASCII/20127, ISO-8859-1/LATIN1/28591 e Windows-1250..1258 (anche CP e numero).
-Senza `.cpg`: LDID 0xF0 = UTF-8, 0x57 = ISO-8859-1, 0x03 = Windows-1252,
+Senza `.cpg`: LDID 0xF0 = UTF-8, 0x57 = Latin-1 limitato ai byte non ambigui, 0x03 = Windows-1252,
 0xC8..0xCB = Windows-1250/1251/1254/1253; LDID 0 ammette solo ASCII, senza
 indovinare una codepage per gli altri byte. Ogni altra codepage e' rifiutata.
 `encoding_rs = 0.8.35`, gia' transitiva nel lock, diventa dipendenza diretta
 pinnata per le tabelle Windows e la decodifica senza replacement. Latin-1
-viene decodificato separatamente: non e' un alias di Windows-1252.
+viene decodificato separatamente: non e' un alias di Windows-1252. Sotto
+LDID 0x57 senza `.cpg`, i byte 0x80..0x9F sono rifiutati: non si puo'
+distinguere Latin-1 da Windows-1252 usato dai produttori ANSI. Serve un
+`.cpg` esplicito per risolvere questa ambiguita'. In Windows-1252 i byte
+non definiti 0x81, 0x8D, 0x8F, 0x90 e 0x9D sono sempre rifiutati.
 Nomi e Character sono ricostruiti dai byte dopo la verifica; nessun risultato
 della decodifica permissiva interna di dbase viene pubblicato. Il `.cpg`
 `UTF-8` accompagna ora l'LDID 0xF0 gia' scritto: e' incluso in no-clobber,

@@ -10,10 +10,11 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextEncoding {
     Ascii,
     Latin1,
+    AmbiguousAnsi,
     Encoded(&'static encoding_rs::Encoding),
 }
 
@@ -39,7 +40,7 @@ impl TextEncoding {
             Err(_) => return Err(codepage_error()),
         };
         if let Some(cpg) = cpg {
-            return match cpg
+            let declared = match cpg
                 .trim()
                 .trim_start_matches('\u{feff}')
                 .to_ascii_uppercase()
@@ -55,14 +56,22 @@ impl TextEncoding {
                         .unwrap_or(name);
                     Self::windows(number)
                 }
-            };
+            }?;
+            if !matches!(header[29], 0x00 | 0x57) && Self::from_ldid(header[29])? != declared {
+                return Err(codepage_error());
+            }
+            return Ok(declared);
         }
-        match header[29] {
+        Self::from_ldid(header[29])
+    }
+
+    fn from_ldid(ldid: u8) -> Result<Self> {
+        match ldid {
             // Nessuna codepage: solo ASCII e' non ambiguo.
             0x00 => Ok(Self::Ascii),
             0xf0 => Ok(Self::Encoded(encoding_rs::UTF_8)),
-            // Convenzione ESRI/GDAL per LDID 87: ISO-8859-1, non CP1252.
-            0x57 => Ok(Self::Latin1),
+            // Latin-1 e Windows-1252 concordano fuori da 0x80..=0x9f.
+            0x57 => Ok(Self::AmbiguousAnsi),
             0x03 => Self::windows("1252"),
             0xc8 => Self::windows("1250"),
             0xc9 => Self::windows("1251"),
@@ -91,7 +100,20 @@ impl TextEncoding {
         match self {
             Self::Ascii if bytes.is_ascii() => Ok(bytes.iter().map(|b| char::from(*b)).collect()),
             Self::Ascii => Err(codepage_error()),
-            Self::Latin1 => Ok(bytes.iter().map(|b| char::from(*b)).collect()),
+            Self::AmbiguousAnsi if bytes.iter().any(|b| (0x80..=0x9f).contains(b)) => {
+                Err(codepage_error())
+            }
+            Self::Latin1 | Self::AmbiguousAnsi => {
+                Ok(bytes.iter().map(|b| char::from(*b)).collect())
+            }
+            Self::Encoded(encoding)
+                if encoding == encoding_rs::WINDOWS_1252
+                    && bytes
+                        .iter()
+                        .any(|b| matches!(b, 0x81 | 0x8d | 0x8f | 0x90 | 0x9d)) =>
+            {
+                Err(codepage_error())
+            }
             Self::Encoded(encoding) => encoding
                 .decode_without_bom_handling_and_without_replacement(bytes)
                 .map(Cow::into_owned)
@@ -220,6 +242,8 @@ impl DbfExactIntegerRows {
             .ok_or_else(|| err(&PublicMessage::Curated("campo DBF fuori dal record")))?;
         match field.field_type {
             b'C' => {
+                let end = raw.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+                let raw = &raw[..end];
                 if raw.contains(&0) {
                     return Err(err(&PublicMessage::Curated("DBF: NUL in campo Character")));
                 }
