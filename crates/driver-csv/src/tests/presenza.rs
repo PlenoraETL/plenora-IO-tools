@@ -530,3 +530,48 @@ fn coordinate_non_finite_non_diventano_punti_vuoti() {
         }
     }
 }
+
+#[test]
+fn quoting_rigoroso_anche_a_cavallo_dei_buffer() {
+    // Sposta ogni carattere speciale prima, sopra e dopo il confine di 8 KiB
+    // del BufReader, includendo UTF-8 spezzato e celle oltre due buffer.
+    for length in (8188..8196).chain(16380..16388) {
+        let text = "x".repeat(length);
+        for (input, expected, quoted) in [
+            (format!("{text}è,z\r\n"), format!("{text}è"), false),
+            (
+                format!("\"{text}\"\"è\r\n,z\",z\r\n"),
+                format!("{text}\"è\r\n,z"),
+                true,
+            ),
+        ] {
+            let mut reader = wire::Reader::new(input.as_bytes(), b',');
+            let mut record = csv::StringRecord::new();
+            assert!(reader.read_record(&mut record).unwrap());
+            assert_eq!(&record[0], expected);
+            assert_eq!(&record[1], "z");
+            assert_eq!(reader.quoted, vec![quoted, false]);
+            assert!(!reader.read_record(&mut record).unwrap());
+        }
+        for input in [
+            format!("{text}\"oops,z\n").into_bytes(),
+            format!("\"{text}\"oops,z\n").into_bytes(),
+            format!("\"{text}").into_bytes(),
+            [text.as_bytes(), b"\xff,z\n"].concat(),
+            format!("a,b\n{text},z,extra\n").into_bytes(),
+        ] {
+            let mut reader = wire::Reader::new(input.as_slice(), b',');
+            let mut record = csv::StringRecord::new();
+            loop {
+                match reader.read_record(&mut record) {
+                    Ok(true) => (),
+                    Ok(false) => panic!("CSV malformato accettato"),
+                    Err(error) => {
+                        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}

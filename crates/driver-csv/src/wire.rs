@@ -6,6 +6,7 @@ pub struct Reader<R> {
     delimiter: u8,
     pub quoted: Vec<bool>,
     width: Option<usize>,
+    cell: Vec<u8>,
 }
 
 fn invalid() -> std::io::Error {
@@ -19,6 +20,7 @@ impl<R: Read> Reader<R> {
             delimiter,
             quoted: Vec::new(),
             width: None,
+            cell: Vec::new(),
         }
     }
 
@@ -36,13 +38,35 @@ impl<R: Read> Reader<R> {
             self.input.consume(3);
         }
         self.quoted.clear();
-        let mut fields = csv::ByteRecord::new();
-        let mut cell = Vec::new();
+        let mut fields = std::mem::take(record).into_byte_record();
+        fields.clear();
+        let mut cell = std::mem::take(&mut self.cell);
+        cell.clear();
         let mut quoted = false;
         let mut in_quotes = false;
         let mut closed = false;
         let mut started = false;
         loop {
+            // Copia in blocco soltanto i byte che non cambiano lo stato del
+            // quoting. Delimitatori, virgolette, CR/LF ed EOF passano ancora
+            // tutti dalla macchina rigorosa qui sotto, anche a cavallo del
+            // buffer. Evita fill_buf/consume e push per ogni byte di testo.
+            if !closed {
+                let buffer = self.input.fill_buf()?;
+                let length = buffer
+                    .iter()
+                    .position(|&b| {
+                        b == b'"'
+                            || (!in_quotes && (b == self.delimiter || b == b'\r' || b == b'\n'))
+                    })
+                    .unwrap_or(buffer.len());
+                if length != 0 {
+                    cell.extend_from_slice(&buffer[..length]);
+                    self.input.consume(length);
+                    started = true;
+                    continue;
+                }
+            }
             let byte = self.byte()?;
             if byte.is_none() && !started {
                 return Ok(false);
@@ -95,6 +119,7 @@ impl<R: Read> Reader<R> {
         }
         self.width = Some(fields.len());
         *record = csv::StringRecord::from_byte_record(fields).map_err(|_| invalid())?;
+        self.cell = cell;
         Ok(true)
     }
 }
