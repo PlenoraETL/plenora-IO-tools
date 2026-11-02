@@ -3,7 +3,10 @@ use super::{
     err, ArrayRef, BTreeMap, BTreeSet, BufReader, OperationBudget, PlenoraIoError, PublicMessage,
     Result,
 };
-use arrow_array::{Date32Array, DurationMicrosecondArray, Int64Array, TimestampMicrosecondArray};
+use arrow_array::{
+    Date32Array, DurationMicrosecondArray, Int64Array, Time64MicrosecondArray,
+    TimestampMicrosecondArray,
+};
 use arrow_schema::{DataType, TimeUnit};
 use std::sync::Arc;
 
@@ -12,10 +15,12 @@ pub enum NativeKind {
     Date,
     Timestamp,
     Duration,
+    Time,
 }
 impl NativeKind {
     pub const fn data_type(self) -> DataType {
         match self {
+            Self::Time => DataType::Time64(TimeUnit::Microsecond),
             Self::Date => DataType::Date32,
             Self::Timestamp => DataType::Timestamp(TimeUnit::Microsecond, None),
             Self::Duration => DataType::Duration(TimeUnit::Microsecond),
@@ -27,6 +32,7 @@ pub fn convert(
     value: calamine::ExcelDateTime,
     epoch: bool,
     date_only: bool,
+    time_only: bool,
 ) -> Result<(NativeKind, i64)> {
     let serial = value.as_f64();
     let limit = if epoch && !value.is_duration() {
@@ -39,13 +45,22 @@ pub fn convert(
             "seriale temporale XLSX negativo o fuori dominio",
         )));
     }
-    if !value.is_duration() && !epoch && serial < 61.0 && !(1.0..60.0).contains(&serial) {
+    let pure_time = time_only && serial < 1.0;
+    if !pure_time
+        && !value.is_duration()
+        && !epoch
+        && serial < 61.0
+        && !(1.0..60.0).contains(&serial)
+    {
         return Err(err(&PublicMessage::Curated(
             "seriale XLSX ambiguo: giorno zero o 29/02/1900 inesistente",
         )));
     }
     let milliseconds = excel_milliseconds(serial)?;
     let ticks = milliseconds * 1000;
+    if pure_time {
+        return Ok((NativeKind::Time, ticks));
+    }
     if value.is_duration() {
         return Ok((NativeKind::Duration, ticks));
     }
@@ -87,7 +102,14 @@ fn excel_milliseconds(serial: f64) -> Result<i64> {
     } else {
         round_half_even(numerator, 1_u128 << shift)
     };
-    if millisecond_serial_bits(milliseconds) != bits {
+    let canonical = f64::from_bits(millisecond_serial_bits(milliseconds));
+    if canonical.to_bits() != bits
+        && !(14..=16).any(|precision| {
+            format!("{canonical:.precision$e}")
+                .parse::<f64>()
+                .is_ok_and(|v| v.to_bits() == bits)
+        })
+    {
         return Err(err(&PublicMessage::Curated(
             "seriale XLSX non canonico al millisecondo: round-trip binary64 rifiutato",
         )));
@@ -121,7 +143,7 @@ fn millisecond_serial_bits(milliseconds: u128) -> u64 {
 pub fn restore(array: ArrayRef, datatype: &DataType) -> Result<ArrayRef> {
     if !matches!(
         datatype,
-        DataType::Date32 | DataType::Timestamp(_, _) | DataType::Duration(_)
+        DataType::Date32 | DataType::Timestamp(_, _) | DataType::Duration(_) | DataType::Time64(_)
     ) {
         return Ok(array);
     }
@@ -137,6 +159,7 @@ pub fn restore(array: ArrayRef, datatype: &DataType) -> Result<ArrayRef> {
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|_| err(&PublicMessage::Curated("data XLSX fuori dominio")))?,
         )),
+        DataType::Time64(_) => Arc::new(Time64MicrosecondArray::from_iter(values.iter())),
         DataType::Timestamp(_, _) => Arc::new(TimestampMicrosecondArray::from_iter(values.iter())),
         _ => Arc::new(DurationMicrosecondArray::from_iter(values.iter())),
     })
@@ -145,17 +168,50 @@ pub fn restore(array: ArrayRef, datatype: &DataType) -> Result<ArrayRef> {
 #[derive(Default)]
 pub struct NativeStyles {
     dates: BTreeSet<(u32, u32)>,
+    times: BTreeSet<(u32, u32)>,
+    pub epoch: bool,
 }
 impl NativeStyles {
     pub fn date_only(&self, row: u32, col: u32) -> bool {
         self.dates.contains(&(row, col))
     }
+    pub fn time_only(&self, row: u32, col: u32) -> bool {
+        self.times.contains(&(row, col))
+    }
+    pub fn temporal(
+        &self,
+        data: &calamine::Data,
+        row: u32,
+        col: u32,
+    ) -> Option<calamine::ExcelDateTime> {
+        match data {
+            calamine::Data::DateTime(value) => Some(*value),
+            calamine::Data::Float(value)
+                if self.date_only(row, col) || self.time_only(row, col) =>
+            {
+                Some(calamine::ExcelDateTime::new(
+                    *value,
+                    calamine::ExcelDateTimeType::DateTime,
+                    self.epoch,
+                ))
+            }
+            _ => None,
+        }
+    }
     pub fn read(path: &std::path::Path, sheet: &str, budget: &OperationBudget) -> Result<Self> {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(|_| xml_error())?;
+        let mut result = Self::default();
         let mut relation = String::new();
         scan(&mut zip, "xl/workbook.xml", budget, |tag, attrs| {
-            if tag == "sheet" && attrs.get("name").is_some_and(|v| v == sheet) {
+            if tag == "workbook/sheets/sheet" && attrs.get("name").is_some_and(|v| v == sheet) {
                 relation = attrs.get("r:id").cloned().unwrap_or_default();
+            }
+            if tag == "workbook/workbookPr" {
+                result.epoch = match attrs.get("date1904").map(String::as_str) {
+                    Some("1" | "true") => true,
+                    None | Some("0" | "false") => false,
+                    _ => return Err(xml_error()),
+                };
             }
             Ok(())
         })?;
@@ -165,7 +221,7 @@ impl NativeStyles {
             "xl/_rels/workbook.xml.rels",
             budget,
             |tag, attrs| {
-                if tag == "Relationship" && attrs.get("Id") == Some(&relation) {
+                if tag == "Relationships/Relationship" && attrs.get("Id") == Some(&relation) {
                     target = attrs.get("Target").cloned().unwrap_or_default();
                 }
                 Ok(())
@@ -173,27 +229,23 @@ impl NativeStyles {
         )?;
         let mut formats = BTreeMap::new();
         let mut styles = Vec::new();
-        let mut in_xfs = false;
         if zip.index_for_name("xl/styles.xml").is_none() {
-            return Ok(Self::default());
+            return Ok(result);
         }
         scan(&mut zip, "xl/styles.xml", budget, |tag, attrs| {
             match tag {
-                "numFmt" => {
+                "styleSheet/numFmts/numFmt" => {
                     formats.insert(
                         attrs.get("numFmtId").cloned().unwrap_or_default(),
                         attrs.get("formatCode").cloned().unwrap_or_default(),
                     );
                 }
-                "cellXfs" => in_xfs = true,
-                "/cellXfs" => in_xfs = false,
-                "xf" if in_xfs => {
+                "styleSheet/cellXfs/xf" => {
                     let id = attrs.get("numFmtId").map_or("0", String::as_str);
-                    styles.push(
-                        formats
-                            .get(id)
-                            .map_or_else(|| builtin_date(id), |code| only_date(code)),
-                    );
+                    styles.push(formats.get(id).map_or_else(
+                        || (builtin_date(id), builtin_time(id)),
+                        |code| (only_date(code), only_time(code)),
+                    ));
                 }
                 _ => {}
             }
@@ -204,16 +256,17 @@ impl NativeStyles {
         } else {
             format!("xl/{target}")
         };
-        let mut result = Self::default();
         scan(&mut zip, &part, budget, |tag, attrs| {
-            if tag == "c"
-                && attrs
+            if tag == "worksheet/sheetData/row/c" {
+                let (date, time) = attrs
                     .get("s")
                     .and_then(|v| v.parse::<usize>().ok())
                     .and_then(|i| styles.get(i))
                     .copied()
-                    .unwrap_or(false)
-            {
+                    .unwrap_or((false, false));
+                if !date && !time {
+                    return Ok(());
+                }
                 let reference = attrs.get("r").ok_or_else(xml_error)?;
                 let mut col = 0_u32;
                 let mut row = 0_u32;
@@ -232,10 +285,16 @@ impl NativeStyles {
                         return Err(xml_error());
                     }
                 }
-                result.dates.insert((
+                let position = (
                     row.checked_sub(1).ok_or_else(xml_error)?,
                     col.checked_sub(1).ok_or_else(xml_error)?,
-                ));
+                );
+                if date {
+                    result.dates.insert(position);
+                }
+                if time {
+                    result.times.insert(position);
+                }
             }
             Ok(())
         })?;
@@ -299,35 +358,112 @@ where
     F: FnMut(&str, &BTreeMap<String, String>) -> Result<()>,
 {
     let entry = zip.by_name(part).map_err(|_| xml_error())?;
-    let mut reader = quick_xml::Reader::from_reader(quick_xml::encoding::DecodingReader::new(
+    let mut reader = quick_xml::NsReader::from_reader(quick_xml::encoding::DecodingReader::new(
         BufReader::new(entry),
     ));
     let mut buf = Vec::new();
+    let mut stack = Vec::new();
     loop {
         budget.context().ensure_active()?;
         buf.clear();
         let event = reader.read_event_into(&mut buf).map_err(|_| xml_error())?;
+        let empty = matches!(event, quick_xml::events::Event::Empty(_));
         match event {
             quick_xml::events::Event::Start(e) | quick_xml::events::Event::Empty(e) => {
+                let (ns, local) = reader.resolver().resolve_element(e.name());
+                let expected_ns = if part == "xl/_rels/workbook.xml.rels" {
+                    "http://schemas.openxmlformats.org/package/2006/relationships"
+                } else {
+                    "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+                };
+                let valid = matches!(ns, quick_xml::name::ResolveResult::Bound(n) if n.as_ref() == expected_ns);
+                stack.push(if valid {
+                    local.as_ref().to_owned()
+                } else {
+                    String::new()
+                });
                 let mut attrs = BTreeMap::new();
                 for a in e.attributes() {
                     let a = a.map_err(|_| xml_error())?;
+                    let (ns, local) = reader.resolver().resolve_attribute(a.key);
+                    let key = match ns {
+                        quick_xml::name::ResolveResult::Unbound => local.as_ref().to_owned(),
+                        quick_xml::name::ResolveResult::Bound(n) if n.as_ref() == "http://schemas.openxmlformats.org/officeDocument/2006/relationships" => format!("r:{}", local.as_ref()),
+                        _ => continue,
+                    };
                     attrs.insert(
-                        a.key.as_ref().to_owned(),
+                        key,
                         a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map_err(|_| xml_error())?
                             .into_owned(),
                     );
                 }
-                visit(e.local_name().as_ref(), &attrs)?;
+                visit(&stack.join("/"), &attrs)?;
+                if empty {
+                    stack.pop();
+                }
             }
-            quick_xml::events::Event::End(e) => {
-                visit(&format!("/{}", e.local_name().as_ref()), &BTreeMap::new())?;
+            quick_xml::events::Event::End(_) => {
+                stack.pop();
             }
             quick_xml::events::Event::Eof => return Ok(()),
             _ => {}
         }
     }
+}
+
+fn builtin_time(id: &str) -> bool {
+    matches!(
+        id,
+        "18" | "19" | "20" | "21" | "32" | "33" | "45" | "47" | "55" | "56"
+    )
+}
+
+fn only_time(code: &str) -> bool {
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut bracket = false;
+    let mut bracket_token = String::new();
+    let mut time = false;
+    for c in code.chars().flat_map(char::to_lowercase) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '"' {
+            quoted = !quoted;
+            continue;
+        }
+        if quoted {
+            continue;
+        }
+        if matches!(c, '\\' | '_' | '*') {
+            escaped = true;
+            continue;
+        }
+        if c == '[' {
+            bracket = true;
+            bracket_token.clear();
+            continue;
+        }
+        if c == ']' {
+            if matches!(bracket_token.as_str(), "h" | "hh" | "m" | "mm" | "s" | "ss") {
+                return false;
+            }
+            bracket = false;
+            continue;
+        }
+        if bracket {
+            // Colori e codici locali (es. [$-en-US]) non sono durate.
+            bracket_token.push(c);
+            continue;
+        }
+        if matches!(c, 'y' | 'd') {
+            return false;
+        }
+        time |= matches!(c, 'h' | 's');
+    }
+    time
 }
 
 fn builtin_date(id: &str) -> bool {

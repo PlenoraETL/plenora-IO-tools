@@ -1333,8 +1333,9 @@ Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
 `git show <tag>:crates/driver-xls/src/lib.rs` su ogni tag: `write_cell`
 convertiva il numero con `as_f64()` senza controllo di esattezza; il mapping
 (e, dove presente, lo spool) mandava date seriali ed errori nel ramo null.
-Gli stessi percorsi esistono nelle prerelease v0.1.0-rc.1/2/3/4 e
-v1.0.0-rc.1/2. Nella 2.0.0 e 3.0.0 il riferimento a `Data::Error`
+Gli stessi percorsi esistono nelle prerelease `v0.1.0-rc.1`,
+`v0.1.0-rc.2`, `v0.1.0-rc.3`, `v0.1.0-rc.4`, `v1.0.0-rc.1` e
+`v1.0.0-rc.2`. Nella 2.0.0 e 3.0.0 il riferimento a `Data::Error`
 compare anche in un test che pretendeva proprio null, non in una difesa.
 
 - Scrittura: gli interi fuori da **[-2^53, 2^53]** sono ora rifiutati
@@ -1343,19 +1344,31 @@ compare anche in un test che pretendeva proprio null, non in una difesa.
   fuori dall'intervallo esistono interi esatti in binary64, ma anche la resa
   decimale XML del writer puo' cambiare l'intero (per esempio i64::MIN).
   Float32 viene ampliato esattamente a Float64; i float finiti conservano il
-  valore binario nella rilettura. Decimali e float non finiti restano rifiutati.
+  valore binario nella rilettura. Il formatter `ryu` usa notazione esponenziale
+  per i float estremi, evitando numeri XML di centinaia di cifre.
+  Decimali e float non finiti restano rifiutati. U+FFFE e U+FFFF sono
+  rifiutati in scrittura: gli escape del writer non tornano identici con
+  il decoder calamine corrente.
 - Lettura: `Data::DateTime` ora produce Date32 per formato solo data e
-  seriale intero, Timestamp(Microsecond, None) per data/ora e ora, oppure
+  seriale intero, Timestamp(Microsecond, None) per data/ora, oppure
   Duration(Microsecond) per stili durata come `[h]:mm:ss`. L'epoca 1900/1904
-  viene letta dal workbook. Nel 1900 i giorni 1-59 sono mappati esattamente;
-  il giorno zero ambiguo e il falso 29/02/1900 (intervalli [0,1) e [60,61))
-  sono rifiutati. Nel 1904 il giorno zero e' 1904-01-01. Seriali negativi,
+  viene letta direttamente da `workbook/workbookPr` nel namespace principale
+  SpreadsheetML (booleani XML `1`, `true`, `0`, `false`); l'estensione
+  `x15:workbookPr` di Excel non puo' sovrascriverla. Anche fogli, relazioni,
+  formati, stili e celle sono selezionati per namespace e percorso XML.
+  I formati incorporati CJK 27-36 e 50-58 sono riconosciuti, inclusi quelli
+  orari 32/33/55/56. Un seriale in [0,1) con formato solo ora produce
+  Time64(Microsecond), in entrambi i calendari. Nel 1900 i giorni 1-59 sono
+  mappati esattamente; [0,1) con formato data e il falso 29/02/1900
+  (intervallo [60,61)) sono rifiutati. Nel 1904 il giorno zero e' 1904-01-01. Seriali negativi,
   non finiti o oltre il 9999-12-31 sono rifiutati.
 - Precisione Excel al millisecondo: si calcola il candidato ms dal seriale
   binary64 con decodifica IEEE esatta e arrotondamento razionale al piu'
-  vicino (round-half-even). Si accetta solo se il rapporto ms/86_400_000,
-  arrotondato razionalmente a binary64 con round-half-even, riproduce gli
-  stessi bit. La stessa regola vale per le durate; l'unita' Arrow resta il
+  vicino (round-half-even). Dal rapporto canonico ms/86_400_000 si ricava
+  il binary64 con arrotondamento razionale; si accettano i suoi bit oppure
+  quelli ottenuti stampandolo a 15, 16 o 17 cifre significative e rileggendolo
+  come f64. Il confronto e' esatto, senza tolleranze: riconosce anche le
+  serializzazioni di openpyxl/pandas. La stessa regola vale per ore e durate; l'unita' Arrow resta il
   microsecondo (ms * 1000). Date32 richiede ms multiplo di 86_400_000.
   Sono ammessi 13:17:42, 23:59:59.999, 00:00:00.001 e la durata 37:15:30.5;
   seriali con informazione sub-ms non canonica sono rifiutati esplicitamente.

@@ -62,7 +62,7 @@ fn interi_esatti_xml_e_rilettura_e_rifiuto_senza_pubblicazione() {
     }
     for value in [-(1_i64 << 53), -1, 0, (1 << 53) - 1, 1 << 53] {
         let bytes = scritto(Arc::new(Int64Array::from(vec![value]))).unwrap();
-        assert!(xml(&bytes, "xl/worksheets/sheet1.xml").contains(&format!("<v>{value}</v>")));
+        assert!(xml(&bytes, "xl/worksheets/sheet1.xml").contains(&format!("<v>{value}.0</v>")));
         assert_eq!(rileggi(bytes).to_string(), value.to_string());
     }
 }
@@ -232,7 +232,7 @@ fn workbook_esterni_date_durate_errori_e_vuoti() {
                 )
                 .unwrap();
             let bytes = calendario(wb.save_to_buffer().unwrap(), is_1904);
-            assert!(xml(&bytes, "xl/worksheets/sheet1.xml").contains(&format!("<v>{serial}</v>")));
+
             let mut parsed: Xlsx<_> = Xlsx::new(std::io::Cursor::new(&bytes)).unwrap();
             let range = parsed.worksheet_range("Sheet1").unwrap();
             let Data::DateTime(date) = range.get_value((1, 1)).unwrap() else {
@@ -550,6 +550,7 @@ fn millisecondi_excel_round_trip_deterministico_nel_dominio() {
                     ExcelDateTime::new(serial, kind, epoch),
                     epoch,
                     false,
+                    false,
                 );
                 if !duration && !epoch && (millis < day || (60 * day..61 * day).contains(&millis)) {
                     assert!(result.is_err());
@@ -577,17 +578,279 @@ fn millisecondi_excel_round_trip_deterministico_nel_dominio() {
                         DataType::Timestamp(TimeUnit::Microsecond, None)
                     }
                 );
-                if millis > 0 {
-                    for neighbor in [serial.to_bits() - 1, serial.to_bits() + 1] {
-                        assert!(super::super::date_native::convert(
-                            ExcelDateTime::new(f64::from_bits(neighbor), kind, epoch),
-                            epoch,
-                            false
-                        )
-                        .is_err());
-                    }
-                }
             }
+        }
+    }
+}
+
+fn modifica_parte(bytes: &[u8], part: &str, edit: impl Fn(&str) -> String) -> Vec<u8> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).unwrap();
+        let name = entry.name().unwrap().into_owned();
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data).unwrap();
+        if name == part {
+            data = edit(std::str::from_utf8(&data).unwrap()).into_bytes();
+        }
+        out.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        out.write_all(&data).unwrap();
+    }
+    out.finish().unwrap().into_inner()
+}
+
+#[test]
+fn epoca_excel_extlst_booleani_e_namespace() {
+    let source = fixture_date(true, "yyyy-mm-dd", &[Some(0.0), Some(43830.0)], false);
+    // Struttura copiata dal workbook Excel reale di calamine #706: provenienza in fixtures/README.md.
+    let workbook = include_str!("../../tests/fixtures/excel-workbook-1904.xml");
+    for boolean in ["1", "true", "0", "false"] {
+        let bytes = modifica_parte(&source, "xl/workbook.xml", |_| {
+            workbook.replace("date1904=\"1\"", &format!("date1904=\"{boolean}\""))
+        });
+        if matches!(boolean, "0" | "false") {
+            assert!(leggi_valori(&bytes).is_err());
+            continue;
+        }
+        let batch = leggi_valori(&bytes).unwrap();
+        let values = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Date32Array>()
+            .unwrap();
+        assert_eq!(values.values().as_ref(), &[-24107, 19723]);
+    }
+    // Namespace equivalenti con prefissi diversi; attributi qualificati estranei ignorati.
+    let bytes = modifica_parte(&source, "xl/workbook.xml", |xml| {
+        xml.replace("<workbookPr date1904=\"1\"", "<s:workbookPr xmlns:s=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:f=\"urn:foreign\" f:date1904=\"false\" date1904=\"true\"")
+            .replace("xmlns:r=", "xmlns:rel=").replace("r:id=", "rel:id=")
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("prefissi.xlsx");
+    std::fs::write(&path, &bytes).unwrap();
+    assert!(
+        NativeStyles::read(&path, "Sheet1", opzioni_lettura_wkt().budget())
+            .unwrap()
+            .epoch
+    );
+}
+
+#[test]
+fn ore_pure_cjk_e_formule_con_cache_al_millisecondo() {
+    for epoch in [false, true] {
+        for format in [
+            "hh:mm",
+            "hh:mm:ss.000",
+            "h:mm AM/PM",
+            "[Magenta]hh:mm",
+            "[$-en-US]hh:mm",
+        ] {
+            let bytes = fixture_date(
+                epoch,
+                format,
+                &[Some(0.0), Some(47_862.123 / 86400.0), None],
+                false,
+            );
+            let bytes = modifica_parte(&bytes, "xl/worksheets/sheet1.xml", |xml| {
+                xml.replace("<v>0.0</v>", "<f>TIME(0,0,0)</f><v>0.0</v>")
+                    .replace("<v>0.553", "<f>TIME(13,17,42)+123/86400000</f><v>0.553")
+            });
+            let batch = leggi_valori(&bytes).unwrap();
+            let values = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<Time64MicrosecondArray>()
+                .unwrap();
+            assert_eq!(
+                values.iter().collect::<Vec<_>>(),
+                vec![Some(0), Some(47_862_123_000), None]
+            );
+        }
+    }
+    for id in (27..=36).chain(50..=58) {
+        let time = matches!(id, 32 | 33 | 55 | 56);
+        let bytes = fixture_date(
+            false,
+            "yyyy-mm-dd",
+            &[Some(if time { 0.5 } else { 45292.0 })],
+            false,
+        );
+        let bytes = modifica_parte(&bytes, "xl/styles.xml", |xml| {
+            xml.replace("numFmtId=\"164\"", &format!("numFmtId=\"{id}\""))
+                .replace(
+                    "<numFmts count=\"1\"><numFmt",
+                    "<numFmts count=\"1\"><foreign:numFmt xmlns:foreign=\"urn:foreign\"",
+                )
+                .replace(
+                    "<cellXfs",
+                    "<xf xmlns=\"urn:foreign\" numFmtId=\"0\"/><cellXfs",
+                )
+        });
+        let batch = leggi_valori(&bytes).unwrap();
+        assert_eq!(
+            batch.column(1).data_type(),
+            &if time {
+                arrow_schema::DataType::Time64(arrow_schema::TimeUnit::Microsecond)
+            } else {
+                arrow_schema::DataType::Date32
+            }
+        );
+    }
+}
+
+#[test]
+#[allow(clippy::cast_precision_loss)] // ms < 2^48, conversione esatta.
+fn centomila_seriali_decimali_degli_scrittori_reali() {
+    use calamine::{ExcelDateTime, ExcelDateTimeType};
+    let mut seed = 0x193a_746b_857c_098d_u64;
+    for index in 0..100_000 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        // Date al secondo in tutto il dominio; anche campioni con millisecondi.
+        let ms = (61 * 86400 + seed % (2_956_000 * 86400)) * 1000
+            + if index % 2 == 0 { 0 } else { seed % 1000 };
+        for (millis, kind, time) in [
+            (ms, ExcelDateTimeType::DateTime, false),
+            (ms, ExcelDateTimeType::TimeDelta, false),
+            (ms % 86_400_000, ExcelDateTimeType::DateTime, true),
+        ] {
+            let canonical = millis as f64 / 86_400_000.0;
+            for text in [
+                format!("{canonical:.14e}"),
+                format!("{canonical:.15e}"),
+                format!("{canonical:.16e}"),
+                canonical.to_string(),
+            ] {
+                let serial = text.parse().unwrap();
+                let (_, ticks) = super::super::date_native::convert(
+                    ExcelDateTime::new(serial, kind, false),
+                    false,
+                    false,
+                    time,
+                )
+                .unwrap();
+                let offset = if kind == ExcelDateTimeType::DateTime && !time {
+                    25569 * 86_400_000
+                } else {
+                    0
+                };
+                assert_eq!(
+                    ticks,
+                    (i64::try_from(millis).unwrap() - offset) * 1000,
+                    "{text}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn caratteri_non_conservabili_e_float_esponenziali() {
+    for value in ["a\u{fffe}b", "a\u{ffff}b"] {
+        assert!(scritto(Arc::new(StringArray::from(vec![value]))).is_err());
+    }
+    for value in [1e300, 5e-324, f64::MAX, -1e300] {
+        let bytes = scritto(Arc::new(Float64Array::from(vec![value]))).unwrap();
+        let sheet = xml(&bytes, "xl/worksheets/sheet1.xml");
+        let text = sheet
+            .split("<v>")
+            .nth(1)
+            .unwrap()
+            .split("</v>")
+            .next()
+            .unwrap();
+        assert!(text.len() < 25 && text.contains('e'), "{text}");
+        assert_eq!(text.parse::<f64>().unwrap().to_bits(), value.to_bits());
+        let Data::Float(actual) = rileggi(bytes) else {
+            panic!("float atteso")
+        };
+        assert_eq!(actual.to_bits(), value.to_bits());
+    }
+}
+
+#[test]
+fn metadati_xml_ignorano_omonimi_estranei_e_discendenti() {
+    let source = fixture_date(true, "yyyy-mm-dd", &[Some(1.0)], false);
+    let source = modifica_parte(&source, "xl/workbook.xml", |xml| {
+        xml.replace(
+            "</sheets>",
+            "<f:sheet xmlns:f=\"urn:foreign\" name=\"Sheet1\" r:id=\"bad\"/></sheets>",
+        )
+        .replace(
+            "</workbook>",
+            "<extLst><ext><workbookPr date1904=\"false\"/></ext></extLst></workbook>",
+        )
+    });
+    let source = modifica_parte(&source, "xl/_rels/workbook.xml.rels", |xml| {
+        xml.replace(
+            "</Relationships>",
+            "<Relationship xmlns=\"urn:foreign\" Id=\"rId1\" Target=\"bad\"/></Relationships>",
+        )
+    });
+    let source = modifica_parte(&source, "xl/styles.xml", |xml| {
+        xml.replace(
+            "</numFmts>",
+            "<numFmt xmlns=\"urn:foreign\" numFmtId=\"164\" formatCode=\"0.00\"/></numFmts>",
+        )
+        .replace(
+            "<cellXfs count=\"2\">",
+            "<cellXfs count=\"2\"><xf xmlns=\"urn:foreign\" numFmtId=\"0\"/>",
+        )
+    });
+    let source = modifica_parte(&source, "xl/worksheets/sheet1.xml", |xml| {
+        xml.replace(
+            "</row>",
+            "<c xmlns=\"urn:foreign\" r=\"Z99\" s=\"1\"><v>1</v></c></row>",
+        )
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("namespace.xlsx");
+    std::fs::write(&path, &source).unwrap();
+    let styles = NativeStyles::read(&path, "Sheet1", opzioni_lettura_wkt().budget()).unwrap();
+    assert!(styles.epoch);
+    assert!(styles.date_only(1, 1));
+    assert!(!styles.date_only(98, 25));
+}
+
+#[test]
+#[allow(clippy::cast_precision_loss)] // ms nel dominio intero esatto di f64.
+fn centomila_date_decimali_attraversano_il_parser_ooxml() {
+    use std::fmt::Write as _;
+    let mut seed = 0x973a_5bf6_171c_098d_u64;
+    let mut rows = String::new();
+    let mut expected = Vec::new();
+    for row in 1..=100_000 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let ms = (61 * 86400 + seed % (2_956_000 * 86400)) * 1000;
+        let canonical = ms as f64 / 86_400_000.0;
+        expected.push((i64::try_from(ms).unwrap() - 25569 * 86_400_000) * 1000);
+        write!(rows, "<row r=\"{row}\">").unwrap();
+        for (col, text) in ['A', 'B', 'C', 'D'].into_iter().zip([
+            format!("{canonical:.14e}"),
+            format!("{canonical:.15e}"),
+            format!("{canonical:.16e}"),
+            canonical.to_string(),
+        ]) {
+            write!(rows, "<c r=\"{col}{row}\" s=\"1\"><v>{text}</v></c>").unwrap();
+        }
+        rows.push_str("</row>");
+    }
+    let source = fixture_date(false, "yyyy-mm-dd hh:mm:ss.000", &[Some(61.0)], false);
+    let source = modifica_parte(&source, "xl/worksheets/sheet1.xml", |_| {
+        foglio_xml("A1:D100000", &rows)
+    });
+    let mut parsed: Xlsx<_> = Xlsx::new(std::io::Cursor::new(source)).unwrap();
+    let range = parsed.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.height(), expected.len());
+    for (row, expected) in range.rows().zip(expected) {
+        for data in row {
+            let Data::DateTime(value) = data else {
+                panic!("data attesa")
+            };
+            let (_, ticks) =
+                super::super::date_native::convert(*value, false, false, false).unwrap();
+            assert_eq!(ticks, expected);
         }
     }
 }

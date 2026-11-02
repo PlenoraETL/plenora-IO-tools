@@ -863,6 +863,12 @@ fn write_cell(
             sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
+            if s.contains(['\u{fffe}', '\u{ffff}']) {
+                return Err(err(&PublicMessage::Curated(
+                    "carattere XLSX non conservabile in rilettura",
+                ))
+                .during(ErrorPhase::Finalize));
+            }
             sheet.write_string(r, c, &s).map_err(xls_err)?;
         }
         other => {
@@ -1537,7 +1543,7 @@ where
     } else {
         dichiarate
     };
-    let epoch = workbook.has_1904_epoch();
+    let epoch = styles.epoch;
     let mut reader = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
@@ -1616,9 +1622,13 @@ where
                 if geom_columns.contains(&column) {
                     continue;
                 }
-                if let Data::DateTime(value) = data {
-                    let (kind, ticks) =
-                        date_native::convert(*value, epoch, styles.date_only(row_index, column))?;
+                if let Some(value) = styles.temporal(data, row_index, column) {
+                    let (kind, ticks) = date_native::convert(
+                        value,
+                        epoch,
+                        styles.date_only(row_index, column),
+                        styles.time_only(row_index, column),
+                    )?;
                     if ordinary[attribute_index]
                         || temporal[attribute_index].is_some_and(|old| old != kind)
                     {
