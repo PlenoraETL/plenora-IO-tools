@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "6.0.0",
+      "versione": "7.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "6.0.0",
+      "versione": "7.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "6.0.0",
+      "versione": "7.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "6.0.0",
+      "versione": "7.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1487,5 +1487,29 @@
       "plenora-io-model 6.0.0: interna-al-workspace"
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 5.0.1 a 6.0.0 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 5.0.1, ed e' registrata perche' il gate confronta le versioni e non i nomi."
+  },
+  "variazione_versione_7_0_0": {
+    "quando": "2026-11-02, portando il workspace da 6.0.0 a 7.0.0",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "driver-common 7.0.0",
+      "driver-geoparquet 7.0.0",
+      "plenora-io-core 7.0.0",
+      "plenora-io-model 7.0.0"
+    ],
+    "uscite": [
+      "driver-common 6.0.0",
+      "driver-geoparquet 6.0.0",
+      "plenora-io-core 6.0.0",
+      "plenora-io-model 6.0.0"
+    ],
+    "licenze_riverificate": [
+      "driver-common 7.0.0: interna-al-workspace",
+      "driver-geoparquet 7.0.0: interna-al-workspace",
+      "plenora-io-core 7.0.0: interna-al-workspace",
+      "plenora-io-model 7.0.0: interna-al-workspace"
+    ],
+    "perche": "Le quattro crate del workspace nella closure passano da 6.0.0 a 7.0.0. Nessun nome entrato o uscito, nessun cambio di origine o licenza; il gate confronta le coppie nome/versione."
   }
 }

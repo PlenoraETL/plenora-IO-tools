@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `1e3f047` |
-| candidate, versione del manifesto | `6.0.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
-| candidate, versione del workspace | `6.0.0` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v6.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `7.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `7.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v7.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 7 |
-| release_authorized | `true` |
+| release pubblicate | 8 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1317,14 +1317,34 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## Note della prossima release — CHANGELOG non rilasciato
+## 7.0.0 — candidate
 
-Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
-alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
-la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
-numero di versione, `__version__` e il README dell'SDK si allineano al momento
-del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
-[GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
+**Cambiamento incompatibile CSV:** il testo e' sempre quotato, il null non e'
+quotato e i terminatori sono CRLF. Stringhe vuote e spazi restano valori;
+i campi quotati forzano Utf8. I consumatori devono distinguere quoting e
+presenza; la decisione del titolare e' quindi una release major, **7.0.0**.
+
+La 7.0.0 contiene le correzioni dei difetti silenziosi segnalati nell'avviso
+alla [release 6.0.0](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
+E' ancora una candidate iniziale, senza data di pubblicazione, revisione o
+artefatti congelati. L'avviso del 31/10/2026 va riferito alla correzione nella
+**7.0.0**, non a una generica prossima release; le verifiche successive hanno
+inoltre accertato il difetto delle geometrie miste GPKG descritto sotto,
+rettificando l'esclusione iniziale nell'avviso.
+
+**Versioni colpite e controllo degli output:** CSV, DBF e GPKG hanno percorsi
+coinvolti dai tag 0.1.0-rc.1 fino alla 6.0.0; XLSX dalle prerelease fino alla
+6.0.0, incluse tutte le release stabili dalla 1.0.0. I temporali condivisi
+sono coinvolti dalla 2.0.0 alla 6.0.0. Le sezioni seguenti distinguono evidenza
+statica e riproduzioni, elencano i tag e danno i controlli specifici.
+Conservare gli originali e confrontare valori e schema con la sorgente:
+null sostitutivi, cifre troncate e testo perduto non si recuperano dal solo
+output. Rigenerare dalla sorgente con la versione corretta dopo aver gestito
+i rifiuti espliciti. Un comando riuscito non certifica la fedelta' dei dati.
+
+Queste note sono la bozza per il corpo della GitHub Release 7.0.0; verranno
+trasferite alla pubblicazione. Le note storiche della 6.0.0 restano nella
+sua GitHub Release.
 
 ### ZIP: dipendenze aggiornate
 
@@ -1442,10 +1462,11 @@ schema GPKG senza campo specifico si leggono anche tramite SDK, senza
 inventare un indice e senza rifiutare una risposta valida. Le prove nuove confrontano byte attesi indipendenti dal writer,
 validità/valore, loss report e mancata pubblicazione per i rifiuti.
 
-La modifica al builder condiviso invalida le precedenti misure di profondità
-`wkt_parse` e `shp_reader`: prima della qualifica occorre rieseguire
-`bash scripts/fuzz-profondita.sh wkt_parse` e
-`bash scripts/fuzz-profondita.sh shp_reader` con la toolchain fissata.
+Il builder condiviso invalida le misure `wkt_parse` e `shp_reader`; inoltre
+il bump 7.0.0 modifica i lock nel perimetro di tutti e quattro i bersagli.
+Prima del congelamento occorre rieseguire `scripts/fuzz-profondita.sh` per
+`filegdb_reader`, `shp_reader`, `geojson_reader` e `wkt_parse`, e
+`bash scripts/asan-filegdb.sh`, nell'ambiente Linux di qualifica con toolchain fissata.
 Non si aggiornano le impronte senza una nuova misura.
 
 ### GeoPackage: perdite silenziose di valori e schema
