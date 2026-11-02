@@ -938,6 +938,9 @@ fn append_geometry(
             let y = y_text
                 .parse::<f64>()
                 .map_err(|_| err(&PublicMessage::Curated("coordinata Y CSV non valida")))?;
+            if !x.is_finite() || !y.is_finite() {
+                return Err(err(&PublicMessage::Curated("coordinate CSV non finite")));
+            }
             let geometry = WkbGeometry {
                 value: WkbValue::Point(WkbCoordinate {
                     x,
@@ -1177,7 +1180,6 @@ fn write_cell<W: std::io::Write>(
             .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else {
         // Tipo non comune (Date, ecc.): fallback via il convertitore generico.
-        validate_temporal_cell(col, row)?;
         let value = json_from_array(col, row)?;
         if let JsonValue::String(text) = &value {
             return w
@@ -1186,33 +1188,6 @@ fn write_cell<W: std::io::Write>(
         }
         w.write_field(cell_string(&value))
             .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
-    }
-}
-
-/// Arrow Date64 impone giorni interi; gli orari devono stare nel giorno.
-fn validate_temporal_cell(col: &ArrayRef, row: usize) -> Result<()> {
-    use arrow_array::{
-        Date64Array, Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
-        Time64NanosecondArray,
-    };
-    let a = col.as_any();
-    let valid = a
-        .downcast_ref::<Date64Array>()
-        .is_none_or(|a| a.value(row) % 86_400_000 == 0)
-        && a.downcast_ref::<Time32SecondArray>()
-            .is_none_or(|a| (0..86_400).contains(&a.value(row)))
-        && a.downcast_ref::<Time32MillisecondArray>()
-            .is_none_or(|a| (0..86_400_000).contains(&a.value(row)))
-        && a.downcast_ref::<Time64MicrosecondArray>()
-            .is_none_or(|a| (0..86_400_000_000).contains(&a.value(row)))
-        && a.downcast_ref::<Time64NanosecondArray>()
-            .is_none_or(|a| (0..86_400_000_000_000).contains(&a.value(row)));
-    if valid {
-        Ok(())
-    } else {
-        Err(err(&PublicMessage::Curated(
-            "valore temporale CSV non rappresentabile esattamente",
-        )))
     }
 }
 

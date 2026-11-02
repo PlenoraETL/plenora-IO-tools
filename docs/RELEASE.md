@@ -23,7 +23,25 @@ locali: v0.1.0-rc.1–rc.4, v1.0.0-rc.1–rc.2, v1.0.0, v1.0.1, v2.0.0,
 v3.0.0, v4.0.0, v4.1.0, v4.1.1, v5.0.0, v5.0.1 e v6.0.0.
 L'evidenza è il ramo null del writer (`write_field("")`, o stringa vuota nel
 convertitore) e `trimmed.is_empty()`/`trim().is_empty()` del builder condiviso;
-non si attribuisce a questi tag una riproduzione dinamica non eseguita.
+La riproduzione dinamica a valore e' stata eseguita su v6.0.0; per gli altri
+tag citati l'evidenza resta statica, non una riproduzione dinamica.
+
+**Altri difetti silenziosi preesistenti (v2.0.0-v6.0.0, riprodotti a valore
+su v6.0.0):** Date64 non allineati al giorno perdevano i millisecondi;
+`testo_orario` rendeva orari fuori intervallo come testo invalido. Per esempio,
+Date64=1 diventava `1970-01-01`, Time32s=86400 `24:00:00` e Time64ns=-1
+`00:00:-1.999999999`, senza errore anche in IPC -> XLSX, GeoJSON e KML.
+La correzione e' nel convertitore comune usato anche da DXF, SHP e CSV,
+non piu' nel solo CSV. NaN/inf e Float16 nel writer CSV potevano produrre
+valori non fedeli (anche null dal fallback), anziche' un rifiuto esplicito;
+i nuovi rifiuti correggono questi difetti, non sono soltanto incompatibilita'.
+Anche le coordinate CSV X/Y non finite sono ora rifiutate: `NaN,NaN`
+veniva codificato come WKB NaN/NaN, cioe' POINT EMPTY, perdendo il valore
+originale. La verifica degli altri ingressi testuali ha riprodotto lo stesso
+problema in KML sul sorgente corrente: ora sono controllate anche X/Y/Z
+di punti, linee e anelli KML. XLSX, WKT, GeoJSON e DXF hanno gia' controlli
+per le coordinate non finite. Le prove distinguono attributi testuali `"NaN"`, tuttora conservati,
+da numeri o coordinate non rappresentabili.
 
 **Incompatibile:** testo sempre quotato, null non quotato, terminatori CRLF;
 le stringhe vuote e di soli spazi non diventano più null, i campi quotati

@@ -502,3 +502,31 @@ fn separatori_bom_multilinea_e_vuoti_finali() {
     assert_eq!(reader.quoted, vec![true]);
     assert!(!reader.read_record(&mut record).unwrap());
 }
+
+#[test]
+fn coordinate_non_finite_non_diventano_punti_vuoti() {
+    for (x, y) in [
+        ("NaN", "NaN"),
+        ("NaN", "2"),
+        ("1", "NaN"),
+        ("inf", "2"),
+        ("1", "-inf"),
+        ("1e999", "2"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input.csv");
+        std::fs::write(&path, format!("x,y\n{x},{y}\n")).unwrap();
+        let result = CsvDriver.open(
+            Source::Path(path),
+            read_opts(&[("x_column", "x"), ("y_column", "y")]),
+        );
+        match result {
+            Err(error) => assert!(error.message.contains("coordinate CSV non finite")),
+            Ok(ds) => {
+                let mut reader = ds.open_layer_reader(&req(1)).unwrap();
+                let error = reader.next_batch().unwrap_err();
+                assert!(error.message.contains("coordinate CSV non finite"));
+            }
+        }
+    }
+}

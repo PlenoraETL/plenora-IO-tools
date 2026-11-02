@@ -300,3 +300,30 @@ fn le_durate_non_sono_istanti_e_restano_un_rifiuto() {
         errore.message
     );
 }
+
+#[test]
+fn temporali_controllati_prima_della_conversione_e_null_preservati() {
+    let invalid: Vec<ArrayRef> = vec![
+        Arc::new(Date64Array::from(vec![-1, 1])),
+        Arc::new(Time32SecondArray::from(vec![-1, 86_400])),
+        Arc::new(Time32MillisecondArray::from(vec![-1, 86_400_000])),
+        Arc::new(Time64MicrosecondArray::from(vec![-1, 86_400_000_000])),
+        Arc::new(Time64NanosecondArray::from(vec![-1, 86_400_000_000_000])),
+    ];
+    for array in invalid {
+        for row in 0..2 {
+            assert!(json_from_array(&array, row).is_err());
+            assert!(cell_string(&array, row).is_err());
+        }
+    }
+    for kind in [
+        DataType::Date64,
+        DataType::Time32(TimeUnit::Second),
+        DataType::Time64(TimeUnit::Nanosecond),
+    ] {
+        let array = arrow_array::new_null_array(&kind, 1);
+        assert_eq!(json_from_array(&array, 0).unwrap(), JsonValue::Null);
+    }
+    assert_eq!(testo(Time32SecondArray::from(vec![0])), "00:00:00");
+    assert_eq!(testo(Date64Array::from(vec![-86_400_000])), "1969-12-31");
+}

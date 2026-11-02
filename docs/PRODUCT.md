@@ -92,7 +92,10 @@ quoting: `dtype=str` da solo non basta; `keep_default_na=False` conserva il test
 ma non ricostruisce la validità originale. [Excel](https://support.microsoft.com/en-us/excel/keeping-leading-zeros-and-large-numbers)
 richiede importazione come testo per conservare zeri iniziali e numeri lunghi.
 Non affidare a un'apertura e successivo salvataggio in Excel la conservazione di null, stringhe vuote e tipi: usare uno
-schema e un formato tipizzato (Arrow IPC) per lo scambio esatto. Un sentinel null
+schema e un formato tipizzato (Arrow IPC) per lo scambio esatto.
+Il sentinel `NA` usato da R viene letto da IO come stringa `"NA"`, anche
+quando in R rappresentava un valore mancante: e' un limite di interoperabilita',
+non un null riconosciuto automaticamente. Un sentinel null
 non è stato scelto perché collide con testo legittimo e richiede escaping privato.
 
 ### Determinismo
