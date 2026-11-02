@@ -156,6 +156,14 @@ POSTI: dict[str, tuple[str, str]] = {
 #: regola generale: un'eccezione che si estende da sola smetterebbe di vedere
 #: un campo davvero obbligatorio che il modello ha dimenticato.
 OPZIONALI_PER_ELEMENTO: dict[str, str] = {
+    ".result.write_loss.esempi[].field_index": (
+        "Posizione omette gli indici assenti; le normalizzazioni dello schema "
+        "GeoPackage riguardano il layer, senza un campo specifico."
+    ),
+    ".result.write_loss.esempi[].layer_index": (
+        "Posizione rende facoltativo anche il layer: un esempio puo' descrivere "
+        "una perdita senza localizzazione, senza inventare un indice zero."
+    ),
     ".result.operations[].attributes": (
         "CAPABILITY-DISCOVERY-2.0 lo rende facoltativo per operazione, e oggi "
         "solo `io.read` lo porta; il modello lo dichiara in `_OPZIONALI`."

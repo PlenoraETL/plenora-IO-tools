@@ -22,6 +22,7 @@ from plenora_io import (
     Layer,
     Layers,
     LayerSummary,
+    LossExample,
     Omissions,
     ProtocolError,
     ResultLookupError,
@@ -260,6 +261,32 @@ def layers_sano(**modifiche):
     }
     documento.update(modifiche)
     return documento
+
+
+class GliEsempiDiPerdita(unittest.TestCase):
+    def test_perdita_di_schema_senza_campo_e_posizione_assente(self) -> None:
+        esempio = dict(category="gpkg_schema_normalized", context="schema")
+        globale = LossExample.from_json(esempio)
+        self.assertIsNone(globale.field_index)
+        self.assertIsNone(globale.layer_index)
+        layer = LossExample.from_json(dict(esempio, layer_index=2))
+        self.assertEqual(layer.layer_index, 2)
+        self.assertIsNone(layer.field_index)
+        for campo in ("field_index", "layer_index"):
+            for invalido in (None, "0", True):
+                with self.subTest(campo=campo, invalido=invalido), self.assertRaises(ProtocolError):
+                    LossExample.from_json(dict(esempio, **{campo: invalido}))
+
+    def test_classe_del_tipo_opzionale_preservata_e_validata(self) -> None:
+        esempio = dict(category="csv_type_erased", context="", field_index=0, layer_index=0)
+        self.assertIsNone(LossExample.from_json(esempio).type_class)
+        self.assertEqual(
+            LossExample.from_json(dict(esempio, type_class="temporal")).type_class,
+            "temporal",
+        )
+        for invalido in (None, 1, True, []):
+            with self.subTest(invalido=invalido), self.assertRaises(ProtocolError):
+                LossExample.from_json(dict(esempio, type_class=invalido))
 
 
 class LaSezioneDiFedelta(unittest.TestCase):

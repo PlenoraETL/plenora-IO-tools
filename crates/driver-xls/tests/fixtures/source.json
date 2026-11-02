@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/tafia/calamine/issues/706",
+  "retrieved": "2026-11-02",
+  "origin": "Trimmed xl/workbook.xml from a real Excel-for-Mac file, as reported by the issue author",
+  "adaptations": [
+    "Expanded root namespace declarations omitted by the report",
+    "Renamed sheet S to Sheet1 to match the test container"
+  ]
+}

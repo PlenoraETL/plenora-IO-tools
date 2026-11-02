@@ -746,3 +746,27 @@ fn empty_geometry_does_not_invent_xy_dimensions() {
     };
     assert!(kml_geometry_from_wkb(&empty).is_err());
 }
+
+#[test]
+fn coordinate_testuali_non_finite_sono_rifiutate() {
+    for coordinates in ["NaN,NaN", "inf,2", "1,-inf", "1,2,NaN"] {
+        for geometry in [
+            format!("<Point><coordinates>{coordinates}</coordinates></Point>"),
+            format!("<LineString><coordinates>0,0 {coordinates}</coordinates></LineString>"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("input.kml");
+            std::fs::write(
+                &path,
+                format!("<kml><Placemark>{geometry}</Placemark></kml>"),
+            )
+            .unwrap();
+            assert!(
+                KmlDriver
+                    .open(Source::Path(path), opzioni_lettura())
+                    .is_err(),
+                "{geometry}"
+            );
+        }
+    }
+}

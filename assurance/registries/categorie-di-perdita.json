@@ -5,6 +5,21 @@
   "limite_di_lunghezza_byte": 128,
   "categorie": [
     {
+      "id": "gpkg_incompatible_storage_discarded",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "gpkg_invalid_utf8_replaced",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "gpkg_schema_normalized",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
       "id": "geometry_bbox_not_preserved",
       "superficie": "plenora-io-core",
       "forma": "literal"
@@ -112,11 +127,6 @@
     {
       "id": "gpkg_real_column_integer_precision_unverifiable",
       "superficie": "driver-gpkg",
-      "forma": "costante"
-    },
-    {
-      "id": "dbf_numeric_integer_precision_unverifiable",
-      "superficie": "driver-shp",
       "forma": "costante"
     },
     {

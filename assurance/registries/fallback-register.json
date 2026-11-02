@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 186,
+  "totale": 200,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
       "ragione": "nome diagnostico e messaggi delle sonde: `unwrap_or_else(|errore| panic!(...))` dice quale campione fra molti ha fallito e con quale errore. Il parser progressivo WKT non ne ha nessuno, ed e' voluto: la dimensionalita' di un aggregato la decide il primo elemento, non un valore di ripiego"
     },
     "driver-csv": {
-      "conteggio": 2,
-      "ragione": "delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton"
+      "conteggio": 3,
+      "ragione": "delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton; nel lettore rigoroso (wire.rs) `position(..).unwrap_or(buffer.len())` indica che nel buffer non c'e' alcun byte di stato (virgolette, delimitatore, CR/LF): si copia l'intero buffer, nessun valore sostitutivo"
     },
     "driver-dxf": {
       "conteggio": 8,
@@ -28,8 +28,8 @@
       "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza; tre nelle prove (Q2 e, dalla 4.2.0, `tests/fork_parquet.rs`), dove un payload che non e' UTF-8 diventa «(payload non testuale)» dentro il messaggio d'asserzione: li' l'assenza di testo e' la risposta, non un ripiego su un valore; dodici nelle prove dei decoder portate da data-tools2 (`tests/parquet_decoder.rs`, PR #53): cinque `unwrap_or_else` trasformano panici catturati in `panic!` con il motivo, uno segnala un seme assente, uno trasforma un normale errore di lettura in panico, uno restituisce il ripiego diagnostico `(payload non testuale)`, tre tolgono il prefisso «Parquet argument error: » prima del confronto del messaggio e uno codifica il primo valore di un blocco DELTA sintetico vuoto come 0: nessuno ripiega su un valore in un percorso di prodotto. Dalla rilettura 13 uno in piu' (18 -> 19): in `metadati::crs_della_primaria` un `crs` omesso diventa il testo vuoto, che nessun valore JSON e': e' il segno dell'assenza nel confronto fra il `geo` del footer e quello dello schema incorporato, non un ripiego su un valore"
     },
     "driver-gpkg": {
-      "conteggio": 3,
-      "ragione": "`undefined` richiesto dalla tabella SRS quando manca WKT; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti Adozione Arrow Geometry Semantics 1.0: in `register_srs` `srid.unwrap_or(code)` usa come srs_id il codice dell'autorita' quando il layer non dichiara uno SRID numerico, ed e' la convenzione GeoPackage per le righe EPSG; le collisioni di srs_id con un altro CRS si rifiutano a parte. Rilettura 11: tolto il ripiego del `RawCrs` (definizione o, in mancanza, l'identificatore) nel rifiuto di un codice non canonico, che ora e' `unsupported` e non porta il CRS."
+      "conteggio": 6,
+      "ragione": "`undefined` richiesto dalla tabella SRS quando manca WKT; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti Adozione Arrow Geometry Semantics 1.0: in `register_srs` `srid.unwrap_or(code)` usa come srs_id il codice dell'autorita' quando il layer non dichiara uno SRID numerico, ed e' la convenzione GeoPackage per le righe EPSG; le collisioni di srs_id con un altro CRS si rifiutano a parte. Rilettura 11: tolto il ripiego del `RawCrs` (definizione o, in mancanza, l'identificatore) nel rifiuto di un codice non canonico, che ora e' `unsupported` e non porta il CRS.; due nelle nuove prove storage/UTF-8: categoria assente dal report equivale a zero occorrenze, confrontato con il conteggio atteso; dal 2026-11-02 uno in piu' (5 -> 6, PR #82): in `affinity::is_sqlite_numeric_literal`, `split('\\0').next().unwrap_or_default()` prende il prefisso prima del NUL, come SQLite. `split` restituisce sempre almeno un elemento anche sul testo vuoto: il default e' difensivo e irraggiungibile, non sostituisce un valore del prodotto; il prefisso viene usato solo per rifiutare testi che l'affinita' NUMERIC convertirebbe, senza modificare il dato"
     },
     "driver-ipc": {
       "conteggio": 2,
@@ -40,12 +40,12 @@
       "ragione": "nome diagnostico; eterogeneità dimensionale → `Unknown`; geometrie vuote sono rifiutate. **Dal 2026-09-08 i due ripieghi sul testo estratto non ci sono più**: rendevano leggibile con escape ASCII il testo quando `decode()` falliva, e con `quick-xml 0.42` quel fallimento non può avvenire lì — il lettore valida UTF-8 in ingresso e la transcodifica dalla codifica dichiarata avviene prima, in `DecodingReader`. Non è una degradazione tolta per scelta estetica: è una degradazione diventata irraggiungibile, e tenerla sarebbe stato codice morto che il registro contava come difesa. Il contratto delle codifiche che quei ripieghi coprivano di fatto è ora fissato da `le_codifiche_accettate_restano_quelle`, che lo prova invece di ripiegarci sopra."
     },
     "driver-shp": {
-      "conteggio": 6,
-      "ragione": "nome diagnostico; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore dei semi di `shp_reader`, che e' il modo in cui quel modulo di test dice «questo seme doveva esserci», e due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, dove l'assenza del carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo arriva in fondo, nessun byte diverso da spazio vuol dire che e' vuoto. Nessuna delle tre e' una degradazione a un default Dal 2026-09-07 anche l'`unwrap_or(11)` che cerca il terminatore del nome di un campo DBF nelle sonde: era scritto `map_or(11, |p| p)`, che e' la stessa cosa in due parole in piu', e clippy 1.98 lo dice. Il fallback c'era gia'; a cambiare e' la forma con cui si scrive, e il censimento conta le forme. Dal 24/10 uno in meno (7 -> 6): l'`unwrap_or_default` di `crs_kind`, la stringa vuota della classificazione per sottostringhe, e' tolto con la funzione; il genere lo decide `plenora_io_model::crs::crs_kind_for` sulla radice letta."
+      "conteggio": 9,
+      "ragione": "nome diagnostico; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore dei semi di `shp_reader`, che e' il modo in cui quel modulo di test dice «questo seme doveva esserci», e due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, dove l'assenza del carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo arriva in fondo, nessun byte diverso da spazio vuol dire che e' vuoto. Nessuna delle tre e' una degradazione a un default Dal 2026-09-07 anche l'`unwrap_or(11)` che cerca il terminatore del nome di un campo DBF nelle sonde: era scritto `map_or(11, |p| p)`, che e' la stessa cosa in due parole in piu', e clippy 1.98 lo dice. Il fallback c'era gia'; a cambiare e' la forma con cui si scrive, e il censimento conta le forme. Dal 24/10 uno in meno (7 -> 6): l'`unwrap_or_default` di `crs_kind`, la stringa vuota della classificazione per sottostringhe, e' tolto con la funzione; il genere lo decide `plenora_io_model::crs::crs_kind_for` sulla radice letta.; integrazione PR #81: tre occorrenze aggiuntive in `dbf_fidelity`: il nome della codifica originale quando manca il prefisso WINDOWS-/CP, tutti gli 11 byte del descrittore quando manca NUL e il testo originale quando manca il segno iniziale. Sono confini espliciti del formato DBF, non valori sostitutivi dei campi"
     },
     "driver-xls": {
-      "conteggio": 3,
-      "ragione": "cella non interpretabile; nome diagnostico; cornice degenere quando la scansione dei limiti non osserva nemmeno una cella",
+      "conteggio": 10,
+      "ragione": "cella non interpretabile; nome diagnostico; cornice degenere quando la scansione dei limiti non osserva nemmeno una cella; integrazione PR #83: sette occorrenze aggiuntive. Sei in `date_native`: il riporto zero nella conversione u128/u64 e' irraggiungibile nel dominio Excel gia' validato; relazione e target assenti diventano stringhe vuote e causano rifiuto del part ZIP; numFmtId/formatCode assenti e stile non trovato non classificano la cella come solo data/ora. Una nella prova delle 100.000 date sceglie il campione pseudocasuale dopo i valori di confine, senza influire sul percorso di prodotto",
       "revisione_h01": {
         "occorrenza": "`limiti_osservati` in `crates/driver-xls/src/lib.rs`: quando la scansione non osserva nemmeno una cella restituisce la cornice degenere `(0,0)-(0,0)`.",
         "esito": "ratificata il 2026-09-04",

@@ -108,13 +108,7 @@ pub fn planned_write_loss(
                     capabilities.type_coercion,
                     TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
                 );
-            let kml_scalar_to_text = descriptor.id() == "kml" && type_class != ArrowTypeClass::Utf8;
-            let gpkg_type_normalization = descriptor.id() == "gpkg"
-                && !matches!(
-                    field.data_type(),
-                    DataType::Int64 | DataType::Float64 | DataType::Utf8 | DataType::Binary
-                );
-            if unsupported_text_coercion || kml_scalar_to_text || gpkg_type_normalization {
+            if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
                 loss.record("coercion tipo attributo", 1);
                 loss.add_example(LossExample {
                     category: "coercion tipo attributo".to_owned(),
@@ -129,6 +123,19 @@ pub fn planned_write_loss(
         }
     }
     Ok(loss)
+}
+
+/// I formati senza schema Arrow dichiarano anche la normalizzazione dei tipi nativi.
+fn normalizza_tipo(formato: &str, tipo: &DataType) -> bool {
+    match formato {
+        "csv" => *tipo != DataType::Utf8,
+        "kml" => crate::capabilities::arrow_type_class(tipo) != ArrowTypeClass::Utf8,
+        "gpkg" => !matches!(
+            tipo,
+            DataType::Int64 | DataType::Float64 | DataType::Utf8 | DataType::Binary
+        ),
+        _ => false,
+    }
 }
 
 /// Le fonti che il **piano** mette a disposizione della derivazione.

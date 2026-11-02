@@ -241,7 +241,7 @@ def scrivi_csv(percorso: pathlib.Path) -> None:
                     "" if r["misura"] is None else repr(r["misura"]),
                     "" if r["attivo"] is None else ("true" if r["attivo"] else "false"),
                     r["istante"],
-                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"',
+                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"' if r["geometria"] else "",
                 ]
             )
         )
@@ -292,7 +292,7 @@ def scrivi_csv_filegdb(percorso: pathlib.Path) -> None:
                     "" if r["etichetta"] is None else f'"{r["etichetta"]}"',
                     "" if r["misura"] is None else repr(r["misura"]),
                     r["istante"],
-                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"',
+                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"' if r["geometria"] else "",
                 ]
             )
         )
@@ -686,10 +686,10 @@ def scrivi_geojson_dbf(percorso: pathlib.Path) -> None:
     non entra nel DBF e' una richiesta che il formato non puo' soddisfare, non
     una perdita da dichiarare.
 
-    Un rifiuto pero' non prova che la conversione riesca quando deve, e una
-    coppia in cui l'unico caso e' il rifiuto lascerebbe non provato tutto il
-    resto del percorso -- geometria, attributi, CRS. Questa fixture chiude
-    quella meta': stessi record, stesso CRS, e un solo nome accorciato.
+    Stessi record e CRS, con un solo nome accorciato: resta pero' 2^53+1,
+    che il passaggio numerico DBF attraverso f64 non rappresenta. Il test
+    verifica questo secondo rifiuto e poi usa una copia temporanea con 2^53
+    per provare il percorso riuscito, confrontando anche l'intero scritto.
     """
     import json
 

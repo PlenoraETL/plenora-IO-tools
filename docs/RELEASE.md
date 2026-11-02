@@ -1317,7 +1317,7 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## Note della prossima release
+## Note della prossima release — CHANGELOG non rilasciato
 
 Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
 alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
@@ -1325,6 +1325,284 @@ la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
 numero di versione, `__version__` e il README dell'SDK si allineano al momento
 del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
 [GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
+
+### ZIP: dipendenze aggiornate
+
+Aggiornati `zip` a 9.0.3, `calamine` a 0.37.0 e `rust_xlsxwriter` a
+0.100.0; i grafi del workspace e di fuzz usano la sola versione ZIP 9.0.3.
+Ritirata l'eccezione per ZIP 8.6.0 yanked, senza ampliare le eccezioni di
+sicurezza. Restano le verifiche dei limiti e la prevalidazione dei contenitori.
+
+### Shapefile/DBF: fedelta' dei valori
+
+Corretto un difetto silenzioso della scrittura Shapefile: il testo oltre 254
+byte veniva troncato, anche nel mezzo di un carattere UTF-8; i numeri potevano
+perdere cifre passando a `f64`, essere arrotondati a otto decimali o troncati
+alla larghezza del campo. L'operazione restituiva successo senza dichiarare
+la perdita originaria. Ora questi valori sono rifiutati prima della scrittura
+del batch; anche dopo batch precedenti validi, `finish` non pubblica nulla.
+L'header dichiarava gia' UTF-8 (LDID 0xF0); ora viene pubblicato anche il
+`.cpg` con contenuto `UTF-8`. Anche un `Date64` non multiplo
+di un giorno viene rifiutato anziche' perdere la frazione temporale.
+
+Sono inoltre rifiutati i Character vuoti, con spazi iniziali/finali o NUL;
+i Float32 non diadici (per esempio 0.1f32), la cui promozione esatta a f64
+non torna identica dopo il rendering a otto decimali, sono rifiutati.
+In lettura N/F vengono confrontati con il testo decimale originale: F non
+passa piu' da f32 e una perdita decimale comporta rifiuto, senza promozione
+implicita a Decimal. Gli spazi iniziali Character sono conservati, quelli
+finali sono padding; il NUL e' rifiutato. La decodifica usa `.cpg` prima
+dell'LDID, senza replacement; codepage sconosciute o byte non decodificabili
+sono rifiutati. LDID 0 senza `.cpg` ammette solo ASCII; 0x57 usa Latin-1.
+
+Versioni verificate con `git show <tag>:crates/driver-shp/src/lib.rs` e
+`git show <tag>:Cargo.lock`: v0.1.0-rc.1, v0.1.0-rc.2, v0.1.0-rc.3,
+v0.1.0-rc.4, v1.0.0-rc.1, v1.0.0-rc.2, 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
+4.1.1, 5.0.0, 5.0.1 e 6.0.0. Tutte hanno larghezze 254, 18/0 e 20/8 e
+conversione numerica tramite `as_f64`. Il troncamento della dipendenza e'
+confermato per 3.0.0–6.0.0 (`dbase 0.8.0`, `writing.rs`, `field/types.rs`);
+per 1.x–2.x (`dbase 0.5.0`) resta presunto, non riprodotto. La perdita di
+precisione della conversione intera e' gia' visibile nel codice di tutti i tag.
+
+Per controllare file gia' scritti, confrontare con la sorgente originale i
+byte dei campi DBF, usando offset e larghezze dei descrittori nell'header:
+decodificare il testo nella codepage dichiarata, confrontare gli interi come
+testo decimale esatto e i numeri a scala otto con i valori originali. Controllare
+in particolare testi lunghi/multibyte, interi oltre 2^53, frazioni oltre otto
+decimali e numeri al limite della larghezza (segno e punto compresi).
+Un campo pieno o UTF-8 invalido e' un indizio, non una prova completa: senza
+la sorgente non si possono ricostruire i suffissi o le cifre perdute. Il solo
+round-trip e il report di rischio in lettura non certificano la fedelta' della
+scrittura precedente. Rigenerare dalla sorgente con la versione corretta.
+
+### CSV e temporali condivisi: cambiamento incompatibile
+
+Difetto silenzioso: null e stringa vuota erano scritti come lo stesso campo;
+in lettura il trim applicato prima del ramo testuale trasformava anche soli
+spazi in null. L'inferenza reinterpretava testo numerico e booleano senza
+confrontarne la grafia, perdendo per esempio zeri iniziali e spazi.
+
+Verifica statica ripetuta con `git show <tag>:crates/driver-csv/src/lib.rs`
+e `git show <tag>:crates/driver-common/src/lib.rs`: presenti in **tutti i tag**
+locali: v0.1.0-rc.1–rc.4, v1.0.0-rc.1–rc.2, v1.0.0, v1.0.1, v2.0.0,
+v3.0.0, v4.0.0, v4.1.0, v4.1.1, v5.0.0, v5.0.1 e v6.0.0.
+L'evidenza è il ramo null del writer (`write_field("")`, o stringa vuota nel
+convertitore) e `trimmed.is_empty()`/`trim().is_empty()` del builder condiviso;
+La riproduzione dinamica a valore e' stata eseguita su v6.0.0; per gli altri
+tag citati l'evidenza resta statica, non una riproduzione dinamica.
+
+**Altri difetti silenziosi preesistenti (v2.0.0-v6.0.0, riprodotti a valore
+su v6.0.0):** Date64 non allineati al giorno perdevano i millisecondi;
+`testo_orario` rendeva orari fuori intervallo come testo invalido. Per esempio,
+Date64=1 diventava `1970-01-01`, Time32s=86400 `24:00:00` e Time64ns=-1
+`00:00:-1.999999999`, senza errore anche in IPC -> XLSX, GeoJSON e KML.
+La correzione e' nel convertitore comune usato anche da DXF, SHP e CSV,
+non piu' nel solo CSV. NaN/inf e Float16 nel writer CSV potevano produrre
+valori non fedeli (anche null dal fallback), anziche' un rifiuto esplicito;
+i nuovi rifiuti correggono questi difetti, non sono soltanto incompatibilita'.
+Anche le coordinate CSV X/Y non finite sono ora rifiutate: `NaN,NaN`
+veniva codificato come WKB NaN/NaN, cioe' POINT EMPTY, perdendo il valore
+originale. La verifica degli altri ingressi testuali ha riprodotto lo stesso
+problema in KML sul sorgente corrente: ora sono controllate anche X/Y/Z
+di punti, linee e anelli KML. XLSX, WKT, GeoJSON e DXF hanno gia' controlli
+per le coordinate non finite. Le prove distinguono attributi testuali `"NaN"`, tuttora conservati,
+da numeri o coordinate non rappresentabili.
+
+**Incompatibile:** testo sempre quotato, null non quotato, terminatori CRLF;
+le stringhe vuote e di soli spazi non diventano più null, i campi quotati
+forzano Utf8 e l'inferenza numerica esige identità lessicale. Quoting malformato,
+vuoti geometrici presenti e separatori virgolette/CR/LF sono rifiutati. I tipi
+Arrow privi di codifica dichiarata sono rifiutati già nel piano; gli scalari e
+i temporali scrivibili dichiarano la perdita del tipo originale (anche del
+fuso per i timestamp resi in UTC). Date64 non allineati al giorno e orari
+fuori intervallo sono rifiutati anziché troncati. NaN e inf vengono rifiutati senza pubblicazione. Anche `InferredColumnBuilder::append_csv_cell` richiede che il chiamante
+decida la presenza e chiami `append_null`: vuoti e spazi testuali sono valori. Il contratto
+e l'inventario completo sono in [PRODUCT.md](PRODUCT.md#csv-presenza-testo-e-tipi).
+
+**File già prodotti:** conservare gli originali, senza aprirli e risalvarli
+in un foglio elettronico. Confrontare con la sorgente tipizzata validità e
+valore di ogni cella testuale, inclusi campi vuoti/di soli spazi, identificativi
+con zeri iniziali e notazione numerica. Nel CSV vecchio un campo vuoto non
+consente di stabilire se fosse null oppure stringa vuota: il file da solo non
+permette il recupero. Occorre rigenerarlo dalla sorgente o dal backup. Se è
+stata effettuata una precedente lettura/conversione, confrontare anche schema,
+zeri iniziali, spazi, notazione e booleani; aggiornare il reader non ripristina
+informazione già persa. Per scambi che devono mantenere anche lo schema usare
+Arrow IPC. Le due fixture canoniche CSV e il loro generatore ora codificano la geometria null
+con campo vuoto non quotato, aggiornandone i digest. Il registro dei
+quartetti aggiunge il rifiuto anticipato Unsupported/Validate dei tipi
+attributo non rappresentabili. Il sito condiviso `validate_temporal_cell`
+aggiunge il quartetto `Schema/Validate/Schema/Never`: e' il rifiuto dei
+Date64 e degli orari non rappresentabili prima della conversione in testo,
+ora registrato anche dopo l'unione delle correzioni CSV e XLSX. L'SDK Python
+espone il campo opzionale `LossExample.type_class` dichiarato dal protocollo,
+conservando la classe del tipo negli esempi di perdita CSV. Gli indici degli
+esempi restano opzionali come in `Posizione`: le nuove normalizzazioni dello
+schema GPKG senza campo specifico si leggono anche tramite SDK, senza
+inventare un indice e senza rifiutare una risposta valida. Le prove nuove confrontano byte attesi indipendenti dal writer,
+validità/valore, loss report e mancata pubblicazione per i rifiuti.
+
+La modifica al builder condiviso invalida le precedenti misure di profondità
+`wkt_parse` e `shp_reader`: prima della qualifica occorre rieseguire
+`bash scripts/fuzz-profondita.sh wkt_parse` e
+`bash scripts/fuzz-profondita.sh shp_reader` con la toolchain fissata.
+Non si aggiornano le impronte senza una nuova misura.
+
+### GeoPackage: perdite silenziose di valori e schema
+
+Versioni colpite: **0.1.0-rc.1, 0.1.0-rc.2, 0.1.0-rc.3, 0.1.0-rc.4,
+1.0.0-rc.1, 1.0.0-rc.2, 1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0, 4.1.1,
+5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-gpkg/src/lib.rs` su ciascuno dei sedici tag:
+i rami che scartavano storage incompatibili, `String::from_utf8_lossy`,
+l'esclusione della PK, gli attributi sempre nullable, la nuova `fid` e
+`geometry_types.first()` sono presenti in tutti. Le prove eseguibili della
+correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs` e
+`crates/driver-gpkg/src/tests/affinity.rs`.
+
+- Lo zero negativo `-0.0` perdeva silenziosamente il segno: in scrittura
+  Float16/32/64 verso REAL (anche FLOAT/DOUBLE), per la memorizzazione SQLite
+  come intero zero; in lettura REAL verso Int64, anche per BOOLEAN e gli altri
+  tipi interi. I sedici tag contengono il binding REAL senza controllo del
+  segno e il cast `r as i64` senza segnalazione per `-0.0`. Ora la scrittura
+  rifiuta il valore; la lettura conta `gpkg_integer_column_real_truncated`
+  anche per il segno dello zero perso. `+0.0` resta accettato senza perdita.
+  Il segno gia' perso non e' recuperabile dal risultato: confrontare i bit
+  con la sorgente originale.
+
+La conservazione di `gpkg.declared_type` introdotta dalla PR #82 aveva inoltre
+un difetto nuovo, non attribuito ai tag: DATE/DATETIME su Utf8 applicavano
+affinita' NUMERIC, convertendo testi come `007`, `1e3` o `1.50` in numeri.
+Ora ogni valore non nullo viene controllato, anche con metadati minuscoli:
+la dichiarazione si conserva solo per testi che SQLite lascia TEXT; un
+letterale numerico ben formato causa il rifiuto della scrittura. La scelta
+evita di modificare lo schema a meta' di uno stream o di dichiarare conservato
+un tipo normalizzato. Non si usa CAST, che accetterebbe anche prefissi numerici.
+La matrice nei test copre tutte le tredici dichiarazioni ammesse e tutti i tipi
+Arrow scrivibili, con le cinque affinita' SQLite; gli abbinamenti incompatibili
+sono rifiutati prima del DDL. Le fixture verificano storage e valori con SQLite
+diretto, incluso REAL `-0.0` ottenuto senza conversione tramite `writable_schema`.
+
+- Storage SQLite incompatibili con il tipo dichiarato diventavano NULL senza
+  report. Ora ogni valore scartato conta in
+  `gpkg_incompatible_storage_discarded`; un NULL originale non conta. Se il
+  vincolo NOT NULL rende impossibile il batch, la lettura fallisce.
+- Testo SQLite con UTF-8 invalido veniva sostituito senza report. Ora conta in
+  `gpkg_invalid_utf8_replaced`; un U+FFFD realmente presente resta distinto
+  nel report. Gli esempi riportano posizione e causa, mai dati delle righe.
+- La lettura espone ora anche la PK INTEGER come attributo non nullable con
+  `gpkg.primary_key=true`; la riscrittura ne conserva i valori (anche 10/100),
+  anziche' generarne altri. Conserva NOT NULL e i tipi dichiarati riconosciuti
+  tramite `gpkg.declared_type`, validato prima di creare il file. BOOLEAN usa
+  Int64 nel batch e DATE/DATETIME Utf8, mantenendo la dichiarazione SQL nel
+  metadato. I tipi non riconosciuti e le parti SQL non ricostruite (default,
+  vincoli ulteriori, indici, trigger) producono `gpkg_schema_normalized` con
+  ragione strutturale; anche il riordino (geometria prima, PK ultima) viene
+  dichiarato quando avviene. Le colonne generate conservano i valori, con
+  perdita della regola SQL dichiarata. Chi consumava uno schema senza PK deve tenere conto
+  della colonna aggiuntiva. La chiave composta o diversa da un singolo
+  INTEGER viene rifiutata. Senza metadato di PK nel contratto il writer genera
+  una chiave nuova, scegliendo un nome che non collide con gli attributi.
+- Un contratto con piu' tipi geometrici scrive `GEOMETRY` in
+  `gpkg_geometry_columns`, senza dichiarare il solo primo tipo. La rilettura
+  ricava i tipi osservati. Resta il rifiuto delle geometrie multiple per tabella:
+  un insieme di tipi nella stessa colonna non e' un insieme di colonne.
+
+Le normalizzazioni gia' dichiarate per Boolean/interi stretti/unsigned/float
+stretti in scrittura non sono nuovi difetti e restano segnalate dal modello
+comune delle perdite pianificate.
+
+**Controllare i file gia' prodotti.** Conservare una copia e confrontarla con
+la sorgente originale: NULL e U+FFFD sostitutivi, chiavi rigenerate, dichiarazioni
+e vincoli eliminati non sono ricostruibili dal solo risultato. Per ogni feature
+table leggere `PRAGMA table_xinfo(...)`, i valori della PK e `typeof(...)` degli
+attributi; confrontare NULL, testo e byte con gli originali. In particolare,
+TEXT/BLOB in colonne numeriche, BLOB in TEXT e valori non BLOB in BLOB richiedono
+una nuova lettura con il driver corretto e controllo del report. Un NULL nel
+vecchio risultato da solo non prova che fosse NULL nella sorgente. Verificare
+il testo originale come byte, per distinguere UTF-8 invalido da `EF BF BD`.
+Confrontare anche default, CHECK, UNIQUE, chiavi esterne, indici e trigger nel
+catalogo SQLite: NOT NULL e PK da soli non descrivono tutti i vincoli.
+
+Per geometrie miste, confrontare **tutte** le geometrie con
+`gpkg_geometry_columns.geometry_type_name`: l'intestazione del vecchio file puo'
+affermare POINT pur contenendo LineString. Riconvertire dalla sorgente con un
+contratto che dichiara tutti i tipi; correggere soltanto il metadato non recupera
+attributi o identita' gia' perduti. Controllare ogni layer e ogni report, non
+soltanto il successo del comando o il numero di righe.
+
+### XLSX: date native leggibili e perdite silenziose corrette
+
+Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
+4.1.1, 5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-xls/src/lib.rs` su ogni tag: `write_cell`
+convertiva il numero con `as_f64()` senza controllo di esattezza; il mapping
+(e, dove presente, lo spool) mandava date seriali ed errori nel ramo null.
+Gli stessi percorsi esistono nelle prerelease `v0.1.0-rc.1`,
+`v0.1.0-rc.2`, `v0.1.0-rc.3`, `v0.1.0-rc.4`, `v1.0.0-rc.1` e
+`v1.0.0-rc.2`. Nella 2.0.0 e 3.0.0 il riferimento a `Data::Error`
+compare anche in un test che pretendeva proprio null, non in una difesa.
+
+- Scrittura: gli interi fuori da **[-2^53, 2^53]** sono ora rifiutati
+  prima di pubblicare il file. Per esempio 9007199254740993 diventava
+  9007199254740992 senza perdita dichiarata. Il limite e' conservativo:
+  fuori dall'intervallo esistono interi esatti in binary64, ma anche la resa
+  decimale XML del writer puo' cambiare l'intero (per esempio i64::MIN).
+  Float32 viene ampliato esattamente a Float64; i float finiti conservano il
+  valore binario nella rilettura. Il formatter `ryu` usa notazione esponenziale
+  per i float estremi, evitando numeri XML di centinaia di cifre.
+  Decimali e float non finiti restano rifiutati. U+FFFE e U+FFFF sono
+  rifiutati in scrittura: gli escape del writer non tornano identici con
+  il decoder calamine corrente.
+- Lettura: `Data::DateTime` ora produce Date32 per formato solo data e
+  seriale intero, Timestamp(Microsecond, None) per data/ora, oppure
+  Duration(Microsecond) per stili durata come `[h]:mm:ss`. L'epoca 1900/1904
+  viene letta direttamente da `workbook/workbookPr` nel namespace principale
+  SpreadsheetML (booleani XML `1`, `true`, `0`, `false`); l'estensione
+  `x15:workbookPr` di Excel non puo' sovrascriverla. Anche fogli, relazioni,
+  formati, stili e celle sono selezionati per namespace e percorso XML.
+  I formati incorporati CJK 27-36 e 50-58 sono riconosciuti, inclusi quelli
+  orari 32/33/55/56. Un seriale in [0,1) con formato solo ora produce
+  Time64(Microsecond), in entrambi i calendari. Nel 1900 i giorni 1-59 sono
+  mappati esattamente; [0,1) con formato data e il falso 29/02/1900
+  (intervallo [60,61)) sono rifiutati. Nel 1904 il giorno zero e' 1904-01-01. Seriali negativi,
+  non finiti o oltre il 9999-12-31 sono rifiutati.
+- Precisione Excel al millisecondo: si calcola il candidato ms dal seriale
+  binary64 con decodifica IEEE esatta e arrotondamento razionale al piu'
+  vicino (round-half-even). Dal rapporto canonico ms/86_400_000 si ricava
+  il binary64 con arrotondamento razionale; si accettano i suoi bit oppure
+  quelli ottenuti stampandolo a 15, 16 o 17 cifre significative e rileggendolo
+  come f64. Il confronto e' esatto, senza tolleranze: riconosce anche le
+  serializzazioni di openpyxl/pandas. La stessa regola vale per ore e durate; l'unita' Arrow resta il
+  microsecondo (ms * 1000). Date32 richiede ms multiplo di 86_400_000.
+  Sono ammessi 13:17:42, 23:59:59.999, 00:00:00.001 e la durata 37:15:30.5;
+  seriali con informazione sub-ms non canonica sono rifiutati esplicitamente.
+  La precedente regola sperimentale dei microsecondi razionalmente interi
+  rifiutava anche orari Excel ordinari ed e' stata sostituita.
+- Colonne con valori temporali e altri tipi (o tipi temporali diversi) sono
+  rifiutate prima della consegna; i vuoti nella colonna restano null.
+  `Data::Error` e numeri non finiti restano rifiutati. Date/durate ISO restano
+  testo. Nessuna data nativa valida nel dominio esatto diventa null.
+
+La scrittura temporale conserva la resa ISO gia' documentata e usa la
+validazione unica di `driver-common`, condivisa con CSV: Date64 non allineati
+al giorno e orari fuori intervallo sono rifiutati. La lettura dei seriali nativi
+applica invece le regole Excel 1900/1904 descritte sopra. `planned_write_loss` non concede un
+arrotondamento implicito dei valori. I test rileggono fixture OOXML 1900 e
+1904 e confrontano esattamente i valori Arrow, inclusi vuoti ed errori.
+
+**File gia' prodotti:** conservare e confrontare la sorgente originale.
+Aprire XLSX come ZIP e confrontare gli interi sorgente con i valori `<v>`
+delle celle numeriche in `xl/worksheets/sheet*.xml`, usando un parser decimale
+esatto, non f64. Cercare anzitutto colonne Int64/UInt64 con valori fuori da
+[-2^53, 2^53]; un valore arrotondato puo' cadere proprio sul confine, quindi
+il solo output non basta a diagnosticare o recuperare il valore originario.
+Per le letture precedenti, controllare nei workbook sorgente celle `t="e"`,
+stili data/durata in `xl/styles.xml` e `date1904` in `xl/workbook.xml`;
+confrontare le celle corrispondenti negli output derivati, che possono avere
+null al posto dei valori. Rigenerare dalla sorgente dopo aver gestito
+esplicitamente le celle rifiutate. Il dato originale non si ricostruisce dal
+null o dal numero arrotondato.
 
 ### Contratti: pin `7f82263`
 

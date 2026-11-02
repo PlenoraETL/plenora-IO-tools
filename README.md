@@ -36,14 +36,9 @@ ambiente.
 
 ## Uso come libreria
 
-Finché vale l'[eccezione zip 8.6.0](assurance/registries/dependency-exceptions.json),
-un consumatore deve partire dal `Cargo.lock` distribuito nell'archivio sorgente:
-copiarlo nella radice del proprio progetto prima di eseguire `cargo run`.
-Cargo può così riusare le versioni bloccate e aggiungere il pacchetto consumatore.
-La garanzia è indebolita: non è verificata né garantita la risoluzione senza
-lockfile, perché calamine e rust_xlsxwriter richiedono ancora zip 8.x, tutte
-versioni yanked. Quando entrambi pubblicheranno versioni su zip 9, aggiorneremo
-le dipendenze e ripristineremo la prova del consumatore senza lockfile.
+Il consumatore esterno risolve le dipendenze senza copiare il `Cargo.lock`
+del workspace. Il gate della superficie Rust verifica questa costruzione
+dall'archivio sorgente.
 
 ```rust
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Source};

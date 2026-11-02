@@ -159,6 +159,71 @@ letture puramente tabellari.
 
 ## Pipeline di scrittura
 
+### Rappresentabilita' dei valori DBF
+
+Il driver Shapefile rifiuta i valori che non entrano nei campi DBF. La perdita
+pianificata in `driver/perdita_pianificata.rs` descrive coercizioni di tipo e
+metadati, non autorizza tagli o arrotondamenti di celle neppure con policy che
+accettano perdite. E' la stessa scelta dei rifiuti numerici di GeoPackage.
+Il rifiuto usa `shapefile.cell_not_representable` e la diagnostica strutturale
+di riga; nessun valore entra nel messaggio. La prevalidazione del batch precede
+il writer della dipendenza, e l'adapter comune vieta `finish` dopo un errore.
+
+| Tipi Arrow al confine DBF | Percorso e controllo |
+|---|---|
+| Int8/16/32/64, UInt8/16/32/64 | Numeric 18/0: il testo prodotto dal `f64` deve coincidere con l'intero originale e occupare al massimo 18 byte, segno compreso. Non si usa un cast inverso saturante. |
+| Float32/64 | Numeric 20/8: formattazione identica a `dbase`, massimo 20 byte; il testo deve tornare allo stesso valore binario, incluso il segno dello zero. Non finiti rifiutati. Float32 viene promosso esattamente a Float64; i non diadici come 0.1f32 sono rifiutati quando otto decimali non conservano il valore promosso. |
+| Boolean | Logical: vero, falso e null, senza passaggio numerico. |
+| Utf8 | Character 254: lunghezza in byte UTF-8, la codepage fissata dal builder e dichiarata nell'header; nessun taglio; vuoto, spazi iniziali/finali e NUL rifiutati. |
+| Date32, Date64 | Character: data civile; Date64 deve essere multiplo di 86.400.000 ms, anche prima dell'epoca. |
+| Time32(s/ms), Time64(us/ns), Timestamp(s/ms/us/ns, con/senza timezone) | Character: renderer temporale comune con tutte le cifre dell'unita', poi controllo dei 254 byte. |
+| Float16, Decimal32/64/128/256, LargeUtf8/Utf8View, Binary/LargeBinary/BinaryView/FixedSizeBinary | Celle non nulle rifiutate dal renderer comune; nessun fallback numerico o testuale approssimato. |
+| Duration, Interval, List/LargeList/FixedSizeList/ListView/LargeListView, Struct, Map, Union, Dictionary, RunEndEncoded | Non supportati: rifiuto nella capability o nel renderer, mai riduzione silenziosa. |
+| Null e celle nulle | Restano null nella rappresentazione DBF del tipo scelto; non si legge il payload di una cella nulla. |
+
+In lettura, N con decimali e F restano Float64, coerentemente con il contratto
+numerico dei driver: non si cambia implicitamente schema in Decimal. Si
+normalizzano segno, cifre ed esponente del testo originale e del rendering
+round-trip di f64; se differiscono si rifiuta. E' fedelta' decimale, non la
+pretesa che 0.1 sia una frazione binaria esatta. F viene ricostruito dai byte
+ASCII, senza utilizzare il valore f32 intermedio di dbase. Gli interi N larghi
+senza decimali mantengono il percorso i64 esatto. Il vecchio avviso
+`dbf_numeric_integer_precision_unverifiable` e' sostituito da questa verifica:
+un numero attestato non riceve un falso avviso, uno alterato viene rifiutato.
+
+Character conserva gli spazi iniziali (`TrimOption::End`); gli spazi ASCII
+finali sono convenzionalmente padding e un campo interamente padding e' null.
+Il formato non distingue null da stringa vuota: il writer rifiuta quest'ultima.
+I NUL finali sono padding: si rimuovono prima degli spazi finali. Un NUL
+seguito da byte non NUL resta rifiutato prima del parser che troncherebbe il campo.
+
+Il `.cpg` (massimo 128 byte) deve concordare con la codepage specifica
+dichiarata dall'LDID; dichiarazioni discordi sono rifiutate. LDID 0x00 e 0x57
+sono compatibili con qualunque `.cpg` supportato. Supportiamo UTF-8/65001,
+ASCII/20127, ISO-8859-1/LATIN1/28591 e Windows-1250..1258 (anche CP e numero).
+Senza `.cpg`: LDID 0xF0 = UTF-8, 0x57 = Latin-1 limitato ai byte non ambigui, 0x03 = Windows-1252,
+0xC8..0xCB = Windows-1250/1251/1254/1253; LDID 0 ammette solo ASCII, senza
+indovinare una codepage per gli altri byte. Ogni altra codepage e' rifiutata.
+`encoding_rs = 0.8.35`, gia' transitiva nel lock, diventa dipendenza diretta
+pinnata per le tabelle Windows e la decodifica senza replacement. Latin-1
+viene decodificato separatamente: non e' un alias di Windows-1252. Sotto
+LDID 0x57 senza `.cpg`, i byte 0x80..0x9F sono rifiutati: non si puo'
+distinguere Latin-1 da Windows-1252 usato dai produttori ANSI. Serve un
+`.cpg` esplicito per risolvere questa ambiguita'. In Windows-1252 i byte
+non definiti 0x81, 0x8D, 0x8F, 0x90 e 0x9D sono sempre rifiutati.
+Nomi e Character sono ricostruiti dai byte dopo la verifica; nessun risultato
+della decodifica permissiva interna di dbase viene pubblicato. Il `.cpg`
+`UTF-8` accompagna ora l'LDID 0xF0 gia' scritto: e' incluso in no-clobber,
+quota, staging e publish ordinato (prima del marker `.shp`).
+
+Le fixture offline originali in `driver-shp/src/tests/dbf_lettura.rs` costruiscono
+header, descrittori e payload esatti senza writer numerici intermedi.
+
+Le prove offline in `driver-shp/src/tests/dbf_scrittura.rs` confrontano anche
+descrittori e byte dei record, e verificano il mancato publish dopo un batch
+valido seguito da uno non rappresentabile. La misura delle righe di prodotto
+viene aggiornata senza cambiare il tetto.
+
 ```
 WritePlan ──validate_write──> create ──> write_to_layer* ──> finish ──> Published
               │                                                 │
@@ -404,6 +469,96 @@ ricordata: una sonda rimuove il corpo di quella funzione dal testo dello script
 e pretende che in ciò che resta non ce ne sia nessuna. Una seconda sonda le
 inietta un'uscita vietata su un file costruito apposta, perché una regola che
 non può fallire non verifica niente.
+
+### Fedelta' delle celle XLSX
+
+La matrice di regressione e' in `crates/driver-xls/src/tests/valori.rs`;
+le prove dello spool e della geometria sono in `tests.rs`. I `match` del
+mapping enumerano tutte le varianti di `calamine::Data` senza wildcard:
+
+| Variante | Esito |
+|---|---|
+| Int | intero; inferenza comune puo' allargare la colonna |
+| Float | numero finito; non finito rifiutato |
+| String | testo |
+| Bool | booleano |
+| DateTime | Date32, Timestamp(Microsecond, None), Duration(Microsecond); epoca dal workbook, conversione esatta o rifiuto |
+| DateTimeIso | testo ISO |
+| DurationIso | testo ISO |
+| Error | rifiuto, mai null |
+| Empty | null |
+
+I tipi Arrow effettivamente scritti da `write_cell` sono enumerati nelle
+sonde, con confronto dei valori riletti da calamine e dell'XML numerico:
+
+| Tipi | Rappresentazione |
+|---|---|
+| Int8, Int16, Int32, Int64; UInt8, UInt16, UInt32, UInt64 | numero, solo [-2^53, 2^53] |
+| Float32, Float64 | numero finito; ampliamento Float32 esatto |
+| Boolean | booleano |
+| Utf8 | testo |
+| Date32, Date64 | testo data ISO |
+| Time32(second, millisecond), Time64(microsecond, nanosecond) | testo orario |
+| Timestamp(second, millisecond, microsecond, nanosecond) | testo istante, con convenzione UTC del renderer comune quando c'e' un fuso |
+| null di un tipo ammesso | cella assente |
+| Binary geometrico | WKT oppure due numeri XY; prove geometriche separate in `tests.rs` |
+
+Gli altri tipi non hanno una resa attributo nel convertitore comune: fra
+essi Decimal128/256, Duration, LargeUtf8 e Binary non geometrico hanno
+controprove di rifiuto. Non attraversano f64. Una capability di classe non
+rende rappresentabile ogni tipo concreto: il convertitore resta fallibile.
+Le fixture temporali ed errore sono costruite dal writer di test fissato in
+`Cargo.lock` e da parti OOXML dichiarate nel sorgente; calamine deve prima
+produrre la variante attesa, poi IO legge i valori Arrow con confronto esatto.
+Le prove coprono seriali 0/1/59/60/61, data pura, data con ora (anche a
+mezzanotte), ora con millisecondi, durata, entrambi i calendari, colonne
+miste, #DIV/0!, #N/A e vuoto. Gli errori non diventano null.
+
+`date_native.rs` legge gli stili del foglio scelto tramite relazioni OOXML:
+calamine conserva l'epoca e distingue la durata ma non la data pura dall'ora.
+Lo spool conserva gli interi temporali; lo schema li ricostruisce come array
+Arrow temporali, preservando i bitmap null. Si decodifica esattamente il
+binary64 e si moltiplica la mantissa per 86_400_000 in u128: il rapporto
+razionale viene arrotondato al millisecondo piu' vicino, round-half-even.
+Il candidato e' accettato solo se il rapporto ms/86_400_000, riconvertito
+in binary64 con aritmetica intera e round-half-even, riproduce gli stessi
+bit del seriale. Nessun prodotto floating point decide l'esattezza.
+Un seriale a un ULP da un istante valido viene quindi rifiutato se non e'
+la rappresentazione canonica di un altro millisecondo. La regola vale anche
+per le durate. Date32 richiede formato solo data e ms multiplo di 86_400_000.
+Sono esclusi i seriali negativi e quelli oltre il 9999-12-31; per le durate
+il dominio e' [0, 2958466) giorni, indipendente dall'epoca. Nel 1900 [0,1)
+e [60,61) sono rifiutati; 1-59 usano l'origine 1899-12-31, da 61 in poi
+si sottrae il giorno fittizio. Il calendario 1904 parte da 1904-01-01.
+Nessun fuso viene inventato.
+
+La risoluzione Excel accettata e' il millisecondo; Timestamp e Duration Arrow
+restano in microsecondi (ms * 1000, sempre interi nel dominio). Orari come
+13:17:42, 23:59:59.999 e 00:00:00.001 sono ammessi; informazione sub-ms
+non canonica e' rifiutata. Le prove includono fixture OOXML nei due calendari
+e 80.000 casi deterministici, estremi inclusi, con divisione IEEE indipendente
+come oracolo e rifiuto dei seriali adiacenti a un ULP.
+Non si applica quindi alcuna perdita pianificata. Colonne con date e altri
+tipi o tipi temporali diversi sono rifiutate; il vuoto rimane null.
+
+### Provenienza delle regressioni Excel
+
+`crates/driver-xls/tests/fixtures/excel-workbook-1904.xml` riproduce la struttura ridotta di `xl/workbook.xml`
+di un file Excel per Mac reale pubblicata in
+[calamine #706](https://github.com/tafia/calamine/issues/706).
+Provenienza puntuale e adattamenti sono in `crates/driver-xls/tests/fixtures/source.json`: dichiarazioni
+namespace rese esplicite e foglio S rinominato Sheet1. Il blocco extLst,
+il suo URI e x15:workbookPr sono copiati dalla riproduzione pubblicata.
+Non si attribuisce il contenitore di test completo a Excel: viene creato
+con rust_xlsxwriter 0.100.0, poi il workbook XML viene sostituito con questa
+fixture. I test confrontano i valori Arrow e i quattro booleani XML.
+
+Il tentativo locale di creare un nuovo workbook con Excel COM il 2026-11-02
+e' fallito con 80070520 (sessione di accesso non disponibile).
+Le formule TIME con millisecondi nei test sono OOXML con cache esplicita:
+non attestano un ricalcolo locale con Excel. Il test sui float estremi
+controlla la notazione esponenziale e il round-trip esatto con calamine;
+l'apertura in Excel richiede ancora una sessione COM utilizzabile.
 
 ### Fuzzing
 
@@ -902,3 +1057,17 @@ albero.
 per verificare un gate deve lavorare su una copia, con il workspace montato in
 sola lettura: un test che rompe l'albero che sta misurando non è un test. Il
 ripristino non usa `git checkout`, che cancellerebbe modifiche non committate.
+
+### GeoPackage: conservazione dello schema SQL
+
+La lettura dello schema vive in `driver-gpkg/src/schema.rs`: separa il
+vocabolario dei tipi SQL conservabili dalla validazione dei metadati ricevuti
+in scrittura. Il sito `build_schema` del registro dei quartetti si sposta da
+`lib.rs` a `schema.rs`, mantenendo `Crs/Validate/Crs/Never`: cambia il percorso,
+non la classificazione dell'errore. La matrice in
+`driver-gpkg/src/tests/storage_schema.rs` prova le cinque classi di storage
+contro ogni dichiarazione del vocabolario e i rappresentanti delle famiglie
+normalizzate, sia sul convertitore sia su file SQLite reali. Il report di
+schema usa solo ragioni chiuse e indice del layer; nessun testo SQL o valore
+di riga entra nei messaggi. La ricerca nel catalogo usa NOCASE, come la
+risoluzione degli identificatori SQLite.

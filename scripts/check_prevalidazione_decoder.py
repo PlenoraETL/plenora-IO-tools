@@ -53,11 +53,13 @@ class Sorvegliato:
         prevalidazione: str,
         file_ammessi: tuple[str, ...],
         nota: str,
+        presenza_richiesta: bool = True,
     ) -> None:
         self.costruttore = costruttore
         self.prevalidazione = prevalidazione
         self.file_ammessi = file_ammessi
         self.nota = nota
+        self.presenza_richiesta = presenza_richiesta
 
 
 SORVEGLIATI = (
@@ -105,6 +107,9 @@ SORVEGLIATI = (
         "soglia la prima e' un `attempt to subtract with overflow` e la seconda "
         "un `panic!(\"Invalid file\")` scritto a mano. Trovato dal target "
         "`shp_reader` alla sua prima campagna",
+        # PR #81 legge ora nomi e valori dai byte DBF validati: il vecchio
+        # decoder puo' essere assente, ma una reintroduzione resta sorvegliata.
+        presenza_richiesta=False,
     ),
 )
 
@@ -253,7 +258,7 @@ def verifica(radice: Path) -> list[str]:
                         f"funzione. Divergenza: {sorvegliato.nota}."
                     )
 
-        if not trovato_almeno_uno:
+        if not trovato_almeno_uno and sorvegliato.presenza_richiesta:
             errori.append(
                 f"nessuna costruzione di `{sorvegliato.costruttore}` trovata in "
                 f"{', '.join(sorvegliato.file_ammessi)}: se il percorso e' stato "

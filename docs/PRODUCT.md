@@ -42,6 +42,62 @@ codifiche native GeoArrow e i bordi sferici, entrambi validi in GeoParquet 1.1
 e non implementati qui. Gli altri driver dichiarano `null`: i loro formati non
 si versionano in un modo che il driver possa dichiarare per intero.
 
+### CSV: presenza, testo e tipi
+
+La convenzione di IO distingue il **campo vuoto non quotato** (null) da `""`
+(stringa vuota). Il writer quota sempre gli attributi testuali, raddoppia le
+virgolette interne e termina i record con CRLF. Spazi, separatori e newline
+interni sono conservati. Una riga vuota rappresenta un record con un solo
+null, non viene saltata. Il quoting malformato e UTF-8 invalido sono errori.
+Il separatore deve essere ASCII, diverso da virgolette, CR e LF.
+
+In lettura un attributo quotato forza la colonna a Utf8, anche se contiene
+`"true"`, `"001"` o `"NaN"`. Nessun trim si applica agli attributi. Fra i valori
+non quotati, l'inferenza accetta Int64 o Float64 soltanto quando parse e
+formattazione canonica Rust (`Display`) restituiscono **gli stessi byte**;
+la promozione di interi a Float64 esclude gli interi oltre la precisione esatta.
+Tutte le righe partecipano: un solo valore incompatibile rende testuale tutta
+la colonna. `001`, `1e3`, `1.0`, ` 12 `, `+1`, `TRUE` restano testo;
+`true`/`false` non quotati possono diventare Boolean. Una colonna solo null
+si legge Utf8 nullable. Le colonne geometriche dichiarate sono interpretate
+come WKT o X/Y: un vuoto quotato o soli spazi non è una geometria null valida.
+
+| Tipo Arrow attributo in scrittura | Esito |
+|---|---|
+| Utf8 | valore e validità esatti, compresi vuoto, spazi e testo numerico |
+| LargeUtf8 | testo esatto; perdita della larghezza del tipo dichiarata |
+| Boolean; Int8/16/32/64; UInt8/16/32/64 | cifre e valori esatti nel file; schema originale non conservato, `coercion tipo attributo` nel report |
+| Float32/64 finiti | rappresentazione decimale del valore, incluso il segno di zero; tipo originale e possibile rilettura testuale dichiarati con `coercion tipo attributo` |
+| Float32/64 NaN (anche payload diversi), +inf, -inf | rifiuto senza pubblicazione, nessun payload NaN appiattito |
+| Float16, Null, Utf8View | rifiuto del piano anche senza righe |
+| Date32/64; Time32 secondi/millisecondi, Time64 micro/nanosecondi; Timestamp con/senza fuso, tutte le unità | testo ISO quotato, tipo/unità/fuso originali non conservati: perdita pianificata `coercion tipo attributo`; timestamp con fuso espresso in UTC con `Z` |
+| Date64 non multiplo di un giorno; orari negativi o fuori dal giorno | rifiuto senza pubblicazione, nessun troncamento |
+| Time32 micro/nanosecondi, Time64 secondi/millisecondi; Duration; Interval | rifiuto del piano |
+| Decimal32/64/128/256 (precisione e scala) | rifiuto del piano |
+| Binary, LargeBinary, FixedSizeBinary, BinaryView | rifiuto come attributi; la geometria Binary dichiarata resta WKB→WKT/X/Y |
+| List, LargeList, FixedSizeList, ListView, LargeListView, Struct, Map, Union, Dictionary, RunEndEncoded | rifiuto del piano |
+
+Il CSV non porta uno schema Arrow: gli scalari diversi da Utf8 dichiarano
+prudenzialmente la normalizzazione anche quando un particolare file si rilegge
+con lo stesso tipo. Non confondere testo esatto con ricostruzione dello schema.
+Le prove permanenti sono in `crates/driver-csv/src/tests/presenza.rs`.
+
+La sintassi segue [RFC 4180](https://www.rfc-editor.org/rfc/rfc4180), che conserva
+gli spazi ma **non definisce null né tipi**: la distinzione tramite quoting è
+una convenzione di IO, non una garanzia universale. [GDAL CSV](https://gdal.org/en/stable/drivers/vector/csv.html)
+offre `QUOTED_FIELDS_AS_STRING=YES` e `EMPTY_STRING_AS_NULL`, da impostare e
+verificare sul proprio percorso. [pandas read_csv](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
+riconosce valori mancanti per default e non preserva questa distinzione tramite
+quoting: `dtype=str` da solo non basta; `keep_default_na=False` conserva il testo
+ma non ricostruisce la validità originale. [Excel](https://support.microsoft.com/en-us/excel/keeping-leading-zeros-and-large-numbers)
+richiede importazione come testo per conservare zeri iniziali e numeri lunghi.
+Non affidare a un'apertura e successivo salvataggio in Excel la conservazione di null, stringhe vuote e tipi: usare uno
+schema e un formato tipizzato (Arrow IPC) per lo scambio esatto.
+Il sentinel `NA` usato da R viene letto da IO come stringa `"NA"`, anche
+quando in R rappresentava un valore mancante: e' un limite di interoperabilita',
+non un null riconosciuto automaticamente. Un sentinel null
+non è stato scelto perché collide con testo legittimo e richiede escaping privato.
+
 ### Determinismo
 
 I driver garantiscono **determinismo semantico**, non byte per byte: a parità di
@@ -111,7 +167,7 @@ accanto alla destinazione.
    file del set: un companion sopravvissuto fa fallire il tentativo successivo
    con `OutputExists`, e quel fallimento è corretto — non è il segno che si può
    riprovare.
-2. **Riconoscere lo stato.** Un set completo ha `.shp`, `.shx`, `.dbf` e, se il
+2. **Riconoscere lo stato.** Un set completo ha `.shp`, `.shx`, `.dbf`, `.cpg` e, se il
    layer porta un CRS, `.prj`. Un set senza `.shp` è incompleto per costruzione:
    il marker è l'ultimo a essere pubblicato.
 3. **Rimuovere i companion rimasti**, cioè i file con lo stesso stem della
@@ -129,7 +185,7 @@ destinazione.
 | | |
 |---|---|
 | **lossless** | il formato rappresenta il contratto senza perdita |
-| **condizionale** | la perdita dipende dal contratto, non dal formato: un CSV senza colonne esotiche è lossless, con un tipo temporale non lo è |
+| **condizionale** | la perdita dipende dal contratto, non dal formato: il CSV conserva i valori testuali; la perdita dello schema Arrow degli altri scalari è dichiarata |
 | **approssimante** | il formato approssima per costruzione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
 
 Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
@@ -641,17 +697,12 @@ Limiti dichiarati (regola 4):
 
 ## Contratti pubblici
 
-### Limite temporaneo del consumo Rust
+### Consumo Rust
 
-La verifica del consumatore esterno dall'archivio sorgente garantisce la
-costruzione partendo dal `Cargo.lock` distribuito, da copiare nella radice del
-progetto consumatore prima di `cargo run`. Non garantisce la risoluzione da
-zero senza lockfile: calamine e rust_xlsxwriter richiedono ancora zip 8.x,
-le cui versioni sono tutte yanked e riutilizzabili solo da un lockfile esistente.
-È una garanzia indebolita, dichiarata nella stessa
-[eccezione zip 8.6.0](../assurance/registries/dependency-exceptions.json).
-Quando entrambi pubblicheranno versioni su zip 9, aggiorneremo dipendenze e
-lockfile e il consumatore tornerà a essere verificato senza lockfile iniziale.
+Il gate del consumatore esterno verifica la costruzione dall'archivio sorgente
+senza un lockfile iniziale nel progetto consumatore. Calamine e rust_xlsxwriter
+usano ora ZIP 9; non serve copiare il lockfile distribuito per riutilizzare
+versioni ZIP ritirate.
 
 ### Compatibilità
 
@@ -806,6 +857,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | | |
 |---|---|
 | DXF | approssima per costruzione: archi ed ellissi tassellati, multipart esplose, testo come punto. La perdita è dichiarata, non silenziosa |
+| XLSX | interi scrivibili nell'intervallo inclusivo [-2^53, 2^53]; oltre, rifiuto prima della pubblicazione. Float32 ampliato esattamente a Float64; float non finiti e decimali rifiutati. In lettura date native: Date32 per formato solo data e millisecondi multipli di 86_400_000, Timestamp(Microsecond, senza fuso) con ora, Duration(Microsecond) per stili durata. Epoca 1900/1904 dal workbook; giorni 1-59 del 1900 esatti, giorni 0 e 60 ambigui/inesistenti rifiutati. Seriali negativi, fuori dominio o non canonici al millisecondo rifiutati: candidato ms arrotondato razionalmente e accettato solo se ms/86_400_000 arrotondato a binary64 (round-half-even) riproduce gli stessi bit. Timestamp e Duration Arrow conservano ms*1000 microsecondi. Colonne temporali miste ed errori Excel rifiutati; solo il vuoto diventa null. Date/durate ISO restano testo. Le date native diventavano silenziosamente null nelle versioni 1.0.0-6.0.0 elencate in RELEASE.md; ora si leggono |
 | KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
 | DXF | un `DATATABLE` oltre 2^20 righe, colonne o celle, e un'anteprima (`THUMBNAILIMAGE`) la cui decodifica supererebbe 16 MiB, rendono il documento illeggibile (`FORMAT_ERROR`). Sono tetti espliciti del prodotto contro le prenotazioni dimensionate dall'input, **non** una garanzia di leggere ogni file AutoCAD. L'ordine delle celle del `DATATABLE` (per colonne, un valore per ogni riga) segue la specifica Autodesk come la scrive il fork ed è verificato solo in round-trip interno, non contro file AutoCAD reali: il driver non legge `DATATABLE`, ma il lettore li attraversa. In scrittura il fork accetta solo `DATATABLE` completi (un nome per colonna, un valore per ogni riga di ogni colonna, un tipo per colonna) e rifiuta gli altri con un errore; il driver scrive entità e `GEODATA`, non `DATATABLE` |
 | DXF | i reali si scrivono in ASCII con dodici decimali: per le coordinate è sotto la precisione geografica di 1 cm (un dodicesimo decimale di grado è circa 1e-7 m), per altri valori reali è un arrotondamento che il formato non segnala |
@@ -1081,3 +1133,32 @@ Il passaggio dal profilo 1 cambia i contratti di risultato: richiede una release
 maggiore prima della distribuzione. Questa modifica del worktree non costituisce
 una release e non modifica la versione del pacchetto. La qualifica semantica di
 IO-NULL-001 resta aperta; i test degli schemi verificano la forma, non quel significato.
+
+### GeoPackage: storage dinamico e schema SQL
+
+La lettura distingue i NULL originali dagli storage incompatibili scartati
+(`gpkg_incompatible_storage_discarded`) e dal testo UTF-8 riparato
+(`gpkg_invalid_utf8_replaced`). Le perdite contano le celle interessate; gli
+esempi sono limitati per campo e categoria, senza contenuto di riga.
+
+La PK INTEGER entra nello schema Arrow come attributo non nullable con
+`gpkg.primary_key=true`; la riscrittura GeoPackage la usa come PK e ne conserva
+i valori. `gpkg.declared_type` porta BOOLEAN, TINYINT, SMALLINT, MEDIUMINT, INT,
+INTEGER, FLOAT, DOUBLE, REAL, TEXT, BLOB, DATE o DATETIME. Il writer rifiuta un
+metadato non riconosciuto o incompatibile con il tipo Arrow prima di creare il
+file. BOOLEAN e' Int64 nel batch, DATE/DATETIME sono Utf8: i metadati portano la
+distinzione SQL. Le dichiarazioni esterne non riconosciute seguono il mapping
+storico per famiglie (INT, REAL/FLOA/DOUB, BLOB, altrimenti Utf8) con perdita
+`gpkg_schema_normalized`. I vincoli NOT NULL sono conservati; default, ulteriori
+vincoli SQL, indici e trigger non vengono ricostruiti e sono dichiarati nella
+stessa categoria, con la ragione effettiva. Anche l'ordine delle colonne viene
+segnalato quando cambia: geometria prima, PK ultima. Le colonne generate
+restano valori ordinari, con perdita dichiarata della regola SQL. Un contratto
+senza PK esplicita riceve una chiave generata.
+
+La matrice di regressione enumera NULL, INTEGER, REAL, TEXT e BLOB contro i 13
+tipi SQL riconosciuti e sei rappresentanti delle famiglie esterne normalizzate:
+95 coppie sul convertitore, piu' le stesse fixture su SQLite reale, dove
+l'affinita' puo' cambiare la classe prima della lettura. Un layer che ammette
+Point e LineString dichiara GEOMETRY nel catalogo; il limite sulle colonne
+geometriche multiple resta distinto.
