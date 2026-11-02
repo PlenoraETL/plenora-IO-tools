@@ -1326,6 +1326,64 @@ numero di versione, `__version__` e il README dell'SDK si allineano al momento
 del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
 [GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
 
+### GeoPackage: quattro classi di perdite silenziose
+
+Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0, 4.1.1,
+5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-gpkg/src/lib.rs` su ciascuno dei dieci tag:
+i rami che scartavano storage incompatibili, `String::from_utf8_lossy`,
+l'esclusione della PK, gli attributi sempre nullable, la nuova `fid` e
+`geometry_types.first()` sono presenti in tutti. Le prove eseguibili della
+correzione stanno in `crates/driver-gpkg/src/tests/storage_schema.rs`.
+
+- Storage SQLite incompatibili con il tipo dichiarato diventavano NULL senza
+  report. Ora ogni valore scartato conta in
+  `gpkg_incompatible_storage_discarded`; un NULL originale non conta. Se il
+  vincolo NOT NULL rende impossibile il batch, la lettura fallisce.
+- Testo SQLite con UTF-8 invalido veniva sostituito senza report. Ora conta in
+  `gpkg_invalid_utf8_replaced`; un U+FFFD realmente presente resta distinto
+  nel report. Gli esempi riportano posizione e causa, mai dati delle righe.
+- La lettura espone ora anche la PK INTEGER come attributo non nullable con
+  `gpkg.primary_key=true`; la riscrittura ne conserva i valori (anche 10/100),
+  anziche' generarne altri. Conserva NOT NULL e i tipi dichiarati riconosciuti
+  tramite `gpkg.declared_type`, validato prima di creare il file. BOOLEAN usa
+  Int64 nel batch e DATE/DATETIME Utf8, mantenendo la dichiarazione SQL nel
+  metadato. I tipi non riconosciuti e le parti SQL non ricostruite (default,
+  vincoli ulteriori, indici, trigger) producono `gpkg_schema_normalized` con
+  ragione strutturale; anche il riordino (geometria prima, PK ultima) viene
+  dichiarato quando avviene. Le colonne generate conservano i valori, con
+  perdita della regola SQL dichiarata. Chi consumava uno schema senza PK deve tenere conto
+  della colonna aggiuntiva. La chiave composta o diversa da un singolo
+  INTEGER viene rifiutata. Senza metadato di PK nel contratto il writer genera
+  una chiave nuova, scegliendo un nome che non collide con gli attributi.
+- Un contratto con piu' tipi geometrici scrive `GEOMETRY` in
+  `gpkg_geometry_columns`, senza dichiarare il solo primo tipo. La rilettura
+  ricava i tipi osservati. Resta il rifiuto delle geometrie multiple per tabella:
+  un insieme di tipi nella stessa colonna non e' un insieme di colonne.
+
+Le normalizzazioni gia' dichiarate per Boolean/interi stretti/unsigned/float
+stretti in scrittura non sono nuovi difetti e restano segnalate dal modello
+comune delle perdite pianificate.
+
+**Controllare i file gia' prodotti.** Conservare una copia e confrontarla con
+la sorgente originale: NULL e U+FFFD sostitutivi, chiavi rigenerate, dichiarazioni
+e vincoli eliminati non sono ricostruibili dal solo risultato. Per ogni feature
+table leggere `PRAGMA table_xinfo(...)`, i valori della PK e `typeof(...)` degli
+attributi; confrontare NULL, testo e byte con gli originali. In particolare,
+TEXT/BLOB in colonne numeriche, BLOB in TEXT e valori non BLOB in BLOB richiedono
+una nuova lettura con il driver corretto e controllo del report. Un NULL nel
+vecchio risultato da solo non prova che fosse NULL nella sorgente. Verificare
+il testo originale come byte, per distinguere UTF-8 invalido da `EF BF BD`.
+Confrontare anche default, CHECK, UNIQUE, chiavi esterne, indici e trigger nel
+catalogo SQLite: NOT NULL e PK da soli non descrivono tutti i vincoli.
+
+Per geometrie miste, confrontare **tutte** le geometrie con
+`gpkg_geometry_columns.geometry_type_name`: l'intestazione del vecchio file puo'
+affermare POINT pur contenendo LineString. Riconvertire dalla sorgente con un
+contratto che dichiara tutti i tipi; correggere soltanto il metadato non recupera
+attributi o identita' gia' perduti. Controllare ogni layer e ogni report, non
+soltanto il successo del comando o il numero di righe.
+
 ### Contratti: pin `7f82263`
 
 Il pin di plenora-contracts passa da `3aec9f7` a `7f82263`, che porta la regola

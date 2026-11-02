@@ -179,13 +179,15 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
     // Il 7.0 convertito dall'affinita' non e' una perdita.
-    assert_eq!(loss.counts.values().sum::<u64>(), 2);
+    assert_eq!(loss.counts.values().sum::<u64>(), 3);
+    assert_eq!(loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
     // Un esempio per coppia (campo, categoria), mai uno per riga.
-    assert_eq!(loss.esempi_trattenuti(), 2);
+    assert_eq!(loss.esempi_trattenuti(), 3);
     // Il nome della colonna non c'e' piu': al suo posto l'indice nello
     // schema, e i due esempi restano distinti per quello.
     assert!(loss.esempi_canonici().all(|example| {
-        !example.context.contains("field=") && example.posizione.field_index.is_some()
+        !example.context.contains("field=")
+            && (example.posizione.field_index.is_some() || example.category == SCHEMA_NORMALIZED)
     }));
 }
 
@@ -1490,7 +1492,11 @@ fn la_colonna_geometrica_si_riconosce_come_la_riconosce_sqlite() {
         .iter()
         .map(|campo| campo.name().to_ascii_lowercase())
         .collect();
-    assert_eq!(nomi, ["geom", "id"], "la geometria esce una volta sola");
+    assert_eq!(
+        nomi,
+        ["geom", "id", "fid"],
+        "la geometria esce una volta sola"
+    );
 }
 
 /// Regressione sul file che il fuzzing ha usato per portare il reader
@@ -2363,3 +2369,5 @@ fn un_bom_iniziale_della_definizione_si_toglie() {
     ))
     .unwrap();
 }
+
+mod storage_schema;

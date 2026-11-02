@@ -902,3 +902,17 @@ albero.
 per verificare un gate deve lavorare su una copia, con il workspace montato in
 sola lettura: un test che rompe l'albero che sta misurando non è un test. Il
 ripristino non usa `git checkout`, che cancellerebbe modifiche non committate.
+
+### GeoPackage: conservazione dello schema SQL
+
+La lettura dello schema vive in `driver-gpkg/src/schema.rs`: separa il
+vocabolario dei tipi SQL conservabili dalla validazione dei metadati ricevuti
+in scrittura. Il sito `build_schema` del registro dei quartetti si sposta da
+`lib.rs` a `schema.rs`, mantenendo `Crs/Validate/Crs/Never`: cambia il percorso,
+non la classificazione dell'errore. La matrice in
+`driver-gpkg/src/tests/storage_schema.rs` prova le cinque classi di storage
+contro ogni dichiarazione del vocabolario e i rappresentanti delle famiglie
+normalizzate, sia sul convertitore sia su file SQLite reali. Il report di
+schema usa solo ragioni chiuse e indice del layer; nessun testo SQL o valore
+di riga entra nei messaggi. La ricerca nel catalogo usa NOCASE, come la
+risoluzione degli identificatori SQLite.

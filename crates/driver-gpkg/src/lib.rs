@@ -140,6 +140,11 @@ const fn classe_sqlite(errore: &rusqlite::Error) -> &'static str {
 // non impone il tipo dichiarato dalla colonna, quindi un file legittimo può
 // consegnare un REAL dove il contratto dichiara INTEGER. La conversione resta
 // quella storica, ma smette di essere silenziosa (`PRODUCT.md § LossReport`).
+const SCHEMA_NORMALIZED: &str = "gpkg_schema_normalized";
+const DECLARED_TYPE: &str = "gpkg.declared_type";
+const PRIMARY_KEY: &str = "gpkg.primary_key";
+const INCOMPATIBLE_STORAGE: &str = "gpkg_incompatible_storage_discarded";
+const INVALID_UTF8: &str = "gpkg_invalid_utf8_replaced";
 const INTEGER_COLUMN_REAL_TRUNCATED: &str = "gpkg_integer_column_real_truncated";
 const INTEGER_COLUMN_REAL_SATURATED: &str = "gpkg_integer_column_real_saturated";
 const INTEGER_COLUMN_NON_FINITE_DISCARDED: &str = "gpkg_integer_column_non_finite_discarded";
@@ -159,6 +164,8 @@ const SATURATION_BOUND: f64 = 9_223_372_036_854_775_808.0;
 /// contratto. `None` significa che il valore era già rappresentabile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Coercion {
+    IncompatibleStorage,
+    InvalidUtf8,
     /// REAL con parte frazionaria in colonna INTEGER: il valore cambia.
     RealTruncated,
     /// REAL fuori dall'intervallo di `i64`: il valore satura ai limiti.
@@ -173,6 +180,8 @@ enum Coercion {
 impl Coercion {
     const fn category(self) -> &'static str {
         match self {
+            Self::IncompatibleStorage => INCOMPATIBLE_STORAGE,
+            Self::InvalidUtf8 => INVALID_UTF8,
             Self::RealTruncated => INTEGER_COLUMN_REAL_TRUNCATED,
             Self::RealSaturated => INTEGER_COLUMN_REAL_SATURATED,
             Self::NonFiniteDiscarded => INTEGER_COLUMN_NON_FINITE_DISCARDED,
@@ -182,6 +191,8 @@ impl Coercion {
 
     const fn detail(self) -> &'static str {
         match self {
+            Self::IncompatibleStorage => "classe di storage incompatibile scartata come null",
+            Self::InvalidUtf8 => "sequenza UTF-8 invalida sostituita",
             Self::RealTruncated => "REAL con parte frazionaria troncato verso zero",
             Self::RealSaturated => "REAL fuori dall'intervallo i64 saturato ai limiti",
             Self::NonFiniteDiscarded => "valore non finito scartato come null",
@@ -323,7 +334,7 @@ impl FormatDriver for GpkgDriver {
                 FieldId(0),
                 table_meta.geom_col.clone(),
                 crs,
-                true,
+                schema.field(0).is_nullable(),
             );
             geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
             geometry.srid = i32::try_from(table_meta.srs_id).ok();
@@ -409,6 +420,9 @@ impl FormatDriver for GpkgDriver {
             opts.max_columns(),
             &opts.format_options,
         )?;
+        for layer in &plan.layers {
+            validate_sqlite_metadata(&layer.contract.schema)?;
+        }
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
@@ -549,12 +563,21 @@ impl OpenDatasetHandle for GpkgDataset {
         assessment.add_reason(
             FidelityReasonCode::TypeCoercion,
             "SQLite non impone il tipo dichiarato: un REAL in colonna INTEGER viene troncato o \
-             saturato, un valore non finito viene scartato come null",
+             saturato, un valore non finito o uno storage incompatibile viene scartato come null; \
+             UTF-8 invalido viene sostituito, con perdita registrata",
         );
         assessment.add_reason(
             FidelityReasonCode::PrecisionChanged,
             "un INTEGER oltre 2^53 in colonna REAL perde la precisione intera unitaria",
         );
+        if self.metas.iter().any(|meta| {
+            meta.schema
+                .metadata()
+                .contains_key("gpkg.schema_normalized")
+        }) {
+            assessment.add_reason(FidelityReasonCode::StructureChanged,
+                "parti dello schema SQL non rappresentate nel contratto: ragioni nel report di lettura");
+        }
         assessment
     }
 
@@ -640,7 +663,7 @@ impl OpenDatasetHandle for GpkgDataset {
             last_rowid: None,
             layer_srs_id: m.layer_srs_id,
             layer,
-            loss: LossReport::default(),
+            loss: schema_read_loss(&m.schema, request.layer.0),
             reported: BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
@@ -991,7 +1014,7 @@ impl ColBuilder {
                 }
                 _ => {
                     b.append_null();
-                    None
+                    (v != ValueRef::Null).then_some(Coercion::IncompatibleStorage)
                 }
             },
             Self::F64(b) => match v {
@@ -1011,26 +1034,41 @@ impl ColBuilder {
                 }
                 _ => {
                     b.append_null();
-                    None
+                    (v != ValueRef::Null).then_some(Coercion::IncompatibleStorage)
                 }
             },
             Self::Str(b) => {
                 match v {
-                    ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
+                    ValueRef::Text(t) => {
+                        if let Ok(text) = std::str::from_utf8(t) {
+                            b.append_value(text);
+                        } else {
+                            b.append_value(String::from_utf8_lossy(t));
+                            return Some(Coercion::InvalidUtf8);
+                        }
+                    }
                     // La rappresentazione testuale di un intero o di un reale
                     // e' fedele: nessuna perdita da dichiarare.
                     ValueRef::Integer(i) => b.append_value(i.to_string()),
                     ValueRef::Real(r) => b.append_value(r.to_string()),
                     // NULL e BLOB in colonna testuale: nessuna transcodifica
                     // implicita, si scrive null.
-                    ValueRef::Null | ValueRef::Blob(_) => b.append_null(),
+                    ValueRef::Null => b.append_null(),
+                    ValueRef::Blob(_) => {
+                        b.append_null();
+                        return Some(Coercion::IncompatibleStorage);
+                    }
                 }
                 None
             }
             Self::Bin(b) => {
                 match v {
                     ValueRef::Blob(x) => b.append_value(x),
-                    _ => b.append_null(),
+                    ValueRef::Null => b.append_null(),
+                    _ => {
+                        b.append_null();
+                        return Some(Coercion::IncompatibleStorage);
+                    }
                 }
                 None
             }
@@ -1630,89 +1668,8 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
     }
 }
 
-fn sqlite_declared_to_arrow(t: &str) -> DataType {
-    let t = t.to_ascii_uppercase();
-    if t.contains("INT") {
-        DataType::Int64
-    } else if t.contains("REAL") || t.contains("FLOA") || t.contains("DOUB") {
-        DataType::Float64
-    } else if t.contains("BLOB") {
-        DataType::Binary
-    } else {
-        DataType::Utf8
-    }
-}
-
-/// Schema (senza leggere dati) dai tipi dichiarati; attributi = colonne non
-/// geometria e non chiave primaria.
-fn build_schema(
-    conn: &Connection,
-    table: &str,
-    geom_col: &str,
-    crs: &ResolvedCrs,
-) -> Result<(SchemaRef, Vec<(String, DataType)>)> {
-    let mut stmt = conn
-        .prepare(&format!(
-            "PRAGMA table_info(\"{}\")",
-            table.replace('"', "\"\"")
-        ))
-        .map_err(sql_err)?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(1)?, // name
-                r.get::<_, String>(2)?, // declared type
-                r.get::<_, i64>(5)?,    // pk
-            ))
-        })
-        .map_err(sql_err)?;
-    let mut attrs: Vec<(String, DataType)> = Vec::new();
-    for r in rows {
-        let (name, decl, pk) = r.map_err(sql_err)?;
-        // La lettura pagina con `WHERE t.rowid > ?`, dove `rowid` e' l'alias
-        // implicito della chiave di riga. Se la tabella dichiara una colonna
-        // con quel nome, SQLite risolve l'alias sulla colonna *utente* e la
-        // paginazione avviene su valori arbitrari: righe saltate, ripetute, o
-        // un cursore che non avanza mai.
-        //
-        // SQLite ha tre alias per la chiave di riga e sono tutti oscurabili;
-        // non esiste una forma non oscurabile a cui ripiegare. L'unica difesa
-        // e' rifiutare la tabella, ed e' coerente con la semantica fail-closed
-        // del componente: meglio non leggere che leggere righe sbagliate senza
-        // dirlo.
-        //
-        // Il confronto e' senza distinzione di maiuscole perche' SQLite
-        // risolve i nomi di colonna in modo case-insensitive.
-        if matches!(
-            name.to_ascii_lowercase().as_str(),
-            "rowid" | "_rowid_" | "oid"
-        ) {
-            // I nomi di tabella e colonna vengono dal file: sono la forma
-            // piu' diretta di testo di payload, e non escono.
-            return Err(err(&PublicMessage::Curated(
-                "una colonna dichiarata dalla tabella oscura l'alias della chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo deterministico",
-            )));
-        }
-        // Il nome di colonna dichiarato in `gpkg_geometry_columns` si
-        // confronta come lo risolve `SQLite`, senza distinzione di maiuscole
-        // ASCII: un confronto esatto esporrebbe la colonna geometrica una
-        // seconda volta, come attributo binario.
-        if name.eq_ignore_ascii_case(geom_col) || pk > 0 {
-            continue;
-        }
-        attrs.push((name, sqlite_declared_to_arrow(&decl)));
-    }
-    let crs_id = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84",
-        ))
-    })?;
-    let mut fields = vec![geometry_field(geom_col, crs_id)];
-    for (n, dt) in &attrs {
-        fields.push(Field::new(n, dt.clone(), true));
-    }
-    Ok((Arc::new(Schema::new(fields)), attrs))
-}
+mod schema;
+use schema::{build_schema, schema_read_loss, validate_sqlite_metadata};
 
 /// Header `GeoPackage` estratto dal blob geometria (`StandardGeoPackageBinary`).
 ///
@@ -2527,18 +2484,7 @@ fn create_feature_table(
         .ok_or_else(|| err(&PublicMessage::Curated("layer senza geometria")))?;
     let geom_name = schema.field(geom_idx).name().clone();
 
-    let mut cols_ddl = vec!["fid INTEGER PRIMARY KEY AUTOINCREMENT".to_owned()];
-    cols_ddl.push(format!("\"{}\" BLOB", geom_name.replace('"', "\"\"")));
-    for (i, f) in schema.fields().iter().enumerate() {
-        if i == geom_idx {
-            continue;
-        }
-        cols_ddl.push(format!(
-            "\"{}\" {}",
-            f.name().replace('"', "\"\""),
-            sqlite_type(f.data_type())
-        ));
-    }
+    let cols_ddl = schema::columns_ddl(schema, geom_idx);
     conn.execute(
         &format!(
             "CREATE TABLE \"{}\" ({})",
@@ -2559,7 +2505,10 @@ fn create_feature_table(
     )
     .map_err(sql_err)?;
     let geometry_type = geometry_contract
-        .and_then(|contract| contract.geometry_types.first())
+        .and_then(|contract| match contract.geometry_types.as_slice() {
+            [only] => Some(only),
+            _ => None,
+        })
         .map_or_else(
             || "GEOMETRY".to_owned(),
             |geometry_type| format!("{geometry_type:?}").to_ascii_uppercase(),

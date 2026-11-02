@@ -1081,3 +1081,32 @@ Il passaggio dal profilo 1 cambia i contratti di risultato: richiede una release
 maggiore prima della distribuzione. Questa modifica del worktree non costituisce
 una release e non modifica la versione del pacchetto. La qualifica semantica di
 IO-NULL-001 resta aperta; i test degli schemi verificano la forma, non quel significato.
+
+### GeoPackage: storage dinamico e schema SQL
+
+La lettura distingue i NULL originali dagli storage incompatibili scartati
+(`gpkg_incompatible_storage_discarded`) e dal testo UTF-8 riparato
+(`gpkg_invalid_utf8_replaced`). Le perdite contano le celle interessate; gli
+esempi sono limitati per campo e categoria, senza contenuto di riga.
+
+La PK INTEGER entra nello schema Arrow come attributo non nullable con
+`gpkg.primary_key=true`; la riscrittura GeoPackage la usa come PK e ne conserva
+i valori. `gpkg.declared_type` porta BOOLEAN, TINYINT, SMALLINT, MEDIUMINT, INT,
+INTEGER, FLOAT, DOUBLE, REAL, TEXT, BLOB, DATE o DATETIME. Il writer rifiuta un
+metadato non riconosciuto o incompatibile con il tipo Arrow prima di creare il
+file. BOOLEAN e' Int64 nel batch, DATE/DATETIME sono Utf8: i metadati portano la
+distinzione SQL. Le dichiarazioni esterne non riconosciute seguono il mapping
+storico per famiglie (INT, REAL/FLOA/DOUB, BLOB, altrimenti Utf8) con perdita
+`gpkg_schema_normalized`. I vincoli NOT NULL sono conservati; default, ulteriori
+vincoli SQL, indici e trigger non vengono ricostruiti e sono dichiarati nella
+stessa categoria, con la ragione effettiva. Anche l'ordine delle colonne viene
+segnalato quando cambia: geometria prima, PK ultima. Le colonne generate
+restano valori ordinari, con perdita dichiarata della regola SQL. Un contratto
+senza PK esplicita riceve una chiave generata.
+
+La matrice di regressione enumera NULL, INTEGER, REAL, TEXT e BLOB contro i 13
+tipi SQL riconosciuti e sei rappresentanti delle famiglie esterne normalizzate:
+95 coppie sul convertitore, piu' le stesse fixture su SQLite reale, dove
+l'affinita' puo' cambiare la classe prima della lettura. Un layer che ammette
+Point e LineString dichiara GEOMETRY nel catalogo; il limite sulle colonne
+geometriche multiple resta distinto.
