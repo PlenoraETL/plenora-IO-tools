@@ -694,6 +694,7 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
         "EPSG:4326",
         opzioni.cancellation(),
         XlsxQuote::from_read_options(&opzioni),
+        &NativeStyles::default(),
         opzioni.budget(),
     );
     let Err(errore) = esito else {
@@ -1582,12 +1583,10 @@ fn byte_spool(scrivi: impl FnOnce(&mut BoundedSpoolWriter<'_>) -> Result<()>) ->
 /// parte sola, una lunghezza scritta con l'ampiezza sbagliata -- e' il
 /// giro completo a rompersi, non l'attesa scritta a mano.
 ///
-/// Il ramo `_` conta quanto gli altri: raccoglie il float non finito, la
-/// data nativa, la cella d'errore e la cella vuota, cioe' tutto cio' che
-/// non ha un tipo Arrow in cui finire. Diventano nullo, non spariscono:
-/// una riga con una cella in meno sfaserebbe tutte le colonne successive.
+/// Solo Empty diventa null. Le varianti non rappresentabili vengono
+/// rifiutate dalle sonde di regressione XLSX.
 #[test]
-fn n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto() {
+fn n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_rifiuta_il_resto() {
     for (caso, valore, tag, tipo) in [
         ("intero", Data::Int(-7), SPOOL_INTEGER, ColType::Integer),
         (
@@ -1621,18 +1620,6 @@ fn n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto() {
             ColType::Text,
         ),
         ("cella vuota", Data::Empty, SPOOL_NULL, ColType::Text),
-        (
-            "numero non finito",
-            Data::Float(f64::NAN),
-            SPOOL_NULL,
-            ColType::Number,
-        ),
-        (
-            "cella d'errore del foglio",
-            Data::Error(calamine::CellErrorType::Div0),
-            SPOOL_NULL,
-            ColType::Text,
-        ),
     ] {
         // Un `match` e non un `unwrap_or_else`: qui non c'e' un valore di
         // ripiego, e il censimento dei fallback conta la forma sintattica.
@@ -3711,3 +3698,6 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
         assert_eq!((crs.kind, crs.axis_order), (genere, ordine), "{assunto}");
     }
 }
+
+#[path = "tests/valori.rs"]
+mod valori;

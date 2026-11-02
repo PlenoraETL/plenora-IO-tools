@@ -405,6 +405,77 @@ e pretende che in ciò che resta non ce ne sia nessuna. Una seconda sonda le
 inietta un'uscita vietata su un file costruito apposta, perché una regola che
 non può fallire non verifica niente.
 
+### Fedelta' delle celle XLSX
+
+La matrice di regressione e' in `crates/driver-xls/src/tests/valori.rs`;
+le prove dello spool e della geometria sono in `tests.rs`. I `match` del
+mapping enumerano tutte le varianti di `calamine::Data` senza wildcard:
+
+| Variante | Esito |
+|---|---|
+| Int | intero; inferenza comune puo' allargare la colonna |
+| Float | numero finito; non finito rifiutato |
+| String | testo |
+| Bool | booleano |
+| DateTime | Date32, Timestamp(Microsecond, None), Duration(Microsecond); epoca dal workbook, conversione esatta o rifiuto |
+| DateTimeIso | testo ISO |
+| DurationIso | testo ISO |
+| Error | rifiuto, mai null |
+| Empty | null |
+
+I tipi Arrow effettivamente scritti da `write_cell` sono enumerati nelle
+sonde, con confronto dei valori riletti da calamine e dell'XML numerico:
+
+| Tipi | Rappresentazione |
+|---|---|
+| Int8, Int16, Int32, Int64; UInt8, UInt16, UInt32, UInt64 | numero, solo [-2^53, 2^53] |
+| Float32, Float64 | numero finito; ampliamento Float32 esatto |
+| Boolean | booleano |
+| Utf8 | testo |
+| Date32, Date64 | testo data ISO |
+| Time32(second, millisecond), Time64(microsecond, nanosecond) | testo orario |
+| Timestamp(second, millisecond, microsecond, nanosecond) | testo istante, con convenzione UTC del renderer comune quando c'e' un fuso |
+| null di un tipo ammesso | cella assente |
+| Binary geometrico | WKT oppure due numeri XY; prove geometriche separate in `tests.rs` |
+
+Gli altri tipi non hanno una resa attributo nel convertitore comune: fra
+essi Decimal128/256, Duration, LargeUtf8 e Binary non geometrico hanno
+controprove di rifiuto. Non attraversano f64. Una capability di classe non
+rende rappresentabile ogni tipo concreto: il convertitore resta fallibile.
+Le fixture temporali ed errore sono costruite dal writer di test fissato in
+`Cargo.lock` e da parti OOXML dichiarate nel sorgente; calamine deve prima
+produrre la variante attesa, poi IO legge i valori Arrow con confronto esatto.
+Le prove coprono seriali 0/1/59/60/61, data pura, data con ora (anche a
+mezzanotte), ora con millisecondi, durata, entrambi i calendari, colonne
+miste, #DIV/0!, #N/A e vuoto. Gli errori non diventano null.
+
+`date_native.rs` legge gli stili del foglio scelto tramite relazioni OOXML:
+calamine conserva l'epoca e distingue la durata ma non la data pura dall'ora.
+Lo spool conserva gli interi temporali; lo schema li ricostruisce come array
+Arrow temporali, preservando i bitmap null. Si decodifica esattamente il
+binary64 e si moltiplica la mantissa per 86_400_000 in u128: il rapporto
+razionale viene arrotondato al millisecondo piu' vicino, round-half-even.
+Il candidato e' accettato solo se il rapporto ms/86_400_000, riconvertito
+in binary64 con aritmetica intera e round-half-even, riproduce gli stessi
+bit del seriale. Nessun prodotto floating point decide l'esattezza.
+Un seriale a un ULP da un istante valido viene quindi rifiutato se non e'
+la rappresentazione canonica di un altro millisecondo. La regola vale anche
+per le durate. Date32 richiede formato solo data e ms multiplo di 86_400_000.
+Sono esclusi i seriali negativi e quelli oltre il 9999-12-31; per le durate
+il dominio e' [0, 2958466) giorni, indipendente dall'epoca. Nel 1900 [0,1)
+e [60,61) sono rifiutati; 1-59 usano l'origine 1899-12-31, da 61 in poi
+si sottrae il giorno fittizio. Il calendario 1904 parte da 1904-01-01.
+Nessun fuso viene inventato.
+
+La risoluzione Excel accettata e' il millisecondo; Timestamp e Duration Arrow
+restano in microsecondi (ms * 1000, sempre interi nel dominio). Orari come
+13:17:42, 23:59:59.999 e 00:00:00.001 sono ammessi; informazione sub-ms
+non canonica e' rifiutata. Le prove includono fixture OOXML nei due calendari
+e 80.000 casi deterministici, estremi inclusi, con divisione IEEE indipendente
+come oracolo e rifiuto dei seriali adiacenti a un ULP.
+Non si applica quindi alcuna perdita pianificata. Colonne con date e altri
+tipi o tipi temporali diversi sono rifiutate; il vuoto rimane null.
+
 ### Fuzzing
 
 | | |

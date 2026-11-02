@@ -14,6 +14,8 @@ use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, RecordBatchOptions}
 use arrow_schema::{Field, Schema, SchemaRef};
 use calamine::{open_workbook, Data, Reader, Xlsx, XlsxCellReader};
 use rust_xlsxwriter::Workbook;
+mod date_native;
+use date_native::{NativeKind, NativeStyles};
 use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
@@ -340,6 +342,7 @@ impl FormatDriver for XlsDriver {
         // ramo d'errore che possa ancora toccarlo. E' la meta' che riguarda il
         // workbook della promessa di `leggendo_calamine`; l'altra meta', il
         // lettore di celle, se la impone da solo.
+        let styles = NativeStyles::read(&path, &sheet, opts.budget())?;
         let inferenza = infer_layout(
             &mut wb,
             &sheet,
@@ -347,6 +350,7 @@ impl FormatDriver for XlsDriver {
             &crs,
             opts.cancellation(),
             XlsxQuote::from_read_options(&opts),
+            &styles,
             opts.budget(),
         );
         drop(wb);
@@ -843,6 +847,19 @@ fn write_cell(
                         "numero non rappresentabile come f64 in XLSX",
                     ))
                 })?;
+            // Dominio intero sicuro di binary64. Anche fuori da esso alcuni
+            // interi sono esatti, ma il renderer decimale del writer puo'
+            // emettere un altro intero che si arrotonda allo stesso float.
+            let integer = n
+                .as_i64()
+                .map(i128::from)
+                .or_else(|| n.as_u64().map(i128::from));
+            if integer.is_some_and(|original| original.abs() > (1_i128 << 53)) {
+                return Err(err(&PublicMessage::Curated(
+                    "intero fuori dal dominio esatto supportato da XLSX",
+                ))
+                .during(ErrorPhase::Finalize));
+            }
             sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
@@ -968,14 +985,25 @@ fn data_to_string(d: &Data) -> String {
     }
 }
 
-const fn classify_data(data: &Data) -> ObservedValueClass {
-    match data {
+fn classify_data(data: &Data) -> Result<ObservedValueClass> {
+    Ok(match data {
         Data::Int(value) => classify_i64(*value),
         Data::Float(value) if value.is_finite() => ObservedValueClass::Number,
         Data::String(_) | Data::DateTimeIso(_) | Data::DurationIso(_) => ObservedValueClass::Text,
         Data::Bool(_) => ObservedValueClass::Boolean,
-        _ => ObservedValueClass::Null,
-    }
+        Data::Empty => ObservedValueClass::Null,
+        Data::DateTime(_) => {
+            return Err(err(&PublicMessage::Curated(
+                "data seriale XLSX richiede epoca e stile del workbook",
+            )))
+        }
+        Data::Error(_) => {
+            return Err(err(&PublicMessage::Curated(
+                "cella errore XLSX non supportata",
+            )))
+        }
+        Data::Float(_) => return Err(err(&PublicMessage::Curated("numero XLSX non finito"))),
+    })
 }
 
 /// Il foglio **non** dichiara le proprie dimensioni.
@@ -1395,6 +1423,7 @@ impl<'a> BoundedSpoolWriter<'a> {
     }
 
     fn data(&mut self, value: &Data) -> Result<()> {
+        classify_data(value)?;
         match value {
             Data::Int(value) => {
                 self.write(&[SPOOL_INTEGER])?;
@@ -1413,7 +1442,10 @@ impl<'a> BoundedSpoolWriter<'a> {
                 self.write(&length.to_le_bytes())?;
                 self.write(bytes)
             }
-            _ => self.write(&[SPOOL_NULL]),
+            Data::Empty => self.write(&[SPOOL_NULL]),
+            Data::DateTime(_) | Data::Error(_) | Data::Float(_) => Err(err(
+                &PublicMessage::Curated("cella XLSX non rappresentabile nello spool"),
+            )),
         }
     }
 }
@@ -1475,7 +1507,8 @@ fn crea_lo_spool(directory: &std::path::Path) -> Result<Arc<tempfile::NamedTempF
         .map_err(|_| err(&PublicMessage::Curated("spool XLSX non creabile")))
 }
 
-#[allow(clippy::too_many_lines)]
+// La passata condivide quote, metadati temporali e budget senza stato globale.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn infer_layout<RS>(
     workbook: &mut Xlsx<RS>,
     sheet: &str,
@@ -1483,6 +1516,7 @@ fn infer_layout<RS>(
     crs: &str,
     cancellation: &CancellationToken,
     quote: XlsxQuote,
+    styles: &NativeStyles,
     budget: &OperationBudget,
 ) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
 where
@@ -1503,6 +1537,7 @@ where
     } else {
         dichiarate
     };
+    let epoch = workbook.has_1904_epoch();
     let mut reader = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
@@ -1531,6 +1566,8 @@ where
     let mut geom = None;
     let mut geom_columns = BTreeSet::new();
     let mut accumulators: Vec<TypeAccumulator> = Vec::new();
+    let mut temporal = vec![None; width];
+    let mut ordinary = vec![false; width];
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
     let spool = crea_lo_spool(&plenora_io_core::driver::spool::spill_directory()?)?;
@@ -1579,8 +1616,31 @@ where
                 if geom_columns.contains(&column) {
                     continue;
                 }
-                accumulators[attribute_index].observe(classify_data(data));
-                spool_writer.data(data)?;
+                if let Data::DateTime(value) = data {
+                    let (kind, ticks) =
+                        date_native::convert(*value, epoch, styles.date_only(row_index, column))?;
+                    if ordinary[attribute_index]
+                        || temporal[attribute_index].is_some_and(|old| old != kind)
+                    {
+                        return Err(err(&PublicMessage::Curated(
+                            "colonna XLSX con tipi temporali misti non supportata",
+                        )));
+                    }
+                    temporal[attribute_index] = Some(kind);
+                    accumulators[attribute_index].observe(ObservedValueClass::Integer);
+                    spool_writer.data(&Data::Int(ticks))?;
+                } else {
+                    if !matches!(data, Data::Empty) {
+                        ordinary[attribute_index] = true;
+                        if temporal[attribute_index].is_some() {
+                            return Err(err(&PublicMessage::Curated(
+                                "colonna XLSX con tipi temporali misti non supportata",
+                            )));
+                        }
+                    }
+                    accumulators[attribute_index].observe(classify_data(data)?);
+                    spool_writer.data(data)?;
+                }
                 attribute_index += 1;
             }
             Ok(true)
@@ -1654,7 +1714,12 @@ where
             continue;
         }
         let column_type = accumulators[attribute_index].column_type();
-        fields.push(Field::new(name, column_type.arrow_data_type(), true));
+        fields.push(Field::new(
+            name,
+            temporal[attribute_index]
+                .map_or_else(|| column_type.arrow_data_type(), NativeKind::data_type),
+            true,
+        ));
         attrs.push((column, column_type));
         attribute_index += 1;
     }
@@ -1682,7 +1747,11 @@ fn finish_read_batch(
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + attributes.len());
     arrays.push(Arc::new(geometry.finish()));
     for builder in attributes {
-        arrays.push(builder.finish());
+        let array = builder.finish();
+        arrays.push(date_native::restore(
+            array,
+            schema.field(arrays.len()).data_type(),
+        )?);
     }
     let options = RecordBatchOptions::new().with_row_count(Some(row_count));
     RecordBatch::try_new_with_options(schema.clone(), arrays, &options)

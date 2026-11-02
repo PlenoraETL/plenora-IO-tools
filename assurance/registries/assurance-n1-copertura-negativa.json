@@ -821,11 +821,17 @@
       "righe": 3,
       "raggiunto_da_replay": 0,
       "disposizione": "chiuso",
-      "nota": "`BoundedSpoolWriter::data`, chiuso su una tabella che verifica il tag scritto per ogni variante di `calamine::Data` **e** la rileggibilita' di cio' che ha scritto: scrittura e rilettura sono due meta' dello stesso formato, e provarne una sola lascerebbe passare un tag rinumerato da una parte sola. Il ramo `_` conta quanto gli altri, perche' raccoglie tutto cio' che non ha un tipo Arrow in cui finire -- il float non finito, la data nativa, la cella d'errore, la cella vuota -- e la proprieta' provata e' che diventino **nullo** e non spariscano: una riga con una cella in meno sfaserebbe tutte le colonne successive. Le tre varianti testuali (`String`, `DateTimeIso`, `DurationIso`) sono elencate una per una perche' condividono un braccio del `match` e una sola non direbbe che le altre due ci passano. IL RESIDUO E' CHIUSO estraendo la conversione in `lunghezza_dello_spool`, che prende la lunghezza come **argomento**: dove stava, provare il rifiuto su il testo avrebbe richiesto di allocare quattro gibibyte, e adesso si prova con un numero. Il confine e' verificato dai due lati -- `u32::MAX` byte entrano, il successivo no -- ed e' l'unico modo di sapere se sia incluso. Il messaggio resta distinto per i due chiamanti, perche' chi legge deve sapere se a non entrare sia una geometria o un testo: le due cose si riducono in modi diversi.",
+      "nota": "`BoundedSpoolWriter::data`, chiuso su una tabella che verifica il tag scritto per ogni variante di `calamine::Data` **e** la rileggibilita' di cio' che ha scritto: scrittura e rilettura sono due meta' dello stesso formato, e provarne una sola lascerebbe passare un tag rinumerato da una parte sola. Solo Empty diventa null. Float non finiti, date e durate native ed errori Excel sono rifiutati prima della consegna: le sonde valori verificano tutte le varianti di Data, anche attraverso workbook esterni nei calendari 1900 e 1904. Le tre varianti testuali (`String`, `DateTimeIso`, `DurationIso`) sono elencate una per una perche' condividono un braccio del `match` e una sola non direbbe che le altre due ci passano. IL RESIDUO E' CHIUSO estraendo la conversione in `lunghezza_dello_spool`, che prende la lunghezza come **argomento**: dove stava, provare il rifiuto su il testo avrebbe richiesto di allocare quattro gibibyte, e adesso si prova con un numero. Il confine e' verificato dai due lati -- `u32::MAX` byte entrano, il successivo no -- ed e' l'unico modo di sapere se sia incluso. Il messaggio resta distinto per i due chiamanti, perche' chi legge deve sapere se a non entrare sia una geometria o un testo: le due cose si riducono in modi diversi.",
       "prova": [
         {
           "crate": "driver-xls",
-          "test": "tests::n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto",
+          "test": "tests::valori::varianti_calamine_non_rappresentabili_non_diventano_null",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_rifiuta_il_resto",
           "configurazione": "default",
           "esito": "coperto"
         },

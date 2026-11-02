@@ -1326,6 +1326,64 @@ numero di versione, `__version__` e il README dell'SDK si allineano al momento
 del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
 [GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
 
+### XLSX: date native leggibili e perdite silenziose corrette
+
+Versioni colpite: **1.0.0, 1.0.1, 2.0.0, 3.0.0, 4.0.0, 4.1.0,
+4.1.1, 5.0.0, 5.0.1 e 6.0.0**. Verifica statica con
+`git show <tag>:crates/driver-xls/src/lib.rs` su ogni tag: `write_cell`
+convertiva il numero con `as_f64()` senza controllo di esattezza; il mapping
+(e, dove presente, lo spool) mandava date seriali ed errori nel ramo null.
+Gli stessi percorsi esistono nelle prerelease v0.1.0-rc.1/2/3/4 e
+v1.0.0-rc.1/2. Nella 2.0.0 e 3.0.0 il riferimento a `Data::Error`
+compare anche in un test che pretendeva proprio null, non in una difesa.
+
+- Scrittura: gli interi fuori da **[-2^53, 2^53]** sono ora rifiutati
+  prima di pubblicare il file. Per esempio 9007199254740993 diventava
+  9007199254740992 senza perdita dichiarata. Il limite e' conservativo:
+  fuori dall'intervallo esistono interi esatti in binary64, ma anche la resa
+  decimale XML del writer puo' cambiare l'intero (per esempio i64::MIN).
+  Float32 viene ampliato esattamente a Float64; i float finiti conservano il
+  valore binario nella rilettura. Decimali e float non finiti restano rifiutati.
+- Lettura: `Data::DateTime` ora produce Date32 per formato solo data e
+  seriale intero, Timestamp(Microsecond, None) per data/ora e ora, oppure
+  Duration(Microsecond) per stili durata come `[h]:mm:ss`. L'epoca 1900/1904
+  viene letta dal workbook. Nel 1900 i giorni 1-59 sono mappati esattamente;
+  il giorno zero ambiguo e il falso 29/02/1900 (intervalli [0,1) e [60,61))
+  sono rifiutati. Nel 1904 il giorno zero e' 1904-01-01. Seriali negativi,
+  non finiti o oltre il 9999-12-31 sono rifiutati.
+- Precisione Excel al millisecondo: si calcola il candidato ms dal seriale
+  binary64 con decodifica IEEE esatta e arrotondamento razionale al piu'
+  vicino (round-half-even). Si accetta solo se il rapporto ms/86_400_000,
+  arrotondato razionalmente a binary64 con round-half-even, riproduce gli
+  stessi bit. La stessa regola vale per le durate; l'unita' Arrow resta il
+  microsecondo (ms * 1000). Date32 richiede ms multiplo di 86_400_000.
+  Sono ammessi 13:17:42, 23:59:59.999, 00:00:00.001 e la durata 37:15:30.5;
+  seriali con informazione sub-ms non canonica sono rifiutati esplicitamente.
+  La precedente regola sperimentale dei microsecondi razionalmente interi
+  rifiutava anche orari Excel ordinari ed e' stata sostituita.
+- Colonne con valori temporali e altri tipi (o tipi temporali diversi) sono
+  rifiutate prima della consegna; i vuoti nella colonna restano null.
+  `Data::Error` e numeri non finiti restano rifiutati. Date/durate ISO restano
+  testo. Nessuna data nativa valida nel dominio esatto diventa null.
+
+La scrittura temporale conserva la resa ISO gia' documentata: questa
+correzione riguarda la lettura nativa. `planned_write_loss` non concede un
+arrotondamento implicito dei valori. I test rileggono fixture OOXML 1900 e
+1904 e confrontano esattamente i valori Arrow, inclusi vuoti ed errori.
+
+**File gia' prodotti:** conservare e confrontare la sorgente originale.
+Aprire XLSX come ZIP e confrontare gli interi sorgente con i valori `<v>`
+delle celle numeriche in `xl/worksheets/sheet*.xml`, usando un parser decimale
+esatto, non f64. Cercare anzitutto colonne Int64/UInt64 con valori fuori da
+[-2^53, 2^53]; un valore arrotondato puo' cadere proprio sul confine, quindi
+il solo output non basta a diagnosticare o recuperare il valore originario.
+Per le letture precedenti, controllare nei workbook sorgente celle `t="e"`,
+stili data/durata in `xl/styles.xml` e `date1904` in `xl/workbook.xml`;
+confrontare le celle corrispondenti negli output derivati, che possono avere
+null al posto dei valori. Rigenerare dalla sorgente dopo aver gestito
+esplicitamente le celle rifiutate. Il dato originale non si ricostruisce dal
+null o dal numero arrotondato.
+
 ### Contratti: pin `7f82263`
 
 Il pin di plenora-contracts passa da `3aec9f7` a `7f82263`, che porta la regola
