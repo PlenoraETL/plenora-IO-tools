@@ -323,11 +323,27 @@ pub fn validate_write(
             ));
         }
 
-        let geometry_name = layer
-            .contract
-            .geometry
-            .as_ref()
-            .map(|geometry| geometry.name.as_str());
+        let geometries = layer.contract.geometries()?;
+        if geometries.len() > 1 && driver != "geoparquet" {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "il driver di destinazione non rappresenta più colonne geometriche",
+                ),
+            ));
+        }
+        if layer.contract.geometry.is_none()
+            && (geometries.len() > 1
+                || (driver == "geoparquet"
+                    && geometries
+                        .iter()
+                        .any(|g| g.native_metadata.contains_key("geoparquet.primary_column"))))
+        {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "la scrittura multigeometria richiede una primaria esplicita",
+                ),
+            ));
+        }
         let mut normalized_names = BTreeSet::new();
         for (indice, field) in layer.contract.schema.fields().iter().enumerate() {
             let name = field.name();
@@ -391,7 +407,7 @@ pub fn validate_write(
                 ));
             }
 
-            if geometry_name == Some(name.as_str()) {
+            if geometries.iter().any(|g| g.name == *name) {
                 continue;
             }
             match caps.attributes {
@@ -439,7 +455,12 @@ pub fn validate_write(
             }
         }
 
-        if let Some(geometry) = &layer.contract.geometry {
+        // Il piano legacy monogeometria senza contratto esplicito conserva
+        // la validazione runtime storica; i nuovi piani multigeometria sono espliciti.
+        for geometry in geometries
+            .iter()
+            .filter(|_| layer.contract.geometry.is_some() || geometries.len() > 1)
+        {
             if !caps.geometry.supported {
                 return Err(violation(
                     driver,

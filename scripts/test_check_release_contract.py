@@ -3602,14 +3602,17 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         stato = self.stato()
         riferite, _ = gate._evidenze_riferite(stato)
         attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
-        with tempfile.TemporaryDirectory() as temporanea:
+        with (
+            tempfile.TemporaryDirectory() as temporanea,
+            tempfile.TemporaryDirectory() as destinazione,
+        ):
             radice = pathlib.Path(temporanea)
             # Le altre riferite sono file veri: il link deve essere l'unica
             # differenza, o il rosso parlerebbe dell'insieme invece che di lui.
             for nome in riferite:
                 if nome != attesa:
                     (radice / nome).write_text("{}", encoding="utf-8")
-            bersaglio = radice.parent / "bersaglio.json"
+            bersaglio = pathlib.Path(destinazione) / "bersaglio.json"
             bersaglio.write_text("{}", encoding="utf-8")
             try:
                 (radice / attesa).symlink_to(bersaglio)
@@ -3617,7 +3620,6 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
                 self.skipTest(f"symlink non creabili qui: {impedimento}")
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 errori = gate._sola_evidenza_corrente(stato)
-            bersaglio.unlink()
         self.assertTrue(any("e' un link" in m for m in errori), errori)
 
     def test_l_insieme_riferito_passa(self) -> None:
@@ -3669,12 +3671,14 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         """
         stato = self.stato()
         riferite, _ = gate._evidenze_riferite(stato)
-        with tempfile.TemporaryDirectory() as temporanea:
+        with (
+            tempfile.TemporaryDirectory() as temporanea,
+            tempfile.TemporaryDirectory() as destinazione,
+        ):
             radice = pathlib.Path(temporanea)
             for nome in riferite:
                 (radice / nome).write_text("{}", encoding="utf-8")
-            altrove = radice.parent / "altrove"
-            altrove.mkdir()
+            altrove = pathlib.Path(destinazione)
             try:
                 (radice / gate.ATTESTAZIONI.name).symlink_to(
                     altrove, target_is_directory=True
@@ -3683,7 +3687,6 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
                 self.skipTest(f"symlink non creabili qui: {impedimento}")
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 errori = gate._sola_evidenza_corrente(stato)
-            altrove.rmdir()
         self.assertTrue(any("e' un link" in m for m in errori), errori)
 
     def test_un_verbale_di_campagna_non_riferito_e_rosso(self) -> None:

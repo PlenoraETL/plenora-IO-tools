@@ -33,7 +33,7 @@ use super::{
 pub struct GeometryValidation {
     pub driver: &'static str,
     pub support: GeometryWriteSupport,
-    pub layers: Vec<Option<GeometryColumnContract>>,
+    pub layers: Vec<Vec<GeometryColumnContract>>,
 }
 
 pub struct LimitedWriter {
@@ -186,28 +186,40 @@ impl LimitedWriter {
                 .wkb
                 .max_depth
                 .min(self.budget.context().limits().max_wkb_depth());
-            validate_geometry_batch_at(
+            let geometries = validation.layers.get(layer).ok_or_else(|| {
+                PlenoraIoError::capability_redatta(
+                    validation.driver,
+                    None,
+                    CapabilityReason::MultipleLayers,
+                    &layer_fuori_dal_piano(saturating_u64(layer)),
+                )
+            })?;
+            let mut components = validate_geometry_batch_at(
                 validation.driver,
                 validation.support,
-                validation
-                    .layers
-                    .get(layer)
-                    .ok_or_else(|| {
-                        PlenoraIoError::capability_redatta(
-                            validation.driver,
-                            None,
-                            CapabilityReason::MultipleLayers,
-                            &layer_fuori_dal_piano(saturating_u64(layer)),
-                        )
-                    })?
-                    .as_ref(),
+                None,
                 batch,
                 effective_limits.wkb,
-                *self.layer_rows.get(layer).ok_or_else(|| {
-                    PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(saturating_u64(layer)))
-                })?,
+                layer_rows,
                 self.input_totals.get(layer).copied().flatten(),
-            )?
+            )?;
+            for geometry in geometries {
+                let count = validate_geometry_batch_at(
+                    validation.driver,
+                    validation.support,
+                    Some(geometry),
+                    batch,
+                    effective_limits.wkb,
+                    layer_rows,
+                    self.input_totals.get(layer).copied().flatten(),
+                )?;
+                components = components.checked_add(count).ok_or_else(|| {
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "overflow nel conteggio dei componenti geometrici",
+                    ))
+                })?;
+            }
+            components
         } else {
             0
         };

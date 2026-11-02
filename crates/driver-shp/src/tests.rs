@@ -3459,7 +3459,7 @@ fn round_trip_dimensional_point(
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(vec![GeometryType::Point]);
     let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "EPSG:4326"), &geometry_contract),
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "OGC:CRS84"), &geometry_contract),
         Field::new("id", DataType::Int64, false),
     ]));
     let batch = RecordBatch::try_new(

@@ -826,6 +826,42 @@ dai numeri del referto, non è presentato come il log originale.
 
 ## Comandi canonici
 
+### Censimento dei percorsi per colonna geometrica
+
+La classe corretta è la lettura dei metadati della primaria attraverso un
+percorso più completo di quello delle secondarie. La risoluzione del campo
+sta in `crates/plenora-io-model/src/geometry.rs:503`, condivisa da
+`DataContract::geometries()` (`contract.rs:324`), IPC e GeoParquet.
+Il costruttore conserva le dichiarazioni discordanti per farle rifiutare;
+non le cancella riscrivendo la primaria. Il nuovo sito di errore
+`geometry/crs_metadata.rs::incoerente` usa il quartetto
+`Crs/Validate/Crs/Never`: questa è la ragione dell'aggiornamento dello snapshot.
+La misura delle righe è aggiornata senza alzare il tetto.
+
+| Formato / superficie | Lettura | Scrittura |
+|---|---|---|
+| GeoParquet | `driver-geoparquet/src/lib.rs:1129`, `multigeometria.rs:12`: confronto delle dichiarazioni prima del retag, per primaria e secondarie; stesso lettore CRS anche nel Parquet senza `geo`. | `lib.rs:1272`, `multigeometria.rs:86`: tutte le colonne da `geometries()`, stesso `crs_da_scrivere`; un identificatore senza PROJJSON non diventa `null`. L'omissione CRS84 è coerente anche nello schema incorporato. |
+| IPC | `driver-ipc/src/lib.rs:193`: lettore comune, estensione CRS inclusa; più geometrie rifiutate. | `lib.rs:303`: validazione comune prima dello staging; più geometrie rifiutate. |
+| GeoPackage | `driver-gpkg/src/lib.rs:1423`: più righe geometriche per la stessa tabella sono rifiutate, non diventano layer separati con BLOB opachi. | `lib.rs:406`: rifiuto comune multigeometria. |
+| FileGDB | `driver-filegdb/src/lib.rs:1516`: conta i campi, dichiara il conteggio e rifiuta il reader multigeometria (`rifiuta_piu_geometrie`, riga 125); nessun passaggio silenzioso al primo campo. | `lib.rs:508`: rifiuto comune; backend nativo subordinato a GDAL. |
+| CSV | `driver-csv/src/lib.rs:215`: un solo mapping WKT oppure XY, dichiarazioni simultanee rifiutate; CRS da opzione, nessun CRS secondario nel formato. | `lib.rs:393`: rifiuto comune. |
+| XLSX | `driver-xls/src/lib.rs:1159`: stessa esclusione fra mapping WKT e XY; CRS da opzione. | `lib.rs:376`: rifiuto comune. |
+| Shapefile | `driver-shp/src/lib.rs:647`: una shape per record e CRS del `.prj`. | `lib.rs:726`: rifiuto comune. |
+| GeoJSON | `driver-geojson/src/lib.rs:151`: un membro geometry per feature, CRS del formato. | `lib.rs:202`: rifiuto comune. |
+| KML | `driver-kml/src/lib.rs:348`: geometria del placemark, CRS del formato. | `lib.rs:420`: rifiuto comune. |
+| DXF | `driver-dxf/src/lib.rs:526`: geometrie delle entità, contratto per layer; nessuna seconda colonna geometrica. | `lib.rs:607`: rifiuto comune. |
+| SDK Python | `_models.py:651` conserva la vista JSON: `Layer.geometry` è solo la primaria, `fields[].geometry` marca ogni geometria (`plenora-io-tools/src/lib.rs:467`). Limite di introspezione dichiarato in PRODUCT, non una vista dei CRS di tutte le colonne. | `_client.py:548`, `_arrow.py:107`: inoltra lo schema Arrow senza scegliere una geometria; il driver IPC rifiuta la multigeometria. `convert` usa gli stessi driver Rust. |
+
+I percorsi dei crate nella tabella sono relativi a `crates/`; quelli Python a
+`sdk/python/src/plenora_io/`. Il rifiuto comune dei writer è in
+`plenora-io-core/src/capabilities.rs:326`. In lettura,
+`driver/reader_adapters.rs:79` verifica ogni geometria e conserva i rifiuti CRS
+per layer, senza chiudere i layer sani di un dataset multilayer.
+Le prove `multigeometria.rs` usano coordinate asimmetriche e CRS84/UTM 32N,
+confrontando buffer, null e CRS nel round-trip; il caso legacy EPSG:3857
+senza definizione verifica il rifiuto senza pubblicazione. Le prove del
+modello scambiano primaria e secondaria e verificano conflitti fra forme.
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings

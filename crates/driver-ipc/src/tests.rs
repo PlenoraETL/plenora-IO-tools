@@ -5,6 +5,8 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::ResolvedCrs;
+use plenora_io_model::geometry::GEO_CRS_KEY;
 
 mod buffer_ipc;
 mod layout_ipc;
@@ -568,19 +570,9 @@ fn assume_crs_su_una_geometria_senza_crs_non_e_ignorato() {
 }
 
 /// Il limite dichiarato in `docs/PRODUCT.md` («Limitazioni di prodotto», IPC):
-/// il CRS che un produttore `GeoArrow` mette **solo** in
-/// `ARROW:extension:metadata` non e' letto, e la geometria risulta senza CRS.
-///
-/// La prova fissa il comportamento di oggi perche' cambiarlo -- leggerlo, o
-/// rifiutare il file -- sia una decisione visibile e non una deriva: quando il
-/// limite rientra, questa prova cambia insieme alla riga del documento.
-///
-/// Il limite riguarda l'Arrow **esterno**, senza versione e senza chiavi
-/// `plenora.*`, come lo scrive un produttore `GeoArrow`. Lo stesso campo in
-/// uno schema che si dichiara plenora non e' un CRS non letto: e' un
-/// vocabolario incompleto, e si rifiuta con `schema` (REJ-001).
+/// Il CRS `GeoArrow` esterno passa dallo stesso lettore del CRS canonico.
 #[test]
-fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
+fn crs_only_in_geoarrow_extension_metadata_is_preserved() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("crs-solo-geoarrow.arrow");
     let field = Field::new("geometry", DataType::Binary, true).with_metadata(
@@ -603,10 +595,16 @@ fn crs_only_in_geoarrow_extension_metadata_is_read_as_missing() {
     let dataset = IpcDriver
         .open(Source::Path(path), opzioni_lettura())
         .unwrap();
-    assert!(matches!(
-        &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
-        CrsResolution::Missing
-    ));
+    assert_eq!(
+        dataset.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .unwrap()
+            .crs
+            .id(),
+        Some("EPSG:4326")
+    );
 
     let dichiarato = dir.path().join("crs-solo-geoarrow-plenora.arrow");
     ipc_vuoto(
@@ -1223,6 +1221,12 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
         "postgis.typmod".to_owned(),
         "geography(PointZM,4326)".to_owned(),
     );
+    geometry
+        .native_metadata
+        .insert("geoparquet.bbox".into(), "1,2,3,1,2,3".into());
+    geometry
+        .native_metadata
+        .insert("geoparquet.orientation".into(), "counterclockwise".into());
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
@@ -1237,10 +1241,15 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
         .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
         .unwrap();
     writer.write(&batch).unwrap();
-    writer.finish().unwrap();
+    assert!(writer.finish().unwrap().loss.is_empty());
 
     let dataset = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
     let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+    assert_eq!(geometry.native_metadata["geoparquet.bbox"], "1,2,3,1,2,3");
+    assert_eq!(
+        geometry.native_metadata["geoparquet.orientation"],
+        "counterclockwise"
+    );
     assert_eq!(geometry.encoding, GeometryEncoding::Ewkb);
     assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
     assert_eq!(geometry.spatial_semantics, SpatialSemantics::Geography);

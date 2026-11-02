@@ -3179,7 +3179,7 @@ fn xlsx_wkt_xym_round_trip_preserves_payload_and_contract() {
     geometry_contract.dimensions = CoordinateDimensions::Xym;
     geometry_contract.set_exact_geometry_types(vec![GeometryType::MultiLineString]);
     let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "EPSG:4326"), &geometry_contract),
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "OGC:CRS84"), &geometry_contract),
         Field::new("id", arrow_schema::DataType::Int64, false),
     ]));
     let batch = RecordBatch::try_new(

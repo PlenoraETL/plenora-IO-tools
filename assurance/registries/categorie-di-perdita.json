@@ -5,6 +5,16 @@
   "limite_di_lunghezza_byte": 128,
   "categorie": [
     {
+      "id": "geometry_bbox_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "literal"
+    },
+    {
+      "id": "geometry_orientation_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "literal"
+    },
+    {
       "id": "MultiPoint esploso in entità DXF",
       "superficie": "driver-dxf",
       "forma": "literal"

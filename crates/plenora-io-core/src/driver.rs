@@ -11,11 +11,11 @@ use plenora_io_model::budget::{
     SourceFootprintSnapshot, WriteBudgetParts,
 };
 use plenora_io_model::contract::{
-    CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, GeometryType,
-    LayerContract, LayerId,
+    CoordinateDimensions, GeometryColumnContract, GeometryEncoding, GeometryType, LayerContract,
+    LayerId,
 };
 use plenora_io_model::crs::CrsResolution;
-use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
+use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{inspect_wkb, WkbInspection};
 use plenora_io_model::{
@@ -878,58 +878,10 @@ pub fn with_write_limits(
 ///
 /// È una seconda guardia runtime: impedisce che un batch dichiarato XY contenga
 /// in realtà WKB Z/M o EWKB e venga normalizzato silenziosamente dal driver.
-fn geometry_contracts_for_validation(
-    plan: &WritePlan,
-) -> Result<Vec<Option<GeometryColumnContract>>> {
+fn geometry_contracts_for_validation(plan: &WritePlan) -> Result<Vec<Vec<GeometryColumnContract>>> {
     plan.layers
         .iter()
-        .enumerate()
-        .map(
-            |(indice_layer, layer)| -> Result<Option<GeometryColumnContract>> {
-                if let Some(geometry) = &layer.contract.geometry {
-                    return Ok(Some(geometry.clone()));
-                }
-                let mut fields = layer
-                    .contract
-                    .schema
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, field)| is_geometry_field(field));
-                let Some((index, field)) = fields.next() else {
-                    return Ok(None);
-                };
-                if fields.next().is_some() {
-                    // Il nome del layer non entra nel testo: il layer si nomina
-                    // per indice nel piano.
-                    // GEO-012, REJ-001: piu' campi geometria sono un limite di
-                    // supporto del componente, `unsupported`, non un difetto
-                    // del piano.
-                    return Err(PlenoraIoError::non_supportato_redatto(
-                        &PublicMessage::CuratedWith(
-                            "più colonne GeoArrow senza contratto geometrico esplicito al layer (GEO-012)",
-                            NumeroStrutturale::Indice(saturating_u64(indice_layer)),
-                        ),
-                    ));
-                }
-                // Il costruttore stabilisce il default storico XY prima di leggere
-                // i metadati legacy. Un valore esplicito, incluso `unknown`, lo
-                // sostituisce e non viene mai degradato dopo il parsing (R3.4).
-                // `index` e' la posizione di un campo nello schema Arrow: e'
-                // limitato dal numero di campi del layer, ordini di grandezza
-                // sotto 2^32. Un cast controllato introdurrebbe un ramo d'errore
-                // irraggiungibile in un punto del contratto.
-                #[allow(clippy::cast_possible_truncation)]
-                let mut geometry = GeometryColumnContract::wkb_xy(
-                    FieldId(index as u32),
-                    field.name(),
-                    CrsResolution::Missing,
-                    field.is_nullable(),
-                );
-                read_geometry_contract_metadata(field, &mut geometry)?;
-                Ok(Some(geometry))
-            },
-        )
+        .map(|layer| layer.contract.geometries())
         .collect()
 }
 
@@ -938,9 +890,9 @@ fn geometry_contracts_for_validation(
 ///
 /// # Errors
 ///
-/// Restituisce un errore se il piano dichiara più colonne geometriche senza
-/// contratto esplicito o se i metadati geometrici del campo non sono
-/// interpretabili.
+/// Restituisce un errore se i metadati geometrici non sono interpretabili
+/// o se il budget non ammette l'operazione. La cardinalità consentita dal
+/// formato si verifica prima, in `validate_write`.
 pub fn with_write_validation(
     writer: Box<dyn FormatWriter>,
     descriptor: &FormatDescriptor,
@@ -954,7 +906,7 @@ pub fn with_write_validation(
         .write_capabilities()
         .map(|capabilities| capabilities.geometry);
     let layers = geometry_contracts_for_validation(plan)?;
-    let planned_loss = planned_write_loss(descriptor, plan);
+    let planned_loss = planned_write_loss(descriptor, plan)?;
     let fidelity = assess_write_contract(descriptor, plan).with_loss_report(&planned_loss);
     budget.context().ensure_active()?;
     let operation_lease = budget.context().lease_concurrency()?;

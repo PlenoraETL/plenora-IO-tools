@@ -37,11 +37,11 @@ use plenora_io_model::contract::{
 };
 #[cfg(test)]
 use plenora_io_model::crs::CrsKind;
-use plenora_io_model::crs::{crs_kind_for_authority_id, CrsResolution, ResolvedCrs};
+use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
     validate_geometry_field_identity, with_contract_version, with_field_identity,
-    with_geometry_contract_metadata, GEO_CRS_KEY, PLENORA_CONTRACT_VERSION_KEY,
+    with_geometry_contract_metadata, PLENORA_CONTRACT_VERSION_KEY,
 };
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
@@ -238,20 +238,6 @@ impl FormatDriver for IpcDriver {
             [(i, _)] => {
                 let i = *i;
                 let f = schema.field(i);
-                // Il CRS si legge dalla chiave `crs` e poi dal blocco
-                // `plenora.geometry.*`, non da `ARROW:extension:metadata`: un
-                // file che lo porta solo nella forma GeoArrow standard risulta
-                // `Missing`, senza errore. Limite dichiarato in
-                // docs/PRODUCT.md; la prova e'
-                // `crs_only_in_geoarrow_extension_metadata_is_read_as_missing`.
-                let crs =
-                    f.metadata()
-                        .get(GEO_CRS_KEY)
-                        .cloned()
-                        .map_or(CrsResolution::Missing, |id| {
-                            let kind = crs_kind_for_authority_id(&id);
-                            CrsResolution::resolved(ResolvedCrs::new(Some(id), kind, None))
-                        });
                 // Indice di colonna di uno schema Arrow: limitato a poche
                 // migliaia di campi, il cast a u32 non puo' troncare.
                 #[allow(clippy::cast_possible_truncation)]
@@ -259,7 +245,7 @@ impl FormatDriver for IpcDriver {
                 let mut contract = GeometryColumnContract::wkb_passthrough(
                     physical_field_id,
                     f.name(),
-                    crs,
+                    CrsResolution::Missing,
                     f.is_nullable(),
                 );
                 read_geometry_contract_metadata(f, &mut contract)?;

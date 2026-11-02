@@ -135,9 +135,6 @@ const DEFINIZIONE_CONTRADDICE: PublicMessage =
     PublicMessage::Curated("definizione CRS che descrive un CRS diverso da crs_id");
 const AUTORITA_LOCALE: PublicMessage =
     PublicMessage::Curated("crs_id di un catalogo locale dichiarato risolto");
-const PIU_GEOMETRIE: PublicMessage = PublicMessage::Curated(
-    "schema con più campi geoarrow.wkb: questo componente ne rappresenta uno",
-);
 
 /// Verifica lo schema nelle classi e nell'ordine di REJ-002 fino al supporto.
 ///
@@ -170,9 +167,6 @@ pub fn verifica_schema(schema: &Schema) -> Result<()> {
     vocabolario(schema)?;
     for campo in schema.fields().iter().filter(|f| geometria(f)) {
         crs(campo)?;
-    }
-    if schema.fields().iter().filter(|f| geometria(f)).count() > 1 {
-        return Err(PlenoraIoError::non_supportato_redatto(&PIU_GEOMETRIE));
     }
     Ok(())
 }
