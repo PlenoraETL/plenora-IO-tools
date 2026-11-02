@@ -111,7 +111,7 @@ accanto alla destinazione.
    file del set: un companion sopravvissuto fa fallire il tentativo successivo
    con `OutputExists`, e quel fallimento è corretto — non è il segno che si può
    riprovare.
-2. **Riconoscere lo stato.** Un set completo ha `.shp`, `.shx`, `.dbf` e, se il
+2. **Riconoscere lo stato.** Un set completo ha `.shp`, `.shx`, `.dbf`, `.cpg` e, se il
    layer porta un CRS, `.prj`. Un set senza `.shp` è incompleto per costruzione:
    il marker è l'ultimo a essere pubblicato.
 3. **Rimuovere i companion rimasti**, cioè i file con lo stesso stem della

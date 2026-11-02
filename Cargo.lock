@@ -634,6 +634,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "driver-common",
+ "encoding_rs",
  "geo-types",
  "plenora-fork-shapefile",
  "plenora-io-core",

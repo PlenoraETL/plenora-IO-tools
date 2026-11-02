@@ -159,6 +159,71 @@ letture puramente tabellari.
 
 ## Pipeline di scrittura
 
+### Rappresentabilita' dei valori DBF
+
+Il driver Shapefile rifiuta i valori che non entrano nei campi DBF. La perdita
+pianificata in `driver/perdita_pianificata.rs` descrive coercizioni di tipo e
+metadati, non autorizza tagli o arrotondamenti di celle neppure con policy che
+accettano perdite. E' la stessa scelta dei rifiuti numerici di GeoPackage.
+Il rifiuto usa `shapefile.cell_not_representable` e la diagnostica strutturale
+di riga; nessun valore entra nel messaggio. La prevalidazione del batch precede
+il writer della dipendenza, e l'adapter comune vieta `finish` dopo un errore.
+
+| Tipi Arrow al confine DBF | Percorso e controllo |
+|---|---|
+| Int8/16/32/64, UInt8/16/32/64 | Numeric 18/0: il testo prodotto dal `f64` deve coincidere con l'intero originale e occupare al massimo 18 byte, segno compreso. Non si usa un cast inverso saturante. |
+| Float32/64 | Numeric 20/8: formattazione identica a `dbase`, massimo 20 byte; il testo deve tornare allo stesso valore binario, incluso il segno dello zero. Non finiti rifiutati. Float32 viene promosso esattamente a Float64; i non diadici come 0.1f32 sono rifiutati quando otto decimali non conservano il valore promosso. |
+| Boolean | Logical: vero, falso e null, senza passaggio numerico. |
+| Utf8 | Character 254: lunghezza in byte UTF-8, la codepage fissata dal builder e dichiarata nell'header; nessun taglio; vuoto, spazi iniziali/finali e NUL rifiutati. |
+| Date32, Date64 | Character: data civile; Date64 deve essere multiplo di 86.400.000 ms, anche prima dell'epoca. |
+| Time32(s/ms), Time64(us/ns), Timestamp(s/ms/us/ns, con/senza timezone) | Character: renderer temporale comune con tutte le cifre dell'unita', poi controllo dei 254 byte. |
+| Float16, Decimal32/64/128/256, LargeUtf8/Utf8View, Binary/LargeBinary/BinaryView/FixedSizeBinary | Celle non nulle rifiutate dal renderer comune; nessun fallback numerico o testuale approssimato. |
+| Duration, Interval, List/LargeList/FixedSizeList/ListView/LargeListView, Struct, Map, Union, Dictionary, RunEndEncoded | Non supportati: rifiuto nella capability o nel renderer, mai riduzione silenziosa. |
+| Null e celle nulle | Restano null nella rappresentazione DBF del tipo scelto; non si legge il payload di una cella nulla. |
+
+In lettura, N con decimali e F restano Float64, coerentemente con il contratto
+numerico dei driver: non si cambia implicitamente schema in Decimal. Si
+normalizzano segno, cifre ed esponente del testo originale e del rendering
+round-trip di f64; se differiscono si rifiuta. E' fedelta' decimale, non la
+pretesa che 0.1 sia una frazione binaria esatta. F viene ricostruito dai byte
+ASCII, senza utilizzare il valore f32 intermedio di dbase. Gli interi N larghi
+senza decimali mantengono il percorso i64 esatto. Il vecchio avviso
+`dbf_numeric_integer_precision_unverifiable` e' sostituito da questa verifica:
+un numero attestato non riceve un falso avviso, uno alterato viene rifiutato.
+
+Character conserva gli spazi iniziali (`TrimOption::End`); gli spazi ASCII
+finali sono convenzionalmente padding e un campo interamente padding e' null.
+Il formato non distingue null da stringa vuota: il writer rifiuta quest'ultima.
+I NUL finali sono padding: si rimuovono prima degli spazi finali. Un NUL
+seguito da byte non NUL resta rifiutato prima del parser che troncherebbe il campo.
+
+Il `.cpg` (massimo 128 byte) deve concordare con la codepage specifica
+dichiarata dall'LDID; dichiarazioni discordi sono rifiutate. LDID 0x00 e 0x57
+sono compatibili con qualunque `.cpg` supportato. Supportiamo UTF-8/65001,
+ASCII/20127, ISO-8859-1/LATIN1/28591 e Windows-1250..1258 (anche CP e numero).
+Senza `.cpg`: LDID 0xF0 = UTF-8, 0x57 = Latin-1 limitato ai byte non ambigui, 0x03 = Windows-1252,
+0xC8..0xCB = Windows-1250/1251/1254/1253; LDID 0 ammette solo ASCII, senza
+indovinare una codepage per gli altri byte. Ogni altra codepage e' rifiutata.
+`encoding_rs = 0.8.35`, gia' transitiva nel lock, diventa dipendenza diretta
+pinnata per le tabelle Windows e la decodifica senza replacement. Latin-1
+viene decodificato separatamente: non e' un alias di Windows-1252. Sotto
+LDID 0x57 senza `.cpg`, i byte 0x80..0x9F sono rifiutati: non si puo'
+distinguere Latin-1 da Windows-1252 usato dai produttori ANSI. Serve un
+`.cpg` esplicito per risolvere questa ambiguita'. In Windows-1252 i byte
+non definiti 0x81, 0x8D, 0x8F, 0x90 e 0x9D sono sempre rifiutati.
+Nomi e Character sono ricostruiti dai byte dopo la verifica; nessun risultato
+della decodifica permissiva interna di dbase viene pubblicato. Il `.cpg`
+`UTF-8` accompagna ora l'LDID 0xF0 gia' scritto: e' incluso in no-clobber,
+quota, staging e publish ordinato (prima del marker `.shp`).
+
+Le fixture offline originali in `driver-shp/src/tests/dbf_lettura.rs` costruiscono
+header, descrittori e payload esatti senza writer numerici intermedi.
+
+Le prove offline in `driver-shp/src/tests/dbf_scrittura.rs` confrontano anche
+descrittori e byte dei record, e verificano il mancato publish dopo un batch
+valido seguito da uno non rappresentabile. La misura delle righe di prodotto
+viene aggiornata senza cambiare il tetto.
+
 ```
 WritePlan ──validate_write──> create ──> write_to_layer* ──> finish ──> Published
               │                                                 │
