@@ -16,6 +16,9 @@
       "Schema/Validate/Schema/Never",
       "Schema/Validate/Schema/Never",
       "Unsupported/Validate/Unsupported/Never"
+    ],
+    "validate_temporal_cell": [
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/driver-common/src/prevalida_arrow.rs": {

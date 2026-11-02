@@ -948,23 +948,28 @@ class LossExample:
     """Un caso concreto di perdita: dove, e con che contesto.
 
     Gli indici sono **piatti**: la posizione del campo nello schema e quella del
-    layer nel file, non un percorso. Il contesto e' gia' redatto -- non porta
+    layer nel file, non un percorso. Sono assenti quando la perdita non riguarda
+    un campo o un layer specifico; `type_class` conserva la classe Arrow, se nota.
+    Il contesto e' gia' redatto -- non porta
     valori del file -- e questo lo rende registrabile senza pensarci.
     """
 
     category: str
     context: str
-    field_index: int
-    layer_index: int
+    field_index: int | None = None
+    layer_index: int | None = None
+    type_class: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("category", "context", "field_index", "layer_index")
+    _OBBLIGATORI = ("category", "context")
+    _OPZIONALI = ("field_index", "layer_index", "type_class")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossExample":
         documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.esempi[]", cls)
         return cls(
             **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            **{campo: documento.get(campo) for campo in _schema(cls)._OPZIONALI},
             raw=dict(documento),
         )
 
