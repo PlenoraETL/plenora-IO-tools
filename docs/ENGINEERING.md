@@ -377,6 +377,18 @@ non raggiungono il wire.
 
 ## Verifica
 
+### Prima si raccolgono i difetti, poi si corregge
+
+Regola del maintainer (2026-11-03) per la logica critica, in tre fasi.
+*Raccolta*: uno o più lettori indipendenti cercano su tutta la classe (ogni
+chiave, operazione, formato, percorso) senza correggere, fino a esaurirla.
+*Correzione unica*: chi corregge riceve l'elenco intero e lo chiude per
+costruzione (regola unica, tabella dichiarativa, test di enumerazione), non
+con toppe caso per caso. *Conferma*: un solo giro di lettura sull'elenco e
+sulle regressioni. Mai «trova, correggi, trova, correggi». Dopo sei giri di
+lettura che trovano ancora difetti ci si ferma, si cambia approccio e lo si
+dice al maintainer.
+
 ### Due livelli
 
 | | Quando | Che cosa esegue |
