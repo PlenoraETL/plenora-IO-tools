@@ -77,7 +77,7 @@
       "misura": "assurance/profondita-fuzz-filegdb.json",
       "requisiti_di_profondita": 12,
       "confine_asan": "assurance/asan-filegdb.json",
-      "contatori_di_copertura": 179170,
+      "contatori_di_copertura": 179952,
       "file_sorgente_gdal_strumentati": 0,
       "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
       "simboli_asan_nella_libreria": 0
@@ -653,7 +653,7 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "iniziale",
-      "nota": "Candidate iniziale: patch Arrow 60.1.0 per RUSTSEC-2026-0442 e calamine 0.38.0 per RUSTSEC-2026-0436, descritte in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB devono essere rimisurati sul perimetro finale: i rinvii registrati non attestano la 7.0.1 e sono rifiutati dalla qualifica. La release 7.0.0 resta in chiuso.release_pubblicate con la propria evidenza."
+      "nota": "Candidate iniziale: patch Arrow 60.1.0 per RUSTSEC-2026-0442 e calamine 0.38.0 per RUSTSEC-2026-0436, descritte in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB sono stati rimisurati sull'albero 47eae3b nella VM di qualifica Ubuntu 24.04, con GDAL di sistema e toolchain fissata nightly-2026-07-21, cargo-fuzz 0.13.2. Profondita: 35 requisiti shp_reader, 12 filegdb_reader, 9 wkt_parse e 9 geojson_reader raggiunti; rinvii ritirati. ASan nativo: 179952 contatori su 1 modulo, zero simboli del runtime in libgdal.so.34; la misura del container con libgdal.so.32 e scartata. Esiti verdi sulla VM comunicati dal titolare; log di profondita in target/rel701/rimisure-attempt-2 (container dev), esito ASan nativo riportato nella consegna. Le impronte legano le misure al perimetro; non sono un nuovo checkpoint di livello 2 ne un soak della 7.0.1. Ultima qualifica, copertura e campagna storiche restano su fc98634; la 7.0.0 resta in chiuso.release_pubblicate con la propria evidenza."
     }
   },
   "docset": {

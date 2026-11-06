@@ -1504,9 +1504,27 @@ dizionari di stringhe/byte mantenendo l'ordinamento dei null; non e' stata
 individuata una diversa semantica IO in quel delta. Le nuove operazioni
 i256 di `arrow-buffer` non sono chiamate da IO.
 
-Le quattro misure di profondita' fuzz e il confine ASan FileGDB devono essere
-ripetuti sul perimetro finale Linux/nightly prima della qualifica 7.0.1.
-I rinvii nei registri non sono nuove misure; i gate di qualifica li rifiutano.
+Le quattro profondita' fuzz e il confine ASan FileGDB sono stati rimisurati
+sull'albero `47eae3b` nella VM di qualifica **Ubuntu 24.04**, con **GDAL di
+sistema**, toolchain fissata **nightly-2026-07-21** e **cargo-fuzz 0.13.2**.
+I requisiti raggiunti sono 35 per `shp_reader`, 12 per `filegdb_reader`, 9 per
+`wkt_parse` e 9 per `geojson_reader`. I quattro rinvii di profondita' e il
+rinvio ASan sono ritirati; le impronte dei JSON legano le misure al perimetro.
+
+La misura ASan valida e' quella **nativa della VM**: **179952 contatori su
+1 modulo**, zero simboli del runtime in `libgdal.so.34`. GDAL non e'
+strumentata: ASan non verifica gli accessi interni alla libreria. La misura
+del container con `libgdal.so.32` e' **scartata**. Gli esiti verdi dei gate
+sulla VM sono stati comunicati dal titolare; i log di profondita' sono in
+`target/rel701/rimisure-attempt-2` (container dev), mentre l'esito ASan nativo
+e' riportato nella consegna di registrazione.
+
+Queste rimisure non sono un nuovo livello 2 ne' un soak della 7.0.1:
+checkpoint, copertura e campagna storici restano attribuiti a `fc98634`.
+La candidate resta iniziale, senza SHA o artefatti congelati e senza
+autorizzazione alla pubblicazione. Prima della Distribuzione candidate vanno
+completati i gate sull'albero finale nella VM; dopo la distribuzione e la
+registrazione del congelamento resta da eseguire il livello 2.
 
 ## 7.0.0 — candidate
 
