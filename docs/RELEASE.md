@@ -62,15 +62,15 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `fc98634` |
 | candidate, versione del manifesto | `7.0.1` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
 | candidate, versione del workspace | `7.0.1` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.1` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 9 |
 | release_authorized | `false` |
@@ -1340,8 +1340,9 @@ upstream dipendono dai manutentori dei progetti originali.
 Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
 `=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
 copertura logica di RunEndEncoded). Workspace e SDK dichiarano `7.0.1`, come
-il bump nella PR della 7.0.0. Questa sezione non congela una candidate e non
-attribuisce alla patch le misure della release precedente.
+il bump nella PR della 7.0.0. Il congelamento corrente e' registrato nel blocco generato e nel
+[verbale](../assurance/current-state.json); non attribuisce
+alla patch le misure della release precedente.
 
 ### Esposizione per superficie
 
@@ -1521,10 +1522,13 @@ e' riportato nella consegna di registrazione.
 
 Queste rimisure non sono un nuovo livello 2 ne' un soak della 7.0.1:
 checkpoint, copertura e campagna storici restano attribuiti a `fc98634`.
-La candidate resta iniziale, senza SHA o artefatti congelati e senza
-autorizzazione alla pubblicazione. Prima della Distribuzione candidate vanno
-completati i gate sull'albero finale nella VM; dopo la distribuzione e la
-registrazione del congelamento resta da eseguire il livello 2.
+La candidate e' congelata con i sette deliverable della distribuzione
+42206421101, dopo il livello 1 sulla VM (99 passi su 99), come registrato nel
+[verbale di congelamento](../assurance/current-state.json).
+Restano il livello 2, le campagne e attestazioni richieste, la draft e la
+verifica dei byte riscaricati, quindi l'autorizzazione esplicita del titolare.
+Tag e pubblicazione non sono autorizzati; dopo la pubblicazione immutata
+andra' ripetuta la verifica dei byte riscaricati dalla release.
 
 ## 7.0.0 — candidate
 
