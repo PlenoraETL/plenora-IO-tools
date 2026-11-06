@@ -19,7 +19,7 @@
     "candidate": "2ddfb58cb21975544f51188cf081fc6d6228e082",
     "revisione_di_assurance_misurata": "679d94c44837f0d884c2777defa9d945915faaa6",
     "che_cosa_e_provato": "111 identificatori distinti tutti verdi, zero omessi, falliti o duplicati; checkout pulito, revisione e impronta invariate; replay, smoke e copertura sopra soglia.",
-    "criterio_d_uscita": "Restano i soak mirati dxf_reader e shp_reader richiesti dalla sezione 6, le quattro attestazioni del profilo pubblico sui byte 7.0.1 da eseguire sulla VM, la preparazione della draft e la verifica dei byte riscaricati contro la candidate, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell'assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release."
+    "criterio_d_uscita": "Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Restano la preparazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release."
   },
   "provenienza_della_corsa": {
     "originale": "/home/marco/io-l2/target/rel701/l2-679d94c44837f0d884c2777defa9d945915faaa6-attempt-1",
@@ -28,8 +28,231 @@
   },
   "campagne_mirate": {
     "soak": {
-      "eseguito": null,
-      "nota": "Nessun nuovo soak documentato sulla 7.0.1; quelli su fc98634 restano storici."
+      "eseguito": true,
+      "nota": "Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json.",
+      "verbale": {
+        "schema_version": 1,
+        "criterio": "RELEASE.md sezione 6 e scripts/soak_misurato.py non richiedono saturazione o esclusivita della CPU. CPU dei figli diagnostica, include preparazione/build, nessuna soglia. Il tempo wrapper non e il solo tempo di fuzzing: entrambi i riepiloghi libFuzzer dichiarano 3601 s.",
+        "limite": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza.",
+        "verifica_locale": "SHA-256 dei log ricalcolati; digest del misuratore confrontato con il blob della candidate; giudizio ricalcolato dai log e tempi originali, con identita di tutti i campi prodotti da giudica.",
+        "revisione": "679d94c44837f0d884c2777defa9d945915faaa6",
+        "provenienza": {
+          "dichiarazione_operatore": "Ubuntu 24.04, 8 vCPU, 16 GB, nightly-2026-07-21, cargo-fuzz 0.13.2; checkout pulito di 679d94c44837f0d884c2777defa9d945915faaa6 verificato con git status vuoto prima dell avvio. Due soak in parallelo sulla stessa VM. Revisione, pulizia e ambiente dichiarati dal titolare, non rilevati autonomamente dal misuratore.",
+          "originali": "target/rel701/soak-679d94c4/<bersaglio>",
+          "copie_locali": "target/rel701/soak-vm/target/rel701/soak-679d94c4/<bersaglio>"
+        },
+        "bersagli": {
+          "dxf_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py dxf_reader --seconds 3600 --output-dir target/rel701/soak-679d94c4/dxf_reader",
+            "referto": "target/rel701/soak-vm/target/rel701/soak-679d94c4/dxf_reader/referto.json",
+            "referto_sha256": "f1f2e8b1aada887537741b979d3705ed422c457f1bd6eb9e9c043c15941f8894",
+            "log": "target/rel701/soak-vm/target/rel701/soak-679d94c4/dxf_reader/campagna.log",
+            "log_sha256": "9a92606571308b1b46501e5436a81afffc3e7ab33998459180e222e65b9e2643",
+            "log_dimensione": 8249955,
+            "console": "target/rel701/soak-vm/target/rel701/soak-679d94c4/dxf_reader.console",
+            "console_sha256": "20a61462bb8574ab007904e8026abdb893c8bd27ba191e47ffc806747160790c",
+            "tempi_grezzi": {
+              "monotonic_s": 3602.1636499880005,
+              "boottime_s": 3602.1636503,
+              "parete_s": 3602.1636505126953,
+              "cpu_figli_s": 3602.2155540000003
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 13394138,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "13394138",
+                "average_exec_per_sec": "3719",
+                "new_units_added": "61063",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "630"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3602.2155540000003,
+              "quota_cpu_intervallo": 1.0000144091210292,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "dxf_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.1636499880005,
+                "boottime_s": 3602.1636503,
+                "parete_s": 3602.1636505126953,
+                "cpu_figli_s": 3602.2155540000003
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 3.119994289590977e-07,
+                "parete_meno_monotonic_s": 5.246947694104165e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3602.2155540000003,
+                "quota_cpu_intervallo": 1.0000144091210292,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 13394138,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "13394138",
+                  "average_exec_per_sec": "3719",
+                  "new_units_added": "61063",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "630"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "dxf_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "9a92606571308b1b46501e5436a81afffc3e7ab33998459180e222e65b9e2643",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 4266.620554433,
+                  "boottime_s": 4266.620554859,
+                  "parete_s": 1793969348.8180828,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 7868.784204421,
+                  "boottime_s": 7868.784205159,
+                  "parete_s": 1793972950.9817333,
+                  "cpu_figli_s": 3602.2155540000003
+                }
+              },
+              "errore_avvio": null
+            }
+          },
+          "shp_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py shp_reader --seconds 3600 --output-dir target/rel701/soak-679d94c4/shp_reader",
+            "referto": "target/rel701/soak-vm/target/rel701/soak-679d94c4/shp_reader/referto.json",
+            "referto_sha256": "bf20534b5ff551b8e5c6b1c0b870d227886328926f87e4b20bf2e85aacee04e5",
+            "log": "target/rel701/soak-vm/target/rel701/soak-679d94c4/shp_reader/campagna.log",
+            "log_sha256": "8b30ea851accc11cb8125bd0ef94ce0a05679372ebb113d727cacf20a9a22f3c",
+            "log_dimensione": 317027,
+            "console": "target/rel701/soak-vm/target/rel701/soak-679d94c4/shp_reader.console",
+            "console_sha256": "20a61462bb8574ab007904e8026abdb893c8bd27ba191e47ffc806747160790c",
+            "tempi_grezzi": {
+              "monotonic_s": 3601.926774601,
+              "boottime_s": 3601.9267745999996,
+              "parete_s": 3601.9267745018005,
+              "cpu_figli_s": 3687.691144
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 11591105,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "11591105",
+                "average_exec_per_sec": "3218",
+                "new_units_added": "2259",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "476"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3687.691144,
+              "quota_cpu_intervallo": 1.023810692100619,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "shp_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3601.926774601,
+                "boottime_s": 3601.9267745999996,
+                "parete_s": 3601.9267745018005,
+                "cpu_figli_s": 3687.691144
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": -1.000444171950221e-09,
+                "parete_meno_monotonic_s": -9.919949661707506e-08
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3687.691144,
+                "quota_cpu_intervallo": 1.023810692100619,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 11591105,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "11591105",
+                  "average_exec_per_sec": "3218",
+                  "new_units_added": "2259",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "476"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "shp_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "8b30ea851accc11cb8125bd0ef94ce0a05679372ebb113d727cacf20a9a22f3c",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 4266.620477624,
+                  "boottime_s": 4266.62047823,
+                  "parete_s": 1793969348.8180065,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 7868.547252225,
+                  "boottime_s": 7868.54725283,
+                  "parete_s": 1793972950.744781,
+                  "cpu_figli_s": 3687.691144
+                }
+              },
+              "errore_avvio": null
+            }
+          }
+        },
+        "verbale_smoke": {
+          "conservato": "assurance/evidence/fuzz-smoke-ultima.json",
+          "sha256": "4f19e3f4fa3687da828c32631826b0c1a2d5dfa72745280f4919a43bae1fb1f5",
+          "copia_vm": "target/rel701/soak-vm/assurance/evidence/fuzz-smoke-ultima.json",
+          "copia_vm_sha256": "78f1e57566539e2a973b4ae19e1ff12c338eb3935ce1bfefe629fceac1f62537",
+          "motivazione": "Come nella 7.0.0 resta il verbale completo del livello 2 (15/15, 60 s), attribuito alla revisione misurata da ultima_campagna_fuzz. La copia VM sovrascritta dai soak paralleli riporta solo dxf_reader a 3600 s su 15 dichiarati: non e una campagna completa e non rappresenta entrambi i soak. check_release_contract._campagna_legata_al_verbale verifica forma e identita; classifica_finding_fuzz --verifica-campagna pretende tutti i bersagli. I soak sono documentati separatamente qui, senza fondere o alterare i verbali."
+        }
+      }
     },
     "oom": {
       "eseguito": null,
@@ -44,12 +267,82 @@
       "artefatti_attesi": 7
     },
     "profilo_pubblico": {
-      "stato": "da_eseguire_sulla_VM",
-      "nota": "Le attestazioni storiche non attestano gli archivi 7.0.1."
+      "stato": "passed",
+      "nota": "Quattro attestazioni gia registrate in fa007ae; 32/32 ciascuna, esigenti e conformi, pin 7f82263921132226814f9829b0669ef34eae5624; digest e dimensioni confrontati con la candidate. Nessuna nuova esecuzione delle sonde in questa registrazione.",
+      "attestazioni": [
+        {
+          "referto": "assurance/evidence/profilo-pubblico/linux-x86_64-base.json",
+          "sha256": "c77595f957b6379a13bcff3a19e9d9f266e49f5d2e61d440b0936b8f317e49b4",
+          "artefatto": {
+            "nome": "plenora-io-7.0.1-linux-x86_64-base.tar.gz",
+            "digest": "sha256:8a575b8210bc9c7b64916cd28f4f155a4511745ea73c6e3ac37186f4c679f8de",
+            "byte": 9195533
+          },
+          "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": []
+          }
+        },
+        {
+          "referto": "assurance/evidence/profilo-pubblico/linux-x86_64-filegdb.json",
+          "sha256": "205d66df6afd6291d4309502e0b973e27aaaf0d5080a4c64d02f24308218dcf6",
+          "artefatto": {
+            "nome": "plenora-io-7.0.1-linux-x86_64-filegdb.tar.gz",
+            "digest": "sha256:2d492366ccf0a89cb1adbd4128858406d4c5b85d44e0d02a6b72ff0c9b4a86f3",
+            "byte": 65043909
+          },
+          "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": []
+          }
+        },
+        {
+          "referto": "assurance/evidence/profilo-pubblico/windows-x86_64-base.json",
+          "sha256": "bdd31885a3a7e6822f40f90cc5d51d9ac90ed0964b4781a501620c118268d070",
+          "artefatto": {
+            "nome": "plenora-io-7.0.1-windows-x86_64-base.zip",
+            "digest": "sha256:00274e3aa3685cc93bfd8f4ba5e603498189acf8002b1c569130525b6487c5ba",
+            "byte": 10001659
+          },
+          "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": []
+          }
+        },
+        {
+          "referto": "assurance/evidence/profilo-pubblico/windows-x86_64-filegdb.json",
+          "sha256": "7b98919f714ea44adc2df7dd1ffcb6c8ef48cf8305f457f639fe3965875261be",
+          "artefatto": {
+            "nome": "plenora-io-7.0.1-windows-x86_64-filegdb.zip",
+            "digest": "sha256:bd742ef43b76f0e6233b2a52e6eedfb1374201b448b65662d51a64502fd66b97",
+            "byte": 49056202
+          },
+          "requisiti": {
+            "totale": 32,
+            "protetti": 32,
+            "regressioni": [],
+            "da_dichiarare": [],
+            "non_soddisfatti": [],
+            "invocazioni_guaste": []
+          }
+        }
+      ]
     }
   },
   "resta_aperto": {
-    "sequenza": "Restano i soak mirati dxf_reader e shp_reader richiesti dalla sezione 6, le quattro attestazioni del profilo pubblico sui byte 7.0.1 da eseguire sulla VM, la preparazione della draft e la verifica dei byte riscaricati contro la candidate, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell'assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.",
+    "sequenza": "Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Restano la preparazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.",
     "decisione": "release_authorized e release_action_allowed restano false.",
     "qualifica_cross_component": "Differita; nessuna qualifica end-to-end fra IO, data e database.",
     "licenza_first_party": "Differita; conferma esterna del titolare ancora assente."

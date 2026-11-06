@@ -425,6 +425,24 @@ scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
 
+**Soak della candidate 7.0.1 registrati.** Sulla revisione di assurance
+`679d94c`, figlia della candidate `2ddfb58`, il soak mirato e chiuso.
+Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json.
+
+Ubuntu 24.04, 8 vCPU, 16 GB, nightly-2026-07-21 e cargo-fuzz 0.13.2;
+checkout pulito prima dell avvio, come dichiarato dal titolare.
+Il tempo wrapper include preparazione/build; i 3601 s sono la durata dichiarata
+da libFuzzer. La concordanza degli orologi indica solo nessuna discontinuita
+rilevata. Hash dei log e del misuratore, campioni e giudizi sono verificati
+localmente senza rieseguire le campagne.
+
+Come per la 7.0.0, `fuzz-smoke-ultima.json` resta la copia completa del livello 2
+(15/15, 60 s): il controllo `--verifica-campagna` pretende tutti i bersagli.
+La copia VM sovrascritta dai soak paralleli riporta solo `dxf_reader`; percorso
+e digest sono conservati nel [verbale](../assurance/evidence/checkpoint-679d94c.json),
+insieme ai referti separati di entrambi i soak. Non si fondono i verbali.
+I permessi `release_authorized` e `release_action_allowed` restano `false`.
+
 **Criterio di uscita.** Ogni gruppo del registro è `chiuso`, con una prova che è
 un **test eseguito**, oppure `irraggiungibile` con le righe scoperte e la
 guardia che rifiuta per prima. `check_assurance_n1.py --release` diventa verde.
@@ -1537,26 +1555,13 @@ Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
 Il contratto prima del livello 2 sulla VM risulta verde: 37 invarianti,
 35 verificati, zero bloccanti, due differiti (esito comunicato dal titolare).
 
-Restano i soak mirati dxf_reader e shp_reader richiesti dalla sezione 6, le quattro attestazioni del profilo pubblico sui byte 7.0.1 da eseguire sulla VM, la preparazione della draft e la verifica dei byte riscaricati contro la candidate, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell'assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.
+Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Restano la preparazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.
 `release_authorized` e `release_action_allowed` restano `false`.
 I soak su `fc98634` e le attestazioni storiche non sono misure della 7.0.1.
 
-Attestazioni da eseguire sulla VM, dalla radice `~/io-l2`, con
-`.plenora-contracts` al pin `7f82263` e i quattro archivi scaricati presenti:
-
-```bash
-cd ~/io-l2
-python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-linux-x86_64-base.tar.gz --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-base.json --esigente
-python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-linux-x86_64-filegdb.tar.gz --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-filegdb.json --esigente
-python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-windows-x86_64-base.zip --attestazione assurance/evidence/profilo-pubblico/windows-x86_64-base.json --esigente
-python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-windows-x86_64-filegdb.zip --attestazione assurance/evidence/profilo-pubblico/windows-x86_64-filegdb.json --esigente
-```
-
-Il verificatore esegue direttamente il binario estratto. Sulla VM Linux i
-due ZIP Windows richiedono quindi un ambiente capace di avviare gli `.exe`
-(per esempio Wine con integrazione binfmt gia' configurata); lo script non
-aggiunge un launcher Wine. Questa capacita' della VM non e' verificata qui.
-I referti vanno riesaminati e registrati prima della decisione del titolare.
+Le quattro attestazioni sono gia registrate in `fa007ae`; il verbale del
+checkpoint ne riporta riferimenti e digest, verificati contro gli archivi
+congelati. Non occorre ripeterle per questa registrazione.
 
 ## 7.0.0 — candidate
 
