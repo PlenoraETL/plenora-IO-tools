@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `1e3f047` |
-| revisione misurata | `1e3f047` |
+| ultima qualificata | `fc98634` |
+| revisione misurata | `fc98634` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,30 +49,30 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,14% |
-| righe coperte LCOV | 29 627 |
-| righe strumentate LCOV | 33 612 |
-| copertura cargo | 86,03% |
+| copertura LCOV | 88,68% |
+| righe coperte LCOV | 31 277 |
+| righe strumentate LCOV | 35 271 |
+| copertura cargo | 86,54% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `732fba374cd12aed7995c11c3ed48128e8f5992b` |
-| esito differenziale | 94.02% |
+| baseline differenziale | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
+| esito differenziale | 93.38% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `1e3f047` |
-| candidate, versione del manifesto | `6.0.0` |
+| S9, qualificato su | `fc98634` |
+| candidate, versione del manifesto | `7.0.0` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
-| candidate, versione del workspace | `6.0.0` |
+| candidate, revisione congelata | `fc98634b9cde7f1204aaace098ff48def957c943` |
+| candidate, versione del workspace | `7.0.0` |
 | candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v6.0.0` |
+| candidate, tag previsto | `v7.0.0` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
+| candidate, revisione del tag | `fc98634b9cde7f1204aaace098ff48def957c943` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 7 |
+| release pubblicate | 8 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -1256,6 +1256,24 @@ pubblicato ciò che si era caricato.
 
 ### 6. Decisione finale di rilascio
 
+**Soak della candidate 7.0.0 registrati.** Su `fc98634`, `dxf_reader` misura
+3823,438642146 s monotonic, 3823,438642754 s boottime e 3823,438643456 s
+realtime; `shp_reader` misura rispettivamente 3823,181138732 s,
+3823,181138840 s e 3823,181138992 s. Il wrapper include preparazione e build;
+libFuzzer dichiara 3601 s per bersaglio, con 10.242.106 e 5.749.588 esecuzioni.
+Entrambi hanno exit 0, nessun finding, durata dimostrata ed esito `completa`.
+Il [verbale](../assurance/evidence/checkpoint-fc98634.json) conserva digest dei log,
+provenienza e riferimenti ai referti originali; la verifica locale ha ricalcolato
+hash e giudizi senza rieseguire le campagne.
+
+I due soak sono girati in parallelo sulla stessa VM Ubuntu 24.04 a 4 vCPU,
+con nightly-2026-07-21 e checkout pulito della candidate, come dichiarato dal
+titolare. Il criterio e il misuratore non richiedono esclusività o saturazione
+CPU: la CPU dei figli è diagnostica e include la build. La misura resta
+inalterata; la concordanza degli orologi indica soltanto nessuna discontinuità
+rilevata. Restano draft riscaricata e verificata, decisione esplicita, gate
+finale ed evidenza in commit separato; entrambi i permessi restano `false`.
+
 **Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
 rinvio ritira; `check_release_contract.py --release` verde, cioè nessun
@@ -1317,14 +1335,34 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## Note della prossima release — CHANGELOG non rilasciato
+## 7.0.0 — candidate
 
-Le note di rilascio di IO-tools stanno nel corpo della GitHub Release, scritte
-alla pubblicazione; il repository non ha un `CHANGELOG.md`. Questa sezione ne è
-la bozza: chi pubblica la ricopia nel corpo della release e la svuota. Il
-numero di versione, `__version__` e il README dell'SDK si allineano al momento
-del rilascio, non qui. Le note della 6.0.0 sono nel corpo della sua
-[GitHub Release](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
+**Cambiamento incompatibile CSV:** il testo e' sempre quotato, il null non e'
+quotato e i terminatori sono CRLF. Stringhe vuote e spazi restano valori;
+i campi quotati forzano Utf8. I consumatori devono distinguere quoting e
+presenza; la decisione del titolare e' quindi una release major, **7.0.0**.
+
+La 7.0.0 contiene le correzioni dei difetti silenziosi segnalati nell'avviso
+alla [release 6.0.0](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0).
+E' ancora una candidate iniziale, senza data di pubblicazione, revisione o
+artefatti congelati. L'avviso del 31/10/2026 va riferito alla correzione nella
+**7.0.0**, non a una generica prossima release; le verifiche successive hanno
+inoltre accertato il difetto delle geometrie miste GPKG descritto sotto,
+rettificando l'esclusione iniziale nell'avviso.
+
+**Versioni colpite e controllo degli output:** CSV, DBF e GPKG hanno percorsi
+coinvolti dai tag 0.1.0-rc.1 fino alla 6.0.0; XLSX dalle prerelease fino alla
+6.0.0, incluse tutte le release stabili dalla 1.0.0. I temporali condivisi
+sono coinvolti dalla 2.0.0 alla 6.0.0. Le sezioni seguenti distinguono evidenza
+statica e riproduzioni, elencano i tag e danno i controlli specifici.
+Conservare gli originali e confrontare valori e schema con la sorgente:
+null sostitutivi, cifre troncate e testo perduto non si recuperano dal solo
+output. Rigenerare dalla sorgente con la versione corretta dopo aver gestito
+i rifiuti espliciti. Un comando riuscito non certifica la fedelta' dei dati.
+
+Queste note sono la bozza per il corpo della GitHub Release 7.0.0; verranno
+trasferite alla pubblicazione. Le note storiche della 6.0.0 restano nella
+sua GitHub Release.
 
 ### ZIP: dipendenze aggiornate
 
@@ -1442,10 +1480,11 @@ schema GPKG senza campo specifico si leggono anche tramite SDK, senza
 inventare un indice e senza rifiutare una risposta valida. Le prove nuove confrontano byte attesi indipendenti dal writer,
 validità/valore, loss report e mancata pubblicazione per i rifiuti.
 
-La modifica al builder condiviso invalida le precedenti misure di profondità
-`wkt_parse` e `shp_reader`: prima della qualifica occorre rieseguire
-`bash scripts/fuzz-profondita.sh wkt_parse` e
-`bash scripts/fuzz-profondita.sh shp_reader` con la toolchain fissata.
+Il builder condiviso invalida le misure `wkt_parse` e `shp_reader`; inoltre
+il bump 7.0.0 modifica i lock nel perimetro di tutti e quattro i bersagli.
+Prima del congelamento occorre rieseguire `scripts/fuzz-profondita.sh` per
+`filegdb_reader`, `shp_reader`, `geojson_reader` e `wkt_parse`, e
+`bash scripts/asan-filegdb.sh`, nell'ambiente Linux di qualifica con toolchain fissata.
 Non si aggiornano le impronte senza una nuova misura.
 
 ### GeoPackage: perdite silenziose di valori e schema
