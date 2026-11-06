@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `fc98634` |
-| revisione misurata | `fc98634` |
+| ultima qualificata | `679d94c` |
+| revisione misurata | `679d94c` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,18 +49,18 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,68% |
-| righe coperte LCOV | 31 277 |
+| copertura LCOV | 88,75% |
+| righe coperte LCOV | 31 302 |
 | righe strumentate LCOV | 35 271 |
-| copertura cargo | 86,54% |
+| copertura cargo | 86,62% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
-| esito differenziale | 93.38% |
+| baseline differenziale | `fc98634b9cde7f1204aaace098ff48def957c943` |
+| esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `fc98634` |
+| S9, qualificato su | `679d94c` |
 | candidate, versione del manifesto | `7.0.1` |
 | candidate, stato | attiva |
 | candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
@@ -1525,10 +1525,38 @@ checkpoint, copertura e campagna storici restano attribuiti a `fc98634`.
 La candidate e' congelata con i sette deliverable della distribuzione
 42206421101, dopo il livello 1 sulla VM (99 passi su 99), come registrato nel
 [verbale di congelamento](../assurance/current-state.json).
-Restano il livello 2, le campagne e attestazioni richieste, la draft e la
-verifica dei byte riscaricati, quindi l'autorizzazione esplicita del titolare.
-Tag e pubblicazione non sono autorizzati; dopo la pubblicazione immutata
-andra' ripetuta la verifica dei byte riscaricati dalla release.
+Il livello 2 e' ora superato sulla revisione di assurance
+`679d94c44837f0d884c2777defa9d945915faaa6`, figlia della candidate
+`2ddfb58cb21975544f51188cf081fc6d6228e082`: 111/111 passi, zero file
+sporchi all'avvio, revisione e impronta invariate su Ubuntu 24.04.
+L'[evidenza della corsa](../assurance/evidence/checkpoint-679d94c.json)
+registra replay 145 input su 15 target senza crash, smoke 15/15 senza finding,
+LCOV 88,75% (31302/35271) e cargo 86,62%, soglia 80%.
+Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
+432 non eseguibili, percentuale `n/d`; la diagnostica CLI conta zero in entrambe.
+Il contratto prima del livello 2 sulla VM risulta verde: 37 invarianti,
+35 verificati, zero bloccanti, due differiti (esito comunicato dal titolare).
+
+Restano i soak mirati dxf_reader e shp_reader richiesti dalla sezione 6, le quattro attestazioni del profilo pubblico sui byte 7.0.1 da eseguire sulla VM, la preparazione della draft e la verifica dei byte riscaricati contro la candidate, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell'assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.
+`release_authorized` e `release_action_allowed` restano `false`.
+I soak su `fc98634` e le attestazioni storiche non sono misure della 7.0.1.
+
+Attestazioni da eseguire sulla VM, dalla radice `~/io-l2`, con
+`.plenora-contracts` al pin `7f82263` e i quattro archivi scaricati presenti:
+
+```bash
+cd ~/io-l2
+python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-linux-x86_64-base.tar.gz --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-base.json --esigente
+python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-linux-x86_64-filegdb.tar.gz --attestazione assurance/evidence/profilo-pubblico/linux-x86_64-filegdb.json --esigente
+python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-windows-x86_64-base.zip --attestazione assurance/evidence/profilo-pubblico/windows-x86_64-base.json --esigente
+python3 scripts/check_public_contracts.py --contracts .plenora-contracts --artefatto target/rel701/distribuzione-42206421101/archivi/plenora-io-7.0.1-windows-x86_64-filegdb.zip --attestazione assurance/evidence/profilo-pubblico/windows-x86_64-filegdb.json --esigente
+```
+
+Il verificatore esegue direttamente il binario estratto. Sulla VM Linux i
+due ZIP Windows richiedono quindi un ambiente capace di avviare gli `.exe`
+(per esempio Wine con integrazione binfmt gia' configurata); lo script non
+aggiunge un launcher Wine. Questa capacita' della VM non e' verificata qui.
+I referti vanno riesaminati e registrati prima della decisione del titolare.
 
 ## 7.0.0 — candidate
 
