@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `fc98634` |
-| candidate, versione del manifesto | `7.0.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| candidate, versione del workspace | `7.0.0` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `7.0.1` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `7.0.1` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v7.0.1` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 8 |
-| release_authorized | `true` |
+| release pubblicate | 9 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1334,6 +1334,73 @@ elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
+
+## 7.0.1 — candidate
+
+Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
+`=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
+copertura logica di RunEndEncoded). Workspace e SDK dichiarano `7.0.1`, come
+il bump nella PR della 7.0.0. Questa sezione non congela una candidate e non
+attribuisce alla patch le misure della release precedente.
+
+### Esposizione per superficie
+
+La tabella distingue il difetto specifico dell'advisory da altri errori di
+layout: la prevalidazione IO non sostituisce ogni controllo semantico Arrow.
+I percorsi Rust sono relativi a `crates/`. Dove indicato, la prova e' statica
+(costruttori e tipi del reader), non una riproduzione dinamica dell'advisory.
+
+| Ingresso | Percorso di un RunEndEncoded non valido e prova |
+|---|---|
+| IPC file e stream | La copertura insufficiente dei run e i run assenti con lunghezza positiva sono rifiutati **prima** del decoder Arrow. Altri difetti semantici possono arrivare alla validazione fallibile Arrow. `driver-common/src/prevalida_arrow/run_ends.rs`; prova `driver-ipc/src/tests/layout_ipc.rs::run_ends_devono_coprire_la_lunghezza_logica`, per Int16/32/64, file, stream e dizionari. |
+| Parquet e GeoParquet | Le pagine fisiche non rappresentano REE. Un hint REE in `ARROW:schema` incompatibile viene ignorato e non costruisce un array REE: `driver-geoparquet/tests/run_end_encoded.rs::uno_schema_run_end_incorporato_non_costruisce_array_run_end`. Entrambi i formati usano questo driver. Non e' un rifiuto dell'intero file: la prova rilegge i valori Int32. |
+| GeoPackage | Il reader costruisce array dai valori SQLite, senza importare buffer o layout REE; nessun REE esterno arriva alla validazione Arrow. Evidenza statica: `driver-gpkg/src/lib.rs::next_batch`, `driver-gpkg/src/schema.rs`; prove di storage in `driver-gpkg/src/tests/storage_schema.rs`. |
+| CSV | Il reader costruisce colonne scalari dal testo, non array REE. Evidenza statica: `driver-csv/src/lib.rs::finish_batch`; prove in `driver-csv/src/tests/presenza.rs`. |
+| Shapefile | Shape e DBF diventano array scalari e WKB tramite builder; nessun layout REE e' importato. Evidenza statica: `driver-shp/src/lib.rs::finish_batch`; prove in `driver-shp/src/tests/dbf_lettura.rs`. |
+| DXF | Entita' e attributi vengono materializzati in colonne e WKB, senza importazione REE. Evidenza statica: `driver-dxf/src/lib.rs::build_batch_cancellable`; prove in `driver-dxf/src/tests.rs`. |
+| GDAL / FileGDB | Il backend legge feature OGR e usa builder scalari, non lo stream Arrow C di GDAL. Nessun REE esterno arriva ad Arrow. Evidenza statica: `driver-filegdb/src/lib.rs` (builder e reader); prove feature-on nello stesso crate. |
+| CLI | Non riceve array in memoria: seleziona i reader dei formati. Per un file IPC vale il rifiuto anticipato sopra; per gli altri formati valgono i percorsi della tabella. Evidenza statica: dispatch in `plenora-io-tools/src/lib.rs`; prove IPC sopra sul driver effettivo. |
+| SDK Python | `_arrow.py::scrivi_ipc` acquisisce lo schema dal reader prima di aprire il file e serializza con PyArrow; il successivo ingresso Rust e' IPC e applica la prevalidazione. Non usa `arrow-pyarrow` ne' importa direttamente un array C in Rust. Un produttore C non valido resta anche nel perimetro di fiducia di PyArrow prima della serializzazione; la patch Rust non lo valida in Python. Prove in `sdk/python/tests/test_arrow_60_1.py` e `test_confini_esterni.py`, piu' le prove IPC sopra. |
+| API Rust | Un chiamante puo' costruire array usando Arrow direttamente: la validazione `ArrayDataBuilder::build` e' raggiungibile, e ora rifiuta lunghezze/offset oltre l'ultimo run. Prova `driver-ipc/src/tests/arrow_60_1.rs::array_del_chiamante_non_puo_dichiarare_righe_senza_run`. Le API unsafe del chiamante non acquisiscono garanzie da questa patch. |
+
+### Comportamenti osservabili e dipendenze
+
+* Il flag `keys_sorted` di Map resta conservato nello SDK attraverso IPC su
+  piu' batch: `sdk/python/tests/test_arrow_60_1.py`. IO non usa il bridge
+  `arrow-pyarrow` corretto a monte, quindi questa e' una garanzia di
+  conservazione verificata, non un nuovo cambiamento del bridge in IO.
+* Arrow 60.1.0 scrive una bitmap di validita' vuota per colonne senza null:
+  a parita' di ingresso i byte IPC possono cambiare, mentre schema e valori
+  restano uguali. Prova `ipc_senza_null_scrive_bitmap_vuota_e_rilegge_gli_stessi_valori`
+  in `driver-ipc/src/tests/arrow_60_1.rs`. Non si promette identita' dei byte
+  fra versioni.
+* Il decoder Arrow restituisce un errore esplicito per una bitmap troppo
+  corta, invece del precedente panico intercettato. Prova diretta
+  `arrow_60_1_bitmap_corta_restituisce_errore_senza_panico` nello stesso
+  `layout_ipc.rs`. Il percorso IO gia'
+  prevalidava questo layout prima del decoder: prova
+  `driver-ipc/src/tests/layout_ipc.rs::bitmap_delle_viste_in_file_flussi_dizionari_e_delta`.
+  La correzione upstream non rende accettabile un input prima rifiutato.
+
+Parquet resta il fork 60.0.0 con i delta di sicurezza del decoder: i requisiti
+Arrow sono compatibili con 60.1.0 e vengono ristretti a pin esatti anche nel
+manifesto e nel lock autonomi del vendor. Nessun sorgente vendor e' cambiato.
+Motivazione e provenienza: `assurance/registries/vendor-parquet-fork.json` e
+`scripts/parquet-fork-lock.json`; prova del decoder nell'intera suite
+`driver-geoparquet`, incluso `tests/fork_parquet.rs`.
+
+Anche la sola dipendenza di test `arrow-array` del fork GDAL e' fissata a
+`=60.1.0`; non entra nel reader OGR di IO. Il delta di packaging e la nuova
+impronta sono registrati in `assurance/registries/vendor-gdal-fork.json` e
+`scripts/gdal-fork-lock.json`.
+
+Aggiornato anche `calamine` a `=0.38.0` per RUSTSEC-2026-0436, senza nuove
+eccezioni. IO usa Xlsx e non il parser CFB di Xls/Xlsb/VBA interessato
+dall'avviso; l'aggiornamento chiude comunque l'advisory nei due lock.
+
+Le quattro misure di profondita' fuzz e il confine ASan FileGDB devono essere
+ripetuti sul perimetro finale Linux/nightly prima della qualifica 7.0.1.
+I rinvii nei registri non sono nuove misure; i gate di qualifica li rifiutano.
 
 ## 7.0.0 — candidate
 

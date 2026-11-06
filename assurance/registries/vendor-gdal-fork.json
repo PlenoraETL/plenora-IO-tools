@@ -95,5 +95,6 @@
       "perche": "il pacchetto pubblicato su crates.io (sha256 e26906e9..., verificato) **non contiene** il file di licenza, e il fork ridistribuiva codice MIT senza il suo testo, che la licenza chiede di includere. Il registro dichiarava `LICENSE.txt` dalla prima vendorizzazione: un'affermazione sui byte che i byte smentivano, e che nessun gate verificava. Ora `scripts/audit-fork.py` fa fallire la CI se un file di licenza dichiarato manca o non e' versionato."
     }
   ],
-  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/vector/layer.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato."
+  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/vector/layer.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato.",
+  "pin_arrow_di_sviluppo": "Per la patch 7.0.1 arrow-array nelle sole dev-dependencies passa da 57.1 a =60.1.0, con feature ffi invariata. Non entra nei grafi workspace/fuzz e non cambia il reader OGR di IO; evita una seconda serie Arrow nelle prove autonome del fork. Nessun sorgente vendor modificato o formattato."
 }

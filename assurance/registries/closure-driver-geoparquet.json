@@ -388,43 +388,43 @@
     },
     {
       "crate": "arrow-array",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0 AND MIT",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-buffer",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-cmp",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-data",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-ipc",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-schema",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
       "crate": "arrow-select",
-      "versione": "60.0.0",
+      "versione": "60.1.0",
       "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "7.0.0",
+      "versione": "7.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "7.0.0",
+      "versione": "7.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "7.0.0",
+      "versione": "7.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "7.0.0",
+      "versione": "7.0.1",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },

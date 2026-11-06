@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -552,6 +552,67 @@
         "versione_pacchetto_python": "6.0.0",
         "evidenza": "assurance/evidence/checkpoint-1e3f047.json",
         "perche_e_qui": "La 6.0.0 e' pubblicata, e il suo verbale si sposta qui perche' `aperto.candidate_release` descrive **una** candidate e la corrente e' ora la 7.0.0. I campi della registrazione pubblicata restano invariati e verificabili dall'archivio."
+      },
+      {
+        "versione_manifesto": "7.0.0",
+        "tag_previsto": "v7.0.0",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate **attiva**, congelata su `fc98634b9cde7f1204aaace098ff48def957c943`, branch `rilascio/7.0.0`. Il congelamento e' registrato dopo la revisione candidata, nei soli percorsi dell'allowlist di docs/RELEASE.md sezione 5-bis.\n\nLa 7.0.0 e' una major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0.\n\nLe profondita' filegdb_reader (12/12), shp_reader (35/35), geojson_reader (9/9), wkt_parse (9/9) e il confine ASan sono rimisurati nella revisione congelata; i gate ne verificano le impronte sul perimetro corrente. Le modifiche di assurance non cambiano quel perimetro.\n\nI sette artefatti sono fissati dai byte della distribuzione candidate 41481022901 (https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/41481022901): quattro archivi CLI, wheel e sdist Python, archivio sorgente. SHA-256, dimensioni e revisione sono verificati contro checksum e provenance (MANIFEST-sorgente.json per il sorgente) con check-deliverable.py. Il gate check-distribuzione-completa.py e' verde: 32/32 referti, canale candidate.\n\nRegistrato il livello 2 su fc98634: 111/111 passi verdi, albero pulito e invariato; misure e diagnostica differenziale derivate dai log in assurance/evidence/checkpoint-fc98634.json. Le quattro attestazioni esigenti del profilo pubblico sono 32/32 ciascuna, sui byte congelati e al pin 7f82263. Il set locale dei sette deliverable e verificato contro la candidate.\n\nRegistrati i due soak mirati sulla candidate in assurance/evidence/checkpoint-fc98634.json: dxf_reader monotonic 3823,438642146 s, boottime 3823,438642754 s, realtime 3823,438643456 s; shp_reader monotonic 3823,181138732 s, boottime 3823,181138840 s, realtime 3823,181138992 s. LibFuzzer dichiara 3601 s per bersaglio; 10242106 e 5749588 esecuzioni, exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla stessa VM a 4 vCPU: nessuna esclusivita o saturazione CPU richiesta, nessuna alterazione della misura. Restano la draft riscaricata e verificata, la decisione esplicita del titolare e l'evidenza in commit separato. release_authorized e release_action_allowed restano false. Dopo autorizzazione: tag annotato v7.0.0 sulla candidate, commit di assurance, gate finale --release, pubblicazione della draft immutata e verifica post-pubblicazione. Restano i rinvii e i limiti elencati nel giudizio della corsa.\n\nAutorizzazione esplicita: Data: 2026-11-02\nTitolare: Marco (PlenoraETL)\nDecisione autentica: alla domanda «Autorizzi la pubblicazione di IO-tools 7.0.0 dalla draft verificata, con i limiti residui elencati?» il titolare ha risposto «Sì, pubblica» e poi, a conferma dopo un'interruzione, «pubblica».\nOggetto: draft v7.0.0 verificata immutata (23 asset, candidate fc98634b9cde7f1204aaace098ff48def957c943) e i limiti residui dichiarati in target/registrazione-700/richiesta-autorizzazione.md; l'approvazione non elimina i rinvii. Verifica draft in assurance/evidence/checkpoint-fc98634.json.\n\nPubblicata dalla draft immutata; 23/23 asset identici e sette archivi coincidenti coi fissati. Verbale: assurance/evidence/checkpoint-fc98634.json. Permesso operativo speso.",
+        "revisione_candidate": "fc98634b9cde7f1204aaace098ff48def957c943",
+        "artefatti": [
+          {
+            "nome": "plenora-io-7.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "7bf425a6911554ff1acae25e97c30ac5fa9f58f7c218afb18f5aafcca318cd88",
+            "dimensione": 9073506,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora-io-7.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "7645fdd53912a59e912744124d9dc623bc184477e4ba5eb1a4b59abdfe827495",
+            "dimensione": 64917936,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora-io-7.0.0-src.tar.gz",
+            "sha256": "5634b146f681c7ffffff02934f4c458c3188755fe8bd4bc28170a9411a19a988",
+            "dimensione": 21218565,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora-io-7.0.0-windows-x86_64-base.zip",
+            "sha256": "18e5761b9cdbce859d49c7e25db9dec91229ff9c96c90aa7866ca4b6f350a1b7",
+            "dimensione": 9863960,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora-io-7.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "495c5e65d7fc9b08eb4369576adb957c0f16c0b0ed17847338152cd1a1378223",
+            "dimensione": 48920777,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora_io-7.0.0-py3-none-any.whl",
+            "sha256": "fd8f46e66ae7e3cd39b7c65ffed264e53c885d71456b2bf021fad9d979bbd1d5",
+            "dimensione": 114722,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          },
+          {
+            "nome": "plenora_io-7.0.0.tar.gz",
+            "sha256": "8892e735f7cd0d743ee67a1655215fd72ebfb07d294f7b7dcfb8ff05ef5cab4f",
+            "dimensione": 210664,
+            "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
+          }
+        ],
+        "assurance_entro_l_allowlist": true,
+        "tag_revisione": "fc98634b9cde7f1204aaace098ff48def957c943",
+        "commit_di_assurance": "f4c4265866e83280bfdf5dad114d0f004a887f0e",
+        "versione_pacchetto_python": "7.0.0",
+        "evidenza": "assurance/evidence/checkpoint-fc98634.json",
+        "perche_e_qui": "La 7.0.0 e pubblicata; il verbale resta invariato e verificabile mentre la candidate corrente diventa 7.0.1."
       }
     ]
   },
@@ -584,63 +645,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "7.0.0",
-      "versione_workspace": "7.0.0",
-      "tag_previsto": "v7.0.0",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "7.0.1",
+      "versione_workspace": "7.0.1",
+      "tag_previsto": "v7.0.1",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "Candidate **attiva**, congelata su `fc98634b9cde7f1204aaace098ff48def957c943`, branch `rilascio/7.0.0`. Il congelamento e' registrato dopo la revisione candidata, nei soli percorsi dell'allowlist di docs/RELEASE.md sezione 5-bis.\n\nLa 7.0.0 e' una major per decisione del titolare: output CSV incompatibile, testo sempre quotato; correzioni DBF/GPKG/XLSX/CSV e aggiornamento ZIP descritti nelle note 7.0.0.\n\nLe profondita' filegdb_reader (12/12), shp_reader (35/35), geojson_reader (9/9), wkt_parse (9/9) e il confine ASan sono rimisurati nella revisione congelata; i gate ne verificano le impronte sul perimetro corrente. Le modifiche di assurance non cambiano quel perimetro.\n\nI sette artefatti sono fissati dai byte della distribuzione candidate 41481022901 (https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/41481022901): quattro archivi CLI, wheel e sdist Python, archivio sorgente. SHA-256, dimensioni e revisione sono verificati contro checksum e provenance (MANIFEST-sorgente.json per il sorgente) con check-deliverable.py. Il gate check-distribuzione-completa.py e' verde: 32/32 referti, canale candidate.\n\nRegistrato il livello 2 su fc98634: 111/111 passi verdi, albero pulito e invariato; misure e diagnostica differenziale derivate dai log in assurance/evidence/checkpoint-fc98634.json. Le quattro attestazioni esigenti del profilo pubblico sono 32/32 ciascuna, sui byte congelati e al pin 7f82263. Il set locale dei sette deliverable e verificato contro la candidate.\n\nRegistrati i due soak mirati sulla candidate in assurance/evidence/checkpoint-fc98634.json: dxf_reader monotonic 3823,438642146 s, boottime 3823,438642754 s, realtime 3823,438643456 s; shp_reader monotonic 3823,181138732 s, boottime 3823,181138840 s, realtime 3823,181138992 s. LibFuzzer dichiara 3601 s per bersaglio; 10242106 e 5749588 esecuzioni, exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla stessa VM a 4 vCPU: nessuna esclusivita o saturazione CPU richiesta, nessuna alterazione della misura. Restano la draft riscaricata e verificata, la decisione esplicita del titolare e l'evidenza in commit separato. release_authorized e release_action_allowed restano false. Dopo autorizzazione: tag annotato v7.0.0 sulla candidate, commit di assurance, gate finale --release, pubblicazione della draft immutata e verifica post-pubblicazione. Restano i rinvii e i limiti elencati nel giudizio della corsa.\n\nAutorizzazione esplicita: Data: 2026-11-02\nTitolare: Marco (PlenoraETL)\nDecisione autentica: alla domanda «Autorizzi la pubblicazione di IO-tools 7.0.0 dalla draft verificata, con i limiti residui elencati?» il titolare ha risposto «Sì, pubblica» e poi, a conferma dopo un'interruzione, «pubblica».\nOggetto: draft v7.0.0 verificata immutata (23 asset, candidate fc98634b9cde7f1204aaace098ff48def957c943) e i limiti residui dichiarati in target/registrazione-700/richiesta-autorizzazione.md; l'approvazione non elimina i rinvii. Verifica draft in assurance/evidence/checkpoint-fc98634.json.\n\nPubblicata dalla draft immutata; 23/23 asset identici e sette archivi coincidenti coi fissati. Verbale: assurance/evidence/checkpoint-fc98634.json. Permesso operativo speso.",
-      "revisione_candidate": "fc98634b9cde7f1204aaace098ff48def957c943",
-      "artefatti": [
-        {
-          "nome": "plenora-io-7.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "7bf425a6911554ff1acae25e97c30ac5fa9f58f7c218afb18f5aafcca318cd88",
-          "dimensione": 9073506,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora-io-7.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "7645fdd53912a59e912744124d9dc623bc184477e4ba5eb1a4b59abdfe827495",
-          "dimensione": 64917936,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora-io-7.0.0-src.tar.gz",
-          "sha256": "5634b146f681c7ffffff02934f4c458c3188755fe8bd4bc28170a9411a19a988",
-          "dimensione": 21218565,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora-io-7.0.0-windows-x86_64-base.zip",
-          "sha256": "18e5761b9cdbce859d49c7e25db9dec91229ff9c96c90aa7866ca4b6f350a1b7",
-          "dimensione": 9863960,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora-io-7.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "495c5e65d7fc9b08eb4369576adb957c0f16c0b0ed17847338152cd1a1378223",
-          "dimensione": 48920777,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora_io-7.0.0-py3-none-any.whl",
-          "sha256": "fd8f46e66ae7e3cd39b7c65ffed264e53c885d71456b2bf021fad9d979bbd1d5",
-          "dimensione": 114722,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        },
-        {
-          "nome": "plenora_io-7.0.0.tar.gz",
-          "sha256": "8892e735f7cd0d743ee67a1655215fd72ebfb07d294f7b7dcfb8ff05ef5cab4f",
-          "dimensione": 210664,
-          "revisione": "fc98634b9cde7f1204aaace098ff48def957c943"
-        }
-      ],
-      "assurance_entro_l_allowlist": true,
-      "tag_revisione": "fc98634b9cde7f1204aaace098ff48def957c943",
-      "commit_di_assurance": "f4c4265866e83280bfdf5dad114d0f004a887f0e"
+      "stato": "iniziale",
+      "nota": "Candidate iniziale: patch Arrow 60.1.0 per RUSTSEC-2026-0442 e calamine 0.38.0 per RUSTSEC-2026-0436, descritte in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB devono essere rimisurati sul perimetro finale: i rinvii registrati non attestano la 7.0.1 e sono rifiutati dalla qualifica. La release 7.0.0 resta in chiuso.release_pubblicate con la propria evidenza."
     }
   },
   "docset": {

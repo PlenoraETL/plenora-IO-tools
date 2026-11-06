@@ -46,6 +46,22 @@
         "https://docs.rs/crate/calamine/0.37.0/source/Changelog.md",
         "https://docs.rs/crate/rust_xlsxwriter/0.100.0/source/Cargo.toml"
       ]
+    },
+    {
+      "id": [
+        "RUSTSEC-2026-0442"
+      ],
+      "crate": "arrow-data",
+      "chiuse_il": "2026-11-06",
+      "come": "Arrow 60.1.0 con pin esatti e lock workspace, fuzz e vendor/parquet. La prevalidazione IPC di IO gia verificava la copertura logica prima del decoder; resta vulnerabile la costruzione di array da parte del chiamante Rust con Arrow 60.0.0."
+    },
+    {
+      "id": [
+        "RUSTSEC-2026-0436"
+      ],
+      "crate": "calamine",
+      "chiuse_il": "2026-11-06",
+      "come": "Pin =0.38.0 e lock workspace/fuzz aggiornati. IO usa Xlsx, non Xls/Xlsb, e non chiama vba_project: il parser CFB oggetto dell advisory non e raggiungibile dal driver. Aggiornamento comunque applicato, nessuna eccezione."
     }
   ],
   "yanked_accettati": [],

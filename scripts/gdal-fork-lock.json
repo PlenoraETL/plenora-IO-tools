@@ -8,7 +8,7 @@
   "upstream_revision": "0b06a50a7d19ddd44f77e8c91599fd2d4384b12a",
   "vendor_path": "vendor/gdal",
   "file_count": 64,
-  "tree_sha256": "6bd1d48dd1c8ef377e0418477f3eb357dfa179ace8b9e6bc46bee4df247bdfd9",
+  "tree_sha256": "3c9ba8e723080e2fbd564b57c718c918175ceba9c45cc4d034367d97294a1e95",
   "functional_delta_files": [
     "src/spatial_ref/mod.rs",
     "src/spatial_ref/srs.rs",

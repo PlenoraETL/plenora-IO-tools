@@ -330,5 +330,13 @@
     "errore_di_ambiente": "la riga che trasforma un errore di scrittura in errore tipizzato resta a **zero**, ed e' giusto: durante la misura l'ambiente non ha fallito. E' provata da una sonda del driver, non da qui, perche' pretenderla coperta significherebbe pretendere che il filesystem si rompa durante una misura.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Â«non raggiuntoÂ» da Â«raggiuntoÂ»; la seconda meta' la verificano le sonde di `driver-shp`.",
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
+  },
+  "rimisurazione_dovuta": {
+    "perche": "Aggiornamento Arrow 60.1.0, calamine 0.38.0 e bump 7.0.1 sulla base main della 7.0.0: cambiano i lock del perimetro. Misura Linux nightly/LLVM da rieseguire; ambiente locale Windows senza Docker.",
+    "impronta_della_misura": "4eb9cdcce86e2fd1cb0990f968442100d65e2a3ad4f557bd2fe2ed61a0f3ad0f",
+    "impronta_attesa": "fc495789404fdcabf531a5d985c5f782d4307df60b56d86312f7f995686f4e8d",
+    "non_promette": "La misura storica NON vale per il perimetro corrente; nessuna nuova profondita o copertura ASan e attestata.",
+    "quando": "Prima della qualificazione e del rilascio 7.0.1, sul candidato finale.",
+    "comando": "bash scripts/fuzz-profondita.sh shp_reader"
   }
 }
