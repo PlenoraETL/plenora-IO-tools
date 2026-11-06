@@ -10,5 +10,5 @@ publish = false
 # identically -- change these three lines to check.
 [dependencies]
 parquet = { version = "60.0.0", features = ["arrow"] }
-arrow-array = "60.0.0"
-arrow-schema = "60.0.0"
+arrow-array = "=60.1.0"
+arrow-schema = "=60.1.0"

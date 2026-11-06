@@ -8,6 +8,7 @@ use super::*;
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::GEO_CRS_KEY;
 
+mod arrow_60_1;
 mod buffer_ipc;
 mod layout_ipc;
 mod parametri_schema_ipc;

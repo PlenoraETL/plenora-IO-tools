@@ -82,8 +82,13 @@
   "delta_di_packaging": [
     {
       "file": "Cargo.toml",
-      "che_cosa_cambia": "il manifesto normalizzato del pacchetto, con il nome `plenora-fork-parquet`; `[lib] name = \"parquet\"` c'era gia'.",
+      "che_cosa_cambia": "il manifesto normalizzato del pacchetto, con il nome `plenora-fork-parquet`; `[lib] name = \"parquet\"` c'era gia'. Pin esatti =60.1.0 per tutte le dipendenze Arrow, inclusi arrow e arrow-cast di sviluppo.",
       "perche": "una `[patch]` vale solo dal workspace radice: chi dipende da IO-tools riceverebbe `parquet` da crates.io senza i delta. Il nome resta diverso da quello del fork di data-tools (`plenora-parquet`) anche ora che i due alberi coincidono: due pacchetti per percorso con lo stesso nome e la stessa versione, in un consumatore che usasse entrambi i repository per percorso, collidono nel suo `Cargo.lock`."
+    },
+    {
+      "file": "Cargo.lock",
+      "che_cosa_cambia": "Risoluzione Arrow 60.1.0 nel grafo autonomo del fork.",
+      "perche": "La stessa correzione deve valere nelle prove autonome del vendor."
     }
   ],
   "limiti_che_restano": [
@@ -99,7 +104,7 @@
     "eseguire `crates/driver-geoparquet` (comprese `tests/fork_parquet.rs`, `tests/byte_stream_split_sintetico.rs`, `tests/schema_del_footer.rs`, `tests/budget_del_footer.rs` e `tests/parquet_decoder.rs`) e questo gate",
     "aggiornare insieme questo registro, `scripts/parquet-fork-lock.json` e la versione fissata in `scripts/check_parquet_fork.py`"
   ],
-  "formattazione_rustfmt": "La base 6492733 ha incorporato rustfmt anche nei sei file della patch decoder prima formattati solo in IO. Verificati tutti i 238 file contro i blob git della base: coincidono byte per byte salvo Cargo.toml (nome plenora-fork-parquet). cargo fmt --all non introduce ulteriori differenze.",
+  "formattazione_rustfmt": "La base 6492733 ha incorporato rustfmt anche nei sei file della patch decoder prima formattati solo in IO. Verificati tutti i 238 file contro i blob git della base: coincidono byte per byte salvo Cargo.toml (nome plenora-fork-parquet). cargo fmt --all non introduce ulteriori differenze. Per la patch 7.0.1 differiscono anche i pin del manifesto e Cargo.lock, come dichiarato nei delta di packaging; nessun sorgente vendor e stato formattato.",
   "di_questo_repository_nota": "vuoto dalla 4.2.0: ogni delta funzionale sta anche nella base di data-tools (PR #125 di plenora-data-tools2). Un delta nuovo di questo repository si elenca qui e si propone a data-tools, invece di divergere.",
   "uso_in_io": {
     "lettori": "Il solo lettore Parquet di prodotto e driver-geoparquet: crates/plenora-io-tools/src/lib.rs:417 e :791 e src/capability.rs:273 instradano al medesimo driver. I builder diretti negli altri file sono prove o riproduttori upstream.",
@@ -109,5 +114,6 @@
     "statistiche": "crates/driver-geoparquet/src/lib.rs:1795, :1894, :1944-1956: min/max numerici Int32, Int64, Float, Double per pruning numerico e bbox dei row group. Nessun StatisticsConverter in prodotto, nessun pruning da page index. Le politiche del footer restano KeepAll. Le statistiche delle pagine non sono richieste per esposizione, ma il fork le valida comunque (vendor/parquet/src/file/serialized_reader.rs:975).",
     "prove": "tests/parquet_decoder.rs: 75 prove, incluse statistiche negative, dimensioni min/max, statistiche deprecate, matrice FLBA e valori/dizionari in eccesso con WKB valido al confine GeoParquet, piu statistiche di pagina non esposte ma comunque validate con geometria valida. 26 semi identici a data-tools2 main 6492733 (14 nuovi). I casi con schema non geometrico hanno anche prove dirette Arrow/column API: il solo rifiuto GeoParquet non dimostra il raggiungimento del decoder.",
     "qualificazione": "La base rifiuta DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY e DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT e livelli BIT_PACKED, page index, bloom filter e salti/selezioni non qualificati. IO usa with_row_groups per il pruning, non selezioni di righe o skip_records. Adeguate le precedenti prove BSS e page index ai nuovi rifiuti. La campagna fuzz geoparquet_reader resta da eseguire."
-  }
+  },
+  "compatibilita_arrow_60_1": "Parquet resta 60.0.0: RUSTSEC-2026-0442 riguarda arrow-data, non il decoder Parquet. I requisiti upstream ^60.0.0 sono compatibili con 60.1.0. Come data-tools PR #152 conserviamo tutte le patch del decoder; IO restringe i requisiti Arrow del manifesto vendor a =60.1.0 (anche dipendenze opzionali e dev), per impedire che il fork isolato risolva la versione vulnerabile. Cargo.lock vendor aggiornato insieme ai lock workspace e fuzz. Nessun sorgente vendor riformattato."
 }

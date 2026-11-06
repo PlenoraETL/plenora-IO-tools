@@ -109,5 +109,13 @@
       "perche": "in GeoJSON i membri di un MULTIPOINT non hanno un oggetto proprio: sono le posizioni stesse. Senza questa riga il conteggio sarebbe la meta' di quello del bordo, ed e' il difetto che le sonde hanno trovato confrontando i due numeri."
     }
   ],
-  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`."
+  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
+  "rimisurazione_dovuta": {
+    "perche": "Aggiornamento Arrow 60.1.0, calamine 0.38.0 e bump 7.0.1 sulla base main della 7.0.0: cambiano i lock del perimetro. Misura Linux nightly/LLVM da rieseguire; ambiente locale Windows senza Docker.",
+    "impronta_della_misura": "6c46f1a65778d5b8d2062bc8cbe2dfc6e941ee6e6996e1b6aa930dbcdbee5fa4",
+    "impronta_attesa": "ae9fc1a7a6e3405007ab6dcc922daed333973a6b7942796ac99e775ebdb99b1c",
+    "non_promette": "La misura storica NON vale per il perimetro corrente; nessuna nuova profondita o copertura ASan e attestata.",
+    "quando": "Prima della qualificazione e del rilascio 7.0.1, sul candidato finale.",
+    "comando": "bash scripts/fuzz-profondita.sh geojson_reader"
+  }
 }

@@ -1,5 +1,7 @@
 # plenora-IO-tools
 
+Le modifiche per versione sono nelle [note di rilascio](docs/RELEASE.md).
+
 Libreria e CLI per leggere e scrivere dati geospaziali in dieci formati,
 attraverso un modello semantico unico basato su Arrow.
 

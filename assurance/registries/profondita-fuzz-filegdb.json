@@ -136,5 +136,21 @@
   "non_e_qui": {
     "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
+  },
+  "rimisurazione_dovuta": {
+    "perche": "Aggiornamento Arrow 60.1.0, calamine 0.38.0 e bump 7.0.1 sulla base main della 7.0.0: cambiano i lock del perimetro. Misura Linux nightly/LLVM da rieseguire; ambiente locale Windows senza Docker.",
+    "impronta_della_misura": "f47886fb5ddf0ee2bb52794ac574b545457cce91a322be5cb073e0d0ab91a1eb",
+    "impronta_attesa": "1dcc42d7b6b838b3804369fd369dd92022e3352bd96074d38a6959b7363552df",
+    "non_promette": "La misura storica NON vale per il perimetro corrente; nessuna nuova profondita o copertura ASan e attestata.",
+    "quando": "Prima della qualificazione e del rilascio 7.0.1, sul candidato finale.",
+    "comando": "bash scripts/fuzz-profondita.sh filegdb_reader"
+  },
+  "rimisurazione_asan_dovuta": {
+    "perche": "Aggiornamento Arrow 60.1.0, calamine 0.38.0 e bump 7.0.1 sulla base main della 7.0.0: cambiano i lock del perimetro. Misura Linux nightly/LLVM da rieseguire; ambiente locale Windows senza Docker.",
+    "impronta_della_misura": "f47886fb5ddf0ee2bb52794ac574b545457cce91a322be5cb073e0d0ab91a1eb",
+    "impronta_attesa": "1dcc42d7b6b838b3804369fd369dd92022e3352bd96074d38a6959b7363552df",
+    "non_promette": "La misura storica NON vale per il perimetro corrente; nessuna nuova profondita o copertura ASan e attestata.",
+    "quando": "Prima della qualificazione e del rilascio 7.0.1, sul candidato finale.",
+    "comando": "bash scripts/asan-filegdb.sh"
   }
 }

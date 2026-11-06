@@ -177,10 +177,52 @@ fn verifica(tipo: &DataType, nodi: &[FieldNode], buffer: &[i64], motivo: Option<
                     e.message.contains(motivo),
                     "{tipo:?}, stream={stream}, dizionario={dizionario:?}: {e}"
                 );
+                // Anche l'entry point pubblico deve fermarsi alla stessa guardia,
+                // prima del decoder e senza affidarsi alla barriera anti-panic.
+                let esito = plenora_io_core::driver::FormatDriver::open(
+                    &super::IpcDriver,
+                    plenora_io_core::driver::Source::Path(file.path().to_owned()),
+                    super::opzioni_lettura(),
+                );
+                let Err(e) = esito else {
+                    panic!("il driver ha accettato un layout non valido");
+                };
+                assert!(e.message.contains(motivo), "{e}");
             } else {
                 esito.unwrap();
             }
         }
+    }
+}
+
+#[test]
+fn arrow_60_1_bitmap_corta_restituisce_errore_senza_panico() {
+    for stream in [false, true] {
+        let byte = fixture(
+            DataType::Int32,
+            &[FieldNode::new(9, 1)],
+            &[1, 36],
+            stream,
+            None,
+            false,
+        );
+        // Bypass deliberato della prevalidazione IO: misura il decoder Arrow.
+        let esito = std::panic::catch_unwind(|| {
+            let input = std::io::Cursor::new(byte);
+            if stream {
+                reader::StreamReader::try_new(input, None)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+            } else {
+                reader::FileReader::try_new(input, None)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+            }
+        });
+        let errore = esito.expect("il decoder non deve panicare").unwrap_err();
+        assert!(errore.to_string().contains("null"), "{errore}");
     }
 }
 

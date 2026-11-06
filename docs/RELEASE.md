@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `fc98634` |
-| candidate, versione del manifesto | `7.0.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| candidate, versione del workspace | `7.0.0` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `7.0.1` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `7.0.1` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v7.0.1` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 8 |
-| release_authorized | `true` |
+| release pubblicate | 9 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1334,6 +1334,179 @@ elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
+
+## 7.0.1 — candidate
+
+Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
+`=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
+copertura logica di RunEndEncoded). Workspace e SDK dichiarano `7.0.1`, come
+il bump nella PR della 7.0.0. Questa sezione non congela una candidate e non
+attribuisce alla patch le misure della release precedente.
+
+### Esposizione per superficie
+
+La tabella distingue il difetto specifico dell'advisory da altri errori di
+layout: la prevalidazione IO non sostituisce ogni controllo semantico Arrow.
+I percorsi Rust sono relativi a `crates/`. Dove indicato, la prova e' statica
+(costruttori e tipi del reader), non una riproduzione dinamica dell'advisory.
+
+| Ingresso | Percorso di un RunEndEncoded non valido e prova |
+|---|---|
+| IPC file e stream | La copertura insufficiente dei run e i run assenti con lunghezza positiva sono rifiutati **prima** del decoder Arrow. Altri difetti semantici possono arrivare alla validazione fallibile Arrow. `driver-common/src/prevalida_arrow/run_ends.rs`; prova `driver-ipc/src/tests/layout_ipc.rs::run_ends_devono_coprire_la_lunghezza_logica`, per Int16/32/64, file, stream e dizionari. |
+| Parquet e GeoParquet | Le pagine fisiche non rappresentano REE. Un hint REE in `ARROW:schema` incompatibile viene ignorato e non costruisce un array REE: `driver-geoparquet/tests/run_end_encoded.rs::uno_schema_run_end_incorporato_non_costruisce_array_run_end`. Entrambi i formati usano questo driver. Non e' un rifiuto dell'intero file: la prova rilegge i valori Int32. |
+| GeoPackage | Il reader costruisce array dai valori SQLite, senza importare buffer o layout REE; nessun REE esterno arriva alla validazione Arrow. Evidenza statica: `driver-gpkg/src/lib.rs::next_batch`, `driver-gpkg/src/schema.rs`; prove di storage in `driver-gpkg/src/tests/storage_schema.rs`. |
+| CSV | Il reader costruisce colonne scalari dal testo, non array REE. Evidenza statica: `driver-csv/src/lib.rs::finish_batch`; prove in `driver-csv/src/tests/presenza.rs`. |
+| Shapefile | Shape e DBF diventano array scalari e WKB tramite builder; nessun layout REE e' importato. Evidenza statica: `driver-shp/src/lib.rs::finish_batch`; prove in `driver-shp/src/tests/dbf_lettura.rs`. |
+| DXF | Entita' e attributi vengono materializzati in colonne e WKB, senza importazione REE. Evidenza statica: `driver-dxf/src/lib.rs::build_batch_cancellable`; prove in `driver-dxf/src/tests.rs`. |
+| GDAL / FileGDB | Il backend legge feature OGR e usa builder scalari, non lo stream Arrow C di GDAL. Nessun REE esterno arriva ad Arrow. Evidenza statica: `driver-filegdb/src/lib.rs` (builder e reader); prove feature-on nello stesso crate. |
+| CLI | Non riceve array in memoria: seleziona i reader dei formati. Per un file IPC vale il rifiuto anticipato sopra; per gli altri formati valgono i percorsi della tabella. Evidenza statica: dispatch in `plenora-io-tools/src/lib.rs`; prove IPC sopra sul driver effettivo. |
+| SDK Python | `_arrow.py::scrivi_ipc` acquisisce lo schema dal reader prima di aprire il file e serializza con PyArrow; il successivo ingresso Rust e' IPC e applica la prevalidazione. Non usa `arrow-pyarrow` ne' importa direttamente un array C in Rust. Un produttore C non valido resta anche nel perimetro di fiducia di PyArrow prima della serializzazione; la patch Rust non lo valida in Python. Prove in `sdk/python/tests/test_arrow_60_1.py` e `test_confini_esterni.py`, piu' le prove IPC sopra. |
+| API Rust | Un chiamante puo' costruire array usando Arrow direttamente: la validazione `ArrayDataBuilder::build` e' raggiungibile, e ora rifiuta lunghezze/offset oltre l'ultimo run. Prova `driver-ipc/src/tests/arrow_60_1.rs::array_del_chiamante_non_puo_dichiarare_righe_senza_run`. Le API unsafe del chiamante non acquisiscono garanzie da questa patch. |
+
+### Comportamenti osservabili e dipendenze
+
+* Il flag `keys_sorted` di Map resta conservato nello SDK attraverso IPC su
+  piu' batch: `sdk/python/tests/test_arrow_60_1.py`. IO non usa il bridge
+  `arrow-pyarrow` corretto a monte, quindi questa e' una garanzia di
+  conservazione verificata, non un nuovo cambiamento del bridge in IO.
+* Arrow 60.1.0 scrive una bitmap di validita' vuota per colonne senza null:
+  a parita' di ingresso i byte IPC possono cambiare, mentre schema e valori
+  restano uguali. Prova `ipc_senza_null_scrive_bitmap_vuota_e_rilegge_gli_stessi_valori`
+  in `driver-ipc/src/tests/arrow_60_1.rs`. Non si promette identita' dei byte
+  fra versioni.
+* Il decoder Arrow restituisce un errore esplicito per una bitmap troppo
+  corta, invece del precedente panico intercettato. Prova diretta
+  `arrow_60_1_bitmap_corta_restituisce_errore_senza_panico` nello stesso
+  `layout_ipc.rs`. Il percorso IO gia'
+  prevalidava questo layout prima del decoder: prova
+  `driver-ipc/src/tests/layout_ipc.rs::bitmap_delle_viste_in_file_flussi_dizionari_e_delta`.
+  La correzione upstream non rende accettabile un input prima rifiutato.
+
+Parquet resta il fork 60.0.0 con i delta di sicurezza del decoder: i requisiti
+Arrow sono compatibili con 60.1.0 e vengono ristretti a pin esatti anche nel
+manifesto e nel lock autonomi del vendor. Nessun sorgente vendor e' cambiato.
+Motivazione e provenienza: `assurance/registries/vendor-parquet-fork.json` e
+`scripts/parquet-fork-lock.json`; prova del decoder nell'intera suite
+`driver-geoparquet`, incluso `tests/fork_parquet.rs`.
+
+Anche la sola dipendenza di test `arrow-array` del fork GDAL e' fissata a
+`=60.1.0`; non entra nel reader OGR di IO. Il delta di packaging e la nuova
+impronta sono registrati in `assurance/registries/vendor-gdal-fork.json` e
+`scripts/gdal-fork-lock.json`.
+
+Aggiornato anche `calamine` a `=0.38.0` per RUSTSEC-2026-0436, senza nuove
+eccezioni. IO usa Xlsx e non il parser CFB di Xls/Xlsb/VBA interessato
+dall'avviso; l'aggiornamento chiude comunque l'advisory nei due lock.
+
+**Correzione di lettura XLSX osservabile:** gli escape OOXML `ST_Xstring`
+`_xHHHH_` vengono ora decodificati su tutte le unita' UTF-16, comprese le
+coppie surrogate: `_x03A9_` diventa `Ω` e `_xD83D__xDE00_` diventa `😀`.
+Il cambiamento attraversa il reader calamine e lo spool IO e riguarda sia
+i valori delle celle sia i nomi delle colonne ricavati dalle intestazioni,
+nelle stringhe inline, condivise e nei risultati testuali delle formule.
+Corregge un comportamento silenzioso della 7.0.0 (calamine 0.37.0) e delle
+versioni precedenti con lo stesso decoder limitato a `_x00HH_`: e' verificabile
+gia' nel primo tag IO `v0.1.0-rc.1`, con calamine 0.36.1, quindi anche nella
+prima stabile 1.0.0. Evidenza storica: `Cargo.toml` e il passaggio diretto di
+`Data::String` in `crates/driver-xls/src/lib.rs` in quei tag; il pin 0.36.1
+resta fino all'aggiornamento 0.37.0 del commit `01cda7b`.
+Un'intestazione prima letterale puo' dunque cambiare nome e influire sulle
+proiezioni e sulle opzioni che selezionano colonne per nome.
+
+La prova `crates/driver-xls/src/tests/escape_ooxml.rs` genera ZIP XLSX con
+ordine, timestamp e XML fissi, senza far riscrivere gli escape da un writer.
+Gli attesi conformi sono letterali derivati da ECMA-376, parte 1,
+22.9.2.19 (`ST_Xstring`), non calcolati con calamine; include `_x_` letterale
+e `_x005F_x03A9_`, che resta `_x03A9_` senza doppia decodifica.
+Le prove fissano inoltre una sola politica per i malformati, senza panico:
+escape non esadecimali o incompleti restano testo; surrogate isolate o in
+ordine inverso diventano U+FFFD, una sostituzione per unita' non accoppiata.
+Questa tolleranza e' comportamento osservato, non una prescrizione OOXML
+per UTF-16 malformato. Celle e intestazioni sono verificate in tre aperture
+indipendenti e su due batch di una riga.
+
+Gli altri effetti di calamine 0.38.0 hanno questi confini in IO:
+
+* L'arrotondamento a mezzanotte corretto in `to_ymd_hms_milli()` non entra
+  nella conversione IO: `date_native::convert` parte da `as_f64()` e applica
+  il proprio arrotondamento al millisecondo e la propria epoca.
+* Le correzioni XLS (nomi stream CFB, testo BIFF5, formule), XLSB (date RK
+  intere e record BrtName malformati) e ODS (celle errore, tab e a capo)
+  sono fuori dal driver, che istanzia `Xlsx` e non `open_workbook_auto`.
+* Il supporto upstream a una parte workbook rinominata non diventa supporto
+  IO: `NativeStyles::read` in `crates/driver-xls/src/date_native.rs` cerca
+  ancora `xl/workbook.xml` e `xl/_rels/workbook.xml.rels`. La fixture con
+  `xl/renamed.xml`, relazioni e content type coerenti viene letta da calamine
+  ma IO la rifiuta con `metadati temporali XML XLSX non validi`, prima di
+  consegnare valori. La prova copre la rinomina senza copie residue delle
+  parti originali; non dimostra correttezza per pacchetti con parti discordanti.
+* Le nuove API di stili e proprieta' personalizzate non sono esposte da IO:
+  il driver usa `worksheet_cells_reader` e il proprio lettore degli stili
+  temporali, non le nuove API di presentazione del workbook. Questo non
+  esclude il parser degli stili dal percorso: `Xlsx::new` esegue comunque
+  `read_styles`, ora ampliato; non si dichiara identita' di costi o di
+  accettazione per ogni XML di stile malformato.
+
+### Ricognizione degli altri aggiornamenti
+
+Il confronto dei lock principale e fuzz prima/dopo questa PR individua, oltre a calamine,
+soltanto `arrow-array`, `arrow-buffer`, `arrow-cmp`, `arrow-data`, `arrow-ipc`,
+`arrow-schema` e `arrow-select` da 60.0.0 a 60.1.0; le altre variazioni di
+versione nel lock principale sono i crate IO. Nel lock autonomo del vendor
+Parquet cambiano anche arrow, arrow-arith/cast/csv/json/ord/row/string e
+atoi 3.1.0 -> 3.1.1, per la risoluzione dei suoi strumenti e dev-dependency:
+non entrano nel lock IO. Vi ricadono, per esempio, le correzioni upstream
+dei cast Timestamp -> Date64, dell'overflow Int16 e degli aggregati sui
+null dei dizionari. I fork Parquet e GDAL cambiano solo pin/packaging, come
+dichiarato sopra. Confrontati il
+[changelog Arrow 60.1.0](https://github.com/apache/arrow-rs/blob/60.1.0/CHANGELOG.md)
+e i sorgenti delle due versioni effettivamente risolte.
+
+Oltre agli effetti gia' descritti, la ricognizione trova queste correzioni
+osservabili prima non dichiarate:
+
+* **IPC, liste affettate contenenti union dense o sparse:** il writer ora
+  applica l'offset ai buffer dell'union e ai figli sparse, evitando di
+  serializzare valori di altre posizioni. E' raggiungibile dal writer Rust
+  IO, non soltanto da un'API Arrow isolata. Prova con attesi numerici
+  indipendenti: `liste_affettate_di_union_conservano_i_valori_attraverso_io`
+  in `crates/driver-ipc/src/tests/arrow_60_1.rs`.
+* **Array Arrow del chiamante Rust:** la conversione da `ArrayData` rispetta
+  ora offset e lunghezza del figlio `run_ends` e l'offset delle union sparse;
+  le union dense usano gli id dei tipi, non la posizione dei campi, nel
+  calcolo dei null logici. La validazione dei valori delle union e quella
+  degli id di `UnionFields` sono piu' rigorose. Sono cambiamenti delle
+  dipendenze pubblicamente scambiate dall'API Rust; la prevalidazione IPC IO
+  gia' controlla gli id delle union esterne. Evidenza statica nei sorgenti
+  `arrow-array` (`run_array.rs`, `union_array.rs`), `arrow-data/data.rs` e
+  `arrow-schema/fields.rs`, non una prova dinamica di ogni variante in IO.
+* **IPC, slice REE vuote:** il writer normalizza a zero run fisici anche una
+  slice vuota con offset non nullo (`into_zero_offset_run_array`). E' una
+  correzione distinta dalla validazione di copertura dell'advisory; la
+  raggiungibilita' dal writer IO e' statica.
+* **Confronti Arrow e dizionari IPC:** l'uguaglianza di `ArrayData` corregge
+  gli offset dei run e gli indici dei null nelle viste. Non e' soltanto
+  un'operazione per le prove: `DictionaryTracker` la usa per decidere se
+  riemettere un dizionario, accettarlo come identico o rifiutarne la
+  sostituzione. Il collegamento al writer IO e' verificato nei sorgenti;
+  non e' stata eseguita una matrice dinamica di dizionari annidati.
+
+Non vengono attribuite a IO le correzioni del nuovo Parquet upstream, dato
+che resta il fork 60.0.0, ne' quelle di arrow-cast, arrow-row, arrow-csv,
+arrow-arith o Flight, assenti dal lock principale. `StreamDecoder` (messaggi spezzati)
+non e' il `StreamReader` usato da IO. `arrow-select` arriva attraverso il
+fork Parquet: le sue correzioni di trasformazione degli offset e di
+`FixedSizeBinary(0)` possono interessare i kernel Arrow usati dal fork,
+mentre `take_record_batch`, `zip` e le nuove API non sono chiamati dal
+codice IO. Non si estende questa ricognizione statica a una garanzia su
+ogni combinazione di tipi annidati. `arrow-cmp` ottimizza il confronto dei
+dizionari di stringhe/byte mantenendo l'ordinamento dei null; non e' stata
+individuata una diversa semantica IO in quel delta. Le nuove operazioni
+i256 di `arrow-buffer` non sono chiamate da IO.
+
+Le quattro misure di profondita' fuzz e il confine ASan FileGDB devono essere
+ripetuti sul perimetro finale Linux/nightly prima della qualifica 7.0.1.
+I rinvii nei registri non sono nuove misure; i gate di qualifica li rifiutano.
 
 ## 7.0.0 — candidate
 

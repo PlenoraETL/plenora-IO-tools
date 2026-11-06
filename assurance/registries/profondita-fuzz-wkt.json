@@ -109,5 +109,13 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
+  "rimisurazione_dovuta": {
+    "perche": "Aggiornamento Arrow 60.1.0, calamine 0.38.0 e bump 7.0.1 sulla base main della 7.0.0: cambiano i lock del perimetro. Misura Linux nightly/LLVM da rieseguire; ambiente locale Windows senza Docker.",
+    "impronta_della_misura": "a7c51b41403fa68e4a9ba2e93b394cc7f05bae2872e557c9572676662babf107",
+    "impronta_attesa": "f6da8d7f489b6cbd5dffab71fd0c43e05c37ce5b82e53a242551f57bc8cc53f7",
+    "non_promette": "La misura storica NON vale per il perimetro corrente; nessuna nuova profondita o copertura ASan e attestata.",
+    "quando": "Prima della qualificazione e del rilascio 7.0.1, sul candidato finale.",
+    "comando": "bash scripts/fuzz-profondita.sh wkt_parse"
+  }
 }
