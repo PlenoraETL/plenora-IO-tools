@@ -3699,5 +3699,6 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
     }
 }
 
+mod escape_ooxml;
 #[path = "tests/valori.rs"]
 mod valori;

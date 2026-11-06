@@ -7,6 +7,113 @@ use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 
 #[test]
+fn liste_affettate_di_union_conservano_i_valori_attraverso_io() {
+    use super::*;
+    use arrow_array::{ArrayRef, ListArray, UnionArray};
+    use arrow_schema::{UnionFields, UnionMode};
+
+    for mode in [UnionMode::Dense, UnionMode::Sparse] {
+        let fields = UnionFields::try_new(
+            [3, 7],
+            [
+                Field::new("a", DataType::Int32, true),
+                Field::new("b", DataType::Int32, true),
+            ],
+        )
+        .unwrap();
+        let union: ArrayRef = Arc::new(
+            UnionArray::try_new(
+                fields,
+                vec![3_i8, 7, 3].into(),
+                (mode == UnionMode::Dense).then(|| vec![2, 0, 1].into()),
+                vec![
+                    Arc::new(Int32Array::from(vec![Some(11), None, Some(33)])),
+                    Arc::new(Int32Array::from(vec![Some(101), Some(202), None])),
+                ],
+            )
+            .unwrap(),
+        );
+        let list = ListArray::new(
+            Arc::new(Field::new("item", union.data_type().clone(), true)),
+            ListArray::from_iter_primitive::<Int32Type, _, _>([
+                Some(vec![Some(0)]),
+                Some(vec![Some(0), Some(0)]),
+            ])
+            .offsets()
+            .clone(),
+            union,
+            None,
+        )
+        .slice(1, 1);
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "v",
+            list.data_type().clone(),
+            true,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(list)]).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("union.arrow");
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "union".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = IpcDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        let dataset = IpcDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let output = reader.next_batch().unwrap().unwrap();
+        assert_eq!(output.num_rows(), 1);
+        let values = output
+            .column(0)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap()
+            .value(0);
+        let union = values.as_any().downcast_ref::<UnionArray>().unwrap();
+        assert_eq!(union.len(), 2);
+        // Attesi dalla costruzione, senza usare uguaglianza ArrayData o il
+        // decoder upstream come oracolo (anch'essi corretti in questa release).
+        for (index, atteso) in [
+            Some(if mode == UnionMode::Dense { 101 } else { 202 }),
+            if mode == UnionMode::Dense {
+                None
+            } else {
+                Some(33)
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let value = union.value(index);
+            let value = value.as_any().downcast_ref::<Int32Array>().unwrap();
+            assert_eq!(value.iter().next().unwrap(), atteso);
+        }
+        assert!(reader.next_batch().unwrap().is_none());
+    }
+}
+
+#[test]
 fn array_del_chiamante_non_puo_dichiarare_righe_senza_run() {
     let array = RunArray::<Int32Type>::try_new(
         &Int32Array::from(vec![2, 3]),

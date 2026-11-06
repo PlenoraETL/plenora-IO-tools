@@ -1398,6 +1398,112 @@ Aggiornato anche `calamine` a `=0.38.0` per RUSTSEC-2026-0436, senza nuove
 eccezioni. IO usa Xlsx e non il parser CFB di Xls/Xlsb/VBA interessato
 dall'avviso; l'aggiornamento chiude comunque l'advisory nei due lock.
 
+**Correzione di lettura XLSX osservabile:** gli escape OOXML `ST_Xstring`
+`_xHHHH_` vengono ora decodificati su tutte le unita' UTF-16, comprese le
+coppie surrogate: `_x03A9_` diventa `Ω` e `_xD83D__xDE00_` diventa `😀`.
+Il cambiamento attraversa il reader calamine e lo spool IO e riguarda sia
+i valori delle celle sia i nomi delle colonne ricavati dalle intestazioni,
+nelle stringhe inline, condivise e nei risultati testuali delle formule.
+Corregge un comportamento silenzioso della 7.0.0 (calamine 0.37.0) e delle
+versioni precedenti con lo stesso decoder limitato a `_x00HH_`: e' verificabile
+gia' nel primo tag IO `v0.1.0-rc.1`, con calamine 0.36.1, quindi anche nella
+prima stabile 1.0.0. Evidenza storica: `Cargo.toml` e il passaggio diretto di
+`Data::String` in `crates/driver-xls/src/lib.rs` in quei tag; il pin 0.36.1
+resta fino all'aggiornamento 0.37.0 del commit `01cda7b`.
+Un'intestazione prima letterale puo' dunque cambiare nome e influire sulle
+proiezioni e sulle opzioni che selezionano colonne per nome.
+
+La prova `crates/driver-xls/src/tests/escape_ooxml.rs` genera ZIP XLSX con
+ordine, timestamp e XML fissi, senza far riscrivere gli escape da un writer.
+Gli attesi conformi sono letterali derivati da ECMA-376, parte 1,
+22.9.2.19 (`ST_Xstring`), non calcolati con calamine; include `_x_` letterale
+e `_x005F_x03A9_`, che resta `_x03A9_` senza doppia decodifica.
+Le prove fissano inoltre una sola politica per i malformati, senza panico:
+escape non esadecimali o incompleti restano testo; surrogate isolate o in
+ordine inverso diventano U+FFFD, una sostituzione per unita' non accoppiata.
+Questa tolleranza e' comportamento osservato, non una prescrizione OOXML
+per UTF-16 malformato. Celle e intestazioni sono verificate in tre aperture
+indipendenti e su due batch di una riga.
+
+Gli altri effetti di calamine 0.38.0 hanno questi confini in IO:
+
+* L'arrotondamento a mezzanotte corretto in `to_ymd_hms_milli()` non entra
+  nella conversione IO: `date_native::convert` parte da `as_f64()` e applica
+  il proprio arrotondamento al millisecondo e la propria epoca.
+* Le correzioni XLS (nomi stream CFB, testo BIFF5, formule), XLSB (date RK
+  intere e record BrtName malformati) e ODS (celle errore, tab e a capo)
+  sono fuori dal driver, che istanzia `Xlsx` e non `open_workbook_auto`.
+* Il supporto upstream a una parte workbook rinominata non diventa supporto
+  IO: `NativeStyles::read` in `crates/driver-xls/src/date_native.rs` cerca
+  ancora `xl/workbook.xml` e `xl/_rels/workbook.xml.rels`. La fixture con
+  `xl/renamed.xml`, relazioni e content type coerenti viene letta da calamine
+  ma IO la rifiuta con `metadati temporali XML XLSX non validi`, prima di
+  consegnare valori. La prova copre la rinomina senza copie residue delle
+  parti originali; non dimostra correttezza per pacchetti con parti discordanti.
+* Le nuove API di stili e proprieta' personalizzate non sono esposte da IO:
+  il driver usa `worksheet_cells_reader` e il proprio lettore degli stili
+  temporali, non le nuove API di presentazione del workbook. Questo non
+  esclude il parser degli stili dal percorso: `Xlsx::new` esegue comunque
+  `read_styles`, ora ampliato; non si dichiara identita' di costi o di
+  accettazione per ogni XML di stile malformato.
+
+### Ricognizione degli altri aggiornamenti
+
+Il confronto dei lock principale e fuzz prima/dopo questa PR individua, oltre a calamine,
+soltanto `arrow-array`, `arrow-buffer`, `arrow-cmp`, `arrow-data`, `arrow-ipc`,
+`arrow-schema` e `arrow-select` da 60.0.0 a 60.1.0; le altre variazioni di
+versione nel lock principale sono i crate IO. Nel lock autonomo del vendor
+Parquet cambiano anche arrow, arrow-arith/cast/csv/json/ord/row/string e
+atoi 3.1.0 -> 3.1.1, per la risoluzione dei suoi strumenti e dev-dependency:
+non entrano nel lock IO. Vi ricadono, per esempio, le correzioni upstream
+dei cast Timestamp -> Date64, dell'overflow Int16 e degli aggregati sui
+null dei dizionari. I fork Parquet e GDAL cambiano solo pin/packaging, come
+dichiarato sopra. Confrontati il
+[changelog Arrow 60.1.0](https://github.com/apache/arrow-rs/blob/60.1.0/CHANGELOG.md)
+e i sorgenti delle due versioni effettivamente risolte.
+
+Oltre agli effetti gia' descritti, la ricognizione trova queste correzioni
+osservabili prima non dichiarate:
+
+* **IPC, liste affettate contenenti union dense o sparse:** il writer ora
+  applica l'offset ai buffer dell'union e ai figli sparse, evitando di
+  serializzare valori di altre posizioni. E' raggiungibile dal writer Rust
+  IO, non soltanto da un'API Arrow isolata. Prova con attesi numerici
+  indipendenti: `liste_affettate_di_union_conservano_i_valori_attraverso_io`
+  in `crates/driver-ipc/src/tests/arrow_60_1.rs`.
+* **Array Arrow del chiamante Rust:** la conversione da `ArrayData` rispetta
+  ora offset e lunghezza del figlio `run_ends` e l'offset delle union sparse;
+  le union dense usano gli id dei tipi, non la posizione dei campi, nel
+  calcolo dei null logici. La validazione dei valori delle union e quella
+  degli id di `UnionFields` sono piu' rigorose. Sono cambiamenti delle
+  dipendenze pubblicamente scambiate dall'API Rust; la prevalidazione IPC IO
+  gia' controlla gli id delle union esterne. Evidenza statica nei sorgenti
+  `arrow-array` (`run_array.rs`, `union_array.rs`), `arrow-data/data.rs` e
+  `arrow-schema/fields.rs`, non una prova dinamica di ogni variante in IO.
+* **IPC, slice REE vuote:** il writer normalizza a zero run fisici anche una
+  slice vuota con offset non nullo (`into_zero_offset_run_array`). E' una
+  correzione distinta dalla validazione di copertura dell'advisory; la
+  raggiungibilita' dal writer IO e' statica.
+* **Confronti Arrow e dizionari IPC:** l'uguaglianza di `ArrayData` corregge
+  gli offset dei run e gli indici dei null nelle viste. Non e' soltanto
+  un'operazione per le prove: `DictionaryTracker` la usa per decidere se
+  riemettere un dizionario, accettarlo come identico o rifiutarne la
+  sostituzione. Il collegamento al writer IO e' verificato nei sorgenti;
+  non e' stata eseguita una matrice dinamica di dizionari annidati.
+
+Non vengono attribuite a IO le correzioni del nuovo Parquet upstream, dato
+che resta il fork 60.0.0, ne' quelle di arrow-cast, arrow-row, arrow-csv,
+arrow-arith o Flight, assenti dal lock principale. `StreamDecoder` (messaggi spezzati)
+non e' il `StreamReader` usato da IO. `arrow-select` arriva attraverso il
+fork Parquet: le sue correzioni di trasformazione degli offset e di
+`FixedSizeBinary(0)` possono interessare i kernel Arrow usati dal fork,
+mentre `take_record_batch`, `zip` e le nuove API non sono chiamati dal
+codice IO. Non si estende questa ricognizione statica a una garanzia su
+ogni combinazione di tipi annidati. `arrow-cmp` ottimizza il confronto dei
+dizionari di stringhe/byte mantenendo l'ordinamento dei null; non e' stata
+individuata una diversa semantica IO in quel delta. Le nuove operazioni
+i256 di `arrow-buffer` non sono chiamate da IO.
+
 Le quattro misure di profondita' fuzz e il confine ASan FileGDB devono essere
 ripetuti sul perimetro finale Linux/nightly prima della qualifica 7.0.1.
 I rinvii nei registri non sono nuove misure; i gate di qualifica li rifiutano.
