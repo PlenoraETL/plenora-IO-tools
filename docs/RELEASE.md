@@ -1274,7 +1274,7 @@ pubblicato ciò che si era caricato.
 
 ### 6. Decisione finale di rilascio
 
-**Soak della candidate 7.0.0 registrati.** Su `fc98634`, `dxf_reader` misura
+**Precedente storico: soak della 7.0.0.** Su `fc98634`, `dxf_reader` misura
 3823,438642146 s monotonic, 3823,438642754 s boottime e 3823,438643456 s
 realtime; `shp_reader` misura rispettivamente 3823,181138732 s,
 3823,181138840 s e 3823,181138992 s. Il wrapper include preparazione e build;
@@ -1289,8 +1289,9 @@ con nightly-2026-07-21 e checkout pulito della candidate, come dichiarato dal
 titolare. Il criterio e il misuratore non richiedono esclusività o saturazione
 CPU: la CPU dei figli è diagnostica e include la build. La misura resta
 inalterata; la concordanza degli orologi indica soltanto nessuna discontinuità
-rilevata. Restano draft riscaricata e verificata, decisione esplicita, gate
-finale ed evidenza in commit separato; entrambi i permessi restano `false`.
+rilevata. Questo e il precedente storico della 7.0.0, gia pubblicata; per
+la candidate corrente vale la sezione 7.0.1, con draft verificata e decisione
+del titolare ancora assente, entrambi i permessi `false`.
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
@@ -1354,6 +1355,75 @@ ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
 ## 7.0.1 — candidate
+
+### Draft verificata e passi dopo la decisione
+
+La draft **437334505**, [verificata prima della pubblicazione](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85),
+resta non pubblicata e non autorizzata. Il verbale completo e i 24 nomi, dimensioni
+e SHA-256 ricalcolati sono in `assurance/evidence/checkpoint-679d94c.json`,
+`release_verification.draft`. I 23 asset della Distribuzione candidate
+42206421101 sono accompagnati da `adoption-manifest.json`, aggiuntivo rispetto
+alla 7.0.0. Il gate legge **il manifesto locale**
+`contracts/adoption-manifest.json`: questa registrazione lo confronta byte per
+byte con quello riscaricato. Il manifesto non entra nella directory passata
+a `check-deliverable.py`; viene verificato separatamente sui cinque archivi.
+
+Resta la decisione esplicita del titolare sui byte verificati e sui limiti
+residui. I comandi seguenti sono istruzioni future, **non eseguite** da questa
+registrazione. Usare il checkout di assurance aggiornato nell'ambiente Linux
+di qualifica, con contratti al pin e manifesto locale identico al verificato.
+Non ricostruire gli asset. Dopo la decisione autentica, conservarne data,
+titolare, testo e oggetto in
+`assurance/evidence/autorizzazione-7.0.1.txt` (senza inventare la risposta).
+
+```bash
+git tag -a v7.0.1 2ddfb58cb21975544f51188cf081fc6d6228e082 -m "Plenora IO-tools 7.0.1"
+git rev-parse 'v7.0.1^{commit}'
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path('assurance/current-state.json')
+s = json.loads(p.read_text(encoding='utf-8'))
+c = s['aperto']['candidate_release']
+decisione = Path('assurance/evidence/autorizzazione-7.0.1.txt').read_text(encoding='utf-8').strip()
+assert decisione and c['revisione_candidate'] == '2ddfb58cb21975544f51188cf081fc6d6228e082'
+s['release_authorized'] = True
+c.update(tag_creato=True, tag_sulla_candidate=True,
+         tag_revisione=c['revisione_candidate'], release_action_allowed=True)
+c['nota'] += '\n\nAutorizzazione esplicita del titolare:\n' + decisione
+p.write_text(json.dumps(s, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+PY
+python3 scripts/check_docset.py --riscrivi-stato
+```
+
+Registrare evidenza e autorizzazione in un commit di assurance separato, nei
+soli percorsi dell'allowlist, quindi eseguire il gate completo. Le note che
+descrivono i permessi falsi in questa registrazione restano fatti precedenti
+alla decisione; la decisione successiva ne dichiara il superamento.
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v7.0.1
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/437334505 -F draft=false
+```
+
+Prima del PATCH ricontrollare che ID, target, tag e tutti i 24 asset della
+draft coincidano con il verbale. Il PATCH cambia soltanto `draft`: nessun
+upload, sostituzione di asset o modifica delle note. Dopo la pubblicazione
+riscaricare in una directory nuova:
+
+```bash
+gh release download v7.0.1 --repo PlenoraETL/plenora-IO-tools --dir target/rel701/pubblicata-riscaricata
+```
+
+Confrontare tutti i 24 nomi, dimensioni e SHA-256 con `release_verification.draft.asset`;
+ripetere `check-deliverable.py --contro-la-candidate assurance/current-state.json`
+sui 23 file escluso il manifesto, con versione `7.0.1`, canale `candidate` e
+revisione `2ddfb58cb21975544f51188cf081fc6d6228e082`; ripetere anche la verifica
+del manifesto riscaricato sui cinque archivi. Registrare l'esito in un blocco
+separato `release_verification.published`, aggiornare lo stato a pubblicata e
+riportare `release_action_allowed` a `false`: il permesso e' speso.
 
 Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
 `=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
@@ -1555,7 +1625,7 @@ Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
 Il contratto prima del livello 2 sulla VM risulta verde: 37 invarianti,
 35 verificati, zero bloccanti, due differiti (esito comunicato dal titolare).
 
-Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Restano la preparazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, quindi la decisione esplicita del titolare. Solo dopo autorizzazione: tag annotato v7.0.1 sulla candidate 2ddfb58, registrazione dell assurance, gate finale --release, pubblicazione immutata e verifica dei byte riscaricati dalla release.
+Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-679d94c.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
 `release_authorized` e `release_action_allowed` restano `false`.
 I soak su `fc98634` e le attestazioni storiche non sono misure della 7.0.1.
 
