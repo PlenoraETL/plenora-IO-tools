@@ -1,0 +1,5 @@
+Data: 2026-11-07
+Titolare: Marco Bonamente (titolare del repository PlenoraETL/plenora-IO-tools)
+Oggetto: pubblicazione di plenora-IO-tools 7.0.1, candidate 2ddfb58cb21975544f51188cf081fc6d6228e082, draft 437334505 con 24 asset verificati
+Domanda posta: «IO 7.0.1 è qualificata e la draft è verificata: L1 99/99, L2 111/111, soak 2×1 h senza finding, 4 attestazioni 32/32, 24 asset riscaricati identici, manifesto verificato. Non verificati, come nella 7.0.0: la qualifica tra componenti e la conferma esterna della licenza first-party. Autorizzi la pubblicazione della 7.0.1?»
+Risposta del titolare: «Sì, pubblica»
