@@ -72,7 +72,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 10 |
+| release pubblicate | 9 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
