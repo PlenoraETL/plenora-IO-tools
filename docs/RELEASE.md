@@ -36,44 +36,44 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `fc98634` |
-| revisione misurata | `fc98634` |
+| ultima qualificata | `2ddfb58` |
+| revisione misurata | `2ddfb58` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 145 |
+| input di replay | 29 636 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,68% |
-| righe coperte LCOV | 31 277 |
+| copertura LCOV | 88,75% |
+| righe coperte LCOV | 31 302 |
 | righe strumentate LCOV | 35 271 |
-| copertura cargo | 86,54% |
+| copertura cargo | 86,62% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `1e3f047e134cf03667b1cd86b6fc2115ab846dd3` |
-| esito differenziale | 93.38% |
+| baseline differenziale | `fc98634b9cde7f1204aaace098ff48def957c943` |
+| esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `fc98634` |
+| S9, qualificato su | `2ddfb58` |
 | candidate, versione del manifesto | `7.0.1` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | pubblicata |
+| candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
 | candidate, versione del workspace | `7.0.1` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.1` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
+| candidate, tag sulla candidate | sì |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 9 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -424,6 +424,24 @@ Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
+
+**Soak della candidate 7.0.1 registrati.** Sulla revisione di assurance
+`679d94c`, figlia della candidate `2ddfb58`, il soak mirato e chiuso.
+Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json.
+
+Ubuntu 24.04, 8 vCPU, 16 GB, nightly-2026-07-21 e cargo-fuzz 0.13.2;
+checkout pulito prima dell avvio, come dichiarato dal titolare.
+Il tempo wrapper include preparazione/build; i 3601 s sono la durata dichiarata
+da libFuzzer. La concordanza degli orologi indica solo nessuna discontinuita
+rilevata. Hash dei log e del misuratore, campioni e giudizi sono verificati
+localmente senza rieseguire le campagne.
+
+Come per la 7.0.0, `fuzz-smoke-ultima.json` resta la copia completa del livello 2
+(15/15, 60 s): il controllo `--verifica-campagna` pretende tutti i bersagli.
+La copia VM sovrascritta dai soak paralleli riporta solo `dxf_reader`; percorso
+e digest sono conservati nel [verbale](../assurance/evidence/checkpoint-2ddfb58.json),
+insieme ai referti separati di entrambi i soak. Non si fondono i verbali.
+I permessi `release_authorized` e `release_action_allowed` restano `false`.
 
 **Criterio di uscita.** Ogni gruppo del registro è `chiuso`, con una prova che è
 un **test eseguito**, oppure `irraggiungibile` con le righe scoperte e la
@@ -1256,7 +1274,7 @@ pubblicato ciò che si era caricato.
 
 ### 6. Decisione finale di rilascio
 
-**Soak della candidate 7.0.0 registrati.** Su `fc98634`, `dxf_reader` misura
+**Precedente storico: soak della 7.0.0.** Su `fc98634`, `dxf_reader` misura
 3823,438642146 s monotonic, 3823,438642754 s boottime e 3823,438643456 s
 realtime; `shp_reader` misura rispettivamente 3823,181138732 s,
 3823,181138840 s e 3823,181138992 s. Il wrapper include preparazione e build;
@@ -1271,8 +1289,9 @@ con nightly-2026-07-21 e checkout pulito della candidate, come dichiarato dal
 titolare. Il criterio e il misuratore non richiedono esclusività o saturazione
 CPU: la CPU dei figli è diagnostica e include la build. La misura resta
 inalterata; la concordanza degli orologi indica soltanto nessuna discontinuità
-rilevata. Restano draft riscaricata e verificata, decisione esplicita, gate
-finale ed evidenza in commit separato; entrambi i permessi restano `false`.
+rilevata. Questo e il precedente storico della 7.0.0, gia pubblicata; per
+la release 7.0.1 vale la sezione dedicata: pubblicata, con decisione del
+titolare registrata e permesso operativo consumato.
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
@@ -1335,13 +1354,54 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## 7.0.1 — candidate
+## 7.0.1 — pubblicata
+
+### Esito dei passi dopo la decisione
+
+La [release v7.0.1](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.1)
+e' stata pubblicata il **2026-11-07T05:07:47Z** dalla draft **437334505**
+con il solo PATCH `draft=false`, senza modificare gli asset. Il tag annotato
+`v7.0.1` punta alla candidate `2ddfb58cb21975544f51188cf081fc6d6228e082`.
+La decisione autentica del titolare e' conservata nella nota della release
+in `assurance/current-state.json`.
+
+Prima della pubblicazione, `check_release_contract.py --release` e' passato
+sulla VM su `63898a226602a53b47366018852511f4fdc56901`: 37 invarianti, nessun
+blocco, 9 condizioni verificate, come comunicato dal titolare. Restano i due
+rinvii dichiarati: qualifica cross-component e conferma esterna della licenza
+first-party.
+
+La verifica post-pubblicazione e' registrata in
+`assurance/evidence/checkpoint-2ddfb58.json`, `release_verification.published`;
+`release_verification.draft` conserva la verifica precedente. I **24 asset**
+in `target/rel701/pubblicata-riscaricata` coincidono per nomi, dimensioni,
+SHA-256 e byte con la draft riscaricata e verificata. Sui 23 file escluso
+`adoption-manifest.json`, `check-deliverable.py --contro-la-candidate` conferma
+che i byte pubblicati sono identici ai **sette artefatti congelati**.
+Il manifesto riscaricato, identico a `contracts/adoption-manifest.json`, e'
+verificato sui cinque archivi: 14 contratti dichiarati conformi, uno non
+applicabile e otto deviazioni; le deviazioni non contano come conformita'.
+
+La 7.0.1 figura in `chiuso.release_pubblicate`, con tag, revisione e data.
+La voce corrente e' `pubblicata`; `release_authorized` conserva la decisione
+storica, mentre **`release_action_allowed: false`** registra il permesso speso.
+`commit_di_assurance` indica `63898a2`, il commit del gate finale; questa
+registrazione successiva non crea un nuovo commit. Una nuova corsa L2 sulla
+candidate `2ddfb58`, pulita e invariata, ha superato 111/111 passi con baseline
+`fc98634` e contratti al pin `7f82263`. Misure e manifest dei log sono in
+`checkpoint-2ddfb58.json`; il documento precedente `checkpoint-679d94c.json`
+e' integrato integralmente in `evidenza_precedente.documento`, con soak,
+attestazioni e verifiche draft/post-pubblicazione conservati sulle revisioni
+originali. Il precedente esito rosso resta nella cronaca; i nuovi controlli
+Windows sono registrati separatamente nel checkpoint. I tre controlli di stato
+corrente, release storiche e release pubblicata ora sono tutti superati.
 
 Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
 `=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
 copertura logica di RunEndEncoded). Workspace e SDK dichiarano `7.0.1`, come
-il bump nella PR della 7.0.0. Questa sezione non congela una candidate e non
-attribuisce alla patch le misure della release precedente.
+il bump nella PR della 7.0.0. Il congelamento corrente e' registrato nel blocco generato e nel
+[verbale](../assurance/current-state.json); non attribuisce
+alla patch le misure della release precedente.
 
 ### Esposizione per superficie
 
@@ -1504,9 +1564,46 @@ dizionari di stringhe/byte mantenendo l'ordinamento dei null; non e' stata
 individuata una diversa semantica IO in quel delta. Le nuove operazioni
 i256 di `arrow-buffer` non sono chiamate da IO.
 
-Le quattro misure di profondita' fuzz e il confine ASan FileGDB devono essere
-ripetuti sul perimetro finale Linux/nightly prima della qualifica 7.0.1.
-I rinvii nei registri non sono nuove misure; i gate di qualifica li rifiutano.
+Le quattro profondita' fuzz e il confine ASan FileGDB sono stati rimisurati
+sull'albero `47eae3b` nella VM di qualifica **Ubuntu 24.04**, con **GDAL di
+sistema**, toolchain fissata **nightly-2026-07-21** e **cargo-fuzz 0.13.2**.
+I requisiti raggiunti sono 35 per `shp_reader`, 12 per `filegdb_reader`, 9 per
+`wkt_parse` e 9 per `geojson_reader`. I quattro rinvii di profondita' e il
+rinvio ASan sono ritirati; le impronte dei JSON legano le misure al perimetro.
+
+La misura ASan valida e' quella **nativa della VM**: **179952 contatori su
+1 modulo**, zero simboli del runtime in `libgdal.so.34`. GDAL non e'
+strumentata: ASan non verifica gli accessi interni alla libreria. La misura
+del container con `libgdal.so.32` e' **scartata**. Gli esiti verdi dei gate
+sulla VM sono stati comunicati dal titolare; i log di profondita' sono in
+`target/rel701/rimisure-attempt-2` (container dev), mentre l'esito ASan nativo
+e' riportato nella consegna di registrazione.
+
+Queste rimisure non sono un nuovo livello 2 ne' un soak della 7.0.1:
+checkpoint, copertura e campagna storici restano attribuiti a `fc98634`.
+La candidate e' congelata con i sette deliverable della distribuzione
+42206421101, dopo il livello 1 sulla VM (99 passi su 99), come registrato nel
+[verbale di congelamento](../assurance/current-state.json).
+Il livello 2 e' ora superato sulla revisione di assurance
+`679d94c44837f0d884c2777defa9d945915faaa6`, figlia della candidate
+`2ddfb58cb21975544f51188cf081fc6d6228e082`: 111/111 passi, zero file
+sporchi all'avvio, revisione e impronta invariate su Ubuntu 24.04.
+L'[evidenza della corsa](../assurance/evidence/checkpoint-2ddfb58.json)
+registra replay 145 input su 15 target senza crash, smoke 15/15 senza finding,
+LCOV 88,75% (31302/35271) e cargo 86,62%, soglia 80%.
+Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
+432 non eseguibili, percentuale `n/d`; la diagnostica CLI conta zero in entrambe.
+Il contratto prima del livello 2 sulla VM risulta verde: 37 invarianti,
+35 verificati, zero bloccanti, due differiti (esito comunicato dal titolare).
+
+**Cronaca precedente alla decisione e alla pubblicazione.** Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-2ddfb58.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
+**Esito successivo:** 7.0.1 pubblicata il 2026-11-07T05:07:47Z; verifica dei 24 asset superata, autorizzazione storica conservata e permesso operativo consumato. Vedi `release_verification.published` nel checkpoint.
+
+I soak su `fc98634` e le attestazioni storiche non sono misure della 7.0.1.
+
+Le quattro attestazioni sono gia registrate in `fa007ae`; il verbale del
+checkpoint ne riporta riferimenti e digest, verificati contro gli archivi
+congelati. Non occorre ripeterle per questa registrazione.
 
 ## 7.0.0 — candidate
 

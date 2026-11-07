@@ -1488,6 +1488,24 @@
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 5.0.1 a 6.0.0 con la versione del manifesto. Nessun nome entrato, nessuno uscito, nessun cambio d'origine: la stessa variazione registrata per la 5.0.1, ed e' registrata perche' il gate confronta le versioni e non i nomi."
   },
+  "variazione_versione_7_0_1": {
+    "quando": "2026-11-06, preparazione della candidate iniziale 7.0.1",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "driver-common 7.0.1",
+      "driver-geoparquet 7.0.1",
+      "plenora-io-core 7.0.1",
+      "plenora-io-model 7.0.1"
+    ],
+    "uscite": [
+      "driver-common 7.0.0",
+      "driver-geoparquet 7.0.0",
+      "plenora-io-core 7.0.0",
+      "plenora-io-model 7.0.0"
+    ],
+    "perche": "Documenta il bump dei quattro crate interni gia' censiti alla 7.0.1 dalla PR #89. Nessun nome o origine cambia per il bump; le licenze restano interne al workspace. Questa voce riguarda soltanto la versione del workspace, non attesta una nuova misura della closure delle dipendenze."
+  },
   "variazione_versione_7_0_0": {
     "quando": "2026-11-02, portando il workspace da 6.0.0 a 7.0.0",
     "da": 129,
