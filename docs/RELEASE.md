@@ -36,13 +36,13 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `679d94c` |
-| revisione misurata | `679d94c` |
+| ultima qualificata | `2ddfb58` |
+| revisione misurata | `2ddfb58` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 145 |
+| input di replay | 29 636 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
@@ -60,9 +60,9 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `679d94c` |
+| S9, qualificato su | `2ddfb58` |
 | candidate, versione del manifesto | `7.0.1` |
-| candidate, stato | attiva |
+| candidate, stato | pubblicata |
 | candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
 | candidate, versione del workspace | `7.0.1` |
 | candidate, artefatti congelati | 7 |
@@ -71,8 +71,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, revisione del tag | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
-| release pubblicate | 9 |
+| candidate, release_action consentita | no |
+| release pubblicate | 10 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -427,7 +427,7 @@ scritto dove è stato misurato.
 
 **Soak della candidate 7.0.1 registrati.** Sulla revisione di assurance
 `679d94c`, figlia della candidate `2ddfb58`, il soak mirato e chiuso.
-Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json.
+Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json.
 
 Ubuntu 24.04, 8 vCPU, 16 GB, nightly-2026-07-21 e cargo-fuzz 0.13.2;
 checkout pulito prima dell avvio, come dichiarato dal titolare.
@@ -439,7 +439,7 @@ localmente senza rieseguire le campagne.
 Come per la 7.0.0, `fuzz-smoke-ultima.json` resta la copia completa del livello 2
 (15/15, 60 s): il controllo `--verifica-campagna` pretende tutti i bersagli.
 La copia VM sovrascritta dai soak paralleli riporta solo `dxf_reader`; percorso
-e digest sono conservati nel [verbale](../assurance/evidence/checkpoint-679d94c.json),
+e digest sono conservati nel [verbale](../assurance/evidence/checkpoint-2ddfb58.json),
 insieme ai referti separati di entrambi i soak. Non si fondono i verbali.
 I permessi `release_authorized` e `release_action_allowed` restano `false`.
 
@@ -1290,8 +1290,8 @@ titolare. Il criterio e il misuratore non richiedono esclusività o saturazione
 CPU: la CPU dei figli è diagnostica e include la build. La misura resta
 inalterata; la concordanza degli orologi indica soltanto nessuna discontinuità
 rilevata. Questo e il precedente storico della 7.0.0, gia pubblicata; per
-la candidate corrente vale la sezione 7.0.1, con draft verificata e decisione
-del titolare ancora assente, entrambi i permessi `false`.
+la release 7.0.1 vale la sezione dedicata: pubblicata, con decisione del
+titolare registrata e permesso operativo consumato.
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
@@ -1354,76 +1354,47 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## 7.0.1 — candidate
+## 7.0.1 — pubblicata
 
-### Draft verificata e passi dopo la decisione
+### Esito dei passi dopo la decisione
 
-La draft **437334505**, [verificata prima della pubblicazione](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85),
-resta non pubblicata e non autorizzata. Il verbale completo e i 24 nomi, dimensioni
-e SHA-256 ricalcolati sono in `assurance/evidence/checkpoint-679d94c.json`,
-`release_verification.draft`. I 23 asset della Distribuzione candidate
-42206421101 sono accompagnati da `adoption-manifest.json`, aggiuntivo rispetto
-alla 7.0.0. Il gate legge **il manifesto locale**
-`contracts/adoption-manifest.json`: questa registrazione lo confronta byte per
-byte con quello riscaricato. Il manifesto non entra nella directory passata
-a `check-deliverable.py`; viene verificato separatamente sui cinque archivi.
+La [release v7.0.1](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.1)
+e' stata pubblicata il **2026-11-07T05:07:47Z** dalla draft **437334505**
+con il solo PATCH `draft=false`, senza modificare gli asset. Il tag annotato
+`v7.0.1` punta alla candidate `2ddfb58cb21975544f51188cf081fc6d6228e082`.
+La decisione autentica del titolare e' conservata nella nota della release
+in `assurance/current-state.json`.
 
-Resta la decisione esplicita del titolare sui byte verificati e sui limiti
-residui. I comandi seguenti sono istruzioni future, **non eseguite** da questa
-registrazione. Usare il checkout di assurance aggiornato nell'ambiente Linux
-di qualifica, con contratti al pin e manifesto locale identico al verificato.
-Non ricostruire gli asset. Dopo la decisione autentica, conservarne data,
-titolare, testo e oggetto in
-`assurance/evidence/autorizzazione-7.0.1.txt` (senza inventare la risposta).
+Prima della pubblicazione, `check_release_contract.py --release` e' passato
+sulla VM su `63898a226602a53b47366018852511f4fdc56901`: 37 invarianti, nessun
+blocco, 9 condizioni verificate, come comunicato dal titolare. Restano i due
+rinvii dichiarati: qualifica cross-component e conferma esterna della licenza
+first-party.
 
-```bash
-git tag -a v7.0.1 2ddfb58cb21975544f51188cf081fc6d6228e082 -m "Plenora IO-tools 7.0.1"
-git rev-parse 'v7.0.1^{commit}'
-python3 - <<'PY'
-import json
-from pathlib import Path
-p = Path('assurance/current-state.json')
-s = json.loads(p.read_text(encoding='utf-8'))
-c = s['aperto']['candidate_release']
-decisione = Path('assurance/evidence/autorizzazione-7.0.1.txt').read_text(encoding='utf-8').strip()
-assert decisione and c['revisione_candidate'] == '2ddfb58cb21975544f51188cf081fc6d6228e082'
-s['release_authorized'] = True
-c.update(tag_creato=True, tag_sulla_candidate=True,
-         tag_revisione=c['revisione_candidate'], release_action_allowed=True)
-c['nota'] += '\n\nAutorizzazione esplicita del titolare:\n' + decisione
-p.write_text(json.dumps(s, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-PY
-python3 scripts/check_docset.py --riscrivi-stato
-```
+La verifica post-pubblicazione e' registrata in
+`assurance/evidence/checkpoint-2ddfb58.json`, `release_verification.published`;
+`release_verification.draft` conserva la verifica precedente. I **24 asset**
+in `target/rel701/pubblicata-riscaricata` coincidono per nomi, dimensioni,
+SHA-256 e byte con la draft riscaricata e verificata. Sui 23 file escluso
+`adoption-manifest.json`, `check-deliverable.py --contro-la-candidate` conferma
+che i byte pubblicati sono identici ai **sette artefatti congelati**.
+Il manifesto riscaricato, identico a `contracts/adoption-manifest.json`, e'
+verificato sui cinque archivi: 14 contratti dichiarati conformi, uno non
+applicabile e otto deviazioni; le deviazioni non contano come conformita'.
 
-Registrare evidenza e autorizzazione in un commit di assurance separato, nei
-soli percorsi dell'allowlist, quindi eseguire il gate completo. Le note che
-descrivono i permessi falsi in questa registrazione restano fatti precedenti
-alla decisione; la decisione successiva ne dichiara il superamento.
-
-```bash
-python3 scripts/check_release_contract.py --release
-# Proseguire soltanto con exit code 0 del gate completo.
-git push origin refs/tags/v7.0.1
-gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/437334505 -F draft=false
-```
-
-Prima del PATCH ricontrollare che ID, target, tag e tutti i 24 asset della
-draft coincidano con il verbale. Il PATCH cambia soltanto `draft`: nessun
-upload, sostituzione di asset o modifica delle note. Dopo la pubblicazione
-riscaricare in una directory nuova:
-
-```bash
-gh release download v7.0.1 --repo PlenoraETL/plenora-IO-tools --dir target/rel701/pubblicata-riscaricata
-```
-
-Confrontare tutti i 24 nomi, dimensioni e SHA-256 con `release_verification.draft.asset`;
-ripetere `check-deliverable.py --contro-la-candidate assurance/current-state.json`
-sui 23 file escluso il manifesto, con versione `7.0.1`, canale `candidate` e
-revisione `2ddfb58cb21975544f51188cf081fc6d6228e082`; ripetere anche la verifica
-del manifesto riscaricato sui cinque archivi. Registrare l'esito in un blocco
-separato `release_verification.published`, aggiornare lo stato a pubblicata e
-riportare `release_action_allowed` a `false`: il permesso e' speso.
+La 7.0.1 figura in `chiuso.release_pubblicate`, con tag, revisione e data.
+La voce corrente e' `pubblicata`; `release_authorized` conserva la decisione
+storica, mentre **`release_action_allowed: false`** registra il permesso speso.
+`commit_di_assurance` indica `63898a2`, il commit del gate finale; questa
+registrazione successiva non crea un nuovo commit. Una nuova corsa L2 sulla
+candidate `2ddfb58`, pulita e invariata, ha superato 111/111 passi con baseline
+`fc98634` e contratti al pin `7f82263`. Misure e manifest dei log sono in
+`checkpoint-2ddfb58.json`; il documento precedente `checkpoint-679d94c.json`
+e' integrato integralmente in `evidenza_precedente.documento`, con soak,
+attestazioni e verifiche draft/post-pubblicazione conservati sulle revisioni
+originali. Il precedente esito rosso resta nella cronaca; i nuovi controlli
+Windows sono registrati separatamente nel checkpoint. I tre controlli di stato
+corrente, release storiche e release pubblicata ora sono tutti superati.
 
 Aggiornamento di sicurezza: tutti i componenti Arrow Rust sono fissati a
 `=60.1.0`, che corregge RUSTSEC-2026-0442 in `arrow-data` (validazione della
@@ -1617,7 +1588,7 @@ Il livello 2 e' ora superato sulla revisione di assurance
 `679d94c44837f0d884c2777defa9d945915faaa6`, figlia della candidate
 `2ddfb58cb21975544f51188cf081fc6d6228e082`: 111/111 passi, zero file
 sporchi all'avvio, revisione e impronta invariate su Ubuntu 24.04.
-L'[evidenza della corsa](../assurance/evidence/checkpoint-679d94c.json)
+L'[evidenza della corsa](../assurance/evidence/checkpoint-2ddfb58.json)
 registra replay 145 input su 15 target senza crash, smoke 15/15 senza finding,
 LCOV 88,75% (31302/35271) e cargo 86,62%, soglia 80%.
 Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
@@ -1625,8 +1596,9 @@ Differenziale rispetto a `fc98634`: zero righe cambiate eseguibili,
 Il contratto prima del livello 2 sulla VM risulta verde: 37 invarianti,
 35 verificati, zero bloccanti, due differiti (esito comunicato dal titolare).
 
-Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-679d94c.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-679d94c.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
-`release_authorized` e `release_action_allowed` restano `false`.
+**Cronaca precedente alla decisione e alla pubblicazione.** Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-2ddfb58.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
+**Esito successivo:** 7.0.1 pubblicata il 2026-11-07T05:07:47Z; verifica dei 24 asset superata, autorizzazione storica conservata e permesso operativo consumato. Vedi `release_verification.published` nel checkpoint.
+
 I soak su `fc98634` e le attestazioni storiche non sono misure della 7.0.1.
 
 Le quattro attestazioni sono gia registrate in `fa007ae`; il verbale del
