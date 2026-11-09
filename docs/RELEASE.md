@@ -1466,12 +1466,15 @@ censimenti datati del 7 e 15 settembre e in PIANO-4.1.0 sono evidenza storica,
 non requisiti attivi; non vengono riscritte come misure odierne. Maturin
 1.16.0, time 0.3.55 e i lock restano verificati dalle sonde di allineamento.
 
-Le quattro `assurance/profondita-fuzz-*.json` e `assurance/asan-filegdb.json`
-non sono rimisurate da questa correzione. Prima della qualifica 7.0.2 servono,
-sulla VM e sullo stato finale dei lock, le quattro corse
-`bash scripts/fuzz-profondita.sh` con `shp_reader`, `geojson_reader`,
-`wkt_parse`, `filegdb_reader`, piu' `bash scripts/asan-filegdb.sh`.
-Nessuna misura della 7.0.1 viene attribuita alla candidate 7.0.2.
+Le quattro profondita' fuzz e il confine ASan FileGDB sono stati rimisurati
+sull'albero `ba93ea4` nella VM di qualifica **Ubuntu 24.04**, con **GDAL di
+sistema**, toolchain fissata **nightly-2026-07-21** e **cargo-fuzz 0.13.2**.
+I requisiti raggiunti sono 35 per `shp_reader`, 12 per `filegdb_reader`, 9 per
+`wkt_parse` e 9 per `geojson_reader`. La misura ASan nativa conta **180150
+contatori su 1 modulo**, zero simboli del runtime in `libgdal.so.34`: GDAL non
+e' strumentata. I gate `--qualifica` sono verdi sulla VM. Queste rimisure non
+sono un livello 2 ne' un soak della 7.0.2; nessuna misura della 7.0.1 viene
+attribuita alla candidate 7.0.2.
 
 ## 7.0.1 — pubblicata
 
