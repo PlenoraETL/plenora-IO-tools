@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "2ddfb58",
+      "sha": "ee69336",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "2ddfb58",
-    "evidenza": "assurance/evidence/checkpoint-2ddfb58.json",
+    "sha": "ee69336",
+    "evidenza": "assurance/evidence/checkpoint-ee69336.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
-      "replay_input": 29636,
+      "replay_input": 50404,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.75,
-      "lcov_righe_coperte": 31302,
-      "lcov_righe_strumentate": 35271,
-      "cargo_lines_percentuale": 86.62,
+      "lcov_percentuale": 88.77,
+      "lcov_righe_coperte": 31344,
+      "lcov_righe_strumentate": 35309,
+      "cargo_lines_percentuale": 86.63,
       "soglia": 80.0,
       "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
       "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "esito": "n/d",
-      "righe_cambiate_eseguibili": 0,
-      "coperte": 0,
+      "esito": "100.00%",
+      "righe_cambiate_eseguibili": 41,
+      "coperte": 41,
       "scoperte": 0,
-      "cambiate_non_eseguibili": 432,
-      "ragione": "Confronto di libreria fra fc98634 e candidate 2ddfb58.",
+      "cambiate_non_eseguibili": 318,
+      "ragione": "Confronto di libreria fra 2ddfb58 e candidate ee69336.",
       "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing.",
-      "baseline": "fc98634b9cde7f1204aaace098ff48def957c943"
+      "baseline": "2ddfb58cb21975544f51188cf081fc6d6228e082"
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "2ddfb58cb21975544f51188cf081fc6d6228e082",
+    "sha": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "Smoke della nuova corsa L2 sulla candidate 2ddfb58: 15/15 target, 60 secondi ciascuno, nessun finding o quarantena. Verbale originale copiato dalla corsa. Soak distinto su 679d94c conservato nel nuovo checkpoint."
+    "significato": "Smoke del livello 2 attempt-2 sulla candidate ee69336: 15/15 target, 60 secondi ciascuno, nessun finding o quarantena. Verbale originale copiato byte per byte dal registratore. Non e un soak mirato."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "2ddfb58"
+      "qualificato_su": "ee69336"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -714,7 +714,7 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate 7.0.2 congelata su ee69336f8aed84767d1a1cd1bf5b0d526e3422e2. Distribuzione candidate run 42637007133, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42637007133, workflow distribuzione.yml, input versione=7.0.2, canale=candidate, revisione=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel702/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato qui; ultima qualifica, copertura e campagna storiche restano invariate. Restano le evidenze di livello 2, campagne/soak e attestazioni richieste, preparazione draft e confronto dei byte riscaricati contro la candidate, autorizzazione esplicita del titolare, tag e gate finale; dopo pubblicazione immutata va ripetuto il confronto dei byte riscaricati dalla release. Nessuna autorizzazione o tag creato. Log della verifica Windows in target/rel702/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB sono stati rimisurati sull'albero ba93ea4 nella VM di qualifica Ubuntu 24.04, con GDAL di sistema e toolchain fissata nightly-2026-07-21, cargo-fuzz 0.13.2. Profondita: 35 requisiti shp_reader, 12 filegdb_reader, 9 wkt_parse e 9 geojson_reader raggiunti. ASan nativo: 180150 contatori su 1 modulo, zero simboli del runtime in libgdal.so.34; gate --qualifica verdi sulla VM, log in target/rel702/rimisure-attempt-1 della VM. Le impronte legano le misure al perimetro; non sono un checkpoint di livello 2 ne un soak della 7.0.2. La release 7.0.1 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.2 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 506 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 500 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta sul download libsqlite3-sys 0.39.1 per errore TLS SEC_E_NO_CREDENTIALS; non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/Service/CreateInstance/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM.",
+      "nota": "Candidate 7.0.2 congelata su ee69336f8aed84767d1a1cd1bf5b0d526e3422e2. Distribuzione candidate run 42637007133, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42637007133, workflow distribuzione.yml, input versione=7.0.2, canale=candidate, revisione=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel702/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Livello 2 superato sulla candidate ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, attempt-2: 111/111 passi, zero omessi o falliti, checkout pulito, revisione e impronta invariate. Evidenza generata dai log in assurance/evidence/checkpoint-ee69336.json. Attempt-1 SCARTATO, senza valore di qualifica: il kernel della VM ha registrato corruzione di memoria (BUG: Bad page map, Oops) durante la corsa, con crash fuzz gpkg_reader non riproducibile dopo il riavvio (0 su 205 corse dello stesso input) e un .pyc corrotto. Causa dal log del kernel della VM, riproduzioni eseguite sulla VM dopo il riavvio; nessuna misura di quel tentativo viene usata. Il soak mirato dxf_reader e shp_reader, 3600 s, e' in corso sulla VM sul commit di congelamento dfc259e e non e' registrato qui. Restano i suoi referti, le attestazioni richieste, la draft e la verifica dei byte riscaricati contro la candidate, poi la decisione esplicita del titolare, tag e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false. Log della verifica Windows in target/rel702/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB sono stati rimisurati sull'albero ba93ea4 nella VM di qualifica Ubuntu 24.04, con GDAL di sistema e toolchain fissata nightly-2026-07-21, cargo-fuzz 0.13.2. Profondita: 35 requisiti shp_reader, 12 filegdb_reader, 9 wkt_parse e 9 geojson_reader raggiunti. ASan nativo: 180150 contatori su 1 modulo, zero simboli del runtime in libgdal.so.34; gate --qualifica verdi sulla VM, log in target/rel702/rimisure-attempt-1 della VM. Le impronte legano le misure al perimetro; non sono un checkpoint di livello 2 ne un soak della 7.0.2. La release 7.0.1 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.2 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 506 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 500 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta sul download libsqlite3-sys 0.39.1 per errore TLS SEC_E_NO_CREDENTIALS; non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/Service/CreateInstance/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM. Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, coerenza dell'evidenza e allowlist verdi. Verificati i digest dei 116 file del manifest contro gli originali e il verbale smoke byte per byte. Suite Python pertinente: 394 test, inizialmente 14 errori per python3 assente e 3 skip; con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile, 388 passati, 3 fallimenti ASan/FileGDB e 3 skip. Le sonde ASan richiamano una build Cargo che fallisce sui download di libsqlite3-sys 0.39.1 e calamine 0.38.0 per TLS SEC_E_NO_CREDENTIALS. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. Nessuna qualifica ASan dedotta da queste sonde. Contratto completo da eseguire sulla VM. Comandi e log in target/rel702/verifica-l2.",
       "revisione_candidate": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
       "artefatti": [
         {

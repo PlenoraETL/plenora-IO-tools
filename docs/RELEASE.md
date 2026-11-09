@@ -36,31 +36,31 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `2ddfb58` |
-| revisione misurata | `2ddfb58` |
+| ultima qualificata | `ee69336` |
+| revisione misurata | `ee69336` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 29 636 |
+| input di replay | 50 404 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,75% |
-| righe coperte LCOV | 31 302 |
-| righe strumentate LCOV | 35 271 |
-| copertura cargo | 86,62% |
+| copertura LCOV | 88,77% |
+| righe coperte LCOV | 31 344 |
+| righe strumentate LCOV | 35 309 |
+| copertura cargo | 86,63% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| esito differenziale | n/d |
+| baseline differenziale | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
+| esito differenziale | 100.00% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `2ddfb58` |
+| S9, qualificato su | `ee69336` |
 | candidate, versione del manifesto | `7.0.2` |
 | candidate, stato | attiva |
 | candidate, revisione congelata | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
@@ -1489,12 +1489,35 @@ con `check-distribuzione-completa.py` e `check-deliverable.py --contro-la-candid
 Questo confronto riguarda i byte della corsa Actions; non e' una verifica
 della draft o della release.
 
-Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato ora.
-Restano le evidenze di livello 2, le campagne e attestazioni richieste, la
-draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
-del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
-ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
-restano false; le misure storiche della 7.0.1 restano invariate.
+### Registrazione del livello 2
+
+Il livello 2 completo (`scripts/s9-checkpoint.sh`) e' superato sulla candidate
+`ee69336f8aed84767d1a1cd1bf5b0d526e3422e2`, con `S9_CHECKPOINT_BASE=2ddfb58cb21975544f51188cf081fc6d6228e082`:
+111/111 passi, zero omessi o falliti, albero pulito all'avvio, revisione e
+impronta invariate. L'[evidenza](../assurance/evidence/checkpoint-ee69336.json) e' generata
+dai log di `target/rel702/l2-ee69336f8aed84767d1a1cd1bf5b0d526e3422e2-attempt-2` con `scripts/registra-evidenza-s9.py`.
+La cartella originale resta intatta: il registratore usa la copia
+`target/rel702/verifica-l2/corsa-contratto`, identica byte per byte salvo
+`console.log`, esterno ai passi ammessi dal contratto e conservato con
+percorso e digest nella provenienza dell'evidenza.
+Il replay conta 50404 input su 15 target senza crash;
+smoke 15/15, 60 secondi ciascuno, nessun finding o quarantena.
+Copertura LCOV 88.77% (31344/35309),
+cargo 86.63%, soglia 80.0%.
+Differenziale di libreria: 41 righe cambiate eseguibili,
+41 coperte, 0 scoperte, 318 non eseguibili,
+esito `100.00%`. La diagnostica CLI conta zero righe cambiate eseguibili
+e non eseguibili, esito `n/d`.
+
+Attempt-1 SCARTATO, senza valore di qualifica: il kernel della VM ha registrato corruzione di memoria (BUG: Bad page map, Oops) durante la corsa, con crash fuzz gpkg_reader non riproducibile dopo il riavvio (0 su 205 corse dello stesso input) e un .pyc corrotto. Causa dal log del kernel della VM, riproduzioni eseguite sulla VM dopo il riavvio; nessuna misura di quel tentativo viene usata.
+
+Il soak mirato dxf_reader e shp_reader, 3600 s, e' in corso sulla VM sul commit di congelamento dfc259e e non e' registrato qui. Restano i suoi referti, le attestazioni richieste, la draft e la verifica dei byte riscaricati contro la candidate, poi la decisione esplicita del titolare, tag e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false.
+I sette archivi congelati restano quelli della distribuzione 42637007133.
+Le evidenze storiche della 7.0.1 restano attribuite alla propria revisione;
+ultima qualifica e ultima misura ora indicano `ee69336`.
+Il contratto completo dopo questa registrazione va eseguito sulla VM.
+
+Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, coerenza dell'evidenza e allowlist verdi. Verificati i digest dei 116 file del manifest contro gli originali e il verbale smoke byte per byte. Suite Python pertinente: 394 test, inizialmente 14 errori per python3 assente e 3 skip; con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile, 388 passati, 3 fallimenti ASan/FileGDB e 3 skip. Le sonde ASan richiamano una build Cargo che fallisce sui download di libsqlite3-sys 0.39.1 e calamine 0.38.0 per TLS SEC_E_NO_CREDENTIALS. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. Nessuna qualifica ASan dedotta da queste sonde. Contratto completo da eseguire sulla VM. Comandi e log in target/rel702/verifica-l2.
 
 ## 7.0.1 — pubblicata
 
