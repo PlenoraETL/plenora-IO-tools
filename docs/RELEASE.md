@@ -1364,6 +1364,75 @@ upstream dipendono dai manutentori dei progetti originali.
 
 ## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
 
+### Draft verificata e passi dopo la decisione
+
+La draft **439565237**, [verificata prima della pubblicazione](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-fae27862383bd18231f2),
+resta non pubblicata e non autorizzata. Il verbale completo e i 24 nomi, dimensioni
+e SHA-256 ricalcolati sono in `assurance/evidence/checkpoint-ee69336.json`,
+`release_verification.draft`. I 23 asset della Distribuzione candidate
+42637007133 sono accompagnati da `adoption-manifest.json`, aggiuntivo rispetto
+alla 7.0.0. Il gate legge **il manifesto locale**
+`contracts/adoption-manifest.json`: questa registrazione lo confronta byte per
+byte con quello riscaricato. Il manifesto non entra nella directory passata
+a `check-deliverable.py`; viene verificato separatamente sui cinque archivi.
+
+Resta la decisione esplicita del titolare sui byte verificati e sui limiti
+residui. I comandi seguenti sono istruzioni future, **non eseguite** da questa
+registrazione. Usare il checkout di assurance aggiornato nell'ambiente Linux
+di qualifica, con contratti al pin e manifesto locale identico al verificato.
+Non ricostruire gli asset. Dopo la decisione autentica, conservarne data,
+titolare, testo e oggetto in
+`assurance/evidence/autorizzazione-7.0.2.txt` (senza inventare la risposta).
+
+```bash
+git tag -a v7.0.2 ee69336f8aed84767d1a1cd1bf5b0d526e3422e2 -m "Plenora IO-tools 7.0.2"
+git rev-parse 'v7.0.2^{commit}'
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path('assurance/current-state.json')
+s = json.loads(p.read_text(encoding='utf-8'))
+c = s['aperto']['candidate_release']
+decisione = Path('assurance/evidence/autorizzazione-7.0.2.txt').read_text(encoding='utf-8').strip()
+assert decisione and c['revisione_candidate'] == 'ee69336f8aed84767d1a1cd1bf5b0d526e3422e2'
+s['release_authorized'] = True
+c.update(tag_creato=True, tag_sulla_candidate=True,
+         tag_revisione=c['revisione_candidate'], release_action_allowed=True)
+c['nota'] += '\n\nAutorizzazione esplicita del titolare:\n' + decisione
+p.write_text(json.dumps(s, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+PY
+python3 scripts/check_docset.py --riscrivi-stato
+```
+
+Registrare evidenza e autorizzazione in un commit di assurance separato, nei
+soli percorsi dell'allowlist, quindi eseguire il gate completo. Le note che
+descrivono i permessi falsi in questa registrazione restano fatti precedenti
+alla decisione; la decisione successiva ne dichiara il superamento.
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v7.0.2
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/439565237 -F draft=false
+```
+
+Prima del PATCH ricontrollare che ID, target, tag e tutti i 24 asset della
+draft coincidano con il verbale. Il PATCH cambia soltanto `draft`: nessun
+upload, sostituzione di asset o modifica delle note. Dopo la pubblicazione
+riscaricare in una directory nuova:
+
+```bash
+gh release download v7.0.2 --repo PlenoraETL/plenora-IO-tools --dir target/rel702/pubblicata-riscaricata
+```
+
+Confrontare tutti i 24 nomi, dimensioni e SHA-256 con `release_verification.draft.asset`;
+ripetere `check-deliverable.py --contro-la-candidate assurance/current-state.json`
+sui 23 file escluso il manifesto, con versione `7.0.2`, canale `candidate` e
+revisione `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2`; ripetere anche la verifica
+del manifesto riscaricato sui cinque archivi. Registrare l'esito in un blocco
+separato `release_verification.published`, aggiornare lo stato a pubblicata e
+riportare `release_action_allowed` a `false`: il permesso e' speso.
+
 Allineamento comune: serde_json 1.0.151 → 1.0.154 (feature invariate),
 thiserror/thiserror-impl 2.0.19 → 2.0.21 e time 0.3.54 → 0.3.55 nei lock
 che li contengono. Il ramo thiserror 1.0.69 resta richiesto dai suoi
@@ -1519,7 +1588,7 @@ e non eseguibili, esito `n/d`.
 
 Attempt-1 SCARTATO, senza valore di qualifica: il kernel della VM ha registrato corruzione di memoria (BUG: Bad page map, Oops) durante la corsa, con crash fuzz gpkg_reader non riproducibile dopo il riavvio (0 su 205 corse dello stesso input) e un .pyc corrotto. Causa dal log del kernel della VM, riproduzioni eseguite sulla VM dopo il riavvio; nessuna misura di quel tentativo viene usata.
 
-Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json. Le quattro attestazioni del profilo pubblico 7.0.2 sono registrate in b4db138. Restano la creazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, poi la decisione esplicita del titolare, tag sulla candidate ee69336 e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false.
+Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json. Le quattro attestazioni del profilo pubblico 7.0.2 sono registrate in b4db138. Draft 439565237 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-fae27862383bd18231f2, target ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, tag previsto v7.0.2, draft true. Registrati in assurance/evidence/checkpoint-ee69336.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub forniti dall operatore. I sette deliverable coincidono con la candidate. Il manifesto di adozione e verificato sui cinque archivi riscaricati: 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.2 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
 I sette archivi congelati restano quelli della distribuzione 42637007133.
 Le evidenze storiche della 7.0.1 restano attribuite alla propria revisione;
 ultima qualifica e ultima misura ora indicano `ee69336`.
