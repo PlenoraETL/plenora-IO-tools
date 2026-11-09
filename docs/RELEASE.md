@@ -1354,6 +1354,33 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
+## 7.0.2 — non rilasciata
+
+Allineamento comune: serde_json 1.0.151 → 1.0.154 (feature invariate),
+thiserror/thiserror-impl 2.0.19 → 2.0.21 e time 0.3.54 → 0.3.55 nei lock
+che li contengono. Il ramo thiserror 1.0.69 resta richiesto dai suoi
+consumatori. Aggiornati tutti e tre i lock, incluso quello autonomo del
+vendor. Maturin passa dal requisito `>=1.15,<2.0` e dal pin CI 1.15.0 a
+`==1.16.0` / 1.16.0; il packaging copia lo stesso pyproject.
+Nessun cambio di versione dei manifesti. Rust resta 1.98.1, Arrow 60.1.0,
+calamine 0.38.0 e PyO3 0.29.2.
+
+Il fork `plenora-fork-parquet` conserva base 60.0.0 e decoder. Come nella
+politica di data-tools PR #154, il requisito Arrow autonomo diventa
+`>=60.1.0, <61` anche per dipendenze opzionali e di sviluppo; i pin del
+workspace restano esatti. Patch: `assurance/parquet-arrow-minimo.patch`,
+con provenienza nel registro del fork. `scripts.test_allineamento_dipendenze`
+verifica minimo, lock e feature.
+
+**GeoParquet verifica i CRC di pagina presenti.** Una pagina con checksum
+errato, anche se contiene una geometria valida, ora è rifiutata; checksum
+corretto e checksum assente restano leggibili. La prova
+`il_driver_verifica_crc_presente_e_ammette_crc_assente` in
+`crates/driver-geoparquet/tests/parquet_decoder.rs` confronta i tre casi e
+verifica il rifiuto senza panico. I codec snap, zstd, brotli,
+flate2-rust_backend e lz4 restano abilitati esplicitamente. CRC usa
+crc32fast già presente nel grafo, senza una nuova dipendenza diretta.
+
 ## 7.0.1 — pubblicata
 
 ### Esito dei passi dopo la decisione

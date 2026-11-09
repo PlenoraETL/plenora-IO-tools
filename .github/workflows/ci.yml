@@ -191,7 +191,9 @@ jobs:
           python3 -m unittest scripts.test_check_asan_filegdb
           python3 scripts/check_asan_filegdb.py
       - name: Verify exact dependency pins
-        run: python3 scripts/check_dependency_pins.py
+        run: |
+          python3 scripts/check_dependency_pins.py
+          python3 -m unittest scripts.test_allineamento_dipendenze
       # I pin di toolchain sono replicati come letterali in sei posti, perche'
       # un Dockerfile non legge un file fuori dal contesto di build e una CI
       # che facesse `source` renderebbe i pin invisibili a chi la legge. Il
@@ -673,7 +675,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
-          maturin-version: "1.15.0"
+          maturin-version: "1.16.0"
           command: build
           working-directory: target/wheel-nativa
           args: --release --locked --out ../../dist-nativa
@@ -683,7 +685,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
-          maturin-version: "1.15.0"
+          maturin-version: "1.16.0"
           command: build
           working-directory: target/wheel-nativa
           args: --release --locked --out ../../dist-nativa

@@ -25,7 +25,7 @@ arrow-select = "=60.1.0"
 arrow-buffer = "=60.1.0"
 # `parquet` 60.0.0 con le correzioni del fork `-eof` di plenora-data-tools,
 # vendorizzato in `vendor/parquet` con gli stessi sorgenti; nome del pacchetto,
-# pin Arrow 60.1.0 e lock autonomo sono delta di packaging dichiarati. E' una
+# minimo Arrow 60.1.0 e lock autonomo sono delta di packaging dichiarati. E' una
 # dipendenza diretta con nome proprio, per la stessa
 # ragione dei tre fork qui sotto: una `[patch]` non arriverebbe a chi dipende
 # da noi.
@@ -38,7 +38,9 @@ arrow-buffer = "=60.1.0"
 # di pagina malformati. Il fork chiude quei casi (registro:
 # `assurance/registries/vendor-parquet-fork.json`). Le feature sono l'unione di
 # quelle di data-tools e delle nostre: brotli, flate2 e lz4 in piu'.
-parquet = { package = "plenora-fork-parquet", version = "=60.0.0", path = "vendor/parquet", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
+# CRC verifica i checksum presenti nelle pagine; non impone che siano presenti.
+# I codec restano espliciti per conservare i formati gia' leggibili in IO.
+parquet = { package = "plenora-fork-parquet", version = "=60.0.0", path = "vendor/parquet", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd", "crc"] }
 geo-types = "=0.7.20"
 geojson = { version = "=1.0.0", features = ["geo-types"] }
 csv = "=1.4.0"
@@ -74,7 +76,7 @@ zip = { version = "=9.0.3", default-features = false, features = ["deflate"] }
 dxf = { package = "plenora-fork-dxf", version = "=0.6.1", path = "vendor/dxf" }
 gdal = { package = "plenora-fork-gdal", version = "=0.19.0", path = "vendor/gdal" }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 # Validazione JSON-Schema draft-07 per i metadati GeoParquet.
 # `default-features = false` toglie i resolver HTTP e filesystem: i `$ref`
 # si risolvono **solo** da un registro in memoria costruito sugli schemi
