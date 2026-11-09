@@ -67,13 +67,13 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, versione del workspace | `7.0.2` |
 | candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.2` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
+| candidate, release_action consentita | sì |
 | release pubblicate | 10 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
