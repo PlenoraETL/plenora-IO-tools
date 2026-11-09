@@ -31,10 +31,21 @@ class AllineamentoDipendenze(unittest.TestCase):
                         self.assertEqual(version, "1.0.154")
                     if name in ("thiserror", "thiserror-impl"):
                         self.assertIn(version, ("1.0.69", "2.0.21"))
+                    if name == "rusqlite":
+                        self.assertEqual(version, "0.41.1")
+                    if name == "libsqlite3-sys":
+                        self.assertGreaterEqual(tuple(map(int, version.split("."))), (0, 39, 0))
                     if name == "time":
                         self.assertEqual(version, "0.3.55")
                     if name.startswith("arrow-"):
                         self.assertEqual(version, "60.1.0")
+
+    def test_consumatore_json_allineato_al_workspace(self):
+        with (ROOT / "Cargo.toml").open("rb") as stream:
+            workspace = tomllib.load(stream)["workspace"]["dependencies"]
+        with (ROOT / "conformance/consumatore-rust/Cargo.toml").open("rb") as stream:
+            consumer = tomllib.load(stream)["dependencies"]
+        self.assertEqual(consumer["serde_json"], workspace["serde_json"])
 
     def test_codec_e_crc_espliciti(self):
         with (ROOT / "Cargo.toml").open("rb") as stream:

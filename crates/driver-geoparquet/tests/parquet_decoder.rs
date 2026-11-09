@@ -597,6 +597,16 @@ fn il_driver_verifica_crc_presente_e_ammette_crc_assente() {
     let corrotto = pagina(Some(crc ^ 1));
     assert!(arrow(&corrotto).is_err());
     rifiutato_dal_confine(&corrotto);
+    // Corruzione del dato, con il CRC originale intatto: WKB ancora valido,
+    // ma coordinata diversa. Prima della feature crc era una riga riuscita.
+    let mut alterato = pagina(Some(crc));
+    let offset = alterato
+        .windows(punto.len())
+        .position(|w| w == punto)
+        .unwrap();
+    alterato[offset + 5..offset + 13].copy_from_slice(&3_f64.to_le_bytes());
+    assert!(arrow(&alterato).is_err());
+    rifiutato_dal_confine(&alterato);
 }
 
 /// IO non richiede l'esposizione delle statistiche di pagina. Il fork deve

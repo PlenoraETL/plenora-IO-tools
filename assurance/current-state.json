@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -613,6 +613,67 @@
         "versione_pacchetto_python": "7.0.0",
         "evidenza": "assurance/evidence/checkpoint-fc98634.json",
         "perche_e_qui": "La 7.0.0 e pubblicata; il verbale resta invariato e verificabile mentre la candidate corrente diventa 7.0.1."
+      },
+      {
+        "versione_manifesto": "7.0.1",
+        "tag_previsto": "v7.0.1",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate 7.0.1 congelata su 2ddfb58cb21975544f51188cf081fc6d6228e082. Distribuzione candidate run 42206421101, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42206421101, ref rilascio/7.0.1, input versione=7.0.1, canale=candidate, revisione=2ddfb58cb21975544f51188cf081fc6d6228e082, conclusione success comunicata dal coordinatore. Sulla stessa CANDIDATE il coordinatore attesta S9 livello 1 verificato, 99 passi su 99, doctest, check_profondita_fuzz.py --qualifica, check_asan_filegdb.py --qualifica e check_release_contract.py verdi sulla VM Linux. Verificati nuovamente su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali scaricati dalla corsa. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Livello 2 superato sulla revisione di assurance 679d94c44837f0d884c2777defa9d945915faaa6 (figlia della candidate): 111/111 passi, zero file sporchi all'avvio, revisione e impronta invariate. Evidenza: assurance/evidence/checkpoint-2ddfb58.json. Prima del livello 2 il titolare attesta check_release_contract.py verde sulla VM: 37 invarianti, 35 verificati, 0 bloccanti, 2 differiti. Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-2ddfb58.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. release_authorized e release_action_allowed restano false. I sette archivi e i digest congelati restano quelli della distribuzione; la verifica della draft non autorizza la pubblicazione.\n\nAutorizzazione esplicita del titolare:\nData: 2026-11-07\nTitolare: Marco Bonamente (titolare del repository PlenoraETL/plenora-IO-tools)\nOggetto: pubblicazione di plenora-IO-tools 7.0.1, candidate 2ddfb58cb21975544f51188cf081fc6d6228e082, draft 437334505 con 24 asset verificati\nDomanda posta: «IO 7.0.1 è qualificata e la draft è verificata: L1 99/99, L2 111/111, soak 2×1 h senza finding, 4 attestazioni 32/32, 24 asset riscaricati identici, manifesto verificato. Non verificati, come nella 7.0.0: la qualifica tra componenti e la conferma esterna della licenza first-party. Autorizzi la pubblicazione della 7.0.1?»\nRisposta del titolare: «Sì, pubblica»\n\nPubblicata il 2026-11-07T05:07:47Z dalla draft 437334505 immutata con il solo PATCH draft=false, senza modifiche agli asset. Release: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.1. Tag annotato v7.0.1 sulla candidate 2ddfb58cb21975544f51188cf081fc6d6228e082. Gate check_release_contract.py --release verde sulla VM su 63898a226602a53b47366018852511f4fdc56901: release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate (esito comunicato dal titolare). Verifica post-pubblicazione: 24/24 asset identici byte per byte alla draft verificata; nomi, dimensioni e SHA-256 ricalcolati. Sette artefatti coincidenti con la candidate; manifesto di adozione verificato sui cinque archivi. Verbale: assurance/evidence/checkpoint-2ddfb58.json, release_verification.published. release_authorized resta true come decisione storica; release_action_allowed e consumato e torna false.",
+        "revisione_candidate": "2ddfb58cb21975544f51188cf081fc6d6228e082",
+        "artefatti": [
+          {
+            "nome": "plenora-io-7.0.1-linux-x86_64-base.tar.gz",
+            "sha256": "8a575b8210bc9c7b64916cd28f4f155a4511745ea73c6e3ac37186f4c679f8de",
+            "dimensione": 9195533,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora-io-7.0.1-linux-x86_64-filegdb.tar.gz",
+            "sha256": "2d492366ccf0a89cb1adbd4128858406d4c5b85d44e0d02a6b72ff0c9b4a86f3",
+            "dimensione": 65043909,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora-io-7.0.1-src.tar.gz",
+            "sha256": "b57b042bee3f84252f3fce7a65acefdf66dc12f414992ea730f9a586438c553c",
+            "dimensione": 21270074,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora-io-7.0.1-windows-x86_64-base.zip",
+            "sha256": "00274e3aa3685cc93bfd8f4ba5e603498189acf8002b1c569130525b6487c5ba",
+            "dimensione": 10001659,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora-io-7.0.1-windows-x86_64-filegdb.zip",
+            "sha256": "bd742ef43b76f0e6233b2a52e6eedfb1374201b448b65662d51a64502fd66b97",
+            "dimensione": 49056202,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora_io-7.0.1-py3-none-any.whl",
+            "sha256": "b4871d0f63705f9157bc51fc8f8678366826fe9802f7b4da60e8590fd11e2fd0",
+            "dimensione": 114725,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          },
+          {
+            "nome": "plenora_io-7.0.1.tar.gz",
+            "sha256": "c72eb01ee5e30ffe3228052d7991fac7bb94ac7764abeea1ce8ff454e5041755",
+            "dimensione": 211119,
+            "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+          }
+        ],
+        "assurance_entro_l_allowlist": true,
+        "tag_revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082",
+        "commit_di_assurance": "63898a226602a53b47366018852511f4fdc56901",
+        "perche_e_qui": "La 7.0.1 e pubblicata; il verbale resta invariato e verificabile mentre la candidate corrente diventa 7.0.2.",
+        "versione_pacchetto_python": "7.0.1",
+        "evidenza": "assurance/evidence/checkpoint-2ddfb58.json"
       }
     ]
   },
@@ -645,63 +706,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "7.0.1",
-      "versione_workspace": "7.0.1",
-      "tag_previsto": "v7.0.1",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "7.0.2",
+      "versione_workspace": "7.0.2",
+      "tag_previsto": "v7.0.2",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "Candidate 7.0.1 congelata su 2ddfb58cb21975544f51188cf081fc6d6228e082. Distribuzione candidate run 42206421101, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42206421101, ref rilascio/7.0.1, input versione=7.0.1, canale=candidate, revisione=2ddfb58cb21975544f51188cf081fc6d6228e082, conclusione success comunicata dal coordinatore. Sulla stessa CANDIDATE il coordinatore attesta S9 livello 1 verificato, 99 passi su 99, doctest, check_profondita_fuzz.py --qualifica, check_asan_filegdb.py --qualifica e check_release_contract.py verdi sulla VM Linux. Verificati nuovamente su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali scaricati dalla corsa. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Livello 2 superato sulla revisione di assurance 679d94c44837f0d884c2777defa9d945915faaa6 (figlia della candidate): 111/111 passi, zero file sporchi all'avvio, revisione e impronta invariate. Evidenza: assurance/evidence/checkpoint-2ddfb58.json. Prima del livello 2 il titolare attesta check_release_contract.py verde sulla VM: 37 invarianti, 35 verificati, 0 bloccanti, 2 differiti. Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json. Le quattro attestazioni del profilo pubblico 7.0.1 sono registrate (32/32 ciascuna, esigenti e conformi, al pin 7f82263921132226814f9829b0669ef34eae5624, digest coincidenti con gli archivi congelati). Draft 437334505 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-4e48e3cb3bf843994a85, target 2ddfb58cb21975544f51188cf081fc6d6228e082, tag previsto v7.0.1, draft true. Registrati in assurance/evidence/checkpoint-2ddfb58.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub. I sette deliverable coincidono con la candidate. Rispetto ai 23 asset della 7.0.0 si aggiunge adoption-manifest.json: verifica sui cinque archivi riscaricati verde, 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.1 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. release_authorized e release_action_allowed restano false. I sette archivi e i digest congelati restano quelli della distribuzione; la verifica della draft non autorizza la pubblicazione.\n\nAutorizzazione esplicita del titolare:\nData: 2026-11-07\nTitolare: Marco Bonamente (titolare del repository PlenoraETL/plenora-IO-tools)\nOggetto: pubblicazione di plenora-IO-tools 7.0.1, candidate 2ddfb58cb21975544f51188cf081fc6d6228e082, draft 437334505 con 24 asset verificati\nDomanda posta: «IO 7.0.1 è qualificata e la draft è verificata: L1 99/99, L2 111/111, soak 2×1 h senza finding, 4 attestazioni 32/32, 24 asset riscaricati identici, manifesto verificato. Non verificati, come nella 7.0.0: la qualifica tra componenti e la conferma esterna della licenza first-party. Autorizzi la pubblicazione della 7.0.1?»\nRisposta del titolare: «Sì, pubblica»\n\nPubblicata il 2026-11-07T05:07:47Z dalla draft 437334505 immutata con il solo PATCH draft=false, senza modifiche agli asset. Release: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.1. Tag annotato v7.0.1 sulla candidate 2ddfb58cb21975544f51188cf081fc6d6228e082. Gate check_release_contract.py --release verde sulla VM su 63898a226602a53b47366018852511f4fdc56901: release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate (esito comunicato dal titolare). Verifica post-pubblicazione: 24/24 asset identici byte per byte alla draft verificata; nomi, dimensioni e SHA-256 ricalcolati. Sette artefatti coincidenti con la candidate; manifesto di adozione verificato sui cinque archivi. Verbale: assurance/evidence/checkpoint-2ddfb58.json, release_verification.published. release_authorized resta true come decisione storica; release_action_allowed e consumato e torna false.",
-      "revisione_candidate": "2ddfb58cb21975544f51188cf081fc6d6228e082",
-      "artefatti": [
-        {
-          "nome": "plenora-io-7.0.1-linux-x86_64-base.tar.gz",
-          "sha256": "8a575b8210bc9c7b64916cd28f4f155a4511745ea73c6e3ac37186f4c679f8de",
-          "dimensione": 9195533,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora-io-7.0.1-linux-x86_64-filegdb.tar.gz",
-          "sha256": "2d492366ccf0a89cb1adbd4128858406d4c5b85d44e0d02a6b72ff0c9b4a86f3",
-          "dimensione": 65043909,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora-io-7.0.1-src.tar.gz",
-          "sha256": "b57b042bee3f84252f3fce7a65acefdf66dc12f414992ea730f9a586438c553c",
-          "dimensione": 21270074,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora-io-7.0.1-windows-x86_64-base.zip",
-          "sha256": "00274e3aa3685cc93bfd8f4ba5e603498189acf8002b1c569130525b6487c5ba",
-          "dimensione": 10001659,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora-io-7.0.1-windows-x86_64-filegdb.zip",
-          "sha256": "bd742ef43b76f0e6233b2a52e6eedfb1374201b448b65662d51a64502fd66b97",
-          "dimensione": 49056202,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora_io-7.0.1-py3-none-any.whl",
-          "sha256": "b4871d0f63705f9157bc51fc8f8678366826fe9802f7b4da60e8590fd11e2fd0",
-          "dimensione": 114725,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        },
-        {
-          "nome": "plenora_io-7.0.1.tar.gz",
-          "sha256": "c72eb01ee5e30ffe3228052d7991fac7bb94ac7764abeea1ce8ff454e5041755",
-          "dimensione": 211119,
-          "revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082"
-        }
-      ],
-      "assurance_entro_l_allowlist": true,
-      "tag_revisione": "2ddfb58cb21975544f51188cf081fc6d6228e082",
-      "commit_di_assurance": "63898a226602a53b47366018852511f4fdc56901"
+      "stato": "iniziale",
+      "nota": "Candidate iniziale: correzioni SQLite/companion e CRC Parquet, descritte in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB devono essere rimisurati sul perimetro finale: le misure storiche non attestano la 7.0.2. La release 7.0.1 resta in chiuso.release_pubblicate con la propria evidenza."
     }
   },
   "docset": {

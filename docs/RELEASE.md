@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `2ddfb58` |
-| candidate, versione del manifesto | `7.0.1` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
-| candidate, versione del workspace | `7.0.1` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.1` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `7.0.2` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `7.0.2` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v7.0.2` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 9 |
-| release_authorized | `true` |
+| release pubblicate | 10 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1354,7 +1354,7 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## 7.0.2 — non rilasciata
+## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
 
 Allineamento comune: serde_json 1.0.151 → 1.0.154 (feature invariate),
 thiserror/thiserror-impl 2.0.19 → 2.0.21 e time 0.3.54 → 0.3.55 nei lock
@@ -1362,7 +1362,7 @@ che li contengono. Il ramo thiserror 1.0.69 resta richiesto dai suoi
 consumatori. Aggiornati tutti e tre i lock, incluso quello autonomo del
 vendor. Maturin passa dal requisito `>=1.15,<2.0` e dal pin CI 1.15.0 a
 `==1.16.0` / 1.16.0; il packaging copia lo stesso pyproject.
-Nessun cambio di versione dei manifesti. Rust resta 1.98.1, Arrow 60.1.0,
+Workspace e SDK passano a 7.0.2. Rust resta 1.98.1, Arrow 60.1.0,
 calamine 0.38.0 e PyO3 0.29.2.
 
 Il fork `plenora-fork-parquet` conserva base 60.0.0 e decoder. Come nella
@@ -1372,14 +1372,106 @@ workspace restano esatti. Patch: `assurance/parquet-arrow-minimo.patch`,
 con provenienza nel registro del fork. `scripts.test_allineamento_dipendenze`
 verifica minimo, lock e feature.
 
-**GeoParquet verifica i CRC di pagina presenti.** Una pagina con checksum
+**DIFETTO SILENZIOSO CORRETTO - GeoParquet accettava dati corrotti.**
+Versioni colpite: tutte le stabili **1.0.0-7.0.1**, incluse 1.0.1, 4.1.0,
+4.1.1 e 5.0.1, e le prerelease **0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2**.
+Verifica statica di `git show <tag>:Cargo.toml` su tutti i 18 tag: feature
+`crc` assente, `default-features=false`; dalla 5.0.0 anche
+`git show <tag>:vendor/parquet/Cargo.toml` conferma `crc` opzionale, non
+incluso dalle feature abilitate. Nei tag precedenti il vendor non esiste:
+si usavano parquet 59.1.0 e 59.3.0 con CRC disabilitato.
+La riproduzione indipendente sulla 7.0.1 ha alterato una coordinata WKB
+mantenendo il CRC originale: successo, una riga e fedelta' lossless,
+senza segnalare la corruzione. Non era un limite dichiarato del formato.
+La correzione abilita `crc`: una pagina con checksum
 errato, anche se contiene una geometria valida, ora è rifiutata; checksum
 corretto e checksum assente restano leggibili. La prova
 `il_driver_verifica_crc_presente_e_ammette_crc_assente` in
 `crates/driver-geoparquet/tests/parquet_decoder.rs` confronta i tre casi e
-verifica il rifiuto senza panico. I codec snap, zstd, brotli,
+verifica il rifiuto senza panico, anche modificando la coordinata da 1 a 3
+conservando il CRC originale. Controllare gli output gia' prodotti rispetto
+alle sorgenti originali e rigenerarli con la versione corretta; un vecchio
+successo/lossless non attesta integrita'. L'assenza di CRC resta ammessa e
+non offre una verifica d'integrita'. I codec snap, zstd, brotli,
 flate2-rust_backend e lz4 restano abilitati esplicitamente. CRC usa
 crc32fast già presente nel grafo, senza una nuova dipendenza diretta.
+
+### SQLite: avviso di sicurezza e difetto silenzioso corretto
+
+**RUSTSEC-2026-0459 / CVE-2026-119375.** SQLite bundled fino a 3.53.2
+(`libsqlite3-sys` fino a 0.38.2) puo' restituire memoria non inizializzata
+della page cache come dati di righe se un database viene aperto insieme a
+un WAL di terzi con page size diversa. L'effetto puo' essere un successo
+con dati falsi o divulgazione di memoria, non soltanto un crash.
+Aggiornati i lock radice e fuzz a `rusqlite =0.41.1`, che richiede
+`libsqlite3-sys ^0.39.0`: risolto **0.39.1, SQLite 3.54.1**.
+`hashlink` resta 0.12.2; nessun nodo aggiunto o rimosso, nessun'altra
+transitiva cambiata da questo aggiornamento. Nessuna eccezione advisory.
+Il registro e' `assurance/registries/dependency-exceptions.json`.
+
+**Release pubblicate esposte:** tutte le stabili **1.0.0-7.0.1** e le sei
+prerelease **0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2**. La verifica statica dei
+18 tag (`Cargo.lock`, `crates/driver-gpkg/src/lib.rs`) trova libsqlite3-sys
+0.37.0 fino alla 2.0.0, 0.38.2 dalla 3.0.0. Fino alla 5.0.0 il reader
+usava `Connection::open` (read-write/create e URI di default); dalla 5.0.1
+usa `READ_ONLY | NO_MUTEX`, senza URI ne' immutable. In nessun tag copia
+difensiva o controllo dei companion `-wal`/`-shm`. `journal_mode=MEMORY`
+riguarda solo il writer sullo staging, non il lettore. DEFENSIVE,
+TRUSTED_SCHEMA=false, cell_size_check e mmap disabilitato non escludono il
+WAL: la sola lettura puo' applicarlo. CLI, SDK e API Rust che leggono GPKG
+raggiungono questo percorso. Questa e' esposizione accertata del percorso,
+non una riproduzione locale della fuga di memoria della CVE.
+
+La prova `companion_wal_non_fidato_non_cambia_le_righe_in_silenzio` crea
+cinque righe nel file e una cancellazione soltanto nel WAL: i vecchi flag
+leggono zero righe, il driver corretto rifiuta esplicitamente prima di
+SQLite. `companion_sqlite_anche_vuoto_o_malformato_viene_rifiutato` copre
+anche companion vuoti e malformati. Le prove sono in
+`crates/driver-gpkg/src/tests.rs`; controllano che i companion non cambino.
+Il reader ora rifiuta `-wal`, `-shm` e `-journal` (anche link pendenti o
+errori di accesso), poi apre una URI codificata con `immutable=1`: nessun
+companion viene letto o creato. I companion sono ricontrollati alla fine del layer, prima del successo.
+Un companion comparso e ancora presente produce un errore esplicito.
+Anche un journal freddo e' rifiutato: il file va consolidato dal produttore.
+La prova del journal caldo e quella del file WAL chiuso regolarmente
+verificano rifiuto e lettura del file consolidato. Il file sorgente deve
+restare stabile durante la lettura: questa misura non e' una snapshot
+contro scrittori concorrenti dell'insieme principale/companion. Un companion
+creato e rimosso durante la lettura puo sfuggire ai due controlli. Regola,
+ambito, hazard e condizione di rientro sono nel registro Limitazioni di prodotto di PRODUCT.md e in ENGINEERING.md.
+Su Windows il nome non esteso controllato e quello aperto sono identici:
+normalizzazione Win32 invariata e canonicalizzazione allo stesso file sono
+obbligatorie. Punti/spazi finali, nomi riservati e componenti normalizzati
+sono rifiutati; i percorsi di almeno 260 unita UTF-16 sono esplicitamente
+non supportati, anche su sistemi con long paths abilitati.
+
+Conservare gli originali e confrontare gli output precedenti con sorgenti
+fidate; rigenerare dopo il consolidamento con un motore corretto. Non
+cancellare un WAL per far passare il controllo: potrebbe contenere dati
+committati non ancora nel database. Non si ricostruiscono valori affidabili
+dalla memoria o dai dati corrotti gia' restituiti.
+
+La fixture che oscura rowid usa ora `writable_schema` per costruire lo
+schema esterno: SQLite 3.54.1 rifiuta gia' `ALTER TABLE ADD COLUMN rowid`.
+Il rifiuto del driver resta provato, senza cambiare il mapping dei dati.
+La misura di 56602 righe di prodotto e il tetto (+200, da 56500 a 56700)
+registrano la difesa aggiunta, senza comprimere codice per eludere il gate.
+
+### Coerenza dei pin e misure da rifare
+
+Il consumatore esterno usa serde_json =1.0.154 e una prova confronta il
+requisito con quello del workspace. Allineata anche la copia thiserror
+2.0.21 nel registro della closure GeoParquet. Le occorrenze precedenti nei
+censimenti datati del 7 e 15 settembre e in PIANO-4.1.0 sono evidenza storica,
+non requisiti attivi; non vengono riscritte come misure odierne. Maturin
+1.16.0, time 0.3.55 e i lock restano verificati dalle sonde di allineamento.
+
+Le quattro `assurance/profondita-fuzz-*.json` e `assurance/asan-filegdb.json`
+non sono rimisurate da questa correzione. Prima della qualifica 7.0.2 servono,
+sulla VM e sullo stato finale dei lock, le quattro corse
+`bash scripts/fuzz-profondita.sh` con `shp_reader`, `geojson_reader`,
+`wkt_parse`, `filegdb_reader`, piu' `bash scripts/asan-filegdb.sh`.
+Nessuna misura della 7.0.1 viene attribuita alla candidate 7.0.2.
 
 ## 7.0.1 — pubblicata
 

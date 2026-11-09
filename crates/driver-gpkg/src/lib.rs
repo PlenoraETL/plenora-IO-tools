@@ -85,9 +85,125 @@ fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
 /// difese e' un errore esplicito all'apertura; un errore emerso durante la
 /// lettura interrompe il layer dopo i batch gia' consegnati.
 fn apri_in_lettura(path: &std::path::Path) -> Result<Connection> {
+    let path = percorso_sqlite(path)?;
+    controlla_companion(&path)?;
+    let conn = apri_percorso_sqlite(&path)?;
+    Ok(conn)
+}
+
+fn controlla_companion(path: &std::path::Path) -> Result<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut companion = path.as_os_str().to_os_string();
+        companion.push(suffix);
+        match std::fs::symlink_metadata(std::path::Path::new(&companion)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => {
+                return Err(err(&PublicMessage::Curated(
+                    "companion SQLite WAL/SHM/journal non ammesso",
+                )))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn percorso_sqlite(path: &std::path::Path) -> Result<PathBuf> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| err(&PublicMessage::Curated("percorso SQLite non accessibile")))?;
+    #[cfg(windows)]
+    {
+        let normal = percorso_win32(&canonical)?;
+        if normal.canonicalize().ok().as_ref() != Some(&canonical) {
+            return Err(err(&PublicMessage::Curated(
+                "percorso SQLite Win32 cambia file",
+            )));
+        }
+        Ok(normal)
+    }
+    #[cfg(not(windows))]
+    Ok(canonical)
+}
+
+#[cfg(windows)]
+fn percorso_win32(canonical: &std::path::Path) -> Result<PathBuf> {
+    let text = canonical
+        .to_str()
+        .ok_or_else(|| err(&PublicMessage::Curated("percorso SQLite non UTF-8")))?;
+    let normal = text.strip_prefix(r"\\?\UNC\").map_or_else(
+        || {
+            text.strip_prefix(r"\\?\")
+                .map_or_else(|| text.to_owned(), str::to_owned)
+        },
+        |unc| format!(r"\\{unc}"),
+    );
+    if normal.encode_utf16().count() >= 260 {
+        return Err(err(&PublicMessage::Curated(
+            "percorso SQLite oltre MAX_PATH non supportato",
+        )));
+    }
+    for part in normal.split('\\').skip(1) {
+        let stem = part
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        if part.ends_with(['.', ' '])
+            || part.contains(':')
+            || part.chars().any(char::is_control)
+            || matches!(
+                stem.as_str(),
+                "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+            )
+            || ["COM", "LPT"].iter().any(|prefix| {
+                stem.strip_prefix(prefix).is_some_and(|n| {
+                    matches!(
+                        n,
+                        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                    )
+                })
+            })
+        {
+            return Err(err(&PublicMessage::Curated(
+                "percorso SQLite Win32 ambiguo o riservato",
+            )));
+        }
+    }
+    let path = PathBuf::from(normal);
+    // Su Windows absolute chiama GetFullPathNameW senza prefisso esteso.
+    let normalized = std::path::absolute(&path).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "normalizzazione SQLite Win32 fallita",
+        ))
+    })?;
+    if normalized.as_os_str() != path.as_os_str() {
+        return Err(err(&PublicMessage::Curated(
+            "normalizzazione SQLite Win32 cambia percorso",
+        )));
+    }
+    Ok(path)
+}
+
+fn apri_percorso_sqlite(path: &std::path::Path) -> Result<Connection> {
+    // Il payload URI decodificato e' esattamente il nome controllato.
+    // immutable evita lettura/creazione dei companion, non blocca scrittori.
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let mut uri = String::from("file:");
+    for &byte in bytes {
+        if byte.is_ascii_alphanumeric() || b"/-._~:".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(uri, "%{byte:02X}")
+                .map_err(|_| err(&PublicMessage::Curated("URI SQLite non rappresentabile")))?;
+        }
+    }
+    uri.push_str("?immutable=1");
     let conn = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(sql_err)?;
     conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
@@ -597,7 +713,9 @@ impl OpenDatasetHandle for GpkgDataset {
                 ))
             })?;
         let m = &self.metas[idx];
-        let conn = apri_in_lettura(&self.path)?;
+        let sqlite_path = percorso_sqlite(&self.path)?;
+        controlla_companion(&sqlite_path)?;
+        let conn = apri_percorso_sqlite(&sqlite_path)?;
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let (selected, schema, layer) = project_gpkg_layer(m, &self.layers[idx], request)?;
         let attr_cols: Vec<String> = selected
@@ -650,6 +768,7 @@ impl OpenDatasetHandle for GpkgDataset {
             ),
         };
         let reader: Box<dyn LayerReader> = Box::new(GpkgReader {
+            sqlite_path,
             conn,
             sql,
             spatial_hint,
@@ -749,6 +868,7 @@ fn project_gpkg_layer(
 }
 
 struct GpkgReader {
+    sqlite_path: PathBuf,
     conn: Connection,
     sql: String,
     spatial_hint: Option<Bbox>,
@@ -901,6 +1021,7 @@ impl LayerReader for GpkgReader {
             count += 1;
         }
         if count == 0 {
+            controlla_companion(&self.sqlite_path)?;
             return Ok(None);
         }
         // La paginazione e' keyset su `rowid`: ogni pagina riparte da
