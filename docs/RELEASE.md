@@ -425,6 +425,14 @@ scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
 
+**Soak della candidate 7.0.2 registrati.** Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json.
+
+Il tempo wrapper include preparazione/build. Hash dei log e del misuratore,
+campioni e tutti i campi del giudizio sono verificati localmente con
+`scripts/soak_misurato.py`, senza rieseguire le campagne. La concordanza
+degli orologi indica solo nessuna discontinuita rilevata. Il verbale smoke
+L2 resta intatto; i soak non lo sostituiscono.
+
 **Soak della candidate 7.0.1 registrati.** Sulla revisione di assurance
 `679d94c`, figlia della candidate `2ddfb58`, il soak mirato e chiuso.
 Soak mirato chiuso su 679d94c: dxf_reader monotonic/boottime/realtime 3602,163649988/3602,163650300/3602,163650513 s, 13394138 esecuzioni; shp_reader 3601,926774601/3601,926774600/3601,926774502 s, 11591105 esecuzioni. LibFuzzer dichiara 3601 s per bersaglio; entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM a 8 vCPU; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-2ddfb58.json.
@@ -1511,7 +1519,7 @@ e non eseguibili, esito `n/d`.
 
 Attempt-1 SCARTATO, senza valore di qualifica: il kernel della VM ha registrato corruzione di memoria (BUG: Bad page map, Oops) durante la corsa, con crash fuzz gpkg_reader non riproducibile dopo il riavvio (0 su 205 corse dello stesso input) e un .pyc corrotto. Causa dal log del kernel della VM, riproduzioni eseguite sulla VM dopo il riavvio; nessuna misura di quel tentativo viene usata.
 
-Il soak mirato dxf_reader e shp_reader, 3600 s, e' in corso sulla VM sul commit di congelamento dfc259e e non e' registrato qui. Restano i suoi referti, le attestazioni richieste, la draft e la verifica dei byte riscaricati contro la candidate, poi la decisione esplicita del titolare, tag e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false.
+Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json. Le quattro attestazioni del profilo pubblico 7.0.2 sono registrate in b4db138. Restano la creazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, poi la decisione esplicita del titolare, tag sulla candidate ee69336 e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false.
 I sette archivi congelati restano quelli della distribuzione 42637007133.
 Le evidenze storiche della 7.0.1 restano attribuite alla propria revisione;
 ultima qualifica e ultima misura ora indicano `ee69336`.
