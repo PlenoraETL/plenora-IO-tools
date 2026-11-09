@@ -1463,6 +1463,282 @@
       "gate_release": "Non eseguito: resta successivo alla decisione autentica, tag e registrazione della autorizzazione, nell ambiente Linux completo.",
       "vincoli": "Nessun commit, stash, push, tag, workflow o modifica remota di draft/release eseguiti. release_authorized e release_action_allowed restano false.",
       "log": "target/rel702/verifica-draft/esiti.json e strutturali.json; script di controllo in target/rel702/draft/controlli-windows.py e controlli-strutturali.py"
+    },
+    "published": {
+      "verificata_il": "2026-11-09T20:13:57.817398+00:00",
+      "id": 439565237,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.2",
+      "tag_name": "v7.0.2",
+      "target": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
+      "tag_oggetto": "d2ad92e99ac2089e1cd2476674f5015759e9ea87",
+      "draft": false,
+      "immutable": false,
+      "published_at": "2026-11-09T20:11:20Z",
+      "fonte_pubblicazione": "Pubblicazione eseguita dal titolare (PATCH draft=false); metadati locali target/rel702/pub-info.json. Nessuna interrogazione o modifica remota in questa registrazione.",
+      "gate_pre_pubblicazione": {
+        "comando": "python3 scripts/check_release_contract.py --release",
+        "ambiente": "VM Linux di qualifica",
+        "revisione": "41e49fff6070019b8560b4856d793914cafae30b",
+        "exit_code": 0,
+        "output": "release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate",
+        "fonte": "esito comunicato dal titolare; contracts/adoption-manifest.json identico all asset riscaricato"
+      },
+      "directory_riscaricata": "target/rel702/pub-riscaricata",
+      "numero_asset": 24,
+      "asset": {
+        "MANIFEST-sorgente.json": {
+          "sha256": "28dd0572b8810ecb81a58cba481e69728766f73b440ab6ee76b3f0e2184f4368",
+          "dimensione": 753
+        },
+        "MANIFEST.json": {
+          "sha256": "8a2ac5da7586ce7d967cc42fde70d6c6335d5b96f193d1aa92c9eeaa4152cf98",
+          "dimensione": 1394
+        },
+        "adoption-manifest.json": {
+          "sha256": "54dd9a2999f745dcbbab3865bb900e6d7999742d4d1adbb1508b5cd7e260509d",
+          "dimensione": 12301
+        },
+        "licenze.json": {
+          "sha256": "0fa7154006a350694c737b4e5edded3a7da3d9bbc5d46b7ed3c1b38697bc347b",
+          "dimensione": 1398
+        },
+        "plenora-io-7.0.2-linux-x86_64-base.tar.gz": {
+          "sha256": "74aa30563e9a299e23a0c215d2ecfb1540e3b25a1e89c17dca9b14b2c722acce",
+          "dimensione": 9213559
+        },
+        "plenora-io-7.0.2-linux-x86_64-base.tar.gz.provenance.json": {
+          "sha256": "c43b1e2bb3a03fde9480cc9edfcab2a66b508c2676f1df5fb750836aa01966f8",
+          "dimensione": 2582
+        },
+        "plenora-io-7.0.2-linux-x86_64-base.tar.gz.sha256": {
+          "sha256": "a5ce5cb46b5631659f9b8da6140b307bc09f18cbcd31490c05e4933aaffe3468",
+          "dimensione": 108
+        },
+        "plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz": {
+          "sha256": "9138e6179e6d038ddb2014ec89572d03e4f8c6d4627601d6a3453410f56f9543",
+          "dimensione": 65054589
+        },
+        "plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "sha256": "f9fe99140773093d6273f1f937d64b638c8bbe685d9d22522796a8116bd09cbe",
+          "dimensione": 2589
+        },
+        "plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz.sha256": {
+          "sha256": "9bea6cde7598c5f34bbcb210d04602a10cc0ff600073f413818cd41011404eeb",
+          "dimensione": 111
+        },
+        "plenora-io-7.0.2-src.tar.gz": {
+          "sha256": "73463e261a8025a0d0622245d4893e18ab245d8108e3286e4eb8efd503309206",
+          "dimensione": 21320013
+        },
+        "plenora-io-7.0.2-src.tar.gz.sha256": {
+          "sha256": "0c4b9cc183e3414a541f128783ea560860622462d4e2c244198c2c6607b6b60b",
+          "dimensione": 94
+        },
+        "plenora-io-7.0.2-windows-x86_64-base.zip": {
+          "sha256": "245bbdf5fe9dff172a6b4ee5e9d215451bcb672ed6865caf7a884de4ee743614",
+          "dimensione": 10028249
+        },
+        "plenora-io-7.0.2-windows-x86_64-base.zip.provenance.json": {
+          "sha256": "cb65c41d677f79c2db6b29ad84fb88cb00a80cb3eb17566c5736a894f2f74701",
+          "dimensione": 2436
+        },
+        "plenora-io-7.0.2-windows-x86_64-base.zip.sha256": {
+          "sha256": "52e0f40ececee041f19603062e5f5723039882f0ca9021bab86c5d5196a031c0",
+          "dimensione": 108
+        },
+        "plenora-io-7.0.2-windows-x86_64-filegdb.zip": {
+          "sha256": "12dd49e5ab368975d857c427f35ef9c7aca00d52629de7d65cce26a6659e69ad",
+          "dimensione": 49079183
+        },
+        "plenora-io-7.0.2-windows-x86_64-filegdb.zip.provenance.json": {
+          "sha256": "c58e5eeb91829b7cfa588cd22b005b6dcae0e4c1979e8829a3e2623e18c10db4",
+          "dimensione": 2442
+        },
+        "plenora-io-7.0.2-windows-x86_64-filegdb.zip.sha256": {
+          "sha256": "96ae14bc1687174df6d92a602b25aefcbcd21ef0076554917e0128104abdfb09",
+          "dimensione": 111
+        },
+        "plenora_io-7.0.2-py3-none-any.whl": {
+          "sha256": "eb50e76fbb79b13baef04832e3feb934bea4042facf19d3ca0911ba2083a07ca",
+          "dimensione": 114725
+        },
+        "plenora_io-7.0.2-py3-none-any.whl.sha256": {
+          "sha256": "28450ea25052073e9534c40d7c72ca0a225e754a627c0f9ea3e5bf76ffbd52ed",
+          "dimensione": 100
+        },
+        "plenora_io-7.0.2.tar.gz": {
+          "sha256": "219983d3a5b9a3e982e4f88e0f30f40ec9b7b468d2f69945485d7cf1b32f823e",
+          "dimensione": 211122
+        },
+        "plenora_io-7.0.2.tar.gz.sha256": {
+          "sha256": "f8ab91c5c4c938d8b514a1bab0511921b513564385e45ace23d84f02de818db4",
+          "dimensione": 90
+        },
+        "provenance.json": {
+          "sha256": "c345e3d5bf8295267e70607c748f78adb5d3a3ed562124c762809fbe182c4956",
+          "dimensione": 769
+        },
+        "sbom.json": {
+          "sha256": "d243120da39948f8c548ba7b44ba55241f32170f6333263641a2ab23183ec5f0",
+          "dimensione": 1103
+        }
+      },
+      "comando": [
+        "python",
+        "scripts/check-deliverable.py",
+        "--directory",
+        "target/rel702/verifica-pubblicazione/deliverable",
+        "--versione",
+        "7.0.2",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "output": "deliverable verificati: 7 archivi con altrettanti checksum, di cui 2 Python\r\nbyte pubblicati identici ai 7 artefatti congelati dalla candidate",
+      "confronti": {
+        "asset_contro_draft": "24/24 asset: nomi, dimensioni e SHA-256 coincidenti con i metadati GitHub e il verbale draft; confronto byte per byte con la draft superato.",
+        "asset_contro_metadati_github": "24/24 nomi, dimensioni e SHA-256 ricalcolati coincidenti",
+        "deliverable_contro_candidate": "7/7 archivi con digest e dimensioni congelati coincidenti",
+        "directory_deliverable": "23/23 file identici ai riscaricati; escluso soltanto adoption-manifest.json",
+        "manifesto_locale": "adoption-manifest.json: identico byte per byte a contracts/adoption-manifest.json."
+      },
+      "manifesto_adozione": {
+        "comando": [
+          "python",
+          "scripts/check_manifesto_adozione.py",
+          "--contracts",
+          ".plenora-contracts",
+          "--manifesto",
+          "target/rel702/pub-riscaricata/adoption-manifest.json",
+          "--artefatto",
+          "target/rel702/pub-riscaricata/plenora-io-7.0.2-linux-x86_64-base.tar.gz",
+          "--artefatto",
+          "target/rel702/pub-riscaricata/plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz",
+          "--artefatto",
+          "target/rel702/pub-riscaricata/plenora-io-7.0.2-src.tar.gz",
+          "--artefatto",
+          "target/rel702/pub-riscaricata/plenora-io-7.0.2-windows-x86_64-base.zip",
+          "--artefatto",
+          "target/rel702/pub-riscaricata/plenora-io-7.0.2-windows-x86_64-filegdb.zip"
+        ],
+        "exit_code": 0,
+        "output": "manifesto di adozione verificato: 5 artefatti con digest ricalcolati, 14 contratti dichiarati conformi e 1 non applicabili, 8 deviazioni. Le deviazioni **non** contano come conformita' per le regole che nominano."
+      },
+      "release_authorized": true,
+      "release_action_allowed": false,
+      "verifica_complessiva": {
+        "comando": [
+          "python",
+          "target\\rel702\\verifica-pubblicazione\\registra.py"
+        ],
+        "exit_code": 0,
+        "output": "OK MANIFEST-sorgente.json: 753 byte, sha256:28dd0572b8810ecb81a58cba481e69728766f73b440ab6ee76b3f0e2184f4368, identico byte per byte alla draft\nOK MANIFEST.json: 1394 byte, sha256:8a2ac5da7586ce7d967cc42fde70d6c6335d5b96f193d1aa92c9eeaa4152cf98, identico byte per byte alla draft\nOK adoption-manifest.json: 12301 byte, sha256:54dd9a2999f745dcbbab3865bb900e6d7999742d4d1adbb1508b5cd7e260509d, identico byte per byte alla draft\nOK licenze.json: 1398 byte, sha256:0fa7154006a350694c737b4e5edded3a7da3d9bbc5d46b7ed3c1b38697bc347b, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-base.tar.gz: 9213559 byte, sha256:74aa30563e9a299e23a0c215d2ecfb1540e3b25a1e89c17dca9b14b2c722acce, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-base.tar.gz.provenance.json: 2582 byte, sha256:c43b1e2bb3a03fde9480cc9edfcab2a66b508c2676f1df5fb750836aa01966f8, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-base.tar.gz.sha256: 108 byte, sha256:a5ce5cb46b5631659f9b8da6140b307bc09f18cbcd31490c05e4933aaffe3468, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz: 65054589 byte, sha256:9138e6179e6d038ddb2014ec89572d03e4f8c6d4627601d6a3453410f56f9543, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz.provenance.json: 2589 byte, sha256:f9fe99140773093d6273f1f937d64b638c8bbe685d9d22522796a8116bd09cbe, identico byte per byte alla draft\nOK plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz.sha256: 111 byte, sha256:9bea6cde7598c5f34bbcb210d04602a10cc0ff600073f413818cd41011404eeb, identico byte per byte alla draft\nOK plenora-io-7.0.2-src.tar.gz: 21320013 byte, sha256:73463e261a8025a0d0622245d4893e18ab245d8108e3286e4eb8efd503309206, identico byte per byte alla draft\nOK plenora-io-7.0.2-src.tar.gz.sha256: 94 byte, sha256:0c4b9cc183e3414a541f128783ea560860622462d4e2c244198c2c6607b6b60b, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-base.zip: 10028249 byte, sha256:245bbdf5fe9dff172a6b4ee5e9d215451bcb672ed6865caf7a884de4ee743614, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-base.zip.provenance.json: 2436 byte, sha256:cb65c41d677f79c2db6b29ad84fb88cb00a80cb3eb17566c5736a894f2f74701, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-base.zip.sha256: 108 byte, sha256:52e0f40ececee041f19603062e5f5723039882f0ca9021bab86c5d5196a031c0, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-filegdb.zip: 49079183 byte, sha256:12dd49e5ab368975d857c427f35ef9c7aca00d52629de7d65cce26a6659e69ad, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-filegdb.zip.provenance.json: 2442 byte, sha256:c58e5eeb91829b7cfa588cd22b005b6dcae0e4c1979e8829a3e2623e18c10db4, identico byte per byte alla draft\nOK plenora-io-7.0.2-windows-x86_64-filegdb.zip.sha256: 111 byte, sha256:96ae14bc1687174df6d92a602b25aefcbcd21ef0076554917e0128104abdfb09, identico byte per byte alla draft\nOK plenora_io-7.0.2-py3-none-any.whl: 114725 byte, sha256:eb50e76fbb79b13baef04832e3feb934bea4042facf19d3ca0911ba2083a07ca, identico byte per byte alla draft\nOK plenora_io-7.0.2-py3-none-any.whl.sha256: 100 byte, sha256:28450ea25052073e9534c40d7c72ca0a225e754a627c0f9ea3e5bf76ffbd52ed, identico byte per byte alla draft\nOK plenora_io-7.0.2.tar.gz: 211122 byte, sha256:219983d3a5b9a3e982e4f88e0f30f40ec9b7b468d2f69945485d7cf1b32f823e, identico byte per byte alla draft\nOK plenora_io-7.0.2.tar.gz.sha256: 90 byte, sha256:f8ab91c5c4c938d8b514a1bab0511921b513564385e45ace23d84f02de818db4, identico byte per byte alla draft\nOK provenance.json: 769 byte, sha256:c345e3d5bf8295267e70607c748f78adb5d3a3ed562124c762809fbe182c4956, identico byte per byte alla draft\nOK sbom.json: 1103 byte, sha256:d243120da39948f8c548ba7b44ba55241f32170f6333263641a2ab23183ec5f0, identico byte per byte alla draft\n24/24 asset: nomi, dimensioni e SHA-256 coincidenti con i metadati GitHub e il verbale draft; confronto byte per byte con la draft superato.\nadoption-manifest.json: identico byte per byte a contracts/adoption-manifest.json.",
+        "log": "target/rel702/verifica-pubblicazione/confronto-byte.log"
+      },
+      "controlli_registrazione_windows": {
+        "strutturali": {
+          "validate_stato_corrente": [],
+          "completezza": [],
+          "struttura": [],
+          "verifica_release_storiche": [],
+          "verifica_release_pubblicata": [],
+          "condizione_profilo_pubblico_attestato": [],
+          "evidenza_coerente": [],
+          "cambiamenti_dopo_il_congelamento": [],
+          "allowlist_incluso_worktree": [],
+          "archivio_invariato_e_permesso_consumato": []
+        },
+        "esiti": [
+          {
+            "comando": [
+              "python",
+              "scripts/check_docset.py"
+            ],
+            "exit_code": 0,
+            "output": "docset verificato: 8 documenti canonici, 12 file operativi, nessun altro Markdown nel perimetro (tracciati piu' untracked non ignorati); blocco di stato coerente con la fonte strutturata.",
+            "log": "target/rel702/verifica-pubblicazione/controllo-0.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/check_assurance_n1.py",
+              "--release"
+            ],
+            "exit_code": 0,
+            "output": "ASSURANCE-N1 a zero: 50 gruppi, nessuno senza copertura.",
+            "log": "target/rel702/verifica-pubblicazione/controllo-1.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/check_profondita_fuzz.py",
+              "--qualifica"
+            ],
+            "exit_code": 0,
+            "output": "profondita' del target filegdb_reader: 12 requisiti raggiunti, misura valida per il perimetro corrente.\r\nprofondita' del target geojson_reader: 9 requisiti raggiunti, misura valida per il perimetro corrente.\r\nprofondita' del target shp_reader: 35 requisiti raggiunti, misura valida per il perimetro corrente.\r\nprofondita' del target wkt_parse: 9 requisiti raggiunti, misura valida per il perimetro corrente.",
+            "log": "target/rel702/verifica-pubblicazione/controllo-2.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/check-distribuzione-completa.py",
+              "--referti",
+              "target/rel702/distribuzione/referti-di-tutta-la-distribuzione",
+              "--canale",
+              "candidate"
+            ],
+            "exit_code": 0,
+            "output": "canale: candidate\r\npiattaforme distribuite: linux-x86_64, windows-x86_64\r\nfuori dal perimetro: macos-aarch64 -- fuori dallo scope dei deployment server della v1\r\nartefatti attesi: 6 (4 nativo, 2 python-puro)\r\nreferti attesi: 32\r\nreferti trovati: 32\r\n\r\nogni artefatto porta i propri referti, e le misure dicono cio' che il contratto promette",
+            "log": "target/rel702/verifica-pubblicazione/controllo-3.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/classifica_finding_fuzz.py",
+              "--verifica-campagna",
+              "assurance/evidence/fuzz-smoke-ultima.json"
+            ],
+            "exit_code": 0,
+            "output": "campagna fuzz completa: nessun bersaglio fermato a un finding noto",
+            "log": "target/rel702/verifica-pubblicazione/controllo-4.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/check_release_contract.py"
+            ],
+            "exit_code": 1,
+            "output": "Traceback (most recent call last):\r\n  File \"C:\\pg\\io-align\\scripts\\check_release_contract.py\", line 4657, in <module>\r\n    sys.exit(main())\r\n             ^^^^^^\r\n  File \"C:\\pg\\io-align\\scripts\\check_release_contract.py\", line 4581, in main\r\n    errori = esegui(documento)\r\n             ^^^^^^^^^^^^^^^^^\r\n  File \"C:\\pg\\io-align\\scripts\\check_release_contract.py\", line 1081, in esegui\r\n    esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)\r\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 548, in run\r\n    with Popen(*popenargs, **kwargs) as process:\r\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1026, in __init__\r\n    self._execute_child(args, executable, preexec_fn, close_fds,\r\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1538, in _execute_child\r\n    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,\r\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\nFileNotFoundError: [WinError 2] Impossibile trovare il file specificato",
+            "log": "target/rel702/verifica-pubblicazione/controllo-5.log"
+          },
+          {
+            "comando": [
+              "python",
+              "scripts/check_asan_filegdb.py",
+              "--qualifica"
+            ],
+            "exit_code": 1,
+            "output": "il binario con il tier GDB acceso non si costruisce qui (`cargo build --package plenora-io-tools --features gdal-backend` e' uscito con 101): questo gate verifica la GDAL con cui il target verrebbe costruito **qui**, e va eseguito dove GDAL e' installata.\r\nerror: failed to download from `https://static.crates.io/crates/calamine/0.38.0/download`\r\n\r\nCaused by:\r\n  [35] SSL connect error (schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e) - Nessuna credenziale disponibile nel pacchetto di sicurezza)",
+            "log": "target/rel702/verifica-pubblicazione/controllo-6.log"
+          },
+          {
+            "comando": [
+              "git",
+              "diff",
+              "--check"
+            ],
+            "exit_code": 0,
+            "output": "",
+            "log": "target/rel702/verifica-pubblicazione/controllo-7.log"
+          }
+        ],
+        "nota": "Il gate completo Windows e la verifica ASan sono distinti dal gate --release pre-pubblicazione eseguito dall'operatore sulla VM. Nessuna nuova qualifica Linux dedotta dai controlli locali.",
+        "log": "target/rel702/verifica-pubblicazione"
+      }
     }
   }
 }
