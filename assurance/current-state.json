@@ -713,8 +713,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate iniziale: correzioni SQLite/companion e CRC Parquet, descritte in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB sono stati rimisurati sull'albero ba93ea4 nella VM di qualifica Ubuntu 24.04, con GDAL di sistema e toolchain fissata nightly-2026-07-21, cargo-fuzz 0.13.2. Profondita: 35 requisiti shp_reader, 12 filegdb_reader, 9 wkt_parse e 9 geojson_reader raggiunti. ASan nativo: 180150 contatori su 1 modulo, zero simboli del runtime in libgdal.so.34; gate --qualifica verdi sulla VM, log in target/rel702/rimisure-attempt-1 della VM. Le impronte legano le misure al perimetro; non sono un checkpoint di livello 2 ne un soak della 7.0.2. La release 7.0.1 resta in chiuso.release_pubblicate con la propria evidenza."
+      "stato": "attiva",
+      "nota": "Candidate 7.0.2 congelata su ee69336f8aed84767d1a1cd1bf5b0d526e3422e2. Distribuzione candidate run 42637007133, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42637007133, workflow distribuzione.yml, input versione=7.0.2, canale=candidate, revisione=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel702/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato qui; ultima qualifica, copertura e campagna storiche restano invariate. Restano le evidenze di livello 2, campagne/soak e attestazioni richieste, preparazione draft e confronto dei byte riscaricati contro la candidate, autorizzazione esplicita del titolare, tag e gate finale; dopo pubblicazione immutata va ripetuto il confronto dei byte riscaricati dalla release. Nessuna autorizzazione o tag creato. Log della verifica Windows in target/rel702/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB sono stati rimisurati sull'albero ba93ea4 nella VM di qualifica Ubuntu 24.04, con GDAL di sistema e toolchain fissata nightly-2026-07-21, cargo-fuzz 0.13.2. Profondita: 35 requisiti shp_reader, 12 filegdb_reader, 9 wkt_parse e 9 geojson_reader raggiunti. ASan nativo: 180150 contatori su 1 modulo, zero simboli del runtime in libgdal.so.34; gate --qualifica verdi sulla VM, log in target/rel702/rimisure-attempt-1 della VM. Le impronte legano le misure al perimetro; non sono un checkpoint di livello 2 ne un soak della 7.0.2. La release 7.0.1 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.2 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 506 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 500 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta sul download libsqlite3-sys 0.39.1 per errore TLS SEC_E_NO_CREDENTIALS; non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/Service/CreateInstance/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM.",
+      "revisione_candidate": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
+      "artefatti": [
+        {
+          "nome": "plenora-io-7.0.2-linux-x86_64-base.tar.gz",
+          "sha256": "74aa30563e9a299e23a0c215d2ecfb1540e3b25a1e89c17dca9b14b2c722acce",
+          "dimensione": 9213559,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora-io-7.0.2-linux-x86_64-filegdb.tar.gz",
+          "sha256": "9138e6179e6d038ddb2014ec89572d03e4f8c6d4627601d6a3453410f56f9543",
+          "dimensione": 65054589,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora-io-7.0.2-src.tar.gz",
+          "sha256": "73463e261a8025a0d0622245d4893e18ab245d8108e3286e4eb8efd503309206",
+          "dimensione": 21320013,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora-io-7.0.2-windows-x86_64-base.zip",
+          "sha256": "245bbdf5fe9dff172a6b4ee5e9d215451bcb672ed6865caf7a884de4ee743614",
+          "dimensione": 10028249,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora-io-7.0.2-windows-x86_64-filegdb.zip",
+          "sha256": "12dd49e5ab368975d857c427f35ef9c7aca00d52629de7d65cce26a6659e69ad",
+          "dimensione": 49079183,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora_io-7.0.2-py3-none-any.whl",
+          "sha256": "eb50e76fbb79b13baef04832e3feb934bea4042facf19d3ca0911ba2083a07ca",
+          "dimensione": 114725,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        },
+        {
+          "nome": "plenora_io-7.0.2.tar.gz",
+          "sha256": "219983d3a5b9a3e982e4f88e0f30f40ec9b7b468d2f69945485d7cf1b32f823e",
+          "dimensione": 211122,
+          "revisione": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
+        }
+      ],
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {

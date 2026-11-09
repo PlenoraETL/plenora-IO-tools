@@ -62,15 +62,15 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `2ddfb58` |
 | candidate, versione del manifesto | `7.0.2` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
 | candidate, versione del workspace | `7.0.2` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.2` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 10 |
 | release_authorized | `false` |
@@ -1475,6 +1475,26 @@ contatori su 1 modulo**, zero simboli del runtime in `libgdal.so.34`: GDAL non
 e' strumentata. I gate `--qualifica` sono verdi sulla VM. Queste rimisure non
 sono un livello 2 ne' un soak della 7.0.2; nessuna misura della 7.0.1 viene
 attribuita alla candidate 7.0.2.
+
+### Congelamento della candidate
+
+La candidate 7.0.2 e' congelata sulla revisione
+`ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` con i sette deliverable della
+Distribuzione candidate [42637007133](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42637007133),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito della corsa.
+SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py` e `check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato ora.
+Restano le evidenze di livello 2, le campagne e attestazioni richieste, la
+draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
+del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
+ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
+restano false; le misure storiche della 7.0.1 restano invariate.
 
 ## 7.0.1 — pubblicata
 
