@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "7.0.1",
+      "versione": "7.0.2",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "7.0.1",
+      "versione": "7.0.2",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "7.0.1",
+      "versione": "7.0.2",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "7.0.1",
+      "versione": "7.0.2",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -934,7 +934,7 @@
     },
     {
       "crate": "serde_json",
-      "versione": "1.0.151",
+      "versione": "1.0.154",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -1000,7 +1000,7 @@
     },
     {
       "crate": "thiserror",
-      "versione": "2.0.19",
+      "versione": "2.0.21",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -1012,7 +1012,7 @@
     },
     {
       "crate": "thiserror-impl",
-      "versione": "2.0.19",
+      "versione": "2.0.21",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -1257,11 +1257,11 @@
       ],
       "thiserror": [
         "1.0.69",
-        "2.0.19"
+        "2.0.21"
       ],
       "thiserror-impl": [
         "1.0.69",
-        "2.0.19"
+        "2.0.21"
       ],
       "windows-sys": [
         "0.52.0",

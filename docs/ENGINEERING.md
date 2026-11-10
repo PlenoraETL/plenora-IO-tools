@@ -1071,3 +1071,19 @@ normalizzate, sia sul convertitore sia su file SQLite reali. Il report di
 schema usa solo ragioni chiuse e indice del layer; nessun testo SQL o valore
 di riga entra nei messaggi. La ricerca nel catalogo usa NOCASE, come la
 risoluzione degli identificatori SQLite.
+
+### Limite GPKG: sorgente stabile e nomi Win32
+
+- **Regola**: leggere solo un file consolidato e stabile; controllare i companion
+  prima dell'apertura e dopo il drenaggio del layer, sullo stesso nome aperto.
+- **Ambito**: tutte le letture GPKG con `immutable=1`; su Windows solo nomi
+  non estesi invariati da Win32 e canonicalizzati allo stesso file. Nomi
+  riservati, punti/spazi finali e percorsi di almeno 260 unita UTF-16 rifiutati.
+- **Hazard**: non esiste un lock sull'insieme principale/companion. Un companion
+  creato e rimosso fra i controlli puo essere ignorato; scrittori concorrenti,
+  sostituzioni del file o degli alias possono produrre dati incoerenti. Il
+  controllo finale rileva soltanto i companion ancora presenti. Il limite
+  MAX_PATH rifiuta anche file legittimi su sistemi abilitati ai percorsi lunghi.
+- **Condizione di rientro**: protocollo di esclusione verificato sull'intero
+  insieme o snapshot coerente del produttore; per i percorsi lunghi, supporto
+  SQLite verificato con identita del nome e dei companion su tutte le piattaforme.

@@ -6,7 +6,7 @@
 # `target/wheel-nativa/`, e maturin costruisce di li'. I percorsi qui sotto
 # sono relativi a quella directory.
 [build-system]
-requires = ["maturin>=1.15,<2.0"]
+requires = ["maturin==1.16.0"]
 build-backend = "maturin"
 
 [project]

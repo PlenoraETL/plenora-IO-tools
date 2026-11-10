@@ -62,6 +62,17 @@
       "crate": "calamine",
       "chiuse_il": "2026-11-06",
       "come": "Pin =0.38.0 e lock workspace/fuzz aggiornati. IO usa Xlsx, non Xls/Xlsb, e non chiama vba_project: il parser CFB oggetto dell advisory non e raggiungibile dal driver. Aggiornamento comunque applicato, nessuna eccezione."
+    },
+    {
+      "id": [
+        "RUSTSEC-2026-0459"
+      ],
+      "crate": "libsqlite3-sys",
+      "chiuse_il": "2026-11-09",
+      "come": "rusqlite =0.41.1, libsqlite3-sys 0.39.1 (SQLite 3.54.1) nei lock radice e fuzz. Nessuna eccezione. hashlink resta 0.12.2.",
+      "hazard": "CVE-2026-119375: database con WAL di terzi e page size diversa puo restituire memoria non inizializzata come righe: difetto silenzioso e possibile divulgazione di memoria.",
+      "esposizione": "Tutte le release 1.0.0-7.0.1 e prerelease 0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2: il reader apriva direttamente il file senza isolamento dai companion. Da 5.0.1 READ_ONLY|NO_MUTEX non impediva la lettura WAL. Analisi statica dei 18 tag e prova del WAL con cancellazione committata: docs/RELEASE.md, note 7.0.2.",
+      "difesa": "Rifiuto WAL/SHM/journal e apertura immutable; test companion_wal_non_fidato_non_cambia_le_righe_in_silenzio e companion_sqlite_anche_vuoto_o_malformato_viene_rifiutato. Nessuna riproduzione della fuga di memoria rivendicata."
     }
   ],
   "yanked_accettati": [],

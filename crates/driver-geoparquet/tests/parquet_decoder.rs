@@ -563,6 +563,52 @@ fn il_driver_rifiuta_valori_e_dizionari_in_eccesso_con_geometria_valida() {
     rifiutato_dal_confine(&extra);
 }
 
+/// CRC noto (zlib.crc32 dei byte PLAIN): nessuna nuova dipendenza di test.
+#[test]
+fn il_driver_verifica_crc_presente_e_ammette_crc_assente() {
+    let mut punto = vec![1, 1, 0, 0, 0];
+    punto.extend_from_slice(&1_f64.to_le_bytes());
+    punto.extend_from_slice(&2_f64.to_le_bytes());
+    let dati = testo_plain(&[&punto]);
+    let pagina = |crc: Option<i64>| {
+        let mut header = Struttura::default()
+            .i32(1, 0)
+            .i32(2, i64::try_from(dati.len()).unwrap())
+            .i32(3, i64::try_from(dati.len()).unwrap());
+        if let Some(crc) = crc {
+            header = header.i32(4, crc);
+        }
+        let header = header
+            .struttura(
+                5,
+                Struttura::default()
+                    .i32(1, 1)
+                    .i32(2, PLAIN)
+                    .i32(3, RLE)
+                    .i32(4, RLE),
+            )
+            .fine();
+        parquet_con_header(&colonna(BYTE_ARRAY), 1, PLAIN, &dati, &header, None, None)
+    };
+    // Il campo Thrift e' i32; gli stessi bit del CRC unsigned 2185988550.
+    let crc = i64::from(i32::from_ne_bytes(2_185_988_550_u32.to_ne_bytes()));
+    assert_eq!(leggi_dal_confine(&pagina(None)).unwrap(), 1);
+    assert_eq!(leggi_dal_confine(&pagina(Some(crc))).unwrap(), 1);
+    let corrotto = pagina(Some(crc ^ 1));
+    assert!(arrow(&corrotto).is_err());
+    rifiutato_dal_confine(&corrotto);
+    // Corruzione del dato, con il CRC originale intatto: WKB ancora valido,
+    // ma coordinata diversa. Prima della feature crc era una riga riuscita.
+    let mut alterato = pagina(Some(crc));
+    let offset = alterato
+        .windows(punto.len())
+        .position(|w| w == punto)
+        .unwrap();
+    alterato[offset + 5..offset + 13].copy_from_slice(&3_f64.to_le_bytes());
+    assert!(arrow(&alterato).is_err());
+    rifiutato_dal_confine(&alterato);
+}
+
 /// IO non richiede l'esposizione delle statistiche di pagina. Il fork deve
 /// comunque validarle: un conteggio negativo non puo passare inosservato.
 #[test]

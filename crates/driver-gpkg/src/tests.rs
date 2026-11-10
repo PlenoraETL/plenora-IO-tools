@@ -1281,10 +1281,11 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
         // Il file resta valido: aggiungiamo solo una colonna con un nome
         // che SQLite risolve come alias della chiave di riga.
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&format!(
-            "ALTER TABLE features ADD COLUMN \"{nome}\" INTEGER;"
-        ))
-        .unwrap();
+        conn.execute_batch("PRAGMA writable_schema=ON;").unwrap();
+        conn.execute(
+            "UPDATE sqlite_schema SET sql = substr(sql, 1, length(sql)-1) || ?1 || ')' WHERE name='features'",
+            [format!(", \"{nome}\" INTEGER")],
+        ).unwrap();
         drop(conn);
 
         // `expect_err` richiederebbe `Debug` sul trait object restituito
@@ -2039,17 +2040,8 @@ fn una_lettura_non_modifica_il_file_ricevuto_nemmeno_con_un_journal_caldo() {
 
     let file_prima = std::fs::read(&copia).unwrap();
     let journal_prima = std::fs::read(&journal).unwrap();
-    // Il rifiuto e' quello del rollback impossibile in sola lettura.
-    let errore = apri_in_lettura(&copia)
-        .unwrap()
-        .query_row("SELECT count(*) FROM features", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .unwrap_err();
-    assert_eq!(
-        errore.sqlite_error().map(|e| e.extended_code),
-        Some(rusqlite::ffi::SQLITE_READONLY_ROLLBACK)
-    );
+    // Il journal viene rifiutato prima di SQLite, anche se vuoto o freddo.
+    assert!(apri_in_lettura(&copia).is_err());
     let esito = GpkgDriver.open(Source::Path(copia.clone()), opzioni_lettura());
     assert!(
         esito.is_err(),
@@ -2372,3 +2364,185 @@ fn un_bom_iniziale_della_definizione_si_toglie() {
 
 mod affinity;
 mod storage_schema;
+
+/// Il vecchio open in sola lettura includeva righe presenti soltanto nel WAL.
+/// Il driver rifiuta ora il set incompleto, senza ignorare transazioni.
+#[test]
+fn companion_wal_non_fidato_non_cambia_le_righe_in_silenzio() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("companion.gpkg");
+    scrivi_punti(&path, 5);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+        .unwrap();
+    conn.execute("DELETE FROM features", []).unwrap();
+    let wal = dir.path().join("companion.gpkg-wal");
+    let prima = std::fs::read(&wal).unwrap();
+    assert!(prima.len() > 32);
+    let grezza = Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap();
+    let righe: i64 = grezza
+        .query_row("SELECT COUNT(*) FROM features", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(righe, 0, "la sola lettura applica il WAL");
+    let Err(errore) = GpkgDriver.open(Source::Path(path.clone()), opzioni_lettura()) else {
+        panic!("WAL accettato");
+    };
+    assert!(errore
+        .to_string()
+        .contains("companion SQLite WAL/SHM/journal non ammesso"));
+    assert_eq!(std::fs::read(&wal).unwrap(), prima);
+    drop(grezza);
+    drop(conn);
+    assert_eq!(righe_lette(&path), 0, "il file consolidato resta leggibile");
+}
+
+#[test]
+fn companion_sqlite_anche_vuoto_o_malformato_viene_rifiutato() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("companion.gpkg");
+    scrivi_punti(&path, 5);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let companion = dir.path().join(format!("companion.gpkg{suffix}"));
+        for bytes in [b"".as_slice(), b"WAL non fidato".as_slice()] {
+            std::fs::write(&companion, bytes).unwrap();
+            assert!(GpkgDriver
+                .open(Source::Path(path.clone()), opzioni_lettura())
+                .is_err());
+            assert_eq!(std::fs::read(&companion).unwrap(), bytes);
+        }
+        std::fs::remove_file(companion).unwrap();
+    }
+    assert_eq!(righe_lette(&path), 5);
+}
+
+#[test]
+fn uri_sqlite_conserva_i_caratteri_del_nome() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("spazio %23 # caff\u{00e8}.gpkg");
+    scrivi_punti(&path, 5);
+    assert_eq!(righe_lette(&path), 5);
+    assert!(!dir
+        .path()
+        .join("spazio %23 # caff\u{00e8}.gpkg-wal")
+        .exists());
+}
+
+#[test]
+fn companion_comparso_durante_il_layer_impedisce_il_successo() {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("finale.gpkg");
+        scrivi_punti(&path, 5);
+        let dataset = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let sqlite_path = percorso_sqlite(&path).unwrap();
+        controlla_companion(&sqlite_path).unwrap();
+        let schema = Arc::new(Schema::empty());
+        let mut reader = GpkgReader {
+            conn: apri_percorso_sqlite(&sqlite_path).unwrap(),
+            sqlite_path,
+            sql: "SELECT rowid FROM features WHERE (?1 IS NULL OR rowid > ?1) ORDER BY rowid LIMIT ?2".to_owned(),
+            spatial_hint: None,
+            schema: schema.clone(),
+            include_geometry: false,
+            attrs: vec![],
+            batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(schema.as_ref(), plenora_io_core::request::BatchTarget::default()),
+            last_rowid: None,
+            layer_srs_id: 4326,
+            layer: dataset.layers()[0].clone(),
+            loss: LossReport::default(),
+            reported: BTreeSet::new(),
+        };
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 5);
+        std::fs::write(dir.path().join(format!("finale.gpkg{suffix}")), b"").unwrap();
+        let error = reader.next_batch().unwrap_err();
+        assert!(error.to_string().contains("companion SQLite"));
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn nomi_win32_ambigui_rifiutati_prima_di_sqlite() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = dir.path().canonicalize().unwrap();
+    for name in [
+        "a.gpkg.", "a.gpkg ", "CON", "NUL", "NUL.gpkg", "COM1", "LPT1",
+    ] {
+        let path = canonical.join(name);
+        std::fs::write(&path, b"file esteso distinto").unwrap();
+        assert!(
+            percorso_sqlite(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("ambiguo o riservato"),
+            "{name}"
+        );
+    }
+    let changed = PathBuf::from(format!(r"{}\interno\..\a.gpkg", canonical.display()));
+    assert!(percorso_win32(&changed).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn percorso_unc_esteso_e_lungo_hanno_esito_esplicito() {
+    let unc = std::path::Path::new(r"\\?\UNC\server\share\a.gpkg");
+    assert_eq!(
+        percorso_win32(unc).unwrap(),
+        PathBuf::from(r"\\server\share\a.gpkg")
+    );
+    for bad in [r"\\?\UNC\server\share\a.gpkg.", r"\\?\UNC\server\share\NUL"] {
+        assert!(percorso_win32(std::path::Path::new(bad)).is_err());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("a".repeat(120))
+        .join("b".repeat(120));
+    std::fs::create_dir_all(&long).unwrap();
+    let path = long.join("a.gpkg");
+    std::fs::write(&path, b"presente").unwrap();
+    assert!(percorso_sqlite(&path)
+        .unwrap_err()
+        .to_string()
+        .contains("MAX_PATH"));
+}
+
+#[test]
+fn nome_controllato_e_nome_aperto_sono_identici() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("spazio % # caff\u{00e8}.gpkg");
+    scrivi_punti(&path, 5);
+    let checked = percorso_sqlite(&path).unwrap();
+    let conn = apri_percorso_sqlite(&checked).unwrap();
+    let opened: String = conn
+        .query_row("PRAGMA database_list", [], |r| r.get(2))
+        .unwrap();
+    assert_eq!(opened.as_bytes(), checked.as_os_str().as_encoded_bytes());
+}
+
+#[cfg(unix)]
+#[test]
+fn nome_unix_non_utf8_conservato_byte_per_byte() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"nome\xff.gpkg. "));
+    let source = dir.path().join("source.gpkg");
+    scrivi_punti(&source, 5);
+    std::fs::copy(source, &path).unwrap();
+    let checked = percorso_sqlite(&path).unwrap();
+    assert_eq!(checked.as_os_str().as_bytes(), path.as_os_str().as_bytes());
+    assert_eq!(righe_lette(&path), 5);
+    let mut companion = checked.into_os_string();
+    companion.push("-wal");
+    std::fs::write(companion, b"").unwrap();
+    assert!(apri_in_lettura(&path).is_err());
+}

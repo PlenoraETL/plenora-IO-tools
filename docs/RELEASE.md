@@ -36,43 +36,43 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `2ddfb58` |
-| revisione misurata | `2ddfb58` |
+| ultima qualificata | `ee69336` |
+| revisione misurata | `ee69336` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 29 636 |
+| input di replay | 50 404 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,75% |
-| righe coperte LCOV | 31 302 |
-| righe strumentate LCOV | 35 271 |
-| copertura cargo | 86,62% |
+| copertura LCOV | 88,77% |
+| righe coperte LCOV | 31 344 |
+| righe strumentate LCOV | 35 309 |
+| copertura cargo | 86,63% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `fc98634b9cde7f1204aaace098ff48def957c943` |
-| esito differenziale | n/d |
+| baseline differenziale | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
+| esito differenziale | 100.00% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `2ddfb58` |
-| candidate, versione del manifesto | `7.0.1` |
+| S9, qualificato su | `ee69336` |
+| candidate, versione del manifesto | `7.0.2` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
-| candidate, versione del workspace | `7.0.1` |
+| candidate, revisione congelata | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
+| candidate, versione del workspace | `7.0.2` |
 | candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.1` |
+| candidate, tag previsto | `v7.0.2` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
+| candidate, revisione del tag | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 9 |
+| release pubblicate | 10 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -424,6 +424,14 @@ Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
+
+**Soak della candidate 7.0.2 registrati.** Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json.
+
+Il tempo wrapper include preparazione/build. Hash dei log e del misuratore,
+campioni e tutti i campi del giudizio sono verificati localmente con
+`scripts/soak_misurato.py`, senza rieseguire le campagne. La concordanza
+degli orologi indica solo nessuna discontinuita rilevata. Il verbale smoke
+L2 resta intatto; i soak non lo sostituiscono.
 
 **Soak della candidate 7.0.1 registrati.** Sulla revisione di assurance
 `679d94c`, figlia della candidate `2ddfb58`, il soak mirato e chiuso.
@@ -1353,6 +1361,240 @@ elimina la copia in
 `vendor/` e la sua infrastruttura di governo. Una PR aperta o un merge non
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
+
+## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
+
+### Draft verificata e passi dopo la decisione
+
+La draft **439565237**, [verificata prima della pubblicazione](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-fae27862383bd18231f2),
+resta non pubblicata e non autorizzata. Il verbale completo e i 24 nomi, dimensioni
+e SHA-256 ricalcolati sono in `assurance/evidence/checkpoint-ee69336.json`,
+`release_verification.draft`. I 23 asset della Distribuzione candidate
+42637007133 sono accompagnati da `adoption-manifest.json`, aggiuntivo rispetto
+alla 7.0.0. Il gate legge **il manifesto locale**
+`contracts/adoption-manifest.json`: questa registrazione lo confronta byte per
+byte con quello riscaricato. Il manifesto non entra nella directory passata
+a `check-deliverable.py`; viene verificato separatamente sui cinque archivi.
+
+Resta la decisione esplicita del titolare sui byte verificati e sui limiti
+residui. I comandi seguenti sono istruzioni future, **non eseguite** da questa
+registrazione. Usare il checkout di assurance aggiornato nell'ambiente Linux
+di qualifica, con contratti al pin e manifesto locale identico al verificato.
+Non ricostruire gli asset. Dopo la decisione autentica, conservarne data,
+titolare, testo e oggetto in
+`assurance/evidence/autorizzazione-7.0.2.txt` (senza inventare la risposta).
+
+```bash
+git tag -a v7.0.2 ee69336f8aed84767d1a1cd1bf5b0d526e3422e2 -m "Plenora IO-tools 7.0.2"
+git rev-parse 'v7.0.2^{commit}'
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path('assurance/current-state.json')
+s = json.loads(p.read_text(encoding='utf-8'))
+c = s['aperto']['candidate_release']
+decisione = Path('assurance/evidence/autorizzazione-7.0.2.txt').read_text(encoding='utf-8').strip()
+assert decisione and c['revisione_candidate'] == 'ee69336f8aed84767d1a1cd1bf5b0d526e3422e2'
+s['release_authorized'] = True
+c.update(tag_creato=True, tag_sulla_candidate=True,
+         tag_revisione=c['revisione_candidate'], release_action_allowed=True)
+c['nota'] += '\n\nAutorizzazione esplicita del titolare:\n' + decisione
+p.write_text(json.dumps(s, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+PY
+python3 scripts/check_docset.py --riscrivi-stato
+```
+
+Registrare evidenza e autorizzazione in un commit di assurance separato, nei
+soli percorsi dell'allowlist, quindi eseguire il gate completo. Le note che
+descrivono i permessi falsi in questa registrazione restano fatti precedenti
+alla decisione; la decisione successiva ne dichiara il superamento.
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v7.0.2
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/439565237 -F draft=false
+```
+
+Prima del PATCH ricontrollare che ID, target, tag e tutti i 24 asset della
+draft coincidano con il verbale. Il PATCH cambia soltanto `draft`: nessun
+upload, sostituzione di asset o modifica delle note. Dopo la pubblicazione
+riscaricare in una directory nuova:
+
+```bash
+gh release download v7.0.2 --repo PlenoraETL/plenora-IO-tools --dir target/rel702/pubblicata-riscaricata
+```
+
+Confrontare tutti i 24 nomi, dimensioni e SHA-256 con `release_verification.draft.asset`;
+ripetere `check-deliverable.py --contro-la-candidate assurance/current-state.json`
+sui 23 file escluso il manifesto, con versione `7.0.2`, canale `candidate` e
+revisione `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2`; ripetere anche la verifica
+del manifesto riscaricato sui cinque archivi. Registrare l'esito in un blocco
+separato `release_verification.published`, aggiornare lo stato a pubblicata e
+riportare `release_action_allowed` a `false`: il permesso e' speso.
+
+Allineamento comune: serde_json 1.0.151 → 1.0.154 (feature invariate),
+thiserror/thiserror-impl 2.0.19 → 2.0.21 e time 0.3.54 → 0.3.55 nei lock
+che li contengono. Il ramo thiserror 1.0.69 resta richiesto dai suoi
+consumatori. Aggiornati tutti e tre i lock, incluso quello autonomo del
+vendor. Maturin passa dal requisito `>=1.15,<2.0` e dal pin CI 1.15.0 a
+`==1.16.0` / 1.16.0; il packaging copia lo stesso pyproject.
+Workspace e SDK passano a 7.0.2. Rust resta 1.98.1, Arrow 60.1.0,
+calamine 0.38.0 e PyO3 0.29.2.
+
+Il fork `plenora-fork-parquet` conserva base 60.0.0 e decoder. Come nella
+politica di data-tools PR #154, il requisito Arrow autonomo diventa
+`>=60.1.0, <61` anche per dipendenze opzionali e di sviluppo; i pin del
+workspace restano esatti. Patch: `assurance/parquet-arrow-minimo.patch`,
+con provenienza nel registro del fork. `scripts.test_allineamento_dipendenze`
+verifica minimo, lock e feature.
+
+**DIFETTO SILENZIOSO CORRETTO - GeoParquet accettava dati corrotti.**
+Versioni colpite: tutte le stabili **1.0.0-7.0.1**, incluse 1.0.1, 4.1.0,
+4.1.1 e 5.0.1, e le prerelease **0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2**.
+Verifica statica di `git show <tag>:Cargo.toml` su tutti i 18 tag: feature
+`crc` assente, `default-features=false`; dalla 5.0.0 anche
+`git show <tag>:vendor/parquet/Cargo.toml` conferma `crc` opzionale, non
+incluso dalle feature abilitate. Nei tag precedenti il vendor non esiste:
+si usavano parquet 59.1.0 e 59.3.0 con CRC disabilitato.
+La riproduzione indipendente sulla 7.0.1 ha alterato una coordinata WKB
+mantenendo il CRC originale: successo, una riga e fedelta' lossless,
+senza segnalare la corruzione. Non era un limite dichiarato del formato.
+La correzione abilita `crc`: una pagina con checksum
+errato, anche se contiene una geometria valida, ora è rifiutata; checksum
+corretto e checksum assente restano leggibili. La prova
+`il_driver_verifica_crc_presente_e_ammette_crc_assente` in
+`crates/driver-geoparquet/tests/parquet_decoder.rs` confronta i tre casi e
+verifica il rifiuto senza panico, anche modificando la coordinata da 1 a 3
+conservando il CRC originale. Controllare gli output gia' prodotti rispetto
+alle sorgenti originali e rigenerarli con la versione corretta; un vecchio
+successo/lossless non attesta integrita'. L'assenza di CRC resta ammessa e
+non offre una verifica d'integrita'. I codec snap, zstd, brotli,
+flate2-rust_backend e lz4 restano abilitati esplicitamente. CRC usa
+crc32fast già presente nel grafo, senza una nuova dipendenza diretta.
+
+### SQLite: avviso di sicurezza e difetto silenzioso corretto
+
+**RUSTSEC-2026-0459 / CVE-2026-119375.** SQLite bundled fino a 3.53.2
+(`libsqlite3-sys` fino a 0.38.2) puo' restituire memoria non inizializzata
+della page cache come dati di righe se un database viene aperto insieme a
+un WAL di terzi con page size diversa. L'effetto puo' essere un successo
+con dati falsi o divulgazione di memoria, non soltanto un crash.
+Aggiornati i lock radice e fuzz a `rusqlite =0.41.1`, che richiede
+`libsqlite3-sys ^0.39.0`: risolto **0.39.1, SQLite 3.54.1**.
+`hashlink` resta 0.12.2; nessun nodo aggiunto o rimosso, nessun'altra
+transitiva cambiata da questo aggiornamento. Nessuna eccezione advisory.
+Il registro e' `assurance/registries/dependency-exceptions.json`.
+
+**Release pubblicate esposte:** tutte le stabili **1.0.0-7.0.1** e le sei
+prerelease **0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2**. La verifica statica dei
+18 tag (`Cargo.lock`, `crates/driver-gpkg/src/lib.rs`) trova libsqlite3-sys
+0.37.0 fino alla 2.0.0, 0.38.2 dalla 3.0.0. Fino alla 5.0.0 il reader
+usava `Connection::open` (read-write/create e URI di default); dalla 5.0.1
+usa `READ_ONLY | NO_MUTEX`, senza URI ne' immutable. In nessun tag copia
+difensiva o controllo dei companion `-wal`/`-shm`. `journal_mode=MEMORY`
+riguarda solo il writer sullo staging, non il lettore. DEFENSIVE,
+TRUSTED_SCHEMA=false, cell_size_check e mmap disabilitato non escludono il
+WAL: la sola lettura puo' applicarlo. CLI, SDK e API Rust che leggono GPKG
+raggiungono questo percorso. Questa e' esposizione accertata del percorso,
+non una riproduzione locale della fuga di memoria della CVE.
+
+La prova `companion_wal_non_fidato_non_cambia_le_righe_in_silenzio` crea
+cinque righe nel file e una cancellazione soltanto nel WAL: i vecchi flag
+leggono zero righe, il driver corretto rifiuta esplicitamente prima di
+SQLite. `companion_sqlite_anche_vuoto_o_malformato_viene_rifiutato` copre
+anche companion vuoti e malformati. Le prove sono in
+`crates/driver-gpkg/src/tests.rs`; controllano che i companion non cambino.
+Il reader ora rifiuta `-wal`, `-shm` e `-journal` (anche link pendenti o
+errori di accesso), poi apre una URI codificata con `immutable=1`: nessun
+companion viene letto o creato. I companion sono ricontrollati alla fine del layer, prima del successo.
+Un companion comparso e ancora presente produce un errore esplicito.
+Anche un journal freddo e' rifiutato: il file va consolidato dal produttore.
+La prova del journal caldo e quella del file WAL chiuso regolarmente
+verificano rifiuto e lettura del file consolidato. Il file sorgente deve
+restare stabile durante la lettura: questa misura non e' una snapshot
+contro scrittori concorrenti dell'insieme principale/companion. Un companion
+creato e rimosso durante la lettura puo sfuggire ai due controlli. Regola,
+ambito, hazard e condizione di rientro sono nel registro Limitazioni di prodotto di PRODUCT.md e in ENGINEERING.md.
+Su Windows il nome non esteso controllato e quello aperto sono identici:
+normalizzazione Win32 invariata e canonicalizzazione allo stesso file sono
+obbligatorie. Punti/spazi finali, nomi riservati e componenti normalizzati
+sono rifiutati; i percorsi di almeno 260 unita UTF-16 sono esplicitamente
+non supportati, anche su sistemi con long paths abilitati.
+
+Conservare gli originali e confrontare gli output precedenti con sorgenti
+fidate; rigenerare dopo il consolidamento con un motore corretto. Non
+cancellare un WAL per far passare il controllo: potrebbe contenere dati
+committati non ancora nel database. Non si ricostruiscono valori affidabili
+dalla memoria o dai dati corrotti gia' restituiti.
+
+La fixture che oscura rowid usa ora `writable_schema` per costruire lo
+schema esterno: SQLite 3.54.1 rifiuta gia' `ALTER TABLE ADD COLUMN rowid`.
+Il rifiuto del driver resta provato, senza cambiare il mapping dei dati.
+La misura di 56602 righe di prodotto e il tetto (+200, da 56500 a 56700)
+registrano la difesa aggiunta, senza comprimere codice per eludere il gate.
+
+### Coerenza dei pin e misure da rifare
+
+Il consumatore esterno usa serde_json =1.0.154 e una prova confronta il
+requisito con quello del workspace. Allineata anche la copia thiserror
+2.0.21 nel registro della closure GeoParquet. Le occorrenze precedenti nei
+censimenti datati del 7 e 15 settembre e in PIANO-4.1.0 sono evidenza storica,
+non requisiti attivi; non vengono riscritte come misure odierne. Maturin
+1.16.0, time 0.3.55 e i lock restano verificati dalle sonde di allineamento.
+
+Le quattro profondita' fuzz e il confine ASan FileGDB sono stati rimisurati
+sull'albero `ba93ea4` nella VM di qualifica **Ubuntu 24.04**, con **GDAL di
+sistema**, toolchain fissata **nightly-2026-07-21** e **cargo-fuzz 0.13.2**.
+I requisiti raggiunti sono 35 per `shp_reader`, 12 per `filegdb_reader`, 9 per
+`wkt_parse` e 9 per `geojson_reader`. La misura ASan nativa conta **180150
+contatori su 1 modulo**, zero simboli del runtime in `libgdal.so.34`: GDAL non
+e' strumentata. I gate `--qualifica` sono verdi sulla VM. Queste rimisure non
+sono un livello 2 ne' un soak della 7.0.2; nessuna misura della 7.0.1 viene
+attribuita alla candidate 7.0.2.
+
+### Congelamento della candidate
+
+La candidate 7.0.2 e' congelata sulla revisione
+`ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` con i sette deliverable della
+Distribuzione candidate [42637007133](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42637007133),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito della corsa.
+SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py` e `check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+### Registrazione del livello 2
+
+Il livello 2 completo (`scripts/s9-checkpoint.sh`) e' superato sulla candidate
+`ee69336f8aed84767d1a1cd1bf5b0d526e3422e2`, con `S9_CHECKPOINT_BASE=2ddfb58cb21975544f51188cf081fc6d6228e082`:
+111/111 passi, zero omessi o falliti, albero pulito all'avvio, revisione e
+impronta invariate. L'[evidenza](../assurance/evidence/checkpoint-ee69336.json) e' generata
+dai log di `target/rel702/l2-ee69336f8aed84767d1a1cd1bf5b0d526e3422e2-attempt-2` con `scripts/registra-evidenza-s9.py`.
+La cartella originale resta intatta: il registratore usa la copia
+`target/rel702/verifica-l2/corsa-contratto`, identica byte per byte salvo
+`console.log`, esterno ai passi ammessi dal contratto e conservato con
+percorso e digest nella provenienza dell'evidenza.
+Il replay conta 50404 input su 15 target senza crash;
+smoke 15/15, 60 secondi ciascuno, nessun finding o quarantena.
+Copertura LCOV 88.77% (31344/35309),
+cargo 86.63%, soglia 80.0%.
+Differenziale di libreria: 41 righe cambiate eseguibili,
+41 coperte, 0 scoperte, 318 non eseguibili,
+esito `100.00%`. La diagnostica CLI conta zero righe cambiate eseguibili
+e non eseguibili, esito `n/d`.
+
+Attempt-1 SCARTATO, senza valore di qualifica: il kernel della VM ha registrato corruzione di memoria (BUG: Bad page map, Oops) durante la corsa, con crash fuzz gpkg_reader non riproducibile dopo il riavvio (0 su 205 corse dello stesso input) e un .pyc corrotto. Causa dal log del kernel della VM, riproduzioni eseguite sulla VM dopo il riavvio; nessuna misura di quel tentativo viene usata.
+
+Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json. Le quattro attestazioni del profilo pubblico 7.0.2 sono registrate in b4db138. Draft 439565237 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-fae27862383bd18231f2, target ee69336f8aed84767d1a1cd1bf5b0d526e3422e2, tag previsto v7.0.2, draft true. Registrati in assurance/evidence/checkpoint-ee69336.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub forniti dall operatore. I sette deliverable coincidono con la candidate. Il manifesto di adozione e verificato sui cinque archivi riscaricati: 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.2 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false.
+I sette archivi congelati restano quelli della distribuzione 42637007133.
+Le evidenze storiche della 7.0.1 restano attribuite alla propria revisione;
+ultima qualifica e ultima misura ora indicano `ee69336`.
+Il contratto completo dopo questa registrazione va eseguito sulla VM.
+
+Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, coerenza dell'evidenza e allowlist verdi. Verificati i digest dei 116 file del manifest contro gli originali e il verbale smoke byte per byte. Suite Python pertinente: 394 test, inizialmente 14 errori per python3 assente e 3 skip; con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile, 388 passati, 3 fallimenti ASan/FileGDB e 3 skip. Le sonde ASan richiamano una build Cargo che fallisce sui download di libsqlite3-sys 0.39.1 e calamine 0.38.0 per TLS SEC_E_NO_CREDENTIALS. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. Nessuna qualifica ASan dedotta da queste sonde. Contratto completo da eseguire sulla VM. Comandi e log in target/rel702/verifica-l2.
 
 ## 7.0.1 — pubblicata
 
