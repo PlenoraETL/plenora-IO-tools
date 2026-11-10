@@ -114,6 +114,12 @@ impl AdaptiveBatchSizer {
         self.rows
     }
 
+    /// Aggiorna la stima da un batch gia validato.
+    ///
+    /// # Preconditions
+    /// Il chiamante deve aver applicato `crate::driver::validate_external_batch`.
+    /// La firma resta infallibile per compatibilita; vedi il registro
+    /// `assurance/registries/limiti-arrow-c.json` (helper Rust).
     pub fn observe(&mut self, batch: &RecordBatch) {
         self.rows = observed_batch_rows(
             batch.num_rows(),
@@ -128,6 +134,11 @@ impl AdaptiveBatchSizer {
 ///
 /// Evita di riaddebitare l'intera capacity di un parent condiviso, ma continua
 /// a contare integralmente un batch non affettato e quindi realmente grande.
+///
+/// # Preconditions
+/// Il batch deve essere gia validato con `crate::driver::validate_external_batch`.
+/// La firma resta infallibile fino alla prossima major; vedi il registro
+/// `assurance/registries/limiti-arrow-c.json` (helper Rust).
 #[must_use]
 pub fn incremental_batch_memory_size(batch: &RecordBatch) -> usize {
     batch.columns().iter().fold(0usize, |total, array| {

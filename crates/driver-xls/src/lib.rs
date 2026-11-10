@@ -20,8 +20,8 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
 use driver_common::{
-    classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator,
+    classify_i64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator, ValidatedArray,
 };
 use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
@@ -830,10 +830,10 @@ fn write_cell(
     sheet: &mut rust_xlsxwriter::Worksheet,
     r: u32,
     c: u16,
-    array: &ArrayRef,
+    array: &ValidatedArray,
     row: usize,
 ) -> Result<()> {
-    match json_from_array(array, row)? {
+    match array.json(row)? {
         JsonValue::Null => {}
         JsonValue::Bool(b) => {
             sheet.write_boolean(r, c, b).map_err(xls_err)?;
@@ -894,6 +894,7 @@ impl FormatWriter for XlsWriterState {
         let mut r: u32 = 0;
 
         for batch in &self.batches {
+            let cells = ValidatedArray::columns(batch.columns())?;
             let schema = batch.schema();
             let geom_idx = geometry_index(&schema)
                 .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
@@ -925,7 +926,7 @@ impl FormatWriter for XlsWriterState {
                 let mut col: u16 = 0;
                 for (i, _) in schema.fields().iter().enumerate() {
                     if i != geom_idx {
-                        write_cell(sheet, r, col, batch.column(i), row)?;
+                        write_cell(sheet, r, col, &cells[i], row)?;
                         col += 1;
                     }
                 }
@@ -1877,6 +1878,10 @@ fn spawn_xlsx_reader(
                     &mut geometry,
                     &mut attributes,
                     rows_in_batch,
+                )?;
+                plenora_io_core::driver::validate_external_batch(
+                    &batch,
+                    plenora_io_model::ErrorPhase::Read,
                 )?;
                 batch_sizer.observe(&batch);
                 rows_in_batch = 0;

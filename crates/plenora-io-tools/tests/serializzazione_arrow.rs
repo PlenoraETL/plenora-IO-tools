@@ -35,6 +35,49 @@ use serde_json::Value;
 
 const BINARIO: &str = env!("CARGO_BIN_EXE_plenora-io");
 
+#[test]
+fn struct_bitmap_padre_corta_cli_non_consegna_batch() {
+    for modo in ["file", "stream"] {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../sdk/python/tests/fixtures/struct-short-bitmap.{modo}"
+        ));
+        let directory = tempfile::tempdir().unwrap();
+        let sorgente = directory.path().join(if modo == "file" {
+            "input.arrow"
+        } else {
+            "input.arrows"
+        });
+        std::fs::copy(fixture, &sorgente).unwrap();
+        let destinazione = directory.path().join("consegna.arrow");
+        for comando in ["inspect", "layers", "read", "write", "convert"] {
+            let mut argomenti = vec![comando, sorgente.to_str().unwrap()];
+            if comando == "read" {
+                argomenti.extend(["--output", destinazione.to_str().unwrap()]);
+            }
+            if comando == "write" || comando == "convert" {
+                argomenti.extend([destinazione.to_str().unwrap(), "--to", "ipc"]);
+            }
+            if comando == "convert" {
+                argomenti.extend(["--from", "ipc"]);
+            }
+            let uscita = Command::new(BINARIO).args(argomenti).output().unwrap();
+            assert!(!uscita.status.success());
+            assert!(uscita.stderr.is_empty(), "panico o diagnostica inattesa");
+            let busta: Value = serde_json::from_slice(&uscita.stdout).unwrap();
+            assert_eq!(busta["status"], "error");
+            assert_eq!(busta["error"]["category"], "data_mapping");
+            assert_eq!(busta["error"]["phase"], "read");
+            assert_eq!(
+                busta["error"]["message"],
+                "bitmap di validita' Arrow piu' corta della lunghezza dichiarata"
+            );
+            assert!(!String::from_utf8_lossy(&uscita.stdout).contains("PAYLOAD_MUST_NOT_LEAK"));
+            assert!(busta.get("delivered").is_none());
+            assert!(!destinazione.exists());
+        }
+    }
+}
+
 fn fixture(nome: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

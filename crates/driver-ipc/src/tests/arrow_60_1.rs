@@ -176,3 +176,78 @@ fn ipc_senza_null_scrive_bitmap_vuota_e_rilegge_gli_stessi_valori() {
         arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
     assert_eq!(reader.next().unwrap().unwrap(), batch);
 }
+
+#[test]
+fn proiezione_non_nasconde_offset_invalidi() {
+    use super::*;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../sdk/python/tests/fixtures/projection-list.file");
+    for projection in [None, Some(vec![FieldId(0)])] {
+        let dataset = IpcDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: projection,
+                projection_mode: ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let error = reader.next_batch().unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Read);
+        assert!(!error.to_string().contains("PAYLOAD_MUST_NOT_LEAK"));
+    }
+}
+
+#[test]
+fn matrice_ipc_malformata_non_consegna_batch() {
+    use super::*;
+    for case in [
+        "struct-short-bitmap",
+        "primitive-short",
+        "list-offset-oob",
+        "map-offset-oob",
+        "struct-children-different",
+        "dictionary-oob",
+        "struct-child-short-bitmap",
+        "list-struct-short-bitmap",
+        "ree-short",
+    ] {
+        for mode in ["file", "stream"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../sdk/python/tests/fixtures/{case}.{mode}"));
+            let error = match IpcDriver.open(Source::Path(path), opzioni_lettura()) {
+                Err(error) => error,
+                Ok(dataset) => {
+                    let request = ReadRequest {
+                        layer: LayerId(0),
+                        projected_fields: None,
+                        projection_mode: ProjectionMode::Required,
+                        pruning_predicate: None,
+                        spatial_pruning_hint: None,
+                        scope: ReadScope::default(),
+                        batch_target: BatchTarget::default(),
+                        cancellation: CancellationToken::default(),
+                    };
+                    match dataset.open_layer_reader(&request) {
+                        Err(error) => error,
+                        Ok(mut reader) => reader.next_batch().unwrap_err(),
+                    }
+                }
+            };
+            assert_eq!(
+                error.category,
+                plenora_io_model::ErrorCategory::DataMapping,
+                "{case}/{mode}"
+            );
+            assert_eq!(error.phase, plenora_io_model::ErrorPhase::Read);
+            assert!(!error.to_string().contains("panico"));
+        }
+    }
+}

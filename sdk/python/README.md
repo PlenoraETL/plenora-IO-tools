@@ -724,3 +724,27 @@ Il binario si indica esplicitamente quando non sta dove l'SDK guarda:
 ```python
 client = Client(binary="/opt/plenora-io/bin/plenora-io")
 ```
+
+
+### Validazione Arrow e limite dei produttori C
+
+`Client.write` valida Table e RecordBatch originali con `validate(full=True)`;
+per RecordBatchReader, anche lazy, valida ogni batch al consumo prima del writer,
+senza reimportare il reader attraverso C. Un oggetto PyArrow riconoscibile segue
+questa regola anche se espone `__arrow_c_stream__` o `__arrow_c_array__`.
+Le consegne di `read_table` sono validate prima di assemblare la tabella.
+
+I produttori terzi che espongono soltanto quei protocolli C restano accettati.
+Il protocollo array deve rappresentare un RecordBatch (Struct). Si valida
+completamente la rappresentazione importata; Rust valida nuovamente gli array
+al decode IPC prima dell'uso. La capacita' fisica originale dei buffer non e'
+trasportata da C Data/Stream: buffer e bitmap realmente troppo corti e lifetime
+non possono essere verificati dall'importatore, e sono garantiti dal produttore
+secondo il contratto Arrow. Non e' una garanzia di sicurezza per capsule ostili.
+Il limite deliberato, con ambito, hazard e condizione di rientro, e' registrato in
+`assurance/registries/limiti-arrow-c.json` (decisione del 10 novembre 2026).
+
+Input invalidi rilevabili producono `invalid_configuration/validate` senza dati
+nel messaggio e senza chiamare il backend; consegne IPC invalide producono
+`protocol/finalize`. L'SDK offre solo API sync; non introduce API async in questa
+correttiva. Il backend nativo e quello subprocess condividono questo ingresso.

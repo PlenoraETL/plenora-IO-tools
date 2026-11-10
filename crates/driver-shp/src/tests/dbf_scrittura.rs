@@ -173,7 +173,7 @@ fn tipi_arrow_nativi_e_temporali() {
         Arc::new(UInt64Array::from(vec![1_u64 << 53])),
     ];
     for a in integers {
-        assert!(cell_to_field(&a, 0, DbfKind::Int).is_ok());
+        assert!(cell_to_field(&ValidatedArray::new(&a).unwrap(), 0, DbfKind::Int).is_ok());
     }
     scritto(Arc::new(BooleanArray::from(vec![true])), b"t", 1, 0);
     scritto(Arc::new(BooleanArray::from(vec![false])), b"f", 1, 0);
@@ -218,7 +218,12 @@ fn tipi_non_convertibili_rifiutati_senza_null_implicito() {
         Arc::new(IntervalYearMonthArray::from(vec![1])),
     ];
     for a in arrays {
-        assert!(cell_to_field(&a, 0, DbfKind::from(a.data_type())).is_err());
+        assert!(cell_to_field(
+            &ValidatedArray::new(&a).unwrap(),
+            0,
+            DbfKind::from(a.data_type())
+        )
+        .is_err());
     }
 }
 

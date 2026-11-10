@@ -31,8 +31,8 @@ use shapefile::{
 };
 
 use driver_common::{
-    classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator,
+    classify_i64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator, ValidatedArray,
 };
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -938,6 +938,7 @@ impl FormatWriter for ShpWriter {
     }
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let cells = ValidatedArray::columns(batch.columns())?;
         let geom_col = batch
             .column(self.geom_idx)
             .as_any()
@@ -959,7 +960,7 @@ impl FormatWriter for ShpWriter {
                 let mut rec = Record::default();
                 let mut valid_record = true;
                 for (col, name, kind) in &self.attrs {
-                    let Ok(value) = cell_to_field(batch.column(*col), row, *kind) else {
+                    let Ok(value) = cell_to_field(&cells[*col], row, *kind) else {
                         rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
                         valid_record = false;
                         break;
@@ -995,7 +996,7 @@ impl FormatWriter for ShpWriter {
             let mut rec = Record::default();
             let mut valid_record = true;
             for (col, name, kind) in &self.attrs {
-                let Ok(value) = cell_to_field(batch.column(*col), row, *kind) else {
+                let Ok(value) = cell_to_field(&cells[*col], row, *kind) else {
                     rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
                     valid_record = false;
                     break;
@@ -1489,7 +1490,7 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
     }
 }
 
-fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldValue> {
+fn cell_to_field(array: &ValidatedArray, row: usize, kind: DbfKind) -> Result<FieldValue> {
     // Date64 ammette solo giorni interi: il renderer comune divide per il
     // giorno e non deve nascondere una frazione presente nell'input.
     if !array.is_null(row)
@@ -1502,7 +1503,7 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldVal
             "data DBF non rappresentabile esattamente",
         )));
     }
-    let v = json_from_array(array, row)?;
+    let v = array.json(row)?;
     Ok(match kind {
         DbfKind::Char => FieldValue::Character(match v {
             JsonValue::Null => None,
@@ -3674,6 +3675,10 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             n += 1;
             if n >= batch_sizer.rows() {
                 let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
+                plenora_io_core::driver::validate_external_batch(
+                    &batch,
+                    plenora_io_model::ErrorPhase::Read,
+                )?;
                 batch_sizer.observe(&batch);
                 if !emitter.send_cancellable(
                     batch,

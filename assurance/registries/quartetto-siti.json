@@ -12,10 +12,16 @@
     "incompatible_value": [
       "Schema/Validate/Schema/Never"
     ],
-    "json_from_array": [
+    "json": [
+      "Schema/Validate/Schema/Never"
+    ],
+    "json_validated": [
       "Schema/Validate/Schema/Never",
       "Schema/Validate/Schema/Never",
       "Unsupported/Validate/Unsupported/Never"
+    ],
+    "new": [
+      "Schema/Validate/Schema/Never"
     ],
     "validate_temporal_cell": [
       "Schema/Validate/Schema/Never"

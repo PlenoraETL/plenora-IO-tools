@@ -248,6 +248,9 @@ def file_della_sdist() -> list[tuple[str, pathlib.Path]]:
     # partono.
     for percorso in sorted((SDK / "tests").glob("*.py")):
         dentro.append((f"tests/{percorso.name}", percorso))
+    for percorso in sorted((SDK / "tests" / "fixtures").glob("*")):
+        if percorso.is_file():
+            dentro.append((f"tests/fixtures/{percorso.name}", percorso))
     return dentro
 
 

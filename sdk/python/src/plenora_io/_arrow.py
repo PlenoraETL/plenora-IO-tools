@@ -104,31 +104,54 @@ def e_un_percorso(valore: Any) -> bool:
     return issubclass(tipo, str) or hasattr(tipo, "__fspath__")
 
 
-def scrivi_ipc(dati: Any, cartella: Path) -> Path:
-    """Scrive un produttore di stream Arrow in un file IPC dentro `cartella`.
+def _lettore_originale(dati: Any, pa: Any) -> Any:
+    """Unico ingresso: riconoscere PyArrow prima di consultare i protocolli C.
 
-    Il produttore si consuma **a batch**: `RecordBatchReader.from_stream`
-    legge lo stream che l'oggetto espone, e ogni batch va su disco prima del
-    successivo. Una tabella grande non si materializza una seconda volta.
-
-    `pa.RecordBatch` non sempre espone `__arrow_c_stream__` (solo
-    `__arrow_c_array__`): lo si avvolge in una tabella di un batch, senza
-    copiare i buffer.
+    I reader originali restano lazy e non vengono reimportati via C. Per i
+    produttori terzi le capacita' fisiche dei buffer restano un obbligo del
+    produttore (vedi il registro dei limiti Arrow C).
     """
+    tipo = type(dati)
+    if issubclass(tipo, pa.RecordBatch):
+        dati.validate(full=True)
+        return pa.RecordBatchReader.from_batches(dati.schema, [dati])
+    if issubclass(tipo, pa.Table):
+        dati.validate(full=True)
+        return dati.to_reader()
+    if issubclass(tipo, pa.RecordBatchReader):
+        return dati
+    if issubclass(tipo, pa.Array):
+        dati.validate(full=True)
+        batch = pa.record_batch(dati)
+        return pa.RecordBatchReader.from_batches(batch.schema, [batch])
+    if hasattr(dati, "__arrow_c_stream__"):
+        return pa.RecordBatchReader.from_stream(dati)
+    if hasattr(dati, "__arrow_c_array__"):
+        batch = pa.record_batch(dati)
+        batch.validate(full=True)
+        return pa.RecordBatchReader.from_batches(batch.schema, [batch])
+    raise TypeError("Arrow producer required")
+
+
+def _batch_validati(lettore: Any) -> Any:
+    """Valida ogni batch originale prima che writer o esportatori lo vedano."""
+    while True:
+        try:
+            batch = lettore.read_next_batch()
+        except StopIteration:
+            return
+        batch.validate(full=True)
+        yield batch
+
+
+def scrivi_ipc(dati: Any, cartella: Path) -> Path:
+    """Serializza solo batch validati, senza reimportare gli originali PyArrow."""
     pa = pyarrow()
-    non_arrow = _dallo_sdk(InvalidArgumentError, "arrow.non_arrow")
-    # `isinstance` e `hasattr` eseguono codice della sorgente -- `__class__`,
-    # `__getattr__` -- e `hasattr` inghiotte soltanto `AttributeError`: ogni
-    # altra eccezione usciva com'era.
     try:
-        # Per tipo e non per `isinstance`, che consulta `__class__`.
-        if type(dati) is pa.RecordBatch:
-            dati = pa.Table.from_batches([dati])
-        espone = hasattr(dati, "__arrow_c_stream__")
-    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise non_arrow from None
-    if not espone:
-        raise non_arrow
+        lettore = _lettore_originale(dati, pa)
+        schema = lettore.schema
+    except Exception:  # noqa: BLE001 - il confine traduce tutto
+        raise _dallo_sdk(InvalidArgumentError, "arrow.illeggibile") from None
     destinazione = cartella / "ingresso.arrow"
     # Nessuna eccezione esterna attraversa il confine pubblico (PYTHON-SDK-1.0
     # §6), e nessuna resta nella catena: il testo di pyarrow, o di un
@@ -140,11 +163,6 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     # resto -- pyarrow che non legge lo stream, o un produttore
     # `__arrow_c_stream__` che solleva un'eccezione sua -- e' la sorgente che
     # non si lascia leggere (`arrow.illeggibile`).
-    try:
-        lettore = pa.RecordBatchReader.from_stream(dati)
-        schema = lettore.schema
-    except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
-        raise _dallo_sdk(InvalidArgumentError, "arrow.illeggibile") from None
     try:
         uscita = pa.OSFile(str(destinazione), "wb")
     except Exception:  # noqa: BLE001
@@ -159,9 +177,10 @@ def scrivi_ipc(dati: Any, cartella: Path) -> Path:
     scrittore = None
     try:
         scrittore = pa.ipc.new_file(uscita, schema)
+        batches = iter(_batch_validati(lettore))
         while True:
             try:
-                batch = lettore.read_next_batch()
+                batch = next(batches)
             except StopIteration:
                 break
             except Exception:  # noqa: BLE001
@@ -200,7 +219,13 @@ def leggi_ipc(percorso: Path, content_type: str) -> Any:
         raise _dallo_sdk(ProtocolError, "arrow.content_type")
     try:
         with pa.OSFile(str(percorso), "rb") as sorgente:
-            return apri(sorgente).read_all()
+            lettore = apri(sorgente)
+            batches = (lettore.get_batch(i) for i in range(lettore.num_record_batches)) if content_type == "application/vnd.apache.arrow.file" else lettore
+            validati = []
+            for batch in batches:
+                batch.validate(full=True)
+                validati.append(batch)
+            return pa.Table.from_batches(validati, schema=lettore.schema)
     except Exception:  # noqa: BLE001 - il confine traduce tutto, apposta
         # `from None`: il testo di pyarrow puo' citare valori del file.
         raise _dallo_sdk(ProtocolError, "arrow.consegna_illeggibile") from None

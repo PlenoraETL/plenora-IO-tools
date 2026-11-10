@@ -28,8 +28,8 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt_into, parse_wkt_bounded};
 use driver_common::{
-    classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator,
+    classify_i64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator, ValidatedArray,
 };
 use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
@@ -881,6 +881,10 @@ fn spawn_parser(
             n += 1;
             if n >= batch_sizer.rows() {
                 let batch = finish_batch(&schema, &mut geom_b, &mut builders, n)?;
+                plenora_io_core::driver::validate_external_batch(
+                    &batch,
+                    plenora_io_model::ErrorPhase::Read,
+                )?;
                 batch_sizer.observe(&batch);
                 if !emitter.send(batch) {
                     return Ok(());
@@ -1002,6 +1006,7 @@ struct CsvWriter {
 
 impl FormatWriter for CsvWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let cells = ValidatedArray::columns(batch.columns())?;
         let schema = batch.schema();
         // La geometria e' **facoltativa**: `DataContract::geometry` lo e', e un
         // CSV di soli attributi e' un CSV. Pretenderla rendeva inconvertibile
@@ -1022,7 +1027,6 @@ impl FormatWriter for CsvWriter {
             None => None,
         };
         let limits = self.wkb_limits;
-        let xy = self.xy;
         let w = self
             .writer
             .as_mut()
@@ -1039,7 +1043,7 @@ impl FormatWriter for CsvWriter {
             // c'e': un'intestazione con `geometry` sopra una colonna sempre
             // vuota direbbe che il dato e' andato perso, invece che assente.
             if geom_idx.is_some() {
-                if xy {
+                if self.xy {
                     header.push("x");
                     header.push("y");
                 } else {
@@ -1060,7 +1064,7 @@ impl FormatWriter for CsvWriter {
         for row in 0..batch.num_rows() {
             for (i, _) in schema.fields().iter().enumerate() {
                 if Some(i) != geom_idx {
-                    write_cell(w, batch.column(i), row, &mut fbuf)?;
+                    write_cell(w, &cells[i], row, &mut fbuf)?;
                 }
             }
             if let Some(geom_col) = geom_col {
@@ -1068,7 +1072,7 @@ impl FormatWriter for CsvWriter {
                     w.write_field("").map_err(|_| {
                         err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
                     })?;
-                    if xy {
+                    if self.xy {
                         w.write_field("").map_err(|_| {
                             err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
                         })?;
@@ -1079,7 +1083,7 @@ impl FormatWriter for CsvWriter {
                     // girano. Qui lo stadio e' noto, e ERR-003 chiede la fase in corso.
                     let geom = decode_wkb(geom_col.value(row), &limits)
                         .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
-                    if xy {
+                    if self.xy {
                         match geom.value {
                             WkbValue::Point(point)
                                 if geom.dimensions == CoordinateDimensions::Xy =>
@@ -1145,7 +1149,7 @@ impl FormatWriter for CsvWriter {
 /// buffer riusato `fbuf`. I tipi non comuni ricadono sul convertitore generico.
 fn write_cell<W: std::io::Write>(
     w: &mut wire::Writer<W>,
-    col: &ArrayRef,
+    col: &ValidatedArray,
     row: usize,
     fbuf: &mut String,
 ) -> Result<()> {
@@ -1180,7 +1184,7 @@ fn write_cell<W: std::io::Write>(
             .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else {
         // Tipo non comune (Date, ecc.): fallback via il convertitore generico.
-        let value = json_from_array(col, row)?;
+        let value = col.json(row)?;
         if let JsonValue::String(text) = &value {
             return w
                 .write_text(text)

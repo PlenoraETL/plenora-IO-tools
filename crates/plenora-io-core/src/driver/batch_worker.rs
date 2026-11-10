@@ -49,6 +49,11 @@ pub struct BatchEmitter {
 impl BatchEmitter {
     #[must_use]
     pub fn send(&self, batch: RecordBatch) -> bool {
+        if let Err(error) = super::validate_external_batch(&batch, ErrorPhase::Read) {
+            // L'errore viaggia sul canale; false arresta il producer.
+            drop(self.sender.send(BatchWorkerEvent::Failed(error)));
+            return false;
+        }
         self.sender.send(BatchWorkerEvent::Batch(batch)).is_ok()
     }
 
@@ -68,6 +73,7 @@ impl BatchEmitter {
     ) -> Result<bool> {
         const INITIAL_BACKOFF: Duration = Duration::from_micros(50);
         const MAX_BACKOFF: Duration = Duration::from_millis(5);
+        super::validate_external_batch(&batch, phase)?;
         let mut backoff = INITIAL_BACKOFF;
         loop {
             super::check_cancelled(cancellation, phase)?;

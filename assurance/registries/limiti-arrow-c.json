@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "decisione": "Titolare, 2026-11-10: Accetta con limite",
+  "regola": "Gli originali PyArrow sono validati full prima di conversione o esportazione; ogni batch lazy e validato al consumo. I produttori solo C restano accettati, con validazione full della rappresentazione importata prima della serializzazione e nuovamente in Rust dopo il decode IPC.",
+  "ambito": "Client.write, backend subprocess e nativo; produttori __arrow_c_stream__ e __arrow_c_array__. Il binding e il runtime Rust IO ricevono IPC, non capsule. Oggetti riconoscibili come PyArrow seguono sempre il ramo originale, anche se espongono protocolli C.",
+  "hazard": "Arrow C Data/Stream espone puntatori e lunghezze logiche, non capacita fisiche dei buffer. Bitmap e buffer realmente troppo corti, lifetime o puntatori invalidi non sono verificabili dopo import: il produttore garantisce queste proprieta secondo il contratto Arrow. La full validation importata non dimostra la sicurezza di produttori C ostili. Un wrapper che nasconde l originale e espone soltanto capsule rientra in questo limite.",
+  "condizione_di_rientro": "Produttore che espone gli originali PyArrow prima di esportarli, oppure un protocollo con capacita dei buffer e lifetime verificabili; prove negative prima dell import. Nessun rifiuto generalizzato delle capsule in questa correttiva.",
+  "prove": [
+    "sdk/python/tests/test_arrow_60_1.py::CapsuleArrow",
+    "scripts/check_arrow_external.py"
+  ],
+  "helper_rust": {
+    "decisione": "Coordinatore, 2026-11-10: firme conservate nella correttiva",
+    "regola": "AdaptiveBatchSizer::observe e incremental_batch_memory_size richiedono array gia validati. I percorsi operativi passano dalla guardia comune validate_external_batch.",
+    "ambito": "Chiamate Rust dirette ai due helper non fallibili. SDK, binding e runtime usano gli ingressi protetti.",
+    "hazard": "Un chiamante Rust diretto che viola la precondizione puo leggere o trasformare array malformati, ottenere stime errate o provocare un panico. Non viene promessa validazione autonoma da questi helper.",
+    "condizione_di_rientro": "Prossima major con firme fallibili e validazione strutturale obbligatoria al confine, evitando scansioni complete per cella.",
+    "prove": [
+      "scripts/check_arrow_external.py"
+    ]
+  },
+  "enumerazione_rust": {
+    "regola": "Catalogo degli item pubblici derivato a ogni esecuzione dai sorgenti Cargo offline delle dipendenze arrow* e parquet risolte con --locked. Nessun elenco manuale di tipi. Enumerazione conservativa di funzioni pub, metodi pub, metodi dei trait e delle impl di trait. Alias Arrow nelle firme pubbliche, alias pubblici, tipi associati Arrow di impl/trait e bound Arrow generici/impl Trait (anche dopo altri bound e in where) sono rifiutati. Macro di tipo rifiutate; macro di item e re-export vincolati ai token e revisionati.",
+    "ambito": "Sorgenti dei crate del workspace, esclusi test e vendor; unione conservativa delle cfg e inclusione dei pub nei moduli privati.",
+    "hazard": "syn non espande macro e non certifica la superficie esportata dal compilatore. Macro procedurali, macro che generano item pubblici e re-export possono aggiungere superficie non deducibile dai tipi espliciti; la classificazione manuale non e una prova della loro espansione. In particolare plenora-io-model riesporta integralmente arrow_array e arrow_schema: le API upstream cosi raggiungibili non sono ingressi implementati/guardati da IO-tools. Il catalogo visita tutte le dichiarazioni pubbliche esplicite dei sorgenti, in tutte le cfg, incluse le pub use; non esegue macro o build.rs. Codice generato fuori dai sorgenti e item upstream prodotti da macro richiedono revisione: non si certifica la completezza della superficie compilata.",
+    "condizione_di_rientro": "Ogni macro/re-export nuovo o modificato fallisce e richiede espansione/revisione e classificazione nel registro. Per eliminare il limite: inventario compilato rustdoc JSON per tutte le configurazioni supportate, confrontato con i registri. Riesaminare i re-export integrali anche quando cambia la versione Arrow; rimozione o facciata esplicita in una futura revisione della superficie.",
+    "decisione": "Titolare, 2026-11-10: guardie statiche accettate nell ambito dichiarato; residuo macro, re-export e codice generato.",
+    "catalogo": "Rigenerazione automatica: python scripts/check_arrow_external.py --static-only; cargo metadata --offline --locked seleziona sorgenti e versioni del lock; scripts/arrow-api --catalog visita gli item pubblici con syn. La stessa prova gira in CI."
+  }
+}

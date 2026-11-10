@@ -95,7 +95,7 @@ fn errore(driver: &'static str, motivo: &'static str) -> PlenoraIoError {
 /// Restituisce `PlenoraIoError::format` — fase `Read` — se lo schema non e'
 /// conforme al formato o contiene una combinazione che la conversione di
 /// `arrow-ipc` non sa gestire senza panicare.
-pub fn valida_schema(driver: &'static str, schema: FbSchema<'_>) -> Result<()> {
+pub fn valida_schema(driver: &'static str, schema: arrow_ipc::Schema<'_>) -> Result<()> {
     // `fb_to_schema` fa `fb.fields().unwrap()`: uno schema senza il vettore
     // dei campi non e' vuoto, e' malformato.
     let campi = schema

@@ -40,8 +40,8 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use driver_common::{
-    classify_i64, classify_u64, geometry_field, geometry_index, json_from_array, ColType,
-    InferredColumnBuilder, ObservedValueClass, TypeAccumulator, OGC_CRS84,
+    classify_i64, classify_u64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator, ValidatedArray, OGC_CRS84,
 };
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -1157,6 +1157,11 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                 self.sink.n,
             ) {
                 Ok(batch) => {
+                    plenora_io_core::driver::validate_external_batch(
+                        &batch,
+                        plenora_io_model::ErrorPhase::Read,
+                    )
+                    .map_err(|error| self.sink.ferma(error))?;
                     self.sink.batch_sizer.observe(&batch);
                     if !self.sink.output.send(batch) {
                         self.sink.aborted = true;
@@ -1555,6 +1560,7 @@ struct GeoJsonWriter {
 
 impl FormatWriter for GeoJsonWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let cells = ValidatedArray::columns(batch.columns())?;
         let schema = batch.schema();
         let geom_idx = geometry_index(&schema).ok_or_else(|| {
             err(&PublicMessage::Curated(
@@ -1577,7 +1583,7 @@ impl FormatWriter for GeoJsonWriter {
                 w.write_all(b",")?;
             }
             first = false;
-            write_feature(w, &schema, geom_idx, geom_col, batch, row, &limits)?;
+            write_feature(w, &schema, geom_idx, geom_col, &cells, row, &limits)?;
         }
         self.first = first;
         Ok(())
@@ -1608,7 +1614,7 @@ fn write_feature<W: Write>(
     schema: &SchemaRef,
     geom_idx: usize,
     geom_col: &BinaryArray,
-    batch: &RecordBatch,
+    cells: &[ValidatedArray],
     row: usize,
     limits: &WkbLimits,
 ) -> Result<()> {
@@ -1637,7 +1643,7 @@ fn write_feature<W: Write>(
         serde_json::to_writer(&mut *w, field.name())
             .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
         w.write_all(b":")?;
-        write_json_value(w, batch.column(i), row)?;
+        write_json_value(w, &cells[i], row)?;
     }
     w.write_all(b"}}")?;
     Ok(())
@@ -1645,7 +1651,7 @@ fn write_feature<W: Write>(
 
 /// Valore di proprietà scritto DIRETTAMENTE: scalari senza `serde_json::Value`,
 /// stringhe escapate via `to_writer(&str)`, tipi non comuni via fallback.
-fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<()> {
+fn write_json_value<W: Write>(w: &mut W, col: &ValidatedArray, row: usize) -> Result<()> {
     if col.is_null(row) {
         w.write_all(b"null")?;
         return Ok(());
@@ -1669,7 +1675,7 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
     } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
         w.write_all(if a.value(row) { b"true" } else { b"false" })?;
     } else {
-        serde_json::to_writer(&mut *w, &json_from_array(col, row)?)
+        serde_json::to_writer(&mut *w, &col.json(row)?)
             .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
     }
     Ok(())

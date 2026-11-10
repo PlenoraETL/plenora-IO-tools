@@ -220,6 +220,8 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_prevalidazione_decoder
           python3 scripts/check_prevalidazione_decoder.py
+          python3 scripts/check_arrow_external.py --static-only
+          python3 -m unittest scripts.test_check_arrow_external
       # FZ-0: la quarantena dei fuzz target e' vuota, e deve restare tale. Un
       # target quarantinato non viene eseguito dallo smoke, quindi le sue
       # regressioni nuove non le vede nessuno.
@@ -735,6 +737,7 @@ jobs:
           python -m pip install --no-deps dist-nativa/*.whl
           cd sdk/python/tests
           python -c "import plenora_io._native, plenora_io; assert plenora_io.__file__.find('site-packages') >= 0, plenora_io.__file__"
+          python ../../../scripts/arrow_python_api.py
           python -m unittest discover -s . -p "test_*.py"
 
   profilo-pubblico:

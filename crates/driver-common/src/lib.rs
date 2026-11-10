@@ -797,7 +797,74 @@ fn testo_temporale(array: &ArrayRef, row: usize) -> Result<Option<String>> {
 /// finito, un Date64 non allineato al giorno o un orario fuori intervallo,
 /// e [`PlenoraIoError::Unsupported`] per un tipo Arrow non
 /// convertibile in JSON senza perdita.
+/// Valida tutto l'array prima della lettura; rifiuta anche indici fuori limite.
+/// Nei cicli usare [`ValidatedArray`] per validare una volta sola per array.
 pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
+    ValidatedArray::new(array)?.json(row)
+}
+
+/// Snapshot Arrow validato integralmente, riutilizzabile per tutte le righe.
+/// Il campo privato impedisce di costruire un renderer senza validazione.
+pub struct ValidatedArray(ArrayRef);
+
+impl ValidatedArray {
+    /// Prepara i renderer di un batch, con una scansione per array.
+    /// # Errors
+    /// Rifiuta qualunque colonna non valida prima del ciclo sulle righe.
+    pub fn columns(arrays: &[ArrayRef]) -> Result<Vec<Self>> {
+        arrays.iter().map(Self::new).collect()
+    }
+
+    /// Valida anche le celle successive a quella che verra' letta.
+    /// # Errors
+    /// Rifiuta buffer, offset, null bitmap e figli non validi.
+    pub fn new(array: &ArrayRef) -> Result<Self> {
+        let data = array.to_data();
+        data.validate_full().map_err(|_| {
+            PlenoraIoError::schema_redatto(&PublicMessage::Curated("array Arrow non valido"))
+        })?;
+        Ok(Self(arrow_array::make_array(data)))
+    }
+
+    /// Converte una cella dello snapshot, senza ripetere la scansione.
+    /// # Errors
+    /// Rifiuta indici fuori limite e valori non rappresentabili.
+    pub fn json(&self, row: usize) -> Result<JsonValue> {
+        if row >= self.0.len() {
+            return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                "indice cella Arrow fuori limite",
+            )));
+        }
+        json_validated(&self.0, row)
+    }
+
+    /// Testo lossless della cella; null rimane assente.
+    /// # Errors
+    /// Propaga gli errori di [`Self::json`].
+    pub fn text(&self, row: usize) -> Result<Option<String>> {
+        Ok(match self.json(row)? {
+            JsonValue::Null => None,
+            JsonValue::String(value) => Some(value),
+            other => Some(other.to_string()),
+        })
+    }
+}
+
+impl ValidatedArray {
+    /// Accesso al tipo concreto dello snapshot gia' validato.
+    #[must_use]
+    pub fn as_any(&self) -> &dyn std::any::Any {
+        self.0.as_any()
+    }
+
+    /// Null bitmap dello snapshot gia' validato.
+    #[must_use]
+    pub fn is_null(&self, row: usize) -> bool {
+        self.0.is_null(row)
+    }
+}
+
+fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if array.is_null(row) {
         return Ok(JsonValue::Null);
     }
@@ -910,12 +977,10 @@ pub const fn classe_arrow(tipo: &DataType) -> &'static str {
 /// # Errors
 ///
 /// Propaga gli errori di [`json_from_array`].
+/// Valida tutto l'array prima della lettura; rifiuta anche indici fuori limite.
+/// Nei cicli usare [`ValidatedArray`] per validare una volta sola per array.
 pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
-    Ok(match json_from_array(array, row)? {
-        JsonValue::Null => None,
-        JsonValue::String(value) => Some(value),
-        other => Some(other.to_string()),
-    })
+    ValidatedArray::new(array)?.text(row)
 }
 
 #[cfg(test)]

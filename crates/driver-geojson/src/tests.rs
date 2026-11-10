@@ -1077,7 +1077,12 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         &schema,
         geom_idx,
         &guasto,
-        &batch,
+        &batch
+            .columns()
+            .iter()
+            .map(ValidatedArray::new)
+            .collect::<Result<Vec<_>>>()
+            .unwrap(),
         0,
         &WkbLimits::default(),
     )

@@ -18,7 +18,7 @@ use kml::types::{
 };
 use kml::{Kml, KmlWriter};
 
-use driver_common::{cell_string, geometry_field, geometry_index, OGC_CRS84};
+use driver_common::{geometry_field, geometry_index, ValidatedArray, OGC_CRS84};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -557,6 +557,10 @@ impl LayerReader for KmlReader {
                     "batch KML da spool non ricostruibile",
                 ))
             })?;
+        plenora_io_core::driver::validate_external_batch(
+            &batch,
+            plenora_io_model::ErrorPhase::Read,
+        )?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }
@@ -1187,6 +1191,7 @@ impl FormatWriter for KmlWriterState {
     // delle reiezioni per riga senza cambiarne il comportamento.
     #[allow(clippy::too_many_lines)]
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let cells = ValidatedArray::columns(batch.columns())?;
         let schema = batch.schema();
         let geom_idx = geometry_index(&schema).ok_or_else(|| {
             err(&PublicMessage::Curated(
@@ -1218,18 +1223,12 @@ impl FormatWriter for KmlWriterState {
                 };
                 Some(geometry)
             };
-            let Ok(name) = name_idx
-                .map(|index| cell_string(batch.column(index), row))
-                .transpose()
-            else {
+            let Ok(name) = name_idx.map(|index| cells[index].text(row)).transpose() else {
                 rejections.push((row, "kml.cell_not_representable", "name"));
                 continue;
             };
             let name = name.flatten();
-            let Ok(description) = desc_idx
-                .map(|index| cell_string(batch.column(index), row))
-                .transpose()
-            else {
+            let Ok(description) = desc_idx.map(|index| cells[index].text(row)).transpose() else {
                 rejections.push((row, "kml.cell_not_representable", "description"));
                 continue;
             };
@@ -1241,7 +1240,7 @@ impl FormatWriter for KmlWriterState {
                 if i == geom_idx || Some(i) == name_idx || Some(i) == desc_idx {
                     continue;
                 }
-                match cell_string(batch.column(i), row) {
+                match cells[i].text(row) {
                     Ok(Some(value)) => data.push((f.name().clone(), value)),
                     Ok(None) => {}
                     Err(_) => {

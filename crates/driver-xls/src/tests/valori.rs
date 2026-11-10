@@ -6,7 +6,7 @@ use arrow_array::*;
 #[allow(clippy::needless_pass_by_value)]
 fn scritto(array: ArrayRef) -> Result<Vec<u8>> {
     let mut wb = Workbook::new();
-    write_cell(wb.add_worksheet(), 0, 0, &array, 0)?;
+    write_cell(wb.add_worksheet(), 0, 0, &ValidatedArray::new(&array)?, 0)?;
     wb.save_to_buffer().map_err(xls_err)
 }
 
