@@ -1527,6 +1527,15 @@ usa l'helper di HEAD prima delle modifiche locali; non misura tutti i driver
 ne' la nuova decodifica delle colonne escluse. Referto sotto
 `target/arrow-validation-benchmark.json`, non evidenza di qualifica release.
 
+### Dopo la pubblicazione: rustix 1.1.6
+
+La 7.0.3 e' stata pubblicata con `rustix` 1.1.4. RUSTSEC-2026-0486 (rustix
+1.0.0-1.1.5 unsound nelle funzioni xattr con buffer vuoto) e' entrato nel database
+degli avvisi dopo la qualifica e blocca `cargo deny` e `cargo audit` della CI.
+Nessun crate del grafo ne' il codice IO chiama le funzioni colpite: la 7.0.3
+pubblicata non e' esposta. `main` passa a `rustix =1.1.6`; la prossima
+correttiva la porta nei pacchetti.
+
 ## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
 
 ### Draft verificata e passi dopo la decisione
