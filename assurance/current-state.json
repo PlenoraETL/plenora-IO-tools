@@ -774,8 +774,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate iniziale: validazione degli ingressi Arrow, descritta in docs/RELEASE.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su b043649 (180286 contatori ASan) restano invariati; il bump dei Cargo.lock cambia il perimetro e invalida le impronte per questa candidate: occorre rimisurare sul perimetro finale. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza."
+      "stato": "attiva",
+      "nota": "Candidate 7.0.3 congelata su a2e0beaaae6fcf8e621410480fe088ffce364acc. Distribuzione candidate run 42977335291, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291, workflow distribuzione.yml, input versione=7.0.3, canale=candidate, revisione=a2e0beaaae6fcf8e621410480fe088ffce364acc, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel703/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato qui; ultima qualifica, copertura e campagna storiche restano invariate. Restano le evidenze di livello 2, campagne/soak e attestazioni richieste, preparazione draft e confronto dei byte riscaricati contro la candidate, autorizzazione esplicita del titolare, tag e gate finale; dopo pubblicazione immutata va ripetuto il confronto dei byte riscaricati dalla release. Nessuna autorizzazione o tag creato. Log della verifica Windows in target/rel703/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su b043649 (180286 contatori ASan) restano invariati; il bump dei Cargo.lock cambia il perimetro e invalida le impronte per questa candidate: occorre rimisurare sul perimetro finale. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.3 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 510 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 504 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta per gdal_i.lib assente (gdal-sys, cargo exit 101); non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM.",
+      "revisione_candidate": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+      "artefatti": [
+        {
+          "nome": "plenora-io-7.0.3-linux-x86_64-base.tar.gz",
+          "sha256": "e5be2ba0995107115dcfa60551da1af2dae138ed5b7cf4cf7a44cada6ee716d7",
+          "dimensione": 9219603,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz",
+          "sha256": "3d013cc558a49360a4e53ada93690cf7559acdf567015dbcdf62e1e0cee6ac7b",
+          "dimensione": 65062631,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora-io-7.0.3-src.tar.gz",
+          "sha256": "82ca89e2c39906414d77b8cfbfc87aa43b96f877d6240f44e97de073007fbb9a",
+          "dimensione": 21392414,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora-io-7.0.3-windows-x86_64-base.zip",
+          "sha256": "a53c1b5d44de0d0d5d24b8a2598acf864007f9828bea6dfeae98b2b3e66831b7",
+          "dimensione": 10031292,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora-io-7.0.3-windows-x86_64-filegdb.zip",
+          "sha256": "ac290d546b48f4da730b299c1d9af51b8079bc23efca5535a39937dd9ed2e9e0",
+          "dimensione": 49084022,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora_io-7.0.3-py3-none-any.whl",
+          "sha256": "8682641c1af0e24da059ca48798c65f411e6abeabaf3a79806c75b042cc12188",
+          "dimensione": 115533,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        },
+        {
+          "nome": "plenora_io-7.0.3.tar.gz",
+          "sha256": "c0d84887e54ae5c8cba0636134983eb12b556208f413ad769420ef8dd5d46491",
+          "dimensione": 219385,
+          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+        }
+      ],
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {

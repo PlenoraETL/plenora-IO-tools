@@ -62,15 +62,15 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `ee69336` |
 | candidate, versione del manifesto | `7.0.3` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
 | candidate, versione del workspace | `7.0.3` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v7.0.3` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 11 |
 | release_authorized | `false` |
@@ -1362,16 +1362,36 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## 7.0.3 — 2026-11-11 (candidate iniziale, non rilasciata)
+## 7.0.3 — 2026-11-11 (candidate congelata, non rilasciata)
 
-Workspace e SDK passano a 7.0.3. La candidate non e congelata: nessuna
-revisione, artefatto o attestazione di release e fissata. La 7.0.2 pubblicata
-e archiviata in `chiuso.release_pubblicate`.
+Workspace e SDK passano a 7.0.3. Il congelamento corrente e registrato nel
+blocco generato e nel [verbale](../assurance/current-state.json). La 7.0.2
+pubblicata e archiviata in `chiuso.release_pubblicate`.
 
 Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su
 `b043649` (180286 contatori ASan) restano invariati. Il bump dei due
 `Cargo.lock` cambia il perimetro e invalida le impronte: occorre rimisurare
 sul perimetro finale prima della qualifica della 7.0.3.
+
+### Congelamento della candidate
+
+La candidate 7.0.3 e' congelata sulla revisione
+`a2e0beaaae6fcf8e621410480fe088ffce364acc` con i sette deliverable della
+Distribuzione candidate [42977335291](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito della corsa.
+SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py` e `check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato ora.
+Restano le evidenze di livello 2, le campagne e attestazioni richieste, la
+draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
+del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
+ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
+restano false; le misure storiche della 7.0.2 restano invariate.
 
 ### Validazione degli ingressi Arrow
 
