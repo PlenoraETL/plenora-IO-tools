@@ -8,14 +8,14 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "ee69336",
+      "sha": "a2e0bea",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "ee69336",
-    "evidenza": "assurance/evidence/checkpoint-ee69336.json",
+    "sha": "a2e0bea",
+    "evidenza": "assurance/evidence/checkpoint-a2e0bea.json",
     "checkpoint": {
       "passi_eseguiti": 111,
       "passi_verdi": 111,
@@ -24,7 +24,7 @@
       "riconciliazione": "111 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
-      "replay_input": 50404,
+      "replay_input": 145,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.77,
-      "lcov_righe_coperte": 31344,
-      "lcov_righe_strumentate": 35309,
-      "cargo_lines_percentuale": 86.63,
+      "lcov_percentuale": 88.75,
+      "lcov_righe_coperte": 31432,
+      "lcov_righe_strumentate": 35416,
+      "cargo_lines_percentuale": 86.61,
       "soglia": 80.0,
       "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
       "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "esito": "100.00%",
-      "righe_cambiate_eseguibili": 41,
-      "coperte": 41,
-      "scoperte": 0,
-      "cambiate_non_eseguibili": 318,
-      "ragione": "Confronto di libreria fra 2ddfb58 e candidate ee69336.",
+      "esito": "85.26%",
+      "righe_cambiate_eseguibili": 156,
+      "coperte": 133,
+      "scoperte": 23,
+      "cambiate_non_eseguibili": 319,
+      "ragione": "Confronto di libreria fra ee69336 e candidate a2e0bea.",
       "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing.",
-      "baseline": "2ddfb58cb21975544f51188cf081fc6d6228e082"
+      "baseline": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2"
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "ee69336f8aed84767d1a1cd1bf5b0d526e3422e2",
+    "sha": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "Smoke del livello 2 attempt-2 sulla candidate ee69336: 15/15 target, 60 secondi ciascuno, nessun finding o quarantena. Verbale originale copiato byte per byte dal registratore. Non e un soak mirato. Il verbale completo resta quello del livello 2; soak mirato chiuso documentato separatamente in campagne_mirate.soak del checkpoint-ee69336.json."
+    "significato": "Smoke del livello 2 eseguito dall'operatore sulla candidate a2e0bea, attempt-1: 15/15 target, 60 secondi ciascuno, nessun finding o quarantena. Verbale originale copiato byte per byte dal registratore; non e' un soak mirato."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "ee69336"
+      "qualificato_su": "a2e0bea"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -775,7 +775,7 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate 7.0.3 congelata su a2e0beaaae6fcf8e621410480fe088ffce364acc. Distribuzione candidate run 42977335291, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291, workflow distribuzione.yml, input versione=7.0.3, canale=candidate, revisione=a2e0beaaae6fcf8e621410480fe088ffce364acc, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel703/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. Il livello 2 sulla candidate e' in corso sulla VM e non viene registrato qui; ultima qualifica, copertura e campagna storiche restano invariate. Restano le evidenze di livello 2, campagne/soak e attestazioni richieste, preparazione draft e confronto dei byte riscaricati contro la candidate, autorizzazione esplicita del titolare, tag e gate finale; dopo pubblicazione immutata va ripetuto il confronto dei byte riscaricati dalla release. Nessuna autorizzazione o tag creato. Log della verifica Windows in target/rel703/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su b043649 (180286 contatori ASan) restano invariati; il bump dei Cargo.lock cambia il perimetro e invalida le impronte per questa candidate: occorre rimisurare sul perimetro finale. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.3 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 510 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 504 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta per gdal_i.lib assente (gdal-sys, cargo exit 101); non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM.",
+      "nota": "Candidate 7.0.3 congelata su a2e0beaaae6fcf8e621410480fe088ffce364acc. Distribuzione candidate run 42977335291, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291, workflow distribuzione.yml, input versione=7.0.3, canale=candidate, revisione=a2e0beaaae6fcf8e621410480fe088ffce364acc, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel703/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, attempt-1, con S9_CHECKPOINT_BASE=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-a2e0bea.json. Secondo l'operatore, la VM di qualifica Linux e' stata ricreata l'11/11/2026: stesso modello e toolchain, disco nuovo, IP 192.168.2.140. Sulla VM precedente un livello 1 della 7.0.3 eseguito dall'operatore era stato interrotto da un blocco del kernel guest (BUG: Bad page state). Quelle corse non hanno valore di qualifica e nessuna loro misura viene usata. Secondo l'operatore, il soak sul congelamento 85e2526 e' in corso: non viene registrato qui. Restano i suoi referti, le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo la registrazione resta da eseguire sulla VM. Log della verifica Windows in target/rel703/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su b043649 (180286 contatori ASan) restano invariati; il bump dei Cargo.lock cambia il perimetro e invalida le impronte per questa candidate: occorre rimisurare sul perimetro finale. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.3 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 510 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 504 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta per gdal_i.lib assente (gdal-sys, cargo exit 101); non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM. Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke identico byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; primo tentativo con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys, 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel703/verifica-l2.",
       "revisione_candidate": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
       "artefatti": [
         {
