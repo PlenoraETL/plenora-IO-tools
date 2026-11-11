@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `ee69336` |
-| candidate, versione del manifesto | `7.0.2` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
-| candidate, versione del workspace | `7.0.2` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.2` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `7.0.3` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `7.0.3` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v7.0.3` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 10 |
-| release_authorized | `true` |
+| release pubblicate | 11 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1362,7 +1362,18 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## Prossima correttiva: validazione degli ingressi Arrow
+## 7.0.3 — 2026-11-11 (candidate iniziale, non rilasciata)
+
+Workspace e SDK passano a 7.0.3. La candidate non e congelata: nessuna
+revisione, artefatto o attestazione di release e fissata. La 7.0.2 pubblicata
+e archiviata in `chiuso.release_pubblicate`.
+
+Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su
+`b043649` (180286 contatori ASan) restano invariati. Il bump dei due
+`Cargo.lock` cambia il perimetro e invalida le impronte: occorre rimisurare
+sul perimetro finale prima della qualifica della 7.0.3.
+
+### Validazione degli ingressi Arrow
 
 Corretto il difetto silenzioso della lettura IPC Rust con proiezione: colonne
 escluse potevano contenere offset invalidi senza causare un errore. Ora file e
