@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "7.0.2",
+      "versione": "7.0.3",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "7.0.2",
+      "versione": "7.0.3",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "7.0.2",
+      "versione": "7.0.3",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "7.0.2",
+      "versione": "7.0.3",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -892,7 +892,7 @@
     },
     {
       "crate": "rustix",
-      "versione": "1.1.4",
+      "versione": "1.1.6",
       "licenza": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
       "origine": "prodotto"
     },
@@ -1529,5 +1529,35 @@
       "plenora-io-model 7.0.0: interna-al-workspace"
     ],
     "perche": "Le quattro crate del workspace nella closure passano da 6.0.0 a 7.0.0. Nessun nome entrato o uscito, nessun cambio di origine o licenza; il gate confronta le coppie nome/versione."
+  },
+  "variazione_versione_7_0_3": {
+    "quando": "2026-11-11, preparazione della candidate iniziale 7.0.3",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "driver-common 7.0.3",
+      "driver-geoparquet 7.0.3",
+      "plenora-io-core 7.0.3",
+      "plenora-io-model 7.0.3"
+    ],
+    "uscite": [
+      "driver-common 7.0.2",
+      "driver-geoparquet 7.0.2",
+      "plenora-io-core 7.0.2",
+      "plenora-io-model 7.0.2"
+    ],
+    "perche": "Documenta il bump dei quattro crate interni gia' censiti alla 7.0.3. Nessun nome o origine cambia per il bump; le licenze restano interne al workspace. Questa voce riguarda soltanto la versione del workspace, non attesta una nuova misura della closure delle dipendenze."
+  },
+  "variazione_rustix_1_1_6": {
+    "quando": "2026-11-11, dopo la pubblicazione della 7.0.3",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "rustix 1.1.6"
+    ],
+    "uscite": [
+      "rustix 1.1.4"
+    ],
+    "perche": "RUSTSEC-2026-0486 (rustix 1.0.0-1.1.5 unsound nelle funzioni xattr con buffer vuoto). Nessun crate del grafo ne' il codice IO chiama le funzioni colpite: la 7.0.3 pubblicata con 1.1.4 non e' esposta. Nessun nome, origine o licenza cambia."
   }
 }

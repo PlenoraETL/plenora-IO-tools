@@ -36,43 +36,43 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `ee69336` |
-| revisione misurata | `ee69336` |
+| ultima qualificata | `a2e0bea` |
+| revisione misurata | `a2e0bea` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 50 404 |
+| input di replay | 145 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,77% |
-| righe coperte LCOV | 31 344 |
-| righe strumentate LCOV | 35 309 |
-| copertura cargo | 86,63% |
+| copertura LCOV | 88,75% |
+| righe coperte LCOV | 31 432 |
+| righe strumentate LCOV | 35 416 |
+| copertura cargo | 86,61% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `2ddfb58cb21975544f51188cf081fc6d6228e082` |
-| esito differenziale | 100.00% |
+| baseline differenziale | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
+| esito differenziale | 85.26% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `ee69336` |
-| candidate, versione del manifesto | `7.0.2` |
+| S9, qualificato su | `a2e0bea` |
+| candidate, versione del manifesto | `7.0.3` |
 | candidate, stato | pubblicata |
-| candidate, revisione congelata | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
-| candidate, versione del workspace | `7.0.2` |
+| candidate, revisione congelata | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
+| candidate, versione del workspace | `7.0.3` |
 | candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.2` |
+| candidate, tag previsto | `v7.0.3` |
 | candidate, tag creato | sì |
-| candidate, revisione del tag | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
+| candidate, revisione del tag | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release pubblicate | 10 |
+| release pubblicate | 11 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -424,6 +424,10 @@ Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
+
+**Soak della candidate 7.0.3 registrati.** Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json.
+
+Hash dei log e del misuratore, campioni e tutti i campi del giudizio verificati localmente con `scripts/soak_misurato.py`, senza rieseguire le campagne dell'operatore. Il tempo wrapper include preparazione/build; la concordanza degli orologi indica solo nessuna discontinuita rilevata. Il verbale smoke L2 resta intatto.
 
 **Soak della candidate 7.0.2 registrati.** Soak mirato chiuso su dfc259e84: dxf_reader monotonic/boottime/realtime 3602,011246833/3602,011246922/3602,011247158 s, 12962389 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601,888934065/3601,888934070/3601,888934135 s, 19169809 esecuzioni (libFuzzer 3601 s). Entrambi exit 0, nessun finding, durata dimostrata, esito completa. Due campagne in parallelo sulla VM di qualifica Linux; CPU diagnostica senza soglia. Verbale con referti originali e digest in assurance/evidence/checkpoint-ee69336.json.
 
@@ -1362,7 +1366,114 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## Prossima correttiva: validazione degli ingressi Arrow
+## 7.0.3 — 2026-11-11 (candidate congelata, non rilasciata)
+
+### Draft verificata e passi dopo la decisione
+
+La draft **441548595**, [verificata prima della pubblicazione](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-3c00d74235059e3f7a92),
+resta non pubblicata e non autorizzata. Il verbale completo e i 24 nomi, dimensioni
+e SHA-256 ricalcolati sono in `assurance/evidence/checkpoint-a2e0bea.json`,
+`release_verification.draft`. I 23 asset della Distribuzione candidate
+42977335291 sono accompagnati da `adoption-manifest.json`, aggiuntivo rispetto
+alla 7.0.0. Il gate legge **il manifesto locale**
+`contracts/adoption-manifest.json`: questa registrazione lo confronta byte per
+byte con quello riscaricato. Il manifesto non entra nella directory passata
+a `check-deliverable.py`; viene verificato separatamente sui cinque archivi.
+
+Resta la decisione esplicita del titolare sui byte verificati e sui limiti
+residui. I comandi seguenti sono istruzioni future, **non eseguite** da questa
+registrazione. Usare il checkout di assurance aggiornato nell'ambiente Linux
+di qualifica, con contratti al pin e manifesto locale identico al verificato.
+Non ricostruire gli asset. Dopo la decisione autentica, conservarne data,
+titolare, testo e oggetto in
+`assurance/evidence/autorizzazione-7.0.3.txt` (senza inventare la risposta).
+
+```bash
+git tag -a v7.0.3 a2e0beaaae6fcf8e621410480fe088ffce364acc -m "Plenora IO-tools 7.0.3"
+git rev-parse 'v7.0.3^{commit}'
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path('assurance/current-state.json')
+s = json.loads(p.read_text(encoding='utf-8'))
+c = s['aperto']['candidate_release']
+decisione = Path('assurance/evidence/autorizzazione-7.0.3.txt').read_text(encoding='utf-8').strip()
+assert decisione and c['revisione_candidate'] == 'a2e0beaaae6fcf8e621410480fe088ffce364acc'
+s['release_authorized'] = True
+c.update(tag_creato=True, tag_sulla_candidate=True,
+         tag_revisione=c['revisione_candidate'], release_action_allowed=True)
+c['nota'] += '\n\nAutorizzazione esplicita del titolare:\n' + decisione
+p.write_text(json.dumps(s, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+PY
+python3 scripts/check_docset.py --riscrivi-stato
+```
+
+Registrare evidenza e autorizzazione in un commit di assurance separato, nei
+soli percorsi dell'allowlist, quindi eseguire il gate completo. Le note che
+descrivono i permessi falsi in questa registrazione restano fatti precedenti
+alla decisione; la decisione successiva ne dichiara il superamento.
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v7.0.3
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/441548595 -F draft=false
+```
+
+Prima del PATCH ricontrollare che ID, target, tag e tutti i 24 asset della
+draft coincidano con il verbale. Il PATCH cambia soltanto `draft`: nessun
+upload, sostituzione di asset o modifica delle note. Dopo la pubblicazione
+riscaricare in una directory nuova:
+
+```bash
+gh release download v7.0.3 --repo PlenoraETL/plenora-IO-tools --dir target/rel703/pubblicata-riscaricata
+```
+
+Confrontare tutti i 24 nomi, dimensioni e SHA-256 con `release_verification.draft.asset`;
+ripetere `check-deliverable.py --contro-la-candidate assurance/current-state.json`
+sui 23 file escluso il manifesto, con versione `7.0.3`, canale `candidate` e
+revisione `a2e0beaaae6fcf8e621410480fe088ffce364acc`; ripetere anche la verifica
+del manifesto riscaricato sui cinque archivi. Registrare l'esito in un blocco
+separato `release_verification.published`, aggiornare lo stato a pubblicata e
+riportare `release_action_allowed` a `false`: il permesso e' speso.
+
+Workspace e SDK passano a 7.0.3. Il congelamento corrente e registrato nel
+blocco generato e nel [verbale](../assurance/current-state.json). La 7.0.2
+pubblicata e archiviata in `chiuso.release_pubblicate`.
+
+Le quattro profondita fuzz e il confine ASan FileGDB rimisurati sulla VM su
+`b043649` (180286 contatori ASan) restano invariati. Il bump dei due
+`Cargo.lock` cambia il perimetro e invalida le impronte: occorre rimisurare
+sul perimetro finale prima della qualifica della 7.0.3.
+
+### Congelamento della candidate
+
+La candidate 7.0.3 e' congelata sulla revisione
+`a2e0beaaae6fcf8e621410480fe088ffce364acc` con i sette deliverable della
+Distribuzione candidate [42977335291](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito della corsa.
+SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py` e `check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+### Registrazione del livello 2
+
+L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, attempt-1, con S9_CHECKPOINT_BASE=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-a2e0bea.json.
+
+Secondo l'operatore, la VM di qualifica Linux e' stata ricreata l'11/11/2026: stesso modello e toolchain, disco nuovo, IP 192.168.2.140. Sulla VM precedente un livello 1 della 7.0.3 eseguito dall'operatore era stato interrotto da un blocco del kernel guest (BUG: Bad page state). Quelle corse non hanno valore di qualifica e nessuna loro misura viene usata.
+
+L'[evidenza](../assurance/evidence/checkpoint-a2e0bea.json) deriva dai log forniti dall'operatore in `target/rel703/l2-a2e0beaaae6fcf8e621410480fe088ffce364acc-attempt-1`, tramite `scripts/registra-evidenza-s9.py`. Il registratore usa `target/rel703/verifica-l2/corsa-contratto`, copia byte per byte salvo `console.log`, conservato intatto con digest nella provenienza.
+
+Dai log dell'operatore: replay 145 input su 15 target, 0 crash; smoke 15/15, nessun finding o quarantena. LCOV 88.75% (31432/35416), cargo 86.61%. Differenziale: 133/156 righe eseguibili coperte, 23 scoperte, 319 non eseguibili.
+
+Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json. Le quattro attestazioni del profilo pubblico 7.0.3 sono registrate in 9ed5e89. Draft 441548595 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-3c00d74235059e3f7a92, target a2e0beaaae6fcf8e621410480fe088ffce364acc, tag previsto v7.0.3, draft true. Registrati in assurance/evidence/checkpoint-a2e0bea.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub forniti dall operatore. I sette deliverable coincidono con la candidate. Il manifesto di adozione e verificato sui cinque archivi riscaricati: 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Resta soltanto la decisione esplicita del titolare; poi tag annotato v7.0.3 sulla candidate, registrazione dell autorizzazione e dell assurance, gate finale --release, pubblicazione della draft immutata e verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo questa registrazione resta da eseguire sulla VM.
+
+Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke identico byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; primo tentativo con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys, 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel703/verifica-l2.
+
+### Validazione degli ingressi Arrow
 
 Corretto il difetto silenzioso della lettura IPC Rust con proiezione: colonne
 escluse potevano contenere offset invalidi senza causare un errore. Ora file e
@@ -1415,6 +1526,15 @@ cinque iterazioni): mediana prima 45,22 ms, dopo 59,97 ms (+32,6%). Il confronto
 usa l'helper di HEAD prima delle modifiche locali; non misura tutti i driver
 ne' la nuova decodifica delle colonne escluse. Referto sotto
 `target/arrow-validation-benchmark.json`, non evidenza di qualifica release.
+
+### Dopo la pubblicazione: rustix 1.1.6
+
+La 7.0.3 e' stata pubblicata con `rustix` 1.1.4. RUSTSEC-2026-0486 (rustix
+1.0.0-1.1.5 unsound nelle funzioni xattr con buffer vuoto) e' entrato nel database
+degli avvisi dopo la qualifica e blocca `cargo deny` e `cargo audit` della CI.
+Nessun crate del grafo ne' il codice IO chiama le funzioni colpite: la 7.0.3
+pubblicata non e' esposta. `main` passa a `rustix =1.1.6`; la prossima
+correttiva la porta nei pacchetti.
 
 ## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
 
