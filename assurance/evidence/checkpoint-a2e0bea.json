@@ -13,14 +13,14 @@
     "status": "passed",
     "scope": "Qualifica tecnica di livello 2 sulla candidate a2e0bea."
   },
-  "non_significa": "Nessuna autorizzazione di release, riattribuzione al commit di registrazione, soak o verifica della draft o della release.",
+  "non_significa": "Nessuna autorizzazione di release o riattribuzione delle misure al commit di registrazione; nessuna verifica di draft/pubblicazione registrata.",
   "cosa_chiude": {
     "invarianti": [],
     "invarianti_nota": "Nessun invariante chiuso automaticamente.",
     "candidate": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
     "che_cosa_e_provato": "L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, attempt-1, con S9_CHECKPOINT_BASE=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-a2e0bea.json."
   },
-  "resta_aperto": "Secondo l'operatore, il soak sul congelamento 85e2526 e' in corso: non viene registrato qui. Restano i suoi referti, le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo la registrazione resta da eseguire sulla VM.",
+  "resta_aperto": "Le quattro attestazioni del profilo pubblico 7.0.3 sono registrate in 9ed5e89. Restano la creazione della draft e la verifica dei byte riscaricati contro la candidate, la registrazione della verifica, poi la decisione esplicita del titolare, tag sulla candidate a2e0bea e gate finale; dopo la pubblicazione immutata va ripetuta la verifica dei byte riscaricati dalla release. release_authorized e release_action_allowed restano false. Il contratto completo dopo questa registrazione resta da eseguire sulla VM.",
   "contesto_operatore": "Secondo l'operatore, la VM di qualifica Linux e' stata ricreata l'11/11/2026: stesso modello e toolchain, disco nuovo, IP 192.168.2.140. Sulla VM precedente un livello 1 della 7.0.3 eseguito dall'operatore era stato interrotto da un blocco del kernel guest (BUG: Bad page state). Quelle corse non hanno valore di qualifica e nessuna loro misura viene usata.",
   "provenienza_della_corsa": {
     "originale": "/home/marco/io-l2/target/rel703/l2-a2e0beaaae6fcf8e621410480fe088ffce364acc-attempt-1",
@@ -794,5 +794,235 @@
       "test_default.log": "2faac3290b2d64f5ba5be6db94b2085220783c644927d76d727c5a64b30b101e"
     }
   },
-  "esito": "S9 checkpoint level 2 passed"
+  "esito": "S9 checkpoint level 2 passed",
+  "campagne_mirate": {
+    "soak": {
+      "eseguito": true,
+      "nota": "Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json.",
+      "verbale": {
+        "schema_version": 1,
+        "criterio": "RELEASE.md sezione 6 e scripts/soak_misurato.py non richiedono saturazione o esclusivita della CPU. CPU dei figli diagnostica, include preparazione/build, nessuna soglia. Il tempo wrapper non e il solo tempo di fuzzing: entrambi i riepiloghi libFuzzer dichiarano 3601 s.",
+        "limite": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza.",
+        "verifica_locale": "SHA-256 dei log ricalcolati; digest del misuratore confrontato con il blob della candidate; giudizio ricalcolato dai log e tempi originali, con identita di tutti i campi prodotti da giudica.",
+        "revisione": "85e2526d9e357863844fc7613fda5d5b5a379fcb",
+        "provenienza": {
+          "dichiarazione_operatore": "L'operatore dichiara di avere eseguito due soak da 3600 s ciascuno, in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, sul commit 85e2526d9e357863844fc7613fda5d5b5a379fcb, con controllo dello SHA prima della corsa. Revisione e ambiente non rilevati autonomamente dal misuratore.",
+          "copie_locali": "target/rel703/soak-85e2526d/<bersaglio>"
+        },
+        "bersagli": {
+          "dxf_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py dxf_reader --seconds 3600 --output-dir target/rel703/soak-85e2526d/dxf_reader",
+            "referto": "target/rel703/soak-85e2526d/dxf_reader/referto.json",
+            "referto_sha256": "3b747c7908e45d08d83610b3c7e486a711c41f9e27b978bf6710f7f8c3d703ca",
+            "log": "target/rel703/soak-85e2526d/dxf_reader/campagna.log",
+            "log_sha256": "f811597fe5f1e33933bc797ef0b0083ce80cf1a247e37a2bd9339254194ec2b8",
+            "log_dimensione": 9342670,
+            "console": "target/rel703/soak-85e2526d/dxf_reader.console",
+            "console_sha256": "20a61462bb8574ab007904e8026abdb893c8bd27ba191e47ffc806747160790c",
+            "tempi_grezzi": {
+              "monotonic_s": 3602.043744814,
+              "boottime_s": 3602.0437449660003,
+              "parete_s": 3602.043745279312,
+              "cpu_figli_s": 3599.1685469999998
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 17730946,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "17730946",
+                "average_exec_per_sec": "4923",
+                "new_units_added": "69250",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "666"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3599.1685469999998,
+              "quota_cpu_intervallo": 0.9992017870915255,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "dxf_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.043744814,
+                "boottime_s": 3602.0437449660003,
+                "parete_s": 3602.043745279312,
+                "cpu_figli_s": 3599.1685469999998
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 1.520002115285024e-07,
+                "parete_meno_monotonic_s": 4.6531204134225845e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3599.1685469999998,
+                "quota_cpu_intervallo": 0.9992017870915255,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 17730946,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "17730946",
+                  "average_exec_per_sec": "4923",
+                  "new_units_added": "69250",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "666"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "dxf_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "f811597fe5f1e33933bc797ef0b0083ce80cf1a247e37a2bd9339254194ec2b8",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 6240.345423047,
+                  "boottime_s": 6240.345423237,
+                  "parete_s": 1794384470.8694928,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 9842.389167861,
+                  "boottime_s": 9842.389168203,
+                  "parete_s": 1794388072.913238,
+                  "cpu_figli_s": 3599.1685469999998
+                }
+              },
+              "errore_avvio": null
+            }
+          },
+          "shp_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py shp_reader --seconds 3600 --output-dir target/rel703/soak-85e2526d/shp_reader",
+            "referto": "target/rel703/soak-85e2526d/shp_reader/referto.json",
+            "referto_sha256": "86edc3ffda4be791555b31c328e718f4187d95144ae41936676e38f15e1578e7",
+            "log": "target/rel703/soak-85e2526d/shp_reader/campagna.log",
+            "log_sha256": "06553e7382d941a729d4bd3b3b70b761d0d3b56b15a5e5895a9ed21e44e29a91",
+            "log_dimensione": 426800,
+            "console": "target/rel703/soak-85e2526d/shp_reader.console",
+            "console_sha256": "20a61462bb8574ab007904e8026abdb893c8bd27ba191e47ffc806747160790c",
+            "tempi_grezzi": {
+              "monotonic_s": 3601.962999376,
+              "boottime_s": 3601.962999505,
+              "parete_s": 3601.963000059128,
+              "cpu_figli_s": 3655.007308
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 16129231,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "16129231",
+                "average_exec_per_sec": "4479",
+                "new_units_added": "3087",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "713"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3655.007308,
+              "quota_cpu_intervallo": 1.0147265001426138,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "shp_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3601.962999376,
+                "boottime_s": 3601.962999505,
+                "parete_s": 3601.963000059128,
+                "cpu_figli_s": 3655.007308
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 1.2900000001536682e-07,
+                "parete_meno_monotonic_s": 6.831278369645588e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3655.007308,
+                "quota_cpu_intervallo": 1.0147265001426138,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 16129231,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "16129231",
+                  "average_exec_per_sec": "4479",
+                  "new_units_added": "3087",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "713"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "shp_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "06553e7382d941a729d4bd3b3b70b761d0d3b56b15a5e5895a9ed21e44e29a91",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 6240.345430176,
+                  "boottime_s": 6240.345430435,
+                  "parete_s": 1794384470.8695,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 9842.308429552,
+                  "boottime_s": 9842.30842994,
+                  "parete_s": 1794388072.8325,
+                  "cpu_figli_s": 3655.007308
+                }
+              },
+              "errore_avvio": null
+            }
+          }
+        },
+        "verbale_smoke": {
+          "conservato": "assurance/evidence/fuzz-smoke-ultima.json",
+          "sha256": "2e91508b336a87608b8bd1655d52edd23a27f8b6ebeb5c396e3d87507699dd2f",
+          "motivazione": "Resta il verbale completo del livello 2 eseguito dall'operatore (15/15, 60 s), attribuito alla candidate a2e0bea. I soak dell'operatore sono documentati separatamente, senza fondere o alterare i verbali. Nessuna copia VM parziale fornita con questi referti."
+        }
+      }
+    },
+    "oom": {
+      "eseguito": null,
+      "nota": "Nessuna campagna OOM separata documentata sulla revisione."
+    }
+  }
 }
