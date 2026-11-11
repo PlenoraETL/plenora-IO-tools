@@ -1869,7 +1869,7 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     ] {
         // Un `match` e non un `unwrap_or_else`: non c'e' un valore di
         // ripiego, e il censimento dei fallback conta la forma sintattica.
-        match write_cell(foglio, 0, 0, &array, 0) {
+        match write_cell(foglio, 0, 0, &ValidatedArray::new(&array).unwrap(), 0) {
             Ok(()) => {}
             Err(errore) => panic!("{caso}: {errore:?}"),
         }
@@ -1886,7 +1886,13 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     // e resta senza resa decisa.
     let non_convertibile: ArrayRef =
         Arc::new(arrow_array::DurationSecondArray::from(vec![Some(90_i64)]));
-    let Err(errore) = write_cell(foglio, 1, 0, &non_convertibile, 0) else {
+    let Err(errore) = write_cell(
+        foglio,
+        1,
+        0,
+        &ValidatedArray::new(&non_convertibile).unwrap(),
+        0,
+    ) else {
         panic!("un tipo non convertibile non puo' diventare una cella");
     };
     assert_eq!(
@@ -1901,7 +1907,13 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     let troppo_lunga: ArrayRef = Arc::new(arrow_array::StringArray::from(vec![Some(
         "x".repeat(40_000),
     )]));
-    let Err(errore) = write_cell(foglio, 2, 0, &troppo_lunga, 0) else {
+    let Err(errore) = write_cell(
+        foglio,
+        2,
+        0,
+        &ValidatedArray::new(&troppo_lunga).unwrap(),
+        0,
+    ) else {
         panic!("una cella oltre il tetto del formato non puo' essere troncata in silenzio");
     };
     assert!(

@@ -1,0 +1,1646 @@
+{
+  "schema_version": 1,
+  "estrattore": "syn 2.0.119; fallback offline a rustdoc JSON nightly-2026-07-21 non installata; unione conservativa delle configurazioni cfg, pub anche nei moduli privati e metodi di trait",
+  "items": {
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_bool": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_converted": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_csv_cell": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_f64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_i64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_json": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_null": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_str": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::append_u64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::InferredColumnBuilder::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_common::InferredColumnBuilder"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::columns": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Applica ValidatedArray::new una volta a ciascun array; il ciclo delle celle usa gli snapshot privati gia validati.",
+      "tipi": [
+        "arrow_array::ArrayRef"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::json": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Il ricevitore ha campo privato ed e costruibile solo tramite new, che valida lo snapshot completo; json/text controllano anche row.",
+      "tipi": [
+        "driver_common::ValidatedArray"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::new": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "ValidatedArray::new esegue validate_full sullo snapshot prima della lettura di qualunque cella.",
+      "tipi": [
+        "arrow_array::ArrayRef"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::text": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Il ricevitore ha campo privato ed e costruibile solo tramite new, che valida lo snapshot completo; json/text controllano anche row.",
+      "tipi": [
+        "driver_common::ValidatedArray"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::cell_string": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "ValidatedArray::new esegue validate_full sullo snapshot prima della lettura di qualunque cella.",
+      "tipi": [
+        "arrow_array::ArrayRef"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::classe_arrow": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::DataType"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::geometry_index": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::json_from_array": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "ValidatedArray::new esegue validate_full sullo snapshot prima della lettura di qualunque cella.",
+      "tipi": [
+        "arrow_array::ArrayRef"
+      ]
+    },
+    "driver-common/src/prevalida_arrow.rs::driver_common::prevalida_arrow::valida_schema": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Prevalidazione del FlatBuffer IPC: controlla i tipi e i limiti prima della conversione dello schema Arrow.",
+      "tipi": [
+        "arrow_ipc::Schema"
+      ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_csv::CsvDataset"
+      ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_csv::CsvDataset"
+      ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_csv::CsvDataset"
+      ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_dxf::DxfDataset"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_dxf::DxfDataset"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_dxf::DxfDataset"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_dxf::DxfReader"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_dxf::DxfReader"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_dxf::DxfReader"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfWriterState[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::FileGdbDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_filegdb::backend::GdbDataset"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_filegdb::backend::GdbDataset"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_filegdb::backend::GdbDataset"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbWriter[FormatWriter]::write_to_layer": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeatureSink<'_>[DeserializeSeed<'de>]::deserialize": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeatureSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeatureSink<'_>[Visitor<'de>]::expecting": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeatureSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeatureSink<'_>[Visitor<'de>]::visit_map": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeatureSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeaturesSink<'_>[DeserializeSeed<'de>]::deserialize": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeaturesSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeaturesSink<'_>[Visitor<'de>]::expecting": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeaturesSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::FeaturesSink<'_>[Visitor<'de>]::visit_seq": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::FeaturesSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geojson::GeoJsonDataset"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geojson::GeoJsonDataset"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geojson::GeoJsonDataset"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[DeserializeSeed<'de>]::deserialize": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[Visitor<'de>]::expecting": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[Visitor<'de>]::visit_map": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[Visitor<'de>]::visit_none": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[Visitor<'de>]::visit_some": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[Visitor<'de>]::visit_unit": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::PropsSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::TopSink<'_>[Visitor<'de>]::expecting": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::TopSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::TopSink<'_>[Visitor<'de>]::visit_map": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::TopSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[DeserializeSeed<'de>]::deserialize": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::expecting": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_bool": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_f64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_i64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_map": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_none": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_seq": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_some": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_str": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_u64": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::ValueSink<'_>[Visitor<'de>]::visit_unit": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore interno contenente builder Arrow; gli argomenti sono valori scalari o deserializzatori JSON. Gli array vengono costruiti qui, non forniti dal chiamante.",
+      "tipi": [
+        "driver_geojson::ValueSink"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetDataset"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetDataset"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetDataset"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetReader"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetReader"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetWriter"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "driver_geoparquet::GeoParquetWriter"
+      ]
+    },
+    "driver-geoparquet/src/multigeometria.rs::driver_geoparquet::multigeometria::colonne_da_scrivere": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
+    },
+    "driver-geoparquet/src/multigeometria.rs::driver_geoparquet::multigeometria::completa_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "driver-geoparquet/src/multigeometria.rs::driver_geoparquet::multigeometria::verifica_crs": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-gpkg/src/affinity.rs::driver_gpkg::affinity::validate_value": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgDataset"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgDataset"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgDataset"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgDataset"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgReader"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_gpkg::GpkgReader"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_gpkg::GpkgReader"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgWriter[FormatWriter]::write_to_layer": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-gpkg/src/schema.rs::driver_gpkg::schema::columns_ddl": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-gpkg/src/schema.rs::driver_gpkg::schema::schema_read_loss": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-gpkg/src/schema.rs::driver_gpkg::schema::validate_sqlite_metadata": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_ipc::IpcDataset"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_ipc::IpcDataset"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_ipc::IpcDataset"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_ipc::IpcReader"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_ipc::IpcReader"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_ipc::IpcWriter"
+      ]
+    },
+    "driver-ipc/src/lib.rs::driver_ipc::IpcWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "driver_ipc::IpcWriter"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_kml::KmlReader"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_kml::KmlReader"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlWriterState[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_shp::ShpDataset"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_shp::ShpDataset"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_shp::ShpDataset"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpLossReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_shp::ShpLossReader"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpLossReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_shp::ShpLossReader"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpLossReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "driver_shp::ShpLossReader"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "driver-xls/src/date_native.rs::driver_xls::date_native::restore": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Modulo date_native privato, non riesportato; array costruiti dal reader XLSX tramite builder controllati, non un ingresso Rust pubblico raggiungibile.",
+      "tipi": [
+        "arrow_array::ArrayRef",
+        "arrow_schema::DataType"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDriver[FormatDriver]::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsWriterState[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "driver_xls::XlsWriterState"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsWriterState[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "driver_xls::XlsWriterState"
+      ]
+    },
+    "plenora-io-core/src/capabilities.rs::plenora_io_core::capabilities::arrow_type_class": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::DataType"
+      ]
+    },
+    "plenora-io-core/src/capabilities.rs::plenora_io_core::capabilities::validate_write": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::create": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver",
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::descriptor": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::open": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::declare_input_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::write_to_layer": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::LayerReader::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::LayerReader::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::LayerReader::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::LayerReader::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::validate_external_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Controlla lunghezza di tutte le colonne e validate_full ricorsiva prima di consegnare il batch.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::with_write_limits": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Installa LimitedWriter; valida ogni batch in write/write_to_layer prima di inoltrarlo al writer fornito dal chiamante.",
+      "tipi": [
+        "plenora_io_core::driver::FormatWriter"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::with_write_validation": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Installa LimitedWriter; valida ogni batch in write/write_to_layer prima di inoltrarlo al writer fornito dal chiamante.",
+      "tipi": [
+        "plenora_io_core::driver::FormatWriter",
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::BatchEmitter::is_receiver_alive": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Legge solo lo stato del canale; non riceve ne legge batch Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::batch_worker::BatchEmitter"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::BatchEmitter::send": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Chiama validate_external_batch prima di inviare, accodare o leggere il batch; routing verificato da check_arrow_external.py.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::batch_worker::BatchEmitter"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::BatchEmitter::send_cancellable": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Chiama validate_external_batch prima di inviare, accodare o leggere il batch; routing verificato da check_arrow_external.py.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::batch_worker::BatchEmitter"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::BatchWorkerReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::batch_worker::BatchWorkerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::BatchWorkerReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::batch_worker::BatchWorkerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/batch_worker.rs::plenora_io_core::driver::batch_worker::spawn_batch_reader": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Il worker riceve un BatchEmitter, il cui send/send_cancellable valida ogni batch prima di metterlo nel canale.",
+      "tipi": [
+        "plenora_io_core::driver::batch_worker::BatchEmitter",
+        "plenora_io_model::contract::LayerContract"
+      ]
+    },
+    "plenora-io-core/src/driver/perdita_pianificata.rs::plenora_io_core::driver::perdita_pianificata::assess_write_contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/driver/perdita_pianificata.rs::plenora_io_core::driver::perdita_pianificata::planned_write_loss": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BatchTargetReader[LayerReader]::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BatchTargetReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BatchTargetReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BatchTargetReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BatchTargetReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BatchTargetReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BatchTargetReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BatchTargetReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::layers": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::open_layer_reader": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedReader[LayerReader]::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::CancellationReader[LayerReader]::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::CancellationReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::CancellationReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::CancellationReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::CancellationReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::CancellationReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::CancellationReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::CancellationReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::SingleActiveLayerReader[LayerReader]::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::SingleActiveLayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::SingleActiveLayerReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::SingleActiveLayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::SingleActiveLayerReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::SingleActiveLayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::SingleActiveLayerReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo reader: decoder e builder producono batch; il consumatore usa next_external_batch. IPC valida prima della proiezione; gli adapter validano prima della trasformazione.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::SingleActiveLayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::SingleReaderGate::open": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adapter reader: ogni batch consumato passa da next_external_batch prima di accesso ai dati; cinque routing controllati dalla guardia.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::with_batch_target": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adapter reader: ogni batch consumato passa da next_external_batch prima di accesso ai dati; cinque routing controllati dalla guardia.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::with_cancellation": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adapter reader: ogni batch consumato passa da next_external_batch prima di accesso ai dati; cinque routing controllati dalla guardia.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::with_read_budget": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adapter reader: ogni batch consumato passa da next_external_batch prima di accesso ai dati; cinque routing controllati dalla guardia.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver/scrittura_limitata.rs::plenora_io_core::driver::scrittura_limitata::LimitedWriter[FormatWriter]::declare_input_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::scrittura_limitata::LimitedWriter"
+      ]
+    },
+    "plenora-io-core/src/driver/scrittura_limitata.rs::plenora_io_core::driver::scrittura_limitata::LimitedWriter[FormatWriter]::fidelity_assessment": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::scrittura_limitata::LimitedWriter"
+      ]
+    },
+    "plenora-io-core/src/driver/scrittura_limitata.rs::plenora_io_core::driver::scrittura_limitata::LimitedWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",
+      "tipi": [
+        "plenora_io_core::driver::scrittura_limitata::LimitedWriter"
+      ]
+    },
+    "plenora-io-core/src/driver/scrittura_limitata.rs::plenora_io_core::driver::scrittura_limitata::LimitedWriter[FormatWriter]::write": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::scrittura_limitata::LimitedWriter"
+      ]
+    },
+    "plenora-io-core/src/driver/scrittura_limitata.rs::plenora_io_core::driver::scrittura_limitata::LimitedWriter[FormatWriter]::write_to_layer": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::scrittura_limitata::LimitedWriter"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::buffered_memory_bytes": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore con stato privato, popolato solo da push validato; gestione/rilettura di batch interni e dello spool IPC.",
+      "tipi": [
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::clear": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore con stato privato, popolato solo da push validato; gestione/rilettura di batch interni e dello spool IPC.",
+      "tipi": [
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::new": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::next_batch": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore con stato privato, popolato solo da push validato; gestione/rilettura di batch interni e dello spool IPC.",
+      "tipi": [
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::push": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Chiama validate_external_batch prima di inviare, accodare o leggere il batch; routing verificato da check_arrow_external.py.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::seal": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore con stato privato, popolato solo da push validato; gestione/rilettura di batch interni e dello spool IPC.",
+      "tipi": [
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/spool.rs::plenora_io_core::driver::spool::StagedSpool::spilled": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricevitore con stato privato, popolato solo da push validato; gestione/rilettura di batch interni e dello spool IPC.",
+      "tipi": [
+        "plenora_io_core::driver::spool::StagedSpool"
+      ]
+    },
+    "plenora-io-core/src/driver/validazione_geometrie.rs::plenora_io_core::driver::validazione_geometrie::validate_geometry_batch_at": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Chiama validate_external_batch prima di inviare, accodare o leggere il batch; routing verificato da check_arrow_external.py.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "plenora-io-core/src/ewkb.rs::plenora_io_core::ewkb::DaEwkbAWkb::converti": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Chiama validate_external_batch prima di inviare, accodare o leggere il batch; routing verificato da check_arrow_external.py.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::ewkb::DaEwkbAWkb"
+      ]
+    },
+    "plenora-io-core/src/ewkb.rs::plenora_io_core::ewkb::pianifica": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "plenora-io-core/src/registry.rs::plenora_io_core::registry::DriverRegistry::by_id": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::registry::DriverRegistry"
+      ]
+    },
+    "plenora-io-core/src/registry.rs::plenora_io_core::registry::DriverRegistry::descriptors": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::registry::DriverRegistry"
+      ]
+    },
+    "plenora-io-core/src/registry.rs::plenora_io_core::registry::DriverRegistry::format_options": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::registry::DriverRegistry"
+      ]
+    },
+    "plenora-io-core/src/registry.rs::plenora_io_core::registry::DriverRegistry::register": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver",
+        "plenora_io_core::registry::DriverRegistry"
+      ]
+    },
+    "plenora-io-core/src/request.rs::plenora_io_core::request::AdaptiveBatchSizer::new": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/request.rs::plenora_io_core::request::AdaptiveBatchSizer::observe": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Richiede validate_external_batch prima della chiamata; precondizione documentata e limite in limiti-arrow-c.json.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "plenora-io-core/src/request.rs::plenora_io_core::request::effective_batch_rows": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/request.rs::plenora_io_core::request::incremental_batch_memory_size": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Richiede validate_external_batch prima della chiamata; precondizione documentata e limite in limiti-arrow-c.json.",
+      "tipi": [
+        "arrow_array::RecordBatch"
+      ]
+    },
+    "plenora-io-core/src/request.rs::plenora_io_core::request::project_layer_contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_model::contract::LayerContract"
+      ]
+    },
+    "plenora-io-model/src/contract.rs::plenora_io_model::contract::DataContract::geometries": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
+    },
+    "plenora-io-model/src/contract.rs::plenora_io_model::contract::DataContract::new": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "plenora-io-model/src/error.rs::plenora_io_model::error::ContractIdentifier::from_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "plenora_io_model::contract::LayerContract"
+      ]
+    },
+    "plenora-io-model/src/error.rs::plenora_io_model::error::ContractIdentifier::from_schema_field": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::has_canonical_geometry_metadata": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::is_geometry_field": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::read_geometry_contract_metadata": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::validate_contract_version": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::validate_geometry_field_identity": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::with_contract_version": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::with_field_identity": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::with_geometry_contract_metadata": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/vocabolario.rs::plenora_io_model::vocabolario::verifica_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve schema, campi o contratto/piano con schema Arrow, senza buffer di celle. Non legge valori di array; controlli semantici dello schema nel percorso specifico.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::as_any": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Accessorio allo snapshot costruito esclusivamente dopo validate_full; non accetta nuovi array esterni.",
+      "tipi": [
+        "driver_common::ValidatedArray"
+      ]
+    },
+    "driver-common/src/lib.rs::driver_common::ValidatedArray::is_null": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Accessorio allo snapshot costruito esclusivamente dopo validate_full; non accetta nuovi array esterni.",
+      "tipi": [
+        "driver_common::ValidatedArray"
+      ]
+    }
+  },
+  "macro_items": {
+    "driver-filegdb/src/lib.rs::driver_filegdb::50f838eac6c9d6ecb17c96a93a0300db7618e1627620dbc15e10d4cb7d6fc70c": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "thread_local di attrezzaggio: genera storage privato di ganci o percorsi di test, nessun ingresso con dati Arrow; hash dei token vincolato."
+    },
+    "driver-geojson/src/crs_storico.rs::driver_geojson::crs_storico::24dfd55a3ae4b0384abbcad3dbb57937aa44b0f6e6e55cafe50ef6d9b2dea956": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: metodi Visitor per scalari JSON scartati nel CRS storico; argomenti e ricevitore non contengono Arrow. Hash dei token vincolato."
+    },
+    "driver-geojson/src/crs_storico.rs::driver_geojson::crs_storico::VisitaTesto::e24d37ce6904322c6b1aa23a46623c923905a75592fc4e7d5335bc8524663869": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: metodi Visitor per scalari JSON scartati nel CRS storico; argomenti e ricevitore non contengono Arrow. Hash dei token vincolato."
+    },
+    "driver-geojson/src/crs_storico.rs::driver_geojson::crs_storico::VisitaCrs::0b1a7931f40f284527b61c8006404f16b6f94a8af5d4d98f1ae4e63938177805": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: metodi Visitor per scalari JSON scartati nel CRS storico; argomenti e ricevitore non contengono Arrow. Hash dei token vincolato."
+    },
+    "driver-geojson/src/crs_storico.rs::driver_geojson::crs_storico::VisitaProprieta::0b1a7931f40f284527b61c8006404f16b6f94a8af5d4d98f1ae4e63938177805": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: metodi Visitor per scalari JSON scartati nel CRS storico; argomenti e ricevitore non contengono Arrow. Hash dei token vincolato."
+    },
+    "plenora-io-model/src/budget.rs::plenora_io_model::budget::46cabb3ae08ec3bfc573522a3e6fc15f663a89a59caadfc33f716e06a66f3f99": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: genera solo getter e setter numerici (u64/usize) di PipelineLimits, senza dati Arrow. Hash dei token vincolato; una modifica richiede nuova revisione."
+    },
+    "plenora-io-model/src/budget.rs::plenora_io_model::budget::PipelineLimits::cdb18b7b3920d158857297a5a3622d7e134bee5d65c650961bdefd09dab8ae21": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Definizione/invocazione riesaminata: genera solo getter e setter numerici (u64/usize) di PipelineLimits, senza dati Arrow. Hash dei token vincolato; una modifica richiede nuova revisione."
+    },
+    "plenora-io-tools/src/runtime/sonde.rs::plenora_io_tools::runtime::sonde::dceb41e8f81743a10bcd977563fd1efe0893e862564655947e04643fd6589b7e": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "thread_local di attrezzaggio: genera storage privato di ganci o percorsi di test, nessun ingresso con dati Arrow; hash dei token vincolato."
+    }
+  },
+  "reexports": {
+    "driver-geojson/src/lib.rs::driver_geojson::pub use geometry :: { wkb_from_gj_value , write_geo_geojson } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "driver-geoparquet/src/metadati.rs::driver_geoparquet::metadati::# [doc = \" Le versioni di `GeoParquet` che questa libreria legge, per intero.\"] # [doc = \"\"] # [doc = \" Vengono dal modulo che porta gli schemi: `\\\"version\\\"` e' un `const` negli\"] # [doc = \" schemi ufficiali, e queste sono le due versioni per cui un validatore e'\"] # [doc = \" incorporato. Riscriverle qui vorrebbe dire avere due elenchi da tenere\"] # [doc = \" allineati a mano.\"] pub use crate :: schema_ufficiale :: VERSIONI_SUPPORTATE ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use batch_worker :: { spawn_batch_reader , BatchEmitter } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use reader_adapters :: { with_batch_target , with_cancellation , with_read_budget , SingleReaderGate , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use capabilities :: { arrow_type_class , validate_write } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use descriptor :: { ArrowTypeClass , AttributeWriteSupport , BufferingStrategy , CrsDerivation , CrsHandling , CrsRepresentationCapabilities , CrsRepresentationState , CrsWriteSupport , DeliverySemantics , DeterminismLevel , Direction , Fidelity , FieldNamePolicy , FormatDescriptor , FormatWriteCapabilities , GeometryWriteSupport , NameNormalization , NativeReadMode , NullabilitySupport , PredicatePruningSupport , ProjectionSupport , ReadMode , ReaderConcurrency , Runtime , SinkPathConstraint , SinkPathReason , SpatialPruningSupport , TextEncoding , TypeCoercionPolicy , WriteMode , ALL_ARROW_TYPES , ALL_AXIS_ORDERS , ALL_GEOMETRY_TYPES , DBF_FIELD_NAMES , EAST_FIRST_AXIS_ORDERS , NO_GEOMETRY , SCALAR_TYPES , SHAPEFILE_GEOMETRY_TYPES , SIMPLE_WKB_GEOMETRY_TYPES , UTF8_FIELD_NAMES , WKB_EWKB_PASSTHROUGH_GEOMETRY , WKB_PASSTHROUGH_GEOMETRY , WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY , WKB_SINGLE_TYPE_XY_GEOMETRY , WKB_XY_GEOMETRY , WKB_XY_XYZ_GEOMETRY , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use driver :: { check_cancelled , check_cancelled_periodically , preflight_source , read_row_error , spawn_batch_reader , with_batch_target , with_cancellation , with_read_budget , with_write_limits , with_write_validation , write_row_rejection , BatchEmitter , FormatDriver , FormatWriter , LayerReader , OpenDatasetHandle , Published , ReadOptions , SingleReaderGate , Sink , Source , WriteOptions , CANCELLATION_CHECK_INTERVAL , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use loss :: { FidelityAssessment , FidelityReason , FidelityReasonCode , LossExample , LossReport , INCONSISTENT_CRS_REPRESENTATIONS , MAX_FIDELITY_REASONS , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use publish :: { create_staged_dir , create_staged_file , create_staged_file_with_suffix , publish_dir_atomic , publish_file_atomic , publish_file_atomic_limited , publish_files_ordered_limited , PublishOutcome , StagedFile , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use registry :: DriverRegistry ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/lib.rs::plenora_io_core::pub use request :: { effective_batch_rows , incremental_batch_memory_size , project_layer_contract , validate_read_projection , AdaptiveBatchSizer , BatchTarget , Bbox , ProjectionMode , PruningComparison , PruningPredicate , PruningScalar , ReadRequest , ReadScope , WriteLayer , WritePlan , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::pub use crs_metadata :: reconcile_crs_declarations ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use arrow_array ;": {
+      "motivazione": "Re-export integrale della dipendenza Arrow fissata nel workspace per interoperabilita dei tipi. Include API upstream non guardate da IO-tools: esclusa dalla garanzia sugli ingressi implementati nel workspace, limite enumerazione_rust. Riesaminare anche agli aggiornamenti della dipendenza."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use arrow_schema ;": {
+      "motivazione": "Re-export integrale della dipendenza Arrow fissata nel workspace per interoperabilita dei tipi. Include API upstream non guardate da IO-tools: esclusa dalla garanzia sugli ingressi implementati nel workspace, limite enumerazione_rust. Riesaminare anche agli aggiornamenti della dipendenza."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use cancellation :: { CancellationReason , CancellationToken } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use clock :: PipelineClock ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use diagnostics :: { KnownOrUnknownCount , RowDiagnosticColumn , RowDiagnosticExample , RowDiagnosticKey , RowDiagnosticKeyState , RowDiagnosticKeyValue , RowDiagnosticScope , RowDiagnosticWriteOutcome , RowDiagnosticWriteState , RowDiagnostics , RowDiagnosticsCompleteness , WriteDiagnosticStateCounts , ROW_DIAGNOSTICS_CONTRACT , ROW_DIAGNOSTICS_INDEX_BASIS , ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/lib.rs::plenora_io_model::pub use error :: { CapabilityReason , ContractIdentifier , ErrorCategory , ErrorContext , ErrorPhase , IoErrorCode , NumeroStrutturale , PlenoraIoError , PublicMessage , RemoteEffect , Result , RetryDisposition , MAX_MESSAGE_BYTES , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-model/src/wkb.rs::plenora_io_model::wkb::pub use crate :: wkb_lossless :: { decode_wkb , encode_wkb , encode_wkb_into , encode_wkb_into_bounded , inspect_wkb , membro_ammesso , WkbCoordinate , WkbFlavor , WkbGeometry , WkbInspection , WkbValue , } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-tools/src/busta.rs::plenora_io_tools::busta::pub use plenora_io_core :: loss :: MAX_BYTE_ID_CATEGORIA ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use cli :: { parse , Cli } ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use capability :: capabilities_document ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-tools/src/runtime.rs::plenora_io_tools::runtime::# [doc = \" Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].\"] # [doc = \"\"] # [doc = \" Riesportato qui perche' un'applicazione che ospita il binding non debba\"] # [doc = \" dipendere da `plenora-io-model`, che e' un crate interno e instabile.\"] pub use plenora_io_model :: CancellationToken ;": {
+      "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    }
+  }
+}

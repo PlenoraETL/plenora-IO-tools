@@ -135,6 +135,7 @@ pub fn validate_geometry_batch_at(
     row_offset: u64,
     input_total: Option<u64>,
 ) -> Result<u64> {
+    super::validate_external_batch(batch, plenora_io_model::ErrorPhase::Validate)?;
     let Some(contract) = contract else {
         let violations = nullability_violations(batch, row_offset)?;
         return if violations.is_empty() {

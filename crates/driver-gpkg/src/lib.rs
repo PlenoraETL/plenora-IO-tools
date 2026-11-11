@@ -1077,6 +1077,10 @@ impl LayerReader for GpkgReader {
                     "costruzione del RecordBatch fallita",
                 ))
             })?;
+        plenora_io_core::driver::validate_external_batch(
+            &batch,
+            plenora_io_model::ErrorPhase::Read,
+        )?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }

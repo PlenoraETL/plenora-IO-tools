@@ -327,3 +327,25 @@ fn temporali_controllati_prima_della_conversione_e_null_preservati() {
     assert_eq!(testo(Time32SecondArray::from(vec![0])), "00:00:00");
     assert_eq!(testo(Date64Array::from(vec![-86_400_000])), "1969-12-31");
 }
+
+#[test]
+fn fixture_con_prima_stringa_valida_e_offset_successivo_invalido() {
+    // La costruzione safe di Arrow 60.1 rifiuta gia' questa fixture. Non
+    // disabilitiamo il controllo con unsafe neppure nei test del workspace.
+    let bytes = include_bytes!("../../../sdk/python/tests/fixtures/string-later-offset.stream");
+    let mut reader =
+        arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+    assert!(reader.next().unwrap().is_err());
+}
+
+#[test]
+fn renderer_validato_riusabile_e_indici_controllati() {
+    let array: ArrayRef = Arc::new(StringArray::from(vec![Some("a"), None, Some("c")]));
+    let cells = ValidatedArray::new(&array).unwrap();
+    assert_eq!(cells.text(0).unwrap().as_deref(), Some("a"));
+    assert_eq!(cells.text(1).unwrap(), None);
+    assert_eq!(cells.text(2).unwrap().as_deref(), Some("c"));
+    assert!(cells.text(3).is_err());
+    assert!(json_from_array(&array, usize::MAX).is_err());
+    assert!(cell_string(&array, usize::MAX).is_err());
+}

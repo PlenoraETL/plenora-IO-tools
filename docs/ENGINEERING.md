@@ -840,6 +840,17 @@ funzionerebbe sulla macchina di chi lo ha costruito e altrove no.
 `GDAL_DRIVER_PATH` è fissata ai plugin spediti, vuota se non se ne spedisce
 alcuno.
 
+### Lo strumento dell'inventario Arrow
+
+`scripts/arrow-api` è un piccolo crate di sviluppo, fuori dal workspace e mai
+distribuito, che con `syn` enumera gli item pubblici dell'API Rust per la prova
+degli ingressi Arrow (`scripts/check_arrow_external.py`). Non aggiunge crate
+alla catena di fornitura: `syn =2.0.119` e `quote =1.0.47` sono già nel grafo
+del workspace come dipendenze delle proc-macro, e il crate le fissa alle stesse
+versioni esatte, con un lock proprio. La motivazione è la prova per
+costruzione: un'analisi testuale delle firme non risolve alias, tipi associati
+e vincoli generici, il parser di Rust sì.
+
 ### Le baseline non sono alias
 
 `windows-2022`, non `windows-latest`: un alias
@@ -1087,3 +1098,43 @@ risoluzione degli identificatori SQLite.
 - **Condizione di rientro**: protocollo di esclusione verificato sull'intero
   insieme o snapshot coerente del produttore; per i percorsi lunghi, supporto
   SQLite verificato con identita del nome e dei companion su tutte le piattaforme.
+
+
+### Limite Arrow C deliberato (10 novembre 2026)
+
+Il [registro dei limiti Arrow C](../assurance/registries/limiti-arrow-c.json)
+conserva regola, ambito, hazard e condizione di rientro della decisione
+?Accetta con limite?. Gli originali PyArrow vengono validati prima del C;
+le capsule terze sono accettate con full validation dopo import, senza
+pretendere di ricostruire capacita' fisiche non esposte dal protocollo.
+Il binding e il runtime IO importano IPC e applicano il confine del driver.
+
+### Helper Rust su Arrow gia validato
+
+`AdaptiveBatchSizer::observe` e `incremental_batch_memory_size` restano
+helper non fallibili con precondizione di validazione, registrata in
+`assurance/registries/limiti-arrow-c.json`. Gli helper fallibili
+`driver-common::json_from_array` e `cell_string` validano invece l'intero
+array e controllano l'indice. Nei cicli i writer costruiscono una sola
+`ValidatedArray` per colonna e riusano lo snapshot per tutte le celle.
+
+`scripts/check_arrow_external.py` confronta gli ingressi pubblici con
+`assurance/registries/ingressi-arrow-rust.json`. L'estrattore usa syn come
+fallback offline: la nightly rustdoc richiesta non e installata nell'ambiente
+Windows di verifica. Visita tipi annidati e bound generici, risolve gli use
+e propaga il contenimento attraverso campi privati, alias, enum e trait del
+repository. Include conservativamente anche pub in moduli privati, metodi
+di implementazioni di trait e tutte le configurazioni cfg non di test.
+Gli alias Arrow alle frontiere pubbliche, inclusi i tipi associati nelle
+impl e nei trait, e i bound Arrow generici/`impl Trait` sono rifiutati.
+Il catalogo degli item pubblici upstream viene ricavato dai sorgenti Cargo
+offline selezionati da `cargo metadata --locked`, senza una lista manuale
+di tipi. `python scripts/check_arrow_external.py --static-only` lo rigenera
+durante ogni prova, anche in CI. Macro, re-export e codice generato restano
+nel perimetro dichiarato in `assurance/registries/limiti-arrow-c.json`.
+Una funzione nuova, una classificazione mancante o un cambiamento dei tipi
+coinvolti fa fallire la prova. La classificazione e una revisione dichiarata;
+le guardie di routing restano necessarie e non sono un call graph formale.
+Le macro di item non espanse da syn hanno un inventario separato nello
+stesso registro, con revisione della definizione/invocazione e impronta dei
+token: nuove macro o modifiche falliscono, anziche nascondere nuovi ingressi.

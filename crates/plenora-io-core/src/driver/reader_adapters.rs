@@ -357,7 +357,7 @@ impl BudgetedReader {
                             self.physical_row_indices_attestable,
                         )
                     })?;
-                let next = self.inner.next_batch().map_err(|error| {
+                let next = super::next_external_batch(self.inner.as_mut()).map_err(|error| {
                     terminal_scan_error(
                         limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
                         &violations,
@@ -418,7 +418,7 @@ impl BudgetedReader {
                         self.physical_row_indices_attestable,
                     )
                 })?;
-            let next = self.inner.next_batch();
+            let next = super::next_external_batch(self.inner.as_mut());
             let Some(batch) = next.map_err(|error| {
                 terminal_scan_error(
                     limite_o_scadenza(self.budget.context(), error, ErrorPhase::Read),
@@ -1480,7 +1480,7 @@ impl LayerReader for CancellationReader {
         let Some(inner) = self.inner.as_mut() else {
             return Ok(None);
         };
-        let result = inner.next_batch();
+        let result = super::next_external_batch(inner.as_mut());
         self.loss = reader_loss(inner.as_ref());
         if !matches!(result, Ok(Some(_))) {
             self.inner = None;
@@ -1537,7 +1537,7 @@ impl LayerReader for BatchTargetReader {
                 return Ok(Some(output));
             }
 
-            let next = self.inner.next_batch();
+            let next = super::next_external_batch(self.inner.as_mut());
             let Some(batch) = next.inspect_err(|error| {
                 self.pending = None;
                 self.terminal_error = Some(error.clone());
@@ -1644,7 +1644,7 @@ impl LayerReader for SingleActiveLayerReader {
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        let result = self.inner.next_batch();
+        let result = super::next_external_batch(self.inner.as_mut());
         if !matches!(result, Ok(Some(_))) {
             self.lease.release();
         }

@@ -1105,3 +1105,31 @@ pub struct Published {
 
 #[cfg(test)]
 mod tests;
+
+/// Valida ricorsivamente un batch esterno prima di leggere o trasformare i buffer.
+///
+/// # Errors
+/// Restituisce `DataMapping` nella fase indicata, senza includere dati Arrow.
+pub fn validate_external_batch(batch: &RecordBatch, phase: ErrorPhase) -> Result<()> {
+    for column in batch.columns() {
+        if column.len() != batch.num_rows() || column.to_data().validate_full().is_err() {
+            return Err(PlenoraIoError::redatto(
+                IoErrorCode::Generic,
+                ErrorCategory::DataMapping,
+                phase,
+                RemoteEffect::None,
+                RetryDisposition::Never,
+                &PublicMessage::Curated("batch Arrow esterno non valido"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn next_external_batch(reader: &mut dyn LayerReader) -> Result<Option<RecordBatch>> {
+    let batch = reader.next_batch()?;
+    if let Some(batch) = &batch {
+        validate_external_batch(batch, ErrorPhase::Read)?;
+    }
+    Ok(batch)
+}

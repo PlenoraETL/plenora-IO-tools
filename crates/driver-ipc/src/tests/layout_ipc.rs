@@ -196,6 +196,80 @@ fn verifica(tipo: &DataType, nodi: &[FieldNode], buffer: &[i64], motivo: Option<
 }
 
 #[test]
+fn struct_bitmap_padre_corta_decoder_arrow() {
+    for (stream, byte) in struct_bitmap_fixture() {
+        // Nessuna prevalidazione IO e nessuna barriera anti-panic: un panico
+        // fallisce il test. Lo schema si apre, ma il primo batch deve fallire.
+        let input = std::io::Cursor::new(byte);
+        let errore = if stream {
+            reader::StreamReader::try_new(input, None)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap_err()
+        } else {
+            reader::FileReader::try_new(input, None)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap_err()
+        };
+        assert!(matches!(
+            errore,
+            arrow_schema::ArrowError::InvalidArgumentError(_)
+        ));
+        assert!(!errore.to_string().contains("PAYLOAD_MUST_NOT_LEAK"));
+    }
+}
+
+fn struct_bitmap_fixture() -> [(bool, &'static [u8]); 2] {
+    [
+        (
+            false,
+            include_bytes!("../../../../sdk/python/tests/fixtures/struct-short-bitmap.file"),
+        ),
+        (
+            true,
+            include_bytes!("../../../../sdk/python/tests/fixtures/struct-short-bitmap.stream"),
+        ),
+    ]
+}
+
+#[test]
+fn struct_bitmap_padre_corta_lettura_rust() {
+    for (stream, byte) in struct_bitmap_fixture() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), byte).unwrap();
+        let valida = if stream {
+            valida_flusso_ipc
+        } else {
+            valida_file_ipc
+        };
+        let errore = valida("arrow", file.path()).unwrap_err();
+        assert_eq!(errore.code, IoErrorCode::Format);
+        assert_eq!(errore.phase, ErrorPhase::Read);
+        let esito = plenora_io_core::driver::FormatDriver::open(
+            &super::IpcDriver,
+            plenora_io_core::driver::Source::Path(file.path().to_owned()),
+            super::opzioni_lettura(),
+        );
+        let Err(errore) = esito else {
+            panic!("Struct malformata accettata")
+        };
+        assert_eq!(errore.code, IoErrorCode::Format);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        assert_eq!(errore.phase, ErrorPhase::Read);
+        assert_eq!(
+            errore.message,
+            "bitmap di validita' Arrow piu' corta della lunghezza dichiarata"
+        );
+    }
+}
+
+#[test]
 fn arrow_60_1_bitmap_corta_restituisce_errore_senza_panico() {
     for stream in [false, true] {
         let byte = fixture(

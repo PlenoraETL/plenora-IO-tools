@@ -571,6 +571,7 @@ impl StagedSpool {
     /// batch diverge da quello del layer, se la quota di memoria o di spill
     /// non basta, o se la scrittura sul file temporaneo fallisce.
     pub fn push(&mut self, batch: RecordBatch, memory_lease: InternalMemoryLease) -> Result<()> {
+        super::validate_external_batch(&batch, plenora_io_model::ErrorPhase::Read)?;
         if self.sealed {
             return Err(contract_error(SPOOL_ALREADY_SEALED));
         }

@@ -234,6 +234,7 @@ impl DaEwkbAWkb {
     /// quello dichiarato, o non si ricodifica; un errore di contratto se la
     /// colonna non e' binaria.
     pub fn converti(&self, batch: &RecordBatch) -> Result<RecordBatch> {
+        crate::driver::validate_external_batch(batch, plenora_io_model::ErrorPhase::Validate)?;
         let colonna = batch.column(self.indice);
         let mut buffer = Vec::new();
         let convertita: ArrayRef = match colonna.data_type() {

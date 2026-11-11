@@ -92,6 +92,7 @@ impl LimitedWriter {
     // lunghezza e' nel numero di limiti, non in complessita' logica.
     #[allow(clippy::too_many_lines)]
     fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<WriteBatchResources> {
+        super::validate_external_batch(batch, ErrorPhase::Validate)?;
         self.budget.context().ensure_active()?;
         if let Some(contract) = self.contracts.get(layer) {
             if batch.schema().as_ref() != contract.as_ref() {

@@ -28,7 +28,7 @@ use geometry::{
     Transform3,
 };
 
-use driver_common::{cell_string, geometry_field, geometry_index};
+use driver_common::{geometry_field, geometry_index, ValidatedArray};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -735,6 +735,7 @@ impl FormatWriter for DxfWriterState {
     }
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let cells = ValidatedArray::columns(batch.columns())?;
         let schema = batch.schema();
         let geom_idx = geometry_index(&schema).ok_or_else(|| {
             err(&PublicMessage::Curated(
@@ -788,10 +789,7 @@ impl FormatWriter for DxfWriterState {
         }
         let mut layers = Vec::with_capacity(batch.num_rows());
         for row in 0..batch.num_rows() {
-            if let Ok(layer) = layer_idx
-                .map(|index| cell_string(batch.column(index), row))
-                .transpose()
-            {
+            if let Ok(layer) = layer_idx.map(|index| cells[index].text(row)).transpose() {
                 layers.push(layer.flatten());
             } else {
                 rejections.push((row, "dxf.layer_not_representable", "layer"));
@@ -1671,6 +1669,10 @@ impl LayerReader for DxfReader {
                     "batch DXF da spool non ricostruibile",
                 ))
             })?;
+        plenora_io_core::driver::validate_external_batch(
+            &batch,
+            plenora_io_model::ErrorPhase::Read,
+        )?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }

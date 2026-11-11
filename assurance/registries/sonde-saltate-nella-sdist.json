@@ -1,12 +1,26 @@
 {
   "schema_version": 1,
   "descrizione": "Le sonde dell'SDK che l'installazione dalla sdist non puo' esercitare, e perche'. L'elenco e' **chiuso**: `scripts/check_sonde_saltate.py` lo confronta con cio' che salta davvero, nei due versi.",
-  "perche_un_elenco_e_non_un_numero": "«27 saltate» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
+  "perche_un_elenco_e_non_un_numero": "Ã‚Â«27 saltateÃ‚Â» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
   "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
   "dove_girano_invece": "nel repository, dove il job `python-sdk` della CI le esegue su ogni versione di Python della matrice. Saltare nell'installazione non vuol dire non essere verificate: vuol dire esserlo altrove, e questo registro dice dove.",
-  "totale": 98,
+  "totale": 110,
   "eseguite_nella_sdist": 319,
   "condizioni": [
+    {
+      "id": "backend-struct-bitmap",
+      "che_cosa_manca": "Il binario plenora-io e il binding nativo nella sdist pura.",
+      "perche_non_sta_nella_sdist": "La sdist Python pura non distribuisce eseguibili o estensioni native.",
+      "che_cosa_resta_verificato": "Le fixture sono incluse; le prove dei backend girano nelle suite CLI e wheel nativa.",
+      "ragione_del_salto": "serve il backend plenora-io",
+      "quante": 4,
+      "sonde": [
+        "test_arrow_60_1.StructBitmapCorta.test_bitmap_padre_corta_non_consegna_batch",
+        "test_arrow_60_1.StructBitmapCortaNativa.test_bitmap_padre_corta_non_consegna_batch",
+        "test_arrow_60_1.StructBitmapCorta.test_matrice_ipc_non_consegna_batch",
+        "test_arrow_60_1.StructBitmapCortaNativa.test_matrice_ipc_non_consegna_batch"
+      ]
+    },
     {
       "id": "fixture-canoniche",
       "che_cosa_manca": "`crates/plenora-io-tools/tests/fixtures/canoniche/`: i file di prova nei dieci formati, piu' il binario `plenora-io` che li legge.",
@@ -121,9 +135,13 @@
       "perche_non_sta_nella_sdist": "e' una dipendenza **facoltativa** e non un file: la sdist non porta dipendenze, e installarla nello smoke vorrebbe dire provare un ambiente che chi installa senza extra non ha. Lo smoke prova proprio quell'ambiente, e li' l'adattatore si rifiuta con `OptionalDependencyError` -- che `SenzaPyarrow` esercita senza saltare.",
       "che_cosa_resta_verificato": "il rifiuto senza pyarrow e il rifiuto di una serie diversa, che girano anche qui. Le sonde saltate -- la tabella da e verso il file IPC, contro un binario finto -- girano nel repository, nel job `python-sdk` della CI, che installa pyarrow==25.0.1 su ogni versione della matrice.",
       "ragione_del_salto": "serve pyarrow, l'extra `plenora-io[pyarrow]`, che l'installazione dalla sdist non porta",
-      "quante": 20,
+      "quante": 28,
       "sonde": [
+        "test_arrow_60_1.MatriceArrowEsterno.test_originali_invalidi_non_riserializzati",
+        "test_arrow_60_1.MatriceArrowEsterno.test_consegne_invalide_non_diventano_tabelle",
         "test_arrow_60_1.SchemaIpc.test_map_keys_sorted_conservato_su_piu_batch",
+        "test_arrow_60_1.SchemaIpc.test_struct_bitmap_padre_corta_consegna_sdk",
+        "test_arrow_60_1.SchemaIpc.test_struct_bitmap_padre_corta_ingresso_sdk",
         "test_confini_esterni.LAdattatore.test_hasattr_che_solleva_e_invalid_argument",
         "test_confini_esterni.LAdattatore.test_un_footer_che_non_si_scrive_e_local_io_error",
         "test_confini_esterni.LAdattatore.test_una_chiusura_fallita_non_copre_l_errore_gia_tradotto",
@@ -142,7 +160,11 @@
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_un_errore_di_pyarrow_non_attraversa_il_confine",
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_un_oggetto_che_non_e_arrow_si_rifiuta",
         "test_contratto_sdk.LAdattatoreContrUnFinto.test_write_da_un_record_batch_e_da_un_reader",
-        "test_contratto_sdk.LAdattatoreContrUnFinto.test_write_da_una_tabella"
+        "test_contratto_sdk.LAdattatoreContrUnFinto.test_write_da_una_tabella",
+        "test_arrow_60_1.CapsuleArrow.test_capsule_valide_conservano_batch",
+        "test_arrow_60_1.CapsuleArrow.test_capsule_rifiutano_difetti_verificabili",
+        "test_arrow_60_1.CapsuleArrow.test_reader_lazy_valida_prima_di_consegnare_al_writer",
+        "test_arrow_60_1.CapsuleArrow.test_secondo_batch_invalido_non_raggiunge_backend"
       ]
     }
   ]

@@ -1881,6 +1881,10 @@ mod backend {
                     n += 1;
                     if n >= batch_sizer.rows() {
                         let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
+                        plenora_io_core::driver::validate_external_batch(
+                            &batch,
+                            plenora_io_model::ErrorPhase::Read,
+                        )?;
                         batch_sizer.observe(&batch);
                         if !emitter.send(batch) {
                             return Ok(());

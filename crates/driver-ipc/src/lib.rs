@@ -513,15 +513,14 @@ impl OpenDatasetHandle for IpcDataset {
         }
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
             match serializzazione {
-                Serializzazione::File => FileReader::try_new(File::open(&path)?, projection)
-                    .map(LettoreIpc::File)
+                Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
+                    .map(|lettore| LettoreIpc::File {
+                        lettore,
+                        proiezione: projection,
+                    })
                     .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido"))),
-                // Il `StreamReader` non prende una proiezione alla
-                // costruzione: il flusso non ha un indice da cui saltare le
-                // colonne, e la selezione si fa sul batch. Il risultato e' lo
-                // stesso -- `ProjectionSupport::Exact` resta vero -- e cambia
-                // solo dove costa: li' il lavoro non fatto, qui fatto e
-                // scartato.
+                // Entrambe le serializzazioni decodificano tutte le colonne:
+                // il decoder deve verificare anche quelle escluse dal risultato.
                 Serializzazione::Flusso => {
                     StreamReader::try_new(BufReader::new(File::open(&path)?), None)
                         .map(|lettore| LettoreIpc::Flusso {
@@ -546,7 +545,10 @@ impl OpenDatasetHandle for IpcDataset {
 /// `FileReader`, e senza il riquadro l'enum costerebbe a entrambe la
 /// dimensione della piu' grande.
 enum LettoreIpc {
-    File(FileReader<File>),
+    File {
+        lettore: FileReader<File>,
+        proiezione: Option<Vec<usize>>,
+    },
     Flusso {
         lettore: Box<StreamReader<BufReader<File>>>,
         /// Gli indici delle colonne richieste, applicati al batch invece che
@@ -574,9 +576,12 @@ impl LayerReader for IpcReader {
         // contratto di `LayerReader` non prevede di proseguire dopo un errore.
         let reader = &mut self.reader;
         plenora_io_core::driver::leggendo_arrow("arrow", move || match reader {
-            LettoreIpc::File(lettore) => match lettore.next() {
+            LettoreIpc::File {
+                lettore,
+                proiezione,
+            } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => Ok(Some(b)),
+                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
             LettoreIpc::Flusso {
@@ -584,15 +589,25 @@ impl LayerReader for IpcReader {
                 proiezione,
             } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => match proiezione {
-                    None => Ok(Some(b)),
-                    Some(indici) => b.project(indici).map(Some).map_err(|_| {
-                        err(&PublicMessage::Curated("proiezione del batch IPC fallita"))
-                    }),
-                },
+                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
         })
+    }
+}
+
+// La proiezione non deve nascondere dati corrotti nelle colonne escluse.
+fn valida_e_proietta(
+    batch: RecordBatch,
+    projection: Option<&[usize]>,
+) -> Result<Option<RecordBatch>> {
+    plenora_io_core::driver::validate_external_batch(&batch, plenora_io_model::ErrorPhase::Read)?;
+    match projection {
+        None => Ok(Some(batch)),
+        Some(indices) => batch
+            .project(indices)
+            .map(Some)
+            .map_err(|_| err(&PublicMessage::Curated("proiezione del batch IPC fallita"))),
     }
 }
 
@@ -644,6 +659,10 @@ struct IpcWriter {
 
 impl FormatWriter for IpcWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        plenora_io_core::driver::validate_external_batch(
+            batch,
+            plenora_io_model::ErrorPhase::Validate,
+        )?;
         let batch = RecordBatch::try_new(self.schema.clone(), batch.columns().to_vec())
             .map_err(|_| err(&PublicMessage::Curated("retag del contratto IPC fallito")))?;
         self.writer

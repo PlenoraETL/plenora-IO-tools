@@ -1362,6 +1362,60 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
+## Prossima correttiva: validazione degli ingressi Arrow
+
+Corretto il difetto silenzioso della lettura IPC Rust con proiezione: colonne
+escluse potevano contenere offset invalidi senza causare un errore. Ora file e
+stream decodificano e validano completamente ogni batch prima della proiezione.
+La storia Git locale mostra il percorso proiettato in tutti i 19 tag da
+`v0.1.0-rc.1` a `v7.0.2`; l'attribuzione storica e' statica, non una prova
+eseguita con ciascun binario.
+
+Integrata la correzione locale SDK: Table e RecordBatch sono validati nella
+forma originale; i reader PyArrow sono consumati direttamente e ogni batch
+viene validato prima della riserializzazione. Anche le consegne IPC sono
+validate per batch prima di assemblare una Table. Il difetto consentiva la
+riserializzazione silenziosa di buffer/bitmap corti, offset e indici invalidi,
+figli Struct incoerenti e REE malformati. Tutti i tag con SDK Python sono
+interessati: `v5.0.0`, `v5.0.1`, `v6.0.0`, `v7.0.0`, `v7.0.1`, `v7.0.2`.
+
+Il core usa `validate_external_batch` prima di elaborare batch dei reader
+esterni, contabilizzarli nei writer, inserirli nello spool o convertirli in
+EWKB. Errori redatti `data_mapping`, fase `read` o `validate` secondo il confine.
+
+**Limite deliberato, decisione del titolare del 10/11: "Accetta con limite".**
+I produttori solo C restano accettati, inclusi batch via `__arrow_c_array__`.
+La full validation dopo import verifica le proprieta' rappresentabili, ma non
+le capacita' fisiche originali dei buffer o i lifetime: il produttore le
+garantisce secondo il contratto Arrow. Gli originali PyArrow riconoscibili
+seguono sempre il ramo precedente. Regola, ambito, hazard e condizione di rientro:
+[registro dei limiti Arrow C](../assurance/registries/limiti-arrow-c.json).
+
+**Qualifica locale:** suite workspace, doctest e clippy del profilo predefinito
+eseguiti offline. La variante `--all-features` richiede la libreria di sviluppo
+GDAL (`gdal_i.lib`), assente in questo ambiente Windows. La qualifica completa
+di release resta distinta da queste verifiche; esiti e limiti nel rapporto locale
+`target/arrow-final-report.md`.
+
+Gli helper non fallibili `AdaptiveBatchSizer::observe` e
+`incremental_batch_memory_size` richiedono array gia validati: il limite e
+il rientro sono registrati in `assurance/registries/limiti-arrow-c.json`.
+`driver-common::json_from_array` e `cell_string` validano invece tutto l'array
+prima di leggere la cella, inclusi gli offset successivi, e rifiutano indici
+fuori limite (quartetto `Schema/Validate/Schema/Never`, registrato per i due
+nuovi siti; i rifiuti di conversione preesistenti restano invariati).
+I writer usano `ValidatedArray`, snapshot costruito una volta
+per colonna e riutilizzato per tutte le righe, senza scansioni quadratiche.
+L'inventario degli ingressi pubblici e' estratto con syn (fallback offline:
+nightly-2026-07-21 non disponibile), risolvendo gli use e i tipi annidati;
+ogni ingresso richiede classificazione nel registro dichiarativo.
+
+Misura SDK locale (PyArrow 25.0.1, cache calda, 1 milione di righe, 76 MB,
+cinque iterazioni): mediana prima 45,22 ms, dopo 59,97 ms (+32,6%). Il confronto
+usa l'helper di HEAD prima delle modifiche locali; non misura tutti i driver
+ne' la nuova decodifica delle colonne escluse. Referto sotto
+`target/arrow-validation-benchmark.json`, non evidenza di qualifica release.
+
 ## 7.0.2 — 2026-11-09 (candidate, non rilasciata)
 
 ### Draft verificata e passi dopo la decisione
