@@ -1356,6 +1356,259 @@
       "gate_release": "Non eseguito: resta successivo alla decisione autentica, tag e registrazione della autorizzazione, nell ambiente Linux completo.",
       "vincoli": "Nessun commit, stash, push, tag, workflow o modifica remota di draft/release eseguiti. release_authorized e release_action_allowed restano false.",
       "log": "target/rel703/verifica-draft/esiti.json e strutturali.json; comandi e output completi nei log della stessa directory; script target/rel703/registra-draft.py e target/rel703/controlli-draft.py."
+    },
+    "published": {
+      "verificata_il": "2026-11-11T18:09:36.333719+00:00",
+      "id": 441548595,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.3",
+      "tag_name": "v7.0.3",
+      "target": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+      "tag_oggetto": "bdbf635c601252e6c4dcf9d4f51cc4dd177a92df",
+      "draft": false,
+      "immutable": false,
+      "published_at": "2026-11-11T18:06:31Z",
+      "fonte_pubblicazione": "Pubblicazione eseguita dal titolare (PATCH draft=false); metadati locali target/rel703/pub-info.json. Nessuna interrogazione o modifica remota in questa registrazione.",
+      "gate_pre_pubblicazione": {
+        "comando": "python3 scripts/check_release_contract.py --release",
+        "ambiente": "VM Linux di qualifica ricreata l'11/11/2026",
+        "revisione": "60fb19c7a289ea2f93c7aceaae961ac7e239646a",
+        "exit_code": 0,
+        "output": "release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate",
+        "fonte": "Gate eseguito dall'operatore prima della pubblicazione, secondo quanto comunicato dall'operatore; contracts/adoption-manifest.json identico all asset riscaricato."
+      },
+      "directory_riscaricata": "target/rel703/pub-riscaricata",
+      "numero_asset": 24,
+      "comando": [
+        "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check-deliverable.py",
+        "--directory",
+        "target\\rel703\\verifica-pubblicazione\\deliverable",
+        "--versione",
+        "7.0.3",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "output": "deliverable verificati: 7 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 7 artefatti congelati dalla candidate",
+      "confronti": {
+        "asset_contro_draft": "24/24 asset: nomi, dimensioni e SHA-256 coincidenti con i metadati GitHub e il verbale draft; confronto byte per byte con la draft superato.",
+        "asset_contro_metadati_github": "24/24 nomi, dimensioni e SHA-256 ricalcolati coincidenti",
+        "deliverable_contro_candidate": "7/7 archivi con digest e dimensioni congelati coincidenti",
+        "directory_deliverable": "23/23 file identici ai riscaricati; escluso soltanto adoption-manifest.json",
+        "manifesto_locale": "adoption-manifest.json: identico byte per byte a contracts/adoption-manifest.json."
+      },
+      "manifesto_adozione": {
+        "comando": [
+          "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+          "-B",
+          "scripts/check_manifesto_adozione.py",
+          "--contracts",
+          ".plenora-contracts",
+          "--manifesto",
+          "target\\rel703\\pub-riscaricata\\adoption-manifest.json",
+          "--artefatto",
+          "target\\rel703\\pub-riscaricata\\plenora-io-7.0.3-linux-x86_64-base.tar.gz",
+          "--artefatto",
+          "target\\rel703\\pub-riscaricata\\plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz",
+          "--artefatto",
+          "target\\rel703\\pub-riscaricata\\plenora-io-7.0.3-src.tar.gz",
+          "--artefatto",
+          "target\\rel703\\pub-riscaricata\\plenora-io-7.0.3-windows-x86_64-base.zip",
+          "--artefatto",
+          "target\\rel703\\pub-riscaricata\\plenora-io-7.0.3-windows-x86_64-filegdb.zip"
+        ],
+        "exit_code": 0,
+        "output": "manifesto di adozione verificato: 5 artefatti con digest ricalcolati, 14 contratti dichiarati conformi e 1 non applicabili, 8 deviazioni. Le deviazioni **non** contano come conformita' per le regole che nominano."
+      },
+      "release_authorized": true,
+      "release_action_allowed": false,
+      "asset": {
+        "MANIFEST-sorgente.json": {
+          "sha256": "540f18b3983150ccfe8f2ff1499519b0e7215f20a3fa4c0876a607ae557c6b38",
+          "dimensione": 753
+        },
+        "MANIFEST.json": {
+          "sha256": "f5ddae748a2f9651e26be017c3ecaf14825ed80799d74dcf3c566bdbf84e3445",
+          "dimensione": 1394
+        },
+        "adoption-manifest.json": {
+          "sha256": "6385a11ec35b6ef508a2ca632832ab7e04b2b6f66f73d8495d70ae321041ead4",
+          "dimensione": 12301
+        },
+        "licenze.json": {
+          "sha256": "d5bfdc78fb92d2dcffdf9abe68f32530a838d6c4a2f12f4ac902932fc2e7c42e",
+          "dimensione": 1398
+        },
+        "plenora-io-7.0.3-linux-x86_64-base.tar.gz": {
+          "sha256": "e5be2ba0995107115dcfa60551da1af2dae138ed5b7cf4cf7a44cada6ee716d7",
+          "dimensione": 9219603
+        },
+        "plenora-io-7.0.3-linux-x86_64-base.tar.gz.provenance.json": {
+          "sha256": "e624f414c4921d621f55bfc6cc6f0302bae38103aa08d508cc10cbd6e23579f9",
+          "dimensione": 2582
+        },
+        "plenora-io-7.0.3-linux-x86_64-base.tar.gz.sha256": {
+          "sha256": "13ff60cbb69dc3532f3d1ed069ce9cf9f940ec8dbc93b22ff733e517d4af31fc",
+          "dimensione": 108
+        },
+        "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz": {
+          "sha256": "3d013cc558a49360a4e53ada93690cf7559acdf567015dbcdf62e1e0cee6ac7b",
+          "dimensione": 65062631
+        },
+        "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "sha256": "6bcee1b9251be757dc450c7ee4790cde7c46a8dcfd99987d4ea23294a9524497",
+          "dimensione": 2589
+        },
+        "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz.sha256": {
+          "sha256": "7573b3d7f3c5518239aa9b2efc11e28d34b4891e0ee04c3b0900f0dbf34c0935",
+          "dimensione": 111
+        },
+        "plenora-io-7.0.3-src.tar.gz": {
+          "sha256": "82ca89e2c39906414d77b8cfbfc87aa43b96f877d6240f44e97de073007fbb9a",
+          "dimensione": 21392414
+        },
+        "plenora-io-7.0.3-src.tar.gz.sha256": {
+          "sha256": "114c0f4b9dea515de196c3682968630452f461afa47e2d2643978d30048a6ca9",
+          "dimensione": 94
+        },
+        "plenora-io-7.0.3-windows-x86_64-base.zip": {
+          "sha256": "a53c1b5d44de0d0d5d24b8a2598acf864007f9828bea6dfeae98b2b3e66831b7",
+          "dimensione": 10031292
+        },
+        "plenora-io-7.0.3-windows-x86_64-base.zip.provenance.json": {
+          "sha256": "f3a97e95c014d41271edee7c402f0fd6f72b00f448e0ac4209982967acfef6ed",
+          "dimensione": 2436
+        },
+        "plenora-io-7.0.3-windows-x86_64-base.zip.sha256": {
+          "sha256": "9447fcd871e9dca2f8a99b16078245249d0c32fb765bcd2cce2d67f15112dbdc",
+          "dimensione": 108
+        },
+        "plenora-io-7.0.3-windows-x86_64-filegdb.zip": {
+          "sha256": "ac290d546b48f4da730b299c1d9af51b8079bc23efca5535a39937dd9ed2e9e0",
+          "dimensione": 49084022
+        },
+        "plenora-io-7.0.3-windows-x86_64-filegdb.zip.provenance.json": {
+          "sha256": "6c5e2fd2c65372466a48bf25ea050972e255d375107322240ba8da45c45badf2",
+          "dimensione": 2442
+        },
+        "plenora-io-7.0.3-windows-x86_64-filegdb.zip.sha256": {
+          "sha256": "b0da5fc3b692d69662233291bcd5e8f2a98f681f1d76a711d7088a4df70dc8c1",
+          "dimensione": 111
+        },
+        "plenora_io-7.0.3-py3-none-any.whl": {
+          "sha256": "8682641c1af0e24da059ca48798c65f411e6abeabaf3a79806c75b042cc12188",
+          "dimensione": 115533
+        },
+        "plenora_io-7.0.3-py3-none-any.whl.sha256": {
+          "sha256": "8b7ba6cfcf4d239bdcd50d5040d587e0f220fc64a2e0b38e5b60422069188876",
+          "dimensione": 100
+        },
+        "plenora_io-7.0.3.tar.gz": {
+          "sha256": "c0d84887e54ae5c8cba0636134983eb12b556208f413ad769420ef8dd5d46491",
+          "dimensione": 219385
+        },
+        "plenora_io-7.0.3.tar.gz.sha256": {
+          "sha256": "f1eb6901637a81971855ba976cee0fbfa1f11a65a98d335ab9c60680415147ca",
+          "dimensione": 90
+        },
+        "provenance.json": {
+          "sha256": "a696c39616393e47df42016482af8d1d40d995f60529514d22c942eae6d9e7fe",
+          "dimensione": 769
+        },
+        "sbom.json": {
+          "sha256": "86e898c3b02e18c2cef1eec9b21f2c4fa4f0b330e0437937bda7cc2bdb7efaa1",
+          "dimensione": 1103
+        }
+      },
+      "verifica_complessiva": {
+        "comando": [
+          "python",
+          "-B",
+          "target/rel703/verifica-pubblicazione/verifica.py"
+        ],
+        "exit_code": 0,
+        "output": "OK MANIFEST-sorgente.json: 753 byte, sha256:540f18b3983150ccfe8f2ff1499519b0e7215f20a3fa4c0876a607ae557c6b38, identico byte per byte alla draft\nOK MANIFEST.json: 1394 byte, sha256:f5ddae748a2f9651e26be017c3ecaf14825ed80799d74dcf3c566bdbf84e3445, identico byte per byte alla draft\nOK adoption-manifest.json: 12301 byte, sha256:6385a11ec35b6ef508a2ca632832ab7e04b2b6f66f73d8495d70ae321041ead4, identico byte per byte alla draft\nOK licenze.json: 1398 byte, sha256:d5bfdc78fb92d2dcffdf9abe68f32530a838d6c4a2f12f4ac902932fc2e7c42e, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-base.tar.gz: 9219603 byte, sha256:e5be2ba0995107115dcfa60551da1af2dae138ed5b7cf4cf7a44cada6ee716d7, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-base.tar.gz.provenance.json: 2582 byte, sha256:e624f414c4921d621f55bfc6cc6f0302bae38103aa08d508cc10cbd6e23579f9, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-base.tar.gz.sha256: 108 byte, sha256:13ff60cbb69dc3532f3d1ed069ce9cf9f940ec8dbc93b22ff733e517d4af31fc, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz: 65062631 byte, sha256:3d013cc558a49360a4e53ada93690cf7559acdf567015dbcdf62e1e0cee6ac7b, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz.provenance.json: 2589 byte, sha256:6bcee1b9251be757dc450c7ee4790cde7c46a8dcfd99987d4ea23294a9524497, identico byte per byte alla draft\nOK plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz.sha256: 111 byte, sha256:7573b3d7f3c5518239aa9b2efc11e28d34b4891e0ee04c3b0900f0dbf34c0935, identico byte per byte alla draft\nOK plenora-io-7.0.3-src.tar.gz: 21392414 byte, sha256:82ca89e2c39906414d77b8cfbfc87aa43b96f877d6240f44e97de073007fbb9a, identico byte per byte alla draft\nOK plenora-io-7.0.3-src.tar.gz.sha256: 94 byte, sha256:114c0f4b9dea515de196c3682968630452f461afa47e2d2643978d30048a6ca9, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-base.zip: 10031292 byte, sha256:a53c1b5d44de0d0d5d24b8a2598acf864007f9828bea6dfeae98b2b3e66831b7, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-base.zip.provenance.json: 2436 byte, sha256:f3a97e95c014d41271edee7c402f0fd6f72b00f448e0ac4209982967acfef6ed, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-base.zip.sha256: 108 byte, sha256:9447fcd871e9dca2f8a99b16078245249d0c32fb765bcd2cce2d67f15112dbdc, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-filegdb.zip: 49084022 byte, sha256:ac290d546b48f4da730b299c1d9af51b8079bc23efca5535a39937dd9ed2e9e0, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-filegdb.zip.provenance.json: 2442 byte, sha256:6c5e2fd2c65372466a48bf25ea050972e255d375107322240ba8da45c45badf2, identico byte per byte alla draft\nOK plenora-io-7.0.3-windows-x86_64-filegdb.zip.sha256: 111 byte, sha256:b0da5fc3b692d69662233291bcd5e8f2a98f681f1d76a711d7088a4df70dc8c1, identico byte per byte alla draft\nOK plenora_io-7.0.3-py3-none-any.whl: 115533 byte, sha256:8682641c1af0e24da059ca48798c65f411e6abeabaf3a79806c75b042cc12188, identico byte per byte alla draft\nOK plenora_io-7.0.3-py3-none-any.whl.sha256: 100 byte, sha256:8b7ba6cfcf4d239bdcd50d5040d587e0f220fc64a2e0b38e5b60422069188876, identico byte per byte alla draft\nOK plenora_io-7.0.3.tar.gz: 219385 byte, sha256:c0d84887e54ae5c8cba0636134983eb12b556208f413ad769420ef8dd5d46491, identico byte per byte alla draft\nOK plenora_io-7.0.3.tar.gz.sha256: 90 byte, sha256:f1eb6901637a81971855ba976cee0fbfa1f11a65a98d335ab9c60680415147ca, identico byte per byte alla draft\nOK provenance.json: 769 byte, sha256:a696c39616393e47df42016482af8d1d40d995f60529514d22c942eae6d9e7fe, identico byte per byte alla draft\nOK sbom.json: 1103 byte, sha256:86e898c3b02e18c2cef1eec9b21f2c4fa4f0b330e0437937bda7cc2bdb7efaa1, identico byte per byte alla draft\n24/24 asset: byte identici alla draft; dimensioni e SHA-256 coincidenti con metadati GitHub e verbale draft. 7/7 artefatti coincidenti con la candidate. Manifesto locale identico."
+      },
+      "controlli_registrazione_windows": {
+        "strutturali": {
+          "completezza": [],
+          "struttura": [],
+          "validate_stato_corrente": [],
+          "evidenza_coerente": [],
+          "release_pubblicata": [],
+          "release_storiche": [],
+          "profilo_pubblico": [],
+          "cambiamenti": [],
+          "allowlist_worktree_untracked": []
+        },
+        "comandi": [
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "scripts/check_docset.py"
+            ],
+            "exit_code": 0,
+            "output": "docset verificato: 8 documenti canonici, 12 file operativi, nessun altro Markdown nel perimetro (tracciati piu' untracked non ignorati); blocco di stato coerente con la fonte strutturata.",
+            "log": "target/rel703/verifica-pubblicazione/docset.log"
+          },
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "-m",
+              "unittest",
+              "scripts.test_check_docset",
+              "scripts.test_check_release_contract.SondeDellaReleasePubblicata",
+              "scripts.test_check_release_contract.SondeDelCongelamentoAncoraAttivo",
+              "scripts.test_check_release_contract.SondeDelGateDiRilascioSuFixture",
+              "scripts.test_check_release_contract.SondeDelTagSuiDueAlberi",
+              "scripts.test_check_release_contract.SondeDelTagSuGitVero"
+            ],
+            "exit_code": 0,
+            "output": "..................................warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n.warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n...warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n................................................\n----------------------------------------------------------------------\nRan 86 tests in 5.894s\n\nOK",
+            "log": "target/rel703/verifica-pubblicazione/test-pubblicazione.log"
+          },
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "scripts/check_release_contract.py"
+            ],
+            "exit_code": 1,
+            "output": "Traceback (most recent call last):\n  File \"C:\\pg\\io-rel703\\scripts\\check_release_contract.py\", line 4657, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"C:\\pg\\io-rel703\\scripts\\check_release_contract.py\", line 4581, in main\n    errori = esegui(documento)\n             ^^^^^^^^^^^^^^^^^\n  File \"C:\\pg\\io-rel703\\scripts\\check_release_contract.py\", line 1081, in esegui\n    esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 548, in run\n    with Popen(*popenargs, **kwargs) as process:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1026, in __init__\n    self._execute_child(args, executable, preexec_fn, close_fds,\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1538, in _execute_child\n    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [WinError 2] Impossibile trovare il file specificato",
+            "log": "target/rel703/verifica-pubblicazione/contratto.log"
+          },
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "scripts/check_asan_filegdb.py",
+              "--qualifica"
+            ],
+            "exit_code": 1,
+            "output": "il binario con il tier GDB acceso non si costruisce qui (`cargo build --package plenora-io-tools --features gdal-backend` e' uscito con 101): questo gate verifica la GDAL con cui il target verrebbe costruito **qui**, e va eseguito dove GDAL e' installata.\n  --- stderr\n\n  thread 'main' (91432) panicked at C:\\Users\\Marco\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\gdal-sys-0.12.0\\build.rs:204:9:\n  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.\n  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+            "log": "target/rel703/verifica-pubblicazione/asan.log"
+          },
+          {
+            "comando": [
+              "git",
+              "diff",
+              "--check"
+            ],
+            "exit_code": 0,
+            "output": "",
+            "log": "target/rel703/verifica-pubblicazione/diff-check.log"
+          }
+        ],
+        "nota": "Controlli locali Windows distinti dal gate --release pre-pubblicazione eseguito dall'operatore sulla VM Linux. Controllo completo locale non completato: python3 assente, WinError 2. ASan/FileGDB non verificato: gdal_i.lib assente. Nessuna nuova qualifica Linux dedotta dai controlli locali.",
+        "log": "target/rel703/verifica-pubblicazione"
+      }
     }
   }
 }
