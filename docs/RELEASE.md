@@ -2420,3 +2420,74 @@ Dai log dell'operatore: replay 145 input su 15 target, 0 crash; smoke 15/15, nes
 Soak mirato eseguito dall'operatore sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0: dxf_reader monotonic/boottime/realtime 3602.3007007650012/3602.3007008970017/3602.3007011413574 s, 19164124 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3602.136202079004/3602.136202089001/3602.1362023353577 s, 12681869 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding o segnale, durata dimostrata, esito completa. Secondo l'operatore, le due campagne da 3600 s sono state eseguite in parallelo sulla VM di qualifica, nel clone pulito del livello 2. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-6e494a6.json. Restano le rimisure fuzz/ASan e le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo questa registrazione resta da eseguire sulla VM.
 
 Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke e console identici byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; esecuzione ordinaria con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys (cargo exit 101), 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel800/verifica-l2; resoconto in target/rel800/L2-REGISTRAZIONE.md.
+
+### Draft verificata della 8.0.0 e passi successivi
+
+La draft **443365689**, [URL comunicato dall'operatore](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-c944551ccaecadf1a478),
+e' stata verificata localmente il 12/11/2026. Target
+`6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0`, tag previsto `v8.0.0`,
+titolo «Plenora IO-tools 8.0.0», draft non pubblicata secondo l'operatore.
+ID, target e provenienza del riscaricamento sono fatti comunicati dall'operatore;
+nessuna chiamata GitHub o verifica dei metadati API e' stata eseguita qui.
+
+Il verbale `assurance/evidence/checkpoint-6e494a6.json`,
+`release_verification.draft`, contiene i 24 nomi, dimensioni e SHA-256
+ricalcolati da `target/rel800/draft-riscaricata/`: coincidono tutti con
+`target/rel800/draft-asset-elenco.json` e con gli originali byte per byte.
+I 23 file separati dal manifesto passano `check-deliverable.py
+--contro-la-candidate`: sette archivi congelati, inclusi i due Python.
+`adoption-manifest.json` passa il controllo sui cinque archivi: 15 contratti
+dichiarati conformi, uno non applicabile, otto deviazioni. Non sono nuove
+attestazioni funzionali. Il manifesto riscaricato e' identico byte per byte a
+`contracts/adoption-manifest.json`, che e' la copia letta dal gate.
+
+Questa registrazione supera i riferimenti precedenti alla draft ancora da
+verificare. Non chiude le rimisure fuzz/ASan, le attestazioni richieste e il
+contratto completo sulla VM ancora indicati dal verbale. Le misure L2 e soak
+restano invariate. I controlli locali di coerenza non sostituiscono il gate finale.
+
+Nel primo commit `release_authorized`, `release_action_allowed`, `tag_creato`
+e `tag_sulla_candidate` restano false. La decisione autentica comunicata in
+questa sessione e' preparata separatamente in
+`target/rel800/autorizzazione.patch`, senza applicarla. La patch aggiunge
+`assurance/evidence/autorizzazione-8.0.0.txt`, registra la decisione nella nota
+e aggiorna lo stato e il blocco generato. Applicarla soltanto dopo il primo
+commit e dopo aver creato e verificato il tag annotato locale, come per la 7.0.3.
+
+Istruzioni future, non eseguite; usare il checkout di assurance aggiornato
+nell'ambiente Linux di qualifica, contratti al pin e manifesto verificato:
+
+```bash
+git tag -a v8.0.0 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0 -m "Plenora IO-tools 8.0.0"
+git for-each-ref --format='%(objecttype) %(objectname) %(*objectname)' refs/tags/v8.0.0
+git rev-parse 'v8.0.0^{commit}'
+# Pretendere oggetto tag e commit 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0.
+git apply --check target/rel800/autorizzazione.patch
+git apply target/rel800/autorizzazione.patch
+python3 scripts/check_docset.py --riscrivi-stato
+python3 scripts/check_docset.py
+git diff --check
+```
+
+Registrare l'autorizzazione in un secondo commit di assurance separato.
+La patch imposta `release_authorized=true`, `tag_creato=true`,
+`tag_sulla_candidate=true`, `tag_revisione` alla candidate completa e
+`release_action_allowed=true`; non attesta un gate gia' superato o un push.
+Dopo aver soddisfatto le condizioni residue, sul commit di assurance aggiornato:
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v8.0.0
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/443365689 -F draft=false
+```
+
+Prima del PATCH ricontrollare ID, target, tag e tutti i 24 asset contro il
+verbale, senza ricostruire, caricare o sostituire asset e senza cambiare note.
+Il PATCH modifica soltanto `draft`. Dopo la pubblicazione riscaricare in una
+directory nuova e ripetere tutti i confronti, registrando
+`release_verification.published` e consumando `release_action_allowed`:
+
+```bash
+gh release download v8.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel800/pubblicata-riscaricata
+```
