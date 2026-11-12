@@ -1,0 +1,4 @@
+Data: 12/11/2026
+Sessione: Claude Code
+Domanda: «Autorizzi la pubblicazione di IO-tools 8.0.0 (major: IPC con più geometrie e geometria primaria, contracts 0023), qualificata su 6e494a6?»
+Risposta del titolare: «Sì, autorizzo»
