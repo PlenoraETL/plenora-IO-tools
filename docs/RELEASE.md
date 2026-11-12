@@ -62,15 +62,15 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `a2e0bea` |
 | candidate, versione del manifesto | `8.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
 | candidate, versione del workspace | `8.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v8.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 12 |
 | release_authorized | `false` |
@@ -1371,7 +1371,7 @@ upstream dipendono dai manutentori dei progetti originali.
 La pubblicazione del 2026-11-11T18:06:31Z e registrata nel verbale ora in
 `chiuso.release_pubblicate`, con evidenza `checkpoint-a2e0bea.json`.
 Le istruzioni e le misure seguenti descrivono la preparazione storica della
-7.0.3; la candidate corrente e la 8.0.0 iniziale descritta in fondo.
+7.0.3; la candidate corrente e la 8.0.0 congelata descritta in fondo.
 
 
 ### Draft verificata e passi dopo la decisione
@@ -2349,25 +2349,44 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 «non rivendicato», ed è una garanzia indebolita dichiarata in
 [`contracts/adozione-4.0.0.json`](../contracts/adozione-4.0.0.json).
 
-## 8.0.0 — 2026-11-12 (candidate iniziale, non rilasciata)
+## 8.0.0 — 2026-11-12 (candidate congelata, non rilasciata)
 
 Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
 di `none`, secondo il criterio degli input accettati documentato sopra.
 Note e migrazione: [CHANGELOG](../CHANGELOG.md). Le evidenze 7.0.3 restano
-storiche: servono nuovo congelamento, L1/L2, fuzz/ASan e artefatti misurati.
-Nessun tag, commit o pubblicazione fa parte di questa correzione.
+storiche: servono nuove misure L1/L2 e fuzz/ASan sul perimetro finale.
+Tag e autorizzazione alla pubblicazione restano false.
 
 Workspace, SDK e i due lockfile sono gia alla 8.0.0. La 7.0.3 pubblicata
 il 2026-11-11 e archiviata in `chiuso.release_pubblicate`, con il verbale e
-l'evidenza originali. La candidate corrente e iniziale: nessuna revisione,
-artefatto o attestazione congelata; `release_authorized` e
-`release_action_allowed` sono false. Le misure della 7.0.3 non qualificano
+l'evidenza originali. Il congelamento corrente e registrato nel blocco
+generato e nel [verbale](../assurance/current-state.json); `release_authorized`
+e `release_action_allowed` sono false. Le misure della 7.0.3 non qualificano
 questo albero: il bump e le modifiche al codice richiedono nuove misure sul
 perimetro finale, incluse le quattro profondita fuzz e il confine ASan FileGDB.
 
-Artefatti attesi dalla matrice `assurance/registries/distribuzione-matrice.json`
-e dal workflow `distribuzione.yml` (sorgente incluso), ancora da costruire e
-misurare; questa lista non e un congelamento:
+### Congelamento della candidate
+
+La candidate 8.0.0 e' congelata sulla revisione
+`6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` con i sette deliverable della
+Distribuzione candidate [43238394796](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/43238394796),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito comunicato
+dall'operatore. SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py --canale candidate` e
+`check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+Restano le nuove misure L1/L2, fuzz/ASan, le campagne e attestazioni richieste,
+la draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
+del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
+ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
+restano false; le misure storiche della 7.0.3 restano invariate.
+
+Artefatti congelati, dalla matrice `assurance/registries/distribuzione-matrice.json`
+e dal workflow `distribuzione.yml` (sorgente incluso):
 
 - `plenora-io-8.0.0-linux-x86_64-base.tar.gz`
 - `plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz`

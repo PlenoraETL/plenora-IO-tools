@@ -835,8 +835,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Candidate iniziale: Arrow Primary Geometry 1.0, major per nuovi rifiuti PRIM-003 e semantica none, descritta in docs/RELEASE.md e CHANGELOG.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Il bump dei Cargo.lock e le modifiche al codice cambiano il perimetro: le misure L1/L2, le quattro profondita fuzz e il confine ASan FileGDB della 7.0.3 restano storici e occorre rimisurare sul perimetro finale. La release 7.0.3 resta in chiuso.release_pubblicate con la propria evidenza. Gli artefatti attesi 8.0.0 sono derivati dalla matrice e riportati in docs/RELEASE.md, senza digest o revisioni inventati."
+      "stato": "attiva",
+      "nota": "Candidate 8.0.0 congelata su 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0. Distribuzione candidate run 43238394796, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/43238394796, workflow distribuzione.yml, input versione=8.0.0, canale=candidate, revisione=6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, conclusione success secondo l'esito della corsa comunicato dall'operatore. Verificati su Windows i 32 referti e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali scaricati in C:/pg/io-rel800/dist-43238394796 (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Nessuna autorizzazione o tag creato. Le misure L1/L2, le quattro profondita fuzz e il confine ASan FileGDB della 7.0.3 restano storici: il bump dei Cargo.lock e le modifiche al codice richiedono nuove misure sul perimetro finale. La release 7.0.3 resta in chiuso.release_pubblicate con la propria evidenza. Restano le evidenze e attestazioni richieste, preparazione draft e confronto dei byte riscaricati contro la candidate, autorizzazione esplicita del titolare, tag e gate finale; dopo pubblicazione immutata va ripetuto il confronto dei byte riscaricati dalla release. Log locali in target/rel800/verifica-congelamento. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i file non tracciati non ignorati: solo assurance/current-state.json e docs/RELEASE.md. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist, check_docset.py e git diff --check verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 492 test, 14 errori per python3 assente (incluse le sottoprove) e 3 skip: due symlink senza privilegio Windows e una sonda senza release corrente. Nessun adattatore o modifica ai controlli; contratto completo e sonde dipendenti dall'ambiente da rieseguire sulla VM.",
+      "revisione_candidate": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+      "artefatti": [
+        {
+          "nome": "plenora-io-8.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "a15c8492dc1bda093cff70f281d94959f3ec44a15de5b5bb6766b983a1c889f8",
+          "dimensione": 9242856,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "b200e61ca7a2fce74e21e32b67489d55220483d907dcaa6c87e9584c4d2b7167",
+          "dimensione": 65091704,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora-io-8.0.0-src.tar.gz",
+          "sha256": "bfd7a45d5c269502ef8c262db3a230bb65ed9fea98f1a6790afb1f5c1ec08ce5",
+          "dimensione": 21471605,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora-io-8.0.0-windows-x86_64-base.zip",
+          "sha256": "440baeb4be76d38097af052530022d30c9bc54bc3edc8ea4bbb51a066f91a136",
+          "dimensione": 10059084,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora-io-8.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "d59e225fe8d9fdf8e3dd19459341d27d0234be185265b0ed03a76b259295ad2c",
+          "dimensione": 49113291,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora_io-8.0.0-py3-none-any.whl",
+          "sha256": "425ff05ed5f09a377619fede5d5e337be6b445f93bd28ad8021683d44c6935dc",
+          "dimensione": 115547,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        },
+        {
+          "nome": "plenora_io-8.0.0.tar.gz",
+          "sha256": "c6ff1519c79c13730c000f85e05773831de58a06088957fa3ac919fb33a52d8a",
+          "dimensione": 221280,
+          "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+        }
+      ],
+      "assurance_entro_l_allowlist": true
     }
   },
   "docset": {
