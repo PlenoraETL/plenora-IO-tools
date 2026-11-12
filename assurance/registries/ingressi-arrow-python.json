@@ -5824,5 +5824,15 @@
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
     }
+  },
+  "arrow_primary_geometry_8_0_0": {
+    "contratto": "plenora-arrow-primary-geometry-v1",
+    "modulo": "crates/plenora-io-model/src/primary.rs",
+    "prove": [
+      "scripts/vettori_primary_geometry.py",
+      "sdk/python/tests/test_primary_geometry.py",
+      "crates/plenora-io-tools/tests/runtime_vettori.rs::runtime_primary_multi_none_and_invalid_key"
+    ],
+    "qualifica": "nuova misura 8.0.0 richiesta; non eredita L1/L2, fuzz o ASan 7.0.3"
   }
 }

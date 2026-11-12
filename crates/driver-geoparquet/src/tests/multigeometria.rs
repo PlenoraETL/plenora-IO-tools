@@ -268,6 +268,7 @@ fn assume_crs_si_verifica_anche_sulla_secondaria() {
 fn scrittura_multigeometria_senza_primaria_non_sceglie() {
     let (mut contratto, _) = leggi(fixture());
     contratto.geometry = None;
+    contratto.schema = plenora_io_model::primary::emit(&contratto.schema, None).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let uscita = dir.path().join("senza-primaria.parquet");
     let piano = WritePlan {

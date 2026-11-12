@@ -258,6 +258,7 @@
       "Unsupported/Validate/Unsupported/Never"
     ],
     "resolve_geometry_and_crs": [
+      "Schema/Validate/Schema/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "rifiuta_le_altre_geometrie": [
@@ -333,11 +334,8 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
-    "open": [
-      "Unsupported/Validate/Unsupported/Never"
-    ],
     "open_layer_reader": [
-      "InvalidPlan/Validate/Contract/Never"
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/driver-kml/src/lib.rs": {
@@ -468,6 +466,7 @@
   "crates/plenora-io-core/src/capabilities.rs": {
     "validate_write": [
       "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
@@ -672,6 +671,7 @@
   },
   "crates/plenora-io-model/src/contract.rs": {
     "geometries": [
+      "Schema/Validate/Schema/Never",
       "Schema/Validate/Schema/Never"
     ]
   },
@@ -708,6 +708,9 @@
     "invalid_metadata": [
       "Schema/Validate/Schema/Never"
     ],
+    "read_geometry_contract_metadata": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
     "validate_contract_version": [
       "Unsupported/Validate/Unsupported/Never",
       "Schema/Validate/Schema/Never"
@@ -716,6 +719,11 @@
   "crates/plenora-io-model/src/geometry/crs_metadata.rs": {
     "incoerente": [
       "Crs/Validate/Crs/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/primary.rs": {
+    "invalid": [
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/plenora-io-model/src/vocabolario.rs": {

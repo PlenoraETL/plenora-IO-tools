@@ -833,5 +833,13 @@
   "blocchi": {
     "fonte": "assurance/registries/release-contract-current.json",
     "nota": "l'elenco e il conteggio dei blocchi non sono ripetuti qui. Sono i `release_blocking` del registro, che e' dove un blocco nasce e muore; il blocco generato di docs/RELEASE.md li prende da li'. Una copia va tenuta allineata da qualcuno, e il modo in cui smette di esserlo non si vede: qui non c'e' copia da allineare."
+  },
+  "sviluppo_non_qualificato": {
+    "versione": "8.0.0",
+    "stato": "non pubblicata",
+    "decisione": "12/11/2026: Arrow Primary Geometry 1.0, major per nuovi rifiuti e semantica none",
+    "release_authorized": false,
+    "evidenza": "nessuna qualifica 8.0.0 registrata; i campi candidate e ultima_misura restano la storia 7.0.3",
+    "richiesto": "congelamento e nuove misure L1/L2, fuzz/ASan, distribuzione e interop"
   }
 }

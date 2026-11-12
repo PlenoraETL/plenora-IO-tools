@@ -2245,17 +2245,6 @@ fn richiesta_proiettata(campi: &[u32]) -> ReadRequest {
     }
 }
 
-/// L'esito di `open_layer_reader`, ridotto al codice d'errore e al messaggio.
-fn esito_lettura(
-    dataset: &dyn OpenDatasetHandle,
-    richiesta: &ReadRequest,
-) -> Option<(plenora_io_model::IoErrorCode, String)> {
-    match dataset.open_layer_reader(richiesta) {
-        Ok(_) => None,
-        Err(errore) => Some((errore.code, errore.message)),
-    }
-}
-
 #[test]
 fn due_geometrie_e_projection_preservano_i_contratti() {
     let dir = tempfile::tempdir().unwrap();
@@ -2343,30 +2332,15 @@ fn un_campo_geoarrow_non_dichiarato_da_geo_e_rifiutato() {
     writer.write(&batch).unwrap();
     writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo_con("")));
     writer.close().unwrap();
-    let dataset = GeoParquetDriver
+    // PRIM-003/REJ-002: prima di consegnare uno schema con primaria,
+    // ogni campo geometrico deve essere conforme. La secondaria incompleta
+    // non viene degradata a BLOB ne nascosta dalla primaria del footer.
+    let error = GeoParquetDriver
         .open(Source::Path(percorso), opzioni_lettura())
-        .expect("apertura");
-    // La scoperta deve dire cio' che la lettura rifiutera': anche questa
-    // colonna e' un'altra geometria, e il contratto la nomina come le
-    // secondarie del documento `geo`. Prima la nominava solo se il documento
-    // la dichiarava, e la scoperta descriveva un layer leggibile.
-    let geometria = dataset.layers()[0]
-        .contract
-        .geometry
-        .as_ref()
-        .expect("colonna geometria");
-    assert_eq!(
-        geometria
-            .native_metadata
-            .get("geoparquet.altre_colonne")
-            .map(String::as_str),
-        Some("altra")
-    );
-    let esito = esito_lettura(dataset.as_ref(), &richiesta_semplice());
-    assert_eq!(
-        esito.map(|(codice, _)| codice),
-        Some(plenora_io_model::IoErrorCode::Unsupported)
-    );
+        .err()
+        .expect("la secondaria incompleta deve essere rifiutata");
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
+    assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
 }
 
 // --- il metadato confrontato col file ---------------------------------

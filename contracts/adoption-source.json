@@ -3,10 +3,10 @@
   "component": "plenora-io-tools",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "7f82263921132226814f9829b0669ef34eae5624"
+    "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e"
   },
   "profile": "plenora-io-tools-profile-v3",
-  "perche_questa_revisione": "Adozione di 7f82263, dopo la 6.0.0: porta la regola di profilo IO-ARROW-001 (sorgente Arrow esterna), che ritira la deviazione ARROW-001 / REJ-001, la decisione 0022 e i vettori arrow-data-v1 nuovi. Resta da 3aec9f7: Public Catalogs 2.0, profilo io-tools v3, Runtime Binding 2.0, catalog/read/write@2, wire runtime e discovery 1. Il pin porta anche la superficie Python dichiarata (contracts #32, decisione 0016): questa adozione non la rivendica, vedi `not_applicable`.",
+  "perche_questa_revisione": "8.0.0 non pubblicata: decisione 0023, Arrow Primary Geometry 1.0 su tutte le superfici Arrow. Wire resta 1. Qualifica della release e matrice interop da rimisurare.",
   "contracts": [
     "plenora-public-surfaces-v1",
     "plenora-public-catalog-v2",
@@ -20,7 +20,8 @@
     "plenora-composition-v1",
     "plenora-runtime-binding-v2",
     "plenora-arrow-vocabulary-v1",
-    "plenora-arrow-geometry-semantics-v1"
+    "plenora-arrow-geometry-semantics-v1",
+    "plenora-arrow-primary-geometry-v1"
   ],
   "not_applicable": {
     "plenora-python-sdk-v1": "garanzia indebolita, dichiarata come tale. A 7f82263 il catalogo io-tools-v3 dichiara `python_sdk` conditional e il profilo governa con PYTHON-SDK-1.0 l'SDK pubblicato: poiche' IO spedisce la wheel, la superficie si applica. Questa adozione non la rivendica ancora (manca la wheel con `api_modes` nel manifesto, e `plenora.surface_side_effects` con `python_sdk: local` per io.read, IO-PY-001), e lo schema del manifesto v4 non ha uno stato fra `conforming` e `not_applicable`. Lo SDK resta verificato come artefatto nostro, dalla wheel installata. Rientro: rivendicare il contratto con l'artefatto wheel e le deviazioni di IO-PY-001."

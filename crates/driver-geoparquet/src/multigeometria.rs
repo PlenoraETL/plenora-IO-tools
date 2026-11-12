@@ -70,7 +70,23 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
         )?;
         contratto.identita_dichiarata = dichiarato.identita_dichiarata;
         apply_geo_column_metadata(&mut contratto, Some(geo))?;
-        schema = DataContract::new(schema, Some(contratto)).schema;
+        // Completa il campo senza eleggerlo temporaneamente a primaria.
+        // Il footer sceglie la primaria una sola volta nel reader chiamante.
+        let fields = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(i, field)| {
+                if i == indice {
+                    plenora_io_model::geometry::with_geometry_contract_metadata(field, &contratto)
+                } else {
+                    field.as_ref().clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        schema = plenora_io_model::geometry::with_contract_version(std::sync::Arc::new(
+            arrow_schema::Schema::new_with_metadata(fields, schema.metadata().clone()),
+        ));
     }
     Ok(schema)
 }

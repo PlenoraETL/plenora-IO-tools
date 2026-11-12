@@ -7,13 +7,7 @@ validi. IO e' consumatore di Arrow in due operazioni, `read` da un IPC e
 `write` da un IPC: ogni vettore diventa un IPC file e passa da entrambe, verso
 IPC, cosi' che il verdetto dipenda dall'ingresso e non dal formato d'uscita.
 
-Un vettore valido rifiutato con `unsupported` e' il verdetto di **supporto** di
-GEO-000 (un componente puo' rifiutare un ingresso conforme che i suoi
-bersagli non rappresentano): si conta a parte, perche' e' ammesso solo se il
-manifesto lo dichiara, e non si confonde ne' con un'accettazione ne' con un
-errore. Vale solo per il limite che IO dichiara, piu' campi geometria: anche
-su un vettore invalido nei valori, dove REJ-002 riporta il limite di supporto
-prima del valore.
+IPC trasporta piu' geometrie: non sono ammesse esenzioni GEO-012.
 
     python scripts/vettori_arrow_data.py --contracts .plenora-contracts \\
         --cli target/release/plenora-io --referto vettori-arrow-data.json
@@ -30,6 +24,7 @@ atteso; l'uscita e' 0 solo se ogni vettore ha il verdetto del contratto.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import subprocess
 import sys
@@ -76,12 +71,6 @@ def esegui(cli: Path, operazione: str, ingresso: Path, uscita: Path) -> dict:
             "retry": retry.get("kind") if isinstance(retry, dict) else None}
 
 
-def piu_geometrie(vettore: dict) -> bool:
-    """Il solo limite di supporto che IO dichiara: un campo geometria per schema."""
-    return sum((c.get("metadata") or {}).get("ARROW:extension:name") == "geoarrow.wkb"
-               for c in vettore["fields"]) > 1
-
-
 def rej_003(osservato: dict, di_valore: bool) -> bool:
     """Gli assi del rifiuto che REJ-003 fissa, per la classe del rifiuto."""
     return (osservato["exit"] == 3 and osservato.get("remote_effect") == "none"
@@ -91,24 +80,28 @@ def rej_003(osservato: dict, di_valore: bool) -> bool:
 
 def verdetto(vettore: dict, osservato: dict, oracolo) -> str:
     accettato = osservato["exit"] == 0
-    supporto = osservato["category"] == "unsupported" and piu_geometrie(vettore)
     if vettore["expect"] == "valid":
-        if accettato:
-            return "conforme"
-        if not supporto:
-            return "rifiuto-indebito"
-        return "rifiuto-di-supporto" if rej_003(osservato, False) else "assi-del-rifiuto"
+        return "conforme" if accettato else "rifiuto-indebito"
     if accettato:
         return "accettazione-indebita"
-    if supporto and vettore["category"] == "data_mapping":
-        # REJ-002: un limite di supporto si riporta prima di un valore invalido;
-        # il vettore porta il verdetto di conformita' dell'ingresso, non quello
-        # di un componente con quel limite.
-        return "rifiuto-di-supporto" if rej_003(osservato, False) else "assi-del-rifiuto"
     if osservato["category"] != vettore["category"]:
         return "categoria-sbagliata"
     di_valore = oracolo.schema_verdict(vettore) is None
     return "conforme" if rej_003(osservato, di_valore) else "assi-del-rifiuto"
+
+
+def expected_ipc(vettore):
+    """Trasformazioni IO dichiarate, calcolate dall'input, mai dall'osservato."""
+    v = copy.deepcopy(vettore)
+    v.setdefault("schema_metadata", {})["plenora.contract.version"] = "1"
+    occupied = {int(f["metadata"]["plenora.field_id"]) for f in v["fields"] if "plenora.field_id" in f.get("metadata", {})}
+    for f in v["fields"]:
+        md = f.setdefault("metadata", {})
+        if "plenora.field_id" not in md:
+            i = 0
+            while i in occupied: i += 1
+            md["plenora.field_id"] = str(i); occupied.add(i)
+    return tabella(v)
 
 
 def main() -> int:
@@ -138,6 +131,11 @@ def main() -> int:
             for operazione in OPERAZIONI:
                 osservato = esegui(opzioni.cli, operazione, ingresso, lavoro / f"{percorso.stem}-{operazione}.arrow")
                 v = verdetto(vettore, osservato, oracolo)
+                if v == "conforme" and vettore["expect"] == "valid":
+                    with ipc.open_file(pa.BufferReader((lavoro / f"{percorso.stem}-{operazione}.arrow").read_bytes())) as reader:
+                        actual = reader.read_all()
+                    if not actual.equals(expected_ipc(vettore), check_metadata=True):
+                        v = "output-diverso"
                 conteggi[v] = conteggi.get(v, 0) + 1
                 righe.append({"vettore": percorso.stem, "operazione": operazione,
                               "atteso": vettore["expect"], "categoria_attesa": vettore.get("category"),
@@ -148,9 +146,8 @@ def main() -> int:
     totale = len(righe)
     print(f"vettori arrow-data-v1: {len(vettori)} su {len(OPERAZIONI)} operazioni, {totale} esiti: "
           + ", ".join(f"{k} {v}" for k, v in sorted(conteggi.items())))
-    # Il rifiuto di supporto e' ammesso solo per il limite che il manifesto
-    # dichiara (piu' campi geometria); ogni altro esito non e' del contratto.
-    return 0 if set(conteggi) <= {"conforme", "rifiuto-di-supporto"} else 1
+    # Nessuna esenzione IPC multigeometria.
+    return 0 if set(conteggi) <= {"conforme"} else 1
 
 
 if __name__ == "__main__":

@@ -201,6 +201,7 @@ pub fn project_layer_contract(
     source: &LayerContract,
     request: &ReadRequest,
 ) -> Result<(Vec<usize>, LayerContract)> {
+    plenora_io_model::primary::validate_contract(&source.contract)?;
     let mut indices = match &request.projected_fields {
         None => (0..source.contract.schema.fields().len()).collect::<Vec<_>>(),
         Some(field_ids) => {
@@ -249,6 +250,8 @@ pub fn project_layer_contract(
             })
     });
     let mut layer = source.clone();
+    let schema =
+        plenora_io_model::primary::emit(&schema, geometry.as_ref().map(|g| g.field_id.0 as usize))?;
     layer.contract = DataContract { schema, geometry };
     Ok((indices, layer))
 }

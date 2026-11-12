@@ -12,6 +12,7 @@ mod arrow_60_1;
 mod buffer_ipc;
 mod layout_ipc;
 mod parametri_schema_ipc;
+mod primary;
 mod schema_ipc;
 mod tipi_geometrici;
 
@@ -923,7 +924,7 @@ fn incomplete_or_conflicting_canonical_identity_is_rejected() {
 }
 
 #[test]
-fn multiple_geoarrow_fields_are_rejected() {
+fn multiple_external_geoarrow_fields_are_transported_without_primary() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ambiguous.arrow");
     let geometry_field = |name| {
@@ -945,17 +946,11 @@ fn multiple_geoarrow_fields_are_rejected() {
         writer.finish().unwrap();
     }
 
-    // GEO-012 e REJ-001: un limite di supporto, `unsupported`, anche per uno
-    // schema esterno senza versione ne' chiavi `plenora.*`; mai `invalid_plan`,
-    // che descrive la richiesta e non l'ingresso.
-    let Err(errore) = IpcDriver.open(Source::Path(path), opzioni_lettura()) else {
-        panic!("due colonne geoarrow.wkb devono essere rifiutate");
-    };
-    assert_eq!(
-        errore.category,
-        plenora_io_model::ErrorCategory::Unsupported
-    );
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0].contract.geometry.is_none());
+    assert_eq!(dataset.layers()[0].contract.geometries().unwrap().len(), 2);
 }
 
 #[test]

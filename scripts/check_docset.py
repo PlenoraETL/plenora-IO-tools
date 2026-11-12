@@ -135,7 +135,7 @@ OPERATIVI = {
     ),
 }
 
-AMMESSI = set(CANONICI) | set(OPERATIVI)
+AMMESSI = set(CANONICI) | set(OPERATIVI) | {"CHANGELOG.md"}
 
 # I soli file che possono **leggere** un documento.
 #

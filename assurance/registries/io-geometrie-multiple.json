@@ -1,11 +1,11 @@
 {
   "id": "io-una-geometria",
-  "data": "2026-10-28",
-  "stato": "parziale: GeoParquet sviluppato; IPC aperto",
+  "data": "2026-11-12",
+  "stato": "8.0.0 non pubblicata: IPC multi e Arrow Primary Geometry 1.0 implementati; qualifica e matrice da rimisurare",
   "contratto": {
-    "primaria": "DataContract.geometry; geo.primary_column in GeoParquet; geoparquet.primary_column nei metadati nativi per campo",
+    "primaria": "plenora.primary_geometry per plenora.field_id; primary.rs risolve ed emette PRIM-001..005; primary_column GeoParquet nei due versi; native metadata solo provenienza",
     "geometrie": "DataContract.geometries(), metadati per campo; nessuna promozione in projection",
-    "encoding": "WKB; le codifiche GeoArrow native restano unsupported",
+    "encoding": "IPC WKB/EWKB indipendenti per campo; GeoParquet WKB; codifiche GeoArrow native unsupported",
     "crs": "indipendente per colonna; PROJJSON conservato byte per byte",
     "validazione": "tutte le geometrie, CRS, tipi, dimensioni, encoding e quote cumulative; nessuna nuova dipendenza di prodotto"
   },
@@ -70,10 +70,29 @@
     },
     {
       "id": "ipc",
-      "stato": "aperto: rifiuto di supporto del driver",
+      "stato": "supportato WKB/EWKB file e stream, con o senza primaria",
+      "prove": [
+        "crates/driver-ipc/src/tests/primary.rs",
+        "scripts/vettori_primary_geometry.py"
+      ]
+    },
+    {
+      "id": "csv",
+      "stato": "sink singolo: rifiuto prima della pubblicazione",
       "categoria": "unsupported",
-      "exit": 3,
-      "rientro": "convenzione esplicita di primaria sull’interchange, metadati CRS GeoArrow standard; il formato ammette più geometrie"
+      "exit": 3
+    },
+    {
+      "id": "xls",
+      "stato": "sink singolo: rifiuto prima della pubblicazione",
+      "categoria": "unsupported",
+      "exit": 3
+    },
+    {
+      "id": "kml",
+      "stato": "sink singolo: rifiuto prima della pubblicazione",
+      "categoria": "unsupported",
+      "exit": 3
     }
   ],
   "prova_rifiuti_cli": "crates/plenora-io-tools/tests/geometrie_multiple.rs::sink_monogeometria_rifiutano_con_categoria_exit_e_nessun_output",
@@ -86,7 +105,7 @@
     "contenuto": "3 righe; traccia LineString EPSG:32632, posizione Point CRS84 primaria fisica 2; null indipendenti"
   },
   "matrice_interop_tutta_verde": false,
-  "gate": {
+  "gate_2026_10_28": {
     "test_workspace": "cargo test --workspace --all-targets --locked: tutte le suite passate; ultime prove GeoParquet anche in corsa dedicata",
     "clippy": "cargo clippy --workspace --all-targets --locked -- -D warnings: passato",
     "all_features": "bloccato in gdal-sys: gdal_i.lib assente per Windows MSVC",
@@ -97,5 +116,41 @@
     "guardie": "305 test Python passati; guardie docset, dimensione, quartetto, unsafe, metadati/schemi GeoParquet, decoder, errori redatti, niente leak, budget e protocollo passate",
     "cli_oracolo": "GeoParquet -> GeoParquet via CLI, output letto con PyArrow: byte, null, primaria, CRS, tipi e encoding uguali"
   },
-  "variazioni_errori": "Rimosso il rifiuto di cardinalita globale da verifica_schema e geometry_contracts_for_validation: la cardinalita ora dipende dal sink in validate_write, con lo stesso quartetto Unsupported/Validate/Unsupported/Never. crs_from delega a crs_della_colonna senza cambiare quartetto. Il conteggio cumulativo ha un controllo overflow aggiuntivo; account riusa il layer_rows gia verificato invece di ripetere la guardia."
+  "gate": {
+    "stato": "Verifiche funzionali locali passate; qualifica 8.0.0 e matrice esterna non eseguite.",
+    "comandi": [
+      "cargo fmt --all",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test --workspace",
+      "python scripts/vettori_primary_geometry.py --contracts <checkout> --cli <binario> --referto <referto>"
+    ],
+    "esiti_2026_11_12": {
+      "cargo_fmt": 0,
+      "cargo_clippy_workspace_all_targets_D_warnings": 0,
+      "cargo_test_workspace": 0,
+      "arrow_data": {
+        "pass": 176
+      },
+      "primary_geometry": {
+        "pass": 111,
+        "fail": 0,
+        "not_applicable": 8
+      },
+      "sdk_python": {
+        "tests": 431,
+        "skipped": 80,
+        "exit": 0
+      },
+      "sdk_primary_native_subprocess": {
+        "tests": 4,
+        "exit": 0
+      },
+      "gdal_backend": "build bloccata: gdal_i.lib assente",
+      "release_contract": "gate ordinario bloccato da python3 assente; nessuna qualifica 8.0.0"
+    }
+  },
+  "tabella_cardinalita": "crates/plenora-io-core/src/geometry_cardinality.rs",
+  "ritiro_lacuna": "io-una-geometria da ritirare in interop-fin solo con lock e prove aggiornati; nessuna modifica esterna in questa correzione",
+  "variazioni_errori_2026_10_28": "Rimosso il rifiuto di cardinalita globale da verifica_schema e geometry_contracts_for_validation: la cardinalita ora dipende dal sink in validate_write, con lo stesso quartetto Unsupported/Validate/Unsupported/Never. crs_from delega a crs_della_colonna senza cambiare quartetto. Il conteggio cumulativo ha un controllo overflow aggiuntivo; account riusa il layer_rows gia verificato invece di ripetere la guardia.",
+  "variazioni_errori": "8.0.0: rimossi rifiuti IPC multi; introdotti Schema/Validate/Schema/Never per primaria invalida, incoerente o incorporata in conflitto; limite u32 Unsupported; none verso sink singoli Unsupported. Proiezione IPC delegata al helper comune: lo snapshot dei siti riflette lo spostamento, non la rimozione del controllo degli indici. Ragioni e migrazione in CHANGELOG.md."
 }

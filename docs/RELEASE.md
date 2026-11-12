@@ -2342,3 +2342,11 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 `plenora-python-sdk-v1` resta `not_applicable` nel manifesto, che lì vuol dire
 «non rivendicato», ed è una garanzia indebolita dichiarata in
 [`contracts/adozione-4.0.0.json`](../contracts/adozione-4.0.0.json).
+
+## 8.0.0 e' non pubblicata
+
+Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
+di `none`, secondo il criterio degli input accettati documentato sopra.
+Note e migrazione: [CHANGELOG](../CHANGELOG.md). Le evidenze 7.0.3 restano
+storiche: servono nuovo congelamento, L1/L2, fuzz/ASan e artefatti misurati.
+Nessun tag, commit o pubblicazione fa parte di questa correzione.

@@ -834,3 +834,36 @@ fn a_spill_dir_that_is_a_file_is_rejected() {
     let file = tempfile::NamedTempFile::new().expect("file temporaneo");
     assert!(resolve_spill_directory(Some(file.path().as_os_str().to_owned())).is_err());
 }
+
+#[test]
+fn primary_metadata_survives_memory_and_forced_spill() {
+    use plenora_io_model::primary::{PrimaryState, KEY};
+    for key in [None, Some("none"), Some("91")] {
+        let fields = ["17", "91"]
+            .into_iter()
+            .map(|id| {
+                let mut metadata = arrow_schema::Metadata::new();
+                metadata.insert("ARROW:extension:name", "geoarrow.wkb");
+                metadata.insert("plenora.field_id", id);
+                Field::new(format!("g{id}"), DataType::Binary, true).with_metadata(metadata)
+            })
+            .collect::<Vec<_>>();
+        let mut metadata = arrow_schema::Metadata::new();
+        if let Some(value) = key {
+            metadata.insert(KEY, value);
+        }
+        let schema = Arc::new(Schema::new_with_metadata(fields, metadata));
+        let state = PrimaryState::read(&schema).unwrap();
+        let schema = plenora_io_model::primary::emit(&schema, state.position(&schema)).unwrap();
+        let batch = RecordBatch::new_empty(schema.clone());
+        for threshold in [0, 1 << 20] {
+            let budget = budget_di(1 << 20, 1 << 20);
+            let mut spool = StagedSpool::with_threshold(schema.clone(), budget.clone(), threshold);
+            spingi(&mut spool, &budget, batch.clone(), 64).unwrap();
+            spool.seal().unwrap();
+            let observed = spool.next_batch().unwrap().unwrap();
+            assert_eq!(observed.schema(), schema);
+            assert_eq!(observed, batch);
+        }
+    }
+}

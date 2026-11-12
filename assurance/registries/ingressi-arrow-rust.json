@@ -1536,6 +1536,34 @@
       "tipi": [
         "driver_common::ValidatedArray"
       ]
+    },
+    "plenora-io-model/src/primary.rs::plenora_io_model::primary::PrimaryState::read": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve solo schema o DataContract, senza buffer di celle. Risolve/valida PRIM prima del completamento o emette uno stato gia risolto; gli array restano protetti dai confini comuni.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-model/src/primary.rs::plenora_io_model::primary::PrimaryState::position": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve solo schema o DataContract, senza buffer di celle. Risolve/valida PRIM prima del completamento o emette uno stato gia risolto; gli array restano protetti dai confini comuni.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-model/src/primary.rs::plenora_io_model::primary::emit": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve solo schema o DataContract, senza buffer di celle. Risolve/valida PRIM prima del completamento o emette uno stato gia risolto; gli array restano protetti dai confini comuni.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-model/src/primary.rs::plenora_io_model::primary::validate_contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve solo schema o DataContract, senza buffer di celle. Risolve/valida PRIM prima del completamento o emette uno stato gia risolto; gli array restano protetti dai confini comuni.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
     }
   },
   "macro_items": {

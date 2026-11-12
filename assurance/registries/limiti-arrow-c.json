@@ -26,5 +26,15 @@
     "condizione_di_rientro": "Ogni macro/re-export nuovo o modificato fallisce e richiede espansione/revisione e classificazione nel registro. Per eliminare il limite: inventario compilato rustdoc JSON per tutte le configurazioni supportate, confrontato con i registri. Riesaminare i re-export integrali anche quando cambia la versione Arrow; rimozione o facciata esplicita in una futura revisione della superficie.",
     "decisione": "Titolare, 2026-11-10: guardie statiche accettate nell ambito dichiarato; residuo macro, re-export e codice generato.",
     "catalogo": "Rigenerazione automatica: python scripts/check_arrow_external.py --static-only; cargo metadata --offline --locked seleziona sorgenti e versioni del lock; scripts/arrow-api --catalog visita gli item pubblici con syn. La stessa prova gira in CI."
+  },
+  "arrow_primary_geometry_8_0_0": {
+    "contratto": "plenora-arrow-primary-geometry-v1",
+    "modulo": "crates/plenora-io-model/src/primary.rs",
+    "prove": [
+      "scripts/vettori_primary_geometry.py",
+      "sdk/python/tests/test_primary_geometry.py",
+      "crates/plenora-io-tools/tests/runtime_vettori.rs::runtime_primary_multi_none_and_invalid_key"
+    ],
+    "qualifica": "nuova misura 8.0.0 richiesta; non eredita L1/L2, fuzz o ASan 7.0.3"
   }
 }

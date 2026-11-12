@@ -520,11 +520,17 @@ pub fn read_geometry_contract_metadata(
         //
         // Ora l'identita' dichiarata si conserva e si riscrive, e l'indice resta
         // nostro. Le due cose non si toccano piu'.
-        parsed.identita_dichiarata = Some(
-            value
-                .parse()
-                .map_err(|_| invalid_metadata(field, &METADATO_FIELD_ID_NON_VALIDO))?,
-        );
+        if value.is_empty()
+            || !value.bytes().all(|b| b.is_ascii_digit())
+            || (value.len() > 1 && value.starts_with('0'))
+        {
+            return Err(invalid_metadata(field, &METADATO_FIELD_ID_NON_VALIDO));
+        }
+        parsed.identita_dichiarata = Some(value.parse().map_err(|_| {
+            PlenoraIoError::non_supportato_redatto(&PublicMessage::Curated(
+                "identita geometrica oltre il dominio u32 del modello Rust",
+            ))
+        })?);
     }
     if let Some(value) = metadata.get(PLENORA_ENCODING_KEY) {
         parsed.encoding = match value.as_str() {

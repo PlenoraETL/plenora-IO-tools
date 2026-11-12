@@ -478,6 +478,8 @@ FOGLIE_LEGATE = frozenset(
 #: sottratta al controllo, che e' esattamente cio' che la classificazione esiste
 #: per impedire.
 FOGLIE_CONDIZIONATE = {
+    **{f"sviluppo_non_qualificato.{key}": "Decisione 8.0.0 non qualificata; non modifica la misura storica o autorizza il rilascio"
+       for key in ("versione", "stato", "release_authorized", "decisione", "richiesto", "evidenza")},
     "chiuso.release_pubblicate": (
         "l'archivio delle release gia' pubblicate. E' una foglia sola perche' "
         "una lista lo e', ma non e' per questo fuori controllo: "

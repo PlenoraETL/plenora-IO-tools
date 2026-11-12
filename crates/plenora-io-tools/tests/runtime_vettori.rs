@@ -1996,3 +1996,99 @@ fn il_loader_dei_vettori_runtime_rifiuta_duplicati() {
         assert!(std::panic::catch_unwind(|| documento(&path)).is_err());
     }
 }
+
+#[test]
+fn runtime_primary_multi_none_and_invalid_key() {
+    use arrow_array::{BinaryArray, RecordBatch};
+    use arrow_schema::{DataType, Field, Metadata, Schema};
+    use std::sync::Arc;
+    let canonical = arrow_ipc::reader::FileReader::try_new(
+        std::fs::File::open(fixture("canonico.arrow")).unwrap(),
+        None,
+    )
+    .unwrap()
+    .schema();
+    let template = canonical
+        .fields()
+        .iter()
+        .find(|f| plenora_io_model::geometry::is_geometry_field(f))
+        .unwrap();
+    for (count, key, expected) in [
+        (2, "91", Some("91")),
+        (2, "none", None),
+        (1, "none", Some("none")),
+        (1, "17", None),
+        (2, "999", None),
+    ] {
+        for empty in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut depot = Deposito::nuovo(temp.path());
+            let path = temp.path().join("primary.arrow");
+            let fields = (0..count)
+                .map(|i| {
+                    let mut md = template.metadata().clone();
+                    md.insert("plenora.field_id", if i == 0 { "17" } else { "91" });
+                    Field::new(format!("g{i}"), DataType::Binary, true).with_metadata(md)
+                })
+                .collect::<Vec<_>>();
+            let mut md = Metadata::new();
+            md.insert("plenora.contract.version", "1");
+            md.insert("plenora.primary_geometry", key);
+            let schema = Arc::new(Schema::new_with_metadata(fields, md));
+            let mut writer = arrow_ipc::writer::FileWriter::try_new(
+                std::fs::File::create(&path).unwrap(),
+                &schema,
+            )
+            .unwrap();
+            if !empty {
+                let batch = RecordBatch::try_new(
+                    schema.clone(),
+                    (0..count)
+                        .map(|_| {
+                            Arc::new(BinaryArray::from(vec![None::<&[u8]>]))
+                                as arrow_array::ArrayRef
+                        })
+                        .collect(),
+                )
+                .unwrap();
+                writer.write(&batch).unwrap();
+            }
+            writer.finish().unwrap();
+            drop(writer);
+            depot
+                .ingressi
+                .push(("artifact://input/primary.arrow", path));
+            let result = binding(&depot).invoca(
+                &per_operazione(
+                    "io.read",
+                    json!({"source":"artifact://input/primary.arrow"}),
+                ),
+                CancellationToken::new(),
+            );
+            if key == "999" {
+                let error = errore(&result);
+                assert_eq!(error["category"], "schema");
+                assert_eq!(error["phase"], "validate");
+                assert_eq!(error["remote_effect"], "none");
+                continue;
+            }
+            let Carico::FlussoArrow { byte, .. } = &result.payload else {
+                panic!("atteso Arrow: {result:?}");
+            };
+            let mut reader =
+                arrow_ipc::reader::StreamReader::try_new(Cursor::new(byte), None).unwrap();
+            let schema = reader.schema();
+            assert_eq!(
+                schema
+                    .metadata()
+                    .get("plenora.primary_geometry")
+                    .map(String::as_str),
+                expected
+            );
+            assert_eq!(schema.fields().len(), count);
+            for batch in &mut reader {
+                assert_eq!(batch.unwrap().schema(), schema);
+            }
+        }
+    }
+}

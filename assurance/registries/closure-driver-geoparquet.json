@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "7.0.3",
+      "versione": "8.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "7.0.3",
+      "versione": "8.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "7.0.3",
+      "versione": "8.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "7.0.3",
+      "versione": "8.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -1559,5 +1559,21 @@
       "rustix 1.1.4"
     ],
     "perche": "RUSTSEC-2026-0486 (rustix 1.0.0-1.1.5 unsound nelle funzioni xattr con buffer vuoto). Nessun crate del grafo ne' il codice IO chiama le funzioni colpite: la 7.0.3 pubblicata con 1.1.4 non e' esposta. Nessun nome, origine o licenza cambia."
+  },
+  "variazione_versione_8_0_0": {
+    "quando": "2026-11-12, sviluppo non pubblicato",
+    "entrate": [
+      "driver-common 8.0.0",
+      "driver-geoparquet 8.0.0",
+      "plenora-io-core 8.0.0",
+      "plenora-io-model 8.0.0"
+    ],
+    "uscite": [
+      "driver-common 7.0.3",
+      "driver-geoparquet 7.0.3",
+      "plenora-io-core 7.0.3",
+      "plenora-io-model 7.0.3"
+    ],
+    "perche": "Bump major per Arrow Primary Geometry 1.0. Stesse quattro crate interne, nomi, origini e licenze invariati; non attesta una qualifica di release."
   }
 }

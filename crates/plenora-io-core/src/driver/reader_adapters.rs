@@ -76,6 +76,7 @@ pub fn with_read_budget(
         if dataset.rifiuto_del_layer(layer.id).is_some() {
             continue;
         }
+        plenora_io_model::primary::validate_contract(&layer.contract)?;
         let geometrie = match layer.contract.geometries() {
             Ok(geometrie) => geometrie,
             Err(errore)

@@ -6,7 +6,7 @@
   "profile": "plenora-io-tools-profile-v3",
   "contracts_source": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "revision": "7f82263921132226814f9829b0669ef34eae5624"
+    "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e"
   },
   "contracts": [
     {
@@ -131,6 +131,15 @@
         "cargo test -p plenora-io-model --lib",
         "cargo test -p plenora-io-tools --test ordine_degli_assi"
       ]
+    },
+    {
+      "id": "plenora-arrow-primary-geometry-v1",
+      "status": "conforming",
+      "verification": [
+        "python scripts/vettori_primary_geometry.py --contracts <checkout> --cli <binario> --referto <referto>",
+        "cargo test -p driver-ipc primary",
+        "cargo test -p plenora-io-tools --test geometrie_multiple"
+      ]
     }
   ],
   "perche_not_applicable_non_e_una_deviazione": "Python SDK: a 7f82263 la superficie e' conditional e, poiche' la wheel e' pubblicata, si applica; `not_applicable` qui vuol dire «non rivendicato», perche' lo schema v4 non ha un terzo stato. E' una garanzia indebolita, non una conformita': vedi requisiti_7f82263, voce IO-PY-001. La wheel resta verificata come artefatto nostro. Runtime conditional: essendo esposto, adotta 2.0 con le deviazioni elencate.",
@@ -253,7 +262,7 @@
     {
       "regola": "GEO-000..020 / REJ-001..004",
       "stato": "implementato",
-      "motivo": "Arrow Geometry Semantics 1.0 rivendicato: vettori arrow-data-v1 168 conformi e 4 rifiuti di supporto (piu' campi geometria, GEO-012), con gli assi del rifiuto di REJ-003 verificati; ordine degli assi memorizzato e rifiutato verso i formati che non lo rappresentano. Lo schema esterno senza chiavi plenora era fra le deviations fino a 7f82263 (IO-ARROW-001, sotto)."
+      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 176 esiti conformi senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
     },
     {
       "regola": "ERR-016",
@@ -285,7 +294,7 @@
     {
       "regola": "decisione 0022 (contracts #49)",
       "stato": "implementato",
-      "motivo": "Vettori arrow-data-v1 a 7f82263: 88 su due operazioni, 172 esiti conformi e 4 rifiuti di supporto (GEO-012), compresi field-id-round-trip e store-field-without-id. `mixed` senza elenco omette `plenora.geometry.types` (IO #66, chiusa)."
+      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 176 esiti conformi senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
     },
     {
       "regola": "contracts #32 / decisione 0016 / IO-PY-001",

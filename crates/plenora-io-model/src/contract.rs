@@ -1,5 +1,5 @@
-//! `DataContract` e affini (scheletro Fase 0). La v1 ammette al massimo una
-//! colonna geometria (Architetture §2.2, D16 data-tools).
+//! Contratti Arrow con geometrie per campo e primaria opzionale per identita.
+//! Lo stato wire e governato da Arrow Primary Geometry 1.0 nel modulo primary.
 
 use std::collections::BTreeMap;
 
@@ -324,7 +324,11 @@ impl DataContract {
     pub fn geometries(&self) -> crate::Result<Vec<GeometryColumnContract>> {
         let mut geometries = Vec::new();
         for (index, field) in self.schema.fields().iter().enumerate() {
-            if let Some(primary) = self.geometry.as_ref().filter(|g| &g.name == field.name()) {
+            if let Some(primary) = self
+                .geometry
+                .as_ref()
+                .filter(|g| g.field_id.0 as usize == index)
+            {
                 let mut declared = primary.clone();
                 crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
                 let mut primary = primary.clone();
@@ -350,7 +354,9 @@ impl DataContract {
         }
         if let Some(primary) = &self.geometry {
             if !geometries.iter().any(|g| g.name == primary.name) {
-                geometries.push(primary.clone());
+                return Err(crate::PlenoraIoError::schema_redatto(
+                    &crate::PublicMessage::Curated("primaria interna assente dallo schema"),
+                ));
             }
         }
         Ok(geometries)
@@ -386,6 +392,16 @@ impl DataContract {
     // versionata; passare per riferimento la cambierebbe senza guadagno.
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(schema: SchemaRef, geometry: Option<GeometryColumnContract>) -> Self {
+        // PRIM-003: il costruttore infallibile non puo sanare un riferimento
+        // ricevuto assegnando proprio l'identita che mancava.
+        let received = crate::primary::PrimaryState::read(&schema);
+        if received.map_or(true, |state| {
+            state != crate::primary::PrimaryState::Absent
+                && state.position(&schema) != geometry.as_ref().map(|g| g.field_id.0 as usize)
+        }) {
+            return Self { schema, geometry };
+        }
+
         let schema = geometry.as_ref().map_or_else(
             || schema.clone(),
             |geometry| {
@@ -415,7 +431,20 @@ impl DataContract {
                             {
                                 return field.as_ref().clone();
                             }
-                            crate::geometry::with_geometry_contract_metadata(field, geometry)
+                            let mut output =
+                                crate::geometry::with_geometry_contract_metadata(field, geometry);
+                            // Un contratto esplicito su un campo appena creato
+                            // introduce una geometria; un ingresso canonico
+                            // incompleto resta invece visibile al validatore.
+                            if !crate::geometry::has_canonical_geometry_metadata(field) {
+                                let mut metadata = output.metadata().clone();
+                                metadata.insert(
+                                    crate::geometry::ARROW_EXTENSION_NAME_KEY,
+                                    crate::geometry::GEOARROW_WKB_EXTENSION,
+                                );
+                                output = output.with_metadata(metadata);
+                            }
+                            output
                         } else {
                             field.as_ref().clone()
                         }
@@ -426,6 +455,24 @@ impl DataContract {
                 ))
             },
         );
+        // Non cancellare una dichiarazione ricevuta invalida o discorde.
+        let position = geometry.as_ref().map(|g| g.field_id.0 as usize);
+        let legacy_without_primary = geometry.is_none()
+            && !schema
+                .fields()
+                .iter()
+                .any(|f| crate::geometry::has_canonical_geometry_metadata(f))
+            && !schema.metadata().contains_key(crate::primary::KEY);
+        let schema = match crate::primary::PrimaryState::read(&schema) {
+            Ok(_) if legacy_without_primary => schema,
+            Ok(state)
+                if state == crate::primary::PrimaryState::Absent
+                    || state.position(&schema) == position =>
+            {
+                crate::primary::emit(&schema, position).unwrap_or_else(|_| schema.clone())
+            }
+            _ => schema,
+        };
         Self { schema, geometry }
     }
 }

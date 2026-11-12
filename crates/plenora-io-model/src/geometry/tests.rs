@@ -36,6 +36,7 @@ fn primaria_e_secondaria_usano_le_stesse_dichiarazioni_crs() {
     for primary_index in [0, 1] {
         let mut primary = contract();
         primary.name = ["g0", "g1"][primary_index].into();
+        primary.field_id = FieldId(u32::try_from(primary_index).unwrap());
         primary.crs = ResolvedCrs::wgs84().into();
         for key in ["crs", "ARROW:extension:metadata"] {
             let fields = ["g0", "g1"]

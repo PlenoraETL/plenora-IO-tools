@@ -852,6 +852,19 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 
 ---
 
+## Arrow Primary Geometry 1.0 (8.0.0)
+
+Tutte le superfici Arrow adottano PRIM-001..009: la chiave di schema
+`plenora.primary_geometry` viene risolta prima del completamento degli ID e
+normalizzata secondo PRIM-004. IPC trasporta piu' geometrie anche senza primaria.
+GeoParquet mappa la primaria nei due versi con `primary_column` e rifiuta
+l'assenza di primaria. GEO-012 resta il limite dei sink singoli GPKG, Shapefile,
+CSV, XLSX, FileGDB, GeoJSON, DXF e KML. Una singola geometria con `none` resta
+geometria ai fini di validazione, quote e perdite. I sink singoli rifiutano
+`none` perche' non possono conservarne lo stato. Vedere `../CHANGELOG.md`
+per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
+8.0.0 richiedono esecuzione sul nuovo congelamento.
+
 ## Limitazioni di prodotto
 
 | | |
@@ -866,7 +879,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | Runtime `io.read`: vettore di richiesta | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §5 (`io-read-request`), limitata al payload illustrativo: `artifact_source`, `format` e `layer` stringa non rispettano `plenora-io-read-input-v1`, che richiede `source` e `layer` intero. Il binding rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Conseguenza per il consumatore e hazard: copiare la fixture impedisce l'invocazione, anche con metadati validi; usare il payload dello schema IO sullo stesso riferimento consente la lettura. Rientro: allineare la fixture in plenora-contracts oppure pubblicare una v2 dello schema di ingresso. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | Runtime `io.read`: vettore di cancellazione | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §3 (`io-read-cancelled-error`), per la lettura con token gia' cancellato: `CANCELLED`, fase `probe`, retry `never`, contro `READ_CANCELLED`, `read`, `safe` della fixture. Categoria `cancelled` ed effetto `none` coincidono. Il binding conserva gli assi delle operazioni comuni a CLI e Rust (SURFACE-BINDINGS-1.0 §1). Conseguenza per il consumatore: nessun retry automatico. Hazard: chi instrada per codice/fase della fixture puo' non riconoscere l'errore; chi presume `safe` puo' ritentare contro l'indicazione effettiva. Rientro: allineare la fixture in plenora-contracts oppure cambiare gli assi su tutte le superfici in una release dichiarata. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | GeoParquet: compatibilita' di lettura | Il fork comune con data-tools2 `6492733` rifiuta anche file validi prima leggibili: `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` per valori e livelli non sono qualificati. Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY` (distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime` (default senza schema Arrow incorporato), giorni o millisecondi non nulli con `YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante; statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di ogni rappresentazione permessa dal formato Parquet. Sono rifiutati anche `INDEX_PAGE`, lettura di page index (`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati (selezioni/filtri di righe, offset, salto di record/pagine). IO non usa questi ultimi percorsi; usa `with_row_groups` per il pruning. Indici/bloom presenti ma non richiesti non causano da soli il rifiuto. Per Dictionary FLBA: messaggio statico `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei batch: errore tipizzato `DataMapping`, fase `Read`, retry `Never`, effetto `None`, messaggio statico `batch Parquet non leggibile`, senza dati; nessun panico o risultato vuoto. Rientro: qualificare ogni percorso nel fork condiviso (fuzz e regressioni), adottare la base qualificata e verificarla al confine IO. Vedi le [note della 6.0.0](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0) e il [registro del fork](../assurance/registries/vendor-parquet-fork.json) |
-| IPC | **una sola colonna geometrica per layer: limite residuo del driver.** Arrow/GeoArrow ammette più campi geometrici; il driver li rifiuta in lettura e scrittura con `unsupported`, exit 3, anche con primaria esplicita. Prove `multiple_geoarrow_fields_are_rejected` e `sink_monogeometria_rifiutano_con_categoria_exit_e_nessun_output`. La chiusura richiede una convenzione di primaria sull’interchange. GeoParquet WKB invece legge e scrive tutte le voci `geo.columns`, con contratti per campo e primaria esplicita: vedi la sezione multigeometria sotto. |
+| IPC | Piu colonne `geoarrow.wkb`, con o senza primaria, file e stream. Stato e forma canonica sono governati da Arrow Primary Geometry 1.0. GEO-012 resta per i sink singoli. |
 | IPC | **un `geo` di schema passa tale e quale.** Un Arrow IPC può portare nei metadati dello schema un documento `geo` (geopandas lo scrive con `to_feather`). IO non lo legge né lo confronta con il contratto della colonna, che resta l'unica fonte del CRS; da IPC a IPC la chiave passa byte per byte, come ogni chiave che IO non possiede (ARROW-010), anche quando contraddice il campo (prova `rilettura_dei_crs.rs`, caso `32632_pj_geo_stantio`). Non arriva mai a un GeoParquet scritto da IO, né a un IPC scritto da un'altra sorgente: il writer GeoParquet non copia `geo` nello schema, e il lettore GeoParquet lo consuma nel contratto. Hazard: un consumatore che legge il `geo` di un IPC (geopandas `read_feather`) da un IPC→IPC vede il CRS stantio della sorgente. Rientra quando il lettore IPC confronta un `geo` di schema con il contratto e rifiuta la contraddizione (ARROW-006) |
 | IPC, GeoParquet | Il CRS per campo usa un unico lettore per primaria e secondarie: blocco canonico, chiave legacy `crs`, estensione `ARROW:extension:metadata`. Nell'estensione sono letti `authority_code`, PROJJSON (anche senza `crs_type`) e `wkt2:2019`; forme non interpretabili e dichiarazioni discordanti sono errori `crs`, mai `missing`. Due definizioni testualmente diverse sono rifiutate anche quando potrebbero essere equivalenti: il bordo non offre un resolver di equivalenze. Un CRS noto che GeoParquet non può esprimere senza PROJJSON è un rifiuto esplicito; `crs: null` resta riservato a un CRS realmente mancante. Prove `crs_only_in_geoarrow_extension_metadata_is_preserved` e `crs_legacy_secondario_senza_projjson_non_diventa_null`. |
 | IPC | **solo i sette tipi semplici e la semantica `geometry`.** Il sink IPC (`WKB_PASSTHROUGH_GEOMETRY`) dichiara Point, LineString, Polygon, i tre Multi e GeometryCollection: una colonna che dichiara CircularString, Triangle o altri tipi estesi, o la semantica `geography`, si rifiuta con `unsupported` prima di ogni effetto (GEO-000, verdetto di supporto; GEO-010). Lo stesso valore dentro una GeometryCollection resta un valore e segue GEO-011. Il catalogo dichiara lo stesso insieme. Rientro: un sink IPC che dichiari i tipi estesi. |
@@ -917,7 +930,7 @@ riporta soltanto la primaria; `fields[].geometry` riconosce invece ogni campo
 geometrico. Non è una vista completa dei CRS per colonna: i metadati completi
 restano nei contratti Rust e nei dati Arrow. Questo limite di introspezione
 non autorizza a perdere le secondarie in conversione. Lo SDK inoltra i dati
-Arrow senza riscrivere i CRS; IPC multigeometria resta un rifiuto esplicito.
+Arrow senza riscrivere i CRS; IPC conserva tutte le geometrie e lo stato della primaria.
 
 | Formato | Specifica e decisione |
 |---|---|
@@ -928,7 +941,7 @@ Arrow senza riscrivere i CRS; IPC multigeometria resta un rifiuto esplicito.
 | GeoJSON | [RFC 7946 §3.2](https://www.rfc-editor.org/rfc/rfc7946#section-3.2): un membro geometry per Feature. GeometryCollection non rappresenta colonne con CRS indipendenti. Rifiuto `unsupported`, exit 3. |
 | DXF | [Entità e sezioni](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-995ABB55-571A-4D0F-882E-8A74A738643E.htm): entità grafiche, non colonne geometriche indipendenti di una riga. Rifiuto `unsupported`, exit 3; proposta futura: mapping esplicito verso entità/layer, con identità e CRS definiti. |
 | FileGDB | [Modello Esri](https://pro.arcgis.com/en/pro-app/3.6/tool-reference/tool-errors-and-warnings/001001-010000/tool-errors-and-warnings-00301-00325-000311.htm): una geometria per feature class. Il controllo comune rifiuta più colonne; la verifica del backend richiede `gdal-backend`. |
-| IPC/GeoArrow | [Estensioni per campo](https://geoarrow.org/extension-types.html): il formato ammette più geometrie. Resta un limite del driver, `unsupported`, exit 3, **non** un limite della specifica. Il supporto completo richiede una convenzione di primaria sull'interchange; non è dichiarato chiuso da questa modifica. |
+| IPC/GeoArrow | Piu' campi `geoarrow.wkb` con metadati indipendenti. Arrow Primary Geometry 1.0: primaria per `plenora.field_id`, `none` singola conservata, nessuna promozione in proiezione. File e stream condividono la semantica. |
 
 La fixture `multigeometria-pyarrow.parquet` è generata con PyArrow 25.0.1 da
 `scripts/genera_fixture_multigeometria.py`: il censimento dei 38 Parquet già
@@ -1109,7 +1122,7 @@ Il pin passa da `3aec9f7` a `7f82263` senza cambiare comportamento. La regola di
 profilo IO-ARROW-001 copre l'accettazione della sorgente Arrow esterna (schema
 senza `plenora.contract.version` e senza chiavi `plenora.`), e la deviazione
 ARROW-001 / REJ-001 si ritira. I vettori arrow-data-v1 del pin, compresi quelli
-della decisione 0022, sono 172 esiti conformi e 4 rifiuti di supporto (GEO-012).
+della decisione 0022, sono 176 esiti conformi; nessuna esenzione IPC multi (8.0.0).
 
 - **plenora-python-sdk-v1** (python_sdk): garanzia indebolita. Il catalogo
   dichiara la superficie `conditional` e IO spedisce la wheel, quindi la
