@@ -748,28 +748,14 @@ fn declared_unresolved_srid_only_is_rejected_on_read_and_on_write() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "layer".to_owned(),
-            contract: DataContract {
-                schema: Arc::new(Schema::new(vec![Field::new(
-                    "geom",
-                    DataType::Binary,
-                    true,
-                )
-                .with_metadata(
-                    std::iter::once((
-                        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-                        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
-                    ))
-                    .collect::<arrow_schema::Metadata>(),
-                )])),
-                geometry: Some(geometry),
-            },
+            contract: DataContract::new(schema, Some(geometry)),
         }],
     };
     let Err(errore) = IpcDriver.create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
     else {
         panic!("uno SRID senza crs_id ne' definizione non si scrive");
     };
-    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Schema);
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
     assert!(!output.exists());
 }
 

@@ -32,7 +32,7 @@ fn point_wkb(x: f64, y: f64) -> Vec<u8> {
 
 fn schema(field_count: usize) -> SchemaRef {
     let mut fields = Vec::with_capacity(field_count + 1);
-    fields.push(geometry_field("geometry", "EPSG:3857"));
+    fields.push(geometry_field("geometry", "EPSG:3857").with_nullable(false));
     fields.extend(
         (0..field_count)
             .map(|index| Field::new(format!("field_{index:03}"), DataType::Int32, false)),
@@ -52,10 +52,10 @@ fn plan(field_count: usize) -> WritePlan {
     WritePlan {
         layers: vec![WriteLayer {
             name: "wide".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry),
-            },
+            contract: DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            ),
         }],
     }
 }
@@ -84,6 +84,10 @@ fn generate(path: &Path, rows: usize, field_count: usize) {
     assert!(!path.exists(), "la fixture esiste già: {}", path.display());
     let driver = driver_filegdb::FileGdbDriver;
     let plan = plan(field_count);
+    plan.layers[0]
+        .contract
+        .geometries()
+        .expect("contratto della fixture coerente");
     let mut writer = driver
         .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
         .expect("creazione FileGDB");

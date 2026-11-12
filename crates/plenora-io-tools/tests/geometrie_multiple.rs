@@ -339,6 +339,8 @@ fn reconciliation_callers_are_enumerated_structurally() {
         ("driver-gpkg/src/lib.rs", "open"),
         ("driver-gpkg/src/lib.rs", "project_gpkg_layer"),
         ("driver-geoparquet/src/lib.rs", "contract_from_footer"),
+        ("driver-filegdb/src/lib.rs", "open"),
+        ("driver-filegdb/src/test_contract.rs", "declared"),
     ]
     .into_iter()
     .map(|(p, f)| (p.to_owned(), f.to_owned()))

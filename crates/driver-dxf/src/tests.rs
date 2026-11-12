@@ -1526,9 +1526,16 @@ fn unsupported_m_is_rejected_before_output_creation() {
         }],
     };
 
-    assert!(DxfDriver
+    // Il rifiuto deve riguardare M, non una fixture schema/contratto incoerente.
+    plan.layers[0].contract.geometries().unwrap();
+    let error = DxfDriver
         .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
-        .is_err());
+        .err()
+        .expect("M non supportato");
+    assert_eq!(
+        error.capability_reason,
+        Some(plenora_io_model::CapabilityReason::CoordinateDimensions)
+    );
     assert!(!output.exists());
 }
 

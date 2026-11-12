@@ -51,7 +51,7 @@ fn opzioni_lettura() -> ReadOptions {
 fn create_without_gdal_feature_is_typed() {
     use driver_common::geometry_field;
     use plenora_io_core::{WriteLayer, WritePlan};
-    use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
+    use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
     use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 
     let crs = ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None);
@@ -63,10 +63,7 @@ fn create_without_gdal_feature_is_typed() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
-                geometry: Some(geometria),
-            },
+            contract: crate::test_contract::declared(&schema, geometria),
         }],
     };
 

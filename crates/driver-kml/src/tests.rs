@@ -623,9 +623,16 @@ fn xym_contract_is_rejected_before_output_creation() {
         }],
     };
     let driver = KmlDriver;
-    assert!(driver
+    // Il rifiuto deve riguardare M, non una fixture schema/contratto incoerente.
+    plan.layers[0].contract.geometries().unwrap();
+    let error = driver
         .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
-        .is_err());
+        .err()
+        .expect("M non supportato");
+    assert_eq!(
+        error.capability_reason,
+        Some(plenora_io_model::CapabilityReason::CoordinateDimensions)
+    );
     assert!(!out.exists());
 }
 
