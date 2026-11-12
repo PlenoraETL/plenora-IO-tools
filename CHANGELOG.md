@@ -2,6 +2,28 @@
 
 ## 8.0.0 — non pubblicata
 
+### Compatibilita degli errori: snapshot dei quartetti
+
+- FileGDB `open`: rimosso dal sito il quartetto `Crs/Validate/Crs/Never`;
+  resta `Unsupported/Validate/Unsupported/Never`. Il controllo eliminato
+  richiedeva ID o definizione dopo `resolve_layer_crs`, che restituisce sempre
+  `Some(definition)` quando riesce: non era un rifiuto raggiungibile.
+  Il rifiuto del CRS assente senza override resta in `resolve_layer_crs`
+  (`Crs/Validate/Crs/Never`); override non risolvibile e WKT non esportabile
+  restano `Crs/Validate/CrsUnresolved/Never` nello stesso risolutore.
+  Un WKT senza ID resta una definizione canonica, mai un identificativo
+  `geo:crs`. Nessun rifiuto CRS perso o spostato da questa rimozione.
+- GeoParquet `multigeometria::verifica_crs`: nuovo sito
+  `Schema/Validate/Schema/Never` per dimensioni risolte del campo Arrow in
+  conflitto con un footer a dimensioni miste, prima del retag e per primaria
+  e secondarie. `unknown` e tipi footer assenti restano non risolti e vengono
+  completati dall'altra fonte; il nuovo rifiuto impedisce di nascondere una
+  contraddizione. E una restrizione intenzionale della major 8.0.0.
+- Snapshot `quartetto-siti.json` rigenerato con
+  `python scripts/check_quartetto_sito.py --aggiorna` per questi due cambi,
+  verificati sulla diff `50f9357..b9115fa5`; nessun cambio degli assi nei
+  costruttori condivisi. Questa nota ne registra la ragione di compatibilita.
+
 ### Correzione 5: ingressi storici e metadati dichiarati
 
 - **C5-GP-UNRESOLVED**: il confronto campo/footer ignora valori non risolti

@@ -1561,7 +1561,7 @@
     "perche": "RUSTSEC-2026-0486 (rustix 1.0.0-1.1.5 unsound nelle funzioni xattr con buffer vuoto). Nessun crate del grafo ne' il codice IO chiama le funzioni colpite: la 7.0.3 pubblicata con 1.1.4 non e' esposta. Nessun nome, origine o licenza cambia."
   },
   "variazione_versione_8_0_0": {
-    "quando": "2026-11-12, sviluppo non pubblicato",
+    "quando": "2026-11-12, preparazione della candidate iniziale 8.0.0",
     "entrate": [
       "driver-common 8.0.0",
       "driver-geoparquet 8.0.0",
@@ -1574,6 +1574,8 @@
       "plenora-io-core 7.0.3",
       "plenora-io-model 7.0.3"
     ],
-    "perche": "Bump major per Arrow Primary Geometry 1.0. Stesse quattro crate interne, nomi, origini e licenze invariati; non attesta una qualifica di release."
+    "perche": "Documenta il bump 7.0.3 -> 8.0.0 dei quattro crate interni gia censiti, per Arrow Primary Geometry 1.0. Nessun nome, origine o licenza cambia per il bump. Come nella cronaca 7.0.3 (a2e0bea), questa voce riguarda soltanto la versione del workspace: non attesta una nuova misura della closure delle dipendenze o una qualifica di release.",
+    "da": 129,
+    "a": 129
   }
 }

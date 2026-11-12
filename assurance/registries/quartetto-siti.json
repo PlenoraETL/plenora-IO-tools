@@ -172,8 +172,7 @@
       "Unsupported/Validate/Capability/Never"
     ],
     "open": [
-      "Unsupported/Validate/Unsupported/Never",
-      "Crs/Validate/Crs/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "resolve_layer_crs": [
       "Crs/Validate/Crs/Never",
@@ -276,6 +275,11 @@
     ],
     "non_supportata": [
       "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
+  "crates/driver-geoparquet/src/multigeometria.rs": {
+    "verifica_crs": [
+      "Schema/Validate/Schema/Never"
     ]
   },
   "crates/driver-geoparquet/src/pagine.rs": {
