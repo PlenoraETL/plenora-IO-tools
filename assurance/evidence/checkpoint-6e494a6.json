@@ -13,14 +13,14 @@
     "status": "passed",
     "scope": "Qualifica tecnica di livello 2 sulla candidate 6e494a6."
   },
-  "non_significa": "Nessuna autorizzazione di release, riattribuzione al commit di registrazione, soak o verifica della draft o della release.",
+  "non_significa": "Nessuna autorizzazione di release o riattribuzione delle misure al commit di registrazione; nessuna verifica di draft/pubblicazione registrata.",
   "cosa_chiude": {
     "invarianti": [],
     "invarianti_nota": "Nessun invariante chiuso automaticamente.",
     "candidate": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
     "che_cosa_e_provato": "L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json."
   },
-  "resta_aperto": "Secondo l'operatore il soak e' in corso: non viene registrato qui. Restano i suoi referti, le rimisure fuzz/ASan e le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo la registrazione resta da eseguire sulla VM.",
+  "resta_aperto": "Restano le rimisure fuzz/ASan e le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo questa registrazione resta da eseguire sulla VM.",
   "contesto_operatore": "VM di qualifica Ubuntu 24.04, 192.168.2.140; clone pulito della candidate, .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e, due safe.directory configurati, secondo l'operatore.",
   "provenienza_della_corsa": {
     "originale": "/home/marco/io-l2-800/.s9-checkpoint/6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0-attempt-2",
@@ -865,5 +865,236 @@
       "test_default.log": "ffc2913acb398a80640e14f5d951b459aa2fb6aff9227845e6315cbe9391f858"
     }
   },
-  "esito": "S9 checkpoint level 2 passed"
+  "esito": "S9 checkpoint level 2 passed",
+  "campagne_mirate": {
+    "soak": {
+      "eseguito": true,
+      "nota": "Soak mirato eseguito dall'operatore sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0: dxf_reader monotonic/boottime/realtime 3602.3007007650012/3602.3007008970017/3602.3007011413574 s, 19164124 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3602.136202079004/3602.136202089001/3602.1362023353577 s, 12681869 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding o segnale, durata dimostrata, esito completa. Secondo l'operatore, le due campagne da 3600 s sono state eseguite in parallelo sulla VM di qualifica, nel clone pulito del livello 2. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-6e494a6.json.",
+      "verbale": {
+        "schema_version": 1,
+        "criterio": "RELEASE.md sezione 6 e scripts/soak_misurato.py non richiedono saturazione o esclusivita della CPU. CPU dei figli diagnostica, include preparazione/build, nessuna soglia. Il tempo wrapper non e il solo tempo di fuzzing: entrambi i riepiloghi libFuzzer dichiarano 3601 s.",
+        "limite": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza.",
+        "verifica_locale": "SHA-256 dei log ricalcolati; digest del misuratore confrontato con il blob della candidate; giudizio ricalcolato dai log e tempi originali, con identita di tutti i campi prodotti da giudica.",
+        "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+        "provenienza": {
+          "dichiarazione_operatore": "L'operatore dichiara di avere eseguito due soak da 3600 s ciascuno in parallelo sulla VM di qualifica, sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, nel clone pulito del livello 2. Revisione e ambiente non rilevati autonomamente dal misuratore.",
+          "copie_locali": [
+            "target/rel800/soak-dxf-candidate",
+            "target/rel800/soak-shp-candidate"
+          ]
+        },
+        "bersagli": {
+          "dxf_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py dxf_reader --seconds 3600",
+            "nota_comando": "Comando abbreviato comunicato dall operatore; --output-dir obbligatorio nello script, valore originale sulla VM non comunicato. Le copie locali non attestano quel valore.",
+            "referto": "target/rel800/soak-dxf-candidate/referto.json",
+            "referto_sha256": "36c6e85ad2572179a06d9a683a4feee19176a59b47601b3b13bd6620d303878e",
+            "log": "target/rel800/soak-dxf-candidate/campagna.log",
+            "log_sha256": "9a0365f4a21aac11c360211f5865a3adddcfc879158b29d775abf3a522eb5f24",
+            "log_dimensione": 10910566,
+            "tempi_grezzi": {
+              "monotonic_s": 3602.3007007650012,
+              "boottime_s": 3602.3007008970017,
+              "parete_s": 3602.3007011413574,
+              "cpu_figli_s": 3601.4016739999997
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 19164124,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "19164124",
+                "average_exec_per_sec": "5321",
+                "new_units_added": "80443",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "790"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3601.4016739999997,
+              "quota_cpu_intervallo": 0.9997504298392385,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "dxf_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.3007007650012,
+                "boottime_s": 3602.3007008970017,
+                "parete_s": 3602.3007011413574,
+                "cpu_figli_s": 3601.4016739999997
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 1.320004230365157e-07,
+                "parete_meno_monotonic_s": 3.763561835512519e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3601.4016739999997,
+                "quota_cpu_intervallo": 0.9997504298392385,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 19164124,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "19164124",
+                  "average_exec_per_sec": "5321",
+                  "new_units_added": "80443",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "790"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "dxf_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "9a0365f4a21aac11c360211f5865a3adddcfc879158b29d775abf3a522eb5f24",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 57222.377650406,
+                  "boottime_s": 57222.377650708,
+                  "parete_s": 1794500168.3971121,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 60824.678351171,
+                  "boottime_s": 60824.678351605,
+                  "parete_s": 1794503770.6978133,
+                  "cpu_figli_s": 3601.4016739999997
+                }
+              },
+              "errore_avvio": null
+            }
+          },
+          "shp_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py shp_reader --seconds 3600",
+            "nota_comando": "Comando abbreviato comunicato dall operatore; --output-dir obbligatorio nello script, valore originale sulla VM non comunicato. Le copie locali non attestano quel valore.",
+            "referto": "target/rel800/soak-shp-candidate/referto.json",
+            "referto_sha256": "6c3e7cee906b43d3091ff472be165b36ba28ebb7f40753f1d2104c0c572e33e4",
+            "log": "target/rel800/soak-shp-candidate/campagna.log",
+            "log_sha256": "e91d6deb37089bcaec89e6f32a7ca6a518f8840cb6da28b4f354bc18caf550f3",
+            "log_dimensione": 452614,
+            "tempi_grezzi": {
+              "monotonic_s": 3602.136202079004,
+              "boottime_s": 3602.136202089001,
+              "parete_s": 3602.1362023353577,
+              "cpu_figli_s": 3666.0537350000004
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 12681869,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "12681869",
+                "average_exec_per_sec": "3521",
+                "new_units_added": "3237",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "660"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3666.0537350000004,
+              "quota_cpu_intervallo": 1.0177443409508242,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "shp_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.136202079004,
+                "boottime_s": 3602.136202089001,
+                "parete_s": 3602.1362023353577,
+                "cpu_figli_s": 3666.0537350000004
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 9.997165761888027e-09,
+                "parete_meno_monotonic_s": 2.5635381462052464e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3666.0537350000004,
+                "quota_cpu_intervallo": 1.0177443409508242,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 12681869,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "12681869",
+                  "average_exec_per_sec": "3521",
+                  "new_units_added": "3237",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "660"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "shp_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "e91d6deb37089bcaec89e6f32a7ca6a518f8840cb6da28b4f354bc18caf550f3",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 57222.37764596,
+                  "boottime_s": 57222.377646151,
+                  "parete_s": 1794500168.3971076,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 60824.513848039,
+                  "boottime_s": 60824.51384824,
+                  "parete_s": 1794503770.53331,
+                  "cpu_figli_s": 3666.0537350000004
+                }
+              },
+              "errore_avvio": null
+            }
+          }
+        },
+        "verbale_smoke": {
+          "conservato": "assurance/evidence/fuzz-smoke-ultima.json",
+          "sha256": "ce433472bcba6ae6f88b46c752e5352f2713b09209a772a28d0397fe662d1686",
+          "motivazione": "Resta il verbale completo del livello 2 eseguito dall'operatore (15/15, 60 s), attribuito alla candidate 6e494a6. I soak dell'operatore sono documentati separatamente, senza fondere o alterare i verbali. Nessuna copia VM parziale fornita con questi referti."
+        }
+      }
+    },
+    "oom": {
+      "eseguito": null,
+      "nota": "Nessuna campagna OOM separata documentata sulla revisione."
+    }
+  }
 }
