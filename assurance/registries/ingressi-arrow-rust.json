@@ -1592,6 +1592,27 @@
       "tipi": [
         "arrow_schema::SchemaRef"
       ]
+    },
+    "driver-filegdb/src/test_contract.rs::driver_filegdb::test_contract::declared": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Helper delle sole prove (modulo #[cfg(test)]): costruisce un DataContract da uno schema di fixture e lo passa a reconcile_schema_contract; nessun buffer di celle, nessun ingresso esterno.",
+      "tipi": [
+        "arrow_schema::SchemaRef"
+      ]
+    },
+    "driver-geoparquet/src/multigeometria.rs::driver_geoparquet::multigeometria::crs_completato": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Riceve solo i metadati di un Field (nome, tipo, chiavi del vocabolario) e la risoluzione CRS del footer; confronta le dichiarazioni senza leggere celle. Gli array restano protetti dai confini comuni del reader.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-model/src/primary.rs::plenora_io_model::primary::reconcile_geometry_properties": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Confronta proprieta' geometriche dichiarate da un Field e dal contratto nativo (tipi, encoding, dimensioni, CRS, SRID); lavora su metadati, non su buffer di celle, e rifiuta le discordanze con Schema prima di qualsiasi lettura dei valori.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
     }
   },
   "macro_items": {
