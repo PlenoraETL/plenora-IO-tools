@@ -2,6 +2,36 @@
 
 ## 8.0.0 — non pubblicata
 
+### Correzione 3: riconciliazione e byte storici
+
+- **C3-GP-CONFLICT**: footer GeoParquet e campo Arrow incorporato sono
+  confrontati prima del retag, per primaria e secondarie. Encoding, tipi,
+  dimensioni, precisione, semantica, SRID, CRS e proprieta native dichiarate
+  da entrambe le fonti devono concordare; un disaccordo e `schema`, anche
+  sul CRS. Non si uniscono gli insiemi dei tipi. `unknown`, liste footer
+  vuote e proprieta assenti non dichiarano un vincolo risolto: il vincolo
+  dell'altra fonte resta conservato. Nessuna promozione di primaria.
+- **C3-GP-DIM**: il writer finalizza anche le dimensioni del campo Arrow
+  incorporato usando i tipi realmente osservati nel footer. La precedente
+  uscita GeoJSON verso GeoParquet poteva dichiarare `unknown` nel campo e
+  `Point`/`Point Z` (o gli altri tipi) nel footer. Ora dichiara rispettivamente
+  `xy`/`xyz`. Questo cambia i byte del footer e la sua lunghezza, non le
+  pagine dati, i valori, il CRS o gli altri metadati. E una correzione della
+  coerenza delle dichiarazioni nella major, non una promessa di byte identici
+  per questi casi.
+- La matrice versionata `scripts/compare_historical_readers.py` confronta
+  7.0.3 (`50f9357`) con 8.0.0 su CSV, XLSX, GPKG, Shapefile, DXF, KML,
+  GeoJSON e FileGDB, verso IPC file/stream e GeoParquet. Nella misura locale
+  C3-GP-DIM riguarda GeoJSON con point, linestring, polygon, multipoint,
+  multilinestring, multipolygon, geometrycollection, ciascuno XY e Z, e le
+  fixture `canonico_punti` e `canonico_punti_dbf`, piu le 14 varianti
+  `wkb-{tipo}-{xy,xyz}-value` degli stessi sette tipi: 30 celle. Il gate ammette
+  solo questa differenza dopo confronto indipendente di pagine dati, footer
+  nativo e schema completo atteso. Qualunque altra differenza fallisce.
+  I rifiuti concordi non contano come confronti binari riusciti. FileGDB
+  richiede entrambi gli eseguibili con GDAL e resta da eseguire su Linux.
+
+
 Release major secondo `docs/RELEASE.md`: i nuovi rifiuti PRIM-003 e il
 significato di `none` restringono l'insieme degli input accettati dalla 7.x.
 Wire Arrow 1 e versioni delle operazioni pubbliche restano invariati.

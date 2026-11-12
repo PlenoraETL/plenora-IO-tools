@@ -18,25 +18,21 @@ pub fn verifica_crs(schema: &arrow_schema::Schema, geo: &MetadatiGeo) -> Result<
                 "colonna geometrica assente dallo schema",
             ))
         })?;
-        let mut dichiarato = GeometryColumnContract::wkb_passthrough(
+        let mut footer = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             nome,
-            plenora_io_model::crs::CrsResolution::Missing,
+            crs_della_colonna(colonna)?,
             field.is_nullable(),
         );
-        plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut dichiarato)?;
-        let md = field.metadata();
-        let esplicito = md.contains_key(plenora_io_model::geometry::PLENORA_CRS_RESOLUTION_KEY)
-            || md.contains_key(plenora_io_model::geometry::GEO_CRS_KEY)
-            || md.get("ARROW:extension:metadata").is_some_and(|s| {
-                serde_json::from_str::<serde_json::Value>(s).is_ok_and(|v| v.get("crs").is_some())
-            });
-        if esplicito {
-            plenora_io_model::geometry::reconcile_crs_declarations(
-                &crs_della_colonna(colonna)?,
-                &dichiarato.crs,
-            )?;
+        apply_geo_column_metadata(&mut footer, Some(geo))?;
+        let mut shared = field.metadata().clone();
+        if colonna.tipi.is_empty() {
+            // No footer type means no footer dimensionality declaration.
+            // Mixed XY/XYZ is different: it must conflict with a field restricted to XY.
+            shared.remove(plenora_io_model::geometry::PLENORA_DIMENSIONS_KEY);
         }
+        let field = field.clone().with_metadata(shared);
+        plenora_io_model::primary::reconcile_geometry_properties(&field, &footer)?;
     }
     Ok(())
 }

@@ -1488,7 +1488,48 @@ fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::
 fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
     let mut metadati = schema.metadata().clone();
     metadati.insert(plenora_io_model::geometry::GEO_METADATA_KEY, geo);
-    let con_geo = Schema::new_with_metadata(schema.fields().clone(), metadati);
+    // Il footer finale e il campo incorporato descrivono gli stessi tipi osservati.
+    let parsed = metadati::analizza(geo, false)?;
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.name() != &parsed.nome_primaria
+                && !parsed.secondarie.contains_key(field.name())
+            {
+                return Ok(field.as_ref().clone());
+            }
+            let column = if field.name() == &parsed.nome_primaria {
+                &parsed.primaria
+            } else {
+                &parsed.secondarie[field.name()]
+            };
+            let mut contract = GeometryColumnContract::wkb_passthrough(
+                FieldId(0),
+                field.name(),
+                crs_della_colonna(column)?,
+                field.is_nullable(),
+            );
+            plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut contract)?;
+            apply_geo_column_metadata(&mut contract, Some(&parsed))?;
+            let mut field_keys = field.metadata().clone();
+            let completed =
+                plenora_io_model::geometry::with_geometry_contract_metadata(field, &contract);
+            for key in [
+                "plenora.geometry.types",
+                "plenora.geometry.types_declaration",
+                "plenora.geometry.dimensions",
+            ] {
+                if let Some(value) = completed.metadata().get(key) {
+                    field_keys.insert(key, value.clone());
+                } else {
+                    field_keys.remove(key);
+                }
+            }
+            Ok(field.as_ref().clone().with_metadata(field_keys))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let con_geo = Schema::new_with_metadata(fields, metadati);
     let mut proprieta = WriterProperties::builder().build();
     parquet::arrow::add_encoded_arrow_schema_to_metadata(&con_geo, &mut proprieta);
     proprieta
@@ -2750,6 +2791,9 @@ fn apply_geo_column_metadata(
     // I tipi arrivano gia' validati: un'etichetta fuori dalla specifica ha
     // fermato il file, invece di sparire da un `filter_map` e lasciare il
     // contratto piu' povero senza che nulla lo dicesse.
+    if !colonna.tipi.is_empty() {
+        contract.geometry_types.clear();
+    }
     for (geometry_type, dimension) in &colonna.tipi {
         if !contract.geometry_types.contains(geometry_type) {
             contract.geometry_types.push(*geometry_type);

@@ -671,7 +671,7 @@ fn un_file_storico_con_assi_contraddittori_e_rifiutato_anche_con_opt_in() {
         .open(Source::Path(seme_storico()), opzioni_lettura_legacy())
         .err()
         .unwrap();
-    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
 }
 
 use arrow_array::Int64Array;

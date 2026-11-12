@@ -198,5 +198,58 @@
       },
       "qualifica_8_0_0": false
     }
+  },
+  "correzione_3": {
+    "stato": "Correzione sorgente R1-R3; R4 interop e qualifica esclusi. FileGDB storico preparato ma non eseguito senza GDAL.",
+    "r1": {
+      "regola": "Confronto prima del retag di ogni proprieta risolta dichiarata da entrambe le fonti, per tutte le colonne; conflitto schema, mai unione dei tipi.",
+      "enumerazione": "primary/property_tests.rs: inventario indipendente delle chiavi wire e destrutturazione esaustiva del contratto",
+      "cli": {
+        "pass": 56,
+        "fail": 0,
+        "script": "scripts/check_footer_field_conflicts.py"
+      }
+    },
+    "r2": {
+      "script": "scripts/compare_historical_readers.py",
+      "baseline": "50f935715991c591760fb9a7d0c730f3d9f0484b",
+      "byte_identici": 1641,
+      "differenze_spiegate_C3_GP_DIM": 30,
+      "differenze_non_spiegate": 0,
+      "filegdb": "da eseguire su Linux con entrambi i binari gdal-backend e --require-filegdb",
+      "limite": "La matrice registra ogni rifiuto e generazione non supportata; non promette identita universale di input non enumerati.",
+      "rifiuti_concordi": 804,
+      "celle_backend_assente": 3,
+      "matrice": "15 tipi ISO WKB, XY/XYZ/XYM/XYZM, valore/vuoto/null/zero righe; WKT e XY CSV/XLSX; GPKG indipendenti SQLite, fixture native del writer storico e fixture indipendenti committate. I rifiuti dei generatori sono visibili, non prove di supporto del reader."
+    },
+    "esiti": {
+      "cargo_test_workspace": {
+        "pass": 1657,
+        "fail": 0
+      },
+      "clippy_workspace_all_targets_D_warnings": 0,
+      "sdk_python": {
+        "tests": 434,
+        "skipped": 41,
+        "exit": 0
+      },
+      "primary": {
+        "pass": 179,
+        "fail": 0,
+        "not_applicable": 8
+      },
+      "arrow_data": {
+        "pass": 352,
+        "fail": 0
+      },
+      "release_gate_suite": {
+        "tests": 342,
+        "failures": 6,
+        "skipped": 2,
+        "exit": 1
+      }
+    },
+    "referto_locale": "target/CORREZIONE-3.md",
+    "qualifica_release": false
   }
 }

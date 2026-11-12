@@ -138,7 +138,7 @@ fn footer_e_dichiarazioni_arrow_in_conflitto_su_ogni_colonna_sono_rifiutati() {
             );
             let error =
                 crate::multigeometria::verifica_crs(&Schema::new(fields), &geo).unwrap_err();
-            assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+            assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
         }
     }
 }
@@ -517,5 +517,73 @@ fn covering_second_primary_nonpositional_ids_and_secondary_projection() {
             }
             assert_eq!(rows, if outside { 0 } else { 3 });
         }
+    }
+}
+
+#[test]
+fn ogni_proprieta_footer_campo_discorde_rifiutata_per_primaria_e_secondaria() {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let geo = read_geo_meta(&builder, false).unwrap().unwrap();
+    for index in [0, 2] {
+        for (key, value) in [
+            ("plenora.geometry.types", "polygon"),
+            ("plenora.geometry.types_declaration", "mixed"),
+            ("plenora.geometry.encoding", "ewkb"),
+            ("plenora.geometry.dimensions", "xyzm"),
+            ("plenora.geometry.precision", "float32"),
+            ("plenora.geometry.spatial_semantics", "geography"),
+            ("plenora.geometry.srid", "1234"),
+            ("crs", "EPSG:3857"),
+            ("plenora.geometry.native.geoparquet.edges", "spherical"),
+        ] {
+            let mut fields: Vec<Field> = builder
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect();
+            let mut md = fields[index].metadata().clone();
+            md.insert(key, value);
+            fields[index] = fields[index].clone().with_metadata(md);
+            if key == "plenora.geometry.srid" && index == 2 {
+                // CRS84 does not declare an EPSG SRID: there is no competing property.
+                crate::multigeometria::verifica_crs(&Schema::new(fields), &geo).unwrap();
+                continue;
+            }
+            let error =
+                crate::multigeometria::verifica_crs(&Schema::new(fields), &geo).expect_err(key);
+            assert_eq!(
+                error.category,
+                plenora_io_model::ErrorCategory::Schema,
+                "{index}: {key}"
+            );
+        }
+    }
+}
+
+#[test]
+fn dimensioni_miste_del_footer_non_annullano_il_vincolo_del_campo() {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    for index in [0, 2] {
+        let mut geo = read_geo_meta(&builder, false).unwrap().unwrap();
+        let name = builder.schema().field(index).name();
+        let column = if name == &geo.nome_primaria {
+            &mut geo.primaria
+        } else {
+            geo.secondarie.get_mut(name).unwrap()
+        };
+        let kind = column.tipi[0].0;
+        column.tipi.push((kind, CoordinateDimensions::Xyz));
+        let mut fields: Vec<Field> = builder
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect();
+        let mut md = fields[index].metadata().clone();
+        md.insert("plenora.geometry.dimensions", "xy");
+        fields[index] = fields[index].clone().with_metadata(md);
+        let error = crate::multigeometria::verifica_crs(&Schema::new(fields), &geo).unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
     }
 }

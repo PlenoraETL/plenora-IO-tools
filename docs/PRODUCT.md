@@ -1181,3 +1181,23 @@ tipi SQL riconosciuti e sei rappresentanti delle famiglie esterne normalizzate:
 l'affinita' puo' cambiare la classe prima della lettura. Un layer che ammette
 Point e LineString dichiara GEOMETRY nel catalogo; il limite sulle colonne
 geometriche multiple resta distinto.
+
+### Evidenza della correzione 3
+
+La riconciliazione GeoParquet confronta le proprieta dichiarate sia nel footer
+sia nel campo Arrow, su ogni colonna, prima di completare lo schema: tipi,
+encoding, dimensioni, precisione, semantica, SRID, CRS e metadati nativi.
+Un conflitto e `schema`; non si ampliano i tipi per unione. Le dichiarazioni
+non risolte non sostituiscono vincoli conosciuti. Le prove CLI includono il
+caso Polygon nel campo e nei valori contro Point nel footer, su primaria e
+secondaria, vuoto e popolato, in lettura e conversione.
+
+La compatibilita storica e misurata da `scripts/compare_historical_readers.py`
+contro 7.0.3 (`50f9357`), per IPC file/stream e GeoParquet. Il referto distingue
+byte identici, rifiuti concordi, differenze spiegate e backend mancanti.
+La differenza C3-GP-DIM e descritta nel [CHANGELOG](../CHANGELOG.md): riguarda
+le dimensioni risolte nello schema Arrow incorporato del GeoParquet prodotto.
+Non si rivendica identita universale dei byte ne esecuzione locale FileGDB
+senza GDAL. Il comando Linux con `--require-filegdb` fallisce se quel reader
+non produce confronti riusciti. Queste prove del sorgente non qualificano la
+release 8.0.0, gli handoff data/DB o la matrice interop esterna.

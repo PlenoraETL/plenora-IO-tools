@@ -317,5 +317,14 @@
   "correzione_2": {
     "ambito": "Conformita funzionale del sorgente e dei vettori IO; non certifica il manifesto distribuito, gli handoff reali data/DB, GDAL, L1/L2 o la release 8.0.0.",
     "regola": "DataContract::new non modifica lo schema. Riconciliazione unica al bordo anche per campi pubblici, Arrow esterno senza vocabolario Plenora e schema senza estensione."
+  },
+  "correzione_3": {
+    "claim": "Conformita funzionale del sorgente nel perimetro IO; non qualifica di distribuzione ne handoff esterni. R1 coperto dal confronto enumerato e 56 negativi CLI. R2 misurato dalla matrice storica, con C3-GP-DIM dichiarata e FileGDB rinviato alla VM GDAL.",
+    "prove": [
+      "scripts/check_footer_field_conflicts.py",
+      "scripts/compare_historical_readers.py",
+      "scripts/test_compare_historical_readers.py"
+    ],
+    "registro": "assurance/registries/io-geometrie-multiple.json"
   }
 }

@@ -147,6 +147,7 @@ pub fn reconcile_schema_contract(
         );
         crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
         if let Some(internal) = contract.geometry.as_ref().filter(|g| g.field_id.0 == index) {
+            reconcile_geometry_properties(field, internal)?;
             crate::geometry::reconcile_crs_declarations(&internal.crs, &declared.crs)
                 .map_err(|_| invalid())?;
             // Serializza separatamente su un campo pulito: include identita',
@@ -174,3 +175,85 @@ pub fn reconcile_schema_contract(
     }
     Ok(geometries)
 }
+
+/// Confronta le proprieta' dichiarate da entrambe le fonti prima di completarle.
+/// La tabella e' condivisa con la riconciliazione dei piani Rust.
+/// # Errors
+/// Una proprieta' comune discorde produce sempre `schema`.
+pub fn reconcile_geometry_properties(
+    field: &arrow_schema::Field,
+    native: &crate::contract::GeometryColumnContract,
+) -> Result<()> {
+    use crate::geometry::{self, GEO_CRS_KEY, PLENORA_CRS_RESOLUTION_KEY, PLENORA_NATIVE_PREFIX};
+    let clean =
+        arrow_schema::Field::new(field.name(), field.data_type().clone(), field.is_nullable());
+    let expected = geometry::with_geometry_contract_metadata(&clean, native);
+    for key in GEOMETRY_PROPERTIES {
+        if matches!(
+            *key,
+            "plenora.geometry.crs_id"
+                | "plenora.geometry.crs_resolution"
+                | "plenora.geometry.crs_definition"
+                | "plenora.geometry.crs_definition_format"
+                | "plenora.geometry.axis_order"
+        ) {
+            // CRS declarations have a semantic comparator below (including aliases).
+            continue;
+        }
+        // An unresolved type declaration does not declare an exact type set.
+        if *key == "plenora.geometry.types_declaration"
+            && matches!(
+                native.types_declaration,
+                crate::contract::TypesDeclaration::LegacyUndeclared
+                    | crate::contract::TypesDeclaration::Unresolved
+            )
+        {
+            continue;
+        }
+        if let (Some(a), Some(b)) = (field.metadata().get(key), expected.metadata().get(key)) {
+            if a != b {
+                return Err(invalid());
+            }
+        }
+    }
+    for (key, value) in expected.metadata() {
+        if key.starts_with(PLENORA_NATIVE_PREFIX)
+            && field.metadata().get(key).is_some_and(|v| v != value)
+        {
+            return Err(invalid());
+        }
+    }
+    if field.metadata().contains_key(PLENORA_CRS_RESOLUTION_KEY)
+        || field.metadata().contains_key(GEO_CRS_KEY)
+        || field
+            .metadata()
+            .get("ARROW:extension:metadata")
+            .is_some_and(|s| {
+                serde_json::from_str::<serde_json::Value>(s).is_ok_and(|v| v.get("crs").is_some())
+            })
+    {
+        let mut declared = native.clone();
+        geometry::read_geometry_contract_metadata(field, &mut declared)?;
+        geometry::reconcile_crs_declarations(&native.crs, &declared.crs).map_err(|_| invalid())?;
+    }
+    Ok(())
+}
+
+const GEOMETRY_PROPERTIES: &[&str] = &[
+    "plenora.geometry.encoding",
+    "plenora.geometry.dimensions",
+    "plenora.geometry.spatial_semantics",
+    "plenora.geometry.srid",
+    "plenora.geometry.precision",
+    "plenora.geometry.types",
+    "plenora.geometry.types_declaration",
+    "plenora.geometry.crs_id",
+    "plenora.geometry.crs_resolution",
+    "plenora.geometry.crs_definition",
+    "plenora.geometry.crs_definition_format",
+    "plenora.geometry.axis_order",
+    "plenora.geometry.native.",
+];
+
+#[cfg(test)]
+mod property_tests;
