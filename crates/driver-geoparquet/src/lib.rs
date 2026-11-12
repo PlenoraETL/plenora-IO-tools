@@ -1581,8 +1581,8 @@ fn contract_from_footer(
         crs,
         out_schema.field(geom_idx).is_nullable(),
     );
-    // Il geo del footer resta autoritativo per il CRS; dal campo Arrow
-    // recuperiamo l'identita' senza reintrodurre il CRS della sorgente.
+    // Recupera le dichiarazioni del campo e conserva il CRS gia riconciliato
+    // con il footer, senza perdere componenti dichiarate da una sola fonte.
     let mut dichiarato = geometry.clone();
     plenora_io_model::geometry::read_geometry_contract_metadata(
         out_schema.field(geom_idx),
@@ -1590,7 +1590,7 @@ fn contract_from_footer(
     )?;
     let footer_crs = geometry.crs.clone();
     geometry = dichiarato;
-    geometry.crs = footer_crs;
+    geometry.crs = plenora_io_model::primary::reconcile_geometry_crs(&footer_crs, &geometry.crs)?;
     if geometry.types_declaration == plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
     {
         geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
@@ -2590,7 +2590,12 @@ fn resolve_geometry_and_crs(
                 "metadato `geo` GeoParquet che dichiara una `primary_column` assente dallo schema",
             )));
         }
-        let crs = crs_from(geo)?;
+        let crs = multigeometria::crs_completato(
+            schema
+                .field_with_name(&geo.nome_primaria)
+                .map_err(|_| fmt_err(&PublicMessage::Curated("colonna geometrica assente")))?,
+            &crs_from(geo)?,
+        )?;
         return Ok((geo.nome_primaria.clone(), crs));
     }
 
@@ -2800,7 +2805,7 @@ fn apply_geo_column_metadata(
         }
         dimensions.insert(*dimension);
     }
-    if !contract.geometry_types.is_empty() {
+    if !colonna.tipi.is_empty() {
         let geometry_types = std::mem::take(&mut contract.geometry_types);
         contract.set_exact_geometry_types(geometry_types);
     }
@@ -2810,12 +2815,14 @@ fn apply_geo_column_metadata(
             .copied()
             .unwrap_or(CoordinateDimensions::Unknown);
     }
-    contract.srid = contract
-        .crs
-        .id()
-        .and_then(|id| id.strip_prefix("EPSG:"))
-        // Solo un codice canonico: `EPSG:04326` non ha lo SRID 4326 (GEO-005).
-        .and_then(plenora_io_model::crs::codice_intero_canonico);
+    contract.srid = contract.srid.or_else(|| {
+        contract
+            .crs
+            .id()
+            .and_then(|id| id.strip_prefix("EPSG:"))
+            // Solo un codice canonico: `EPSG:04326` non ha lo SRID 4326 (GEO-005).
+            .and_then(plenora_io_model::crs::codice_intero_canonico)
+    });
     Ok(())
 }
 
@@ -3425,15 +3432,37 @@ fn retag_schema(
         .filter(|f| !is_internal(f.name()))
         .map(|f| {
             if f.name() == geom_name {
-                // Le chiavi native `geoparquet.*` le detta il `geo` del file:
-                // quelle dello schema incorporato (le scriveva IO fino a
-                // b988e7f) portavano nel contratto un'epoca che il `geo` non
-                // dichiara (rilettura 13).
-                let mut md = senza_crs_geoarrow(f).metadata().clone();
+                // Il confronto precede il retag: conserva anche le proprieta
+                // native dichiarate solo dal campo. Il writer decide separatamente
+                // quali metadati del formato sorgente puo riprodurre.
+                let mut md = f.metadata().clone();
+                md.remove(CHIAVE_ESTENSIONE_GEOARROW);
                 md.insert(
                     ARROW_EXTENSION_NAME_KEY.to_owned(),
                     GEOARROW_WKB_EXTENSION.to_owned(),
                 );
+                let resolved = GeometryColumnContract::wkb_passthrough(
+                    FieldId(0),
+                    geom_name,
+                    crs.clone(),
+                    f.is_nullable(),
+                );
+                let canonical = plenora_io_model::geometry::with_geometry_contract_metadata(
+                    &Field::new(geom_name, f.data_type().clone(), f.is_nullable()),
+                    &resolved,
+                );
+                md.retain(|key, _| {
+                    !key.starts_with("plenora.geometry.crs_")
+                        && key != "plenora.geometry.axis_order"
+                        && key != GEO_CRS_KEY
+                });
+                for (key, value) in canonical.metadata() {
+                    if key.starts_with("plenora.geometry.crs_")
+                        || key == "plenora.geometry.axis_order"
+                    {
+                        md.insert(key.clone(), value.clone());
+                    }
+                }
                 if let Some(id) = crs.id() {
                     md.insert(GEO_CRS_KEY.to_owned(), id.to_owned());
                 }

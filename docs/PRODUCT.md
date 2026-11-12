@@ -1201,3 +1201,50 @@ Non si rivendica identita universale dei byte ne esecuzione locale FileGDB
 senza GDAL. Il comando Linux con `--require-filegdb` fallisce se quel reader
 non produce confronti riusciti. Queste prove del sorgente non qualificano la
 release 8.0.0, gli handoff data/DB o la matrice interop esterna.
+
+
+### Correzione 5: precedenza delle dichiarazioni risolte
+
+Nel confronto tra campo Arrow e footer GeoParquet l'assenza non dichiara un
+vincolo. Per ogni proprieta la tabella `GEOMETRY_PROPERTIES` in `primary.rs`
+registra anche i token non risolti: `unknown` per dimensioni, tipi e assi;
+`unresolved` per la dichiarazione dei tipi; `missing` e `declared_unresolved`
+per lo stato CRS. Le restanti proprieta non hanno token non risolti aggiuntivi.
+Precisione `native`, tipi `mixed` e assi `other` sono dichiarazioni esplicite.
+Le componenti CRS risolte si riconciliano semanticamente; un valore risolto
+prevale su una fonte non risolta e viene conservato nel contratto emesso.
+La validazione del vocabolario e delle dichiarazioni interne al singolo campo
+rimane rigorosa. Non si accettano metadati malformati perche non risolti.
+
+Lo SRID dichiarato ha precedenza sulla derivazione dall'ID EPSG; quest'ultima
+si applica soltanto se nessuna fonte dichiara lo SRID. Il footer GeoParquet non
+ha una proprieta SRID separata: un ID EPSG del CRS non e una seconda dichiarazione
+SRID. Due SRID esplicitamente dichiarati diversi sono invece rifiutati.
+Le regressioni controllano il contratto completato di primaria e secondarie,
+non soltanto il successo del confronto preliminare. Il retag del reader
+conserva anche le proprieta native dichiarate solo dal campo (per esempio
+l'epoca) quando il footer non dichiara un valore concorrente.
+
+La matrice storica ora riapre come ingressi tutte le uscite riuscite IPC e
+GeoParquet della 7.0.3. La fixture `historical-7.0.3-geojson-point.parquet` e
+la copia esatta di `target/historical-readers/5-geoparquet-False-old.out`
+(SHA-256 `ba4f871acc239bbe946a205ada66f53737ae65d5c4645fa20d3238e2210b7265`),
+con dimensioni ignote nel campo e Point nel footer.
+
+Stato FileGDB Linux dopo il quarto giro, fornito dal titolare: 37 test passati,
+0 falliti; workspace 67 suite verdi; storico 1.825 identici, 815 rifiuti
+concordi, 30 spiegate e 0 inspiegate. Sono evidenze Linux precedenti al quinto
+giro, distinte dalla misura Windows e dalla riesecuzione Linux a cura del
+titolare. Resta esclusa la qualifica di release e degli handoff esterni.
+
+
+Le differenze storiche ammesse dal quinto giro sono documentate nel CHANGELOG:
+C5-GP-SRID ripristina solo lo SRID della sorgente, senza cambiare il payload
+codificato; C5-GP-EMPTY-TYPES riguarda il rifiuto storico esatto dei tipi per
+footer vuoto con campo exact, su righe nulle o assenti. In questo secondo caso
+il GeoParquet nuovo deve coincidere byte per byte con l'ingresso, mentre per
+IPC l'oracolo confronta i valori e l'intero schema atteso dopo rimozione del
+covering e completamento dei soli metadati nativi enumerati. Questa differenza
+di accettazione esisteva gia fra 7.0.3 e 8.0.0 ed e ora misurata dalla nuova
+fase; non e un nuovo rifiuto introdotto dal quinto giro. Nessun errore generico
+o differenza estranea viene trasformato in esito positivo.

@@ -179,7 +179,7 @@ pub fn reconcile_schema_contract(
 /// Confronta le proprieta' dichiarate da entrambe le fonti prima di completarle.
 /// La tabella e' condivisa con la riconciliazione dei piani Rust.
 /// # Errors
-/// Una proprieta' comune discorde produce sempre `schema`.
+/// Due valori risolti discordi producono `schema`; gli ignoti non vincolano.
 pub fn reconcile_geometry_properties(
     field: &arrow_schema::Field,
     native: &crate::contract::GeometryColumnContract,
@@ -188,7 +188,7 @@ pub fn reconcile_geometry_properties(
     let clean =
         arrow_schema::Field::new(field.name(), field.data_type().clone(), field.is_nullable());
     let expected = geometry::with_geometry_contract_metadata(&clean, native);
-    for key in GEOMETRY_PROPERTIES {
+    for (key, unresolved) in GEOMETRY_PROPERTIES {
         if matches!(
             *key,
             "plenora.geometry.crs_id"
@@ -200,18 +200,8 @@ pub fn reconcile_geometry_properties(
             // CRS declarations have a semantic comparator below (including aliases).
             continue;
         }
-        // An unresolved type declaration does not declare an exact type set.
-        if *key == "plenora.geometry.types_declaration"
-            && matches!(
-                native.types_declaration,
-                crate::contract::TypesDeclaration::LegacyUndeclared
-                    | crate::contract::TypesDeclaration::Unresolved
-            )
-        {
-            continue;
-        }
         if let (Some(a), Some(b)) = (field.metadata().get(key), expected.metadata().get(key)) {
-            if a != b {
+            if a != b && !unresolved.contains(&a.as_str()) && !unresolved.contains(&b.as_str()) {
                 return Err(invalid());
             }
         }
@@ -232,27 +222,55 @@ pub fn reconcile_geometry_properties(
                 serde_json::from_str::<serde_json::Value>(s).is_ok_and(|v| v.get("crs").is_some())
             })
     {
-        let mut declared = native.clone();
+        let mut declared = crate::contract::GeometryColumnContract::wkb_passthrough(
+            native.field_id,
+            field.name(),
+            crate::crs::CrsResolution::Missing,
+            field.is_nullable(),
+        );
         geometry::read_geometry_contract_metadata(field, &mut declared)?;
-        geometry::reconcile_crs_declarations(&native.crs, &declared.crs).map_err(|_| invalid())?;
+        reconcile_geometry_crs(&native.crs, &declared.crs)?;
     }
     Ok(())
 }
 
-const GEOMETRY_PROPERTIES: &[&str] = &[
-    "plenora.geometry.encoding",
-    "plenora.geometry.dimensions",
-    "plenora.geometry.spatial_semantics",
-    "plenora.geometry.srid",
-    "plenora.geometry.precision",
-    "plenora.geometry.types",
-    "plenora.geometry.types_declaration",
-    "plenora.geometry.crs_id",
-    "plenora.geometry.crs_resolution",
-    "plenora.geometry.crs_definition",
-    "plenora.geometry.crs_definition_format",
-    "plenora.geometry.axis_order",
-    "plenora.geometry.native.",
+/// Cross-source CRS completion; validation of declarations within one field stays strict.
+/// # Errors
+/// Two resolved, contradictory declarations produce `schema`.
+pub fn reconcile_geometry_crs(
+    first: &crate::crs::CrsResolution,
+    second: &crate::crs::CrsResolution,
+) -> Result<crate::crs::CrsResolution> {
+    use crate::crs::CrsResolution::{Missing, Resolved};
+    match (first, second) {
+        (Resolved(_), Resolved(_)) => {
+            crate::geometry::reconcile_crs_declarations(first, second).map_err(|_| invalid())
+        }
+        (Resolved(_), _) | (_, Missing) => Ok(first.clone()),
+        _ => Ok(second.clone()),
+    }
+}
+
+// Every absent property is unresolved. Listed tokens are the additional unresolved
+// wire values. `native` precision, `mixed` types and `other` axes are declarations,
+// not unknowns. CRS components are merged semantically, including unknown axes.
+const GEOMETRY_PROPERTIES: &[(&str, &[&str])] = &[
+    ("plenora.geometry.encoding", &[]),
+    ("plenora.geometry.dimensions", &["unknown"]),
+    ("plenora.geometry.spatial_semantics", &[]),
+    ("plenora.geometry.srid", &[]),
+    ("plenora.geometry.precision", &[]),
+    ("plenora.geometry.types", &["unknown"]),
+    ("plenora.geometry.types_declaration", &["unresolved"]),
+    ("plenora.geometry.crs_id", &[]),
+    (
+        "plenora.geometry.crs_resolution",
+        &["missing", "declared_unresolved"],
+    ),
+    ("plenora.geometry.crs_definition", &[]),
+    ("plenora.geometry.crs_definition_format", &[]),
+    ("plenora.geometry.axis_order", &["unknown"]),
+    ("plenora.geometry.native.", &[]),
 ];
 
 #[cfg(test)]

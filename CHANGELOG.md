@@ -2,6 +2,40 @@
 
 ## 8.0.0 — non pubblicata
 
+### Correzione 5: ingressi storici e metadati dichiarati
+
+- **C5-GP-UNRESOLVED**: il confronto campo/footer ignora valori non risolti
+  da entrambe le direzioni; il completamento conserva il valore risolto.
+  La tabella delle 13 proprieta enumera assenze e token non risolti, con test.
+  Restano rifiutati due valori risolti discordi, anche per primaria e secondarie.
+  Il campione reale 7.0.3 GeoJSON Point con `dimensions=unknown` e conservato
+  come fixture e riletto fino ai valori.
+- **C5-GP-SRID**: uno SRID dichiarato dal campo si conserva anche con CRS84
+  o con un ID EPSG diverso. La derivazione EPSG si usa soltanto in assenza
+  di uno SRID dichiarato. Due SRID dichiarati discordi restano un conflitto.
+  Anche CRS e tipi risolti del campo si conservano con footer non risolto.
+  Il retag del reader conserva le proprieta native dichiarate solo dal campo,
+  inclusa l'epoca, invece di cancellare tutte le chiavi geoparquet.*.
+- La matrice storica riapre come ingressi tutte le uscite IPC file/stream e
+  GeoParquet riuscite della 7.0.3, confrontando entrambe le versioni verso le
+  tre destinazioni. Nessuna differenza non spiegata e ammessa.
+- **C5-GP-EMPTY-TYPES**: la nuova fase di rilettura misura anche la differenza
+  gia presente fra 7.0.3 e il completamento dei contratti 8.0.0: con tipi exact
+  nel campo, footer senza tipi e righe tutte nulle o assenti, la 7.0.3 rifiuta
+  la conversione per tipi non dichiarati. La 8.0.0 conserva la dichiarazione.
+  L'oracolo richiede quell'esatto errore storico; per GeoParquet i byte nuovi
+  devono essere identici alla sorgente, per IPC valori e schema devono
+  corrispondere alla sorgente con il solo completamento nativo enumerato.
+- Nella rilettura, **C5-GP-SRID** ammette soltanto il ripristino dello SRID
+  dichiarato dalla sorgente e assente nell'uscita storica: schema atteso esatto,
+  pagine Parquet o messaggi dati IPC byte-identici. I negativi degli oracoli
+  rifiutano SRID diverso, valori cambiati, metadati estranei ed errori diversi.
+- FileGDB Linux, quarto giro: 37 test passati, 0 falliti, secondo l'evidenza
+  fornita dal titolare; workspace 67 suite verdi; matrice storica 1.825 byte
+  identici, 815 rifiuti concordi, 30 differenze spiegate, 0 inspiegate.
+  Questa misura precede il quinto giro e non sostituisce la sua riesecuzione
+  Linux. Nessuna qualifica di release o handoff esterno implicita.
+
 ### Correzione 3: riconciliazione e byte storici
 
 - **C3-GP-CONFLICT**: footer GeoParquet e campo Arrow incorporato sono
@@ -25,11 +59,13 @@
   C3-GP-DIM riguarda GeoJSON con point, linestring, polygon, multipoint,
   multilinestring, multipolygon, geometrycollection, ciascuno XY e Z, e le
   fixture `canonico_punti` e `canonico_punti_dbf`, piu le 14 varianti
-  `wkb-{tipo}-{xy,xyz}-value` degli stessi sette tipi: 30 celle. Il gate ammette
+  `wkb-{tipo}-{xy,xyz}-value` degli stessi sette tipi: 30 celle. Nel terzo giro il gate ammetteva
   solo questa differenza dopo confronto indipendente di pagine dati, footer
-  nativo e schema completo atteso. Qualunque altra differenza fallisce.
+  nativo e schema completo atteso. Nel quinto giro si aggiungono le sole
+  eccezioni sopra descritte; qualunque differenza non spiegata fallisce.
   I rifiuti concordi non contano come confronti binari riusciti. FileGDB
-  richiede entrambi gli eseguibili con GDAL e resta da eseguire su Linux.
+  richiede entrambi gli eseguibili con GDAL; la misura Linux successiva del
+  quarto giro e registrata sopra separatamente dalla misura locale originaria.
 
 
 Release major secondo `docs/RELEASE.md`: i nuovi rifiuti PRIM-003 e il

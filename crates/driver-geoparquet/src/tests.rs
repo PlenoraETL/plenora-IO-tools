@@ -4424,11 +4424,10 @@ fn un_geoparquet_con_il_geo_stantio_nello_schema_si_rifiuta() {
     assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
 }
 
-/// Un'epoca nativa nello schema incorporato non entra nel contratto: a dirla
-/// e' il `geo` del file. Su b988e7f la chiave scritta da IO passava, e il
-/// contratto portava un'epoca che il `geo` non dichiarava.
+/// C5: una proprieta dichiarata solo dal campo si conserva. Il footer
+/// assente non cancella la dichiarazione; due epoche diverse sono un conflitto.
 #[test]
-fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
+fn l_epoca_nativa_dichiarata_solo_dal_campo_si_conserva() {
     let dir = tempfile::tempdir().expect("tempdir");
     let percorso = dir.path().join("nativa.parquet");
     let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
@@ -4441,15 +4440,12 @@ fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
     g.set_exact_geometry_types(vec![GeometryType::Point]);
     g.native_metadata
         .insert("geoparquet.epoch".into(), "1999.0".into());
-    let schema = DataContract::new(
-        Arc::new(Schema::new(vec![Field::new(
-            "geometry",
-            DataType::Binary,
-            true,
-        )])),
-        Some(g),
-    )
-    .schema;
+    let field = plenora_io_model::geometry::with_geometry_contract_metadata(
+        &driver_common::geometry_field("geometry", "OGC:CRS84"),
+        &g,
+    );
+    let schema =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![field])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
@@ -4464,13 +4460,23 @@ fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
         .expect("si apre");
     let contratto = &dataset.layers()[0].contract;
     let geometria = contratto.geometry.as_ref().expect("geometria");
-    assert!(!geometria.native_metadata.contains_key("geoparquet.epoch"));
-    assert!(!contratto
-        .schema
-        .field_with_name("geometry")
-        .unwrap()
-        .metadata()
-        .contains_key("plenora.geometry.native.geoparquet.epoch"));
+    assert_eq!(
+        geometria
+            .native_metadata
+            .get("geoparquet.epoch")
+            .map(String::as_str),
+        Some("1999.0")
+    );
+    assert_eq!(
+        contratto
+            .schema
+            .field_with_name("geometry")
+            .unwrap()
+            .metadata()
+            .get("plenora.geometry.native.geoparquet.epoch")
+            .map(String::as_str),
+        Some("1999.0")
+    );
 }
 
 mod multigeometria;

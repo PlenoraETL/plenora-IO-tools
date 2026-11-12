@@ -326,5 +326,75 @@
       "scripts/test_compare_historical_readers.py"
     ],
     "registro": "assurance/registries/io-geometrie-multiple.json"
+  },
+  "correzione_4": {
+    "filegdb_linux": {
+      "pass": 37,
+      "fail": 0
+    },
+    "workspace_linux_suite_verdi": 67,
+    "storico_linux": {
+      "byte_identici": 1825,
+      "rifiuti_concordi": 815,
+      "differenze_spiegate": 30,
+      "differenze_non_spiegate": 0
+    },
+    "provenienza": "Evidenza fornita dal titolare dopo il quarto giro, riportata in io-800-CONFERMA-3.md; non rieseguita su Windows nel quinto giro."
+  },
+  "correzione_5": {
+    "ambito": "C1-C3 del rapporto CONFERMA-3, senza qualifica release o handoff esterni; supersede i claim generali della correzione 3, preservandone le misure storiche.",
+    "regole": [
+      "Solo due valori entrambi risolti e diversi confliggono; inventario dei token non risolti per tutte le 13 proprieta.",
+      "SRID dichiarato conservato; derivazione EPSG solo in sua assenza; due dichiarazioni SRID diverse rifiutate.",
+      "Ogni uscita IPC/GeoParquet riuscita della matrice 7.0.3 viene riletta come ingresso da entrambe le versioni.",
+      "Il retag conserva anche le proprieta native dichiarate solo dal campo; epoca verificata nel contratto e nello schema dopo lettura."
+    ],
+    "referto_locale": "target/CORREZIONE-5.md",
+    "filegdb_linux_quinto_giro": "riesecuzione a cura del titolare",
+    "qualifica_release": false,
+    "esiti_windows": {
+      "cargo_fmt_check_exit": 0,
+      "clippy_workspace_all_targets_D_warnings_exit": 0,
+      "cargo_test_workspace": {
+        "suite": 67,
+        "pass": 1664,
+        "fail": 0
+      },
+      "sdk_python": {
+        "tests": 434,
+        "skipped": 41,
+        "exit": 0
+      },
+      "oracoli_storici": {
+        "tests": 5,
+        "exit": 0
+      },
+      "negativi_cli_footer_campo": {
+        "pass": 56,
+        "fail": 0
+      },
+      "matrice_storica": {
+        "exit": 0,
+        "counts": {
+          "deferred_missing_gdal": 3,
+          "explained_C3_GP_DIM": 90,
+          "explained_C5_GP_EMPTY_TYPES": 342,
+          "explained_C5_GP_SRID": 222,
+          "identical": 4605,
+          "same_rejection": 2229
+        },
+        "differenze_non_spiegate": 0,
+        "uscite_703_rilette": 1671,
+        "celle_rilettura": 5013
+      }
+    },
+    "prove": [
+      "scripts/compare_historical_readers.py",
+      "scripts/test_compare_historical_readers.py",
+      "scripts/check_footer_field_conflicts.py",
+      "target/c5-final-results.json",
+      "target/c5-historical-final.json",
+      "target/c5-matrix-completeness.json"
+    ]
   }
 }
