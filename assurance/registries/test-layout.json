@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "Gli `#[cfg(test)]` che restano dentro i file di prodotto, e perche' restano.",
   "attributi_su_singoli_elementi": {
-    "quanti": 60,
+    "quanti": 61,
     "perche_non_sono_vietati": "sono su **singoli elementi** -- un aiutante, una fixture, un costruttore che serve solo alle prove -- e non formano un modulo. Spostarli in un file di prove vorrebbe dire renderli visibili al crate per poterli importare: si allargherebbe una superficie interna per far contento un gate, che e' il contrario di quello che il gate vuole ottenere. Restano dove sono, contati: crescono solo per decisione.",
     "crescite": [
       {
@@ -10,6 +10,12 @@
         "a": 60,
         "pr": "#49",
         "ragione": "tre ganci `sonde::al_passaggio` in crates/plenora-io-tools/src/runtime.rs (dopo la pipeline, durante la lettura del file Arrow, alla finalizzazione): le prove del binding devono far scadere o cancellare il token esattamente in quei punti attraversando BindingRuntime::invoca, e un gancio fuori dal file di prodotto non vedrebbe la fase. Sono istruzioni dentro funzioni di prodotto, non elementi esportati; nel binario non esistono."
+      },
+      {
+        "da": 60,
+        "a": 61,
+        "pr": "#94",
+        "ragione": "un `use driver_common::geometry_field` sotto `#[cfg(test)]` nel modulo `backend` di crates/driver-filegdb/src/lib.rs: le prove FileGDB costruiscono i contratti attraverso l'helper unico `test_contract` (quarto giro della 8.0.0), che deve vedere lo stesso costruttore di campo geometrico del prodotto; importarlo fuori dalle prove lo renderebbe un import inutilizzato nel prodotto."
       }
     ]
   }

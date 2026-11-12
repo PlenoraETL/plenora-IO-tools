@@ -16,7 +16,7 @@ fn colonne_predefinite() -> usize {
 }
 
 use arrow_schema::{DataType, Field, Schema};
-use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
+use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 
 use super::*;
@@ -90,10 +90,7 @@ fn plan(fields: Vec<Field>, geometry: Option<GeometryColumnContract>) -> WritePl
     WritePlan {
         layers: vec![WriteLayer {
             name: "layer".to_owned(),
-            contract: DataContract {
-                schema: Arc::new(Schema::new(fields)),
-                geometry,
-            },
+            contract: crate::test_contract::declared(Arc::new(Schema::new(fields)), geometry),
         }],
     }
 }
@@ -232,7 +229,7 @@ fn duplicate_geometry_types_are_rejected() {
             &descriptor(CrsWriteSupport::Embedded),
             &p,
             colonne_predefinite(), &senza_opzioni()),
-        Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
+        Err(error) if error.category == plenora_io_model::ErrorCategory::Schema
     ));
 }
 

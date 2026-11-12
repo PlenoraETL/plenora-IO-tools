@@ -516,10 +516,7 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
     let piano = WritePlan {
         layers: vec![WriteLayer {
             name: "tabella".to_owned(),
-            contract: DataContract {
-                schema: schema_tabella,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema_tabella).unwrap(),
         }],
     };
     let uscita = dir.path().join("tabella.csv");
@@ -553,10 +550,7 @@ fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
     let piano = WritePlan {
         layers: vec![WriteLayer {
             name: "spaziale".to_owned(),
-            contract: DataContract {
-                schema: schema_spaziale,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema_spaziale).unwrap(),
         }],
     };
     let uscita = dir.path().join("spaziale.csv");

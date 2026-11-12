@@ -50,6 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATO = ROOT / "assurance" / "current-state.json"
 
 CANONICI = [
+    "CHANGELOG.md",
     "README.md",
     "docs/PRODUCT.md",
     "docs/ENGINEERING.md",

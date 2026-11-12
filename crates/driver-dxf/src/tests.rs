@@ -153,10 +153,11 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
     geometry_contract.set_exact_geometry_types(vec![GeometryType::Point, GeometryType::LineString]);
     let field =
         with_geometry_contract_metadata(&geometry_field(GEOMETRY, "EPSG:4326"), &geometry_contract);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![
-        field,
-        Field::new("val", DataType::Int64, true),
-    ]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            field,
+            Field::new("val", DataType::Int64, true),
+        ])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
@@ -174,7 +175,7 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::with_contract_version(schema),
                 geometry: Some(geometry_contract),
             },
         }],
@@ -419,7 +420,8 @@ fn assume_crs_in_conflitto_col_geodata_e_rifiutato() {
     );
     geometria.set_exact_geometry_types(vec![GeometryType::Point]);
     let campo = with_geometry_contract_metadata(&geometry_field(GEOMETRY, "EPSG:4326"), &geometria);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![campo]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![campo])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
@@ -429,7 +431,7 @@ fn assume_crs_in_conflitto_col_geodata_e_rifiutato() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::with_contract_version(schema),
                 geometry: Some(geometria),
             },
         }],
@@ -1507,23 +1509,33 @@ fn unsupported_m_is_rejected_before_output_creation() {
     );
     geometry.dimensions = CoordinateDimensions::Xym;
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326").with_nullable(geometry.nullable),
+                &geometry,
+            ),
+        ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "m".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::with_contract_version(schema),
                 geometry: Some(geometry),
             },
         }],
     };
 
-    assert!(DxfDriver
+    // Il rifiuto deve riguardare M, non una fixture schema/contratto incoerente.
+    plan.layers[0].contract.geometries().unwrap();
+    let error = DxfDriver
         .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
-        .is_err());
+        .err()
+        .expect("M non supportato");
+    assert_eq!(
+        error.capability_reason,
+        Some(plenora_io_model::CapabilityReason::CoordinateDimensions)
+    );
     assert!(!output.exists());
 }
 
@@ -1566,10 +1578,13 @@ fn declared_input_total_enables_dxf_specific_row_diagnostics() {
         true,
     );
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326").with_nullable(geometry.nullable),
+                &geometry,
+            ),
+        ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "null".to_owned(),
@@ -1613,10 +1628,13 @@ fn writer_adapter_attributes_non_finite_dxf_row_and_prevents_publish() {
         false,
     );
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326").with_nullable(geometry.nullable),
+                &geometry,
+            ),
+        ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "nan".to_owned(),
@@ -1671,10 +1689,13 @@ fn dxf_writer_for_geometry_type(
         false,
     );
     geometry.set_exact_geometry_types(vec![geometry_type]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326").with_nullable(geometry.nullable),
+                &geometry,
+            ),
+        ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "geometry".to_owned(),
@@ -1874,10 +1895,13 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         true,
     );
     geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326").with_nullable(geometry.nullable),
+                &geometry,
+            ),
+        ])));
     // Byte order valido, tipo 99 che non esiste.
     let batch = RecordBatch::try_new(
         schema,

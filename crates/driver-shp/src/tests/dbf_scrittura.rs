@@ -24,10 +24,7 @@ fn writer(path: &Path, batch: &RecordBatch) -> Box<dyn FormatWriter> {
             &WritePlan {
                 layers: vec![WriteLayer {
                     name: "l".to_owned(),
-                    contract: DataContract {
-                        schema: batch.schema(),
-                        geometry: None,
-                    },
+                    contract: DataContract::from_schema(batch.schema()).unwrap(),
                 }],
             },
             &if path.extension().is_some_and(|ext| ext == "d") {

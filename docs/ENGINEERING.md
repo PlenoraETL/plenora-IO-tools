@@ -1007,7 +1007,7 @@ La misura delle righe è aggiornata senza alzare il tetto.
 | Formato / superficie | Lettura | Scrittura |
 |---|---|---|
 | GeoParquet | `driver-geoparquet/src/lib.rs:1129`, `multigeometria.rs:12`: confronto delle dichiarazioni prima del retag, per primaria e secondarie; stesso lettore CRS anche nel Parquet senza `geo`. | `lib.rs:1272`, `multigeometria.rs:86`: tutte le colonne da `geometries()`, stesso `crs_da_scrivere`; un identificatore senza PROJJSON non diventa `null`. L'omissione CRS84 è coerente anche nello schema incorporato. |
-| IPC | `driver-ipc/src/lib.rs:193`: lettore comune, estensione CRS inclusa; più geometrie rifiutate. | `lib.rs:303`: validazione comune prima dello staging; più geometrie rifiutate. |
+| IPC | `driver-ipc`: tutte le geometrie; `primary::PrimaryState` risolve lo stato ricevuto. | `primary::emit` prima dello staging e dopo la proiezione comune; file e stream condividono i controlli. |
 | GeoPackage | `driver-gpkg/src/lib.rs:1423`: più righe geometriche per la stessa tabella sono rifiutate, non diventano layer separati con BLOB opachi. | `lib.rs:406`: rifiuto comune multigeometria. |
 | FileGDB | `driver-filegdb/src/lib.rs:1516`: conta i campi, dichiara il conteggio e rifiuta il reader multigeometria (`rifiuta_piu_geometrie`, riga 125); nessun passaggio silenzioso al primo campo. | `lib.rs:508`: rifiuto comune; backend nativo subordinato a GDAL. |
 | CSV | `driver-csv/src/lib.rs:215`: un solo mapping WKT oppure XY, dichiarazioni simultanee rifiutate; CRS da opzione, nessun CRS secondario nel formato. | `lib.rs:393`: rifiuto comune. |
@@ -1016,7 +1016,7 @@ La misura delle righe è aggiornata senza alzare il tetto.
 | GeoJSON | `driver-geojson/src/lib.rs:151`: un membro geometry per feature, CRS del formato. | `lib.rs:202`: rifiuto comune. |
 | KML | `driver-kml/src/lib.rs:348`: geometria del placemark, CRS del formato. | `lib.rs:420`: rifiuto comune. |
 | DXF | `driver-dxf/src/lib.rs:526`: geometrie delle entità, contratto per layer; nessuna seconda colonna geometrica. | `lib.rs:607`: rifiuto comune. |
-| SDK Python | `_models.py:651` conserva la vista JSON: `Layer.geometry` è solo la primaria, `fields[].geometry` marca ogni geometria (`plenora-io-tools/src/lib.rs:467`). Limite di introspezione dichiarato in PRODUCT, non una vista dei CRS di tutte le colonne. | `_client.py:548`, `_arrow.py:107`: inoltra lo schema Arrow senza scegliere una geometria; il driver IPC rifiuta la multigeometria. `convert` usa gli stessi driver Rust. |
+| SDK Python | `_models.py:651` conserva la vista JSON: `Layer.geometry` è solo la primaria, `fields[].geometry` marca ogni geometria (`plenora-io-tools/src/lib.rs:467`). Limite di introspezione dichiarato in PRODUCT, non una vista dei CRS di tutte le colonne. | `_client.py:548`, `_arrow.py:107`: inoltra lo schema Arrow senza scegliere una geometria; il driver IPC conserva la multigeometria e la chiave di schema PRIM. `convert` usa gli stessi driver Rust. |
 
 I percorsi dei crate nella tabella sono relativi a `crates/`; quelli Python a
 `sdk/python/src/plenora_io/`. Il rifiuto comune dei writer è in
@@ -1138,3 +1138,56 @@ le guardie di routing restano necessarie e non sono un call graph formale.
 Le macro di item non espanse da syn hanno un inventario separato nello
 stesso registro, con revisione della definizione/invocazione e impronta dei
 token: nuove macro o modifiche falliscono, anziche nascondere nuovi ingressi.
+
+### Riconciliazione Arrow del piano Rust (correzione 2)
+
+`primary::reconcile_schema_contract` e' il punto unico usato da
+`DataContract::geometries` e da `primary::validate_contract`. Writer, proiezioni
+e adattamento EWKB passano da questi ingressi prima di normalizzare lo schema.
+Il vocabolario precede il confronto, anche con `geometry: Some`; i metadati
+canonici del campo ricevuto vengono letti indipendentemente dal piano.
+Il costruttore infallibile conserva ogni schema ricevuto e i suoi difetti;
+`from_schema` offre la costruzione fallibile. Anche per Arrow esterno senza vocabolario Plenora, le proprieta non dichiarate
+non si ricavano dal piano: le dimensioni restano sconosciute. I reader di formati nativi
+serializzano esplicitamente il loro contratto prima di passare al bordo comune.
+
+`geometrie_multiple.rs` enumera i chiamanti con syn e confronta la cardinalita
+con una tabella attesa indipendente. Le prove funzionali includono IPC emesso
+file/stream, GeoParquet prodotto da PyArrow senza chiave primaria incorporata,
+proiezione con oracolo di valori/null, spill su batch non vuoti, runtime con
+artefatto e SDK Table/reader/C stream/C array. Non costituiscono una misura
+fuzz/ASan o la qualifica della distribuzione 8.0.0.
+
+### Gate storico 7.0.3 e riconciliazione GeoParquet
+
+`primary::reconcile_geometry_properties` e condiviso dal riconciliatore del
+piano Rust e dal controllo footer/campo prima del retag GeoParquet. La tabella
+include tutte le chiavi del contratto geometrico; il test ne confronta
+l'inventario con le costanti wire e destruttura il contratto senza `..`.
+CRS usa il confronto semantico, nativi il confronto di ogni chiave comune.
+Un disaccordo fra dichiarazioni risolte e `schema` su qualsiasi colonna.
+
+Il confronto storico e ripetibile su Linux dalla radice del worktree:
+
+```sh
+mkdir -p target/historical-50f9357
+git archive 50f9357 | tar -x -C target/historical-50f9357
+CARGO_BUILD_JOBS=4 cargo build --locked --manifest-path target/historical-50f9357/Cargo.toml --target-dir target/historical-build -p plenora-io-tools --features gdal-backend
+CARGO_BUILD_JOBS=4 cargo build --locked -p plenora-io-tools --features gdal-backend
+python3 scripts/compare_historical_readers.py --old target/historical-build/debug/plenora-io --new target/debug/plenora-io --require-filegdb
+```
+
+Prerequisiti Python: PyArrow e openpyxl; GDAL nativo secondo il profilo Linux
+esistente. Lo script ha shebang Python 3 ed e invocabile anche direttamente
+quando il checkout conserva il bit eseguibile. Tutti gli output stanno sotto
+`target/historical-readers`. Il referto include SHA-256 dei binari, versioni,
+esiti per cella e diagnostiche delle generazioni non supportate. Le fixture
+native generate dal writer 7.0.3 sono distinte da quelle indipendenti
+committate e dai GeoPackage costruiti direttamente con SQLite/ISO WKB.
+I 15 tipi WKB sono enumerati nelle quattro dimensionalita, ciascuno con
+valore, vuoto, null e zero righe. CSV/XLSX storici espongono WKT e X-Y, non WKB; WKB e provato tramite
+i reader binari. I rifiuti concordi non sono successi binari. Il gate fallisce
+per una differenza non spiegata o un reader base senza confronti identici;
+`--require-filegdb` rende obbligatorio anche il reader GDAL. L'unica eccezione
+C3-GP-DIM ha un oracolo indipendente e un test che rifiuta mutazioni di valori,
+metadati estranei e dimensionalita errata. Gli esiti Linux non sono anticipati.

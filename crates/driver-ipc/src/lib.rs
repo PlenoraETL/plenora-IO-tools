@@ -13,7 +13,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::{FileReader, StreamReader};
 use arrow_ipc::writer::{FileWriter, StreamWriter};
-use arrow_schema::{Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -233,54 +233,28 @@ impl FormatDriver for IpcDriver {
         for (_, field) in &geometry_fields {
             validate_geometry_field_identity(field, canonical_version_present)?;
         }
-        let geometry = match geometry_fields.as_slice() {
-            [] => None,
-            [(i, _)] => {
-                let i = *i;
+        let received_schema = schema.clone();
+        let primary = plenora_io_model::primary::PrimaryState::read(&schema)?;
+        let geometry = primary
+            .position(&schema)
+            .map(|i| {
                 let f = schema.field(i);
-                // Indice di colonna di uno schema Arrow: limitato a poche
-                // migliaia di campi, il cast a u32 non puo' troncare.
-                #[allow(clippy::cast_possible_truncation)]
-                let physical_field_id = FieldId(i as u32);
+                let physical = u32::try_from(i).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "indice geometrico non rappresentabile",
+                    ))
+                })?;
                 let mut contract = GeometryColumnContract::wkb_passthrough(
-                    physical_field_id,
+                    FieldId(physical),
                     f.name(),
                     CrsResolution::Missing,
                     f.is_nullable(),
                 );
                 read_geometry_contract_metadata(f, &mut contract)?;
-                // Il rifiuto che c'era qui non c'e' piu', e la ragione per
-                // cui c'era resta valida: `plenora.field_id` veniva dal
-                // payload e finiva in `batch.column(index)`, dove un indice
-                // fuori range e' un panico. La risposta era pretendere che il
-                // metadato coincidesse con la posizione fisica, e rifiutare il
-                // file quando non coincideva.
-                //
-                // Rifiutava pero' anche i file **conformi**: ARROW-003 chiede
-                // un identificatore unico e preservato, non una posizione, e un
-                // produttore che numerasse diversamente era conforme e veniva
-                // respinto. Ora `read_geometry_contract_metadata` mette il
-                // valore letto in `identita_dichiarata` e lascia `field_id`
-                // alla nostra enumerazione: il numero del payload non indicizza
-                // piu' niente, quindi non c'e' piu' niente da difendere.
-                Some(contract)
-            }
-            // Limite dichiarato (docs/PRODUCT.md, «Limitazioni di prodotto»):
-            // una sola colonna geometrica. Il contratto comune ne ammette piu'
-            // (GEO-012); e' il modello di questo componente, un
-            // `GeometryColumnContract` per layer. La seconda colonna non si
-            // ignora: si rifiuta il file, prima di leggere una riga, con
-            // `unsupported` (GEO-012, REJ-001) anche quando lo schema e'
-            // esterno, senza versione ne' chiavi `plenora.*`, e il vocabolario
-            // non lo ha gia' fatto.
-            _ => {
-                return Err(PlenoraIoError::non_supportato_redatto(
-                    &PublicMessage::Curated(
-                        "Arrow IPC con più colonne GeoArrow: questo componente ne rappresenta una (GEO-012)",
-                    ),
-                ));
-            }
-        };
+                Ok::<_, PlenoraIoError>(contract)
+            })
+            .transpose()?;
+        let schema = plenora_io_model::primary::emit(&schema, primary.position(&schema))?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -289,6 +263,7 @@ impl FormatDriver for IpcDriver {
         plenora_io_core::with_read_budget(
             Box::new(IpcDataset {
                 path,
+                received_schema,
                 layers: vec![LayerContract {
                     id: LayerId(0),
                     name,
@@ -366,6 +341,10 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         )));
+        let schema = plenora_io_model::primary::emit(
+            &schema,
+            layer.geometry.as_ref().map(|g| g.field_id.0 as usize),
+        )?;
         // Guardia del produttore: lo schema porta la versione, quindi vale la
         // verifica di `open` (REJ-001/002), qui prima dello staging: un file che
         // IO stesso rifiuterebbe in lettura non si produce in silenzio.
@@ -422,6 +401,7 @@ impl FormatDriver for IpcDriver {
 
 struct IpcDataset {
     path: PathBuf,
+    received_schema: SchemaRef,
     layers: Vec<LayerContract>,
 }
 
@@ -445,58 +425,8 @@ impl OpenDatasetHandle for IpcDataset {
         }
 
         let source_layer = &self.layers[0];
-        let (projection, layer) = match &request.projected_fields {
-            None => (None, source_layer.clone()),
-            Some(field_ids) => {
-                let mut indices = Vec::new();
-                for field_id in field_ids {
-                    let index = field_id.0 as usize;
-                    if index >= source_layer.contract.schema.fields().len() {
-                        if request.projection_mode == plenora_io_core::ProjectionMode::Required {
-                            return Err(PlenoraIoError::contratto_redatto(
-                                &PublicMessage::CuratedWith(
-                                    "projection Required: field id fuori range,",
-                                    NumeroStrutturale::Indice(u64::from(field_id.0)),
-                                ),
-                            ));
-                        }
-                        continue;
-                    }
-                    if !indices.contains(&index) {
-                        indices.push(index);
-                    }
-                }
-                indices.sort_unstable();
-                let fields = indices
-                    .iter()
-                    .map(|&index| source_layer.contract.schema.field(index).as_ref().clone())
-                    .collect::<Vec<_>>();
-                let schema = Arc::new(Schema::new_with_metadata(
-                    fields,
-                    source_layer.contract.schema.metadata().clone(),
-                ));
-                let geometry = source_layer.contract.geometry.clone().and_then(|geometry| {
-                    schema.index_of(&geometry.name).ok().map(|index| {
-                        // Indice di colonna di uno schema Arrow: il cast a
-                        // u32 non puo' troncare.
-                        #[allow(clippy::cast_possible_truncation)]
-                        let field_id = FieldId(index as u32);
-                        GeometryColumnContract {
-                            field_id,
-                            ..geometry
-                        }
-                    })
-                });
-                (
-                    Some(indices),
-                    LayerContract {
-                        id: source_layer.id,
-                        name: source_layer.name.clone(),
-                        contract: DataContract::new(schema, geometry),
-                    },
-                )
-            }
-        };
+        let (indices, layer) = plenora_io_core::project_layer_contract(source_layer, request)?;
+        let projection = request.projected_fields.as_ref().map(|_| indices);
         let path = self.path.clone();
         // Il file viene riaperto qui, quindi viene riverificato qui: fra
         // `open` e questa chiamata il contenuto su disco puo' essere cambiato,
@@ -531,6 +461,16 @@ impl OpenDatasetHandle for IpcDataset {
                 }
             }
         })?;
+        let reopened = match &reader {
+            LettoreIpc::File { lettore, .. } => lettore.schema(),
+            LettoreIpc::Flusso { lettore, .. } => lettore.schema(),
+        };
+        plenora_io_model::vocabolario::verifica_schema(&reopened)?;
+        if reopened != self.received_schema {
+            return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                "schema IPC cambiato alla riapertura",
+            )));
+        }
         Ok(plenora_io_core::with_batch_target(
             Box::new(IpcReader { reader, layer }),
             request.batch_target,
@@ -574,6 +514,7 @@ impl LayerReader for IpcReader {
         // Dopo un panico catturato il `FileReader` resta in uno stato non
         // definito. Non e' un problema: il chiamante riceve un errore e il
         // contratto di `LayerReader` non prevede di proseguire dopo un errore.
+        let schema = self.layer.contract.schema.clone();
         let reader = &mut self.reader;
         plenora_io_core::driver::leggendo_arrow("arrow", move || match reader {
             LettoreIpc::File {
@@ -592,7 +533,16 @@ impl LayerReader for IpcReader {
                 Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
+        })?
+        .map(|batch| {
+            RecordBatch::try_new_with_options(
+                schema,
+                batch.columns().to_vec(),
+                &arrow_array::RecordBatchOptions::new().with_row_count(Some(batch.num_rows())),
+            )
+            .map_err(|_| err(&PublicMessage::Curated("schema IPC discorde")))
         })
+        .transpose()
     }
 }
 
@@ -601,6 +551,7 @@ fn valida_e_proietta(
     batch: RecordBatch,
     projection: Option<&[usize]>,
 ) -> Result<Option<RecordBatch>> {
+    plenora_io_model::vocabolario::verifica_schema(&batch.schema())?;
     plenora_io_core::driver::validate_external_batch(&batch, plenora_io_model::ErrorPhase::Read)?;
     match projection {
         None => Ok(Some(batch)),

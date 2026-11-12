@@ -392,7 +392,8 @@
         "hostile_input_hardened",
         "required_feature",
         "requires_declared_geometry_types",
-        "spec_version_supported"
+        "spec_version_supported",
+        "geometry_cardinality"
       ],
       "current_producer": {
         "required_driver_fields": [
@@ -400,7 +401,8 @@
           "hostile_input_hardened",
           "required_feature",
           "requires_declared_geometry_types",
-          "spec_version_supported"
+          "spec_version_supported",
+          "geometry_cardinality"
         ]
       },
       "driver_field_semantics": {
@@ -436,6 +438,15 @@
           "nota": "dice dove il supporto si ferma. Senza, un consumatore che vede un formato nel catalogo non ha modo di sapere se una versione successiva della sua specifica sarebbe letta: lo dedurrebbe, e si sbaglierebbe. Un driver che dichiara una versione rifiuta quelle oltre con un errore di funzionalita' **non supportata**, distinto da quello di metadati non conformi: il primo dice che il file va bene e noi no, il secondo che il file e' sbagliato, e mandare chi legge a correggere un file corretto e' il danno che la distinzione evita.",
           "esempio": "geoparquet dichiara 1.1.0: legge 1.0.0 e 1.1.0, e 2.0 no.",
           "verificata_da": "scripts/check_metadati_geoparquet.py"
+        },
+        "geometry_cardinality": {
+          "type": "string",
+          "values": [
+            "single",
+            "multiple"
+          ],
+          "source": "crates/plenora-io-core/src/geometry_cardinality.rs",
+          "nota": "8.0.0: cardinalita dichiarativa condivisa con le guardie; multiple non implica primaria obbligatoria per IPC."
         }
       },
       "nota": "identica alla v1 salvo il nome del contratto: il catalogo non porta diagnostica di perdita, e i suoi campi restano quelli. Cambia soltanto perche' il protocollo e' uno e la versione la dichiarano tutte le buste allo stesso modo.",
@@ -961,6 +972,12 @@
         ".result.drivers[].requires_declared_geometry_types": {
           "tipi": [
             "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.drivers[].geometry_cardinality": {
+          "tipi": [
+            "string"
           ],
           "sempre": true
         }

@@ -32,10 +32,17 @@ pub fn planned_write_loss(
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
         let geometries = layer.contract.geometries()?;
-        for geometry in geometries
-            .iter()
-            .filter(|_| layer.contract.geometry.is_some() || geometries.len() > 1)
-        {
+        for geometry in geometries.iter().filter(|g| {
+            layer.contract.geometry.is_some()
+                || geometries.len() > 1
+                || g.types_declaration
+                    != plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+                || layer
+                    .contract
+                    .schema
+                    .metadata()
+                    .contains_key(plenora_io_model::primary::KEY)
+        }) {
             let (crs_id, crs_definition, grammatica) = match &geometry.crs {
                 CrsResolution::Resolved(crs) => (
                     crs.id.as_deref(),

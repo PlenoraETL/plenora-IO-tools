@@ -323,8 +323,24 @@ pub fn validate_write(
             ));
         }
 
+        plenora_io_model::primary::validate_contract(&layer.contract)?;
+        if driver == "ipc" && layer.contract.geometry.is_none() {
+            plenora_io_model::vocabolario::verifica_schema(
+                &plenora_io_model::geometry::with_contract_version(layer.contract.schema.clone()),
+            )?;
+        }
         let geometries = layer.contract.geometries()?;
-        if geometries.len() > 1 && driver != "geoparquet" {
+        if !crate::geometry_cardinality::supports_multiple(driver)
+            && plenora_io_model::primary::PrimaryState::read(&layer.contract.schema)?
+                == plenora_io_model::primary::PrimaryState::None
+        {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "il sink a geometria singola non conserva lo stato senza primaria",
+                ),
+            ));
+        }
+        if geometries.len() > 1 && !crate::geometry_cardinality::supports_multiple(driver) {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::Curated(
                     "il driver di destinazione non rappresenta più colonne geometriche",
@@ -332,11 +348,11 @@ pub fn validate_write(
             ));
         }
         if layer.contract.geometry.is_none()
-            && (geometries.len() > 1
-                || (driver == "geoparquet"
-                    && geometries
-                        .iter()
-                        .any(|g| g.native_metadata.contains_key("geoparquet.primary_column"))))
+            && driver == "geoparquet"
+            && !geometries.is_empty()
+            && plenora_io_model::primary::PrimaryState::read(&layer.contract.schema)?
+                .position(&layer.contract.schema)
+                .is_none()
         {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::Curated(
@@ -457,10 +473,16 @@ pub fn validate_write(
 
         // Il piano legacy monogeometria senza contratto esplicito conserva
         // la validazione runtime storica; i nuovi piani multigeometria sono espliciti.
-        for geometry in geometries
-            .iter()
-            .filter(|_| layer.contract.geometry.is_some() || geometries.len() > 1)
-        {
+        for geometry in geometries.iter().filter(|g| {
+            geometries.len() > 1
+                || g.types_declaration
+                    != plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+                || layer
+                    .contract
+                    .schema
+                    .metadata()
+                    .contains_key(plenora_io_model::primary::KEY)
+        }) {
             if !caps.geometry.supported {
                 return Err(violation(
                     driver,

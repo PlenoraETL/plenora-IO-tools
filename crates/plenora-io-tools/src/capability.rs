@@ -287,6 +287,19 @@ pub fn catalog_document_con(filegdb_available: bool) -> Value {
             let mut document = serde_json::to_value(descriptor).unwrap_or(Value::Null);
             let is_filegdb = descriptor.id() == "filegdb";
             if let Some(fields) = document.as_object_mut() {
+                fields.insert(
+                        "geometry_cardinality".to_owned(),
+                        Value::String(
+                            if plenora_io_core::geometry_cardinality::supports_multiple(
+                                descriptor.id(),
+                            ) {
+                                "multiple"
+                            } else {
+                                "single"
+                            }
+                            .to_owned(),
+                        ),
+                    );
                 // IO-CAT-001: tutti i sink restringono i tipi geometrici.
                 fields.insert(
                     "requires_declared_geometry_types".to_owned(),

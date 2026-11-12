@@ -165,6 +165,7 @@ pub fn verifica_schema(schema: &Schema) -> Result<()> {
         Some(_) => {}
     }
     vocabolario(schema)?;
+    crate::primary::PrimaryState::read(schema)?;
     for campo in schema.fields().iter().filter(|f| geometria(f)) {
         crs(campo)?;
     }

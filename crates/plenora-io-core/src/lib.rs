@@ -53,3 +53,8 @@ pub use request::{
     PruningComparison, PruningPredicate, PruningScalar, ReadRequest, ReadScope, WriteLayer,
     WritePlan,
 };
+
+pub mod geometry_cardinality;
+
+#[cfg(test)]
+mod test_contract;

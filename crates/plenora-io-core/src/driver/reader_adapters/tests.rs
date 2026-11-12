@@ -246,7 +246,7 @@ fn validating_contract() -> LayerContract {
     LayerContract {
         id: LayerId(0),
         name: "values".to_owned(),
-        contract: DataContract::new(
+        contract: crate::test_contract::declared(
             schema,
             Some(GeometryColumnContract::wkb_xy(
                 FieldId(0),
@@ -680,7 +680,7 @@ fn read_validation_reports_only_attestable_physical_indices() {
     let contract = LayerContract {
         id: LayerId(0),
         name: "invalid".to_owned(),
-        contract: DataContract::new(
+        contract: crate::test_contract::declared(
             schema,
             Some(GeometryColumnContract::wkb_xy(
                 FieldId(0),
@@ -1130,7 +1130,7 @@ fn large_parent_small_slice_is_charged_incrementally_but_large_batch_is_rejected
     let contract = LayerContract {
         id: LayerId(0),
         name: "slice".to_owned(),
-        contract: DataContract::new(schema.clone(), None),
+        contract: crate::test_contract::declared(schema.clone(), None),
     };
     let parent: Arc<dyn Array> = Arc::new(UInt8Array::from(vec![0_u8; LARGE]));
     let slice = parent.slice(0, 1);
@@ -1826,7 +1826,7 @@ fn with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto() {
     let layer = LayerContract {
         id: LayerId(0),
         name: "values".to_owned(),
-        contract: DataContract::new(
+        contract: crate::test_contract::declared(
             schema,
             Some(GeometryColumnContract::wkb_xy(
                 FieldId(1),
@@ -2018,7 +2018,7 @@ fn with_read_budget_rifiuta_una_definizione_che_geo_005_rifiuta() {
         let layer = LayerContract {
             id: LayerId(0),
             name: "values".to_owned(),
-            contract: DataContract::new(
+            contract: crate::test_contract::declared(
                 schema,
                 Some(GeometryColumnContract::wkb_xy(
                     FieldId(0),

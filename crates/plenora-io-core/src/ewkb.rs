@@ -91,6 +91,10 @@ pub fn pianifica(
     geometria: Option<&GeometryColumnContract>,
     limiti: WkbLimits,
 ) -> Result<Option<(SchemaRef, GeometryColumnContract, DaEwkbAWkb)>> {
+    plenora_io_model::primary::validate_contract(&plenora_io_model::contract::DataContract {
+        schema: schema.clone(),
+        geometry: geometria.cloned(),
+    })?;
     let Some(geometria) = geometria else {
         return Ok(None);
     };

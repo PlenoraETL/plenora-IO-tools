@@ -403,5 +403,26 @@
       "prova": "lo stesso comando che riesce nel profilo `filegdb` deve fallire in quello `base`, e con la ragione giusta: la feature `gdal-backend` non c'e'. Un rifiuto qualunque non basterebbe -- direbbe che il profilo base rifiuta, non **perche'**."
     }
   ],
-  "copertura": "non e' scritta qui. La deriva `scripts/check-conversioni.py` dal registro, e pretende che ogni driver bidirezionale compaia almeno una volta come sorgente **e** una come destinazione in una conversione **riuscita**. I soli rifiuti non bastano, ed e' il punto: un rifiuto prova che il driver non e' stato attraversato, e contarlo come copertura direbbe che un formato e' stato convertito proprio dove la conversione non e' avvenuta. Pretende inoltre tutte le classi di `crs_handling` fra le sorgenti riuscite, tutte le classi di `fidelity_class` fra le destinazioni riuscite, almeno un'origine multi-layer, entrambi i profili e ciascuna forma di rifiuto."
+  "copertura": "non e' scritta qui. La deriva `scripts/check-conversioni.py` dal registro, e pretende che ogni driver bidirezionale compaia almeno una volta come sorgente **e** una come destinazione in una conversione **riuscita**. I soli rifiuti non bastano, ed e' il punto: un rifiuto prova che il driver non e' stato attraversato, e contarlo come copertura direbbe che un formato e' stato convertito proprio dove la conversione non e' avvenuta. Pretende inoltre tutte le classi di `crs_handling` fra le sorgenti riuscite, tutte le classi di `fidelity_class` fra le destinazioni riuscite, almeno un'origine multi-layer, entrambi i profili e ciascuna forma di rifiuto.",
+  "arrow_primary_geometry_8_0_0": {
+    "contratto": "plenora-arrow-primary-geometry-v1",
+    "modulo": "crates/plenora-io-model/src/primary.rs",
+    "prove": [
+      "scripts/vettori_primary_geometry.py",
+      "sdk/python/tests/test_primary_geometry.py",
+      "crates/plenora-io-tools/tests/runtime_vettori.rs::runtime_primary_multi_none_and_invalid_key"
+    ],
+    "qualifica": "nuova misura 8.0.0 richiesta; non eredita L1/L2, fuzz o ASan 7.0.3"
+  },
+  "correzione_2": {
+    "ambito": "Prove funzionali locali del sorgente 8.0.0 non pubblicato; nessun trasferimento di qualifica, fuzz, ASan o digest storici.",
+    "prove": [
+      "crates/driver-ipc/src/tests/primary.rs",
+      "crates/plenora-io-tools/tests/geometrie_multiple.rs",
+      "crates/plenora-io-tools/tests/runtime_vettori.rs",
+      "sdk/python/tests/test_primary_geometry.py",
+      "scripts/vettori_primary_geometry.py"
+    ],
+    "copertura": "Piano Rust grezzo/costruttore, metadati per campo, writer file/stream, footer indipendente, valori/null, piu batch, C array e C stream; backend GDAL nativo da verificare su Linux."
+  }
 }

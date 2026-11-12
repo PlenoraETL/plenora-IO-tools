@@ -550,6 +550,7 @@ mod backend {
     use gdal::vector::LayerAccess;
     use gdal::{Dataset, Metadata};
 
+    #[cfg(test)]
     use driver_common::geometry_field;
     use plenora_io_core::driver::{
         spawn_batch_reader, BatchEmitter, LayerReader, OpenDatasetHandle,
@@ -560,7 +561,6 @@ mod backend {
         LayerContract, LayerId,
     };
     use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
-    use plenora_io_model::geometry::with_geometry_contract_metadata;
     use plenora_io_model::{
         CapabilityReason, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
     };
@@ -1520,16 +1520,6 @@ mod backend {
             let crs_e_geometria = match ogr_geometry_type {
                 Some(ogr_geometry_type) => {
                     let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
-                    let crs_label = crs
-                        .id
-                        .as_deref()
-                        .or(crs.definition.as_deref())
-                        .ok_or_else(|| {
-                            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                                "CRS FileGDB risolto senza identificativo né definizione",
-                            ))
-                        })?
-                        .to_owned();
                     let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
                     if campi_geometrici > 1 {
                         // Il limite si vede dalla scoperta, come chiede
@@ -1539,7 +1529,7 @@ mod backend {
                             campi_geometrici.to_string(),
                         );
                     }
-                    Some((crs_label, geometria))
+                    Some(geometria)
                 }
                 None => None,
             };
@@ -1574,11 +1564,8 @@ mod backend {
             let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
                 native_fields.into_iter().unzip();
             let (arrow_fields, geometry) = match crs_e_geometria {
-                Some((crs_label, geometry)) => {
-                    let geometry_arrow_field = with_geometry_contract_metadata(
-                        &geometry_field(GEOMETRY, &crs_label),
-                        &geometry,
-                    );
+                Some(geometry) => {
+                    let geometry_arrow_field = super::native_geometry_field(&geometry);
                     let mut campi = vec![geometry_arrow_field];
                     campi.extend(attribute_arrow_fields);
                     (campi, Some(geometry))
@@ -1590,7 +1577,11 @@ mod backend {
             };
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let ha_geometria = geometry.is_some();
-            let contract = DataContract::new(schema.clone(), geometry);
+            let contract = DataContract::new(
+                plenora_io_model::geometry::with_contract_version(schema.clone()),
+                geometry,
+            );
+            plenora_io_model::primary::reconcile_schema_contract(&contract)?;
             // Indice di layer di un FileGDB: il formato ne ammette al piu'
             // qualche migliaio, il cast a u32 non puo' troncare.
             #[allow(clippy::cast_possible_truncation)]
@@ -2009,6 +2000,7 @@ mod backend {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::test_contract::declared;
         use arrow_array::RecordBatch;
         use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
@@ -2061,10 +2053,7 @@ mod backend {
             geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             WriteLayer {
                 name: "points".to_owned(),
-                contract: DataContract {
-                    schema,
-                    geometry: Some(geometry),
-                },
+                contract: declared(&schema, geometry),
             }
         }
 
@@ -2206,11 +2195,19 @@ mod backend {
                 .unwrap()
                 .to_wkt()
                 .unwrap();
-            let layer = write_layer(ResolvedCrs::new(
+            let mut layer = write_layer(ResolvedCrs::new(
+                Some("EPSG:3857".to_owned()),
+                CrsKind::Projected,
+                None,
+            ));
+            // Corruzione intenzionale per provare il controllo GDAL del CRS,
+            // dopo la costruzione della fixture valida.
+            layer.contract.geometry.as_mut().unwrap().crs = ResolvedCrs::new(
                 Some("EPSG:3857".to_owned()),
                 CrsKind::Projected,
                 Some(epsg_4326_wkt),
-            ));
+            )
+            .into();
             assert!(matches!(
                 layer_spatial_ref(&layer),
                 Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
@@ -2252,11 +2249,6 @@ mod backend {
             .unwrap();
             let schema: SchemaRef =
                 Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2267,12 +2259,14 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
@@ -2327,11 +2321,6 @@ mod backend {
             .unwrap();
             let schema: SchemaRef =
                 Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2342,12 +2331,15 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+
             let driver = super::super::FileGdbDriver;
             for path in &paths {
                 let mut writer = driver
@@ -2410,16 +2402,6 @@ mod backend {
                     .with_metadata(native_string_metadata.clone()),
             ]));
             let wkb = point_wkb(CoordinateDimensions::Xy, None, None);
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![
-                    Arc::new(BinaryArray::from(vec![Some(wkb.as_slice()), None])),
-                    Arc::new(Int32Array::from(vec![Some(i32::MAX), None])),
-                    Arc::new(Float64Array::from(vec![Some(12.5), None])),
-                    Arc::new(StringArray::from(vec![Some("città"), None])),
-                ],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2430,12 +2412,19 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![
+                    Arc::new(BinaryArray::from(vec![Some(wkb.as_slice()), None])),
+                    Arc::new(Int32Array::from(vec![Some(i32::MAX), None])),
+                    Arc::new(Float64Array::from(vec![Some(12.5), None])),
+                    Arc::new(StringArray::from(vec![Some("città"), None])),
+                ],
+            )
+            .unwrap();
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
@@ -2582,30 +2571,27 @@ mod backend {
                     .map(|_| Some(wkb.as_slice()))
                     .collect::<Vec<_>>(),
             );
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "float_edges".to_owned(),
+                    contract: declared(&schema, geometry),
+                }],
+            };
             let batch = RecordBatch::try_new(
-                schema.clone(),
+                plan.layers[0].contract.schema.clone(),
                 vec![
                     Arc::new(geometries),
                     Arc::new(Float64Array::from(values.to_vec())),
                 ],
             )
             .unwrap();
-            let mut geometry = GeometryColumnContract::wkb_xy(
-                FieldId(0),
-                GEOMETRY,
-                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
-                false,
-            );
-            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
-            let plan = WritePlan {
-                layers: vec![WriteLayer {
-                    name: "float_edges".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
-                }],
-            };
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
@@ -2634,11 +2620,6 @@ mod backend {
             let schema: SchemaRef =
                 Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
             let wkb = point_wkb(CoordinateDimensions::Xyz, Some(123.25), None);
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2650,12 +2631,14 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points_z".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
@@ -2698,11 +2681,6 @@ mod backend {
             let schema: SchemaRef =
                 Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
             let wkb = point_wkb(CoordinateDimensions::Xy, None, None);
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2713,12 +2691,15 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "punti".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
                 .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
@@ -2754,11 +2735,6 @@ mod backend {
                 let schema: SchemaRef =
                     Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
                 let wkb = point_wkb(dimensions, z, m);
-                let batch = RecordBatch::try_new(
-                    schema.clone(),
-                    vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-                )
-                .unwrap();
                 let mut geometry = GeometryColumnContract::wkb_xy(
                     FieldId(0),
                     GEOMETRY,
@@ -2770,12 +2746,14 @@ mod backend {
                 let plan = WritePlan {
                     layers: vec![WriteLayer {
                         name: format!("points_{suffix}"),
-                        contract: DataContract {
-                            schema,
-                            geometry: Some(geometry),
-                        },
+                        contract: declared(&schema, geometry),
                     }],
                 };
+                let batch = RecordBatch::try_new(
+                    plan.layers[0].contract.schema.clone(),
+                    vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+                )
+                .unwrap();
 
                 let driver = super::super::FileGdbDriver;
                 let mut writer = driver
@@ -2838,11 +2816,6 @@ mod backend {
             let wkb = encode_wkb(&geometry_value, WkbFlavor::Iso).unwrap();
             let schema: SchemaRef =
                 Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
-            )
-            .unwrap();
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
@@ -2854,12 +2827,14 @@ mod backend {
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "multiline_xyzm".to_owned(),
-                    contract: DataContract {
-                        schema,
-                        geometry: Some(geometry),
-                    },
+                    contract: declared(&schema, geometry),
                 }],
             };
+            let batch = RecordBatch::try_new(
+                plan.layers[0].contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
@@ -3229,10 +3204,7 @@ mod backend {
                     geometry.set_exact_geometry_types(vec![*geometry_type]);
                     WriteLayer {
                         name,
-                        contract: DataContract {
-                            schema,
-                            geometry: Some(geometry),
-                        },
+                        contract: declared(&schema, geometry),
                     }
                 })
                 .collect();
@@ -3271,6 +3243,10 @@ mod backend {
                     .as_mut()
                     .unwrap()
                     .set_exact_geometry_types(vec![geometry_type]);
+                layer.contract = declared(
+                    &layer.contract.schema,
+                    layer.contract.geometry.take().unwrap(),
+                );
                 let plan = WritePlan {
                     layers: vec![layer],
                 };
@@ -3300,6 +3276,10 @@ mod backend {
                 None,
             ));
             layer.contract.geometry.as_mut().unwrap().encoding = GeometryEncoding::Ewkb;
+            layer.contract = declared(
+                &layer.contract.schema,
+                layer.contract.geometry.take().unwrap(),
+            );
             let plan = WritePlan {
                 layers: vec![layer],
             };
@@ -3336,6 +3316,10 @@ mod backend {
                     geometry_field(GEOMETRY, "EPSG:3857"),
                     Field::new("unsupported", data_type, true),
                 ]));
+                layer.contract = declared(
+                    &layer.contract.schema,
+                    layer.contract.geometry.take().unwrap(),
+                );
                 let plan = WritePlan {
                     layers: vec![layer],
                 };
@@ -3372,6 +3356,10 @@ mod backend {
                 geometry_field(GEOMETRY, "EPSG:3857"),
                 Field::new("text", DataType::Utf8, true).with_metadata(metadata),
             ]));
+            layer.contract = declared(
+                &layer.contract.schema,
+                layer.contract.geometry.take().unwrap(),
+            );
             let plan = WritePlan {
                 layers: vec![layer],
             };
@@ -3608,3 +3596,33 @@ mod tests;
 /// nella configurazione in cui servono.
 #[cfg(all(test, feature = "gdal-backend"))]
 mod sonde_del_fuzzing;
+
+#[cfg(test)]
+mod test_contract;
+
+// Emissione dal formato nativo, condivisa con le prove senza GDAL.
+#[cfg(any(test, feature = "gdal-backend"))]
+fn native_geometry_field(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> arrow_schema::Field {
+    use plenora_io_model::geometry::{
+        with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
+        GEO_CRS_KEY,
+    };
+    let mut metadata = arrow_schema::Metadata::default();
+    metadata.insert(ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION);
+    // La chiave legacy contiene un identificativo, mai una definizione WKT.
+    // La definizione resta nei metadati canonici del contratto geometrico.
+    if let Some(id) = geometry.crs.id() {
+        metadata.insert(GEO_CRS_KEY, id);
+    }
+    with_geometry_contract_metadata(
+        &arrow_schema::Field::new(
+            &geometry.name,
+            arrow_schema::DataType::Binary,
+            geometry.nullable,
+        )
+        .with_metadata(metadata),
+        geometry,
+    )
+}

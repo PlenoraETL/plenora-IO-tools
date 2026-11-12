@@ -369,10 +369,11 @@ class Driver(FormatDescriptor):
     available: bool
     required_feature: str | None
     requires_declared_geometry_types: bool
+    geometry_cardinality: str
 
     #: I campi che il catalogo aggiunge. Il gate li somma a quelli del
     #: descrittore e confronta il totale con `.drivers[]`.
-    _PROPRI = ("available", "required_feature", "requires_declared_geometry_types")
+    _PROPRI = ("available", "required_feature", "requires_declared_geometry_types", "geometry_cardinality")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Driver":

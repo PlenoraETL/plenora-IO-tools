@@ -111,11 +111,34 @@ fn geometry_plan(
         layers: vec![WriteLayer {
             name: format!("{}_layer", descriptor.id()),
             contract: DataContract {
-                schema: Arc::new(Schema::new(vec![field])),
+                schema: plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(
+                    vec![field],
+                ))),
                 geometry: Some(geometry),
             },
         }],
     }
+}
+
+fn aggiorna_schema_del_piano(plan: &mut WritePlan) {
+    let contract = &mut plan.layers[0].contract;
+    let g = contract.geometry.as_ref().unwrap();
+    let fields = contract
+        .schema
+        .fields()
+        .iter()
+        .map(|f| {
+            if f.name() == &g.name {
+                with_geometry_contract_metadata(f, g)
+            } else {
+                f.as_ref().clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    contract.schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        contract.schema.metadata().clone(),
+    ));
 }
 
 fn valid_geometry_plan(descriptor: &FormatDescriptor) -> WritePlan {
@@ -520,6 +543,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let ipc = driver_ipc::IpcDriver;
     let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
     ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
+    aggiorna_schema_del_piano(&mut ipc_plan);
     assert!(
         validate_write(
             ipc.descriptor(),
@@ -534,6 +558,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let shp = driver_shp::ShpDriver;
     let mut shp_plan = valid_geometry_plan(shp.descriptor());
     shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
+    aggiorna_schema_del_piano(&mut shp_plan);
     assert_capability(
         "shp",
         validate_write(
@@ -802,6 +827,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.geometry_types.clear();
             geometry.scansione_completa = false;
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+            aggiorna_schema_del_piano(&mut unresolved);
             assert_capability(
                 descriptor.id(),
                 validate_write(

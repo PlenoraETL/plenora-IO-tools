@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `a2e0bea` |
-| candidate, versione del manifesto | `7.0.3` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
-| candidate, versione del workspace | `7.0.3` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v7.0.3` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `8.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `8.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v8.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 11 |
-| release_authorized | `true` |
+| release pubblicate | 12 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -1366,7 +1366,13 @@ elimina la copia in
 ancora distribuito non soddisfano il criterio. L'accettazione e la pubblicazione
 upstream dipendono dai manutentori dei progetti originali.
 
-## 7.0.3 — 2026-11-11 (candidate congelata, non rilasciata)
+## 7.0.3 — 2026-11-11 (pubblicata, verbale archiviato)
+
+La pubblicazione del 2026-11-11T18:06:31Z e registrata nel verbale ora in
+`chiuso.release_pubblicate`, con evidenza `checkpoint-a2e0bea.json`.
+Le istruzioni e le misure seguenti descrivono la preparazione storica della
+7.0.3; la candidate corrente e la 8.0.0 iniziale descritta in fondo.
+
 
 ### Draft verificata e passi dopo la decisione
 
@@ -2342,3 +2348,34 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 `plenora-python-sdk-v1` resta `not_applicable` nel manifesto, che lì vuol dire
 «non rivendicato», ed è una garanzia indebolita dichiarata in
 [`contracts/adozione-4.0.0.json`](../contracts/adozione-4.0.0.json).
+
+## 8.0.0 — 2026-11-12 (candidate iniziale, non rilasciata)
+
+Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
+di `none`, secondo il criterio degli input accettati documentato sopra.
+Note e migrazione: [CHANGELOG](../CHANGELOG.md). Le evidenze 7.0.3 restano
+storiche: servono nuovo congelamento, L1/L2, fuzz/ASan e artefatti misurati.
+Nessun tag, commit o pubblicazione fa parte di questa correzione.
+
+Workspace, SDK e i due lockfile sono gia alla 8.0.0. La 7.0.3 pubblicata
+il 2026-11-11 e archiviata in `chiuso.release_pubblicate`, con il verbale e
+l'evidenza originali. La candidate corrente e iniziale: nessuna revisione,
+artefatto o attestazione congelata; `release_authorized` e
+`release_action_allowed` sono false. Le misure della 7.0.3 non qualificano
+questo albero: il bump e le modifiche al codice richiedono nuove misure sul
+perimetro finale, incluse le quattro profondita fuzz e il confine ASan FileGDB.
+
+Artefatti attesi dalla matrice `assurance/registries/distribuzione-matrice.json`
+e dal workflow `distribuzione.yml` (sorgente incluso), ancora da costruire e
+misurare; questa lista non e un congelamento:
+
+- `plenora-io-8.0.0-linux-x86_64-base.tar.gz`
+- `plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz`
+- `plenora-io-8.0.0-src.tar.gz`
+- `plenora-io-8.0.0-windows-x86_64-base.zip`
+- `plenora-io-8.0.0-windows-x86_64-filegdb.zip`
+- `plenora_io-8.0.0-py3-none-any.whl`
+- `plenora_io-8.0.0.tar.gz`
+
+I cambi dei quartetti FileGDB e GeoParquet e la loro motivazione sono
+registrati nel CHANGELOG 8.0.0 come parte della compatibilita degli errori.

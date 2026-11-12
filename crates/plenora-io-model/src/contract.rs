@@ -1,5 +1,5 @@
-//! `DataContract` e affini (scheletro Fase 0). La v1 ammette al massimo una
-//! colonna geometria (Architetture §2.2, D16 data-tools).
+//! Contratti Arrow con geometrie per campo e primaria opzionale per identita.
+//! Lo stato wire e governato da Arrow Primary Geometry 1.0 nel modulo primary.
 
 use std::collections::BTreeMap;
 
@@ -314,6 +314,34 @@ pub struct DataContract {
 }
 
 impl DataContract {
+    /// Ricava il contratto esclusivamente dallo schema ricevuto.
+    /// # Errors
+    /// Vocabolario o dichiarazioni geometriche non validi.
+    pub fn from_schema(schema: SchemaRef) -> crate::Result<Self> {
+        crate::vocabolario::verifica_schema(&schema)?;
+        let geometry = crate::primary::PrimaryState::read(&schema)?
+            .position(&schema)
+            .map(|index| {
+                let field = schema.field(index);
+                let mut geometry = GeometryColumnContract::wkb_passthrough(
+                    FieldId(u32::try_from(index).map_err(|_| {
+                        crate::PlenoraIoError::schema_redatto(&crate::PublicMessage::Curated(
+                            "indice geometrico non rappresentabile",
+                        ))
+                    })?),
+                    field.name(),
+                    CrsResolution::Missing,
+                    field.is_nullable(),
+                );
+                crate::geometry::read_geometry_contract_metadata(field, &mut geometry)?;
+                Ok::<_, crate::PlenoraIoError>(geometry)
+            })
+            .transpose()?;
+        let contract = Self { schema, geometry };
+        crate::primary::validate_contract(&contract)?;
+        Ok(contract)
+    }
+
     /// Restituisce tutti i contratti geometrici in ordine fisico.
     /// Il CRS della primaria esplicita si confronta con i metadati del campo;
     /// nessun altro campo viene promosso a primaria. Gli indici sono posizioni,
@@ -322,110 +350,14 @@ impl DataContract {
     /// # Errors
     /// Metadati geometrici non interpretabili o indice non rappresentabile.
     pub fn geometries(&self) -> crate::Result<Vec<GeometryColumnContract>> {
-        let mut geometries = Vec::new();
-        for (index, field) in self.schema.fields().iter().enumerate() {
-            if let Some(primary) = self.geometry.as_ref().filter(|g| &g.name == field.name()) {
-                let mut declared = primary.clone();
-                crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
-                let mut primary = primary.clone();
-                primary.crs =
-                    crate::geometry::reconcile_crs_declarations(&primary.crs, &declared.crs)?;
-                geometries.push(primary);
-            } else if crate::geometry::is_geometry_field(field) {
-                let index = u32::try_from(index).map_err(|_| {
-                    crate::PlenoraIoError::schema_redatto(&crate::PublicMessage::Curated(
-                        "indice geometrico non rappresentabile",
-                    ))
-                })?;
-                let mut geometry = GeometryColumnContract::wkb_xy(
-                    FieldId(index),
-                    field.name(),
-                    crate::crs::CrsResolution::Missing,
-                    field.is_nullable(),
-                );
-                crate::geometry::read_geometry_contract_metadata(field, &mut geometry)?;
-                geometry.field_id = FieldId(index);
-                geometries.push(geometry);
-            }
-        }
-        if let Some(primary) = &self.geometry {
-            if !geometries.iter().any(|g| g.name == primary.name) {
-                geometries.push(primary.clone());
-            }
-        }
-        Ok(geometries)
+        crate::primary::reconcile_schema_contract(self)
     }
 
-    /// Costruisce il contratto e inserisce la versione del protocollo nei
-    /// metadati di schema quando sono presenti chiavi geometriche canoniche.
-    ///
-    /// # Che cosa non fa, e perche' non e' una via silenziosa
-    ///
-    /// Non completa un contratto `LegacyUndeclared` e non verifica lo schema
-    /// che produce. `LegacyUndeclared` nasce in un solo posto,
-    /// `read_geometry_contract_metadata` su un campo senza
-    /// `types_declaration`: l'Arrow estraneo al contratto, che la verifica del
-    /// vocabolario lascia passare perche' non porta chiavi `plenora.*`, o il
-    /// campo di un piano senza contratto geometrico esplicito. Completarlo
-    /// vorrebbe dire scrivere `unresolved` per una sorgente che non lo ha
-    /// detto; lo schema resta quindi quello che e', e il contratto in memoria
-    /// dichiara l'ignoranza (dimensioni `unknown`, tipi non dichiarati). A
-    /// valle quell'ignoranza si rifiuta in modo esplicito: un sink che vuole i
-    /// tipi in anticipo risponde `unsupported` in `validate_write`, e
-    /// il writer IPC ripassa lo schema prodotto da `verifica_schema`.
-    ///
-    /// La verifica dello schema sta ai confini -- `verifica_schema` in lettura
-    /// e in scrittura IPC -- e non qui: il costruttore e' infallibile per
-    /// firma, e un contratto costruito dai driver porta per costruzione una
-    /// rappresentazione CRS completa (`RawCrs::new`,
-    /// `RawCrs::from_authority_hint`). L'unica forma incompleta che arrivava
-    /// qui, `declared_unresolved` con il solo SRID, la rifiuta ora
-    /// `read_geometry_contract_metadata`.
+    /// Conserva lo schema ricevuto senza completarlo dal contratto interno.
+    /// La riconciliazione fallibile al bordo rileva anche gli stati incoerenti
+    /// costruiti tramite questa funzione o direttamente coi campi pubblici.
     #[must_use]
-    // Firma per valore: `DataContract::new` e' parte dell'identita' pubblica
-    // versionata; passare per riferimento la cambierebbe senza guadagno.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn new(schema: SchemaRef, geometry: Option<GeometryColumnContract>) -> Self {
-        let schema = geometry.as_ref().map_or_else(
-            || schema.clone(),
-            |geometry| {
-                if geometry.types_declaration == TypesDeclaration::LegacyUndeclared {
-                    return schema.clone();
-                }
-                let fields = schema
-                    .fields()
-                    .iter()
-                    .map(|field| {
-                        if field.name() == &geometry.name {
-                            // Il costruttore e' infallibile: conserva una
-                            // dichiarazione invalida o discorde affinche' il
-                            // lettore comune la rifiuti, senza cancellarla.
-                            let mut declared = geometry.clone();
-                            if crate::geometry::read_geometry_contract_metadata(
-                                field,
-                                &mut declared,
-                            )
-                            .and_then(|_| {
-                                crate::geometry::reconcile_crs_declarations(
-                                    &geometry.crs,
-                                    &declared.crs,
-                                )
-                            })
-                            .is_err()
-                            {
-                                return field.as_ref().clone();
-                            }
-                            crate::geometry::with_geometry_contract_metadata(field, geometry)
-                        } else {
-                            field.as_ref().clone()
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                crate::geometry::with_contract_version(std::sync::Arc::new(
-                    arrow_schema::Schema::new_with_metadata(fields, schema.metadata().clone()),
-                ))
-            },
-        );
+    pub const fn new(schema: SchemaRef, geometry: Option<GeometryColumnContract>) -> Self {
         Self { schema, geometry }
     }
 }

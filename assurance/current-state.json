@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": true,
+  "release_authorized": false,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -77,7 +77,7 @@
       "misura": "assurance/profondita-fuzz-filegdb.json",
       "requisiti_di_profondita": 12,
       "confine_asan": "assurance/asan-filegdb.json",
-      "contatori_di_copertura": 180286,
+      "contatori_di_copertura": 181818,
       "file_sorgente_gdal_strumentati": 0,
       "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
       "simboli_asan_nella_libreria": 0
@@ -735,6 +735,67 @@
         "perche_e_qui": "La 7.0.2 e pubblicata; il verbale resta invariato e verificabile mentre la candidate corrente diventa 7.0.3.",
         "versione_pacchetto_python": "7.0.2",
         "evidenza": "assurance/evidence/checkpoint-ee69336.json"
+      },
+      {
+        "versione_manifesto": "7.0.3",
+        "tag_previsto": "v7.0.3",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate 7.0.3 congelata su a2e0beaaae6fcf8e621410480fe088ffce364acc. Distribuzione candidate run 42977335291, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291, workflow distribuzione.yml, input versione=7.0.3, canale=candidate, revisione=a2e0beaaae6fcf8e621410480fe088ffce364acc, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel703/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, attempt-1, con S9_CHECKPOINT_BASE=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-a2e0bea.json. Secondo l'operatore, la VM di qualifica Linux e' stata ricreata l'11/11/2026: stesso modello e toolchain, disco nuovo, IP 192.168.2.140. Sulla VM precedente un livello 1 della 7.0.3 eseguito dall'operatore era stato interrotto da un blocco del kernel guest (BUG: Bad page state). Quelle corse non hanno valore di qualifica e nessuna loro misura viene usata. Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json. Le quattro attestazioni del profilo pubblico 7.0.3 sono registrate in 9ed5e89. Draft 441548595 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-3c00d74235059e3f7a92, target a2e0beaaae6fcf8e621410480fe088ffce364acc, tag previsto v7.0.3, draft true. Registrati in assurance/evidence/checkpoint-a2e0bea.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub forniti dall operatore. I sette deliverable coincidono con la candidate. Il manifesto di adozione e verificato sui cinque archivi riscaricati: 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Il titolare ha autorizzato la pubblicazione. L'operatore attesta il contratto verde sulla VM nuova; pubblicazione e verifica successiva registrate di seguito. Log della verifica Windows in target/rel703/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB, dopo la misura su b043649, sono stati rimisurati dall'operatore sulla VM sul perimetro della candidate (16e1165, commit 682406b): gate --qualifica verdi, 180286 contatori ASan. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.3 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 510 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 504 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta per gdal_i.lib assente (gdal-sys, cargo exit 101); non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM. Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke identico byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; primo tentativo con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys, 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel703/verifica-l2.\n\nAutorizzazione esplicita del titolare:\nData: 2026-11-11\nTitolare: Marco Bonamente (titolare del repository PlenoraETL/plenora-IO-tools)\nOggetto: pubblicazione di plenora-IO-tools 7.0.3, candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, draft 441548595 con 24 asset verificati\nDomanda posta: «Autorizzi la pubblicazione di plenora-IO-tools 7.0.3 (draft 441548595, candidate a2e0bea)? È la correttiva del difetto silenzioso Arrow (dati Arrow esterni validati completamente, capsule terze con limite dichiarato). Qualifica: L1 99/99, L2 111/111, soak 1 h + 1 h senza finding, attestazioni 32/32 su 4 archivi, draft riscaricata identica, contratto verde sulla VM nuova.»\nRisposta del titolare: «Sì, pubblica»\n\nPubblicata dal titolare il 2026-11-11T18:06:31Z con il solo PATCH draft=false: release 441548595, https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.3, draft false, immutable false. Tag annotato v7.0.3 (oggetto bdbf635c601252e6c4dcf9d4f51cc4dd177a92df) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc. L'operatore ha eseguito prima della pubblicazione python3 scripts/check_release_contract.py --release sulla VM Linux di qualifica ricreata l'11/11/2026, sul commit 60fb19c7a289ea2f93c7aceaae961ac7e239646a: release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate (esito comunicato dall'operatore). Verifica dopo la pubblicazione ripetuta localmente: 24/24 asset identici byte per byte alla draft verificata, nomi, dimensioni e SHA-256 coincidenti con i metadati GitHub. Sette artefatti coincidenti con la candidate; manifesto di adozione verificato sui cinque archivi e identico a contracts/adoption-manifest.json. Verbale: assurance/evidence/checkpoint-a2e0bea.json, release_verification.published. release_authorized resta true come decisione storica; release_action_allowed e consumato e torna false. La 7.0.3 resta candidate pubblicata, fuori da chiuso.release_pubblicate; la 7.0.2 resta archiviata.",
+        "revisione_candidate": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+        "artefatti": [
+          {
+            "nome": "plenora-io-7.0.3-linux-x86_64-base.tar.gz",
+            "sha256": "e5be2ba0995107115dcfa60551da1af2dae138ed5b7cf4cf7a44cada6ee716d7",
+            "dimensione": 9219603,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz",
+            "sha256": "3d013cc558a49360a4e53ada93690cf7559acdf567015dbcdf62e1e0cee6ac7b",
+            "dimensione": 65062631,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora-io-7.0.3-src.tar.gz",
+            "sha256": "82ca89e2c39906414d77b8cfbfc87aa43b96f877d6240f44e97de073007fbb9a",
+            "dimensione": 21392414,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora-io-7.0.3-windows-x86_64-base.zip",
+            "sha256": "a53c1b5d44de0d0d5d24b8a2598acf864007f9828bea6dfeae98b2b3e66831b7",
+            "dimensione": 10031292,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora-io-7.0.3-windows-x86_64-filegdb.zip",
+            "sha256": "ac290d546b48f4da730b299c1d9af51b8079bc23efca5535a39937dd9ed2e9e0",
+            "dimensione": 49084022,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora_io-7.0.3-py3-none-any.whl",
+            "sha256": "8682641c1af0e24da059ca48798c65f411e6abeabaf3a79806c75b042cc12188",
+            "dimensione": 115533,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          },
+          {
+            "nome": "plenora_io-7.0.3.tar.gz",
+            "sha256": "c0d84887e54ae5c8cba0636134983eb12b556208f413ad769420ef8dd5d46491",
+            "dimensione": 219385,
+            "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+          }
+        ],
+        "assurance_entro_l_allowlist": true,
+        "tag_revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+        "commit_di_assurance": "60fb19c7a289ea2f93c7aceaae961ac7e239646a",
+        "perche_e_qui": "La 7.0.3 e pubblicata; il verbale resta invariato e verificabile mentre la candidate corrente diventa 8.0.0.",
+        "versione_pacchetto_python": "7.0.3",
+        "evidenza": "assurance/evidence/checkpoint-a2e0bea.json"
       }
     ]
   },
@@ -767,63 +828,15 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "7.0.3",
-      "versione_workspace": "7.0.3",
-      "tag_previsto": "v7.0.3",
-      "tag_creato": true,
-      "tag_sulla_candidate": true,
+      "versione_manifesto": "8.0.0",
+      "versione_workspace": "8.0.0",
+      "tag_previsto": "v8.0.0",
+      "tag_creato": false,
+      "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "pubblicata",
-      "nota": "Candidate 7.0.3 congelata su a2e0beaaae6fcf8e621410480fe088ffce364acc. Distribuzione candidate run 42977335291, https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/42977335291, workflow distribuzione.yml, input versione=7.0.3, canale=candidate, revisione=a2e0beaaae6fcf8e621410480fe088ffce364acc, conclusione success secondo l'esito della corsa. Verificati su Windows i 32 referti della distribuzione e i sette archivi con checksum, provenance e MANIFEST-sorgente.json; digest e dimensioni ricalcolati dai byte locali gia scaricati dalla corsa in target/rel703/distribuzione (93 file). Il confronto --contro-la-candidate riguarda il download dalla corsa Actions, non dalla draft o dalla release. Assurance entro l'allowlist verificata sulla diff dalla candidate, inclusi i nuovi file non tracciati. L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, attempt-1, con S9_CHECKPOINT_BASE=ee69336f8aed84767d1a1cd1bf5b0d526e3422e2: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-a2e0bea.json. Secondo l'operatore, la VM di qualifica Linux e' stata ricreata l'11/11/2026: stesso modello e toolchain, disco nuovo, IP 192.168.2.140. Sulla VM precedente un livello 1 della 7.0.3 eseguito dall'operatore era stato interrotto da un blocco del kernel guest (BUG: Bad page state). Quelle corse non hanno valore di qualifica e nessuna loro misura viene usata. Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json. Le quattro attestazioni del profilo pubblico 7.0.3 sono registrate in 9ed5e89. Draft 441548595 verificata: https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-3c00d74235059e3f7a92, target a2e0beaaae6fcf8e621410480fe088ffce364acc, tag previsto v7.0.3, draft true. Registrati in assurance/evidence/checkpoint-a2e0bea.json, release_verification.draft, i 24 asset riscaricati con dimensioni e SHA-256 ricalcolati: tutti identici agli originali e ai metadati GitHub forniti dall operatore. I sette deliverable coincidono con la candidate. Il manifesto di adozione e verificato sui cinque archivi riscaricati: 14 contratti dichiarati conformi, 1 non applicabile, 8 deviazioni. Il gate legge il manifesto locale contracts/adoption-manifest.json, verificato identico al riscaricato. Il titolare ha autorizzato la pubblicazione. L'operatore attesta il contratto verde sulla VM nuova; pubblicazione e verifica successiva registrate di seguito. Log della verifica Windows in target/rel703/verifica-congelamento. Le quattro profondita fuzz e il confine ASan FileGDB, dopo la misura su b043649, sono stati rimisurati dall'operatore sulla VM sul perimetro della candidate (16e1165, commit 682406b): gate --qualifica verdi, 180286 contatori ASan. La release 7.0.2 resta in chiuso.release_pubblicate con la propria evidenza. Controlli Windows: check-distribuzione-completa.py --canale candidate verde (32 referti); check-deliverable.py --versione 7.0.3 --canale candidate --revisione CANDIDATE --contro-la-candidate assurance/current-state.json verde (7 archivi, 2 Python). Completezza e struttura del contratto, validate_stato_corrente, allowlist e check_docset.py verdi. check_release_contract.py ordinario non completato: python3 assente, WinError 2. Suite Python pertinente: 510 test, 14 errori per python3 assente e 3 skip; ripetuta con adattatore temporaneo sotto target che risolve python3 all'interprete disponibile: 504 passati, 3 fallimenti ASan/FileGDB e 3 skip. La build richiamata dal gate ASan si arresta per gdal_i.lib assente (gdal-sys, cargo exit 101); non e' una qualifica ASan. Skip: due sonde symlink senza privilegio Windows e una sonda senza release corrente. La sonda Bash check_assurance_fallbacks.sh non eseguibile: Bash/E_ACCESSDENIED. Il contratto completo e le sonde dipendenti dall'ambiente restano da rieseguire sulla VM. Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke identico byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; primo tentativo con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys, 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel703/verifica-l2.\n\nAutorizzazione esplicita del titolare:\nData: 2026-11-11\nTitolare: Marco Bonamente (titolare del repository PlenoraETL/plenora-IO-tools)\nOggetto: pubblicazione di plenora-IO-tools 7.0.3, candidate a2e0beaaae6fcf8e621410480fe088ffce364acc, draft 441548595 con 24 asset verificati\nDomanda posta: «Autorizzi la pubblicazione di plenora-IO-tools 7.0.3 (draft 441548595, candidate a2e0bea)? È la correttiva del difetto silenzioso Arrow (dati Arrow esterni validati completamente, capsule terze con limite dichiarato). Qualifica: L1 99/99, L2 111/111, soak 1 h + 1 h senza finding, attestazioni 32/32 su 4 archivi, draft riscaricata identica, contratto verde sulla VM nuova.»\nRisposta del titolare: «Sì, pubblica»\n\nPubblicata dal titolare il 2026-11-11T18:06:31Z con il solo PATCH draft=false: release 441548595, https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v7.0.3, draft false, immutable false. Tag annotato v7.0.3 (oggetto bdbf635c601252e6c4dcf9d4f51cc4dd177a92df) sulla candidate a2e0beaaae6fcf8e621410480fe088ffce364acc. L'operatore ha eseguito prima della pubblicazione python3 scripts/check_release_contract.py --release sulla VM Linux di qualifica ricreata l'11/11/2026, sul commit 60fb19c7a289ea2f93c7aceaae961ac7e239646a: release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate (esito comunicato dall'operatore). Verifica dopo la pubblicazione ripetuta localmente: 24/24 asset identici byte per byte alla draft verificata, nomi, dimensioni e SHA-256 coincidenti con i metadati GitHub. Sette artefatti coincidenti con la candidate; manifesto di adozione verificato sui cinque archivi e identico a contracts/adoption-manifest.json. Verbale: assurance/evidence/checkpoint-a2e0bea.json, release_verification.published. release_authorized resta true come decisione storica; release_action_allowed e consumato e torna false. La 7.0.3 resta candidate pubblicata, fuori da chiuso.release_pubblicate; la 7.0.2 resta archiviata.",
-      "revisione_candidate": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
-      "artefatti": [
-        {
-          "nome": "plenora-io-7.0.3-linux-x86_64-base.tar.gz",
-          "sha256": "e5be2ba0995107115dcfa60551da1af2dae138ed5b7cf4cf7a44cada6ee716d7",
-          "dimensione": 9219603,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora-io-7.0.3-linux-x86_64-filegdb.tar.gz",
-          "sha256": "3d013cc558a49360a4e53ada93690cf7559acdf567015dbcdf62e1e0cee6ac7b",
-          "dimensione": 65062631,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora-io-7.0.3-src.tar.gz",
-          "sha256": "82ca89e2c39906414d77b8cfbfc87aa43b96f877d6240f44e97de073007fbb9a",
-          "dimensione": 21392414,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora-io-7.0.3-windows-x86_64-base.zip",
-          "sha256": "a53c1b5d44de0d0d5d24b8a2598acf864007f9828bea6dfeae98b2b3e66831b7",
-          "dimensione": 10031292,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora-io-7.0.3-windows-x86_64-filegdb.zip",
-          "sha256": "ac290d546b48f4da730b299c1d9af51b8079bc23efca5535a39937dd9ed2e9e0",
-          "dimensione": 49084022,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora_io-7.0.3-py3-none-any.whl",
-          "sha256": "8682641c1af0e24da059ca48798c65f411e6abeabaf3a79806c75b042cc12188",
-          "dimensione": 115533,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        },
-        {
-          "nome": "plenora_io-7.0.3.tar.gz",
-          "sha256": "c0d84887e54ae5c8cba0636134983eb12b556208f413ad769420ef8dd5d46491",
-          "dimensione": 219385,
-          "revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
-        }
-      ],
-      "assurance_entro_l_allowlist": true,
-      "tag_revisione": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
-      "commit_di_assurance": "60fb19c7a289ea2f93c7aceaae961ac7e239646a"
+      "stato": "iniziale",
+      "nota": "Candidate iniziale: Arrow Primary Geometry 1.0, major per nuovi rifiuti PRIM-003 e semantica none, descritta in docs/RELEASE.md e CHANGELOG.md. Nessuna revisione o artefatto congelato e nessuna autorizzazione alla pubblicazione. Il bump dei Cargo.lock e le modifiche al codice cambiano il perimetro: le misure L1/L2, le quattro profondita fuzz e il confine ASan FileGDB della 7.0.3 restano storici e occorre rimisurare sul perimetro finale. La release 7.0.3 resta in chiuso.release_pubblicate con la propria evidenza. Gli artefatti attesi 8.0.0 sono derivati dalla matrice e riportati in docs/RELEASE.md, senza digest o revisioni inventati."
     }
   },
   "docset": {
@@ -833,5 +846,13 @@
   "blocchi": {
     "fonte": "assurance/registries/release-contract-current.json",
     "nota": "l'elenco e il conteggio dei blocchi non sono ripetuti qui. Sono i `release_blocking` del registro, che e' dove un blocco nasce e muore; il blocco generato di docs/RELEASE.md li prende da li'. Una copia va tenuta allineata da qualcuno, e il modo in cui smette di esserlo non si vede: qui non c'e' copia da allineare."
+  },
+  "sviluppo_non_qualificato": {
+    "versione": "8.0.0",
+    "stato": "non pubblicata",
+    "decisione": "12/11/2026: Arrow Primary Geometry 1.0, major per nuovi rifiuti e semantica none",
+    "release_authorized": false,
+    "evidenza": "Nessuna qualifica 8.0.0 registrata; candidate 8.0.0 iniziale, non congelata. La release pubblicata e ultima_misura della 7.0.3 restano storiche. Nessun artefatto o misura fuzz/ASan 8.0.0 prodotto.",
+    "richiesto": "congelamento e nuove misure L1/L2, fuzz/ASan, distribuzione e interop"
   }
 }

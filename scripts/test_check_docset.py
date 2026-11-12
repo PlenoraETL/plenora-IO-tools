@@ -132,9 +132,13 @@ class SondePerimetro(unittest.TestCase):
         copia verbatim del profilo dal pin di plenora-contracts -- il primo
         profilo che il pin pubblica in Markdown. L'integrita' e' del digest
         sha256 in `provenienza.json`, come per le altre copie dal pin.
+
+        Con la 8.0.0 entra il nono canonico, `CHANGELOG.md`: le note di
+        migrazione e i nuovi rifiuti della major, per decisione del titolare
+        (12/11/2026).
         """
-        self.assertEqual(len(gate.AMMESSI), 20)
-        self.assertEqual(len(gate.CANONICI), 8)
+        self.assertEqual(len(gate.AMMESSI), 21)
+        self.assertEqual(len(gate.CANONICI), 9)
         self.assertEqual(len(gate.OPERATIVI), 12)
 
     def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:

@@ -825,5 +825,23 @@
     "decisione": "chi ha deciso il rinvio e per quale perimetro di release",
     "non_promette": "cio' che la release smette di promettere per effetto del rinvio. E' il campo che impedisce a «non richiesta qui» di leggersi come «funziona»; compare nella tabella delle capacita' differite di docs/RELEASE.md",
     "condizione_di_ripristino": "che cosa riporta la voce a essere pretesa, e in quale release"
+  },
+  "sviluppo_8_0_0": {
+    "stato": "non pubblicata, da qualificare",
+    "motivo_major": "PRIM-003 restringe gli input e none cambia significato; decisione del titolare 12/11/2026",
+    "evidenze_precedenti": "storiche: non qualificano il worktree",
+    "richiesto": [
+      "nuovo SHA congelato",
+      "L1 e L2",
+      "rimisure fuzz e ASan",
+      "lock e matrice interop aggiornati",
+      "artefatti e digest misurati"
+    ],
+    "correzione_2": "Correzioni locali dello schema e delle prove non avanzano candidate, artefatti, fuzz/ASan o qualifica. Il referto separa controlli funzionali e gate di release."
+  },
+  "correzione_3": {
+    "perimetro": "R1/R2/R3 nel worktree; non modifica candidate, pubblicazioni o autorizzazioni storiche.",
+    "prove_sorgente": "assurance/registries/io-geometrie-multiple.json:correzione_3",
+    "fuori_perimetro": "R4: interop, L1/L2, nuove campagne fuzz/ASan, distribuzione e GDAL Linux."
   }
 }

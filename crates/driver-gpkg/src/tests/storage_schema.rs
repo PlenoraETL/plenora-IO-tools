@@ -289,7 +289,10 @@ fn layer_misto_dichiara_geometry_e_rilegge_entrambi_i_tipi() {
         true,
     );
     geometry.set_exact_geometry_types(vec![GeometryType::Point, GeometryType::LineString]);
-    let contract = DataContract::new(schema, Some(geometry));
+    let contract = DataContract::new(
+        plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+        Some(geometry),
+    );
     let geometries = [
         geo_types::Geometry::Point(geo_types::Point::new(1., 2.)),
         geo_types::Geometry::LineString(geo_types::LineString::from(vec![(1., 2.), (3., 4.)])),
@@ -361,10 +364,7 @@ fn metadati_sql_non_validi_sono_rifiutati_prima_di_creare_il_file() {
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "features".to_owned(),
-                contract: DataContract {
-                    schema,
-                    geometry: None,
-                },
+                contract: DataContract::from_schema(schema).unwrap(),
             }],
         };
         assert!(GpkgDriver
@@ -442,7 +442,10 @@ fn geometrie_multiple_restano_rifiutate_anche_con_primaria_mista() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract::new(schema, Some(geometry)),
+            contract: DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            ),
         }],
     };
     assert!(GpkgDriver

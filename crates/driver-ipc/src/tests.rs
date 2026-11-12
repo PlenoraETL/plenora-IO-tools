@@ -12,6 +12,7 @@ mod arrow_60_1;
 mod buffer_ipc;
 mod layout_ipc;
 mod parametri_schema_ipc;
+mod primary;
 mod schema_ipc;
 mod tipi_geometrici;
 
@@ -747,21 +748,7 @@ fn declared_unresolved_srid_only_is_rejected_on_read_and_on_write() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "layer".to_owned(),
-            contract: DataContract {
-                schema: Arc::new(Schema::new(vec![Field::new(
-                    "geom",
-                    DataType::Binary,
-                    true,
-                )
-                .with_metadata(
-                    std::iter::once((
-                        plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-                        plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
-                    ))
-                    .collect::<arrow_schema::Metadata>(),
-                )])),
-                geometry: Some(geometry),
-            },
+            contract: DataContract::new(schema, Some(geometry)),
         }],
     };
     let Err(errore) = IpcDriver.create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
@@ -923,7 +910,7 @@ fn incomplete_or_conflicting_canonical_identity_is_rejected() {
 }
 
 #[test]
-fn multiple_geoarrow_fields_are_rejected() {
+fn multiple_external_geoarrow_fields_are_transported_without_primary() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ambiguous.arrow");
     let geometry_field = |name| {
@@ -945,20 +932,15 @@ fn multiple_geoarrow_fields_are_rejected() {
         writer.finish().unwrap();
     }
 
-    // GEO-012 e REJ-001: un limite di supporto, `unsupported`, anche per uno
-    // schema esterno senza versione ne' chiavi `plenora.*`; mai `invalid_plan`,
-    // che descrive la richiesta e non l'ingresso.
-    let Err(errore) = IpcDriver.open(Source::Path(path), opzioni_lettura()) else {
-        panic!("due colonne geoarrow.wkb devono essere rifiutate");
-    };
-    assert_eq!(
-        errore.category,
-        plenora_io_model::ErrorCategory::Unsupported
-    );
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    let dataset = IpcDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0].contract.geometry.is_none());
+    assert_eq!(dataset.layers()[0].contract.geometries().unwrap().len(), 2);
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Contratto, batch e metadati riletti nello stesso round trip.
 fn round_trip_ipc_preserves_geometry_metadata() {
     use driver_common_geometry_field as geometry_field;
 
@@ -981,11 +963,8 @@ fn round_trip_ipc_preserves_geometry_metadata() {
     )
     .unwrap();
 
-    // Il contratto geometrico esplicito, come lo porta un piano reale (il
-    // contratto del reader): e' da li' che il writer completa il vocabolario.
-    // Senza contratto il campo resterebbe con la sola estensione e il `crs`,
-    // e la guardia del produttore lo rifiuta (prova
-    // `ipc_writer_rejects_a_non_conforming_plenora_schema_before_any_effect`).
+    // Il produttore dichiara il contratto nel campo prima di costruire il piano.
+    // Il writer verifica la coerenza, senza completare lo schema ricevuto.
     let mut geometry = GeometryColumnContract::wkb_passthrough(
         FieldId(0),
         "geometry",
@@ -998,11 +977,16 @@ fn round_trip_ipc_preserves_geometry_metadata() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
                 geometry: Some(geometry),
             },
         }],
     };
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut w = driver
         .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
         .unwrap();
@@ -1181,6 +1165,7 @@ fn batch_target_slices_file_defined_ipc_batches() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Contratto, batch e metadati riletti nello stesso round trip.
 fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
     use driver_common_geometry_field as geometry_field;
 
@@ -1232,12 +1217,17 @@ fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
                 geometry: Some(geometry),
             },
         }],
     };
     let driver = IpcDriver;
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = driver
         .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
         .unwrap();

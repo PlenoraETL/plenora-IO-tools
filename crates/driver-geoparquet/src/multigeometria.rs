@@ -18,25 +18,34 @@ pub fn verifica_crs(schema: &arrow_schema::Schema, geo: &MetadatiGeo) -> Result<
                 "colonna geometrica assente dallo schema",
             ))
         })?;
-        let mut dichiarato = GeometryColumnContract::wkb_passthrough(
+        let mut footer = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             nome,
-            plenora_io_model::crs::CrsResolution::Missing,
+            crs_della_colonna(colonna)?,
             field.is_nullable(),
         );
-        plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut dichiarato)?;
-        let md = field.metadata();
-        let esplicito = md.contains_key(plenora_io_model::geometry::PLENORA_CRS_RESOLUTION_KEY)
-            || md.contains_key(plenora_io_model::geometry::GEO_CRS_KEY)
-            || md.get("ARROW:extension:metadata").is_some_and(|s| {
-                serde_json::from_str::<serde_json::Value>(s).is_ok_and(|v| v.get("crs").is_some())
-            });
-        if esplicito {
-            plenora_io_model::geometry::reconcile_crs_declarations(
-                &crs_della_colonna(colonna)?,
-                &dichiarato.crs,
-            )?;
+        apply_geo_column_metadata(&mut footer, Some(geo))?;
+        // EPSG-derived SRID is a fallback, not a second source declaration.
+        footer.srid = None;
+        let mut shared = field.metadata().clone();
+        if let Some(value) = shared.get(plenora_io_model::geometry::PLENORA_DIMENSIONS_KEY) {
+            let dimensions: std::collections::BTreeSet<_> =
+                colonna.tipi.iter().map(|(_, d)| d).collect();
+            if value != "unknown" && dimensions.len() > 1 {
+                return Err(plenora_io_model::PlenoraIoError::schema_redatto(
+                    &PublicMessage::Curated(
+                        "dimensioni risolte del campo in conflitto con il footer misto",
+                    ),
+                ));
+            }
         }
+        if colonna.tipi.is_empty() {
+            // No footer type means no footer dimensionality declaration.
+            // Mixed XY/XYZ is different: it must conflict with a field restricted to XY.
+            shared.remove(plenora_io_model::geometry::PLENORA_DIMENSIONS_KEY);
+        }
+        let field = field.clone().with_metadata(shared);
+        plenora_io_model::primary::reconcile_geometry_properties(&field, &footer)?;
     }
     Ok(())
 }
@@ -44,7 +53,12 @@ pub fn verifica_crs(schema: &arrow_schema::Schema, geo: &MetadatiGeo) -> Result<
 pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Result<SchemaRef> {
     let Some(geo) = geo else { return Ok(schema) };
     for (nome, colonna) in &geo.secondarie {
-        let crs = crs_della_colonna(colonna)?;
+        let crs = crs_completato(
+            schema
+                .field_with_name(nome)
+                .map_err(|_| fmt_err(&PublicMessage::Curated("colonna geometrica assente")))?,
+            &crs_della_colonna(colonna)?,
+        )?;
         schema = retag_schema(&schema, nome, &crs, None);
         let indice = schema.index_of(nome).map_err(|_| {
             fmt_err(&PublicMessage::Curated(
@@ -62,15 +76,39 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
             crs,
             schema.field(indice).is_nullable(),
         );
-        // CRS e tipi vengono dal geo del footer, identita' dal campo Arrow.
+        // Completa i vincoli risolti delle due fonti, conservando l'identita Arrow.
         let mut dichiarato = contratto.clone();
         plenora_io_model::geometry::read_geometry_contract_metadata(
             schema.field(indice),
             &mut dichiarato,
         )?;
-        contratto.identita_dichiarata = dichiarato.identita_dichiarata;
+        let footer_crs = contratto.crs.clone();
+        contratto = dichiarato;
+        contratto.crs =
+            plenora_io_model::primary::reconcile_geometry_crs(&footer_crs, &contratto.crs)?;
+        if contratto.types_declaration
+            == plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+        {
+            contratto.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+        }
         apply_geo_column_metadata(&mut contratto, Some(geo))?;
-        schema = DataContract::new(schema, Some(contratto)).schema;
+        // Completa il campo senza eleggerlo temporaneamente a primaria.
+        // Il footer sceglie la primaria una sola volta nel reader chiamante.
+        let fields = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(i, field)| {
+                if i == indice {
+                    plenora_io_model::geometry::with_geometry_contract_metadata(field, &contratto)
+                } else {
+                    field.as_ref().clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        schema = plenora_io_model::geometry::with_contract_version(std::sync::Arc::new(
+            arrow_schema::Schema::new_with_metadata(fields, schema.metadata().clone()),
+        ));
     }
     Ok(schema)
 }
@@ -149,4 +187,19 @@ pub fn aggiungi_colonne(geo: String, secondarie: &[ColonnaScritta]) -> Result<St
         serde_json::value::to_raw_value(&colonne).map_err(|_| errore())?,
     );
     serde_json::to_string(&radice).map_err(|_| errore())
+}
+
+/// Complete from independent sources before retagging either declaration.
+pub fn crs_completato(
+    field: &arrow_schema::Field,
+    native: &plenora_io_model::crs::CrsResolution,
+) -> Result<plenora_io_model::crs::CrsResolution> {
+    let mut declared = GeometryColumnContract::wkb_passthrough(
+        FieldId(0),
+        field.name(),
+        plenora_io_model::crs::CrsResolution::Missing,
+        field.is_nullable(),
+    );
+    plenora_io_model::geometry::read_geometry_contract_metadata(field, &mut declared)?;
+    plenora_io_model::primary::reconcile_geometry_crs(native, &declared.crs)
 }

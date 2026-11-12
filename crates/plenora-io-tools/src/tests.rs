@@ -440,12 +440,17 @@ fn scrivi_molte_geometrie_piccole(path: &std::path::Path) {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
     };
     let driver = driver_geoparquet::GeoParquetDriver;
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = driver
         .create(
             Sink::Path(path.to_path_buf()),
@@ -1609,9 +1614,9 @@ fn convert_exposes_reader_crs_inconsistency_without_writer_ambiguity() {
         ARROW_EXTENSION_NAME_KEY.to_owned(),
         GEOARROW_WKB_EXTENSION.to_owned(),
     )]));
-    let schema = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &base, &geometry,
-    )]));
+    let schema = plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+        with_geometry_contract_metadata(&base, &geometry),
+    ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "conflicting_crs".to_owned(),

@@ -140,10 +140,7 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let driver = GpkgDriver;
@@ -1139,10 +1136,7 @@ fn spatial_pruning_uses_only_registered_rtree_and_never_filters_exactly() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let driver = GpkgDriver;
@@ -1265,10 +1259,7 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "features".to_owned(),
-                contract: DataContract {
-                    schema,
-                    geometry: None,
-                },
+                contract: DataContract::from_schema(schema).unwrap(),
             }],
         };
         let driver = GpkgDriver;
@@ -1320,10 +1311,7 @@ fn gpkg_con_un_layer_features(path: &std::path::Path) -> GpkgDriver {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let driver = GpkgDriver;
@@ -1577,10 +1565,7 @@ fn round_trip_gpkg() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "vani".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -1695,13 +1680,18 @@ fn round_trip_gpkg_preserves_xyzm_payload_and_native_metadata() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "zm".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry),
-            },
+            contract: DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            ),
         }],
     };
     let driver = GpkgDriver;
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = driver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .unwrap();
@@ -1782,17 +1772,11 @@ fn write_two_layers_round_trip() {
         layers: vec![
             WriteLayer {
                 name: "vani".to_owned(),
-                contract: DataContract {
-                    schema: s0,
-                    geometry: None,
-                },
+                contract: DataContract::from_schema(s0).unwrap(),
             },
             WriteLayer {
                 name: "strade".to_owned(),
-                contract: DataContract {
-                    schema: s1,
-                    geometry: None,
-                },
+                contract: DataContract::from_schema(s1).unwrap(),
             },
         ],
     };
@@ -1857,10 +1841,7 @@ fn round_trip_non_wgs84_crs() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -1888,17 +1869,14 @@ fn local_catalog_crs_is_rejected_before_publishing() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let Err(error) = GpkgDriver.create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
     else {
         panic!("POSTGIS:4326 accettato dal writer GeoPackage");
     };
-    assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
     assert!(!path.exists());
 }
 
@@ -1921,10 +1899,7 @@ fn scrivi_punti(path: &std::path::Path, righe: i64) {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GpkgDriver
@@ -2119,10 +2094,7 @@ fn due_layer(path: &std::path::Path) {
     .unwrap();
     let layer = |name: &str| WriteLayer {
         name: name.to_owned(),
-        contract: DataContract {
-            schema: schema.clone(),
-            geometry: None,
-        },
+        contract: DataContract::from_schema(schema.clone()).unwrap(),
     };
     let plan = WritePlan {
         layers: vec![layer("vani"), layer("strade")],

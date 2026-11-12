@@ -105,7 +105,7 @@ fn write_values(path: &std::path::Path, field: Field, values: ArrayRef) -> Resul
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "features".to_owned(),
-            contract: DataContract::new(schema, None),
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GpkgDriver.create(Sink::Path(path.to_owned()), &plan, &opzioni_scrittura())?;

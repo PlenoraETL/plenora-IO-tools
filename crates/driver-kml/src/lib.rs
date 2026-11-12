@@ -1684,7 +1684,10 @@ fn kml_contract(
         Field::new("description", DataType::Utf8, true),
     ];
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    DataContract::new(schema, Some(geometry_contract))
+    DataContract::new(
+        plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
+        Some(geometry_contract),
+    )
 }
 
 fn build_batch_cancellable(
