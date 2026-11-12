@@ -62,7 +62,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | capacità differite | 2 |
 | S9, qualificato su | `6e494a6` |
 | candidate, versione del manifesto | `8.0.0` |
-| candidate, stato | attiva |
+| candidate, stato | pubblicata |
 | candidate, revisione congelata | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
 | candidate, versione del workspace | `8.0.0` |
 | candidate, artefatti congelati | 7 |
@@ -71,8 +71,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, revisione del tag | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
-| release pubblicate | 12 |
+| candidate, release_action consentita | no |
+| release pubblicate | 13 |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -2353,7 +2353,32 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 «non rivendicato», ed è una garanzia indebolita dichiarata in
 [`contracts/adozione-4.0.0.json`](../contracts/adozione-4.0.0.json).
 
-## 8.0.0 — 2026-11-12 (candidate congelata, non rilasciata)
+## 8.0.0 - 2026-11-12 (pubblicata)
+
+### Pubblicazione registrata
+
+Pubblicata dal titolare il 2026-11-12T19:01:53Z con PATCH draft=false: release 443365689,
+https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v8.0.0, 24 asset. Tag annotato
+v8.0.0, oggetto 359b2c3417a7fe7a863ab6ce4b5c3605befe12c8, sulla candidate
+6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0. Gate --release eseguito dall'operatore sulla VM
+sul clone rilascio/8.0.0 a 4e494642a6bcd0b8925e8a54ac1f200964bf60e3, contracts al pin
+38d68b402389855edbcecb7ce57c31e91282cb4e, manifesto identico alla draft: release
+autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate, exit 0. Restano i
+due DIFFERITI sistema.qualifica-cross-component e distribuzione.licenza-first-party. Fonte
+del gate e della pubblicazione: comunicazione dell'operatore, nessuna chiamata GitHub.
+Verifica locale dopo la pubblicazione: 24/24 nomi, dimensioni e SHA-256 identici al
+verbale draft e byte identici a target/rel800/draft-asset; check-deliverable sui 23 file,
+sette archivi di cui due Python, verde; manifesto verificato sui cinque archivi e identico
+a contracts/adoption-manifest.json. Verbale release_verification.published in
+assurance/evidence/checkpoint-6e494a6.json. release_authorized resta true come decisione
+storica; release_action_allowed consumato, false. La 8.0.0 e registrata in
+chiuso.release_pubblicate. Il nodo candidate_release resta pubblicata per lo schema
+corrente, senza permesso operativo e senza introdurre una nuova candidate. Questa
+registrazione supera le precedenti indicazioni di attivita ancora da eseguire per la
+pubblicazione.
+
+Le sezioni seguenti conservano la cronologia della preparazione; i passi
+indicati allora come futuri sono superati dalla registrazione qui sopra.
 
 Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
 di `none`, secondo il criterio degli input accettati documentato sopra.
