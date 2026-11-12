@@ -68,7 +68,14 @@ pub fn completa_schema(mut schema: SchemaRef, geo: Option<&MetadatiGeo>) -> Resu
             schema.field(indice),
             &mut dichiarato,
         )?;
-        contratto.identita_dichiarata = dichiarato.identita_dichiarata;
+        let footer_crs = contratto.crs.clone();
+        contratto = dichiarato;
+        contratto.crs = footer_crs;
+        if contratto.types_declaration
+            == plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+        {
+            contratto.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+        }
         apply_geo_column_metadata(&mut contratto, Some(geo))?;
         // Completa il campo senza eleggerlo temporaneamente a primaria.
         // Il footer sceglie la primaria una sola volta nel reader chiamante.

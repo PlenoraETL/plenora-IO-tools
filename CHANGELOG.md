@@ -41,6 +41,15 @@ Wire Arrow 1 e versioni delle operazioni pubbliche restano invariati.
   privo del vocabolario richiesto viene rifiutato gia in apertura con `schema`,
   prima del precedente rifiuto di supporto alla lettura del layer.
 - Il catalogo espone `geometry_cardinality`, derivata dalla tabella comune.
+- I writer Rust diretti, le proiezioni e la conversione EWKB riconciliano
+  schema e contratto interno prima di normalizzare: un disaccordo su primaria,
+  identita o proprieta geometriche e' `schema`. Il vocabolario ricevuto viene
+  verificato anche quando `geometry` e' `Some`. L'assenza della chiave segue
+  PRIM-002 e non autorizza il piano a eleggere una primaria.
+  `DataContract::from_schema` costruisce un piano coerente da uno schema;
+  i campi pubblici restano compatibili, ma non aggirano la validazione.
+  `DataContract::new` conserva lo schema senza completarlo, anche su campi
+  privi di estensione: chi produce nuovi schemi deve dichiararne i metadati.
 
 ### Migrazione da 7.x
 

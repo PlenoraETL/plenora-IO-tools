@@ -1,5 +1,5 @@
 use super::*;
-use plenora_io_model::primary::{emit, PrimaryState, KEY};
+use plenora_io_model::primary::{PrimaryState, KEY};
 
 fn schema(key: Option<&str>) -> SchemaRef {
     let fields = [17, 91]
@@ -70,7 +70,13 @@ fn primary_file_stream_projection_and_empty_batches() {
                 let dataset = IpcDriver
                     .open(Source::Path(path), opzioni_lettura())
                     .unwrap();
-                let original = PrimaryState::read(&schema).unwrap().position(&schema);
+                // Oracolo indipendente: due geometrie, quindi assenza/none
+                // non designano una primaria; gli ID non sono posizioni.
+                let original = match key {
+                    Some("17") => Some(0),
+                    Some("91") => Some(1),
+                    _ => None,
+                };
                 for selection in [
                     vec![],
                     vec![FieldId(0)],
@@ -91,16 +97,32 @@ fn primary_file_stream_projection_and_empty_batches() {
                     let contract = reader.contract().clone();
                     let expected_position = original
                         .and_then(|old| selection.iter().position(|id| id.0 as usize == old));
-                    let expected = emit(&contract.contract.schema, expected_position).unwrap();
+                    let mut md = schema.metadata().clone();
+                    md.remove(KEY);
+                    if selection.len() == 1 && expected_position.is_none() {
+                        md.insert(KEY, "none");
+                    } else if selection.len() == 2 && expected_position.is_some() {
+                        md.insert(KEY, if original == Some(0) { "17" } else { "91" });
+                    }
+                    let expected = Arc::new(Schema::new_with_metadata(
+                        selection
+                            .iter()
+                            .map(|id| schema.field(id.0 as usize).as_ref().clone())
+                            .collect::<Vec<_>>(),
+                        md,
+                    ));
                     assert_eq!(contract.contract.schema, expected);
                     assert_eq!(
                         PrimaryState::read(&expected).unwrap().position(&expected),
                         expected_position
                     );
                     let mut rows = 0;
-                    while let Some(batch) = reader.next_batch().unwrap() {
-                        assert_eq!(batch.schema(), expected);
-                        rows += batch.num_rows();
+                    while let Some(observed) = reader.next_batch().unwrap() {
+                        assert_eq!(observed.schema(), expected);
+                        for (i, id) in selection.iter().enumerate() {
+                            assert_eq!(observed.column(i), batch.column(id.0 as usize));
+                        }
+                        rows += observed.num_rows();
                     }
                     assert_eq!(rows, if empty { 0 } else { 4 });
                 }
@@ -245,4 +267,221 @@ fn primary_decimal_beyond_u32_is_support_not_grammar() {
         .err()
         .unwrap();
     assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Matrice di propriet? per due forme di schema e due costruttori.
+fn raw_and_constructed_plans_reject_every_schema_contract_disagreement() {
+    use plenora_io_model::contract::{CoordinateDimensions, CoordinatePrecision, GeometryEncoding};
+    let input = schema(Some("91"));
+    let mut primary = GeometryColumnContract::wkb_xy(FieldId(1), "g1", ResolvedCrs::wgs84(), true);
+    plenora_io_model::geometry::read_geometry_contract_metadata(input.field(1), &mut primary)
+        .unwrap();
+    let mut cases = Vec::new();
+    let external = Arc::new(Schema::new(vec![arrow_schema::Field::new(
+        "g",
+        arrow_schema::DataType::Binary,
+        true,
+    )
+    .with_metadata(
+        std::iter::once(("ARROW:extension:name", "geoarrow.wkb"))
+            .collect::<arrow_schema::Metadata>(),
+    )]));
+    for (input, primary) in [
+        (input.clone(), primary.clone()),
+        (
+            external.clone(),
+            DataContract::from_schema(external)
+                .unwrap()
+                .geometry
+                .unwrap(),
+        ),
+    ] {
+        for mutation in 0..12 {
+            let mut g = primary.clone();
+            match mutation {
+                0 => g.identita_dichiarata = Some(999),
+                1 => g.encoding = GeometryEncoding::Ewkb,
+                2 => g.dimensions = CoordinateDimensions::Xyz,
+                3 => g.precision = CoordinatePrecision::Float32,
+                4 => g.geometry_types = vec![GeometryType::Polygon],
+                5 => {
+                    g.crs = if g.crs == CrsResolution::Missing {
+                        ResolvedCrs::wgs84().into()
+                    } else {
+                        CrsResolution::Missing
+                    }
+                }
+                6 => g.nullable = false,
+                7 => g.name = "other".into(),
+                8 => g.srid = Some(3003),
+                9 => g.spatial_semantics = plenora_io_model::contract::SpatialSemantics::Geography,
+                10 => {
+                    g.types_declaration = if g.types_declaration
+                        == plenora_io_model::contract::TypesDeclaration::Exact
+                    {
+                        plenora_io_model::contract::TypesDeclaration::Mixed
+                    } else {
+                        plenora_io_model::contract::TypesDeclaration::Exact
+                    }
+                }
+                _ => {
+                    g.native_metadata
+                        .insert("source.test".into(), "different".into());
+                }
+            }
+            cases.push((input.clone(), Some(g)));
+        }
+    }
+    cases.push((schema(None), Some(primary.clone())));
+    let single = Arc::new(Schema::new_with_metadata(
+        vec![input.field(1).as_ref().clone()],
+        schema(None).metadata().clone(),
+    ));
+    cases.push((single, None));
+    cases.push((
+        Arc::new(Schema::new(vec![arrow_schema::Field::new(
+            "g1",
+            arrow_schema::DataType::Binary,
+            true,
+        )])),
+        Some(primary.clone()),
+    ));
+    for field_index in [0, 1] {
+        let mut fields = input
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let mut md = fields[field_index].metadata().clone();
+        md.remove("plenora.field_id");
+        fields[field_index] = fields[field_index].clone().with_metadata(md);
+        cases.push((
+            Arc::new(Schema::new_with_metadata(
+                fields,
+                schema(None).metadata().clone(),
+            )),
+            Some(primary.clone()),
+        ));
+    }
+    for (input, geometry) in cases {
+        for constructed in [false, true] {
+            let contract = if constructed {
+                DataContract::new(input.clone(), geometry.clone())
+            } else {
+                DataContract {
+                    schema: input.clone(),
+                    geometry: geometry.clone(),
+                }
+            };
+            assert_eq!(contract.schema, input);
+            assert!(
+                contract.geometries().is_err(),
+                "unexpected valid contract: {contract:?}"
+            );
+            assert_eq!(
+                contract.geometries().unwrap_err().category,
+                plenora_io_model::ErrorCategory::Schema
+            );
+            let dir = tempfile::tempdir().unwrap();
+            let output = dir.path().join("rejected.arrow");
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "l".into(),
+                    contract: contract.clone(),
+                }],
+            };
+            let error = IpcDriver
+                .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
+                .err()
+                .unwrap();
+            assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
+            assert!(!output.exists());
+            let layer = LayerContract {
+                id: LayerId(0),
+                name: "l".into(),
+                contract,
+            };
+            let request = ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: plenora_io_core::ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: plenora_io_core::ReadScope::default(),
+                batch_target: plenora_io_core::BatchTarget::default(),
+                cancellation: plenora_io_model::CancellationToken::default(),
+            };
+            assert_eq!(
+                plenora_io_core::project_layer_contract(&layer, &request)
+                    .unwrap_err()
+                    .category,
+                plenora_io_model::ErrorCategory::Schema
+            );
+        }
+    }
+}
+
+#[test]
+fn cumulative_component_budget_without_primary() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.arrow");
+    let schema = schema(None);
+    let point = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1., 2.))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(BinaryArray::from(vec![
+                Some(point.as_slice()),
+                None,
+                Some(point.as_slice()),
+            ])),
+            Arc::new(BinaryArray::from(vec![
+                None,
+                Some(point.as_slice()),
+                Some(point.as_slice()),
+            ])),
+        ],
+    )
+    .unwrap();
+    let mut writer = FileWriter::try_new(File::create(&path).unwrap(), &schema).unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    drop(writer);
+    for limit in [3, 4] {
+        let budget = plenora_io_model::budget::PipelineBudget::builder()
+            .limits(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_max_geometry_components(limit),
+            )
+            .build()
+            .unwrap();
+        let dataset = IpcDriver
+            .open(
+                Source::Path(path.clone()),
+                ReadOptions::from_read_parts(budget.into_read_parts()),
+            )
+            .unwrap();
+        let request = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: plenora_io_core::ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: plenora_io_core::ReadScope::default(),
+            batch_target: plenora_io_core::BatchTarget::default(),
+            cancellation: plenora_io_model::CancellationToken::default(),
+        };
+        let mut reader = dataset.open_layer_reader(&request).unwrap();
+        if limit == 3 {
+            assert_eq!(
+                reader.next_batch().unwrap_err().category,
+                plenora_io_model::ErrorCategory::ResourceLimit
+            );
+        } else {
+            let observed = reader.next_batch().unwrap().unwrap();
+            assert_eq!(observed.column(0), batch.column(0));
+            assert!(reader.next_batch().unwrap().is_none());
+        }
+    }
 }

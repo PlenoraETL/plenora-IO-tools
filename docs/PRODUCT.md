@@ -920,6 +920,11 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 Il registro [io-geometrie-multiple.json](../assurance/registries/io-geometrie-multiple.json)
 separa il supporto sviluppato dai rifiuti del formato. `io-una-geometria` è
 chiuso per GeoParquet WKB, non per tutta la matrice interop.
+Anche nei piani Rust diretti lo schema ricevuto determina lo stato della
+primaria: senza chiave e' implicita con una geometria, assente con piu geometrie.
+Un contratto interno discorde viene rifiutato con `schema` prima della
+scrittura o della proiezione. Non completa una dichiarazione canonica incompleta.
+
 `DataContract.geometry` indica la primaria; `geometries()` enumera tutte le
 geometrie dai metadati per campo. Il metadato nativo per campo
 `geoparquet.primary_column` conserva il nome della primaria anche attraverso

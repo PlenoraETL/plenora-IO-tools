@@ -117,34 +117,60 @@ pub fn emit(schema: &Schema, primary: Option<usize>) -> Result<SchemaRef> {
 /// # Errors
 /// Dichiarazione wire invalida o primaria interna fuori schema/discorde.
 pub fn validate_contract(contract: &crate::contract::DataContract) -> Result<()> {
-    if contract.schema.metadata().contains_key(KEY)
-        || contract
-            .schema
-            .fields()
-            .iter()
-            .any(|f| f.metadata().contains_key(KEY))
-    {
-        crate::vocabolario::verifica_schema(&contract.schema)?;
-    }
+    reconcile_schema_contract(contract).map(|_| ())
+}
+
+/// Unico bordo di riconciliazione: lo schema ricevuto e' l'autorita'.
+/// # Errors
+/// Vocabolario invalido o contratto interno discorde, prima di completamenti.
+pub fn reconcile_schema_contract(
+    contract: &crate::contract::DataContract,
+) -> Result<Vec<crate::contract::GeometryColumnContract>> {
+    use crate::contract::{FieldId, GeometryColumnContract};
+    crate::vocabolario::verifica_schema(&contract.schema)?;
     let state = PrimaryState::read(&contract.schema)?;
-    let position = contract.geometry.as_ref().map(|g| g.field_id.0 as usize);
-    if let Some(g) = &contract.geometry {
-        let field = contract
-            .schema
-            .fields()
-            .get(g.field_id.0 as usize)
-            .ok_or_else(invalid)?;
-        if field.name() != &g.name
-            || !matches!(
-                field.data_type(),
-                arrow_schema::DataType::Binary | arrow_schema::DataType::LargeBinary
-            )
-        {
-            return Err(invalid());
-        }
-    }
-    if state != PrimaryState::Absent && state.position(&contract.schema) != position {
+    if state.position(&contract.schema) != contract.geometry.as_ref().map(|g| g.field_id.0 as usize)
+    {
         return Err(invalid());
     }
-    Ok(())
+    let mut geometries = Vec::new();
+    for (index, field) in contract.schema.fields().iter().enumerate() {
+        if !crate::geometry::is_geometry_field(field) {
+            continue;
+        }
+        let index = u32::try_from(index).map_err(|_| invalid())?;
+        let mut declared = GeometryColumnContract::wkb_passthrough(
+            FieldId(index),
+            field.name(),
+            crate::crs::CrsResolution::Missing,
+            field.is_nullable(),
+        );
+        crate::geometry::read_geometry_contract_metadata(field, &mut declared)?;
+        if let Some(internal) = contract.geometry.as_ref().filter(|g| g.field_id.0 == index) {
+            crate::geometry::reconcile_crs_declarations(&internal.crs, &declared.crs)
+                .map_err(|_| invalid())?;
+            // Serializza separatamente su un campo pulito: include identita',
+            // encoding, dimensioni, precisione, tipi, CRS/assi, SRID e nativi.
+            let clean = arrow_schema::Field::new(
+                field.name(),
+                field.data_type().clone(),
+                field.is_nullable(),
+            );
+            if internal.name != *field.name()
+                || internal.nullable != field.is_nullable()
+                || (matches!(
+                    internal.types_declaration,
+                    crate::contract::TypesDeclaration::Unresolved
+                        | crate::contract::TypesDeclaration::LegacyUndeclared
+                ) && !internal.geometry_types.is_empty())
+                || crate::geometry::with_geometry_contract_metadata(&clean, internal)
+                    != crate::geometry::with_geometry_contract_metadata(&clean, &declared)
+            {
+                return Err(invalid());
+            }
+            declared.scansione_completa = internal.scansione_completa;
+        }
+        geometries.push(declared);
+    }
+    Ok(geometries)
 }

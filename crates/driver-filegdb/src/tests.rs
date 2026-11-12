@@ -64,7 +64,7 @@ fn create_without_gdal_feature_is_typed() {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],

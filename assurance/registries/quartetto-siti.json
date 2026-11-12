@@ -670,8 +670,7 @@
     ]
   },
   "crates/plenora-io-model/src/contract.rs": {
-    "geometries": [
-      "Schema/Validate/Schema/Never",
+    "from_schema": [
       "Schema/Validate/Schema/Never"
     ]
   },

@@ -421,7 +421,10 @@ impl FormatDriver for CsvDriver {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(schema, Some(geometry_contract));
+        let contract = DataContract::new(
+            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
+            Some(geometry_contract),
+        );
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())

@@ -1123,18 +1123,8 @@ fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf
 
 // Un Parquet con schema Arrow geometrico non usa il fallback legacy per nome.
 fn validate_primary_before_retag(schema: &Schema) -> Result<()> {
-    // PRIM-003 precede il retag, il completamento degli ID e il footer geo.
-    if schema
-        .metadata()
-        .contains_key(plenora_io_model::primary::KEY)
-        || schema
-            .fields()
-            .iter()
-            .any(|f| f.metadata().contains_key(plenora_io_model::primary::KEY))
-    {
-        plenora_io_model::vocabolario::verifica_schema(schema)?;
-    }
-    Ok(())
+    // Verifica il vocabolario ricevuto prima del mapping dal footer.
+    plenora_io_model::vocabolario::verifica_schema(schema)
 }
 
 fn open_arrow_parquet(
@@ -1283,40 +1273,8 @@ impl FormatDriver for GeoParquetDriver {
         // schema Parquet originale. Un campo esposto senza corrispondente
         // fisico e' un errore di contratto (mai atteso, ma fail-closed).
         let visible_to_physical = mappa_campi_fisici(&out_schema, &parquet_schema)?;
-        let geom_idx = out_schema
-            .index_of(&geom_name)
-            .map_err(|_| fmt_err(&PublicMessage::Curated("colonna geometria non leggibile")))?;
-        // Indice di colonna di uno schema Parquet: limitato a poche migliaia di
-        // campi, il cast a u32 non puo' troncare.
-        #[allow(clippy::cast_possible_truncation)]
-        let geometry_field_id = FieldId(geom_idx as u32);
-        let mut geometry = GeometryColumnContract::wkb_passthrough(
-            geometry_field_id,
-            geom_name,
-            crs,
-            out_schema.field(geom_idx).is_nullable(),
-        );
-        // Il geo del footer resta autoritativo per il CRS; dal campo Arrow
-        // recuperiamo l'identita' senza reintrodurre il CRS della sorgente.
-        let mut dichiarato = geometry.clone();
-        plenora_io_model::geometry::read_geometry_contract_metadata(
-            out_schema.field(geom_idx),
-            &mut dichiarato,
-        )?;
-        geometry.identita_dichiarata = dichiarato.identita_dichiarata;
-        apply_geo_column_metadata(&mut geometry, geo.as_ref())?;
-        // Le altre geometrie si contano sullo schema esposto **prima** del
-        // contratto: `DataContract::new` riscrive i metadati della sola
-        // primaria e non sposta i campi, quindi gli indici restano validi per
-        // lo schema che esce, e il loro elenco puo' entrare nel contratto.
-        let altre_geometrie =
-            indici_delle_altre_geometrie(&out_schema, Some(geometry.name.as_str()), geo.as_ref());
-        nomina_le_altre_geometrie(&mut geometry, &out_schema, &altre_geometrie);
-        let mut contract = DataContract::new(out_schema, Some(geometry));
-        contract.schema = plenora_io_model::primary::emit(&contract.schema, Some(geom_idx))?;
-        // `DataContract::new` rende i metadati geometrici del contratto
-        // autoritativi; anche i batch runtime devono essere retaggati con
-        // quello stesso schema, non con la versione intermedia.
+        let (contract, altre_geometrie) =
+            contract_from_footer(&out_schema, geom_name, crs, geo.as_ref())?;
         let out_schema = contract.schema.clone();
         let name = path
             .file_stem()
@@ -1436,7 +1394,8 @@ impl FormatDriver for GeoParquetDriver {
         // GeoParquet 1.1 designa, e la nullabilita' segue quella della
         // geometria.
         let geometria_nullable = schema.field(geom_idx).is_nullable();
-        let mut aug_fields = completed_geometry_fields(&schema, &geometries);
+        let mut aug_fields =
+            completed_geometry_fields(&schema, &output_geometry_contracts(&geometries));
         aug_fields[geom_idx] = campo_scritto(&aug_fields[geom_idx], &crs_meta);
         for colonna in &secondarie {
             aug_fields[colonna.indice] = campo_scritto(&aug_fields[colonna.indice], &colonna.crs);
@@ -1561,8 +1520,75 @@ fn senza_crs_geoarrow(campo: &Field) -> Field {
     campo.clone().with_metadata(metadati)
 }
 
-// L'omissione GeoParquet dichiara CRS84: anche lo schema incorporato deve
-// dichiarare quello, non l'alias o la definizione che il footer non conserva.
+// Traduce il footer nativo in un contratto Arrow prima della riconciliazione.
+fn contract_from_footer(
+    out_schema: &SchemaRef,
+    geom_name: String,
+    crs: CrsResolution,
+    geo: Option<&MetadatiGeo>,
+) -> Result<(DataContract, Vec<usize>)> {
+    let geom_idx = out_schema
+        .index_of(&geom_name)
+        .map_err(|_| fmt_err(&PublicMessage::Curated("colonna geometria non leggibile")))?;
+    // Indice di colonna di uno schema Parquet: limitato a poche migliaia di
+    // campi, il cast a u32 non puo' troncare.
+    #[allow(clippy::cast_possible_truncation)]
+    let geometry_field_id = FieldId(geom_idx as u32);
+    let mut geometry = GeometryColumnContract::wkb_passthrough(
+        geometry_field_id,
+        geom_name,
+        crs,
+        out_schema.field(geom_idx).is_nullable(),
+    );
+    // Il geo del footer resta autoritativo per il CRS; dal campo Arrow
+    // recuperiamo l'identita' senza reintrodurre il CRS della sorgente.
+    let mut dichiarato = geometry.clone();
+    plenora_io_model::geometry::read_geometry_contract_metadata(
+        out_schema.field(geom_idx),
+        &mut dichiarato,
+    )?;
+    let footer_crs = geometry.crs.clone();
+    geometry = dichiarato;
+    geometry.crs = footer_crs;
+    if geometry.types_declaration == plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+    {
+        geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+    }
+    apply_geo_column_metadata(&mut geometry, geo)?;
+    // Le altre geometrie si contano sullo schema esposto prima del mapping
+    // della primaria. Il mapping non sposta i campi: gli indici restano validi.
+    let altre_geometrie =
+        indici_delle_altre_geometrie(out_schema, Some(geometry.name.as_str()), geo);
+    nomina_le_altre_geometrie(&mut geometry, out_schema, &altre_geometrie);
+    // Il mapping dal footer al contratto Arrow e' esplicito nel reader;
+    // non delegato al costruttore di contratti di trasporto.
+    let fields = completed_geometry_fields(out_schema, &[geometry.clone()]);
+    let out_schema = plenora_io_model::geometry::with_contract_version(Arc::new(
+        Schema::new_with_metadata(fields, out_schema.metadata().clone()),
+    ));
+    let mut contract = DataContract::new(out_schema, Some(geometry));
+    contract.schema = plenora_io_model::primary::emit(&contract.schema, Some(geom_idx))?;
+    // Verifica il contratto contro lo schema prodotto dal mapping del footer;
+    // anche i batch runtime devono usare questo schema definitivo.
+    plenora_io_model::primary::validate_contract(&contract)?;
+    Ok((contract, altre_geometrie))
+}
+
+fn output_geometry_contracts(geometries: &[GeometryColumnContract]) -> Vec<GeometryColumnContract> {
+    let output_geometries = geometries
+        .iter()
+        .cloned()
+        .map(|mut g| {
+            if g.types_declaration == plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+            {
+                g.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+            }
+            g
+        })
+        .collect::<Vec<_>>();
+    output_geometries
+}
+
 fn completed_geometry_fields(schema: &Schema, geometries: &[GeometryColumnContract]) -> Vec<Field> {
     schema
         .fields()

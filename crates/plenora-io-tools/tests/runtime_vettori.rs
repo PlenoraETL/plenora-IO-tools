@@ -1998,6 +1998,8 @@ fn il_loader_dei_vettori_runtime_rifiuta_duplicati() {
 }
 
 #[test]
+// Matrice degli stati: stesso ingresso verificato come stream e artefatto.
+#[allow(clippy::too_many_lines)]
 fn runtime_primary_multi_none_and_invalid_key() {
     use arrow_array::{BinaryArray, RecordBatch};
     use arrow_schema::{DataType, Field, Metadata, Schema};
@@ -2040,18 +2042,22 @@ fn runtime_primary_multi_none_and_invalid_key() {
                 &schema,
             )
             .unwrap();
+            let point = [
+                1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64,
+            ];
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                (0..count)
+                    .map(|_| {
+                        Arc::new(BinaryArray::from(vec![Some(point.as_slice()), None]))
+                            as arrow_array::ArrayRef
+                    })
+                    .collect(),
+            )
+            .unwrap();
             if !empty {
-                let batch = RecordBatch::try_new(
-                    schema.clone(),
-                    (0..count)
-                        .map(|_| {
-                            Arc::new(BinaryArray::from(vec![None::<&[u8]>]))
-                                as arrow_array::ArrayRef
-                        })
-                        .collect(),
-                )
-                .unwrap();
                 writer.write(&batch).unwrap();
+                writer.write(&batch.slice(1, 1)).unwrap();
             }
             writer.finish().unwrap();
             drop(writer);
@@ -2077,7 +2083,29 @@ fn runtime_primary_multi_none_and_invalid_key() {
             };
             let mut reader =
                 arrow_ipc::reader::StreamReader::try_new(Cursor::new(byte), None).unwrap();
+            let mut expected_md = schema.metadata().clone();
+            expected_md.remove("plenora.primary_geometry");
+            if let Some(value) = expected {
+                expected_md.insert("plenora.primary_geometry", value);
+            }
+            let expected_schema = Arc::new(Schema::new_with_metadata(
+                schema.fields().clone(),
+                expected_md,
+            ));
             let schema = reader.schema();
+            assert_eq!(schema, expected_schema);
+            let artifact = binding(&depot).invoca(&per_operazione("io.write", json!({
+                "source": "artifact://input/primary.arrow", "destination": "artifact://output/result.arrow", "format": "ipc"
+            })), CancellationToken::new());
+            successo_json(&artifact);
+            let artifact_reader = arrow_ipc::reader::FileReader::try_new(
+                std::fs::File::open(temp.path().join("result.arrow")).unwrap(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(artifact_reader.schema(), expected_schema);
+            let artifact_batches = artifact_reader.collect::<Result<Vec<_>, _>>().unwrap();
+
             assert_eq!(
                 schema
                     .metadata()
@@ -2086,8 +2114,21 @@ fn runtime_primary_multi_none_and_invalid_key() {
                 expected
             );
             assert_eq!(schema.fields().len(), count);
-            for batch in &mut reader {
-                assert_eq!(batch.unwrap().schema(), schema);
+            let batches = reader.by_ref().collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(artifact_batches, batches);
+            assert_eq!(batches.len(), if empty { 0 } else { 2 });
+            assert_eq!(
+                batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+                if empty { 0 } else { 3 }
+            );
+            for (i, observed) in batches.iter().enumerate() {
+                assert_eq!(observed.schema(), schema);
+                let original = if i == 0 {
+                    batch.clone()
+                } else {
+                    batch.slice(1, 1)
+                };
+                assert_eq!(observed.columns(), original.columns());
             }
         }
     }

@@ -75,10 +75,7 @@ fn geo_di_un_file_scritto(dir: &tempfile::TempDir) -> (String, std::path::PathBu
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GeoParquetDriver
@@ -216,7 +213,7 @@ fn un_crs_che_non_e_projjson_non_produce_alcun_file() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
@@ -258,10 +255,7 @@ fn un_metadato_finale_non_conforme_non_viene_pubblicato() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GeoParquetDriver
@@ -314,10 +308,7 @@ fn dove_la_geometria_e_nulla_il_covering_e_nullo() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GeoParquetDriver
@@ -393,7 +384,7 @@ fn una_geometria_con_la_misura_m_non_e_scrivibile() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema: schema.clone(),
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
@@ -413,15 +404,22 @@ fn una_geometria_con_la_misura_m_non_e_scrivibile() {
 
     // Via 2: il contratto dichiara XY e i **dati** portano la misura M. La
     // riga e' rifiutata prima di essere scritta.
+    let mut xy = GeometryColumnContract::wkb_xy(FieldId(0), "geometry", ResolvedCrs::wgs84(), true);
+    xy.set_exact_geometry_types(vec![GeometryType::Point]);
     let taciuto = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &xy),
+            )
+            .unwrap(),
         }],
     };
+    let batch = RecordBatch::try_new(
+        taciuto.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = GeoParquetDriver
         .create(
             Sink::Path(dir.path().join("taciuto.parquet")),
@@ -747,41 +745,45 @@ fn una_riga_rifiutata_senza_input_total_conserva_causa_e_categoria() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rifiutato.parquet");
 
-    // Contratto con geometria **non nullable**, batch con un nullo: e' la
-    // violazione piu' economica da produrre, e passa dallo stesso percorso
-    // di tutte le altre.
+    // Contratto valido, valore WKB malformato: il rifiuto deve conservare
+    // la diagnostica di riga anche senza input_total.
     let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
         "geometry",
         DataType::Binary,
         true,
     )
     .with_metadata(geometry_field_meta("EPSG:4326"))]));
-    let colonna = BinaryArray::from(vec![None::<&[u8]>]);
+    let colonna = BinaryArray::from(vec![Some([0_u8].as_slice())]);
     let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
     let mut geometria = GeometryColumnContract::wkb_passthrough(
         FieldId(0),
         "geometry",
         ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
-        false,
+        true,
     );
     geometria.set_exact_geometry_types(vec![GeometryType::Point]);
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
     };
 
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = GeoParquetDriver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .expect("il piano e' valido: e' la riga a non esserlo");
     // Nessun `declare_input_total`: e' il caso in esame.
     let errore = writer
         .write(&batch)
-        .expect_err("una geometria nulla su contratto non nullable e' rifiutata");
+        .expect_err("una geometria malformata e' rifiutata");
 
     assert_eq!(
         errore.category,
@@ -789,7 +791,7 @@ fn una_riga_rifiutata_senza_input_total_conserva_causa_e_categoria() {
     );
     assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Write);
     assert!(
-        errore.message.contains("contract.nullability"),
+        errore.message.contains("conversion.invalid_geometry"),
         "la causa primaria deve sopravvivere: {errore}"
     );
     assert!(
@@ -837,25 +839,30 @@ fn una_riga_rifiutata_con_input_total_porta_il_report() {
         true,
     )
     .with_metadata(geometry_field_meta("EPSG:4326"))]));
-    let colonna = BinaryArray::from(vec![None::<&[u8]>]);
+    let colonna = BinaryArray::from(vec![Some([0_u8].as_slice())]);
     let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
     let mut geometria = GeometryColumnContract::wkb_passthrough(
         FieldId(0),
         "geometry",
         ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
-        false,
+        true,
     );
     geometria.set_exact_geometry_types(vec![GeometryType::Point]);
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
     };
 
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = GeoParquetDriver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .unwrap();
@@ -873,7 +880,7 @@ fn una_riga_rifiutata_con_input_total_porta_il_report() {
         .expect("con il totale dichiarato il report e' emettibile");
     assert_eq!(report.input_total, Some(1));
     assert!(
-        report.counts.contains_key("contract.nullability"),
+        report.counts.contains_key("conversion.invalid_geometry"),
         "{report:?}"
     );
 
@@ -934,11 +941,18 @@ fn il_default_di_compression_e_snappy() {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema,
+                    schema: plenora_io_model::geometry::schema_from_native_fields(
+                        &schema, &geometria,
+                    ),
                     geometry: Some(geometria),
                 },
             }],
         };
+        let batch = RecordBatch::try_new(
+            plan.layers[0].contract.schema.clone(),
+            batch.columns().to_vec(),
+        )
+        .unwrap();
         let mut writer = GeoParquetDriver
             .create(Sink::Path(path.clone()), &plan, &opzioni)
             .unwrap();
@@ -1066,11 +1080,16 @@ fn una_pagina_coerente_ma_sopra_il_budget_e_rifiutata() {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometria),
                 geometry: Some(geometria),
             },
         }],
     };
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = GeoParquetDriver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .unwrap();
@@ -3424,10 +3443,7 @@ fn round_trip_file_recordbatch_file() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = driver
@@ -3532,12 +3548,17 @@ fn geoparquet_preserves_xyz_and_emits_dimensional_metadata() {
         layers: vec![WriteLayer {
             name: "z".to_owned(),
             contract: DataContract {
-                schema,
+                schema: plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
                 geometry: Some(geometry),
             },
         }],
     };
     let driver = GeoParquetDriver;
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        batch.columns().to_vec(),
+    )
+    .unwrap();
     let mut writer = driver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .unwrap();
@@ -3600,10 +3621,7 @@ fn geoparquet_spec_conformance() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3707,10 +3725,7 @@ fn projection_pushdown_reads_only_requested() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3780,10 +3795,7 @@ fn row_group_pruning_skips_blocks() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3883,10 +3895,7 @@ fn spatial_pruning_skips_blocks() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3981,10 +3990,7 @@ fn entrambi_i_pruning_si_compongono_per_intersezione() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -4073,10 +4079,7 @@ fn zstd_round_trip() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     // Scrive compresso zstd.
@@ -4229,10 +4232,7 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = GeoParquetDriver
@@ -4432,11 +4432,24 @@ fn l_epoca_nativa_dello_schema_incorporato_non_entra_nel_contratto() {
     let dir = tempfile::tempdir().expect("tempdir");
     let percorso = dir.path().join("nativa.parquet");
     let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
-    let campo = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
-        "plenora.geometry.native.geoparquet.epoch".to_owned(),
-        "1999.0".to_owned(),
-    )]));
-    let schema = Arc::new(Schema::new(vec![campo]));
+    let mut g = GeometryColumnContract::wkb_xy(
+        FieldId(0),
+        "geometry",
+        plenora_io_model::crs::ResolvedCrs::wgs84(),
+        true,
+    );
+    g.set_exact_geometry_types(vec![GeometryType::Point]);
+    g.native_metadata
+        .insert("geoparquet.epoch".into(), "1999.0".into());
+    let schema = DataContract::new(
+        Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )])),
+        Some(g),
+    )
+    .schema;
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],

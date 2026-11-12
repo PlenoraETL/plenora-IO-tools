@@ -474,8 +474,7 @@ pub fn validate_write(
         // Il piano legacy monogeometria senza contratto esplicito conserva
         // la validazione runtime storica; i nuovi piani multigeometria sono espliciti.
         for geometry in geometries.iter().filter(|g| {
-            layer.contract.geometry.is_some()
-                || geometries.len() > 1
+            geometries.len() > 1
                 || g.types_declaration
                     != plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
                 || layer

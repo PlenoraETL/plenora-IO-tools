@@ -266,3 +266,5 @@ provenienza di ciascuno è registrata in `assurance/registries/vendor-<nome>-for
 un gate la confronta con il lockfile, e `scripts/audit-fork.py` verifica che il
 testo della licenza sia quello pubblicato da chi l'ha scritta — non che lo
 diciamo noi.
+
+Le modifiche e la migrazione della versione corrente sono nel [CHANGELOG](CHANGELOG.md).

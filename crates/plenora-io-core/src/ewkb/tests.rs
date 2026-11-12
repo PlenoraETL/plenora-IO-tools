@@ -5,7 +5,7 @@ use super::*;
 
 use arrow_array::BinaryArray;
 use plenora_io_model::contract::{CoordinateDimensions, FieldId};
-use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
+use plenora_io_model::crs::{CrsResolution, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::WkbCoordinate;
 
@@ -118,7 +118,7 @@ fn contratto(crs_id: Option<&str>, srid: Option<i32>) -> GeometryColumnContract 
     let crs = crs_id.map_or(CrsResolution::Missing, |id| {
         CrsResolution::Resolved(ResolvedCrs::new(
             Some(id.to_owned()),
-            CrsKind::Geographic,
+            plenora_io_model::crs::crs_kind_for_authority_id(id),
             None,
         ))
     });
@@ -128,20 +128,19 @@ fn contratto(crs_id: Option<&str>, srid: Option<i32>) -> GeometryColumnContract 
     contratto
 }
 
-fn schema() -> SchemaRef {
-    let metadati: HashMap<String, String> = [
-        (PLENORA_ENCODING_KEY.to_owned(), "ewkb".to_owned()),
-        (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
-        ("plenora.geometry.crs_id".to_owned(), "EPSG:4326".to_owned()),
-    ]
-    .into_iter()
-    .collect();
-    Arc::new(Schema::new(vec![Field::new(
-        "geom",
-        DataType::Binary,
-        true,
+fn schema_per(g: &GeometryColumnContract) -> SchemaRef {
+    crate::test_contract::declared(
+        Arc::new(Schema::new(vec![Field::new(
+            "geom",
+            DataType::Binary,
+            true,
+        )])),
+        Some(g.clone()),
     )
-    .with_metadata(metadati)]))
+    .schema
+}
+fn schema() -> SchemaRef {
+    schema_per(&contratto(Some("EPSG:4326"), Some(4326)))
 }
 
 /// Un sink di prova: scrive la geometria come gli dice `geometry`.
@@ -265,7 +264,7 @@ fn la_conversione_e_esatta_bit_per_bit() {
 fn un_srid_diverso_dal_crs_e_un_errore() {
     let errore = pianifica(
         &gpkg(),
-        &schema(),
+        &schema_per(&contratto(Some("EPSG:3857"), Some(4326))),
         Some(&contratto(Some("EPSG:3857"), Some(4326))),
         limiti(),
     )
@@ -279,28 +278,22 @@ fn un_srid_diverso_dal_crs_e_un_errore() {
 #[test]
 fn un_srid_senza_crs_che_lo_rappresenti_e_un_errore() {
     let mut senza = contratto(None, Some(4326));
-    senza.crs = CrsResolution::DeclaredButUnresolved(plenora_io_model::crs::RawCrs {
-        definition: None,
-        authority_hint: None,
-        definition_format: None,
-        axis_order: plenora_io_model::crs::AxisOrder::Unknown,
-    });
-    let errore = pianifica(&gpkg(), &schema(), Some(&senza), limiti()).expect_err("andrebbe perso");
-    assert!(
-        errore
-            .to_string()
-            .contains("senza un CRS che lo rappresenti"),
-        "{errore}"
-    );
+    senza.crs = CrsResolution::Missing;
+    let errore = pianifica(&gpkg(), &schema_per(&senza), Some(&senza), limiti())
+        .expect_err("andrebbe perso");
+    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
 }
 
 #[test]
 fn senza_srid_si_converte_anche_senza_crs() {
-    assert!(
-        pianifica(&gpkg(), &schema(), Some(&contratto(None, None)), limiti())
-            .expect("pianificabile")
-            .is_some()
-    );
+    assert!(pianifica(
+        &gpkg(),
+        &schema_per(&contratto(None, None)),
+        Some(&contratto(None, None)),
+        limiti()
+    )
+    .expect("pianificabile")
+    .is_some());
 }
 
 #[test]
@@ -343,7 +336,7 @@ fn un_sink_che_scrive_ewkb_non_converte() {
 fn un_contratto_wkb_non_converte() {
     let mut wkb = contratto(Some("EPSG:4326"), None);
     wkb.encoding = GeometryEncoding::Wkb;
-    assert!(pianifica(&gpkg(), &schema(), Some(&wkb), limiti())
+    assert!(pianifica(&gpkg(), &schema_per(&wkb), Some(&wkb), limiti())
         .expect("pianificabile")
         .is_none());
 }

@@ -26,12 +26,17 @@ fn crs_legacy_secondario_senza_projjson_non_diventa_null() {
         .map(|f| f.as_ref().clone())
         .collect();
     let mut md = fields[0].metadata().clone();
-    md.retain(|key, _| {
-        !key.starts_with("plenora.geometry.crs_") && key != "plenora.geometry.axis_order"
-    });
+    md.insert("plenora.geometry.crs_resolution", "resolved");
+    md.insert("plenora.geometry.crs_id", "EPSG:3857");
+    md.remove("plenora.geometry.crs_definition");
+    md.remove("plenora.geometry.crs_definition_format");
+    md.insert("plenora.geometry.axis_order", "easting_northing");
     md.insert("crs", "EPSG:3857");
     fields[0] = driver_common::geometry_field("traccia", "EPSG:3857").with_metadata(md);
-    contratto.schema = Arc::new(Schema::new(fields));
+    contratto.schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        contratto.schema.metadata().clone(),
+    ));
     assert_eq!(
         contratto.geometries().unwrap()[0].crs.id(),
         Some("EPSG:3857")
@@ -80,16 +85,15 @@ fn crs_geoarrow_per_colonna_round_trip_con_coordinate_asimmetriche() {
                 |definition| format!(r#"{{"crs":{definition},"crs_type":"projjson"}}"#),
             );
             let mut md = field.metadata().clone();
-            md.retain(|key, _| {
-                !key.starts_with("plenora.geometry.crs_")
-                    && key != "plenora.geometry.axis_order"
-                    && key != "crs"
-            });
+            md.remove("crs");
             md.insert("ARROW:extension:metadata", extension);
             field.as_ref().clone().with_metadata(md)
         })
         .collect::<Vec<_>>();
-    contratto.schema = Arc::new(Schema::new(fields));
+    contratto.schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        contratto.schema.metadata().clone(),
+    ));
     let batch = RecordBatch::try_new(contratto.schema.clone(), batch.columns().to_vec()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("estensioni.parquet");
@@ -444,5 +448,74 @@ fn pyarrow_identita_e_perdite_metadati_per_ogni_colonna() {
         assert_eq!(g.identita_dichiarata, Some(id));
         assert!(!g.native_metadata.contains_key("geoparquet.bbox"));
         assert!(!g.native_metadata.contains_key("geoparquet.orientation"));
+    }
+}
+
+#[test]
+fn covering_second_primary_nonpositional_ids_and_secondary_projection() {
+    let (contract, batch) =
+        leggi(fixture().with_file_name("multigeometria-metadati-pyarrow.parquet"));
+    assert_eq!(
+        contract.geometry.as_ref().unwrap().identita_dichiarata,
+        Some(73)
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("covering.parquet");
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "l".into(),
+            contract,
+        }],
+    };
+    let mut writer = GeoParquetDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    let dataset = GeoParquetDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    for fields in [vec![0], vec![2], vec![0, 1, 2]] {
+        for outside in [false, true] {
+            let mut request = richiesta_proiettata(&fields);
+            request.spatial_pruning_hint = Some(plenora_io_core::request::Bbox {
+                minx: if outside { 100. } else { 8. },
+                miny: 44.,
+                maxx: if outside { 101. } else { 10. },
+                maxy: 46.,
+            });
+            let mut reader = dataset.open_layer_reader(&request).unwrap();
+            let expected_primary = fields.contains(&2).then_some(73);
+            assert_eq!(
+                reader
+                    .contract()
+                    .contract
+                    .geometry
+                    .as_ref()
+                    .and_then(|g| g.identita_dichiarata),
+                expected_primary
+            );
+            let mut rows = 0;
+            while let Some(observed) = reader.next_batch().unwrap() {
+                for (i, index) in fields.iter().enumerate() {
+                    assert_eq!(observed.column(i), batch.column(*index as usize));
+                    assert_eq!(
+                        observed
+                            .schema()
+                            .field(i)
+                            .metadata()
+                            .get("plenora.field_id"),
+                        dataset.layers()[0]
+                            .contract
+                            .schema
+                            .field(*index as usize)
+                            .metadata()
+                            .get("plenora.field_id")
+                    );
+                }
+                rows += observed.num_rows();
+            }
+            assert_eq!(rows, if outside { 0 } else { 3 });
+        }
     }
 }

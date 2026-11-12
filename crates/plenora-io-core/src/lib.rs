@@ -55,3 +55,6 @@ pub use request::{
 };
 
 pub mod geometry_cardinality;
+
+#[cfg(test)]
+mod test_contract;

@@ -262,6 +262,34 @@ pub fn with_field_identity(fields: Vec<arrow_schema::Field>) -> Vec<arrow_schema
         .collect()
 }
 
+/// Costruisce lo schema Arrow di una sorgente nativa gia' decodificata.
+/// I reader di formato la usano sui propri campi, prima di creare il contratto.
+/// Non e' una validazione di schemi Arrow ricevuti.
+#[must_use]
+pub fn schema_from_native_fields(
+    schema: &arrow_schema::SchemaRef,
+    geometry: &GeometryColumnContract,
+) -> arrow_schema::SchemaRef {
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.name() == &geometry.name {
+                let output = with_geometry_contract_metadata(field, geometry);
+                let mut metadata = output.metadata().clone();
+                metadata.insert(ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION);
+                output.with_metadata(metadata)
+            } else {
+                field.as_ref().clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
+        fields,
+        schema.metadata().clone(),
+    )))
+}
+
 /// Registra nel campo Arrow le parti del contratto che GeoArrow-WKB da solo
 /// non esprime. Le chiavi sono namespaced e quindi sopravvivono in Arrow IPC.
 #[must_use]

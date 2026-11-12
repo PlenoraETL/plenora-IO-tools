@@ -16,6 +16,12 @@ class CStream:
     def __arrow_c_stream__(self, requested_schema=None):
         return self.table.__arrow_c_stream__(requested_schema)
 
+class CArray:
+    def __init__(self, table): self.table = table
+    def __arrow_c_array__(self, requested_schema=None):
+        batch = pa.RecordBatch.from_arrays([c.combine_chunks() for c in self.table.columns], schema=self.table.schema)
+        return batch.__arrow_c_array__(requested_schema)
+
 class PrimaryGeometry(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -41,16 +47,22 @@ class PrimaryGeometry(unittest.TestCase):
     def test_roundtrip_primary_all_arrow_producers(self):
         for count, key, canonical in [(1,None,None),(1,b"none",b"none"),(1,b"17",None),(2,None,None),(2,b"none",None),(2,b"91",b"91")]:
             for empty in (False,True):
-                for kind in ("table","reader","capsule"):
+                for kind in ("table","reader","capsule","array"):
                     with self.subTest(count=count,key=key,empty=empty,kind=kind), tempfile.TemporaryDirectory() as tmp:
                         table = self.table(count,key,empty)
-                        producer = table if kind == "table" else CStream(table) if kind == "capsule" else pa.RecordBatchReader.from_batches(table.schema, table.to_batches(max_chunksize=1))
+                        producer = CArray(table) if kind == "array" else table if kind == "table" else CStream(table) if kind == "capsule" else pa.RecordBatchReader.from_batches(table.schema, table.to_batches(max_chunksize=1))
                         dest = Path(tmp)/"result.arrow"
                         self.client.write(producer,dest,format="ipc")
                         with pa.memory_map(str(dest)) as src: observed = pa.ipc.open_file(src).read_all()
                         metadata = dict(table.schema.metadata); metadata.pop(KEY,None)
                         if canonical is not None: metadata[KEY] = canonical
-                        self.assertTrue(observed.equals(table.replace_schema_metadata(metadata),check_metadata=True))
+                        wanted = table.replace_schema_metadata(metadata)
+                        self.assertTrue(observed.equals(wanted,check_metadata=True))
+                        self.assertTrue(self.client.read_table(dest).table.equals(wanted, check_metadata=True))
+                        converted = Path(tmp)/"converted.arrow"
+                        self.client.convert(dest, converted, source_format="ipc", target_format="ipc")
+                        with pa.memory_map(str(converted)) as src:
+                            self.assertTrue(pa.ipc.open_file(src).read_all().equals(wanted, check_metadata=True))
 
     def test_invalid_capsule_does_not_publish(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,3 +85,14 @@ class NativePrimaryGeometry(PrimaryGeometry):
             cls.client = Client()
         if cls.client.backend != "native":
             raise AssertionError("la prova nativa non puo usare subprocess")
+
+class StructuralRoute(unittest.TestCase):
+    def test_write_calls_shared_arrow_boundary(self):
+        import ast
+        import plenora_io._client as client
+        import inspect
+        tree = ast.parse(inspect.getsource(client))
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Client')
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'write')
+        self.assertTrue(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                            and n.func.attr == 'scrivi_ipc' for n in ast.walk(method)))

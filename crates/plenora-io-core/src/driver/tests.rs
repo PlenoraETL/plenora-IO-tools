@@ -782,7 +782,7 @@ fn crs_reader(crs_id: &str, srid: i32) -> Box<dyn LayerReader> {
         layer: LayerContract {
             id: LayerId(0),
             name: "conflicting".to_owned(),
-            contract: plenora_io_model::contract::DataContract::new(schema, Some(geometry)),
+            contract: crate::test_contract::declared(schema, Some(geometry)),
         },
         batches: 0,
         fail: false,
@@ -1119,14 +1119,14 @@ fn l_epoca_delle_coordinate_perduta_si_dichiara() {
     let piano = WritePlan {
         layers: vec![crate::request::WriteLayer {
             name: "l".to_owned(),
-            contract: plenora_io_model::contract::DataContract {
-                schema: Arc::new(Schema::new(vec![Field::new(
+            contract: crate::test_contract::declared(
+                Arc::new(Schema::new(vec![Field::new(
                     "geometry",
                     DataType::Binary,
                     true,
                 )])),
-                geometry: Some(con_epoca),
-            },
+                Some(con_epoca),
+            ),
         }],
     };
     let loss = planned_write_loss(&descrittore_che_dichiara_perdite(), &piano).unwrap();
@@ -1581,32 +1581,53 @@ fn la_fusione_non_perde_la_frase_congelata() {
 }
 
 fn legacy_plan(fields: Vec<Field>) -> WritePlan {
+    let geometry = (fields
+        .iter()
+        .filter(|f| plenora_io_model::geometry::is_geometry_field(f))
+        .count()
+        == 1)
+        .then(|| {
+            fields
+                .iter()
+                .enumerate()
+                .find(|(_, f)| plenora_io_model::geometry::is_geometry_field(f))
+                .map(|(i, f)| {
+                    let mut g = GeometryColumnContract::wkb_passthrough(
+                        FieldId(u32::try_from(i).unwrap()),
+                        f.name(),
+                        plenora_io_model::crs::CrsResolution::Missing,
+                        f.is_nullable(),
+                    );
+                    let _ = plenora_io_model::geometry::read_geometry_contract_metadata(f, &mut g);
+                    g
+                })
+        })
+        .flatten();
     WritePlan {
         layers: vec![crate::request::WriteLayer {
             name: "layer".to_owned(),
             contract: plenora_io_model::contract::DataContract {
                 schema: Arc::new(Schema::new(fields)),
-                geometry: None,
+                geometry,
             },
         }],
     }
 }
 
 #[test]
-fn legacy_geometry_defaults_xy_only_when_dimensions_are_absent() {
+fn legacy_geometry_keeps_unknown_when_dimensions_are_absent() {
     let absent =
         geometry_contracts_for_validation(&legacy_plan(vec![geoarrow_field("geometry", None)]))
             .unwrap();
     let explicit_unknown = geometry_contracts_for_validation(&legacy_plan(vec![geoarrow_field(
         "geometry",
         Some("unknown"),
-    )]))
-    .unwrap();
+    )]));
 
-    assert_eq!(absent[0][0].dimensions, CoordinateDimensions::Xy);
+    assert_eq!(absent[0][0].dimensions, CoordinateDimensions::Unknown);
     assert_eq!(
-        explicit_unknown[0][0].dimensions,
-        CoordinateDimensions::Unknown
+        explicit_unknown.unwrap_err().category,
+        plenora_io_model::ErrorCategory::Schema
     );
 }
 

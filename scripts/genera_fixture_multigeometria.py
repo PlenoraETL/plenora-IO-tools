@@ -63,11 +63,23 @@ def genera():
     poligono = struct.pack("<BIII10d", 1, 3, 1, 5,
                           500000, 4982950, 500010, 4982950, 500010, 4982960,
                           500000, 4982960, 500000, 4982950)
+    def canonical(identity, kind, projected):
+        md = {b"plenora.field_id": str(identity).encode(), b"ARROW:extension:name": b"geoarrow.wkb",
+              b"plenora.geometry.encoding": b"wkb", b"plenora.geometry.dimensions": b"xy",
+              b"plenora.geometry.spatial_semantics": b"geometry", b"plenora.geometry.precision": b"float64",
+              b"plenora.geometry.types_declaration": b"exact", b"plenora.geometry.types": kind.encode(),
+              b"plenora.geometry.crs_resolution": b"resolved",
+              b"plenora.geometry.crs_id": b"EPSG:32632" if projected else b"OGC:CRS84",
+              b"plenora.geometry.axis_order": b"easting_northing" if projected else b"lon_lat"}
+        if projected:
+            md[b"plenora.geometry.crs_definition"] = json.dumps(proiettato, separators=(",", ":")).encode()
+            md[b"plenora.geometry.crs_definition_format"] = b"projjson"
+        return md
     schema = pa.schema([
-        pa.field("traccia", pa.binary(), metadata={b"plenora.field_id": b"42"}),
+        pa.field("traccia", pa.binary(), metadata=canonical(42, "polygon", True)),
         pa.field("id", pa.int64()),
-        pa.field("posizione", pa.binary(), metadata={b"plenora.field_id": b"73"}),
-    ], metadata={b"geo": json.dumps(geo, separators=(",", ":")).encode()})
+        pa.field("posizione", pa.binary(), metadata=canonical(73, "point", False)),
+    ], metadata={b"geo": json.dumps(geo, separators=(",", ":")).encode(), b"plenora.contract.version": b"1"})
     tabella = pa.Table.from_arrays([pa.array([poligono, None, poligono]), pa.array([1, 2, 3]),
                                    pa.array([punto, punto, None])], schema=schema)
     pq.write_table(tabella, percorso.with_name("multigeometria-metadati-pyarrow.parquet"),

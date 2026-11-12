@@ -408,6 +408,8 @@ impl FormatDriver for GpkgDriver {
         &DESCRIPTOR
     }
 
+    // Apertura per layer: conserva il rifiuto locale anche della riconciliazione.
+    #[allow(clippy::too_many_lines)]
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let conn = apri_in_lettura(&path)?;
@@ -472,7 +474,7 @@ impl FormatDriver for GpkgDriver {
             }
             geometry.native_metadata.insert(
                 "gpkg.geometry_type_name".to_owned(),
-                table_meta.geometry_type_name,
+                table_meta.geometry_type_name.clone(),
             );
             geometry
                 .native_metadata
@@ -484,7 +486,17 @@ impl FormatDriver for GpkgDriver {
                 "gpkg.rtree_index".to_owned(),
                 rtree_table.is_some().to_string(),
             );
-            let contract = DataContract::new(schema, Some(geometry));
+            let contract = DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            );
+            if let Err(error) = plenora_io_model::primary::validate_contract(&contract) {
+                rifiuti.insert(layer_id.0, error);
+                let (layer, meta) = layer_rifiutato(layer_id, table_meta);
+                layers.push(layer);
+                metas.push(meta);
+                continue;
+            }
             let runtime_schema = contract.schema.clone();
             layers.push(LayerContract {
                 id: layer_id,
@@ -846,6 +858,7 @@ fn project_gpkg_layer(
                 .cloned()
         })
         .collect();
+    plenora_io_model::primary::validate_contract(&source_layer.contract)?;
     let mut layer = source_layer.clone();
     let projected_geometry = if geometry {
         layer

@@ -1590,7 +1590,10 @@ mod backend {
             };
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let ha_geometria = geometry.is_some();
-            let contract = DataContract::new(schema.clone(), geometry);
+            let contract = DataContract::new(
+                plenora_io_model::geometry::with_contract_version(schema.clone()),
+                geometry,
+            );
             // Indice di layer di un FileGDB: il formato ne ammette al piu'
             // qualche migliaio, il cast a u32 non puo' troncare.
             #[allow(clippy::cast_possible_truncation)]

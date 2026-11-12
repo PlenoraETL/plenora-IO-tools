@@ -75,7 +75,7 @@ fn exact_projection_is_deduplicated_ordered_and_fail_closed() {
     let source = LayerContract {
         id: LayerId(7),
         name: "source".to_owned(),
-        contract: DataContract::new(
+        contract: crate::test_contract::declared(
             Arc::new(Schema::new(vec![
                 Field::new("a", DataType::Int64, false),
                 Field::new("b", DataType::Utf8, true),
@@ -109,7 +109,7 @@ fn exact_projection_is_deduplicated_ordered_and_fail_closed() {
     assert!(project_layer_contract(&source, &invalid).is_err());
 
     let geometry_source = LayerContract {
-        contract: DataContract::new(
+        contract: crate::test_contract::declared(
             Arc::new(Schema::new(vec![
                 Field::new("a", DataType::Int64, false),
                 Field::new("geometry", DataType::Binary, true),

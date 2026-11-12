@@ -436,7 +436,15 @@ fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
         assert!(!esito.riuscita, "{crs}: {}", esito.stdout);
         let busta: serde_json::Value =
             serde_json::from_str(esito.stdout.trim()).expect("il rifiuto emette una busta JSON");
-        assert_eq!(busta["error"]["category"], "unsupported", "{crs}: {busta}");
+        assert_eq!(
+            busta["error"]["category"],
+            if crs.ends_with(' ') {
+                "crs"
+            } else {
+                "unsupported"
+            },
+            "{crs}: {busta}"
+        );
         assert!(
             !uscita.exists(),
             "{crs}: nessuna destinazione su un rifiuto"

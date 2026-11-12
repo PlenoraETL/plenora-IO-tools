@@ -62,10 +62,8 @@ fn primaria_e_secondaria_usano_le_stesse_dichiarazioni_crs() {
                     ]))
                 })
                 .collect::<Vec<_>>();
-            let contract = DataContract::new(
-                Arc::new(arrow_schema::Schema::new(fields)),
-                Some(primary.clone()),
-            );
+            let contract =
+                DataContract::from_schema(Arc::new(arrow_schema::Schema::new(fields))).unwrap();
             let geometries = contract.geometries().unwrap();
             assert_eq!(geometries[primary_index].crs.id(), Some("OGC:CRS84"));
             assert_eq!(geometries[1 - primary_index].crs.id(), Some("EPSG:3857"));
@@ -91,7 +89,7 @@ fn il_costruttore_non_cancella_un_crs_canonico_contraddittorio() {
     );
     assert_eq!(
         data.geometries().unwrap_err().category,
-        crate::ErrorCategory::Crs
+        crate::ErrorCategory::Schema
     );
 }
 

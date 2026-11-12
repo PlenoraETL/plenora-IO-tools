@@ -836,6 +836,7 @@
       "rimisure fuzz e ASan",
       "lock e matrice interop aggiornati",
       "artefatti e digest misurati"
-    ]
+    ],
+    "correzione_2": "Correzioni locali dello schema e delle prove non avanzano candidate, artefatti, fuzz/ASan o qualifica. Il referto separa controlli funzionali e gate di release."
   }
 }

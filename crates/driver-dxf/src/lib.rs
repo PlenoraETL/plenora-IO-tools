@@ -2422,7 +2422,10 @@ fn dxf_contract(
         Field::new("text", DataType::Utf8, true),
     ];
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    Ok(DataContract::new(schema, Some(geometry_contract)))
+    Ok(DataContract::new(
+        plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
+        Some(geometry_contract),
+    ))
 }
 
 fn batch_from_walker(

@@ -84,3 +84,6 @@ jsonschema.workspace = true
 # prodotto non cambia.
 parquet.workspace = true
 rusqlite.workspace = true
+
+# Struttura delle chiamate ai bordi, indipendente da commenti e stringhe.
+syn = { version = "=2.0.119", features = ["full", "visit"] }

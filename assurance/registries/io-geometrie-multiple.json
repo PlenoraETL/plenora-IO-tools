@@ -7,7 +7,7 @@
     "geometrie": "DataContract.geometries(), metadati per campo; nessuna promozione in projection",
     "encoding": "IPC WKB/EWKB indipendenti per campo; GeoParquet WKB; codifiche GeoArrow native unsupported",
     "crs": "indipendente per colonna; PROJJSON conservato byte per byte",
-    "validazione": "tutte le geometrie, CRS, tipi, dimensioni, encoding e quote cumulative; nessuna nuova dipendenza di prodotto"
+    "validazione": "primary::reconcile_schema_contract: vocabolario prima del piano; stato PRIM-002 e metadati letti dallo schema senza completarli; discordanza schema. Tutte le geometrie, CRS, tipi, dimensioni, encoding e quote cumulative. syn e dipendenza solo di test."
   },
   "formati": [
     {
@@ -124,7 +124,7 @@
       "cargo test --workspace",
       "python scripts/vettori_primary_geometry.py --contracts <checkout> --cli <binario> --referto <referto>"
     ],
-    "esiti_2026_11_12": {
+    "esiti_primo_giro_2026_11_12": {
       "cargo_fmt": 0,
       "cargo_clippy_workspace_all_targets_D_warnings": 0,
       "cargo_test_workspace": 0,
@@ -146,11 +146,57 @@
         "exit": 0
       },
       "gdal_backend": "build bloccata: gdal_i.lib assente",
-      "release_contract": "gate ordinario bloccato da python3 assente; nessuna qualifica 8.0.0"
+      "release_contract": "gate ordinario bloccato da python3 assente; nessuna qualifica 8.0.0",
+      "nota": "Misura precedente alla correzione 2, non prova del worktree corrente."
     }
   },
   "tabella_cardinalita": "crates/plenora-io-core/src/geometry_cardinality.rs",
   "ritiro_lacuna": "io-una-geometria da ritirare in interop-fin solo con lock e prove aggiornati; nessuna modifica esterna in questa correzione",
   "variazioni_errori_2026_10_28": "Rimosso il rifiuto di cardinalita globale da verifica_schema e geometry_contracts_for_validation: la cardinalita ora dipende dal sink in validate_write, con lo stesso quartetto Unsupported/Validate/Unsupported/Never. crs_from delega a crs_della_colonna senza cambiare quartetto. Il conteggio cumulativo ha un controllo overflow aggiuntivo; account riusa il layer_rows gia verificato invece di ripetere la guardia.",
-  "variazioni_errori": "8.0.0: rimossi rifiuti IPC multi; introdotti Schema/Validate/Schema/Never per primaria invalida, incoerente o incorporata in conflitto; limite u32 Unsupported; none verso sink singoli Unsupported. Proiezione IPC delegata al helper comune: lo snapshot dei siti riflette lo spostamento, non la rimozione del controllo degli indici. Ragioni e migrazione in CHANGELOG.md."
+  "variazioni_errori": "8.0.0: rimossi rifiuti IPC multi; introdotti Schema/Validate/Schema/Never per primaria invalida, incoerente o incorporata in conflitto; limite u32 Unsupported; none verso sink singoli Unsupported. Proiezione IPC delegata al helper comune: lo snapshot dei siti riflette lo spostamento, non la rimozione del controllo degli indici. Ragioni e migrazione in CHANGELOG.md. Correzione 2: from_schema introduce Schema/Validate/Schema/Never per indice non rappresentabile; geometries delega al riconciliatore, eliminando i due siti locali duplicati. Gli errori di disaccordo del piano sono schema, il vocabolario resta prioritario. Snapshot aggiornato per questi spostamenti.",
+  "correzione_2": {
+    "stato": "Correzioni funzionali e prove del sorgente; esiti finali nel referto target/CORREZIONE-2.md. Qualifica 8.0.0 non eseguita.",
+    "prove": [
+      "raw_and_constructed_plans_reject_every_schema_contract_disagreement",
+      "reconciliation_callers_are_enumerated_structurally",
+      "cumulative_component_budget_without_primary",
+      "covering_second_primary_nonpositional_ids_and_secondary_projection",
+      "runtime_primary_multi_none_and_invalid_key",
+      "sdk/python/tests/test_primary_geometry.py"
+    ],
+    "matrici": "PRIM: read/write, input file/stream, output file/stream; GeoParquet read da PyArrow senza chiave primaria incorporata. Arrow-data: 352 esiti. Valori/null e metadati completi; nessuna qualifica interop esterna.",
+    "esiti": {
+      "cargo_test_workspace": {
+        "exit": 0,
+        "tests_passed": 1654
+      },
+      "clippy_workspace_all_targets_D_warnings": 0,
+      "sdk_python": {
+        "tests": 434,
+        "skipped": 41,
+        "exit": 0
+      },
+      "arrow_data": {
+        "pass": 352,
+        "fail": 0
+      },
+      "primary": {
+        "pass": 179,
+        "fail": 0,
+        "not_applicable": 8
+      },
+      "release_gate_suite": {
+        "tests": 342,
+        "failures": 6,
+        "skipped": 2,
+        "cause": "tre verifiche fuzz richiedono rimisura; tre ASan/FileGDB richiedono misura e GDAL nativa. Il sesto fallimento, prima saltato per CRLF, emerge con sorgenti LF riproducibili."
+      },
+      "historical_50f9357": {
+        "ipc_byte_identical": 4,
+        "parquet_byte_and_metadata_identical": 2,
+        "ambito": "campioni vuoto/popolato, nessuna promessa universale"
+      },
+      "qualifica_8_0_0": false
+    }
+  }
 }

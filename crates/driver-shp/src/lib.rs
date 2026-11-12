@@ -689,7 +689,10 @@ impl FormatDriver for ShpDriver {
             ));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(schema, Some(geometry_contract.clone()));
+        let contract = DataContract::new(
+            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
+            Some(geometry_contract.clone()),
+        );
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())

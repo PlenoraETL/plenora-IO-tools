@@ -2410,10 +2410,7 @@ fn write_then_read_round_trip() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -2462,10 +2459,7 @@ fn writer_adapter_attributes_mixed_geometry_and_prevents_publish() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "mixed".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut writer = ShpDriver
@@ -2514,10 +2508,7 @@ fn directory_dataset_round_trip_uses_atomic_directory_unit() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let options = opzioni_scrittura()
@@ -2560,10 +2551,7 @@ fn directory_dataset_abort_removes_staging() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
 
@@ -3201,10 +3189,7 @@ fn piano_di_publish() -> WritePlan {
     WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     }
 }
@@ -3306,10 +3291,7 @@ fn publish_mode_must_match_destination_shape() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut options = opzioni_scrittura();
@@ -3339,10 +3321,7 @@ fn rejects_long_field_name() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let dir = tempfile::tempdir().unwrap();
@@ -3395,10 +3374,7 @@ fn streams_multiple_batches() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3464,10 +3440,14 @@ fn round_trip_dimensional_point(
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "OGC:CRS84"), &geometry_contract),
-        Field::new("id", DataType::Int64, false),
-    ]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "OGC:CRS84").with_nullable(geometry_contract.nullable),
+                &geometry_contract,
+            ),
+            Field::new("id", DataType::Int64, false),
+        ])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
@@ -3479,10 +3459,7 @@ fn round_trip_dimensional_point(
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "points".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry_contract),
-            },
+            contract: DataContract::new(schema, Some(geometry_contract)),
         }],
     };
 
@@ -4151,7 +4128,7 @@ fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
         layer: LayerContract {
             id: LayerId(0),
             name: "allineato".to_owned(),
-            contract: DataContract::new(schema, None),
+            contract: DataContract::from_schema(schema).unwrap(),
         },
         loss: LossReport::default(),
         row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
@@ -4981,10 +4958,7 @@ fn piano_di_scrittura(campi: Vec<Field>) -> WritePlan {
     WritePlan {
         layers: vec![WriteLayer {
             name: "strato".to_owned(),
-            contract: DataContract {
-                schema: Arc::new(Schema::new(colonne)),
-                geometry: None,
-            },
+            contract: DataContract::from_schema(Arc::new(Schema::new(colonne))).unwrap(),
         }],
     }
 }

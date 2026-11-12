@@ -2750,7 +2750,7 @@ fn n1_create_accetta_una_destinazione_senza_estensione_xlsx() {
     let piano = WritePlan {
         layers: vec![WriteLayer {
             name: "foglio".to_owned(),
-            contract: DataContract::new(schema, None),
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
 
@@ -2854,7 +2854,7 @@ fn n1_un_geometry_encoding_non_ammesso_e_fermato_prima_di_create() {
     let piano = WritePlan {
         layers: vec![WriteLayer {
             name: "foglio".to_owned(),
-            contract: DataContract::new(schema, None),
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut opzioni = opzioni_scrittura();
@@ -2933,7 +2933,7 @@ fn existing_destination_precedes_unsupported_xlsx_extension() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "sheet".to_owned(),
-            contract: DataContract::new(schema, None),
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
 
@@ -2970,10 +2970,7 @@ fn write_then_read_round_trip() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -3177,10 +3174,14 @@ fn xlsx_wkt_xym_round_trip_preserves_payload_and_contract() {
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
     geometry_contract.dimensions = CoordinateDimensions::Xym;
     geometry_contract.set_exact_geometry_types(vec![GeometryType::MultiLineString]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, "OGC:CRS84"), &geometry_contract),
-        Field::new("id", arrow_schema::DataType::Int64, false),
-    ]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "OGC:CRS84").with_nullable(geometry_contract.nullable),
+                &geometry_contract,
+            ),
+            Field::new("id", arrow_schema::DataType::Int64, false),
+        ])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
@@ -3192,10 +3193,7 @@ fn xlsx_wkt_xym_round_trip_preserves_payload_and_contract() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "layer".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry_contract),
-            },
+            contract: DataContract::new(schema, Some(geometry_contract)),
         }],
     };
 
@@ -3606,10 +3604,13 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
 
     let geometry_contract =
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, "EPSG:4326"),
-        &geometry_contract,
-    )]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326"),
+                &geometry_contract,
+            ),
+        ])));
     // Byte order valido, tipo 99 che non esiste.
     let batch = RecordBatch::try_new(
         schema,

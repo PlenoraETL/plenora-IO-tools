@@ -839,7 +839,7 @@
     "stato": "non pubblicata",
     "decisione": "12/11/2026: Arrow Primary Geometry 1.0, major per nuovi rifiuti e semantica none",
     "release_authorized": false,
-    "evidenza": "nessuna qualifica 8.0.0 registrata; i campi candidate e ultima_misura restano la storia 7.0.3",
+    "evidenza": "nessuna qualifica 8.0.0 registrata; i campi candidate e ultima_misura restano la storia 7.0.3; Riconciliazione schema/piano e prove file/stream, Rust diretto, SDK C array, runtime e spill non vuoti. Le evidenze 7.0.3 restano storiche; nessun artefatto o misura fuzz/ASan 8.0.0 prodotto.",
     "richiesto": "congelamento e nuove misure L1/L2, fuzz/ASan, distribuzione e interop"
   }
 }

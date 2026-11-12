@@ -52,11 +52,14 @@ def tabella(vettore: dict) -> pa.Table:
     return pa.Table.from_arrays(colonne, schema=pa.schema(campi, metadata=md or None))
 
 
-def esegui(cli: Path, operazione: str, ingresso: Path, uscita: Path) -> dict:
+def esegui(cli: Path, operazione: str, ingresso: Path, uscita: Path, output_stream=False) -> dict:
+    uscita.unlink(missing_ok=True)
     if operazione == "read":
         argv = [str(cli), "read", str(ingresso), "--output", str(uscita), "--format", "json"]
     else:
         argv = [str(cli), "write", str(ingresso), str(uscita), "--to", "ipc", "--format", "json"]
+    if output_stream:
+        argv += ["--out-opt", "serialization=stream"]
     esito = subprocess.run(argv, capture_output=True, text=True, timeout=120)
     try:
         busta = json.loads(esito.stdout)
@@ -129,17 +132,18 @@ def main() -> int:
             with pa.OSFile(str(ingresso), "wb") as f, ipc.new_file(f, t.schema) as w:
                 w.write_table(t)
             for operazione in OPERAZIONI:
-                osservato = esegui(opzioni.cli, operazione, ingresso, lavoro / f"{percorso.stem}-{operazione}.arrow")
-                v = verdetto(vettore, osservato, oracolo)
-                if v == "conforme" and vettore["expect"] == "valid":
-                    with ipc.open_file(pa.BufferReader((lavoro / f"{percorso.stem}-{operazione}.arrow").read_bytes())) as reader:
-                        actual = reader.read_all()
-                    if not actual.equals(expected_ipc(vettore), check_metadata=True):
-                        v = "output-diverso"
-                conteggi[v] = conteggi.get(v, 0) + 1
-                righe.append({"vettore": percorso.stem, "operazione": operazione,
-                              "atteso": vettore["expect"], "categoria_attesa": vettore.get("category"),
-                              "osservato": osservato, "verdetto": v})
+                for output_stream in (False, True):
+                    osservato = esegui(opzioni.cli, operazione, ingresso, lavoro / f"{percorso.stem}-{operazione}.arrow", output_stream)
+                    v = verdetto(vettore, osservato, oracolo)
+                    if v == "conforme" and vettore["expect"] == "valid":
+                        with (ipc.open_stream if output_stream else ipc.open_file)(pa.BufferReader((lavoro / f"{percorso.stem}-{operazione}.arrow").read_bytes())) as reader:
+                            actual = reader.read_all()
+                        if not actual.equals(expected_ipc(vettore), check_metadata=True):
+                            v = "output-diverso"
+                    conteggi[v] = conteggi.get(v, 0) + 1
+                    righe.append({"vettore": percorso.stem, "operazione": operazione, "output_stream": output_stream,
+                                  "atteso": vettore["expect"], "categoria_attesa": vettore.get("category"),
+                                  "osservato": osservato, "verdetto": v})
     opzioni.referto.write_text(json.dumps({"schema_version": 1, "vettori": len(vettori),
                                            "conteggi": conteggi, "esiti": righe},
                                           ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

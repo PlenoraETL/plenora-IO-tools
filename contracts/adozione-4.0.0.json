@@ -138,7 +138,9 @@
       "verification": [
         "python scripts/vettori_primary_geometry.py --contracts <checkout> --cli <binario> --referto <referto>",
         "cargo test -p driver-ipc primary",
-        "cargo test -p plenora-io-tools --test geometrie_multiple"
+        "cargo test -p plenora-io-tools --test geometrie_multiple",
+        "cargo test -p plenora-io-tools --test runtime_vettori",
+        "python -m unittest discover -s sdk/python/tests -p test_primary_geometry.py"
       ]
     }
   ],
@@ -262,7 +264,7 @@
     {
       "regola": "GEO-000..020 / REJ-001..004",
       "stato": "implementato",
-      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 176 esiti conformi senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
+      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 352 esiti conformi (writer file e stream) senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
     },
     {
       "regola": "ERR-016",
@@ -294,7 +296,7 @@
     {
       "regola": "decisione 0022 (contracts #49)",
       "stato": "implementato",
-      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 176 esiti conformi senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
+      "motivo": "8.0.0: arrow-data-v1 eseguiti su IPC read/write, 88 vettori e 352 esiti conformi (writer file e stream) senza esenzione multigeometria. La primaria segue Arrow Primary Geometry 1.0; nuova qualifica di distribuzione richiesta."
     },
     {
       "regola": "contracts #32 / decisione 0016 / IO-PY-001",
@@ -311,5 +313,9 @@
       "stato": "non_applicabile",
       "motivo": "Proposta, guida, tooling, gate e dipendenze del repository dei contratti; #53 corregge l'oracolo senza cambiare il verdetto di alcun vettore."
     }
-  ]
+  ],
+  "correzione_2": {
+    "ambito": "Conformita funzionale del sorgente e dei vettori IO; non certifica il manifesto distribuito, gli handoff reali data/DB, GDAL, L1/L2 o la release 8.0.0.",
+    "regola": "DataContract::new non modifica lo schema. Riconciliazione unica al bordo anche per campi pubblici, Arrow esterno senza vocabolario Plenora e schema senza estensione."
+  }
 }

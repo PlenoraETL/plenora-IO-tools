@@ -845,6 +845,14 @@ fn primary_metadata_survives_memory_and_forced_spill() {
                 let mut metadata = arrow_schema::Metadata::new();
                 metadata.insert("ARROW:extension:name", "geoarrow.wkb");
                 metadata.insert("plenora.field_id", id);
+                metadata.insert(
+                    "plenora.geometry.crs_id",
+                    if id == "17" {
+                        "EPSG:4326"
+                    } else {
+                        "EPSG:32632"
+                    },
+                );
                 Field::new(format!("g{id}"), DataType::Binary, true).with_metadata(metadata)
             })
             .collect::<Vec<_>>();
@@ -855,15 +863,34 @@ fn primary_metadata_survives_memory_and_forced_spill() {
         let schema = Arc::new(Schema::new_with_metadata(fields, metadata));
         let state = PrimaryState::read(&schema).unwrap();
         let schema = plenora_io_model::primary::emit(&schema, state.position(&schema)).unwrap();
-        let batch = RecordBatch::new_empty(schema.clone());
+        let point = [
+            1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64,
+        ];
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(arrow_array::BinaryArray::from(vec![
+                    Some(point.as_slice()),
+                    None,
+                ])),
+                Arc::new(arrow_array::BinaryArray::from(vec![
+                    None,
+                    Some(point.as_slice()),
+                ])),
+            ],
+        )
+        .unwrap();
         for threshold in [0, 1 << 20] {
             let budget = budget_di(1 << 20, 1 << 20);
             let mut spool = StagedSpool::with_threshold(schema.clone(), budget.clone(), threshold);
             spingi(&mut spool, &budget, batch.clone(), 64).unwrap();
+            spingi(&mut spool, &budget, batch.slice(1, 1), 64).unwrap();
             spool.seal().unwrap();
             let observed = spool.next_batch().unwrap().unwrap();
             assert_eq!(observed.schema(), schema);
             assert_eq!(observed, batch);
+            assert_eq!(spool.next_batch().unwrap().unwrap(), batch.slice(1, 1));
+            assert!(spool.next_batch().unwrap().is_none());
         }
     }
 }

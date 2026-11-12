@@ -24,6 +24,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                     "spec_version_supported": None,
                     "required_feature": None,
                     "requires_declared_geometry_types": True,
+                    "geometry_cardinality": "single",
                 },
                 {
                     "id": "filegdb",
@@ -32,6 +33,7 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                     "spec_version_supported": None,
                     "required_feature": "gdal-backend",
                     "requires_declared_geometry_types": True,
+                    "geometry_cardinality": "single",
                 },
             ],
         }

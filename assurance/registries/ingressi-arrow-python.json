@@ -5834,5 +5834,16 @@
       "crates/plenora-io-tools/tests/runtime_vettori.rs::runtime_primary_multi_none_and_invalid_key"
     ],
     "qualifica": "nuova misura 8.0.0 richiesta; non eredita L1/L2, fuzz o ASan 7.0.3"
+  },
+  "correzione_2": {
+    "ambito": "Prove funzionali locali del sorgente 8.0.0 non pubblicato; nessun trasferimento di qualifica, fuzz, ASan o digest storici.",
+    "prove": [
+      "crates/driver-ipc/src/tests/primary.rs",
+      "crates/plenora-io-tools/tests/geometrie_multiple.rs",
+      "crates/plenora-io-tools/tests/runtime_vettori.rs",
+      "sdk/python/tests/test_primary_geometry.py",
+      "scripts/vettori_primary_geometry.py"
+    ],
+    "copertura": "Piano Rust grezzo/costruttore, metadati per campo, writer file/stream, footer indipendente, valori/null, piu batch, C array e C stream; backend GDAL nativo da verificare su Linux."
   }
 }

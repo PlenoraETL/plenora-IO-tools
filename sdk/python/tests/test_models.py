@@ -41,6 +41,7 @@ def driver_sano(**modifiche):
             "available": True,
             "required_feature": None,
             "requires_declared_geometry_types": True,
+            "geometry_cardinality": "single",
             "direction": "bidirectional",
             "multi_layer": False,
             "multi_file": False,

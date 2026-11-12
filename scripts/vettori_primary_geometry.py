@@ -43,6 +43,47 @@ def same(actual, expected):
     assert actual.schema.equals(expected.schema, check_metadata=True), (actual.schema, expected.schema)
 
 
+def parquet_expected(table, geo_text, canonical):
+    """Oracolo dal vettore e dal footer sorgente: nessun metadato dall'output Arrow."""
+    geo = json.loads(geo_text)
+    decoder = json.JSONDecoder()
+    start = geo_text.index('"columns"') + len('"columns"')
+    start = geo_text.index('{', start) + 1
+    raw = {}
+    while True:
+        while geo_text[start].isspace() or geo_text[start] == ',': start += 1
+        if geo_text[start] == '}': break
+        name, end = decoder.raw_decode(geo_text, start)
+        start = geo_text.index(':', end) + 1
+        while geo_text[start].isspace(): start += 1
+        _, end = decoder.raw_decode(geo_text, start)
+        raw[name] = geo_text[start:end]
+        start = end
+    fields = []
+    for f in table.schema:
+        md = dict(f.metadata or {})
+        if f.name in geo['columns']:
+            col = geo['columns'][f.name]
+            assert col['encoding'] == 'WKB'
+            types = {'point': 'Point', 'linestring': 'LineString'}
+            assert col['geometry_types'] == [types[md[b'plenora.geometry.types'].decode()]]
+            identity = md.get(b'plenora.geometry.crs_id')
+            if identity == b'EPSG:4326' and md.get(b'plenora.geometry.axis_order') == b'lon_lat':
+                identity = b'OGC:CRS84'
+                md[b'plenora.geometry.crs_id'] = identity
+                md.pop(b'plenora.geometry.crs_definition', None)
+                md.pop(b'plenora.geometry.crs_definition_format', None)
+            md[b'crs'] = identity
+            if identity.startswith(b'EPSG:'): md[b'plenora.geometry.srid'] = identity.split(b':')[1]
+            else: md.pop(b'plenora.geometry.srid', None)
+            native = {'column': raw[f.name], 'edges': 'planar', 'primary_column': geo['primary_column'], 'version': geo['version']}
+            if f.name == geo['primary_column'] and len(geo['columns']) > 1:
+                native['altre_colonne'] = ','.join(sorted(n for n in geo['columns'] if n != f.name))
+            for k, value in native.items(): md[('plenora.geometry.native.geoparquet.' + k).encode()] = value.encode()
+        fields.append(f.with_metadata(md))
+    return pa.Table.from_arrays(table.columns, schema=pa.schema(fields, metadata=canonical.schema.metadata))
+
+
 def rejected(result, category, path):
     assert result["exit"] == 3, result
     assert result["category"] == category, result
@@ -78,11 +119,11 @@ def main():
         v = copy.deepcopy(v)
         oracle.canonical(v)
         return tabella(v)
-    def transport(v, work, operation="write", stream=False):
+    def transport(v, work, operation="write", stream=False, output_stream=False):
         src, dst = work / "input.arrow", work / "output.arrow"
         dst.unlink(missing_ok=True)
         save(tabella(v), src, stream)
-        result = esegui(args.cli, operation, src, dst)
+        result = esegui(args.cli, operation, src, dst, output_stream)
         assert verdetto(v, result, oracle) == "conforme", result
         if v["expect"] == "valid":
             same(load(dst), expected(v))
@@ -94,7 +135,8 @@ def main():
             v = json.loads(p.read_text())
             for op in ("read", "write"):
                 for stream in (False, True):
-                    record(f"{p.stem}/{op}/{'stream' if stream else 'file'}", lambda v=v,op=op,stream=stream: transport(v, work, op, stream))
+                    for output_stream in (False, True):
+                        record(f"{p.stem}/{op}/in-{stream}/out-{output_stream}", lambda v=v,op=op,stream=stream,output_stream=output_stream: transport(v, work, op, stream, output_stream))
         renamed = json.loads((args.contracts / "vectors/arrow-primary-v1/primary-second-of-two.json").read_text())
         renamed["fields"][2]["name"] = "renamed_position"
         for row in renamed["rows"]: row["renamed_position"] = row.pop("position")
@@ -174,7 +216,31 @@ def main():
                 src, dst, back = work / "input.arrow", work / "output.parquet", work / "back.arrow"
                 dst.unlink(missing_ok=True); back.unlink(missing_ok=True)
                 save(tabella(table), src)
-                result = command(args.cli, ["write", src, dst, "--to", "geoparquet"])
+                if v["direction"] == "read":
+                    independent = tabella(table)
+                    fields = []
+                    for f in independent.schema:
+                        fm = dict(f.metadata or {})
+                        if fm.get(b"plenora.geometry.crs_id") == b"EPSG:4326" and fm.get(b"plenora.geometry.axis_order") == b"lon_lat":
+                            fm[b"plenora.geometry.crs_id"] = b"OGC:CRS84"
+                        fields.append(f.with_metadata(fm))
+                    independent = pa.Table.from_arrays(independent.columns, schema=pa.schema(fields, metadata=independent.schema.metadata))
+                    md = dict(independent.schema.metadata or {})
+                    md.pop(KEY, None)
+                    columns = {}
+                    for field in independent.schema:
+                        fm = field.metadata or {}
+                        if fm.get(b"ARROW:extension:name") != b"geoarrow.wkb": continue
+                        crs = json.loads(fm[b"plenora.geometry.crs_definition"]) if b"plenora.geometry.crs_definition" in fm else None
+                        columns[field.name] = {"encoding": "WKB", "geometry_types": [{"point":"Point", "linestring":"LineString"}[fm[b"plenora.geometry.types"].decode()]]}
+                        if crs is not None: columns[field.name]["crs"] = crs
+                    md[b"geo"] = json.dumps({"version": "1.1.0", "primary_column": v["geo"]["primary_column"], "columns": columns}, separators=(",", ":")).encode()
+                    independent = independent.replace_schema_metadata(md)
+                    pq.write_table(independent, dst)
+                    assert KEY not in (pq.read_schema(dst).metadata or {})
+                    result = {"exit": 0}
+                else:
+                    result = command(args.cli, ["write", src, dst, "--to", "geoparquet"])
                 if "expected_error" in v:
                     rejected(result, v["expected_error"]["category"], dst); return
                 assert result["exit"] == 0, result
@@ -185,14 +251,8 @@ def main():
                 result = command(args.cli, ["read", dst, "--output", back])
                 assert result["exit"] == 0, result
                 observed = load(back)
-                assert observed.equals(tabella(table)), "GeoParquet ha cambiato i valori"
-                assert (observed.schema.metadata or {}).get(KEY) == (expected(table).schema.metadata or {}).get(KEY)
-                for f, original in zip(observed.schema, tabella(table).schema):
-                    assert f.metadata[b"plenora.field_id"] == original.metadata[b"plenora.field_id"], (f, original)
-                    if b"plenora.geometry.crs_id" in (original.metadata or {}):
-                        crs = original.metadata[b"plenora.geometry.crs_id"]
-                        expected_crs = b"OGC:CRS84" if crs == b"EPSG:4326" and original.metadata.get(b"plenora.geometry.axis_order") == b"lon_lat" else crs
-                        assert f.metadata[b"plenora.geometry.crs_id"] == expected_crs, (f.metadata, original.metadata)
+                wanted = parquet_expected(tabella(table), meta[b"geo"].decode(), expected(table))
+                assert observed.equals(wanted, check_metadata=True), (observed.schema, wanted.schema)
             record(p.stem + "/real-file", geoparquet)
         def renamed_geo_roundtrip():
             fixture = Path(__file__).resolve().parents[1] / "crates/driver-geoparquet/tests/fixtures/multigeometria-pyarrow.parquet"

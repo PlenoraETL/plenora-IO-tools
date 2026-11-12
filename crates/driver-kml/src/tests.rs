@@ -470,10 +470,7 @@ fn write_then_read_round_trip() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "l".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: None,
-            },
+            contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
     let mut w = driver
@@ -533,11 +530,15 @@ fn xyz_round_trip_preserves_altitude() {
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
     geometry_contract.dimensions = CoordinateDimensions::Xyz;
     geometry_contract.set_exact_geometry_types(vec![GeometryType::Point]);
-    let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry_contract),
-        Field::new("name", DataType::Utf8, true),
-        Field::new("description", DataType::Utf8, true),
-    ]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, OGC_CRS84),
+                &geometry_contract,
+            ),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("description", DataType::Utf8, true),
+        ])));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
@@ -550,10 +551,7 @@ fn xyz_round_trip_preserves_altitude() {
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "xyz".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry_contract),
-            },
+            contract: DataContract::new(schema, Some(geometry_contract)),
         }],
     };
 
@@ -612,18 +610,16 @@ fn xym_contract_is_rejected_before_output_creation() {
     let mut geometry =
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
     geometry.dimensions = CoordinateDimensions::Xym;
-    let schema: SchemaRef = Arc::new(Schema::new(vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry),
-        Field::new("name", DataType::Utf8, true),
-        Field::new("description", DataType::Utf8, true),
-    ]));
+    let schema: SchemaRef =
+        plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("description", DataType::Utf8, true),
+        ])));
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "m".to_owned(),
-            contract: DataContract {
-                schema,
-                geometry: Some(geometry),
-            },
+            contract: DataContract::new(schema, Some(geometry)),
         }],
     };
     let driver = KmlDriver;

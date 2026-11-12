@@ -171,6 +171,21 @@ impl FormatDriver for GeoJsonDriver {
         // faceva sembrare ignoranza. Una FeatureCollection vuota veniva
         // rifiutata verso ogni sink che pretende i tipi in anticipo.
         geometria.set_exact_geometry_types(tipi);
+        let fields = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                if i == 0 {
+                    plenora_io_model::geometry::with_geometry_contract_metadata(f, &geometria)
+                } else {
+                    f.as_ref().clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        let schema = plenora_io_model::geometry::with_contract_version(std::sync::Arc::new(
+            arrow_schema::Schema::new_with_metadata(fields, schema.metadata().clone()),
+        ));
         let contract = DataContract::new(schema, Some(geometria));
         let name = path
             .file_stem()

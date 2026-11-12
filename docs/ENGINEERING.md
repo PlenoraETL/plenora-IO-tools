@@ -1138,3 +1138,22 @@ le guardie di routing restano necessarie e non sono un call graph formale.
 Le macro di item non espanse da syn hanno un inventario separato nello
 stesso registro, con revisione della definizione/invocazione e impronta dei
 token: nuove macro o modifiche falliscono, anziche nascondere nuovi ingressi.
+
+### Riconciliazione Arrow del piano Rust (correzione 2)
+
+`primary::reconcile_schema_contract` e' il punto unico usato da
+`DataContract::geometries` e da `primary::validate_contract`. Writer, proiezioni
+e adattamento EWKB passano da questi ingressi prima di normalizzare lo schema.
+Il vocabolario precede il confronto, anche con `geometry: Some`; i metadati
+canonici del campo ricevuto vengono letti indipendentemente dal piano.
+Il costruttore infallibile conserva ogni schema ricevuto e i suoi difetti;
+`from_schema` offre la costruzione fallibile. Anche per Arrow esterno senza vocabolario Plenora, le proprieta non dichiarate
+non si ricavano dal piano: le dimensioni restano sconosciute. I reader di formati nativi
+serializzano esplicitamente il loro contratto prima di passare al bordo comune.
+
+`geometrie_multiple.rs` enumera i chiamanti con syn e confronta la cardinalita
+con una tabella attesa indipendente. Le prove funzionali includono IPC emesso
+file/stream, GeoParquet prodotto da PyArrow senza chiave primaria incorporata,
+proiezione con oracolo di valori/null, spill su batch non vuoti, runtime con
+artefatto e SDK Table/reader/C stream/C array. Non costituiscono una misura
+fuzz/ASan o la qualifica della distribuzione 8.0.0.
