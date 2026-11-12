@@ -5,8 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-import pyarrow as pa
 from plenora_io import Client, PlenoraError
+from test_contratto_sdk import pa, serve_pyarrow
 
 ROOT = Path(__file__).resolve().parents[3]
 KEY = b"plenora.primary_geometry"
@@ -22,6 +22,7 @@ class CArray:
         batch = pa.RecordBatch.from_arrays([c.combine_chunks() for c in self.table.columns], schema=self.table.schema)
         return batch.__arrow_c_array__(requested_schema)
 
+@serve_pyarrow
 class PrimaryGeometry(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
