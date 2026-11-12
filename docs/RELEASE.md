@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `a2e0bea` |
-| revisione misurata | `a2e0bea` |
+| ultima qualificata | `6e494a6` |
+| revisione misurata | `6e494a6` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,18 +49,18 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,75% |
-| righe coperte LCOV | 31 432 |
-| righe strumentate LCOV | 35 416 |
-| copertura cargo | 86,61% |
+| copertura LCOV | 88,64% |
+| righe coperte LCOV | 31 890 |
+| righe strumentate LCOV | 35 976 |
+| copertura cargo | 86,55% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
-| esito differenziale | 85.26% |
+| baseline differenziale | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
+| esito differenziale | 90.58% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `a2e0bea` |
+| S9, qualificato su | `6e494a6` |
 | candidate, versione del manifesto | `8.0.0` |
 | candidate, stato | attiva |
 | candidate, revisione congelata | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
@@ -2354,7 +2354,8 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
 di `none`, secondo il criterio degli input accettati documentato sopra.
 Note e migrazione: [CHANGELOG](../CHANGELOG.md). Le evidenze 7.0.3 restano
-storiche: servono nuove misure L1/L2 e fuzz/ASan sul perimetro finale.
+storiche; il livello 2 della 8.0.0 e registrato sotto. Restano le rimisure
+fuzz/ASan sul perimetro finale.
 Tag e autorizzazione alla pubblicazione restano false.
 
 Workspace, SDK e i due lockfile sono gia alla 8.0.0. La 7.0.3 pubblicata
@@ -2379,7 +2380,8 @@ con `check-distribuzione-completa.py --canale candidate` e
 Questo confronto riguarda i byte della corsa Actions; non e' una verifica
 della draft o della release.
 
-Restano le nuove misure L1/L2, fuzz/ASan, le campagne e attestazioni richieste,
+Il livello 2 e registrato sotto. Restano le rimisure fuzz/ASan, le campagne
+e attestazioni richieste,
 la draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
 del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
 ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
@@ -2398,3 +2400,19 @@ e dal workflow `distribuzione.yml` (sorgente incluso):
 
 I cambi dei quartetti FileGDB e GeoParquet e la loro motivazione sono
 registrati nel CHANGELOG 8.0.0 come parte della compatibilita degli errori.
+
+### Registrazione del livello 2
+
+L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json.
+
+VM di qualifica Ubuntu 24.04, 192.168.2.140; clone pulito della candidate, .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e, due safe.directory configurati, secondo l'operatore.
+
+Attempt-1 SCARTATO, senza valore di qualifica: secondo l'operatore il clone da bundle era privo di tag (sonde_release/check_release: il tag v... non esiste) e il disco della VM si e' riempito durante la copertura. Nessuna misura di quel tentativo viene usata; i suoi log non sono fra gli input di questa registrazione.
+
+L'[evidenza](../assurance/evidence/checkpoint-6e494a6.json) deriva dai log forniti dall'operatore in `target/rel800/6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0-attempt-2`, tramite `scripts/registra-evidenza-s9.py`. Il registratore usa `target/rel800/verifica-l2/corsa-contratto`, copia byte per byte dei 116 file. La console originale `target/rel800/console-attempt-2.log` e' copiata byte per byte in `target/rel800/verifica-l2/console.log`, conservata separatamente con digest nella provenienza.
+
+Dai log dell'operatore: replay 145 input su 15 target, 0 crash; smoke 15/15, nessun finding o quarantena. LCOV 88.64% (31890/35976), cargo 86.55%, soglia 80.0%. Differenziale rispetto ad a2e0beaaae6fcf8e621410480fe088ffce364acc: 90.58%, 779/860 righe eseguibili coperte, 81 scoperte, 2244 non eseguibili.
+
+Secondo l'operatore il soak e' in corso: non viene registrato qui. Restano i suoi referti, le rimisure fuzz/ASan e le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo la registrazione resta da eseguire sulla VM.
+
+Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke e console identici byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; esecuzione ordinaria con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys (cargo exit 101), 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel800/verifica-l2; resoconto in target/rel800/L2-REGISTRAZIONE.md.
