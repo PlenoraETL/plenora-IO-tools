@@ -84,7 +84,7 @@ def comando_test(
     bersaglio e l'altro ne dichiarerebbe un altro.
     """
     return [
-        "cargo", "test", "-p", crate,
+        "cargo", "test", "--no-fail-fast", "-p", crate,
         *CONFIGURAZIONI[configurazione],
         *BERSAGLI[bersaglio],
     ]
@@ -258,9 +258,12 @@ def esegui_harness(
     andato storto.
     """
     comando = comando_test(crate, configurazione, bersaglio)
-    esecuzione = subprocess.run(
-        comando, cwd=ROOT, capture_output=True, text=True, check=False
-    )
+    try:
+        esecuzione = subprocess.run(
+            comando, cwd=ROOT, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        return {}, [f"{crate} ({configurazione}, {bersaglio}): harness non avviato: {exc}"]
     esiti, duplicati = analizza_uscita(esecuzione.stdout)
     intestazione = f"{crate} ({configurazione}, {bersaglio})"
     errori = [f"{intestazione}: {d}" for d in duplicati]

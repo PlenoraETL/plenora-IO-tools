@@ -18,6 +18,93 @@ env:
   CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  prove-fonte-unica:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+      - name: Dipendenze delle sonde e degli inventari
+        run: python -m pip install pyarrow==25.0.1 PyYAML==6.0.3 openpyxl==3.1.5
+      - name: Leggi il pin dei contratti
+        id: contracts-pin
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          pin = json.loads(Path('contracts/adoption-source.json').read_text())['contracts_source']['revision']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + pin + '\n')
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PlenoraETL/plenora-contracts
+          ref: ${{ steps.contracts-pin.outputs.revision }}
+          path: .plenora-contracts
+      - name: Tutti i self-test e controlli statici, raccolta completa
+        run: python scripts/check_prove_fonte_unica.py --run
+      - name: Fixture indipendenti riproducibili
+        if: ${{ !cancelled() }}
+        run: python scripts/check_fixture_generators.py
+      - name: Conserva inventari ed esiti anche sul rosso
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prove-fonte-unica
+          path: target/prove-fonte-unica
+
+  historical-readers:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - name: Pin dell'oracolo storico dal comparatore
+        id: historical-pin
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          from scripts.compare_historical_readers import BASELINE_REVISION
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + BASELINE_REVISION + '\n')
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.historical-pin.outputs.revision }}
+          path: .historical-io
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: "1.98.1"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+      - name: Dipendenze della matrice storica
+        run: |
+          sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+          python3 -m pip install pyarrow==25.0.1 openpyxl==3.1.5
+      - name: Binario corrente con FileGDB
+        run: cargo build --locked -p plenora-io-tools --features gdal-backend
+      - name: Oracolo immutabile con FileGDB
+        if: ${{ !cancelled() }}
+        working-directory: .historical-io
+        run: cargo build --locked -p plenora-io-tools --features gdal-backend
+      - name: Matrice storica completa
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/compare_historical_readers.py
+          --old .historical-io/target/debug/plenora-io
+          --new target/debug/plenora-io --require-filegdb
+      - name: Referto storico anche sul rosso
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: historical-readers
+          path: target/historical-readers/report.json
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -49,6 +136,9 @@ jobs:
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      - name: Self-test che richiedono binari e GDAL
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check_prove_fonte_unica.py --native-tests
       - name: Verify real feature-on FileGDB catalog evidence
         run: |
           python3 -m unittest scripts.test_check_filegdb_catalog
@@ -380,6 +470,17 @@ jobs:
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
           python3 scripts/audit_ignores.py --esegui
+      - name: Inventario dei test dai target Rust compilati
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p target/prove-native
+          cargo test --workspace --all-features --all-targets --locked --no-fail-fast -- --list > target/prove-native/rust-tests.txt
+      - name: Conserva prove native e inventario Rust
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prove-native
+          path: target/prove-native
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -815,6 +916,16 @@ jobs:
             --contracts .plenora-contracts \
             --cli target/debug/plenora-io \
             --referto vettori-primary-geometry.json
+
+      - name: Conflitti footer e campo, tutte le celle anche dopo un errore
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check_footer_field_conflicts.py --cli target/debug/plenora-io
+      - name: Referto conflitti footer e campo
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: footer-field-conflicts
+          path: target/c3-footer-conflicts/report.json
 
   # La superficie Rust pubblica, provata da un consumatore **esterno** compilato
   # dall'archivio sorgente distribuito.

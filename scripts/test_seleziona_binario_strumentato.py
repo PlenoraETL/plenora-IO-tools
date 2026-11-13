@@ -18,6 +18,8 @@ from contextlib import redirect_stderr, redirect_stdout
 
 from scripts import seleziona_binario_strumentato as selezione
 
+NATIVE_PROOF = True  # Esegue un finto llvm-cov con shebang Unix.
+
 
 def impronte(mappa: dict[str, str]):
     """Un'impronta finta: il contenuto dichiarato dalla sonda, e non un file."""

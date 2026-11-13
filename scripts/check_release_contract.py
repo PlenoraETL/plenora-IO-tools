@@ -1058,6 +1058,17 @@ def _comandi(prova: dict[str, Any]) -> list[list[str]]:
     return [prova["comando"], *prova.get("comandi_aggiuntivi", [])]
 
 
+def _esegui_comando(comando: list[str]) -> subprocess.CompletedProcess:
+    argv = list(comando)
+    if argv[0] in ("python", "python3"):
+        argv[0] = sys.executable
+    try:
+        return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True,
+                              check=False, timeout=1800)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(argv, 125, "", str(exc))
+
+
 def esegui(documento: dict[str, Any]) -> list[str]:
     """Esegue le prove degli invarianti `verified`.
 
@@ -1080,12 +1091,12 @@ def esegui(documento: dict[str, Any]) -> list[str]:
             if chiave in visti:
                 continue
             visti[chiave] = voce["id"]
-            esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)
+            esito = _esegui_comando(comando)
             if esito.returncode != 0:
                 errori.append(
                     f"{voce['id']}: la prova «{' '.join(comando)}» esce con "
                     f"{esito.returncode}. Un invariante la cui verifica fallisce "
-                    "non e' verificato."
+                    f"non e' verificato.\n{esito.stdout}\n{esito.stderr}"
                 )
 
     # --- test: eseguiti una volta per coppia, l'identita' deve comparire
@@ -1127,8 +1138,11 @@ def esegui(documento: dict[str, Any]) -> list[str]:
         if funzione is None:
             errori.append(f"{voce['id']}: la funzione «{prova['funzione']}» non esiste")
             continue
-        documento_artefatto = strict_json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
-        errori.extend(f"{voce['id']}: {m}" for m in funzione(documento_artefatto))
+        try:
+            documento_artefatto = strict_json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
+            errori.extend(f"{voce['id']}: {m}" for m in funzione(documento_artefatto))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            errori.append(f"{voce['id']}: prova interna non eseguibile: {exc}")
 
     return errori
 
@@ -2007,11 +2021,9 @@ def verifica_condizione(
     verifica = condizione["verifica"]
     if verifica["tipo"] == "gate":
         comando = verifica["comando"]
-        esito = subprocess.run(
-            comando, cwd=ROOT, capture_output=True, text=True, check=False
-        )
+        esito = _esegui_comando(comando)
         if esito.returncode != 0:
-            return [f"«{' '.join(comando)}» esce con {esito.returncode}"]
+            return [f"«{' '.join(comando)}» esce con {esito.returncode}\n{esito.stdout}\n{esito.stderr}"]
         return []
     return globals()[verifica["funzione"]](documento)
 
@@ -4579,12 +4591,13 @@ def main(argv: list[str] | None = None) -> int:
     errori = completezza(documento)
     if not errori:
         errori = struttura(documento)
-    if not errori:
+    struttura_valida = not errori
+    if struttura_valida:
         errori = esegui(documento)
 
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
-    if errori:
+    if errori and (not opzioni.release or not struttura_valida):
         return 1
 
     bloccanti = debito(documento)
@@ -4593,9 +4606,12 @@ def main(argv: list[str] | None = None) -> int:
         # Le condizioni sono **congiunte** e vengono eseguite tutte, anche dopo
         # la prima che fallisce: fermarsi darebbe un elenco parziale di cio'
         # che manca, e chi legge crederebbe che il resto sia a posto.
-        mancate: list[str] = []
+        mancate: list[str] = list(errori)
         for condizione in documento["autorizzazione_di_release"]["condizioni"]:
-            motivi = verifica_condizione(condizione, documento)
+            try:
+                motivi = verifica_condizione(condizione, documento)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                motivi = [f"condizione non eseguibile: {exc}"]
             for motivo in motivi:
                 print(f"{condizione['id']}: {motivo}", file=sys.stderr)
             if motivi:

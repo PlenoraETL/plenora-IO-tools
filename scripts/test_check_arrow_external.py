@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from scripts import check_arrow_external as guard
 
+NATIVE_PROOF = True  # Il censimento syn compila l'estrattore Rust.
+
 
 class RoutingArrow(unittest.TestCase):
     def setUp(self):
