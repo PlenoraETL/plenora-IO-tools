@@ -1,0 +1,1531 @@
+{
+  "schema_version": 1,
+  "descrizione": "L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json.",
+  "status": "satisfied",
+  "release_authorized": false,
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+    }
+  ],
+  "evidence": {
+    "status": "passed",
+    "scope": "Qualifica tecnica di livello 2 sulla candidate 6e494a6."
+  },
+  "non_significa": "Nessuna autorizzazione di release o riattribuzione delle misure al commit di registrazione; nessuna verifica dopo la pubblicazione.",
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "Nessun invariante chiuso automaticamente.",
+    "candidate": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+    "che_cosa_e_provato": "L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json."
+  },
+  "resta_aperto": "Restano le rimisure fuzz/ASan e le attestazioni richieste dal verbale, il contratto completo sulla VM, la registrazione separata della decisione autentica del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. In questa registrazione release_authorized e release_action_allowed restano false.",
+  "contesto_operatore": "VM di qualifica Ubuntu 24.04, 192.168.2.140; clone pulito della candidate, .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e, due safe.directory configurati, secondo l'operatore.",
+  "provenienza_della_corsa": {
+    "originale": "/home/marco/io-l2-800/.s9-checkpoint/6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0-attempt-2",
+    "copia_locale": "target/rel800/6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0-attempt-2",
+    "nota_operatore": "Esecuzione Linux, ambiente, esito e baseline comunicati dall operatore; misure derivate dai file locali della corsa.",
+    "copia_per_il_registratore": "target/rel800/verifica-l2/corsa-contratto",
+    "console_esterna_al_manifest": {
+      "percorso": "target/rel800/verifica-l2/console.log",
+      "originale_locale": "target/rel800/console-attempt-2.log",
+      "sha256": "b5bee75989b28b66004131585de02e07544b6c964322ac26b1ee208cc1afa1c1",
+      "nota": "Console copiata byte per byte, esclusa dal manifesto dei passi come nella registrazione 7.0.3. Tutti i 116 file della directory di corsa copiati byte per byte."
+    }
+  },
+  "registro_dei_tentativi": [
+    {
+      "tentativo": "attempt-1",
+      "stato": "scartato",
+      "nota": "Attempt-1 SCARTATO, senza valore di qualifica: secondo l'operatore il clone da bundle era privo di tag (sonde_release/check_release: il tag v... non esiste) e il disco della VM si e' riempito durante la copertura. Nessuna misura di quel tentativo viene usata; i suoi log non sono fra gli input di questa registrazione."
+    },
+    {
+      "tentativo": "attempt-2",
+      "stato": "qualifica",
+      "nota": "L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json."
+    }
+  ],
+  "corsa": {
+    "revisione_iniziale": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+    "revisione_finale": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
+    "percorso_dei_log": "target\\rel800\\verifica-l2\\corsa-contratto"
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 111,
+    "eseguiti": 111,
+    "eseguiti_dichiarati_dalla_corsa": 111,
+    "verdi": 111,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa ha registrato in `risultato.json`, non contati a mano dal sommario a schermo",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_vendor",
+        "esito": "verde",
+        "log": "clippy_vendor.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_conversioni",
+        "esito": "verde",
+        "log": "sonde_conversioni.log"
+      },
+      {
+        "id": "check_conversioni",
+        "esito": "verde",
+        "log": "check_conversioni.log"
+      },
+      {
+        "id": "sonde_fixture_canoniche",
+        "esito": "verde",
+        "log": "sonde_fixture_canoniche.log"
+      },
+      {
+        "id": "check_fixture_canoniche",
+        "esito": "verde",
+        "log": "check_fixture_canoniche.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_buste_v2",
+        "esito": "verde",
+        "log": "sonde_buste_v2.log"
+      },
+      {
+        "id": "check_buste_v2",
+        "esito": "verde",
+        "log": "check_buste_v2.log"
+      },
+      {
+        "id": "sonde_sdk_python",
+        "esito": "verde",
+        "log": "sonde_sdk_python.log"
+      },
+      {
+        "id": "check_sdk_python",
+        "esito": "verde",
+        "log": "check_sdk_python.log"
+      },
+      {
+        "id": "costruisci_pacchetto_python",
+        "esito": "verde",
+        "log": "costruisci_pacchetto_python.log"
+      },
+      {
+        "id": "pacchetto_python_riproducibile",
+        "esito": "verde",
+        "log": "pacchetto_python_riproducibile.log"
+      },
+      {
+        "id": "smoke_pacchetto_python",
+        "esito": "verde",
+        "log": "smoke_pacchetto_python.log"
+      },
+      {
+        "id": "canale_privato",
+        "esito": "verde",
+        "log": "canale_privato.log"
+      },
+      {
+        "id": "check_requires_python",
+        "esito": "verde",
+        "log": "check_requires_python.log"
+      },
+      {
+        "id": "sonde_dettaglio_congelato",
+        "esito": "verde",
+        "log": "sonde_dettaglio_congelato.log"
+      },
+      {
+        "id": "check_dettaglio_congelato",
+        "esito": "verde",
+        "log": "check_dettaglio_congelato.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_finding_noti",
+        "esito": "verde",
+        "log": "sonde_finding_noti.log"
+      },
+      {
+        "id": "sonde_wrapper_campagna",
+        "esito": "verde",
+        "log": "sonde_wrapper_campagna.log"
+      },
+      {
+        "id": "sonde_riuso_evidenze",
+        "esito": "verde",
+        "log": "sonde_riuso_evidenze.log"
+      },
+      {
+        "id": "check_riuso_evidenze",
+        "esito": "verde",
+        "log": "check_riuso_evidenze.log"
+      },
+      {
+        "id": "sonde_registra_evidenza",
+        "esito": "verde",
+        "log": "sonde_registra_evidenza.log"
+      },
+      {
+        "id": "sonde_soak",
+        "esito": "verde",
+        "log": "sonde_soak.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "sonde_dependency_pins",
+        "esito": "verde",
+        "log": "sonde_dependency_pins.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_shapefile_fork",
+        "esito": "verde",
+        "log": "check_shapefile_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_manifesto_adozione",
+        "esito": "verde",
+        "log": "sonde_manifesto_adozione.log"
+      },
+      {
+        "id": "check_manifesto_adozione",
+        "esito": "verde",
+        "log": "check_manifesto_adozione.log"
+      },
+      {
+        "id": "sonde_commenti",
+        "esito": "verde",
+        "log": "sonde_commenti.log"
+      },
+      {
+        "id": "check_commenti",
+        "esito": "verde",
+        "log": "check_commenti.log"
+      },
+      {
+        "id": "sonde_disposizione_prove",
+        "esito": "verde",
+        "log": "sonde_disposizione_prove.log"
+      },
+      {
+        "id": "check_disposizione_prove",
+        "esito": "verde",
+        "log": "check_disposizione_prove.log"
+      },
+      {
+        "id": "sonde_dimensione",
+        "esito": "verde",
+        "log": "sonde_dimensione.log"
+      },
+      {
+        "id": "check_dimensione",
+        "esito": "verde",
+        "log": "check_dimensione.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "fuzz_campagna_completa",
+        "esito": "verde",
+        "log": "fuzz_campagna_completa.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 145,
+      "target": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`",
+      "target_totali": 15
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "finding": 0,
+      "quarantena": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_smoke`",
+      "target_totali": 15
+    },
+    "copertura": {
+      "lcov_percentuale": 88.64,
+      "lcov_righe_coperte": 31890,
+      "lcov_righe_strumentate": 35976,
+      "cargo_lines_percentuale": 86.55,
+      "soglia": 80.0,
+      "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
+      "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
+    },
+    "diagnostica_differenziale": {
+      "base": "a2e0beaaae6fcf8e621410480fe088ffce364acc",
+      "esito": "90.58%",
+      "righe_cambiate_eseguibili": 860,
+      "coperte": 779,
+      "scoperte": 81,
+      "cambiate_non_eseguibili": 2244,
+      "righe_scoperte": [
+        "crates/driver-geoparquet/src/lib.rs:1130",
+        "crates/driver-geoparquet/src/lib.rs:1131",
+        "crates/driver-geoparquet/src/lib.rs:1132",
+        "crates/driver-geoparquet/src/lib.rs:1133",
+        "crates/driver-geoparquet/src/lib.rs:1134",
+        "crates/driver-geoparquet/src/lib.rs:1135",
+        "crates/driver-geoparquet/src/lib.rs:1136",
+        "crates/driver-geoparquet/src/lib.rs:1137",
+        "crates/driver-geoparquet/src/lib.rs:1138",
+        "crates/driver-geoparquet/src/lib.rs:1139",
+        "crates/driver-geoparquet/src/lib.rs:1140",
+        "crates/driver-geoparquet/src/lib.rs:1141",
+        "crates/driver-geoparquet/src/lib.rs:1142",
+        "crates/driver-geoparquet/src/lib.rs:1143",
+        "crates/driver-geoparquet/src/lib.rs:1144",
+        "crates/driver-geoparquet/src/lib.rs:1145",
+        "crates/driver-geoparquet/src/lib.rs:1146",
+        "crates/driver-geoparquet/src/lib.rs:1147",
+        "crates/driver-geoparquet/src/lib.rs:1148",
+        "crates/driver-geoparquet/src/lib.rs:1149",
+        "crates/driver-geoparquet/src/lib.rs:1151",
+        "crates/driver-geoparquet/src/lib.rs:1152",
+        "crates/driver-geoparquet/src/lib.rs:1153",
+        "crates/driver-geoparquet/src/lib.rs:1154",
+        "crates/driver-geoparquet/src/lib.rs:1155",
+        "crates/driver-geoparquet/src/lib.rs:1156",
+        "crates/driver-geoparquet/src/lib.rs:1157",
+        "crates/driver-geoparquet/src/lib.rs:1158",
+        "crates/driver-geoparquet/src/lib.rs:1159",
+        "crates/driver-geoparquet/src/lib.rs:1160",
+        "crates/driver-geoparquet/src/lib.rs:1161",
+        "crates/driver-geoparquet/src/lib.rs:1162",
+        "crates/driver-geoparquet/src/lib.rs:1163",
+        "crates/driver-geoparquet/src/lib.rs:1164",
+        "crates/driver-geoparquet/src/lib.rs:1165",
+        "crates/driver-geoparquet/src/lib.rs:1166",
+        "crates/driver-geoparquet/src/lib.rs:1167",
+        "crates/driver-geoparquet/src/lib.rs:1168",
+        "crates/driver-geoparquet/src/lib.rs:1169",
+        "crates/driver-geoparquet/src/lib.rs:1170",
+        "crates/driver-geoparquet/src/lib.rs:1171",
+        "crates/driver-geoparquet/src/lib.rs:1172",
+        "crates/driver-geoparquet/src/lib.rs:1173",
+        "crates/driver-geoparquet/src/lib.rs:1174",
+        "crates/driver-geoparquet/src/lib.rs:1175",
+        "crates/driver-geoparquet/src/lib.rs:1176",
+        "crates/driver-geoparquet/src/lib.rs:1177",
+        "crates/driver-geoparquet/src/lib.rs:1180",
+        "crates/driver-geoparquet/src/lib.rs:1219",
+        "crates/driver-geoparquet/src/lib.rs:1526",
+        "crates/driver-geoparquet/src/lib.rs:1527",
+        "crates/driver-geoparquet/src/lib.rs:1590",
+        "crates/driver-geoparquet/src/lib.rs:2580",
+        "crates/driver-geoparquet/src/lib.rs:2581",
+        "crates/driver-geoparquet/src/lib.rs:2582",
+        "crates/driver-geoparquet/src/multigeometria.rs:61",
+        "crates/driver-ipc/src/lib.rs:243",
+        "crates/driver-ipc/src/lib.rs:244",
+        "crates/driver-ipc/src/lib.rs:245",
+        "crates/driver-ipc/src/lib.rs:246",
+        "crates/driver-ipc/src/lib.rs:347",
+        "crates/driver-ipc/src/lib.rs:470",
+        "crates/driver-ipc/src/lib.rs:471",
+        "crates/driver-ipc/src/lib.rs:472",
+        "crates/plenora-io-core/src/capabilities.rs:330",
+        "crates/plenora-io-core/src/capabilities.rs:337",
+        "crates/plenora-io-core/src/capabilities.rs:338",
+        "crates/plenora-io-core/src/capabilities.rs:339",
+        "crates/plenora-io-core/src/capabilities.rs:340",
+        "crates/plenora-io-core/src/capabilities.rs:341",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:40",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:41",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:42",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:43",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:44",
+        "crates/plenora-io-model/src/contract.rs:328",
+        "crates/plenora-io-model/src/contract.rs:329",
+        "crates/plenora-io-model/src/contract.rs:330",
+        "crates/plenora-io-model/src/contract.rs:331",
+        "crates/plenora-io-model/src/primary.rs:43",
+        "crates/plenora-io-model/src/primary.rs:49"
+      ],
+      "ragione": "Confronto di libreria fra a2e0bea e candidate 6e494a6.",
+      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "target\\rel800\\verifica-l2\\corsa-contratto",
+    "file": 116,
+    "digest_manifest": "00251b41b8f895c6bd46d08c0764394cdf71fef1ecd113a28680dd32bbf7ddb3",
+    "forma_del_manifest": "percorso relativo alla directory di corsa -> sha256 del contenuto; il digest e' `percorso NUL sha256 LF` concatenati in ordine di percorso, la stessa forma che il gate del contratto ricalcola",
+    "manifest": {
+      "assurance_fallbacks.log": "ef56dbdeb162777cec07c19e21b84642ef1d2b3cd443026f6a9c6b0b9780eee7",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+      "canale_privato.log": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+      "catalog.json": "8a768514837d6a9222890d43471f32606a749ecf7089f703abda56b4bad36125",
+      "check_action_pins.log": "b20190b71e89b26716f4b31cf3847edfcbf5ee191fe75713bff8cf315280e1ee",
+      "check_buste_v2.log": "aa1acd6c280fd2db56d8da11b7d03da4b719f15beb3929e6ab62da75b163443e",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "f9a6beea5fa11a6a643b4aa0cd2eecfe32a4b3029cdb8d8517e45624db62ebca",
+      "check_commenti.log": "6dbd34240349988fdc759cf7d75623bc4a32cb2c9b2d9d2fc725ae6fb207b8e4",
+      "check_conversioni.log": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+      "check_coverage_exclusions.log": "3d02e297b532bd00dac6db357f5770952455535518fe0e07cb04302942b7c5dc",
+      "check_dependency_pins.log": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+      "check_dettaglio_congelato.log": "4f0edef7277dec406a50186721c59ba0b53e39296420c01106784092c254b80f",
+      "check_dimensione.log": "f79c52572b47c24b0af20af0e342087a125f652aec04f282f99933db01fc3941",
+      "check_disposizione_prove.log": "56d2f644e3549e71239582f84aa05d6f5d50be31f6a2a0c6992544996605b111",
+      "check_docset.log": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+      "check_dxf_fork.log": "ea62a70bbc6f37dc15f9fe791fb157b4bbf8959742eb1e63677c78538c50f8d9",
+      "check_errori_redatti.log": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_fixture_canoniche.log": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+      "check_gdal_fork.log": "31ca09b035a5d1e3866c4aa8b8aab03c98b705da9455c2ab56b8e496bed57603",
+      "check_identita.log": "ac026498f59cba888122a6a72d59ef3f8bd894a32940a55e364ff5b714e7f692",
+      "check_manifesto_adozione.log": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "6b6ea64bdd4ea8f95708652b434bf6125f1d1b877223a75f91160c38b9fe1450",
+      "check_protocollo_v2.log": "7ae1a689b4bace24eead9402b8cda9124dd3ed4404da499daafcae7824f31fae",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "53f7c8523fff66d9bb9d7c12a50ebc69455261ec4a39f64e8fca46f7c8d33852",
+      "check_release.log": "2dfe7e86d2a6d0342f0ce1a0c2d169ece32de21931b77fa55d50d18a4c91bb41",
+      "check_requires_python.log": "ee25db9af82fb00d2cef008653765b2b6fac9301eb8ff4b377981387d99df4b9",
+      "check_riuso_evidenze.log": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+      "check_schemi_geoparquet.log": "4f5ff4140fbcce509d6abfac70779cef8b9fd03bba3a3f521717b96194cff32f",
+      "check_sdk_python.log": "0c1d34e6c6cfa6c1c5076dee50dd0b0e4bab412e8e787ab37f934b61b1d12310",
+      "check_shapefile_fork.log": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+      "check_toolchain.log": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+      "check_wkb_limits.log": "7286a25d513f90acb0ed5d0d6058fdf619c3c58362b03aab27d4eed74b588938",
+      "clippy.log": "4e3f2d3cf13cbc0fdeb8438551a11e22ceb52fe129a895e177687f975bc807f8",
+      "clippy_default.log": "b6b4ec4f0a2a8dc33a2d0ff6659d89a2b1e2769ab1fce973ea71779f44cbcd66",
+      "clippy_sicurezza.log": "82a5bba416b170205ffef248404abfb1ea561ea84aad338ef7451dcbc03b7ea2",
+      "clippy_vendor.log": "6f96dca297298a989620ecdabe6a98b16ab0d696472bc9ed0ca8f808144b9c6b",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "costruisci_pacchetto_python.log": "7343e8f7dc8133e60ca842e0fb072a7aa5e7f5cb5741c221edf49dcce3ba9a78",
+      "coverage_diff.log": "4c9ea3d0c0f63ec9cd0b840f1272e4d8cd88545ed2020352d1baabd7799e6006",
+      "coverage_diff_cli.log": "1cc41ef1134794984dbd4bfe188cff061951d80eab65daa4646e993fa73906c8",
+      "coverage_export.log": "ad64ec1b354bbe8f861e8775ade87064f53c406ec92690a5f21568a8bb0487e0",
+      "coverage_export_cli.log": "50927184514e616d36fe9d2ac0f87a88ce0950b97c30e622c82e5d60f06ca7e1",
+      "coverage_misura.log": "de414bbddf2e595f2e86871d4629e5f0447bc97c0c207efe8e3fc9b63be9df06",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "57776ddb600a060596317241db3edc15b22adc05e32ea0d988724b74a46effc4",
+      "coverage_soglia_dal_report.log": "c48005eb905e66ca3604eb32f4f5efda93aa04de6baa18ca018a691bc292cf8a",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz-smoke-ultima.json": "ce433472bcba6ae6f88b46c752e5352f2713b09209a772a28d0397fe662d1686",
+      "fuzz_campagna_completa.log": "e14c5c826fda8ab1ec6e34a76eb5517f46d37140772b789a2f48fd06bd79ebf8",
+      "fuzz_replay.log": "5bb81607fc7c05511c1f76feb3d28ea91ceb0d3301250ec20d4e8dbbe1f02444",
+      "fuzz_smoke.log": "594823cc90fce82e1f7a5e7799fc22347bf2e70c8b34e783cd0ffabc90bafa79",
+      "lcov-completo.info": "7e0b8c9911714793736582fdf18b7c56f17c4ead067661152a4350dc766aa0b7",
+      "lcov.info": "37bb738b2c889044e4cdd0c7262c10c8097ab98f2a7f48f4440f3121b4e98af9",
+      "pacchetto_python_riproducibile.log": "c0cae68af1d61bcc02b08aa466a80ad36eedce519519b7add6c95ded5883e0d6",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "95454f478478437b752d752dffb2719405b7c4f81674f97b5f8cc8a67dc46017",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "smoke_pacchetto_python.log": "6e8af0e8734491bae88c4b414dec80fdeb975f5839dc166e832cbc554af3e25e",
+      "sonde_action_pins.log": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+      "sonde_assurance_n1.log": "fd1e9c9e5d612adbd0687355197a9212cede63f98a5051c8b75670239cc42a17",
+      "sonde_assurance_n1_prove.log": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
+      "sonde_audit_ignores.log": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+      "sonde_buste_v2.log": "c2982255e0eacd6fcba7dbc604e483acc0eba266ad14d9144d775539cc2ddaa8",
+      "sonde_capability_ostile.log": "d5f6107f584324b2412eb71ab1c12ba1b4d426c48e00d2a1a6350d5836a70582",
+      "sonde_categorie_di_perdita.log": "cf699f279ae9a8c900203028334cad8461791e37815eef39faa3ac8375d8f094",
+      "sonde_checkpoint.log": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+      "sonde_commenti.log": "eb8955d2dae9fa3fed5f3adb850de3a433ea3fb39fbd0e398a2be0652e6d0465",
+      "sonde_conversioni.log": "f1f13abad0113a87f764e7a23cb3bd05ed2b3921bcfde1d822ab688df8c43004",
+      "sonde_coverage_excl.log": "81aea2cd168f560e25baec25eb334a486bac7e62d5cb5d9417412d8554bd6de4",
+      "sonde_dependency_pins.log": "62e6bd3a77554540929dd26eab6204ab86056dc07bacce00a71e4482e9f4bcb8",
+      "sonde_dettaglio_congelato.log": "cdbaa6a0f681bc280ff678a95fb52d493b5e6301ef721200e178f8109467959b",
+      "sonde_dimensione.log": "deabc40d80d34f6ccfb0933ec9ed4558b7c4cff8fc4a9b8a1f8ebc2c3d4b818d",
+      "sonde_disposizione_prove.log": "63e350780c331c32f2b02b3cac5a14f314cd5a79ab2c8685b0ae83770dd966fb",
+      "sonde_dist_completa.log": "1a58fa1ecf47372d676cb5c03578ae02791d31eda1de6e14aff0e528ba6f2aa5",
+      "sonde_distribuzione.log": "04ccb89317481a7a6391b25a561c99614b176cfb237adb8054862f38b69b3644",
+      "sonde_docset.log": "db176d94cc35062fc428348ef8abecb60e24b1dd5ff0296dd1e00e0d96e3a336",
+      "sonde_errori_redatti.log": "dd818658e9c8008cb354da9371485cb574dabd3d7c356cdfa1c694608942fdca",
+      "sonde_fallback.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_filegdb.log": "006ac55040db8bd82eeb2e5abab682d80dc719e313b23af3bbac2921bafb69a1",
+      "sonde_finding_noti.log": "5864b04aa4df486d791337eb38cc2ab8d0914a74f34a0a2470fa3704cf9cea39",
+      "sonde_fixture_canoniche.log": "378835dfcd1a3745d724bbc79aa32b8ce02046db20c8d9d4d5c73615d1fe5954",
+      "sonde_fork.log": "326c01053e9d6e9a1c1d416bb7817518c4b5b816e53c0d0e3b719d738b942b32",
+      "sonde_identita.log": "af55efa5c3ceb122f8184c380aa405d3f3b4e7e0c1e892773d0eff31d0645c8a",
+      "sonde_licenze.log": "d6bf319cf1e035a85137c6b32f33380cc13dc3be7c211d3894d0164ef3146264",
+      "sonde_manifesto_adozione.log": "6f8397512501cea0784b430be828fc346cd08716ad43c0c2a091c92d89ffa4fe",
+      "sonde_metadati_geoparquet.log": "5684d13977a1f6829bcd5f644c72b35ab6f8d42951d571a5f230c4cc35a359f3",
+      "sonde_niente_leak.log": "dd818658e9c8008cb354da9371485cb574dabd3d7c356cdfa1c694608942fdca",
+      "sonde_prevalidazione.log": "1e56d4a82a95e20708b5562efba64112ed1eff20782a4aad077508a369ab2380",
+      "sonde_protocollo_v2.log": "fb406bf4a8507734835be30dd65f56f67f459ef1e992ae4d454e7cbc0fec94c6",
+      "sonde_quarantena.log": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+      "sonde_quartetto.log": "46c74e95e49409273cff5b0d474bb3f780e57977a4af5da2071b99cd4731838f",
+      "sonde_registra_evidenza.log": "0adb4bb2fc99792d5812c425591f723bd2f2510012b129bcb0f611abbffe1fff",
+      "sonde_release.log": "1d0bc3e6b13a302aeca46fb3fb8f3d6208e16ff2af7e174b5c657da11711a1a3",
+      "sonde_riuso_evidenze.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
+      "sonde_sbom.log": "810e8e39f96351f649a49beb06c8c4567a41117d11c9885b12ff2345845fbb50",
+      "sonde_schemi_geoparquet.log": "9a49b9419801539d575d823064a077f7a7c149aa72cecf01d49c402cca162ad7",
+      "sonde_sdk_python.log": "6b77439a926da71b5386bc1e319790f6256d5f15f81e406ae656a00a8ad47d84",
+      "sonde_semi_s12.log": "a4dfc6ba8d8ee7f993f00a450146247a1360e5c1204cf97b042c9525cb23198e",
+      "sonde_soak.log": "22e69128faed2c5b9f76178176222e7a4635dbd31155df18e4fad6455f8ab9ea",
+      "sonde_toolchain.log": "10a866d088c98e6d44e75b2313d408cfdcd2175dd81a06de5aa3ae6fe17e7135",
+      "sonde_verificatori_nativi.log": "a4b46a88f00fc8db378678c45946edcac4932c90c9feef35298b8d41f4a24165",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
+      "sonde_wrapper_campagna.log": "98d7de6230e9c952940345009bdd6a72e0f1b2ee954644432e14656b4954b76b",
+      "test.log": "a143ff0c09e9fc55ed87d16062f7e20aa24743328e6132463cb2717a42b0f92d",
+      "test_default.log": "ffc2913acb398a80640e14f5d951b459aa2fb6aff9227845e6315cbe9391f858"
+    }
+  },
+  "esito": "S9 checkpoint level 2 passed",
+  "campagne_mirate": {
+    "soak": {
+      "eseguito": true,
+      "nota": "Soak mirato eseguito dall'operatore sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0: dxf_reader monotonic/boottime/realtime 3602.3007007650012/3602.3007008970017/3602.3007011413574 s, 19164124 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3602.136202079004/3602.136202089001/3602.1362023353577 s, 12681869 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding o segnale, durata dimostrata, esito completa. Secondo l'operatore, le due campagne da 3600 s sono state eseguite in parallelo sulla VM di qualifica, nel clone pulito del livello 2. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-6e494a6.json.",
+      "verbale": {
+        "schema_version": 1,
+        "criterio": "RELEASE.md sezione 6 e scripts/soak_misurato.py non richiedono saturazione o esclusivita della CPU. CPU dei figli diagnostica, include preparazione/build, nessuna soglia. Il tempo wrapper non e il solo tempo di fuzzing: entrambi i riepiloghi libFuzzer dichiarano 3601 s.",
+        "limite": "Nessuna discontinuita rilevata dagli orologi usati; non prova assenza assoluta di sospensioni o difetti. Nessuna misura modificata per la concorrenza.",
+        "verifica_locale": "SHA-256 dei log ricalcolati; digest del misuratore confrontato con il blob della candidate; giudizio ricalcolato dai log e tempi originali, con identita di tutti i campi prodotti da giudica.",
+        "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+        "provenienza": {
+          "dichiarazione_operatore": "L'operatore dichiara di avere eseguito due soak da 3600 s ciascuno in parallelo sulla VM di qualifica, sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, nel clone pulito del livello 2. Revisione e ambiente non rilevati autonomamente dal misuratore.",
+          "copie_locali": [
+            "target/rel800/soak-dxf-candidate",
+            "target/rel800/soak-shp-candidate"
+          ]
+        },
+        "bersagli": {
+          "dxf_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py dxf_reader --seconds 3600",
+            "nota_comando": "Comando abbreviato comunicato dall operatore; --output-dir obbligatorio nello script, valore originale sulla VM non comunicato. Le copie locali non attestano quel valore.",
+            "referto": "target/rel800/soak-dxf-candidate/referto.json",
+            "referto_sha256": "36c6e85ad2572179a06d9a683a4feee19176a59b47601b3b13bd6620d303878e",
+            "log": "target/rel800/soak-dxf-candidate/campagna.log",
+            "log_sha256": "9a0365f4a21aac11c360211f5865a3adddcfc879158b29d775abf3a522eb5f24",
+            "log_dimensione": 10910566,
+            "tempi_grezzi": {
+              "monotonic_s": 3602.3007007650012,
+              "boottime_s": 3602.3007008970017,
+              "parete_s": 3602.3007011413574,
+              "cpu_figli_s": 3601.4016739999997
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 19164124,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "19164124",
+                "average_exec_per_sec": "5321",
+                "new_units_added": "80443",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "790"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3601.4016739999997,
+              "quota_cpu_intervallo": 0.9997504298392385,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "dxf_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.3007007650012,
+                "boottime_s": 3602.3007008970017,
+                "parete_s": 3602.3007011413574,
+                "cpu_figli_s": 3601.4016739999997
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 1.320004230365157e-07,
+                "parete_meno_monotonic_s": 3.763561835512519e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3601.4016739999997,
+                "quota_cpu_intervallo": 0.9997504298392385,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 19164124,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "19164124",
+                  "average_exec_per_sec": "5321",
+                  "new_units_added": "80443",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "790"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "dxf_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "9a0365f4a21aac11c360211f5865a3adddcfc879158b29d775abf3a522eb5f24",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 57222.377650406,
+                  "boottime_s": 57222.377650708,
+                  "parete_s": 1794500168.3971121,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 60824.678351171,
+                  "boottime_s": 60824.678351605,
+                  "parete_s": 1794503770.6978133,
+                  "cpu_figli_s": 3601.4016739999997
+                }
+              },
+              "errore_avvio": null
+            }
+          },
+          "shp_reader": {
+            "comando_operatore": "python3 scripts/soak_misurato.py shp_reader --seconds 3600",
+            "nota_comando": "Comando abbreviato comunicato dall operatore; --output-dir obbligatorio nello script, valore originale sulla VM non comunicato. Le copie locali non attestano quel valore.",
+            "referto": "target/rel800/soak-shp-candidate/referto.json",
+            "referto_sha256": "6c3e7cee906b43d3091ff472be165b36ba28ebb7f40753f1d2104c0c572e33e4",
+            "log": "target/rel800/soak-shp-candidate/campagna.log",
+            "log_sha256": "e91d6deb37089bcaec89e6f32a7ca6a518f8840cb6da28b4f354bc18caf550f3",
+            "log_dimensione": 452614,
+            "tempi_grezzi": {
+              "monotonic_s": 3602.136202079004,
+              "boottime_s": 3602.136202089001,
+              "parete_s": 3602.1362023353577,
+              "cpu_figli_s": 3666.0537350000004
+            },
+            "riepilogo_del_fuzzer": {
+              "runs": 12681869,
+              "secondi_dichiarati": 3601,
+              "stat": {
+                "number_of_executed_units": "12681869",
+                "average_exec_per_sec": "3521",
+                "new_units_added": "3237",
+                "slowest_unit_time_sec": "0",
+                "peak_rss_mb": "660"
+              }
+            },
+            "diagnostica_cpu": {
+              "cpu_figli_s": 3666.0537350000004,
+              "quota_cpu_intervallo": 1.0177443409508242,
+              "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+            },
+            "finding": false,
+            "esito": "completa",
+            "durata_dimostrata": true,
+            "codice_uscita_campagna": 0,
+            "referto_originale": {
+              "schema_version": 1,
+              "bersaglio": "shp_reader",
+              "secondi_richiesti": 3600,
+              "codice_uscita_campagna": 0,
+              "tempi_grezzi": {
+                "monotonic_s": 3602.136202079004,
+                "boottime_s": 3602.136202089001,
+                "parete_s": 3602.1362023353577,
+                "cpu_figli_s": 3666.0537350000004
+              },
+              "derivati": {
+                "boottime_meno_monotonic_s": 9.997165761888027e-09,
+                "parete_meno_monotonic_s": 2.5635381462052464e-07
+              },
+              "tolleranza_orologi_s": 180.0,
+              "diagnostica_cpu": {
+                "cpu_figli_s": 3666.0537350000004,
+                "quota_cpu_intervallo": 1.0177443409508242,
+                "perimetro": "figli del wrapper, preparazione e build incluse; nessuna soglia"
+              },
+              "avvio_osservato": true,
+              "riepilogo_del_fuzzer": {
+                "runs": 12681869,
+                "secondi_dichiarati": 3601,
+                "stat": {
+                  "number_of_executed_units": "12681869",
+                  "average_exec_per_sec": "3521",
+                  "new_units_added": "3237",
+                  "slowest_unit_time_sec": "0",
+                  "peak_rss_mb": "660"
+                }
+              },
+              "finding": false,
+              "segnali_finding": [],
+              "durata_dimostrata": true,
+              "esito": "completa",
+              "problemi_della_misura": [],
+              "limite_della_misura": "concordanza: nessuna discontinuita' rilevata dagli orologi usati",
+              "comando": [
+                "bash",
+                "scripts/fuzz-smoke.sh",
+                "--seconds",
+                "3600",
+                "shp_reader"
+              ],
+              "log": "campagna.log",
+              "log_sha256": "e91d6deb37089bcaec89e6f32a7ca6a518f8840cb6da28b4f354bc18caf550f3",
+              "misuratore_sha256": "8a8d90fc090438e1649ecc549799de90cebc9622fb0ffae6fef060a05eccecaa",
+              "campioni": {
+                "prima": {
+                  "monotonic_s": 57222.37764596,
+                  "boottime_s": 57222.377646151,
+                  "parete_s": 1794500168.3971076,
+                  "cpu_figli_s": 0.0
+                },
+                "dopo": {
+                  "monotonic_s": 60824.513848039,
+                  "boottime_s": 60824.51384824,
+                  "parete_s": 1794503770.53331,
+                  "cpu_figli_s": 3666.0537350000004
+                }
+              },
+              "errore_avvio": null
+            }
+          }
+        },
+        "verbale_smoke": {
+          "conservato": "assurance/evidence/fuzz-smoke-ultima.json",
+          "sha256": "ce433472bcba6ae6f88b46c752e5352f2713b09209a772a28d0397fe662d1686",
+          "motivazione": "Resta il verbale completo del livello 2 eseguito dall'operatore (15/15, 60 s), attribuito alla candidate 6e494a6. I soak dell'operatore sono documentati separatamente, senza fondere o alterare i verbali. Nessuna copia VM parziale fornita con questi referti."
+        }
+      }
+    },
+    "oom": {
+      "eseguito": null,
+      "nota": "Nessuna campagna OOM separata documentata sulla revisione."
+    }
+  },
+  "release_verification": {
+    "schema_version": 1,
+    "revisione": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+    "draft": {
+      "verificata_il": "2026-11-12T18:43:37.376063+00:00",
+      "id": 443365689,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-c944551ccaecadf1a478",
+      "tag_previsto": "v8.0.0",
+      "target": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+      "draft": true,
+      "titolo": "Plenora IO-tools 8.0.0",
+      "provenienza_metadati": "ID, URL, target, titolo, tag previsto, creazione draft e riscaricamento comunicati dall operatore il 12/11/2026. Nessuna chiamata GitHub; metadati API degli asset non forniti e non verificati.",
+      "numero_asset": 24,
+      "asset_riscaricati": {
+        "adoption-manifest.json": {
+          "dimensione": 12801,
+          "sha256": "e910ae9975c7f263c998371154810b3a9e2aeba62498dc44a7956560d231e406"
+        },
+        "licenze.json": {
+          "dimensione": 1398,
+          "sha256": "fc98b183eb8f24c8bc4ad8e23fd85db703bdfe7c827d92bda46525c0199c5209"
+        },
+        "MANIFEST-sorgente.json": {
+          "dimensione": 753,
+          "sha256": "6f8d88ca8274703e9a8e34c03f67f182c127513e88d6419bee3095289d68785f"
+        },
+        "MANIFEST.json": {
+          "dimensione": 1394,
+          "sha256": "247b4a91239c4f5ea85a1d9f9782afe639564d90428c79f7d1b071ca49eed1d8"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz": {
+          "dimensione": 9242856,
+          "sha256": "a15c8492dc1bda093cff70f281d94959f3ec44a15de5b5bb6766b983a1c889f8"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+          "dimensione": 2582,
+          "sha256": "5bfc2998c38ec4dbc804e01af343e2a9f9680fff1dbce5313616e738d91fa2c0"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz.sha256": {
+          "dimensione": 108,
+          "sha256": "42b1668d6f7b31e5e84c19d6e7f7a12206c1dfb74faf1cb37c1c678e6b71b29d"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz": {
+          "dimensione": 65091704,
+          "sha256": "b200e61ca7a2fce74e21e32b67489d55220483d907dcaa6c87e9584c4d2b7167"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "dimensione": 2589,
+          "sha256": "73e9273e5966d3004fbe3660f6a9bf840defc0be1e8e1a9f88821999a21ae696"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+          "dimensione": 111,
+          "sha256": "78a506fea8aa8658eb7782f7144c2168c3fecb972c40d86778ac7cd97f4795fc"
+        },
+        "plenora-io-8.0.0-src.tar.gz": {
+          "dimensione": 21471605,
+          "sha256": "bfd7a45d5c269502ef8c262db3a230bb65ed9fea98f1a6790afb1f5c1ec08ce5"
+        },
+        "plenora-io-8.0.0-src.tar.gz.sha256": {
+          "dimensione": 94,
+          "sha256": "0a76d3962a509bfc971c9559b01871d192d50f560010cd62de59c887ca98eda9"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip": {
+          "dimensione": 10059084,
+          "sha256": "440baeb4be76d38097af052530022d30c9bc54bc3edc8ea4bbb51a066f91a136"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip.provenance.json": {
+          "dimensione": 2436,
+          "sha256": "acc2090319b2d8e59f19c3f9c31661062ae948e19588065eb5a01cb3d477b94a"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip.sha256": {
+          "dimensione": 108,
+          "sha256": "57a81eb82fb724f79b37c9a7eac1b0b1e56b301a80e78d10eae2428c3eb1a053"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip": {
+          "dimensione": 49113291,
+          "sha256": "d59e225fe8d9fdf8e3dd19459341d27d0234be185265b0ed03a76b259295ad2c"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+          "dimensione": 2442,
+          "sha256": "f8e5ddb75ac3befc9e74a6e872c3dc5ff689035406b449e304c3f26d74716d52"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip.sha256": {
+          "dimensione": 111,
+          "sha256": "c1478f294493a57b187a47b8346157517b8d3efdff0b1a9d23a21fbebb1e90a1"
+        },
+        "plenora_io-8.0.0-py3-none-any.whl": {
+          "dimensione": 115547,
+          "sha256": "425ff05ed5f09a377619fede5d5e337be6b445f93bd28ad8021683d44c6935dc"
+        },
+        "plenora_io-8.0.0-py3-none-any.whl.sha256": {
+          "dimensione": 100,
+          "sha256": "d33a987030571b5d99525f29a936e2ba875c14c3afd6f3a256ed43ab23cd653f"
+        },
+        "plenora_io-8.0.0.tar.gz": {
+          "dimensione": 221280,
+          "sha256": "c6ff1519c79c13730c000f85e05773831de58a06088957fa3ac919fb33a52d8a"
+        },
+        "plenora_io-8.0.0.tar.gz.sha256": {
+          "dimensione": 90,
+          "sha256": "e0883a62024e77001fc63b5d4d53c2022706be2af62bdde21ed6bf6c153945af"
+        },
+        "provenance.json": {
+          "dimensione": 769,
+          "sha256": "94b8ac28348f221e8501d85ad5cb11ebbad19b13db816bd2b5718d15bdf629a7"
+        },
+        "sbom.json": {
+          "dimensione": 1103,
+          "sha256": "bfb5d478ea970382397467b11252bd323f50f1b01c28e10db381d3795dfb744c"
+        }
+      },
+      "comando": [
+        "python",
+        "-B",
+        "scripts/check-deliverable.py",
+        "--directory",
+        "target/rel800/verifica-draft/deliverable",
+        "--versione",
+        "8.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "output": "deliverable verificati: 7 archivi con altrettanti checksum, di cui 2 Python\r\nbyte pubblicati identici ai 7 artefatti congelati dalla candidate",
+      "confronti": {
+        "asset_contro_elenco": "24/24 nomi, dimensioni e SHA-256 contro target/rel800/draft-asset-elenco.json",
+        "asset_contro_originali": "24/24 identici byte per byte a target/rel800/draft-asset/",
+        "deliverable_contro_candidate": "7/7 archivi congelati coincidenti; 23 file verificati, escluso soltanto adoption-manifest.json",
+        "manifesto_locale": "Identico byte per byte a contracts/adoption-manifest.json"
+      },
+      "manifesto_adozione": {
+        "comando": [
+          "python",
+          "-B",
+          "scripts/check_manifesto_adozione.py",
+          "--contracts",
+          ".plenora-contracts",
+          "--manifesto",
+          "target/rel800/draft-riscaricata/adoption-manifest.json",
+          "--artefatto",
+          "target/rel800/draft-riscaricata/plenora-io-8.0.0-linux-x86_64-base.tar.gz",
+          "--artefatto",
+          "target/rel800/draft-riscaricata/plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz",
+          "--artefatto",
+          "target/rel800/draft-riscaricata/plenora-io-8.0.0-src.tar.gz",
+          "--artefatto",
+          "target/rel800/draft-riscaricata/plenora-io-8.0.0-windows-x86_64-base.zip",
+          "--artefatto",
+          "target/rel800/draft-riscaricata/plenora-io-8.0.0-windows-x86_64-filegdb.zip"
+        ],
+        "exit_code": 0,
+        "output": "manifesto di adozione verificato: 5 artefatti con digest ricalcolati, 15 contratti dichiarati conformi e 1 non applicabili, 8 deviazioni. Le deviazioni **non** contano come conformita' per le regole che nominano."
+      },
+      "release_authorized": false,
+      "release_action_allowed": false
+    },
+    "controlli_registrazione_windows": {
+      "esiti_verdi": [
+        "24/24 nomi, dimensioni e SHA-256 contro elenco locale e byte contro originali",
+        "check-deliverable.py --contro-la-candidate: 23 file, sette archivi",
+        "check_manifesto_adozione.py: cinque archivi; copia locale identica",
+        "completezza, struttura, validate_stato_corrente, evidenza_coerente",
+        "allowlist: diff dalla candidate, worktree e untracked",
+        "check_docset.py",
+        "git diff --check"
+      ],
+      "limiti": [
+        {
+          "comando": "python -B scripts/check_release_contract.py",
+          "exit_code": 1,
+          "esito": "Non completato: FileNotFoundError [WinError 2] durante subprocess.run in esegui(documento). Non equivale a contratto completo verde."
+        }
+      ],
+      "gate_release": "Non eseguito: successivo al tag, alla registrazione separata della decisione e al soddisfacimento delle condizioni residue sulla VM Linux.",
+      "log": "target/rel800/verifica-draft/esiti.json e relativi log; patch-check.log verifica solo applicabilita della patch, non presenza del tag o gate di release."
+    },
+    "published": {
+      "verificata_il": "2026-11-12T19:04:59.694021+00:00",
+      "id": 443365689,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v8.0.0",
+      "tag_name": "v8.0.0",
+      "target": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+      "tag_oggetto": "359b2c3417a7fe7a863ab6ce4b5c3605befe12c8",
+      "draft": false,
+      "published_at": "2026-11-12T19:01:53Z",
+      "fonte_pubblicazione": "Pubblicazione e riscaricamento comunicati dall'operatore. Nessuna chiamata GitHub; metadati API degli asset non verificati.",
+      "gate_pre_pubblicazione": {
+        "comando": "python3 scripts/check_release_contract.py --release",
+        "ambiente": "VM di qualifica, clone rilascio/8.0.0",
+        "revisione": "4e494642a6bcd0b8925e8a54ac1f200964bf60e3",
+        "contracts_pin": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+        "manifesto_sha256": "e910ae9975c7f263c998371154810b3a9e2aeba62498dc44a7956560d231e406",
+        "exit_code": 0,
+        "output": "release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate",
+        "differiti": [
+          "sistema.qualifica-cross-component",
+          "distribuzione.licenza-first-party"
+        ],
+        "fonte": "Sintesi comunicata dall'operatore; gate non rieseguito localmente."
+      },
+      "directory_riscaricata": "target/rel800/pubblicata-riscaricata",
+      "numero_asset": 24,
+      "comando": [
+        "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check-deliverable.py",
+        "--directory",
+        "target/rel800/verifica-pubblicazione/deliverable",
+        "--versione",
+        "8.0.0",
+        "--canale",
+        "candidate",
+        "--revisione",
+        "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+        "--contro-la-candidate",
+        "assurance/current-state.json"
+      ],
+      "exit_code": 0,
+      "output": "deliverable verificati: 7 archivi con altrettanti checksum, di cui 2 Python\nbyte pubblicati identici ai 7 artefatti congelati dalla candidate",
+      "confronti": {
+        "asset_contro_draft": "24/24 nomi, dimensioni e SHA-256 coincidenti col verbale draft; byte identici a target/rel800/draft-asset/",
+        "directory_deliverable": "23/23 copie identiche ai riscaricati; escluso adoption-manifest.json",
+        "deliverable_contro_candidate": "7/7 archivi coincidenti",
+        "manifesto_locale": "Identico byte per byte a contracts/adoption-manifest.json"
+      },
+      "manifesto_adozione": {
+        "comando": [
+          "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+          "-B",
+          "scripts/check_manifesto_adozione.py",
+          "--contracts",
+          ".plenora-contracts",
+          "--manifesto",
+          "target/rel800/pubblicata-riscaricata/adoption-manifest.json",
+          "--artefatto",
+          "target/rel800/pubblicata-riscaricata/plenora-io-8.0.0-linux-x86_64-base.tar.gz",
+          "--artefatto",
+          "target/rel800/pubblicata-riscaricata/plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz",
+          "--artefatto",
+          "target/rel800/pubblicata-riscaricata/plenora-io-8.0.0-src.tar.gz",
+          "--artefatto",
+          "target/rel800/pubblicata-riscaricata/plenora-io-8.0.0-windows-x86_64-base.zip",
+          "--artefatto",
+          "target/rel800/pubblicata-riscaricata/plenora-io-8.0.0-windows-x86_64-filegdb.zip"
+        ],
+        "exit_code": 0,
+        "output": "manifesto di adozione verificato: 5 artefatti con digest ricalcolati, 15 contratti dichiarati conformi e 1 non applicabili, 8 deviazioni. Le deviazioni **non** contano come conformita' per le regole che nominano."
+      },
+      "release_authorized": true,
+      "release_action_allowed": false,
+      "asset": {
+        "MANIFEST-sorgente.json": {
+          "dimensione": 753,
+          "sha256": "6f8d88ca8274703e9a8e34c03f67f182c127513e88d6419bee3095289d68785f"
+        },
+        "MANIFEST.json": {
+          "dimensione": 1394,
+          "sha256": "247b4a91239c4f5ea85a1d9f9782afe639564d90428c79f7d1b071ca49eed1d8"
+        },
+        "adoption-manifest.json": {
+          "dimensione": 12801,
+          "sha256": "e910ae9975c7f263c998371154810b3a9e2aeba62498dc44a7956560d231e406"
+        },
+        "licenze.json": {
+          "dimensione": 1398,
+          "sha256": "fc98b183eb8f24c8bc4ad8e23fd85db703bdfe7c827d92bda46525c0199c5209"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz": {
+          "dimensione": 9242856,
+          "sha256": "a15c8492dc1bda093cff70f281d94959f3ec44a15de5b5bb6766b983a1c889f8"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+          "dimensione": 2582,
+          "sha256": "5bfc2998c38ec4dbc804e01af343e2a9f9680fff1dbce5313616e738d91fa2c0"
+        },
+        "plenora-io-8.0.0-linux-x86_64-base.tar.gz.sha256": {
+          "dimensione": 108,
+          "sha256": "42b1668d6f7b31e5e84c19d6e7f7a12206c1dfb74faf1cb37c1c678e6b71b29d"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz": {
+          "dimensione": 65091704,
+          "sha256": "b200e61ca7a2fce74e21e32b67489d55220483d907dcaa6c87e9584c4d2b7167"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "dimensione": 2589,
+          "sha256": "73e9273e5966d3004fbe3660f6a9bf840defc0be1e8e1a9f88821999a21ae696"
+        },
+        "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+          "dimensione": 111,
+          "sha256": "78a506fea8aa8658eb7782f7144c2168c3fecb972c40d86778ac7cd97f4795fc"
+        },
+        "plenora-io-8.0.0-src.tar.gz": {
+          "dimensione": 21471605,
+          "sha256": "bfd7a45d5c269502ef8c262db3a230bb65ed9fea98f1a6790afb1f5c1ec08ce5"
+        },
+        "plenora-io-8.0.0-src.tar.gz.sha256": {
+          "dimensione": 94,
+          "sha256": "0a76d3962a509bfc971c9559b01871d192d50f560010cd62de59c887ca98eda9"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip": {
+          "dimensione": 10059084,
+          "sha256": "440baeb4be76d38097af052530022d30c9bc54bc3edc8ea4bbb51a066f91a136"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip.provenance.json": {
+          "dimensione": 2436,
+          "sha256": "acc2090319b2d8e59f19c3f9c31661062ae948e19588065eb5a01cb3d477b94a"
+        },
+        "plenora-io-8.0.0-windows-x86_64-base.zip.sha256": {
+          "dimensione": 108,
+          "sha256": "57a81eb82fb724f79b37c9a7eac1b0b1e56b301a80e78d10eae2428c3eb1a053"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip": {
+          "dimensione": 49113291,
+          "sha256": "d59e225fe8d9fdf8e3dd19459341d27d0234be185265b0ed03a76b259295ad2c"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+          "dimensione": 2442,
+          "sha256": "f8e5ddb75ac3befc9e74a6e872c3dc5ff689035406b449e304c3f26d74716d52"
+        },
+        "plenora-io-8.0.0-windows-x86_64-filegdb.zip.sha256": {
+          "dimensione": 111,
+          "sha256": "c1478f294493a57b187a47b8346157517b8d3efdff0b1a9d23a21fbebb1e90a1"
+        },
+        "plenora_io-8.0.0-py3-none-any.whl": {
+          "dimensione": 115547,
+          "sha256": "425ff05ed5f09a377619fede5d5e337be6b445f93bd28ad8021683d44c6935dc"
+        },
+        "plenora_io-8.0.0-py3-none-any.whl.sha256": {
+          "dimensione": 100,
+          "sha256": "d33a987030571b5d99525f29a936e2ba875c14c3afd6f3a256ed43ab23cd653f"
+        },
+        "plenora_io-8.0.0.tar.gz": {
+          "dimensione": 221280,
+          "sha256": "c6ff1519c79c13730c000f85e05773831de58a06088957fa3ac919fb33a52d8a"
+        },
+        "plenora_io-8.0.0.tar.gz.sha256": {
+          "dimensione": 90,
+          "sha256": "e0883a62024e77001fc63b5d4d53c2022706be2af62bdde21ed6bf6c153945af"
+        },
+        "provenance.json": {
+          "dimensione": 769,
+          "sha256": "94b8ac28348f221e8501d85ad5cb11ebbad19b13db816bd2b5718d15bdf629a7"
+        },
+        "sbom.json": {
+          "dimensione": 1103,
+          "sha256": "bfb5d478ea970382397467b11252bd323f50f1b01c28e10db381d3795dfb744c"
+        }
+      },
+      "controlli_registrazione_windows": {
+        "strutturali": {
+          "completezza": [],
+          "struttura": [],
+          "validate_stato_corrente": [],
+          "evidenza_coerente": [],
+          "release_pubblicata": [],
+          "release_storiche": [],
+          "profilo_pubblico": [],
+          "cambiamenti": [
+            [],
+            []
+          ],
+          "allowlist_worktree_untracked": []
+        },
+        "comandi": [
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "scripts/check_docset.py"
+            ],
+            "exit_code": 0,
+            "output": "docset verificato: 9 documenti canonici, 12 file operativi, nessun altro Markdown nel perimetro (tracciati piu' untracked non ignorati); blocco di stato coerente con la fonte strutturata.",
+            "log": "target/rel800/verifica-pubblicazione/docset.log"
+          },
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "-m",
+              "unittest",
+              "scripts.test_check_docset",
+              "scripts.test_check_release_contract.SondeDellaReleasePubblicata",
+              "scripts.test_check_release_contract.SondeDelCongelamentoAncoraAttivo",
+              "scripts.test_check_release_contract.SondeDelGateDiRilascioSuFixture",
+              "scripts.test_check_release_contract.SondeDelTagSuiDueAlberi",
+              "scripts.test_check_release_contract.SondeDelTagSuGitVero"
+            ],
+            "exit_code": 0,
+            "output": "..................................warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n.warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n...warning: unable to access 'C:\\Users\\Marco/.config/git/ignore': Permission denied\n................................................\n----------------------------------------------------------------------\nRan 86 tests in 5.945s\n\nOK",
+            "log": "target/rel800/verifica-pubblicazione/test-pubblicazione.log"
+          },
+          {
+            "comando": [
+              "C:\\Users\\Marco\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+              "-B",
+              "scripts/check_release_contract.py"
+            ],
+            "exit_code": 1,
+            "output": "Traceback (most recent call last):\n  File \"C:\\pg\\io-rel800\\repo\\scripts\\check_release_contract.py\", line 4659, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"C:\\pg\\io-rel800\\repo\\scripts\\check_release_contract.py\", line 4583, in main\n    errori = esegui(documento)\n             ^^^^^^^^^^^^^^^^^\n  File \"C:\\pg\\io-rel800\\repo\\scripts\\check_release_contract.py\", line 1083, in esegui\n    esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 548, in run\n    with Popen(*popenargs, **kwargs) as process:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1026, in __init__\n    self._execute_child(args, executable, preexec_fn, close_fds,\n  File \"C:\\Users\\Marco\\AppData\\Roaming\\uv\\python\\cpython-3.11-windows-x86_64-none\\Lib\\subprocess.py\", line 1538, in _execute_child\n    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [WinError 2] Impossibile trovare il file specificato",
+            "log": "target/rel800/verifica-pubblicazione/contratto.log"
+          },
+          {
+            "comando": [
+              "git",
+              "diff",
+              "--check"
+            ],
+            "exit_code": 0,
+            "output": "",
+            "log": "target/rel800/verifica-pubblicazione/diff-check.log"
+          },
+          {
+            "comando": [
+              "python",
+              "-B",
+              "scripts/check_asan_filegdb.py",
+              "--qualifica"
+            ],
+            "exit_code": 1,
+            "output": "il binario con il tier GDB acceso non si costruisce qui (`cargo build --package plenora-io-tools --features gdal-backend` e' uscito con 101): questo gate verifica la GDAL con cui il target verrebbe costruito **qui**, e va eseguito dove GDAL e' installata.\n  --- stderr\n\n  thread 'main' (119700) panicked at C:\\Users\\Marco\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\gdal-sys-0.12.0\\build.rs:204:9:\n  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.\n  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+            "log": "target/rel800/verifica-pubblicazione/asan.log"
+          }
+        ],
+        "nota": "Controlli locali Windows distinti dal gate --release pre-pubblicazione attestato dall operatore sulla VM. Contratto locale non completato: WinError 2 (python3 assente). ASan/FileGDB non verificato localmente: gdal_i.lib assente, cargo exit 101. Nessuna nuova qualifica Linux dedotta dai controlli locali."
+      }
+    }
+  }
+}

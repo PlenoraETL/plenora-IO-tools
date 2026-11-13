@@ -36,8 +36,8 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `a2e0bea` |
-| revisione misurata | `a2e0bea` |
+| ultima qualificata | `6e494a6` |
+| revisione misurata | `6e494a6` |
 | passi del checkpoint | 111 |
 | passi verdi | 111 |
 | passi omessi | 0 |
@@ -49,31 +49,31 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,75% |
-| righe coperte LCOV | 31 432 |
-| righe strumentate LCOV | 35 416 |
-| copertura cargo | 86,61% |
+| copertura LCOV | 88,64% |
+| righe coperte LCOV | 31 890 |
+| righe strumentate LCOV | 35 976 |
+| copertura cargo | 86,55% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `ee69336f8aed84767d1a1cd1bf5b0d526e3422e2` |
-| esito differenziale | 85.26% |
+| baseline differenziale | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
+| esito differenziale | 90.58% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 0 |
 | capacità differite | 2 |
-| S9, qualificato su | `a2e0bea` |
+| S9, qualificato su | `6e494a6` |
 | candidate, versione del manifesto | `8.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | pubblicata |
+| candidate, revisione congelata | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
 | candidate, versione del workspace | `8.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v8.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
+| candidate, tag sulla candidate | sì |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 12 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -424,6 +424,10 @@ Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
 
 ### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
+
+**Soak della candidate 8.0.0 registrati.** Soak mirato eseguito dall'operatore sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0: dxf_reader monotonic/boottime/realtime 3602.3007007650012/3602.3007008970017/3602.3007011413574 s, 19164124 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3602.136202079004/3602.136202089001/3602.1362023353577 s, 12681869 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding o segnale, durata dimostrata, esito completa. Secondo l'operatore, le due campagne da 3600 s sono state eseguite in parallelo sulla VM di qualifica, nel clone pulito del livello 2. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-6e494a6.json.
+
+Hash dei log e del misuratore, campioni e tutti i campi del giudizio verificati localmente con `scripts/soak_misurato.py`, senza rieseguire le campagne dell'operatore. Il tempo wrapper include preparazione/build; la concordanza degli orologi indica solo nessuna discontinuita rilevata. Il verbale smoke L2 resta intatto.
 
 **Soak della candidate 7.0.3 registrati.** Soak mirato eseguito dall'operatore sul congelamento 85e2526d: dxf_reader monotonic/boottime/realtime 3602.043744814/3602.043744966/3602.043745279 s, 17730946 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3601.962999376/3601.962999505/3601.963000059 s, 16129231 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding, durata dimostrata, esito completa. Secondo l'operatore, le due campagne sono state eseguite in parallelo sulla VM di qualifica Linux ricreata l'11/11/2026, con controllo dello SHA prima della corsa. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-a2e0bea.json.
 
@@ -1371,7 +1375,7 @@ upstream dipendono dai manutentori dei progetti originali.
 La pubblicazione del 2026-11-11T18:06:31Z e registrata nel verbale ora in
 `chiuso.release_pubblicate`, con evidenza `checkpoint-a2e0bea.json`.
 Le istruzioni e le misure seguenti descrivono la preparazione storica della
-7.0.3; la candidate corrente e la 8.0.0 iniziale descritta in fondo.
+7.0.3; la candidate corrente e la 8.0.0 congelata descritta in fondo.
 
 
 ### Draft verificata e passi dopo la decisione
@@ -2349,25 +2353,71 @@ Il pin porta anche la superficie Python dichiarata nel catalogo io-tools
 «non rivendicato», ed è una garanzia indebolita dichiarata in
 [`contracts/adozione-4.0.0.json`](../contracts/adozione-4.0.0.json).
 
-## 8.0.0 — 2026-11-12 (candidate iniziale, non rilasciata)
+## 8.0.0 - 2026-11-12 (pubblicata)
+
+### Pubblicazione registrata
+
+Pubblicata dal titolare il 2026-11-12T19:01:53Z con PATCH draft=false: release 443365689,
+https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v8.0.0, 24 asset. Tag annotato
+v8.0.0, oggetto 359b2c3417a7fe7a863ab6ce4b5c3605befe12c8, sulla candidate
+6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0. Gate --release eseguito dall'operatore sulla VM
+sul clone rilascio/8.0.0 a 4e494642a6bcd0b8925e8a54ac1f200964bf60e3, contracts al pin
+38d68b402389855edbcecb7ce57c31e91282cb4e, manifesto identico alla draft: release
+autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate, exit 0. Restano i
+due DIFFERITI sistema.qualifica-cross-component e distribuzione.licenza-first-party. Fonte
+del gate e della pubblicazione: comunicazione dell'operatore, nessuna chiamata GitHub.
+Verifica locale dopo la pubblicazione: 24/24 nomi, dimensioni e SHA-256 identici al
+verbale draft e byte identici a target/rel800/draft-asset; check-deliverable sui 23 file,
+sette archivi di cui due Python, verde; manifesto verificato sui cinque archivi e identico
+a contracts/adoption-manifest.json. Verbale release_verification.published in
+assurance/evidence/checkpoint-6e494a6.json. release_authorized resta true come decisione
+storica; release_action_allowed consumato, false. La 8.0.0 e registrata in
+chiuso.release_pubblicate. Il nodo candidate_release resta pubblicata per lo schema
+corrente, senza permesso operativo e senza introdurre una nuova candidate. Questa
+registrazione supera le precedenti indicazioni di attivita ancora da eseguire per la
+pubblicazione.
+
+Le sezioni seguenti conservano la cronologia della preparazione; i passi
+indicati allora come futuri sono superati dalla registrazione qui sopra.
 
 Decisione del titolare del 12/11/2026: major per PRIM-003 e nuova semantica
 di `none`, secondo il criterio degli input accettati documentato sopra.
 Note e migrazione: [CHANGELOG](../CHANGELOG.md). Le evidenze 7.0.3 restano
-storiche: servono nuovo congelamento, L1/L2, fuzz/ASan e artefatti misurati.
-Nessun tag, commit o pubblicazione fa parte di questa correzione.
+storiche; il livello 2 della 8.0.0 e registrato sotto. Restano le rimisure
+fuzz/ASan sul perimetro finale.
+Tag e autorizzazione alla pubblicazione restano false.
 
 Workspace, SDK e i due lockfile sono gia alla 8.0.0. La 7.0.3 pubblicata
 il 2026-11-11 e archiviata in `chiuso.release_pubblicate`, con il verbale e
-l'evidenza originali. La candidate corrente e iniziale: nessuna revisione,
-artefatto o attestazione congelata; `release_authorized` e
-`release_action_allowed` sono false. Le misure della 7.0.3 non qualificano
+l'evidenza originali. Il congelamento corrente e registrato nel blocco
+generato e nel [verbale](../assurance/current-state.json); `release_authorized`
+e `release_action_allowed` sono false. Le misure della 7.0.3 non qualificano
 questo albero: il bump e le modifiche al codice richiedono nuove misure sul
 perimetro finale, incluse le quattro profondita fuzz e il confine ASan FileGDB.
 
-Artefatti attesi dalla matrice `assurance/registries/distribuzione-matrice.json`
-e dal workflow `distribuzione.yml` (sorgente incluso), ancora da costruire e
-misurare; questa lista non e un congelamento:
+### Congelamento della candidate
+
+La candidate 8.0.0 e' congelata sulla revisione
+`6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` con i sette deliverable della
+Distribuzione candidate [43238394796](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/43238394796),
+workflow `distribuzione.yml`, conclusa con successo secondo l'esito comunicato
+dall'operatore. SHA-256, dimensioni e revisioni sono registrati nel
+[verbale di congelamento](../assurance/current-state.json).
+I 32 referti e i sette archivi scaricati dalla corsa sono verificati su Windows
+con `check-distribuzione-completa.py --canale candidate` e
+`check-deliverable.py --contro-la-candidate`.
+Questo confronto riguarda i byte della corsa Actions; non e' una verifica
+della draft o della release.
+
+Il livello 2 e registrato sotto. Restano le rimisure fuzz/ASan, le campagne
+e attestazioni richieste,
+la draft e la verifica dei byte riscaricati, quindi l'autorizzazione esplicita
+del titolare, il tag e il gate finale. Dopo la pubblicazione immutata andra'
+ripetuta la verifica dei byte riscaricati dalla release. Tag e autorizzazione
+restano false; le misure storiche della 7.0.3 restano invariate.
+
+Artefatti congelati, dalla matrice `assurance/registries/distribuzione-matrice.json`
+e dal workflow `distribuzione.yml` (sorgente incluso):
 
 - `plenora-io-8.0.0-linux-x86_64-base.tar.gz`
 - `plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz`
@@ -2379,3 +2429,90 @@ misurare; questa lista non e un congelamento:
 
 I cambi dei quartetti FileGDB e GeoParquet e la loro motivazione sono
 registrati nel CHANGELOG 8.0.0 come parte della compatibilita degli errori.
+
+### Registrazione del livello 2
+
+L'operatore ha eseguito il livello 2 completo (scripts/s9-checkpoint.sh) sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0, attempt-2, con S9_CHECKPOINT_BASE=a2e0beaaae6fcf8e621410480fe088ffce364acc: 111/111 passi, zero omessi o falliti, albero pulito, revisione e impronta invariate secondo i log forniti. Evidenza generata in assurance/evidence/checkpoint-6e494a6.json.
+
+VM di qualifica Ubuntu 24.04, 192.168.2.140; clone pulito della candidate, .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e, due safe.directory configurati, secondo l'operatore.
+
+Attempt-1 SCARTATO, senza valore di qualifica: secondo l'operatore il clone da bundle era privo di tag (sonde_release/check_release: il tag v... non esiste) e il disco della VM si e' riempito durante la copertura. Nessuna misura di quel tentativo viene usata; i suoi log non sono fra gli input di questa registrazione.
+
+L'[evidenza](../assurance/evidence/checkpoint-6e494a6.json) deriva dai log forniti dall'operatore in `target/rel800/6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0-attempt-2`, tramite `scripts/registra-evidenza-s9.py`. Il registratore usa `target/rel800/verifica-l2/corsa-contratto`, copia byte per byte dei 116 file. La console originale `target/rel800/console-attempt-2.log` e' copiata byte per byte in `target/rel800/verifica-l2/console.log`, conservata separatamente con digest nella provenienza.
+
+Dai log dell'operatore: replay 145 input su 15 target, 0 crash; smoke 15/15, nessun finding o quarantena. LCOV 88.64% (31890/35976), cargo 86.55%, soglia 80.0%. Differenziale rispetto ad a2e0beaaae6fcf8e621410480fe088ffce364acc: 90.58%, 779/860 righe eseguibili coperte, 81 scoperte, 2244 non eseguibili.
+
+Soak mirato eseguito dall'operatore sulla candidate 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0: dxf_reader monotonic/boottime/realtime 3602.3007007650012/3602.3007008970017/3602.3007011413574 s, 19164124 esecuzioni (libFuzzer 3601 s); shp_reader monotonic/boottime/realtime 3602.136202079004/3602.136202089001/3602.1362023353577 s, 12681869 esecuzioni (libFuzzer 3601 s). I referti delle corse dell'operatore attestano entrambi exit 0, nessun finding o segnale, durata dimostrata, esito completa. Secondo l'operatore, le due campagne da 3600 s sono state eseguite in parallelo sulla VM di qualifica, nel clone pulito del livello 2. CPU diagnostica senza soglia. Referti originali e digest in assurance/evidence/checkpoint-6e494a6.json. Restano le rimisure fuzz/ASan e le attestazioni richieste, la draft e il confronto dei byte riscaricati con la candidate, la decisione esplicita del titolare, il tag e il gate finale, poi la verifica dopo la pubblicazione. release_authorized e release_action_allowed restano false. Il contratto completo dopo questa registrazione resta da eseguire sulla VM.
+
+Verifiche Windows della registrazione L2: check_docset.py, completezza e struttura del contratto, validate_stato_corrente, evidenza_coerente, allowlist e git diff --check verdi. Digest dei 116 file del manifesto verificati contro gli originali; smoke e console identici byte per byte. Suite Python pertinente (registratore, docset, contratto e strict_json): 398 test; esecuzione ordinaria con 14 errori per python3 assente e 3 skip. Con adattatore locale sotto target: 392 passati, 3 fallimenti ASan/FileGDB per gdal_i.lib assente nella build gdal-sys (cargo exit 101), 3 skip (due symlink senza privilegio Windows, una sonda senza release corrente). check_release_contract.py ordinario non completato: python3 assente, WinError 2. Nessuna qualifica ASan dedotta dai controlli Windows; contratto completo da eseguire sulla VM. Comandi e log in target/rel800/verifica-l2; resoconto in target/rel800/L2-REGISTRAZIONE.md.
+
+### Draft verificata della 8.0.0 e passi successivi
+
+La draft **443365689**, [URL comunicato dall'operatore](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-c944551ccaecadf1a478),
+e' stata verificata localmente il 12/11/2026. Target
+`6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0`, tag previsto `v8.0.0`,
+titolo «Plenora IO-tools 8.0.0», draft non pubblicata secondo l'operatore.
+ID, target e provenienza del riscaricamento sono fatti comunicati dall'operatore;
+nessuna chiamata GitHub o verifica dei metadati API e' stata eseguita qui.
+
+Il verbale `assurance/evidence/checkpoint-6e494a6.json`,
+`release_verification.draft`, contiene i 24 nomi, dimensioni e SHA-256
+ricalcolati da `target/rel800/draft-riscaricata/`: coincidono tutti con
+`target/rel800/draft-asset-elenco.json` e con gli originali byte per byte.
+I 23 file separati dal manifesto passano `check-deliverable.py
+--contro-la-candidate`: sette archivi congelati, inclusi i due Python.
+`adoption-manifest.json` passa il controllo sui cinque archivi: 15 contratti
+dichiarati conformi, uno non applicabile, otto deviazioni. Non sono nuove
+attestazioni funzionali. Il manifesto riscaricato e' identico byte per byte a
+`contracts/adoption-manifest.json`, che e' la copia letta dal gate.
+
+Questa registrazione supera i riferimenti precedenti alla draft ancora da
+verificare. Non chiude le rimisure fuzz/ASan, le attestazioni richieste e il
+contratto completo sulla VM ancora indicati dal verbale. Le misure L2 e soak
+restano invariate. I controlli locali di coerenza non sostituiscono il gate finale.
+
+Nel primo commit `release_authorized`, `release_action_allowed`, `tag_creato`
+e `tag_sulla_candidate` restano false. La decisione autentica comunicata in
+questa sessione e' preparata separatamente in
+`target/rel800/autorizzazione.patch`, senza applicarla. La patch aggiunge
+`assurance/evidence/autorizzazione-8.0.0.txt`, registra la decisione nella nota
+e aggiorna lo stato e il blocco generato. Applicarla soltanto dopo il primo
+commit e dopo aver creato e verificato il tag annotato locale, come per la 7.0.3.
+
+Istruzioni future, non eseguite; usare il checkout di assurance aggiornato
+nell'ambiente Linux di qualifica, contratti al pin e manifesto verificato:
+
+```bash
+git tag -a v8.0.0 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0 -m "Plenora IO-tools 8.0.0"
+git for-each-ref --format='%(objecttype) %(objectname) %(*objectname)' refs/tags/v8.0.0
+git rev-parse 'v8.0.0^{commit}'
+# Pretendere oggetto tag e commit 6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0.
+git apply --check target/rel800/autorizzazione.patch
+git apply target/rel800/autorizzazione.patch
+python3 scripts/check_docset.py --riscrivi-stato
+python3 scripts/check_docset.py
+git diff --check
+```
+
+Registrare l'autorizzazione in un secondo commit di assurance separato.
+La patch imposta `release_authorized=true`, `tag_creato=true`,
+`tag_sulla_candidate=true`, `tag_revisione` alla candidate completa e
+`release_action_allowed=true`; non attesta un gate gia' superato o un push.
+Dopo aver soddisfatto le condizioni residue, sul commit di assurance aggiornato:
+
+```bash
+python3 scripts/check_release_contract.py --release
+# Proseguire soltanto con exit code 0 del gate completo.
+git push origin refs/tags/v8.0.0
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/443365689 -F draft=false
+```
+
+Prima del PATCH ricontrollare ID, target, tag e tutti i 24 asset contro il
+verbale, senza ricostruire, caricare o sostituire asset e senza cambiare note.
+Il PATCH modifica soltanto `draft`. Dopo la pubblicazione riscaricare in una
+directory nuova e ripetere tutti i confronti, registrando
+`release_verification.published` e consumando `release_action_allowed`:
+
+```bash
+gh release download v8.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel800/pubblicata-riscaricata
+```
