@@ -645,7 +645,7 @@ class SondeMatrice(unittest.TestCase):
         self.assertEqual(self.matrice["firma"]["ordine_delle_operazioni"], dal_codice)
 
     def test_nessun_insieme_atteso_e_largo(self) -> None:
-        """Un insieme largo non si accorge di cio' che smette di essere spedito
+        r"""Un insieme largo non si accorge di cio' che smette di essere spedito
         e viene preso dal sistema -- che e' il difetto per cui l'insieme esatto
         esiste. Niente `C:\Windows\*`, niente `PATH`, niente jolly."""
         larghi = re.compile(r"[*?]|windows\\|\$\{|%PATH%|qualunque", re.I)

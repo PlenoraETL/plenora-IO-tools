@@ -10,7 +10,7 @@ AUTHORITIES = {
     'check_variant': 'Campaign variant_rules; ARROW-005 is delegated to the normative oracle, on both variants.',
     'check_fixture': 'Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through.',
     'compare_hop': 'ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss.',
-    'rejection': 'REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots.',
+    'rejection': 'REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots.',
     'validate_results': 'Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code.',
     'validate_operation': 'GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity.',
     'validate_fixtures': 'Campaign complete fixture x variant coverage and all declared properties; normative validity delegated to adopted oracle.',

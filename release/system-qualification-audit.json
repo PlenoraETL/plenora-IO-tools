@@ -496,42 +496,42 @@
       "function": "rejection",
       "predicate": "result.get('preservation') == {'status': 'skipped', 'reason': 'rejected_at_validating_boundary'} and result.get('properties') == {}",
       "diagnostic": "conservazione dopo rifiuto non saltata esplicitamente",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "rejection",
       "predicate": "observation.get('command') == command['id']",
       "diagnostic": "errore appartenente ad altro comando",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "rejection",
       "predicate": "bundle.contract.error_validator.is_valid(observed)",
       "diagnostic": "busta errore non conforme allo schema adottato",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "rejection",
-      "predicate": "observed.get('category') == 'crs' and observed.get('phase') in bundle.contract.schema_rejection_phases and isinstance(observed.get('code'), str) and (observed.get('retry') == {'kind': 'never'}) and (observed.get('remote_effect') == 'none')",
+      "predicate": "observed.get('category') == 'crs' and observed.get('phase') in bundle.contract.schema_rejection_phases and (observed.get('retry') == {'kind': 'never'}) and (observed.get('remote_effect') == 'none')",
       "diagnostic": "rifiuto CRS incompleto",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "rejection",
       "predicate": "result.get('boundary') == 'first_validating_boundary'",
       "diagnostic": "rifiuto non al primo confine validante",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "rejection",
       "predicate": "before == after and before.get('capture') == 'complete_destination_state' and (before.get('command') == command['id']) and (before.get('destination') == command.get('destination')) and isinstance(before.get('destination'), str) and before['destination'] and isinstance(before.get('entries'), list)",
       "diagnostic": "assenza di effetto non provata",
-      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+      "authority": "REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots."
     },
     {
       "file": "scripts/system_qualification.py",

@@ -484,7 +484,6 @@ def rejection(bundle, result, command):
     observed = object_(observation.get('error'))
     require(bundle.contract.error_validator.is_valid(observed), 'busta errore non conforme allo schema adottato')
     require(observed.get('category') == 'crs' and observed.get('phase') in bundle.contract.schema_rejection_phases and
-            isinstance(observed.get('code'), str) and
             observed.get('retry') == {'kind': 'never'} and observed.get('remote_effect') == 'none', 'rifiuto CRS incompleto')
     require(result.get('boundary') == 'first_validating_boundary', 'rifiuto non al primo confine validante')
     before = bundle.json(result.get('before'), 'snapshot')

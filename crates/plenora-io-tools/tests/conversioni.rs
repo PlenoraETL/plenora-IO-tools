@@ -644,7 +644,7 @@ fn dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato() {
 #[cfg(feature = "gdal-backend")]
 #[test]
 fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
-    use plenora_io_core::property_plan::{plan_metadata, Rule, METADATA_REMOVED};
+    use plenora_io_core::property_plan::{plan_metadata, Rule};
     use plenora_io_core::{FormatDriver, ReadOptions, Source};
 
     let dir = temporanea();
@@ -678,7 +678,10 @@ fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
         esito.perdite(),
         perdite(&[
             ("crs_definition_not_preserved_derived", 1),
-            (METADATA_REMOVED, u64::try_from(attese.len()).unwrap()),
+            (
+                "gpkg_metadata_not_preserved",
+                u64::try_from(attese.len()).unwrap(),
+            ),
         ]),
         "definizione ricostruita e metadati nativi persi sono dichiarati"
     );

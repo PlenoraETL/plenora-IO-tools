@@ -369,7 +369,7 @@ class SystemQualification(unittest.TestCase):
         name = self.bundle['report']; baseline = self.read(name)
         hop = next(c for c in baseline['results'] if c['fixture'] == 'conflicting_crs')['hops'][0]
         error_name = hop['error']; original = self.read(error_name)
-        for field in ('category', 'phase', 'code', 'retry', 'remote_effect'):
+        for field in ('category', 'phase', 'retry', 'remote_effect'):
             error = copy.deepcopy(original); del error['error'][field]
             self.rewrite(error_name, error)
             with self.subTest(field=field):
@@ -379,6 +379,25 @@ class SystemQualification(unittest.TestCase):
         state = self.read(hop['after']); state['entries'] = ['permanent effect']
         self.rewrite(hop['after'], state)
         self.assertIn('assenza di effetto non provata', self.check())
+
+    def test_rejection_optional_code_follows_schema(self):
+        report = self.read(self.bundle['report'])
+        hop = next(c for c in report['results'] if c['fixture'] == 'conflicting_crs')['hops'][0]
+        error_name = hop['error']; original = self.read(error_name)
+        cases = [('absent', {}, True), ('valid', {'code': 'CRS_CONFLICT'}, True),
+                 ('null', {'code': None}, False)]
+        cases += [('malformed', {'code': value}, False)
+                  for value in ('', 'lowercase', 'A', 'A' * 65, 'CRS-CONFLICT', 42, False, [], {})]
+        for label, context, accepted in cases:
+            with self.subTest(case=label, context=context):
+                error = copy.deepcopy(original)
+                error['error'].pop('code')
+                error['error'].update(context)
+                self.rewrite(error_name, error)
+                if accepted:
+                    self.assertEqual(self.check(), [])
+                else:
+                    self.assertIn('busta errore non conforme allo schema adottato', self.check())
 
     def test_preservation_after_rejection_is_not_green(self):
         name = self.bundle['report']; report = self.read(name)
