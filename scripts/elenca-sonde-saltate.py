@@ -28,6 +28,14 @@ import sys
 import unittest
 
 
+def test_ids(suite):
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from test_ids(test)
+        else:
+            yield test.id()
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--tests", required=True, type=pathlib.Path)
@@ -41,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     suite = unittest.defaultTestLoader.discover(
         start_dir=str(opzioni.tests), pattern="test_*.py"
     )
+    ids = sorted(test_ids(suite))
     risultato = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
 
     saltate = sorted(
@@ -49,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     documento = {
+        "piattaforma": sys.platform,
+        "sonde": ids,
         "eseguite": risultato.testsRun,
         "saltate": saltate,
         "fallite": len(risultato.failures) + len(risultato.errors),

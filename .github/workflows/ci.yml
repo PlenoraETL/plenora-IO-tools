@@ -847,6 +847,8 @@ jobs:
           PLENORA_IO_RICHIEDI_NATIVO: "1"
         run: |
           python -m pip install --no-deps dist-nativa/*.whl
+          python -m pip install --only-binary=:all: pyarrow==25.0.1
+          python scripts/check_installed_property_plan.py --tests sdk/python/tests --backend native --report "$RUNNER_TEMP/property-plan-native.json"
           cd sdk/python/tests
           python -c "import plenora_io._native, plenora_io; assert plenora_io.__file__.find('site-packages') >= 0, plenora_io.__file__"
           python ../../../scripts/arrow_python_api.py

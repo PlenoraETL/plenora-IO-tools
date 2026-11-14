@@ -566,6 +566,14 @@ jobs:
       - name: Smoke del pacchetto in ambienti puliti
         run: bash scripts/smoke-pacchetto-python.sh "$RUNNER_TEMP/pacchetto"
 
+      - name: Piano proprieta contro la wheel installata e la CLI distribuita
+        run: |
+          python3 -m venv "$RUNNER_TEMP/property-plan-venv"
+          "$RUNNER_TEMP/property-plan-venv/bin/python" -m pip install --no-index "$RUNNER_TEMP"/pacchetto/*.whl
+          "$RUNNER_TEMP/property-plan-venv/bin/python" -m pip install --only-binary=:all: pyarrow==25.0.1
+          export PLENORA_IO_BIN="$RUNNER_TEMP/alberi/plenora-io-$VERSIONE-linux-x86_64-base/bin/plenora-io"
+          "$RUNNER_TEMP/property-plan-venv/bin/python" scripts/check_installed_property_plan.py --tests sdk/python/tests --backend process --report "$RUNNER_TEMP/property-plan-process.json"
+
       - name: La wheel installata, contro l'artefatto filegdb
         run: python3 scripts/smoke-sdk-installato.py
           --albero "$RUNNER_TEMP/alberi/plenora-io-$VERSIONE-linux-x86_64-filegdb"

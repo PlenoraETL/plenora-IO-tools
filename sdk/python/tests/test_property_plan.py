@@ -26,12 +26,14 @@ class PropertyFixture:
         return client
 
     def setUp(self):
-        if RADICE is None or pa is None:
-            self.skipTest("repository and PyArrow required")
-        self.binary = Path(os.environ.get('PLENORA_IO_BIN', str(RADICE / 'target/debug' / ('plenora-io.exe' if os.name == 'nt' else 'plenora-io'))))
-        if not self.native and not self.binary.is_file():
+        if pa is None:
+            self.skipTest("serve pyarrow, l'extra `plenora-io[pyarrow]`, che l'installazione dalla sdist non porta")
+        default = RADICE / 'target/debug' / ('plenora-io.exe' if os.name == 'nt' else 'plenora-io') if RADICE else None
+        configured = os.environ.get('PLENORA_IO_BIN') or default
+        self.binary = Path(configured) if configured else None
+        if not self.native and (self.binary is None or not self.binary.is_file()):
             self.skipTest("real CLI required")
-        self.temp = tempfile.TemporaryDirectory(dir=RADICE / 'target')
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.input = self.root / 'input.arrow'
@@ -146,6 +148,8 @@ class PropertyPlanNativeSync(PropertyPlanSync):
     native = True
 
     def setUp(self):
+        if pa is None:
+            super().setUp()
         from _nativo import binario_nativo
         if binario_nativo() is None:
             self.skipTest("native module required")
@@ -157,6 +161,8 @@ class PropertyPlanNativeAsync(PropertyPlanAsync):
     native = True
 
     def setUp(self):
+        if pa is None:
+            super().setUp()
         from _nativo import binario_nativo
         if binario_nativo() is None:
             self.skipTest("native module required")
