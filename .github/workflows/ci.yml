@@ -169,6 +169,10 @@ jobs:
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      # I self-test leggono il grafo con `cargo metadata --offline`: le
+      # dipendenze si scaricano qui dal lock, senza dipendere dalla cache.
+      - name: Dipendenze Rust dal lock
+        run: cargo fetch --locked
       - name: Self-test che richiedono binari e GDAL
         if: ${{ !cancelled() }}
         run: python3 scripts/check_prove_fonte_unica.py --native-tests
