@@ -314,9 +314,6 @@
     "layer_crs": [
       "Crs/Validate/Crs/Never"
     ],
-    "project_gpkg_layer": [
-      "InvalidPlan/Validate/Contract/Never"
-    ],
     "register_srs": [
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
@@ -513,6 +510,11 @@
       "DataMapping/Read/Format/Never"
     ]
   },
+  "crates/plenora-io-core/src/driver/perdita_pianificata.rs": {
+    "planned_write_loss": [
+      "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
   "crates/plenora-io-core/src/driver/reader_adapters.rs": {
     "collect_read_violations": [
       "Schema/Validate/Schema/Never",
@@ -632,6 +634,22 @@
     ],
     "rifiuto": [
       "Unsupported/Validate/Capability/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/loss.rs": {
+    "validate_property_budget": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/property_plan.rs": {
+    "invalid_plan": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "validate": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "validate_gpkg_read_schema": [
+      "InvalidPlan/Validate/Contract/Never"
     ]
   },
   "crates/plenora-io-core/src/publish.rs": {

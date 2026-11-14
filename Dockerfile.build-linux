@@ -34,7 +34,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential pkg-config ca-certificates curl python3 zstd binutils patchelf strace file \
+      libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev \
  && rm -rf /var/lib/apt/lists/*
+
+COPY .python-version scripts/install-python.sh /tmp/plenora-python/
+RUN bash /tmp/plenora-python/install-python.sh
+ENV PATH="/opt/plenora-python/bin:${PATH}"
+
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal --no-modify-path \

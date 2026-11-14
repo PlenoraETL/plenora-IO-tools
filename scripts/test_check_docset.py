@@ -504,11 +504,16 @@ class SondeStatoGenerato(unittest.TestCase):
             radice = pathlib.Path(temporanea)
             (radice / "docs").mkdir()
             (radice / "docs" / "RELEASE.md").write_text(testo, encoding="utf-8")
+            (radice / "release").mkdir()
+            (radice / "release/system-rc-gate.json").write_bytes((gate.ROOT / "release/system-rc-gate.json").read_bytes())
             with mock.patch.object(gate, "ROOT", radice):
                 return gate.stato_coerente()
 
     def test_il_documento_reale_coincide_con_la_fonte(self) -> None:
         self.assertEqual(self._con_documento(self.documento()), [])
+
+    def test_qualifica_sistema_non_modificabile_a_mano(self) -> None:
+        self.assertTrue(self._con_documento(self.documento().replace(stato_release.SYSTEM_OPEN, '')))
 
     def test_un_marcatore_mancante_e_rosso(self) -> None:
         errori = self._con_documento(

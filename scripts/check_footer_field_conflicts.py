@@ -7,13 +7,41 @@ import subprocess
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+ROOT = Path(__file__).resolve().parents[1]
+PROTOCOL = json.loads((ROOT / 'release/cli-protocol-v2.json').read_text(encoding='utf-8'))
+ERROR_CONTRACT = PROTOCOL['envelopes']['error']
+EXIT_CODES = json.loads((ROOT / 'contracts/proiezione-codici-uscita.json').read_text(encoding='utf-8'))
+
+
+def observe(command, destination):
+    """Un crash o JSON illeggibile e' una cella rossa, non la fine del giro."""
+    try:
+        process = subprocess.run(command, capture_output=True, timeout=60)
+        try:
+            response = json.loads(process.stdout or process.stderr)
+        except (ValueError, UnicodeDecodeError):
+            return False, {'diagnostic': (process.stdout + process.stderr).decode(errors='replace')}
+        if not isinstance(response, dict):
+            return False, {'invalid_response': response}
+        error = response.get('error', {})
+        ok = (process.returncode == EXIT_CODES['proiezione']['schema'] and response.get('contract') == ERROR_CONTRACT['contract']
+              and response.get('protocol_version') == PROTOCOL['protocol_version'] and isinstance(error, dict)
+              and error.get('category') == 'schema'
+              and error.get('phase') == 'validate' and error.get('remote_effect') == 'none'
+              and error.get('retry') == {'kind': 'never'}
+              and all(key in error for key in ERROR_CONTRACT['required_error_fields'])
+              and not destination.exists())
+        return ok, response
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, {'diagnostic': str(exc)}
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cli', type=Path, required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    work = root / 'target/c3-footer-conflicts'; work.mkdir(exist_ok=True)
+    work = root / 'target/c3-footer-conflicts'; work.mkdir(parents=True, exist_ok=True)
     source = pq.read_table(root / 'crates/driver-geoparquet/tests/fixtures/multigeometria-metadati-pyarrow.parquet')
     results = []
     for index in (0, 2):
@@ -49,9 +77,7 @@ def main():
                     dst = work / 'rejected.arrow'; dst.unlink(missing_ok=True)
                     cmd = [str(args.cli), operation, str(src)]
                     cmd += ['--output', str(dst)] if operation == 'read' else [str(dst), '--from', 'geoparquet', '--to', 'ipc']
-                    p = subprocess.run(cmd + ['--format', 'json'], capture_output=True)
-                    response = json.loads(p.stdout or p.stderr)
-                    ok = p.returncode != 0 and response.get('error', {}).get('category') == 'schema' and not dst.exists()
+                    ok, response = observe(cmd + ['--format', 'json'], dst)
                     results.append({'column': index, 'property': prop, 'empty': empty, 'operation': operation, 'pass': ok, 'response': response})
     (work / 'report.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     failures = [r for r in results if not r['pass']]

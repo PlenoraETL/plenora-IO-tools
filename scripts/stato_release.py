@@ -370,3 +370,63 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+SYSTEM_OPEN = "<!-- generato da release/system-rc-gate.json: inizio -->"
+SYSTEM_CLOSE = "<!-- generato da release/system-rc-gate.json: fine -->"
+
+
+def system_block(gate: dict) -> str:
+    """Render the system gate; never substitute a validator test for a campaign."""
+    base = 1
+    for key in ('required_fixtures', 'fixture_variants', 'required_directions', 'required_platforms'):
+        base *= len(gate[key])
+    lines = [SYSTEM_OPEN, '### 4. Qualifica cross-component', '',
+             f"Stato: `{gate['status']}`; evidenza: `{gate['evidence']['status']}`. "
+             f"Owner: `{gate['external_owner']}`.", '',
+             f"ICD adottato: `{gate['icd']['revision']}`, da `{gate['icd']['source']}`.", '',
+             f"Matrice: {base} combinazioni di base, {base * len(gate['required_surfaces'])} celle "
+             f"con {len(gate['required_surfaces'])} superfici; {len(gate['required_properties'])} proprieta per hop.", '']
+    for key in ('required_directions', 'required_platforms', 'required_surfaces', 'fixture_variants',
+                'required_fixtures', 'required_properties', 'required_operations'):
+        lines.append(f"- `{key}`: " + ', '.join(f'`{v}`' for v in gate[key]))
+    lines += ['', 'Le classi di ingresso restano distinte:', '']
+    for kind, rule in gate['input_rules'].items():
+        fixtures = [name for name, cls in gate['fixture_classes'].items() if cls == kind]
+        lines.append(f"- `{kind}` ({', '.join(fixtures)}): {rule}")
+    lines += ['', 'Condizioni del gate:', '']
+    lines += ['- ' + condition for condition in gate['pass_conditions']]
+    lines += ['', f"Bundle v{gate['bundle_contract']['version']}: "
+              f"validatore `{gate['bundle_contract']['validator']}`.", '',
+              gate['bundle_contract']['integrity'], '', gate['bundle_contract']['trust_boundary'], '',
+              'Il puntatore `evidence.bundle` contiene percorso e SHA-256 del bundle indice in `assurance/evidence/`. '
+              'Ogni artefatto referenziato deve essere presente offline, non vuoto, hashato e usato. '
+              'Il bundle include lock, manifest, report, comandi, ambienti e indice fixture; il lock lega '
+              'oggetti Git di componenti/ICD/harness e artefatti eseguiti a piattaforme e superfici. '
+              'Le osservazioni fixture/output/expected sono file Arrow IPC: metadati confrontati byte per byte '
+              'e fixture CRS in WKT, WKT2 o PROJJSON, con identificatori alla radice verificati dall oracolo al pin adottato. '
+              'I payload WKB/EWKB devono esercitare realmente tipi, dimensioni e SRID richiesti. '
+              'I valori sono confrontati dopo serializzazione Arrow canonica. Le operazioni identitarie si confrontano '
+              'anche con la sorgente; derivazioni e trasformazioni richiedono attese e rapporti localizzati. '
+              'I log riproducono il comando osservato; le prove CRS dei tre componenti restano indipendenti '
+              'e referenziano errori e stato completo della destinazione prima/dopo, senza propagare il conflitto proibito.', '',
+              'Vocabolario, parser WKB/EWKB, CRS e primaria derivano dagli oggetti Git del contratto adottato, '
+              'disponibili offline in `PLENORA_CONTRACTS` o `.plenora-contracts`; un checkout modificato non cambia il pin. '
+              'Le varianti mantengono entrambe `geoarrow.wkb`: cambia soltanto `ARROW:extension:metadata`. '
+              'Le fixture intere non richiedono geometria; uint64 parte da valori non ordinati. '
+              'I requisiti di campagna sono dichiarati in `fixture_requirements` e `variant_rules`, separati dal vocabolario normativo. '
+              'Ogni comando positivo porta `semantics` nel log: identificatore pubblico e kind; un `geometry_compute` '
+              'attesta geometry_selection e produced_geometry_ids. Il validatore verifica operandi PRIM-007, '
+              'applicabilita CRS GEO-006/015/019/020, precisione GEO-014 e transizione della primaria PRIM-005. '
+              'requested_primary o replaces_primary_with dichiarano una richiesta o un contratto di sostituzione espliciti; '
+              'sort e pass-through non attestano una computazione geometrica. Un calcolo fuori dal dominio '
+              'decidibile dall oracolo non e qualificato e non rende invalido il relativo ingresso. '
+              'L audit enumerato e `release/system-qualification-audit.json`.', '',
+              'Il formato dettagliato e gli esempi sintetici di validazione sono nei moduli '
+              '`scripts/system_qualification.py` e `scripts/test_system_qualification.py`. '
+              'Questi test non attestano una corsa congiunta. Il bundle completo dell owner resta necessario: '
+              '`verified` con evidenza non superata e `differita` con evidenza completa superata sono incoerenti.', '',
+              'Blocchi aperti:', '']
+    lines += ['- ' + blocker for blocker in gate['open_blockers']]
+    lines += ['', gate['open_blockers_nota'], '', SYSTEM_CLOSE]
+    return '\n'.join(lines)

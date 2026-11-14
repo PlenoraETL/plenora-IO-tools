@@ -12,8 +12,11 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
+BASELINE_REVISION = '50f935715991c591760fb9a7d0c730f3d9f0484b'
+BASELINE_VERSION = '7.0.3'
 READERS = {'csv': '.csv', 'xls': '.xlsx', 'gpkg': '.gpkg', 'shp': '.shp',
            'dxf': '.dxf', 'kml': '.kml', 'geojson': '.geojson', 'filegdb': '.gdb'}
 WKT = {
@@ -34,11 +37,16 @@ WKT = {
 }
 
 def run(exe, args):
-    p = subprocess.run([str(exe), *map(str, args), '--format', 'json'], capture_output=True)
+    try:
+        p = subprocess.run([str(exe), *map(str, args), '--format', 'json'], capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {'exit': 125, 'response': {'diagnostic': str(exc)}}
     try:
         result = json.loads(p.stdout or p.stderr)
     except (ValueError, UnicodeDecodeError):
         result = {'diagnostic': (p.stdout + p.stderr).decode(errors='replace')}
+    if not isinstance(result, dict):
+        result = {'diagnostic': 'response is not an object', 'response': result}
     return {'exit': p.returncode, 'response': result}
 
 
@@ -277,12 +285,15 @@ def main():
     a.old, a.new, a.work = a.old.resolve(), a.new.resolve(), a.work.resolve()
     if not a.work.is_relative_to(ROOT):
         p.error('--work must stay inside this worktree')
+    if a.work.exists() and any(a.work.iterdir()):
+        p.error('--work must be empty: historical outputs cannot be reused as fresh evidence')
     a.work.mkdir(parents=True, exist_ok=True)
     versions = {label: run(exe, ['--version']) for label, exe in [('old', a.old), ('new', a.new)]}
-    if versions['old']['response'].get('component_version') != '7.0.3':
+    if versions['old']['response'].get('component_version') != BASELINE_VERSION:
         p.error('--old must be the 7.0.3 executable built from 50f9357')
-    if versions['new']['response'].get('component_version') != '8.0.0':
-        p.error('--new must be the current 8.0.0 executable')
+    current_version = tomllib.loads((ROOT / 'Cargo.toml').read_text(encoding='utf-8'))['workspace']['package']['version']
+    if versions['new']['response'].get('component_version') != current_version:
+        p.error(f'--new must be the current {current_version} executable')
     inputs, generation, results = [], [], []
     cases = dict(WKT)
     for name in WKT:
@@ -359,28 +370,32 @@ def main():
             if n < original_count and executions[0]['exit'] == 0:
                 inputs.append((f'{n}-{fmt}-{stream}', fmt, outputs[0], [],
                                'reread of 7.0.3 matrix output'))
-            if all(r['exit'] == 0 for r in executions):
-                row['sha256'] = [sha(out) for out in outputs]
-                row['status'] = 'identical' if outputs[0].read_bytes() == outputs[1].read_bytes() else 'UNEXPLAINED_BYTES'
-                if row['status'] == 'UNEXPLAINED_BYTES' and fmt == 'geoparquet' and explained_dimensions(*outputs):
-                    row['status'] = 'explained_C3_GP_DIM'
-                    row['reason'] = 'CHANGELOG.md C3-GP-DIM: final embedded dimensions agree with footer; every other byte outside the footer and all other metadata unchanged.'
-            elif matching_rejections(executions):
-                row['status'] = 'same_rejection'
-            else: row['status'] = 'UNEXPLAINED_BEHAVIOR'
-            if n >= original_count and reader == 'geoparquet':
-                if row['status'] == 'UNEXPLAINED_BYTES' and explained_preserved_srid(source, *outputs, fmt):
-                    row['status'] = 'explained_C5_GP_SRID'
-                    row['reason'] = 'CHANGELOG.md C5-GP-SRID: source-declared SRID preserved; exact expected schema and unchanged encoded payload.'
-                elif row['status'] == 'UNEXPLAINED_BEHAVIOR' and explained_empty_footer_types(source, outputs[1], fmt, executions):
-                    row['status'] = 'explained_C5_GP_EMPTY_TYPES'
-                    row['reason'] = 'CHANGELOG.md C5-GP-EMPTY-TYPES: exact field types survive empty footer; null/zero rows, exact old error, independently verified output.'
-            if reader == 'filegdb' and any('tier GDB' in (error(r).get('message') or '') for r in executions):
-                row['status'] = 'deferred_missing_gdal'
+            try:
+                if all(r['exit'] == 0 for r in executions):
+                    row['sha256'] = [sha(out) for out in outputs]
+                    row['status'] = 'identical' if outputs[0].read_bytes() == outputs[1].read_bytes() else 'UNEXPLAINED_BYTES'
+                    if row['status'] == 'UNEXPLAINED_BYTES' and fmt == 'geoparquet' and explained_dimensions(*outputs):
+                        row['status'] = 'explained_C3_GP_DIM'
+                        row['reason'] = 'CHANGELOG.md C3-GP-DIM: final embedded dimensions agree with footer; every other byte outside the footer and all other metadata unchanged.'
+                elif matching_rejections(executions):
+                    row['status'] = 'same_rejection'
+                else: row['status'] = 'UNEXPLAINED_BEHAVIOR'
+                if n >= original_count and reader == 'geoparquet':
+                    if row['status'] == 'UNEXPLAINED_BYTES' and explained_preserved_srid(source, *outputs, fmt):
+                        row['status'] = 'explained_C5_GP_SRID'
+                        row['reason'] = 'CHANGELOG.md C5-GP-SRID: source-declared SRID preserved; exact expected schema and unchanged encoded payload.'
+                    elif row['status'] == 'UNEXPLAINED_BEHAVIOR' and explained_empty_footer_types(source, outputs[1], fmt, executions):
+                        row['status'] = 'explained_C5_GP_EMPTY_TYPES'
+                        row['reason'] = 'CHANGELOG.md C5-GP-EMPTY-TYPES: exact field types survive empty footer; null/zero rows, exact old error, independently verified output.'
+                if reader == 'filegdb' and any('tier GDB' in (error(r).get('message') or '') for r in executions):
+                    row['status'] = 'deferred_missing_gdal'
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                row['status'] = 'UNEXPLAINED_OBSERVATION'
+                row['diagnostic'] = str(exc)
             results.append(row)
     counts = {s: sum(r['status'] == s for r in results) for s in sorted({r['status'] for r in results})}
     coverage = {reader: sum(r['reader'] == reader and r['status'] == 'identical' for r in results) for reader in (*READERS, 'ipc', 'geoparquet')}
-    report = {'baseline_commit': '50f935715991c591760fb9a7d0c730f3d9f0484b', 'versions': versions,
+    report = {'baseline_commit': BASELINE_REVISION, 'versions': versions,
               'executables_sha256': {'old': sha(a.old), 'new': sha(a.new)}, 'counts': counts,
               'identical_cells_by_reader': coverage, 'generation': generation, 'results': results,
               'limits': ['WKB native representations tested through binary readers; CSV/XLSX support WKT and XY, not WKB.',

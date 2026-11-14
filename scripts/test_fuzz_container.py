@@ -21,11 +21,13 @@ from __future__ import annotations
 import os
 import pathlib
 import subprocess
+import shutil
 import tempfile
 import unittest
 
 RADICE = pathlib.Path(__file__).resolve().parents[1]
 WRAPPER = RADICE / "scripts" / "fuzz-container.sh"
+BASH = os.environ.get("PLENORA_BASH") or shutil.which("bash") or "bash"
 
 #: Il finto: risponde come Docker e annota ogni invocazione.
 FINTO = """#!/bin/bash
@@ -79,7 +81,7 @@ class SondeDelCollect(unittest.TestCase):
             }
         )
         esecuzione = subprocess.run(
-            ["bash", str(WRAPPER), "collect", "5"],
+            [BASH, str(WRAPPER), "collect", "5"],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -226,7 +228,7 @@ class SondeDelloStop(unittest.TestCase):
             }
         )
         esecuzione = subprocess.run(
-            ["bash", str(WRAPPER), *argomenti],
+            [BASH, str(WRAPPER), *argomenti],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -349,7 +351,7 @@ class SondeDellIsolamento(unittest.TestCase):
         finto_assente.chmod(0o755)
         ambiente["PLENORA_DOCKER"] = str(finto_assente)
         esecuzione = subprocess.run(
-            ["bash", str(self.repo / "scripts" / "fuzz-container.sh"), "start", "smoke"],
+            [BASH, str(self.repo / "scripts" / "fuzz-container.sh"), "start", "smoke"],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -430,7 +432,7 @@ class SondeDellaPuliziaDelClone(unittest.TestCase):
             }
         )
         return subprocess.run(
-            ["bash", str(WRAPPER), *argomenti],
+            [BASH, str(WRAPPER), *argomenti],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -552,4 +554,4 @@ class SondaDelPercorsoPerDocker(unittest.TestCase):
         run = next((c for c in chiamate if c.startswith("run ")), "")
         cloni = list((sonda.radice / "checkout").glob("checkout-*"))
         self.assertEqual(len(cloni), 1, cloni)
-        self.assertIn(f"{cloni[0]}:/work", run)
+        self.assertIn(f"{cloni[0].as_posix()}:/work", run)

@@ -28,8 +28,6 @@ doctest = false
 [dependencies]
 plenora-io-tools = { path = "../plenora-io-tools" }
 plenora-io-model = { path = "../plenora-io-model" }
-# Il binding PyO3 con ABI stabile da Python 3.10: una sola wheel per
-# piattaforma copre 3.10-3.14, come in plenora-database-tools (stessa versione
-# esatta). `extension-module` perche' i simboli di Python li fornisce
+# ABI minimo verificato contro .python-version. I simboli di Python li fornisce
 # l'interprete che carica il modulo, non il collegamento.
-pyo3 = { version = "=0.29.2", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "=0.29.2", features = ["extension-module", "abi3-py314"] }

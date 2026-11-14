@@ -1,13 +1,4 @@
-//! Che cosa una scrittura perdera', calcolato prima di scriverla.
-//!
-//! Estratto da `driver.rs` per M1. Il gruppo non chiama nessuno degli altri due
-//! della validazione -- la misura dei riferimenti che attraversano i confini lo
-//! dava a zero in entrambe le direzioni -- e si raggiunge da
-//! `with_write_validation`, che resta nel genitore.
-//!
-//! Lo spostamento e' meccanico: nessuna firma cambia, nessun ordine di
-//! operazioni cambia, e cio' che il gruppo usa del genitore arriva per `use
-//! super::*`.
+//! Planned loss before publication, including the original-input property plan.
 
 use plenora_io_model::crs::CrsDefinitionFormat;
 
@@ -20,10 +11,20 @@ use super::{
     TypeCoercionPolicy, WritePlan,
 };
 
+/// # Errors
+/// Rejects invalid geometry, mismatched plans and excessive complete diagnostics.
 pub fn planned_write_loss(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
+    opts: &super::WriteOptions,
 ) -> plenora_io_model::Result<LossReport> {
+    if !opts.property_plans.is_empty() && opts.property_plans.len() != plan.layers.len() {
+        return Err(plenora_io_model::PlenoraIoError::contratto_redatto(
+            &plenora_io_model::PublicMessage::Curated(
+                "numero di piani delle proprieta incompatibile con i layer",
+            ),
+        ));
+    }
     let mut loss = LossReport::default();
     let Some(capabilities) = descriptor.write_capabilities() else {
         return Ok(loss);
@@ -31,6 +32,11 @@ pub fn planned_write_loss(
 
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
+        let fallback =
+            crate::property_plan::PropertyPlan::new(&layer.contract.schema, descriptor.id(), None);
+        let properties = opts.property_plan(indice_layer).unwrap_or(&fallback);
+        properties.validate_schema(descriptor.id(), &layer.contract.schema)?;
+        loss.merge(&properties.report(indice_layer as u64, crate::property_plan::Phase::Write)?);
         let geometries = layer.contract.geometries()?;
         for geometry in geometries.iter().filter(|g| {
             layer.contract.geometry.is_some()
@@ -100,36 +106,49 @@ pub fn planned_write_loss(
             record_geometry_metadata_loss(&mut loss, descriptor.id(), geometry, dove);
         }
 
-        let geometry_name = layer
-            .contract
-            .geometry
-            .as_ref()
-            .map(|geometry| geometry.name.as_str());
-        for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
-            if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
-                continue;
-            }
-            let type_class = crate::capabilities::arrow_type_class(field.data_type());
-            let unsupported_text_coercion = !capabilities.allowed_types.contains(&type_class)
-                && matches!(
-                    capabilities.type_coercion,
-                    TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
-                );
-            if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
-                loss.record("coercion tipo attributo", 1);
-                loss.add_example(LossExample {
-                    category: "coercion tipo attributo".to_owned(),
-                    posizione: Posizione {
-                        layer_index,
-                        field_index: Some(saturating_u64(indice_campo)),
-                        type_class: Some(type_class),
-                    },
-                    context: "il tipo dell'attributo richiede una coercizione".to_owned(),
-                });
-            }
+        record_attribute_loss(&mut loss, descriptor, layer, layer_index);
+    }
+    loss.validate_property_budget()?;
+    Ok(loss)
+}
+
+fn record_attribute_loss(
+    loss: &mut LossReport,
+    descriptor: &FormatDescriptor,
+    layer: &crate::request::WriteLayer,
+    layer_index: Option<u64>,
+) {
+    let Some(capabilities) = descriptor.write_capabilities() else {
+        return;
+    };
+    let geometry_name = layer
+        .contract
+        .geometry
+        .as_ref()
+        .map(|geometry| geometry.name.as_str());
+    for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
+        if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
+            continue;
+        }
+        let type_class = crate::capabilities::arrow_type_class(field.data_type());
+        let unsupported_text_coercion = !capabilities.allowed_types.contains(&type_class)
+            && matches!(
+                capabilities.type_coercion,
+                TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
+            );
+        if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
+            loss.record("coercion tipo attributo", 1);
+            loss.add_example(LossExample {
+                category: "coercion tipo attributo".to_owned(),
+                posizione: Posizione {
+                    layer_index,
+                    field_index: Some(saturating_u64(indice_campo)),
+                    type_class: Some(type_class),
+                },
+                context: "il tipo dell'attributo richiede una coercizione".to_owned(),
+            });
         }
     }
-    Ok(loss)
 }
 
 /// I formati senza schema Arrow dichiarano anche la normalizzazione dei tipi nativi.

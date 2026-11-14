@@ -109,5 +109,13 @@
       "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
     }
   ],
-  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
+  "rimisurazione_dovuta": {
+    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta. Dipendenze candidate 9.0.0: encoding_rs 0.8.41, flate2 1.1.10, futures 0.3.34 e transitive della politica comune; lock aggiornati con Cargo. La misura storica resta invariata e va ripetuta prima della qualifica.",
+    "impronta_della_misura": "a689ce1fafc9b3209e483d672df317f7acbb8ae8a9f52c96f67c9822a4ba086b",
+    "impronta_attesa": "b64b9c911cc1719f712a2549a9541c53c741d92f272c9be8a420a51925ee7e62",
+    "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
+    "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
+    "comando": "scripts/fuzz-profondita.sh wkt_parse"
+  }
 }

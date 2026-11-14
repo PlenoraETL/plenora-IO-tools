@@ -1148,7 +1148,7 @@ fn spatial_pruning_uses_only_registered_rtree_and_never_filters_exactly() {
 
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(
-        "CREATE TABLE gpkg_extensions (
+        "CREATE TABLE IF NOT EXISTS gpkg_extensions (
                  table_name TEXT,
                  column_name TEXT,
                  extension_name TEXT NOT NULL,
@@ -2518,3 +2518,5 @@ fn nome_unix_non_utf8_conservato_byte_per_byte() {
     std::fs::write(companion, b"").unwrap();
     assert!(apri_in_lettura(&path).is_err());
 }
+
+mod identity_plan;

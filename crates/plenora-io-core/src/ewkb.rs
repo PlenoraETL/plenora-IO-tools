@@ -33,13 +33,11 @@
 //! * ogni geometria del payload deve portare **quel** SRID, o nessuno; uno
 //!   diverso e' un errore, mai una scelta.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, LargeBinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use plenora_io_model::contract::{GeometryColumnContract, GeometryEncoding};
-use plenora_io_model::geometry::{PLENORA_ENCODING_KEY, PLENORA_SRID_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, encode_wkb_into, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_io_model::{
@@ -58,6 +56,7 @@ pub struct DaEwkbAWkb {
     srid: Option<i32>,
     limiti: WkbLimits,
     schema: SchemaRef,
+    properties: crate::property_plan::PropertyPlan,
 }
 
 fn rifiuto(
@@ -151,8 +150,73 @@ pub fn pianifica(
             srid: geometria.srid,
             limiti,
             schema: schema_wkb,
+            properties: crate::property_plan::PropertyPlan::new(schema, driver, Some(indice)),
         },
     )))
+}
+
+impl DaEwkbAWkb {
+    #[must_use]
+    pub fn property_effects(&self) -> &[crate::property_plan::PropertyEffect] {
+        self.properties.effects()
+    }
+}
+
+/// One preparation path for Rust, CLI and runtime. Original schemas are planned
+/// before encoding/SRID are changed; options carry those immutable plans to writers.
+pub struct PreparedWrite {
+    pub plan: crate::WritePlan,
+    pub conversions: Vec<Option<DaEwkbAWkb>>,
+    pub properties: Vec<crate::property_plan::PropertyPlan>,
+}
+
+impl PreparedWrite {
+    /// # Errors
+    /// Propagates invalid geometry contracts and incompatible EWKB SRIDs.
+    pub fn new(
+        input: &crate::WritePlan,
+        descriptor: &FormatDescriptor,
+        limits: WkbLimits,
+    ) -> Result<Self> {
+        let mut layers = Vec::new();
+        let mut conversions = Vec::new();
+        let mut properties = Vec::new();
+        for layer in &input.layers {
+            let converted = pianifica(
+                descriptor,
+                &layer.contract.schema,
+                layer.contract.geometry.as_ref(),
+                limits,
+            )?;
+            let (schema, geometry, conversion, property) = match converted {
+                Some((schema, geometry, conversion)) => {
+                    let property = conversion.properties.clone();
+                    (schema, Some(geometry), Some(conversion), property)
+                }
+                None => (
+                    layer.contract.schema.clone(),
+                    layer.contract.geometry.clone(),
+                    None,
+                    crate::property_plan::PropertyPlan::new(
+                        &layer.contract.schema,
+                        descriptor.id(),
+                        None,
+                    ),
+                ),
+            };
+            layers.push(crate::WriteLayer {
+                name: layer.name.clone(),
+                contract: plenora_io_model::contract::DataContract { schema, geometry },
+            });
+            conversions.push(conversion);
+            properties.push(property);
+        }
+        Ok(Self {
+            plan: crate::WritePlan { layers },
+            conversions,
+            properties,
+        })
+    }
 }
 
 /// Lo schema con la colonna geometria dichiarata WKB e senza SRID: le altre
@@ -166,19 +230,7 @@ fn schema_in_wkb(schema: &SchemaRef, indice: usize) -> SchemaRef {
             if i != indice {
                 return campo.as_ref().clone();
             }
-            let metadati: HashMap<String, String> = campo
-                .metadata()
-                .iter()
-                .filter(|(chiave, _)| chiave.as_str() != PLENORA_SRID_KEY)
-                .map(|(chiave, valore)| {
-                    if chiave.as_str() == PLENORA_ENCODING_KEY {
-                        (chiave.clone(), GeometryEncoding::Wkb.nome().to_owned())
-                    } else {
-                        (chiave.clone(), valore.clone())
-                    }
-                })
-                .collect();
-            campo.as_ref().clone().with_metadata(metadati)
+            crate::property_plan::field_in_wkb(campo)
         })
         .collect();
     Arc::new(Schema::new_with_metadata(campi, schema.metadata().clone()))

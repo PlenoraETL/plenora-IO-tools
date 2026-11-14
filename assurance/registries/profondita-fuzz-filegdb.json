@@ -136,5 +136,13 @@
   "non_e_qui": {
     "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
+  },
+  "rimisurazione_dovuta": {
+    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta. Dipendenze candidate 9.0.0: encoding_rs 0.8.41, flate2 1.1.10, futures 0.3.34 e transitive della politica comune; lock aggiornati con Cargo. La misura storica resta invariata e va ripetuta prima della qualifica.",
+    "impronta_della_misura": "d032dabde3f448b67e725d2b17fa218a1e321026788e3c72600b7784440e96f2",
+    "impronta_attesa": "5ca8d95d772523ce31c2821132f854dda5fb737b1adfabdd4c55a7dc925e7548",
+    "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
+    "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
+    "comando": "scripts/fuzz-profondita.sh filegdb_reader"
   }
 }

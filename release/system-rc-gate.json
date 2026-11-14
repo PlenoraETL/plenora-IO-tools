@@ -6,9 +6,8 @@
   "external_owner": "plenora-contracts/conformance",
   "component_repository_harness": "not_present",
   "icd": {
-    "tag": "v2.0-rc14",
-    "revision": "65fd2c6418efa7937e3063245913d79a80c6499b",
-    "nota": "ICD di riferimento dichiarato; la corsa lo rifissa"
+    "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+    "source": "contracts/adoption-source.json"
   },
   "components": [
     {
@@ -70,23 +69,240 @@
   ],
   "evidence": {
     "status": "not_run",
-    "nota": "Le osservazioni storiche sono state tolte: registravano esiti parziali di campagne su revisioni che non esistono piu' nel percorso corrente, e un'evidenza parziale conservata accanto a uno stato `not_satisfied` si legge come progresso. Restano recuperabili da git."
+    "nota": "No owner bundle for this candidate. Synthetic validator tests are not joint qualification evidence."
   },
   "pass_conditions": [
-    "All three revisions and the ICD revision are immutable and recorded.",
-    "Identity-preserving operations preserve every required property byte-for-byte.",
-    "Derived fields reconstruct metadata from the result and never inherit invalid source metadata.",
-    "A read boundary preserves conflicting representations and declares them in LossReport or FidelityAssessment.",
-    "The central component propagates conflicts unless an explicit plan resolves them.",
-    "A write boundary fails closed with four-axis error semantics before a permanent effect when a conflict remains.",
-    "Both required directions pass on Linux and Windows without an unreported LossReport entry.",
-    "The evidence bundle includes commands, environment, fixture hashes and results."
+    "The adopted normative contract takes precedence: lawful declarations and non-prohibited discrepancies are tested separately from prohibited CRS conflicts.",
+    "Lawful inputs: identity preserves every property byte-for-byte; derived fields are reconstructed from the actual result; explicit lawful plans and unavoidable transformations have localized reports and independently verified expected output.",
+    "GEO-005/REJ-001 prohibited conflicts: each component rejects at its first public validating boundary with category crs, four error axes, remote_effect none and matching before/after destination snapshots, on every surface.",
+    "Preservation and propagation after a prohibited rejection are skipped with reason, never counted as passed.",
+    "All three components, ICD and executed harness have immutable revisions backed by Git commit objects; executed artifacts are hashed and bound to platform, surface, command and run.",
+    "All required fixtures, variants, directions, native platforms, surfaces and properties have complete evidence; not_run, partial, failed and unrelated artifacts cannot satisfy the gate.",
+    "The owner bundle binds manifest, lock, actual Arrow input/output/expected observations, loss reports, commands, environment, logs and absence-of-effect evidence by SHA-256."
   ],
   "open_blockers": [
-    "The database_to_data_to_io direction has not been executed.",
-    "Native Windows execution of the three-component chain is not covered.",
-    "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation."
+    "No complete owner bundle for the current three-component candidates and adopted ICD has been delivered.",
+    "Native Windows execution of the complete matrix is not qualified.",
+    "The full property matrix, derived operations, lawful explicit plans and prohibited CRS rejection probes remain to be qualified in both directions on all surfaces."
   ],
-  "open_blockers_nota": "due voci sono state tolte: nominavano l'ICD di una campagna esterna che non e' piu' descritta qui e i conteggi 83/84 e 27/28 di una matrice girata su v1.0.0-rc.1. Erano la cronaca di release gia' emesse, e un blocco che cita un'evidenza rimossa non si puo' chiudere. Restano i tre blocchi che descrivono cio' che oggi non e' stato eseguito. La provenienza resta in git.",
-  "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente"
+  "open_blockers_nota": "Historical Linux evidence from 13 November 2026 is partial and does not satisfy this gate; the inverse direction is no longer described as never executed. No historical result is promoted.",
+  "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente",
+  "required_platforms": [
+    "linux-native",
+    "windows-native"
+  ],
+  "required_surfaces": [
+    "rust",
+    "cli",
+    "python-sync",
+    "python-async",
+    "runtime"
+  ],
+  "required_operations": [
+    "identity",
+    "derived",
+    "explicit_plan"
+  ],
+  "fixture_classes": {
+    "axis_lat_lon": "lawful",
+    "conflicting_crs": "prohibited_crs",
+    "crs_missing": "lawful",
+    "crs_unresolved": "lawful_discrepancy",
+    "dimensions_unknown": "lawful",
+    "geography_semantics": "lawful",
+    "int64_beyond_2_53": "lawful",
+    "multipolygon_xyzm_srid": "lawful",
+    "point_z": "lawful",
+    "point_zm": "lawful",
+    "polygon_xy_projected": "lawful",
+    "types_mixed": "lawful",
+    "uint64_ordering": "lawful",
+    "unknown_key": "lawful"
+  },
+  "input_rules": {
+    "prohibited_crs": "GEO-005/REJ-001: reject crs at the first validating boundary; all surfaces, four axes, no effect; preservation skipped with reason.",
+    "lawful_discrepancy": "Only discrepancies not forbidden by the adopted contract: preserve and propagate unless an explicit lawful plan changes them.",
+    "lawful": "Identity preserves properties byte-for-byte; derived and declared transformations require an independent expected result and localized reports."
+  },
+  "bundle_contract": {
+    "version": 2,
+    "validator": "scripts/system_qualification.py",
+    "integrity": "SHA-256 of every referenced artifact; Git commit object identities; complete per-cell execution and property comparisons.",
+    "trust_boundary": "Offline consistency and byte comparisons do not authenticate the owner, prove execution, or establish membership of a Git object in a remote repository."
+  },
+  "fixture_requirements": {
+    "axis_lat_lon": {
+      "metadata": {
+        "axis_order": "lat_lon"
+      }
+    },
+    "conflicting_crs": {
+      "rejection": [
+        "crs",
+        "GEO-005"
+      ]
+    },
+    "crs_missing": {
+      "metadata": {
+        "crs_resolution": "missing"
+      }
+    },
+    "crs_unresolved": {
+      "metadata": {
+        "crs_resolution": "declared_unresolved"
+      }
+    },
+    "dimensions_unknown": {
+      "metadata": {
+        "dimensions": "unknown"
+      }
+    },
+    "geography_semantics": {
+      "metadata": {
+        "geometry_or_geography": "geography"
+      }
+    },
+    "int64_beyond_2_53": {
+      "numeric": "int64"
+    },
+    "multipolygon_xyzm_srid": {
+      "geometry": [
+        "multipolygon",
+        "xyzm"
+      ],
+      "srid": true
+    },
+    "point_z": {
+      "geometry": [
+        "point",
+        "xyz"
+      ]
+    },
+    "point_zm": {
+      "geometry": [
+        "point",
+        "xyzm"
+      ]
+    },
+    "polygon_xy_projected": {
+      "geometry": [
+        "polygon",
+        "xy"
+      ],
+      "metadata": {
+        "axis_order": "easting_northing"
+      }
+    },
+    "types_mixed": {
+      "mixed": true
+    },
+    "uint64_ordering": {
+      "numeric": "uint64",
+      "unordered": true
+    },
+    "unknown_key": {
+      "opaque_schema_and_field": true
+    }
+  },
+  "variant_rules": {
+    "canonical_only": {
+      "extension_metadata": "absent"
+    },
+    "geoarrow_extension": {
+      "extension_metadata": "json_object_on_geometry"
+    }
+  },
+  "normative_source": {
+    "source": "contracts/adoption-source.json",
+    "loader": "scripts/qualification_contract.py",
+    "repository": "PLENORA_CONTRACTS or .plenora-contracts",
+    "mode": "offline Git objects at the adopted immutable revision"
+  },
+  "normative_vocabulary": {
+    "closed_values": {
+      "plenora.geometry.encoding": [
+        "ewkb",
+        "wkb"
+      ],
+      "plenora.geometry.dimensions": [
+        "unknown",
+        "xy",
+        "xym",
+        "xyz",
+        "xyzm"
+      ],
+      "plenora.geometry.spatial_semantics": [
+        "geography",
+        "geometry"
+      ],
+      "plenora.geometry.precision": [
+        "float32",
+        "float64",
+        "native"
+      ],
+      "plenora.geometry.types_declaration": [
+        "exact",
+        "mixed",
+        "unresolved"
+      ],
+      "plenora.geometry.crs_resolution": [
+        "declared_unresolved",
+        "missing",
+        "resolved"
+      ],
+      "plenora.geometry.crs_definition_format": [
+        "projjson",
+        "wkt",
+        "wkt2"
+      ],
+      "plenora.geometry.axis_order": [
+        "easting_northing",
+        "lat_lon",
+        "lon_lat",
+        "northing_easting",
+        "other",
+        "unknown"
+      ]
+    },
+    "canonical_types": [
+      "point",
+      "linestring",
+      "polygon",
+      "multipoint",
+      "multilinestring",
+      "multipolygon",
+      "geometrycollection",
+      "circularstring",
+      "compoundcurve",
+      "curvepolygon",
+      "multicurve",
+      "multisurface",
+      "polyhedralsurface",
+      "tin",
+      "triangle",
+      "unknown"
+    ],
+    "required_geometry": [
+      "plenora.field_id",
+      "plenora.geometry.encoding",
+      "plenora.geometry.dimensions",
+      "plenora.geometry.spatial_semantics",
+      "plenora.geometry.precision",
+      "plenora.geometry.types_declaration",
+      "plenora.geometry.crs_resolution"
+    ],
+    "schema_rejection_phases": [
+      "validate",
+      "connect",
+      "probe"
+    ],
+    "crs_cli_exit": 3
+  },
+  "operation_semantics": [
+    "pass_through",
+    "tabular_plan",
+    "metadata_normalization",
+    "geometry_compute"
+  ],
+  "required_geometry_computation": true
 }

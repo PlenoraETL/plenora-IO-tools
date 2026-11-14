@@ -96,6 +96,8 @@ from ._models import (
     LossCount,
     LossExample,
     LossReport,
+    PropertyChange,
+    PropertyEffect,
     Omissions,
     OperationContent,
     OperationControls,
@@ -105,6 +107,7 @@ from ._models import (
     WriteResult,
 )
 from ._process import NativeRunner, Runner
+from ._async_client import AsyncClient
 
 #: I profili della distribuzione, come contenitore dell'SDK: un attributo
 #: pubblico non e' mai una `tuple` o una `list` di Python (README, «Il confine
@@ -119,7 +122,7 @@ PROFILES = FrozenList(list(_PROFILI))
 #:
 #: E' la versione del workspace e della wheel nativa; il gate SDK verifica
 #: l'allineamento. Client.version() interroga invece il backend in uso.
-__version__ = "8.0.0"
+__version__ = "9.0.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
@@ -164,6 +167,7 @@ __all__ = [
     "CapabilityOperation",
     "Catalog",
     "Client",
+    "AsyncClient",
     "CommandFailed",
     "ConflictError",
     "ConvertResult",
@@ -195,6 +199,8 @@ __all__ = [
     "LossCount",
     "LossExample",
     "LossReport",
+    "PropertyChange",
+    "PropertyEffect",
     "Manifest",
     "ManifestError",
     "NativeRunner",

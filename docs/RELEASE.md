@@ -88,7 +88,7 @@ la release non promette, ed è la sola lettura autorizzata del rinvio:
 
 | Capacità | Sintesi | La release non promette |
 |---|---|---|
-| `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 4.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Che questo componente produca e accetti, alla 4.0.0, entrambe le serializzazioni Arrow che i quattro archi `direct` della matrice di composizione nominano riguarda la **condizione a nostro carico** su quei collegamenti: e' conformita' al contratto dichiarato, non interoperabilita' verificata con gli altri componenti, e non riduce di nulla cio' che questo rinvio lascia scoperto. |
+| `sistema.qualifica-cross-component` | differita: manca il bundle completo dell owner per le candidate correnti; GEO-005/REJ-001 prevalgono sul gate | La candidate non promette interoperabilita end-to-end qualificata fra i tre componenti. La corsa Linux storica del 13/11/2026 costituisce evidenza parziale, anche nella direzione inversa; non copre la matrice completa, Windows nativo e tutte le superfici. Il bundle corrente manca. I conflitti CRS proibiti devono essere rifiutati secondo GEO-005/REJ-001; solo rappresentazioni lecite sono soggette a conservazione/propagazione. Le prove sintetiche del validatore non sono evidenza della corsa congiunta. |
 | `distribuzione.licenza-first-party` | differita: dalla 4.1.1 gli artefatti portano la licenza proprietaria decisa dal titolare; manca la sua conferma esterna | Fino alla 4.1.0 compresa gli archivi non portano termini first-party. Dalla 4.1.1 portano `LICENSE` con la licenza proprietaria; la prova esterna che questo invariante pretende -- `release/licenza-first-party.json`, la conferma del titolare del testo e della propria denominazione legale -- non c'e', e l'invariante resta differito e **non verificato**: il testo negli artefatti non dimostra da solo di essere l'atto del titolare. Le licenze dei componenti di terzi restano incluse e applicabili. Il classificatore Private :: Do Not Upload e mantenuto nei pacchetti Python; nessun pacchetto e pubblicato su PyPI. |
 
 <!-- generato da assurance/current-state.json: fine -->
@@ -499,69 +499,60 @@ livello 2 e la propria evidenza.
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
 
-### 4. Qualifica cross-component — **differita nella 2.0.0**
+<!-- generato da release/system-rc-gate.json: inizio -->
+### 4. Qualifica cross-component
 
-La 2.0.0 rilascia `plenora-IO-tools` come **componente autonomo**. Il perimetro
-della release è il confine sui file di questo componente — lettura, scrittura,
-protocollo della CLI, artefatti di distribuzione — e non la catena di sistema.
+Stato: `not_satisfied`; evidenza: `not_run`. Owner: `plenora-contracts/conformance`.
 
-**Che cosa la release non promette.** La 2.0.0 **non** promette
-interoperabilità end-to-end certificata con `plenora-data-tools` e
-`plenora-database-tools`. La catena `IO-tools → data-tools → database-tools`
-non è qualificata in nessuna delle due direzioni, su nessuna piattaforma;
-nessuna delle quindici proprietà del contratto di sistema — fra cui `srid`,
-`crs_resolution`, `axis_order` e `native_metadata` — è verificata attraverso i
-tre componenti; e la direzione `database → data → IO` non è mai stata eseguita.
-Chi compone i tre componenti in produzione lo fa **senza evidenza** di
-conservazione dei metadati ai confini, e deve verificarla per conto proprio.
+ICD adottato: `38d68b402389855edbcecb7ce57c31e91282cb4e`, da `contracts/adoption-source.json`.
 
-Il rinvio è una scelta di perimetro, non un giudizio sull'esito: la qualifica
-non è stata tentata e fallita, **non è stata eseguita**.
+Matrice: 112 combinazioni di base, 560 celle con 5 superfici; 15 proprieta per hop.
 
-**Perché è differita e non chiusa.** Il perimetro e l'harness sono di
-**proprietà esterna**: questo repository non contiene né esegue test che
-compilino gli altri due componenti, e alla data del rinvio l'harness non
-esisteva da nessuna parte — `plenora-contracts/conformance` è una specifica,
-nessuna delle quattordici fixture richieste esiste, e la revisione dell'ICD
-dichiarata nel gate non risolve. Bloccare un componente già verificato in attesa
-di una macchina di prova che non esiste avrebbe fermato il rilascio senza
-aggiungere una sola verifica.
+- `required_directions`: `io_to_data_to_database`, `database_to_data_to_io`
+- `required_platforms`: `linux-native`, `windows-native`
+- `required_surfaces`: `rust`, `cli`, `python-sync`, `python-async`, `runtime`
+- `fixture_variants`: `canonical_only`, `geoarrow_extension`
+- `required_fixtures`: `axis_lat_lon`, `conflicting_crs`, `crs_missing`, `crs_unresolved`, `dimensions_unknown`, `geography_semantics`, `int64_beyond_2_53`, `multipolygon_xyzm_srid`, `point_z`, `point_zm`, `polygon_xy_projected`, `types_mixed`, `uint64_ordering`, `unknown_key`
+- `required_properties`: `contract_version`, `field_id`, `types_declaration`, `geometry_types`, `dimensions`, `encoding`, `geometry_or_geography`, `precision`, `srid`, `crs_id`, `crs_resolution`, `crs_definition`, `crs_definition_format`, `axis_order`, `native_metadata`
+- `required_operations`: `identity`, `derived`, `explicit_plan`
 
-**Che cosa non cambia.** [`release/system-rc-gate.json`](../release/system-rc-gate.json)
-resta `status: not_satisfied` ed `evidence.status: not_run`. Il rinvio non tocca
-l'artefatto dell'owner: toglie il blocco, non fabbrica l'evidenza. Il registro
-del contratto porta la voce in stato `differita`, che non è `verified` e non lo
-diventa cambiando una parola — `verified` continua a pretendere che l'artefatto
-dica `passed`, e `differita` esige che **non** lo dica.
+Le classi di ingresso restano distinte:
 
-**Che cosa la riporta a essere pretesa.** L'owner esterno consegna harness e
-fixture, la corsa produce evidenza, e allora `release/system-rc-gate.json` passa
-a `status: satisfied`, `evidence.status: passed`, `open_blockers: []` e le tre
-revisioni fissate. A quel punto la voce torna `verified` **per derivazione
-dall'artefatto**, e la sonda che oggi la tiene onesta diventa quella che
-impedisce di lasciarla differita mentre l'evidenza esiste.
+- `prohibited_crs` (conflicting_crs): GEO-005/REJ-001: reject crs at the first validating boundary; all surfaces, four axes, no effect; preservation skipped with reason.
+- `lawful_discrepancy` (crs_unresolved): Only discrepancies not forbidden by the adopted contract: preserve and propagate unless an explicit lawful plan changes them.
+- `lawful` (axis_lat_lon, crs_missing, dimensions_unknown, geography_semantics, int64_beyond_2_53, multipolygon_xyzm_srid, point_z, point_zm, polygon_xy_projected, types_mixed, uint64_ordering, unknown_key): Identity preserves properties byte-for-byte; derived and declared transformations require an independent expected result and localized reports.
 
-**Gli input esatti da consegnare.**
+Condizioni del gate:
 
-| Input | Stato |
-|---|---|
-| revisione di `plenora-IO-tools` | lo SHA congelato della 2.0.0 |
-| revisione di `plenora-data-tools` | da fissare dall'owner alla corsa |
-| revisione di `plenora-database-tools` | da fissare dall'owner alla corsa |
-| revisione dell'ICD | da ri-fissare: `v2.0-rc14` non esiste in `plenora-contracts` |
-| harness eseguibile della catena | da consegnare |
-| 14 fixture × 2 varianti × 2 direzioni × 2 piattaforme | da consegnare |
-| bundle di evidenza: comandi, ambiente, hash delle fixture, esiti | da consegnare |
+- The adopted normative contract takes precedence: lawful declarations and non-prohibited discrepancies are tested separately from prohibited CRS conflicts.
+- Lawful inputs: identity preserves every property byte-for-byte; derived fields are reconstructed from the actual result; explicit lawful plans and unavoidable transformations have localized reports and independently verified expected output.
+- GEO-005/REJ-001 prohibited conflicts: each component rejects at its first public validating boundary with category crs, four error axes, remote_effect none and matching before/after destination snapshots, on every surface.
+- Preservation and propagation after a prohibited rejection are skipped with reason, never counted as passed.
+- All three components, ICD and executed harness have immutable revisions backed by Git commit objects; executed artifacts are hashed and bound to platform, surface, command and run.
+- All required fixtures, variants, directions, native platforms, surfaces and properties have complete evidence; not_run, partial, failed and unrelated artifacts cannot satisfy the gate.
+- The owner bundle binds manifest, lock, actual Arrow input/output/expected observations, loss reports, commands, environment, logs and absence-of-effect evidence by SHA-256.
 
-I tre blocchi che l'owner dichiara ancora aperti sono nel gate: la direzione
-`database → data → IO` mai eseguita, l'esecuzione nativa Windows della catena
-non coperta, e il runner esterno che non consuma `read_loss` e lascia la
-dichiarazione R4.6.1 come obbligo non verificato.
+Bundle v2: validatore `scripts/system_qualification.py`.
 
-**Blocco che rimuove.** Nessuno, finché resta differita. La readiness di sistema
-resta **non verificata**, e resta distinta dalla readiness del componente:
-nessuna delle due implica l'altra, ed è esattamente per questo che rilasciare
-la seconda senza la prima è possibile — purché lo si dica.
+SHA-256 of every referenced artifact; Git commit object identities; complete per-cell execution and property comparisons.
+
+Offline consistency and byte comparisons do not authenticate the owner, prove execution, or establish membership of a Git object in a remote repository.
+
+Il puntatore `evidence.bundle` contiene percorso e SHA-256 del bundle indice in `assurance/evidence/`. Ogni artefatto referenziato deve essere presente offline, non vuoto, hashato e usato. Il bundle include lock, manifest, report, comandi, ambienti e indice fixture; il lock lega oggetti Git di componenti/ICD/harness e artefatti eseguiti a piattaforme e superfici. Le osservazioni fixture/output/expected sono file Arrow IPC: metadati confrontati byte per byte e fixture CRS in WKT, WKT2 o PROJJSON, con identificatori alla radice verificati dall oracolo al pin adottato. I payload WKB/EWKB devono esercitare realmente tipi, dimensioni e SRID richiesti. I valori sono confrontati dopo serializzazione Arrow canonica. Le operazioni identitarie si confrontano anche con la sorgente; derivazioni e trasformazioni richiedono attese e rapporti localizzati. I log riproducono il comando osservato; le prove CRS dei tre componenti restano indipendenti e referenziano errori e stato completo della destinazione prima/dopo, senza propagare il conflitto proibito.
+
+Vocabolario, parser WKB/EWKB, CRS e primaria derivano dagli oggetti Git del contratto adottato, disponibili offline in `PLENORA_CONTRACTS` o `.plenora-contracts`; un checkout modificato non cambia il pin. Le varianti mantengono entrambe `geoarrow.wkb`: cambia soltanto `ARROW:extension:metadata`. Le fixture intere non richiedono geometria; uint64 parte da valori non ordinati. I requisiti di campagna sono dichiarati in `fixture_requirements` e `variant_rules`, separati dal vocabolario normativo. Ogni comando positivo porta `semantics` nel log: identificatore pubblico e kind; un `geometry_compute` attesta geometry_selection e produced_geometry_ids. Il validatore verifica operandi PRIM-007, applicabilita CRS GEO-006/015/019/020, precisione GEO-014 e transizione della primaria PRIM-005. requested_primary o replaces_primary_with dichiarano una richiesta o un contratto di sostituzione espliciti; sort e pass-through non attestano una computazione geometrica. Un calcolo fuori dal dominio decidibile dall oracolo non e qualificato e non rende invalido il relativo ingresso. L audit enumerato e `release/system-qualification-audit.json`.
+
+Il formato dettagliato e gli esempi sintetici di validazione sono nei moduli `scripts/system_qualification.py` e `scripts/test_system_qualification.py`. Questi test non attestano una corsa congiunta. Il bundle completo dell owner resta necessario: `verified` con evidenza non superata e `differita` con evidenza completa superata sono incoerenti.
+
+Blocchi aperti:
+
+- No complete owner bundle for the current three-component candidates and adopted ICD has been delivered.
+- Native Windows execution of the complete matrix is not qualified.
+- The full property matrix, derived operations, lawful explicit plans and prohibited CRS rejection probes remain to be qualified in both directions on all surfaces.
+
+Historical Linux evidence from 13 November 2026 is partial and does not satisfy this gate; the inverse direction is no longer described as never executed. No historical result is promoted.
+
+<!-- generato da release/system-rc-gate.json: fine -->
 
 ### 5. Artefatti di distribuzione
 

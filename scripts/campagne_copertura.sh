@@ -28,7 +28,8 @@
 #   3. esegue la suite strumentata;
 #   4. esporta lcov e riepilogo.
 #
-# Se un passo fallisce la campagna si ferma li' e lo script esce: una campagna
+# Se un prerequisito fallisce si registra la campagna rossa e si passa alla
+# successiva; alla fine basta un fallimento per l'esito rosso. Una campagna
 # a meta' non e' un campione, e confrontarla con una intera direbbe che le
 # righe mancanti «non sono coperte».
 #
@@ -85,7 +86,8 @@ echo "artefatti:      ${DIRECTORY}"
 echo "cross-fs root:  ${PLENORA_CROSS_FS_TEST_ROOT}"
 echo "=============================================================="
 
-for numero in $(seq 1 "${CAMPAGNE}"); do
+campagna() {
+    local numero="$1"
     LCOV="${DIRECTORY}/campagna-${numero}.info"
     RIEPILOGO="${DIRECTORY}/campagna-${numero}.riepilogo"
     REGISTRO="${DIRECTORY}/campagna-${numero}.log"
@@ -97,31 +99,31 @@ for numero in $(seq 1 "${CAMPAGNE}"); do
 
     if ! cargo llvm-cov clean --workspace > "${REGISTRO}" 2>&1; then
         echo "  pulizia dei profili FALLITA — ${REGISTRO}" >&2
-        exit 1
+        return 1
     fi
     echo "  profili azzerati"
 
     if ! cargo llvm-cov --workspace --all-features --all-targets --locked --no-report \
         "${ARGOMENTI_DI_TEST[@]}" >> "${REGISTRO}" 2>&1; then
         echo "  suite strumentata FALLITA — ${REGISTRO}" >&2
-        exit 1
+        return 1
     fi
     echo "  suite eseguita"
 
     if ! cargo llvm-cov report --lcov --output-path "${LCOV}" \
         --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$' >> "${REGISTRO}" 2>&1; then
         echo "  export lcov FALLITO — ${REGISTRO}" >&2
-        exit 1
+        return 1
     fi
     if [ ! -s "${LCOV}" ]; then
         echo "  export lcov vuoto: un report assente non e' una misura." >&2
-        exit 1
+        return 1
     fi
 
     if ! cargo llvm-cov report --summary-only \
         --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz)/src/.*\.rs$' > "${RIEPILOGO}" 2>&1; then
         echo "  riepilogo FALLITO — ${RIEPILOGO}" >&2
-        exit 1
+        return 1
     fi
 
     # Il conteggio si ricava dai record `DA:`, non dal riepilogo: quel numero
@@ -138,13 +140,31 @@ for riga in open(sys.argv[1], encoding="utf-8", errors="replace"):
             coperte += 1
 print(f"  righe: {coperte}/{strumentate} ({coperte / strumentate * 100:.4f}%)")
 PYTHON
+}
+
+fallite=0
+for numero in $(seq 1 "${CAMPAGNE}"); do
+    campagna "${numero}"
+    stato=$?
+    printf '%s\n' "${stato}" > "${DIRECTORY}/campagna-${numero}.exit"
+    if [ "${stato}" -ne 0 ]; then
+        fallite=$((fallite + 1))
+    fi
 done
+if [ "${fallite}" -ne 0 ]; then
+    echo "${fallite}/${CAMPAGNE} campagne fallite; confronto non autorizzato." >&2
+    exit 1
+fi
 
 echo
 echo "=============================================================="
 echo "confronto per (file, riga, coperta o no)"
 echo "=============================================================="
-python3 scripts/confronta_copertura.py "${DIRECTORY}"/campagna-*.info
+rapporti=()
+for numero in $(seq 1 "${CAMPAGNE}"); do
+    rapporti+=("${DIRECTORY}/campagna-${numero}.info")
+done
+python3 scripts/confronta_copertura.py "${rapporti[@]}"
 esito=$?
 
 echo

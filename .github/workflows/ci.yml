@@ -18,6 +18,123 @@ env:
   CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  dependency-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
+      - name: Politica comune dipendenze Plenora
+        shell: bash
+        env:
+          PLENORA_REPO: plenora-IO-tools
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          cd .ci/plenora-dependencies
+          echo '8830816f9fe15e0e11c08668cb6c4a788b19318de57b2377cc18b09af840298f  plenora-dependencies.toml' | sha256sum -c -
+          sha256sum -c snapshot.sha256
+          python3 controlla_dipendenze.py --repo ../.. --nome "$PLENORA_REPO" --json ../../target/dipendenze-report.json
+      - name: Conserva il rapporto della politica comune
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dependency-policy
+          path: target/dipendenze-report.json
+
+  prove-fonte-unica:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
+      - name: Dipendenze delle sonde e degli inventari
+        run: python -m pip install pyarrow==25.0.1 PyYAML==6.0.3 openpyxl==3.1.5 jsonschema==4.26.0
+      - name: Leggi il pin dei contratti
+        id: contracts-pin
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          pin = json.loads(Path('contracts/adoption-source.json').read_text())['contracts_source']['revision']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + pin + '\n')
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PlenoraETL/plenora-contracts
+          ref: ${{ steps.contracts-pin.outputs.revision }}
+          path: .plenora-contracts
+      - name: Tutti i self-test e controlli statici, raccolta completa
+        run: python scripts/check_prove_fonte_unica.py --run
+      - name: Fixture indipendenti riproducibili
+        if: ${{ !cancelled() }}
+        run: python scripts/check_fixture_generators.py
+      - name: Conserva inventari ed esiti anche sul rosso
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prove-fonte-unica
+          path: target/prove-fonte-unica
+
+  historical-readers:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
+      - name: Pin dell'oracolo storico dal comparatore
+        id: historical-pin
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          from scripts.compare_historical_readers import BASELINE_REVISION
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + BASELINE_REVISION + '\n')
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.historical-pin.outputs.revision }}
+          path: .historical-io
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: "1.98.1"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+      - name: Dipendenze della matrice storica
+        run: |
+          sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+          python3 -m pip install pyarrow==25.0.1 openpyxl==3.1.5
+      - name: Binario corrente con FileGDB
+        run: cargo build --locked -p plenora-io-tools --features gdal-backend
+      - name: Oracolo immutabile con FileGDB
+        if: ${{ !cancelled() }}
+        working-directory: .historical-io
+        run: cargo build --locked -p plenora-io-tools --features gdal-backend
+      - name: Matrice storica completa
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/compare_historical_readers.py
+          --old .historical-io/target/debug/plenora-io
+          --new target/debug/plenora-io --require-filegdb
+      - name: Referto storico anche sul rosso
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: historical-readers
+          path: target/historical-readers/report.json
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +156,9 @@ jobs:
           # sempre, per la ragione sbagliata. Gli altri job non leggono la
           # storia e restano a profondita' predefinita.
           fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -49,6 +169,9 @@ jobs:
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      - name: Self-test che richiedono binari e GDAL
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check_prove_fonte_unica.py --native-tests
       - name: Verify real feature-on FileGDB catalog evidence
         run: |
           python3 -m unittest scripts.test_check_filegdb_catalog
@@ -380,6 +503,17 @@ jobs:
           set -euo pipefail
           python3 -m unittest scripts.test_audit_ignores
           python3 scripts/audit_ignores.py --esegui
+      - name: Inventario dei test dai target Rust compilati
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p target/prove-native
+          cargo test --workspace --all-features --all-targets --locked --no-fail-fast -- --list > target/prove-native/rust-tests.txt
+      - name: Conserva prove native e inventario Rust
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prove-native
+          path: target/prove-native
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -501,7 +635,7 @@ jobs:
       # esatta con cui si prova, e solo da ruote binarie.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: SDK Python con pyarrow su Windows
         shell: pwsh
         run: |
@@ -527,6 +661,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -590,6 +727,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -640,7 +780,7 @@ jobs:
 
   # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
   #
-  # E' il job che rende onesta quella riga. `>=3.10,<3.15` non e' una stima: e'
+  # E' il job che rende onesta quella riga. `>=3.14,<3.15` non e' una stima: e'
   # l'insieme che questa matrice prova, e allargarla senza allargare la matrice
   # prometterebbe un Python su cui nessuno ha guardato. Il gate
   # `check_requires_python.py` confronta le due cose e diventa rosso se
@@ -650,7 +790,7 @@ jobs:
   # che si costruisca, si installi e si importi. L'integrazione contro un
   # artefatto vero sta nel workflow di distribuzione, dove un artefatto vero
   # esiste.
-  # La wheel **nativa** dello SDK: abi3 da Python 3.10, Linux (manylinux 2_34)
+  # La wheel **nativa** dello SDK: abi3 da Python 3.14, Linux (manylinux 2_34)
   # e Windows, sul modello di plenora-database-tools. Porta lo stesso pacchetto
   # Python della wheel pura e in piu' `plenora_io._native`, che esegue i
   # comandi nel processo senza un binario accanto.
@@ -668,7 +808,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: Prepara il progetto della wheel nativa
         shell: bash
         run: python scripts/prepara-wheel-nativa.py
@@ -707,14 +847,13 @@ jobs:
   # `PLENORA_IO_RICHIEDI_NATIVO=1` fa fallire invece di saltare se il modulo
   # nativo non si carica.
   python-abi3-runtime:
-    name: abi3 ${{ matrix.os }} / Python ${{ matrix.python }}
+    name: abi3 ${{ matrix.os }}
     needs: python-wheel-abi3
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - os: ubuntu-latest
             artefatto: wheel-abi3-Linux
@@ -728,13 +867,15 @@ jobs:
           path: dist-nativa
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: ${{ matrix.python }}
+          python-version-file: .python-version
       - name: Installa la wheel e prova lo SDK contro di lei
         shell: bash
         env:
           PLENORA_IO_RICHIEDI_NATIVO: "1"
         run: |
           python -m pip install --no-deps dist-nativa/*.whl
+          python -m pip install --only-binary=:all: pyarrow==25.0.1
+          python scripts/check_installed_property_plan.py --tests sdk/python/tests --backend native --report "$RUNNER_TEMP/property-plan-native.json"
           cd sdk/python/tests
           python -c "import plenora_io._native, plenora_io; assert plenora_io.__file__.find('site-packages') >= 0, plenora_io.__file__"
           python ../../../scripts/arrow_python_api.py
@@ -750,6 +891,9 @@ jobs:
       # qualcosa che non abbiamo dichiarato. Il gate lo ricontrolla comunque,
       # confrontando la HEAD del checkout col pin di `contracts/adoption-source.json`:
       # il `ref` qui e' comodita', la difesa sta nel gate.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: PlenoraETL/plenora-contracts
@@ -816,6 +960,16 @@ jobs:
             --cli target/debug/plenora-io \
             --referto vettori-primary-geometry.json
 
+      - name: Conflitti footer e campo, tutte le celle anche dopo un errore
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check_footer_field_conflicts.py --cli target/debug/plenora-io
+      - name: Referto conflitti footer e campo
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: footer-field-conflicts
+          path: target/c3-footer-conflicts/report.json
+
   # La superficie Rust pubblica, provata da un consumatore **esterno** compilato
   # dall'archivio sorgente distribuito.
   #
@@ -839,6 +993,9 @@ jobs:
           # un albero senza storia.
           fetch-depth: 1
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -856,21 +1013,17 @@ jobs:
 
   python-sdk:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: ${{ matrix.python }}
+          python-version-file: .python-version
 
       # La versione dichiarata copre quella in prova. Se un giorno la matrice
       # provasse un Python che `requires-python` esclude, il pacchetto si
       # costruirebbe e non si installerebbe: meglio dirlo qui.
       - name: La versione in prova rientra in requires-python
-        run: python3 scripts/check_requires_python.py --versione "${{ matrix.python }}"
+        run: python3 scripts/check_requires_python.py --runtime
 
       - name: Costruisci wheel e sdist
         run: python3 scripts/costruisci-pacchetto-python.py --uscita dist

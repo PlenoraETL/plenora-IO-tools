@@ -25,6 +25,7 @@ jobs:
 
   qualify-current-checkout:
     needs: functional-gates
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
@@ -35,6 +36,9 @@ jobs:
           # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
           # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: Leggi il pin dei contratti dal checkout qualificato
         id: contracts-pin
         run: |
@@ -84,6 +88,7 @@ jobs:
       # `--integrita` gira in CI e dice soltanto che il registro e' coerente;
       # qui serve `--release`, che e' rossa finche' il debito non e' a zero.
       - name: ASSURANCE-N1 coverage debt must be zero
+        if: ${{ !cancelled() }}
         run: |
           python3 -m unittest scripts.test_check_assurance_n1
           python3 scripts/check_assurance_n1.py --release
@@ -99,6 +104,7 @@ jobs:
       # del modello a due revisioni, non di questo workflow, e ripeterla qui
       # vorrebbe dire due luoghi che possono divergere.
       - name: Qualify the exact clean checkout selected by GitHub
+        if: ${{ !cancelled() }}
         env:
           EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
         run: |

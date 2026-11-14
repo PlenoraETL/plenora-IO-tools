@@ -103,7 +103,7 @@ class SondeRunnerCondiviso(unittest.TestCase):
             gate.esegui_harness("plenora-io-tools", "all-features", "bins")
         self.assertEqual(
             corsa.call_args.args[0],
-            ["cargo", "test", "-p", "plenora-io-tools", "--all-features", "--bins"],
+            ["cargo", "test", "--no-fail-fast", "-p", "plenora-io-tools", "--all-features", "--bins"],
         )
 
 
@@ -225,7 +225,7 @@ class SondeVerifica(unittest.TestCase):
         divergerebbero, e divergerebbero in silenzio."""
         self.assertEqual(
             gate.comando_test("plenora-io-tools", "all-features", "bins"),
-            ["cargo", "test", "-p", "plenora-io-tools", "--all-features", "--bins"],
+            ["cargo", "test", "--no-fail-fast", "-p", "plenora-io-tools", "--all-features", "--bins"],
         )
 
     def test_i_gruppi_aperti_non_dichiarano_prove(self) -> None:

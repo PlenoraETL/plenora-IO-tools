@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.0 — candidate in lavorazione
+
+Python minimo 3.14, deciso dal titolare: cambio di compatibilità major.
+Fonte unica `.python-version`, ABI cp314 e guardia CI.
+Ristrutturazione della qualifica IO B-11/B-14/B-15 in corso; questa voce
+non attesta completamento, qualifica di sistema o autorizzazione al rilascio.
+
+La proiezione GPKG delega al core: nello snapshot dei quartetti scompare il
+sito locale duplicato, mentre il controllo resta in `project_layer_contract`.
+Il runtime riusa il parser JSON rigoroso del model. AsyncClient e il suo stub
+derivano le operazioni dal client sincrono.
+
 ## 8.0.0 — non pubblicata
 
 ### Compatibilita degli errori: snapshot dei quartetti

@@ -423,7 +423,17 @@ def stato_coerente() -> list[str]:
             "--riscrivi-stato`; scriverlo a mano crea la seconda verita' che "
             "quel blocco esiste per impedire."
         ]
-    return []
+    return qualifica_sistema_coerente(testo)
+
+
+def qualifica_sistema_coerente(testo: str) -> list[str]:
+    gate = strict_json.loads((ROOT / 'release/system-rc-gate.json').read_text(encoding='utf-8'))
+    expected = stato_release.system_block(gate)
+    if testo.count(stato_release.SYSTEM_OPEN) != 1 or testo.count(stato_release.SYSTEM_CLOSE) != 1:
+        return ['docs/RELEASE.md: marcatori della qualifica di sistema mancanti o duplicati']
+    start = testo.index(stato_release.SYSTEM_OPEN)
+    end = testo.index(stato_release.SYSTEM_CLOSE) + len(stato_release.SYSTEM_CLOSE)
+    return [] if testo[start:end] == expected else ['docs/RELEASE.md: qualifica di sistema non rigenerata dalla fonte']
 
 
 def runbook_operativo() -> list[str]:
@@ -491,7 +501,15 @@ def riscrivi_stato() -> int:
         return 1
     principio = testo.index(stato_release.APERTURA)
     conclusione = testo.index(stato_release.CHIUSURA) + len(stato_release.CHIUSURA)
-    percorso.write_text(testo[:principio] + atteso + testo[conclusione:], encoding="utf-8", newline="\n")
+    testo = testo[:principio] + atteso + testo[conclusione:]
+    gate = strict_json.loads((ROOT / 'release/system-rc-gate.json').read_text(encoding='utf-8'))
+    if testo.count(stato_release.SYSTEM_OPEN) != 1 or testo.count(stato_release.SYSTEM_CLOSE) != 1:
+        print('docs/RELEASE.md: marcatori qualifica sistema mancanti o duplicati', file=sys.stderr)
+        return 1
+    start = testo.index(stato_release.SYSTEM_OPEN)
+    end = testo.index(stato_release.SYSTEM_CLOSE) + len(stato_release.SYSTEM_CLOSE)
+    testo = testo[:start] + stato_release.system_block(gate) + testo[end:]
+    percorso.write_text(testo, encoding="utf-8", newline="\n")
     print("docs/RELEASE.md: blocco di stato rigenerato dalla fonte strutturata")
     return 0
 
