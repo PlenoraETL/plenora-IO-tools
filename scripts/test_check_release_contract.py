@@ -40,6 +40,8 @@ from unittest import mock
 
 from scripts import check_assurance_n1_prove as n1
 from scripts import check_release_contract as gate
+from scripts import system_qualification as qualification
+from scripts.qualification_test_support import manifest as qualification_manifest
 
 # Un comando che esiste, esce 0 e non tocca il repository.
 VERDE = ["python3", "-c", "pass"]
@@ -961,8 +963,24 @@ class SondeCondizioni(unittest.TestCase):
             if v["id"] == "sistema.qualifica-cross-component"
         )
         voce["stato"] = "release_blocking"
-        motivi = gate.condizione_qualifica_cross_component(registro)
-        self.assertTrue(any("evidence.status" in m for m in motivi), motivi)
+        with tempfile.TemporaryDirectory(dir=gate.ROOT / "target") as directory:
+            root = pathlib.Path(directory)
+            for name in ("contracts/adoption-source.json", "crates/plenora-io-core/src/property_plan.rs"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((gate.ROOT / name).read_bytes())
+            artifact = root / voce["prova"]["artefatto"]
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            manifest = qualification_manifest(root)
+            # Gate e blocchi sono verdi: solo evidence.status nega la condizione.
+            for status in ("not_run", "partial", "failed"):
+                with self.subTest(status=status):
+                    manifest["evidence"]["status"] = status
+                    self.assertEqual(qualification.manifest_errors(manifest, root), [])
+                    artifact.write_text(json.dumps(manifest), encoding="utf-8")
+                    with mock.patch.object(gate, "ROOT", root):
+                        motivi = gate.condizione_qualifica_cross_component(registro)
+                    self.assertTrue(any("evidence.status" in m for m in motivi), motivi)
 
     def test_un_rinvio_mal_dichiarato_nega_la_condizione(self) -> None:
         """Differire non e' gratis: senza il non-promette, la condizione cade."""

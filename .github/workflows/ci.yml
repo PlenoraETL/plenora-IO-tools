@@ -173,6 +173,24 @@ jobs:
       # dipendenze si scaricano qui dal lock, senza dipendere dalla cache.
       - name: Dipendenze Rust dal lock
         run: cargo fetch --locked
+      # Il release gate valida il manifest contro gli oggetti normativi al pin.
+      - name: Dipendenze Python della qualifica
+        run: python3 -m pip install pyarrow==25.0.1 jsonschema==4.26.0
+      - name: Leggi il pin dei contratti
+        id: contracts-pin
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          pin = json.loads(Path('contracts/adoption-source.json').read_text())['contracts_source']['revision']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + pin + '\n')
+          PYTHON
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PlenoraETL/plenora-contracts
+          ref: ${{ steps.contracts-pin.outputs.revision }}
+          path: .plenora-contracts
       - name: Self-test che richiedono binari e GDAL
         if: ${{ !cancelled() }}
         run: python3 scripts/check_prove_fonte_unica.py --native-tests

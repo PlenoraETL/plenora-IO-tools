@@ -12,6 +12,7 @@ from unittest import mock
 import pyarrow as pa
 
 from scripts import system_qualification as q
+from scripts.qualification_test_support import manifest as qualification_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,8 +45,9 @@ class SystemQualification(unittest.TestCase):
             path = cls.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((ROOT / name).read_bytes())
-        cls.original = json.loads((ROOT / 'release/system-rc-gate.json').read_text(encoding='utf-8'))
-        cls.original.update(status='satisfied', open_blockers=[])
+        cls.original = qualification_manifest(cls.root)
+        if errors := q.manifest_errors(cls.original, cls.root):
+            raise AssertionError(errors)
         cls.artifacts = {}
         cls.files = {}
 
