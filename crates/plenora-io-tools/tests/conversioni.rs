@@ -644,15 +644,55 @@ fn dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato() {
 #[cfg(feature = "gdal-backend")]
 #[test]
 fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
+    use plenora_io_core::property_plan::{plan_metadata, Rule, METADATA_REMOVED};
+    use plenora_io_core::{FormatDriver, ReadOptions, Source};
+
     let dir = temporanea();
     let uscita = dir.path().join("uscita.gpkg");
     let opzioni = con(CRS_PROIETTATO, &["--layer", "0"]);
+    // L'atteso deriva dal contratto nativo della fixture e dalla tabella
+    // dichiarativa: nessun conteggio copiato, nessun writer intermedio che
+    // possa aggiungere metadati e cambiare le localizzazioni originali.
+    let budget = plenora_io_model::budget::PipelineBudget::builder()
+        .build()
+        .unwrap();
+    let dataset = driver_filegdb::FileGdbDriver
+        .open(
+            Source::Path(canonico::fixture("canonico.gdb")),
+            ReadOptions::from_read_parts(budget.into_read_parts()).with_assume_crs("EPSG:3003"),
+        )
+        .unwrap();
+    let attese: Vec<_> = plan_metadata(&dataset.layers()[0].contract.schema, "gpkg", None)
+        .into_iter()
+        .filter(|effect| effect.rule == Rule::Removed)
+        .map(|effect| serde_json::to_value(effect).unwrap())
+        .collect();
+    drop(dataset);
+    assert!(
+        !attese.is_empty(),
+        "la fixture porta metadati nativi FileGDB"
+    );
     let esito = converti("canonico.gdb", &uscita, &opzioni);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_definition_not_preserved_derived", 1)]),
-        "la definizione viene riscritta dal GeoPackage, e lo dichiara"
+        perdite(&[
+            ("crs_definition_not_preserved_derived", 1),
+            (METADATA_REMOVED, u64::try_from(attese.len()).unwrap()),
+        ]),
+        "definizione ricostruita e metadati nativi persi sono dichiarati"
+    );
+    let documento = esito.documento();
+    let dichiarate: Vec<_> = documento["write_loss"]["property_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|change| change["effect"]["rule"] == "removed")
+        .map(|change| change["effect"].clone())
+        .collect();
+    assert_eq!(
+        dichiarate, attese,
+        "ogni perdita conserva campo e chiave del piano"
     );
     let righe = per_id(&uscita, &[]);
     assert!(

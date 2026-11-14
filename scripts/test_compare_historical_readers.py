@@ -1,17 +1,75 @@
-"""The only historical byte exception must reject unrelated changes."""
+"""Historical byte exceptions must reject unrelated changes."""
 import json
+from contextlib import closing
 from pathlib import Path
 import tempfile
 import unittest
 import pyarrow as pa
 import pyarrow.parquet as pq
 from scripts.compare_historical_readers import (explained_dimensions, matching_rejections,
-    explained_preserved_srid, explained_empty_footer_types)
+    explained_preserved_srid, explained_empty_footer_types,
+    explained_gpkg_field_identity, independent_gpkg, independent_wkb)
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class HistoricalException(unittest.TestCase):
+    def test_gpkg_native_identity_order_excludes_generated_covering(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory(dir=ROOT / 'target') as folder:
+            root = Path(folder)
+            source = root / 'native.gpkg'
+            independent_gpkg(source, 'point', 'xy', 'value', [independent_wkb('point', 'xy')])
+            with closing(sqlite3.connect(source)) as db, db:
+                db.execute('ALTER TABLE feature ADD COLUMN label INTEGER')
+            geo = json.dumps({'columns': {'geometry': {'covering': {'bbox': {'xmin': ['bbox', 'xmin']}}}}}).encode()
+            fields = [pa.field('geometry', pa.binary(), metadata={b'plenora.field_id': b'0'}),
+                      pa.field('label', pa.int64()), pa.field('fid', pa.int64()),
+                      pa.field('bbox', pa.struct([('xmin', pa.float64())]))]
+            values = [pa.array([b'point']), pa.array([5]), pa.array([1]),
+                      pa.array([{'xmin': 9.}], type=fields[-1].type)]
+            old, new = root / 'old.parquet', root / 'new.parquet'
+            pq.write_table(pa.Table.from_arrays(values, schema=pa.schema(fields, metadata={b'geo': geo})), old)
+            for i in (1, 2): fields[i] = fields[i].with_metadata({b'plenora.field_id': str(i).encode()})
+            pq.write_table(pa.Table.from_arrays(values, schema=pa.schema(fields, metadata={b'geo': geo})), new)
+            self.assertTrue(explained_gpkg_field_identity(source, old, new, 'geoparquet'))
+            fields[-1] = fields[-1].with_metadata({b'plenora.field_id': b'3'})
+            pq.write_table(pa.Table.from_arrays(values, schema=pa.schema(fields, metadata={b'geo': geo})), new)
+            self.assertFalse(explained_gpkg_field_identity(source, old, new, 'geoparquet'))
+
+    def test_gpkg_identity_exception_is_bound_to_native_columns_and_encoded_pages(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory(dir=ROOT / 'target') as folder:
+            root = Path(folder)
+            source = root / 'native.gpkg'
+            value = independent_wkb('point', 'xy')
+            independent_gpkg(source, 'point', 'xy', 'value', [value])
+            def write(name, identity=None, number=1, extra=False, geometry_id=b'0', field_name='fid'):
+                md = {} if identity is None else {b'plenora.field_id': identity}
+                if extra: md[b'unrelated'] = b'change'
+                schema = pa.schema([
+                    pa.field('geometry', pa.binary(), metadata={b'plenora.field_id': geometry_id}),
+                    pa.field(field_name, pa.int64(), metadata=md)])
+                path = root / name
+                pq.write_table(pa.Table.from_arrays([pa.array([value]), pa.array([number])], schema=schema),
+                               path, use_dictionary=False)
+                return path
+            old = write('old.parquet')
+            new = write('new.parquet', b'1')
+            self.assertTrue(explained_gpkg_field_identity(source, old, new, 'geoparquet'))
+            self.assertFalse(explained_gpkg_field_identity(source, old, new, 'ipc'))
+            for changes in ({'identity': b'2'}, {'identity': b'1', 'number': 2},
+                            {'identity': b'1', 'extra': True}, {'identity': b'1', 'geometry_id': b'9'},
+                            {'identity': b'1', 'field_name': 'other'}):
+                with self.subTest(changes=changes):
+                    bad = write('bad.parquet', **changes)
+                    self.assertFalse(explained_gpkg_field_identity(source, old, bad, 'geoparquet'))
+            # Positional fallback is forbidden when the source declares identities.
+            with closing(sqlite3.connect(source)) as db, db:
+                db.execute('CREATE TABLE gpkg_metadata(md_standard_uri TEXT)')
+                db.execute('INSERT INTO gpkg_metadata VALUES(?)', ('urn:plenora:gpkg:field-identity:1',))
+            self.assertFalse(explained_gpkg_field_identity(source, old, new, 'geoparquet'))
+
     def test_crashes_are_not_matching_rejections(self):
         self.assertFalse(matching_rejections([{'exit': 1, 'response': {'diagnostic': 'crash'}}] * 2))
 

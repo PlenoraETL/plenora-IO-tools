@@ -144,5 +144,13 @@
     "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
     "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
     "comando": "scripts/fuzz-profondita.sh filegdb_reader"
+  },
+  "rimisurazione_asan_dovuta": {
+    "perche": "CI #96: le modifiche intenzionali IO-a e delle dipendenze hanno invalidato anche il perimetro ASan, distinto dalla profondita fuzz. Si registra il debito omesso, senza modificare la misura storica.",
+    "impronta_della_misura": "d032dabde3f448b67e725d2b17fa218a1e321026788e3c72600b7784440e96f2",
+    "impronta_attesa": "5ca8d95d772523ce31c2821132f854dda5fb737b1adfabdd4c55a7dc925e7548",
+    "non_promette": "La misura ASan storica non qualifica questo albero; nessuna rimisurazione ASan/GDAL eseguita su Windows.",
+    "quando": "Prima della qualifica finale, sul runner Linux/ASan/GDAL previsto dal repository.",
+    "comando": "bash scripts/asan-filegdb.sh"
   }
 }

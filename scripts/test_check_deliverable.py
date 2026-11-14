@@ -158,12 +158,14 @@ class SondeDeliverable(unittest.TestCase):
                 self.assertTrue(self.gate.verifica_sorgente(self.tmp, self.REVISIONE)[0])
 
     def crea_serie(self) -> None:
+        self.archivi_nativi = []
         self.crea_python()
         self.crea_sorgente()
         for piattaforma in ("linux-x86_64", "windows-x86_64"):
             for profilo in ("base", "filegdb"):
                 nome = self.d.nome_archivio(self.VERSIONE, piattaforma, profilo)
                 archivio = self.tmp / f"{nome}.{self.d.contenitore(piattaforma)}"
+                self.archivi_nativi.append(archivio)
                 self.scrivi_archivio(
                     archivio, nome, self.manifesto_di(nome, piattaforma, profilo)
                 )
@@ -249,6 +251,10 @@ class SondeDeliverable(unittest.TestCase):
     def errori(self) -> list[str]:
         return self.gate.verifica(self.tmp, self.VERSIONE, "prova", self.REVISIONE)
 
+    def archivio_nativo(self) -> pathlib.Path:
+        """La fixture ricorda cio' che crea, senza dipendere dall'ordine del filesystem."""
+        return self.archivi_nativi[0]
+
     def test_il_comando_gira_dalla_riga_di_comando(self) -> None:
         """`main` si esercita, non solo la funzione che chiama.
 
@@ -278,26 +284,26 @@ class SondeDeliverable(unittest.TestCase):
         self.assertEqual(self.errori(), [])
 
     def test_un_archivio_cambiato_dopo_l_upload_e_rosso(self) -> None:
-        archivio = next(self.tmp.glob("*.tar.gz"))
+        archivio = self.archivio_nativo()
         archivio.write_bytes(archivio.read_bytes() + b"manomesso")
         self.assertIn("diverso dai byte scaricati", " ".join(self.errori()))
 
     def test_la_provenance_deve_nominare_quegli_stessi_byte(self) -> None:
-        percorso = next(self.tmp.glob("*.provenance.json"))
+        percorso = self.tmp / (self.archivio_nativo().name + ".provenance.json")
         prova = strict_json.loads(percorso.read_text(encoding="utf-8"))
         prova["sha256"] = "0" * 64
         percorso.write_text(json.dumps(prova), encoding="utf-8")
         self.assertIn("provenance.sha256", " ".join(self.errori()))
 
     def test_la_revisione_del_deliverable_non_e_libera(self) -> None:
-        percorso = next(self.tmp.glob("*.provenance.json"))
+        percorso = self.tmp / (self.archivio_nativo().name + ".provenance.json")
         prova = strict_json.loads(percorso.read_text(encoding="utf-8"))
         prova["revisione"] = "b" * 40
         percorso.write_text(json.dumps(prova), encoding="utf-8")
         self.assertIn("provenance.revisione", " ".join(self.errori()))
 
     def test_un_sidecar_mancante_e_rosso(self) -> None:
-        next(self.tmp.glob("*.sha256")).unlink()
+        (self.tmp / (self.archivio_nativo().name + ".sha256")).unlink()
         self.assertIn("file mancanti", " ".join(self.errori()))
 
     def test_la_revisione_del_manifesto_deve_seguire_la_provenance(self) -> None:
@@ -308,7 +314,7 @@ class SondeDeliverable(unittest.TestCase):
         concludono cose diverse sulla stessa installazione, e nessuno dei due
         sbaglia a leggere.
         """
-        archivio = next(self.tmp.glob("*.tar.gz"))
+        archivio = self.archivio_nativo()
         self.riscrivi_manifesto(archivio, revisione="d" * 40)
         motivi = self.errori()
         self.assertTrue(any("revisione" in m for m in motivi), motivi)
@@ -317,7 +323,7 @@ class SondeDeliverable(unittest.TestCase):
     def test_un_archivio_senza_manifesto_e_rosso(self) -> None:
         """Un archivio che non porta il proprio manifesto non si puo' verificare
         dall'interno, e un errore di apertura non deve leggersi come «va bene»."""
-        archivio = next(self.tmp.glob("*.tar.gz"))
+        archivio = self.archivio_nativo()
         self.svuota_archivio(archivio)
         motivi = self.errori()
         self.assertTrue(any("MANIFEST" in m for m in motivi), motivi)
@@ -368,7 +374,7 @@ class SondeDeliverable(unittest.TestCase):
         insiemi diversi.
         """
         congelati = self.artefatti_congelati()
-        archivio = next(self.tmp.glob("*.tar.gz"))
+        archivio = self.archivio_nativo()
         archivio.write_bytes(archivio.read_bytes() + b"ricostruito")
         motivi = self.gate.verifica_contro_la_candidate(
             self.tmp, congelati, self.REVISIONE

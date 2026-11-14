@@ -12,6 +12,14 @@ sito locale duplicato, mentre il controllo resta in `project_layer_contract`.
 Il runtime riusa il parser JSON rigoroso del model. AsyncClient e il suo stub
 derivano le operazioni dal client sincrono.
 
+- **B14-GPKG-FIELD-ID**: anche i GPKG storici privi dell'estensione delle
+  identita espongono `plenora.field_id` per tutti i campi, secondo l'ordine
+  del reader (geometria, attributi, chiave primaria). Questo rende espliciti nel GeoParquet
+  gli ID prima assenti; IPC gia li esponeva. Il comparatore storico ricava
+  l'atteso dalle colonne SQLite e ammette solo queste aggiunte, con ogni
+  altro metadato e tutte le pagine codificate invariati. Non applica questo
+  caso a sorgenti che dichiarano identita persistite.
+
 ## 8.0.0 — non pubblicata
 
 ### Compatibilita degli errori: snapshot dei quartetti

@@ -6,6 +6,7 @@ fixtures supplement them. FileGDB requires BOTH binaries built with GDAL support
 No output difference is accepted by default; JSON records every unavailable cell.
 """
 import argparse
+from contextlib import closing
 import csv
 import hashlib
 import json
@@ -91,7 +92,7 @@ def independent_gpkg(path, kind, dim, state, values):
     import sqlite3
     import struct
     path.unlink(missing_ok=True)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript("""
             PRAGMA application_id=1196444487;
             PRAGMA user_version=10300;
@@ -230,6 +231,47 @@ def explained_preserved_srid(source, before, after, fmt):
         if declared is not None and b'plenora.geometry.srid' not in md:
             if str(int(declared)).encode() != declared: return False
             md[b'plenora.geometry.srid'] = declared
+            expected = expected.set(i, field.with_metadata(md)); changed = True
+    return changed and expected.equals(actual, check_metadata=True) and identical_encoded_payload(before, after, fmt)
+
+
+def explained_gpkg_field_identity(source, before, after, fmt):
+    """B-14: native GPKG without persisted identities gets positional identities.
+
+    Independently read SQLite columns; never infer the expected identity from
+    the new output. Every other schema property and encoded page must agree.
+    """
+    import sqlite3
+    if fmt != 'geoparquet': return False
+    with closing(sqlite3.connect(source.resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        if db.execute('PRAGMA application_id').fetchone()[0] != 1196444487: return False
+        geometries = db.execute('SELECT table_name,column_name FROM gpkg_geometry_columns').fetchall()
+        if len(geometries) != 1: return False
+        table, geometry = geometries[0]
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='gpkg_metadata'").fetchone():
+            if db.execute('SELECT 1 FROM gpkg_metadata WHERE md_standard_uri=?',
+                          ('urn:plenora:gpkg:field-identity:1',)).fetchone(): return False
+        columns = list(db.execute('SELECT * FROM pragma_table_info(?)', (table,)))
+    primary = [r[1] for r in columns if r[5]]
+    if len(primary) > 1: return False
+    columns = [r[1] for r in columns]
+    if geometry not in columns: return False
+    # Both historical/current GPKG readers expose the primary key last.
+    names = [geometry] + [name for name in columns if name != geometry and name not in primary] + primary
+    expected, actual = output_table(before, fmt).schema, output_table(after, fmt).schema
+    geo = json.loads((expected.metadata or {}).get(b'geo', b'{}'))
+    covering = {path[0] for column in geo.get('columns', {}).values()
+                for path in column.get('covering', {}).get('bbox', {}).values()}
+    if expected.names[:len(names)] != names or set(expected.names[len(names):]) != covering: return False
+    changed = False
+    for i in range(len(names)):
+        field = expected.field(i)
+        md = dict(field.metadata or {})
+        identity = str(i).encode()
+        if b'plenora.field_id' in md:
+            if md[b'plenora.field_id'] != identity: return False
+        else:
+            md[b'plenora.field_id'] = identity
             expected = expected.set(i, field.with_metadata(md)); changed = True
     return changed and expected.equals(actual, check_metadata=True) and identical_encoded_payload(before, after, fmt)
 
@@ -377,6 +419,9 @@ def main():
                     if row['status'] == 'UNEXPLAINED_BYTES' and fmt == 'geoparquet' and explained_dimensions(*outputs):
                         row['status'] = 'explained_C3_GP_DIM'
                         row['reason'] = 'CHANGELOG.md C3-GP-DIM: final embedded dimensions agree with footer; every other byte outside the footer and all other metadata unchanged.'
+                    if row['status'] == 'UNEXPLAINED_BYTES' and reader == 'gpkg' and explained_gpkg_field_identity(source, *outputs, fmt):
+                        row['status'] = 'explained_B14_GPKG_FIELD_ID'
+                        row['reason'] = 'CHANGELOG.md B14-GPKG-FIELD-ID: identities derived from native SQLite columns when no identity extension exists; exact expected schema and unchanged encoded pages.'
                 elif matching_rejections(executions):
                     row['status'] = 'same_rejection'
                 else: row['status'] = 'UNEXPLAINED_BEHAVIOR'
