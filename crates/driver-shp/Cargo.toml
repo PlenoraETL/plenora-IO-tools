@@ -21,4 +21,4 @@ serde_json.workspace = true
 tempfile.workspace = true
 
 # Gia nel lock; decodifica rigorosa delle codepage DBF, senza replacement.
-encoding_rs = "=0.8.35"
+encoding_rs = "=0.8.41"

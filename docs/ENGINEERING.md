@@ -204,8 +204,8 @@ ASCII/20127, ISO-8859-1/LATIN1/28591 e Windows-1250..1258 (anche CP e numero).
 Senza `.cpg`: LDID 0xF0 = UTF-8, 0x57 = Latin-1 limitato ai byte non ambigui, 0x03 = Windows-1252,
 0xC8..0xCB = Windows-1250/1251/1254/1253; LDID 0 ammette solo ASCII, senza
 indovinare una codepage per gli altri byte. Ogni altra codepage e' rifiutata.
-`encoding_rs = 0.8.35`, gia' transitiva nel lock, diventa dipendenza diretta
-pinnata per le tabelle Windows e la decodifica senza replacement. Latin-1
+`encoding_rs =0.8.41` e' una dipendenza diretta pinnata del driver SHP
+per le tabelle Windows e la decodifica senza replacement. Latin-1
 viene decodificato separatamente: non e' un alias di Windows-1252. Sotto
 LDID 0x57 senza `.cpg`, i byte 0x80..0x9F sono rifiutati: non si puo'
 distinguere Latin-1 da Windows-1252 usato dai produttori ANSI. Serve un

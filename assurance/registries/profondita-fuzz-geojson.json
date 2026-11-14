@@ -111,9 +111,9 @@
   ],
   "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
   "rimisurazione_dovuta": {
-    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta.",
+    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta. Dipendenze candidate 9.0.0: encoding_rs 0.8.41, flate2 1.1.10, futures 0.3.34 e transitive della politica comune; lock aggiornati con Cargo. La misura storica resta invariata e va ripetuta prima della qualifica.",
     "impronta_della_misura": "7036fdedf005aef2ac372d37e2d72a67bf4310a25b5f64ee06f7b9ee05506bc8",
-    "impronta_attesa": "6d18798c36110f77d2b14369f008d74c2ba30c163a96cc7b1a52a956d29806f3",
+    "impronta_attesa": "0add0d8a910c47ba31f7fb456a9010a67a3ef2c3d22ee5d3ebf35786a9e4b6e7",
     "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
     "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
     "comando": "scripts/fuzz-profondita.sh geojson_reader"

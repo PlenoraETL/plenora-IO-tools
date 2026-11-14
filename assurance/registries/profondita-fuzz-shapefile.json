@@ -332,9 +332,9 @@
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
   },
   "rimisurazione_dovuta": {
-    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta.",
+    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta. Dipendenze candidate 9.0.0: encoding_rs 0.8.41, flate2 1.1.10, futures 0.3.34 e transitive della politica comune; lock aggiornati con Cargo. La misura storica resta invariata e va ripetuta prima della qualifica.",
     "impronta_della_misura": "4750ad0bd759d5d7cbd6062174f7b0e6a85d15aebb04938f2f7ee74a647dad2f",
-    "impronta_attesa": "c890013ad9aea2b8f1fbf937052a96526f6badd59060c7f5716734d47172e8df",
+    "impronta_attesa": "6c327620dd9e7bdcefaf0ccfb8c9f8a97ca601c830f046b047c66630e52b0639",
     "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
     "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
     "comando": "scripts/fuzz-profondita.sh shp_reader"
