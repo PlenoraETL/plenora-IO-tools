@@ -389,7 +389,9 @@ impl ReadOptions {
 }
 
 /// Opzioni di scrittura. Come [`ReadOptions`], senza `Default`.
+#[derive(Clone)]
 pub struct WriteOptions {
+    property_plans: Vec<crate::property_plan::PropertyPlan>,
     /// Profilo `DurableAtomicPublish` (fsync) invece di `AtomicPublish` — `ENGINEERING.md § Pipeline di scrittura`.
     pub durable: bool,
     /// Knob specifici del driver.
@@ -398,6 +400,23 @@ pub struct WriteOptions {
 }
 
 impl WriteOptions {
+    #[must_use]
+    pub fn property_plans(&self) -> &[crate::property_plan::PropertyPlan] {
+        &self.property_plans
+    }
+
+    /// Plans made on the original Arrow schema, before representation conversion.
+    #[must_use]
+    pub fn with_property_plans(mut self, plans: Vec<crate::property_plan::PropertyPlan>) -> Self {
+        self.property_plans = plans;
+        self
+    }
+
+    #[must_use]
+    pub fn property_plan(&self, index: usize) -> Option<&crate::property_plan::PropertyPlan> {
+        self.property_plans.get(index)
+    }
+
     /// Costruisce le opzioni dalle parti di scrittura.
     ///
     /// In una conversione le parti write e read escono dallo stesso
@@ -409,6 +428,7 @@ impl WriteOptions {
     #[must_use]
     pub fn from_write_parts(parts: WriteBudgetParts) -> Self {
         Self {
+            property_plans: Vec::new(),
             durable: false,
             format_options: BTreeMap::new(),
             budget: parts.into_budget(),
@@ -906,7 +926,7 @@ pub fn with_write_validation(
         .write_capabilities()
         .map(|capabilities| capabilities.geometry);
     let layers = geometry_contracts_for_validation(plan)?;
-    let planned_loss = planned_write_loss(descriptor, plan)?;
+    let planned_loss = planned_write_loss(descriptor, plan, opts)?;
     let fidelity = assess_write_contract(descriptor, plan).with_loss_report(&planned_loss);
     budget.context().ensure_active()?;
     let operation_lease = budget.context().lease_concurrency()?;
@@ -957,7 +977,8 @@ pub fn with_write_validation(
 }
 
 mod perdita_pianificata;
-use perdita_pianificata::{assess_write_contract, planned_write_loss};
+use perdita_pianificata::assess_write_contract;
+pub use perdita_pianificata::planned_write_loss;
 
 mod scrittura_limitata;
 use scrittura_limitata::{GeometryValidation, LimitedWriter};

@@ -109,5 +109,13 @@
       "perche": "in GeoJSON i membri di un MULTIPOINT non hanno un oggetto proprio: sono le posizioni stesse. Senza questa riga il conteggio sarebbe la meta' di quello del bordo, ed e' il difetto che le sonde hanno trovato confrontando i due numeri."
     }
   ],
-  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`."
+  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
+  "rimisurazione_dovuta": {
+    "perche": "PASSO IO-a: modifiche intenzionali al piano dichiarativo core, codec GPKG, report e Cargo.lock (serde_json nel core); il perimetro transitivo misurato e cambiato. Impronta corrente ricalcolata con check_profondita_fuzz.impronta_del_perimetro; misura storica non riscritta.",
+    "impronta_della_misura": "7036fdedf005aef2ac372d37e2d72a67bf4310a25b5f64ee06f7b9ee05506bc8",
+    "impronta_attesa": "6d18798c36110f77d2b14369f008d74c2ba30c163a96cc7b1a52a956d29806f3",
+    "non_promette": "La copertura storica non qualifica questo albero. Nessuna nuova misura ASan/llvm-cov eseguita su Windows.",
+    "quando": "Prima della qualifica finale, nell ambiente Linux/ASan/GDAL previsto dal repository.",
+    "comando": "scripts/fuzz-profondita.sh geojson_reader"
+  }
 }

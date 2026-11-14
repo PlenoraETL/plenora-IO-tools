@@ -23,6 +23,8 @@ struct ColumnIdentity {
 pub struct ContractPlan {
     version: u32,
     columns: Vec<ColumnIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    properties: Option<plenora_io_core::property_plan::PropertyPlan>,
 }
 
 fn invalid() -> plenora_io_model::PlenoraIoError {
@@ -88,9 +90,36 @@ impl ContractPlan {
         let plan = Self {
             version: 1,
             columns,
+            properties: None,
         };
         plan.encode()?;
         Ok(plan)
+    }
+
+    pub fn with_properties(
+        mut self,
+        properties: plenora_io_core::property_plan::PropertyPlan,
+    ) -> Result<Self> {
+        self.validate_properties(&properties)?;
+        properties.report(0, plenora_io_core::property_plan::Phase::Write)?;
+        self.properties = Some(properties);
+        self.encode()?;
+        Ok(self)
+    }
+
+    fn validate_properties(
+        &self,
+        properties: &plenora_io_core::property_plan::PropertyPlan,
+    ) -> Result<()> {
+        let original: Vec<_> = self.columns.iter().filter(|c| !c.generated).collect();
+        properties.validate("gpkg", original.len())?;
+        if properties.effects().iter().any(|e| {
+            e.field_index
+                .is_some_and(|i| e.field_id.is_some_and(|id| id != original[i].field_id))
+        }) {
+            return Err(invalid());
+        }
+        Ok(())
     }
 
     fn encode(&self) -> Result<String> {
@@ -153,9 +182,19 @@ fn allocate(occupied: &mut BTreeSet<u32>, next: &mut u32) -> Result<u32> {
     Ok(*next)
 }
 
-pub fn restore(conn: &Connection, table: &str, fields: Vec<Field>) -> Result<Vec<Field>> {
+pub fn restore_with_properties(
+    conn: &Connection,
+    table: &str,
+    fields: Vec<Field>,
+) -> Result<(
+    Vec<Field>,
+    Option<plenora_io_core::property_plan::PropertyPlan>,
+)> {
     if !super::sqlite_table_exists(conn, "gpkg_metadata")? {
-        return Ok(plenora_io_model::geometry::with_field_identity(fields));
+        return Ok((
+            plenora_io_model::geometry::with_field_identity(fields),
+            None,
+        ));
     }
     let mut stmt = conn
         .prepare(
@@ -176,7 +215,10 @@ pub fn restore(conn: &Connection, table: &str, fields: Vec<Field>) -> Result<Vec
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(sql_err)?;
     let Some(&(size, id, valid_scope)) = ids.first() else {
-        return Ok(plenora_io_model::geometry::with_field_identity(fields));
+        return Ok((
+            plenora_io_model::geometry::with_field_identity(fields),
+            None,
+        ));
     };
     if !valid_scope
         || ids.len() != 1
@@ -196,6 +238,10 @@ pub fn restore(conn: &Connection, table: &str, fields: Vec<Field>) -> Result<Vec
     if plan.version != 1 || plan.columns.len() != fields.len() {
         return Err(invalid());
     }
+    if let Some(properties) = &plan.properties {
+        plan.validate_properties(properties)?;
+        properties.report(0, plenora_io_core::property_plan::Phase::SourceWrite)?;
+    }
     let mut ids = BTreeSet::new();
     let mut columns = BTreeMap::new();
     for column in plan.columns {
@@ -207,7 +253,7 @@ pub fn restore(conn: &Connection, table: &str, fields: Vec<Field>) -> Result<Vec
             return Err(invalid());
         }
     }
-    fields
+    let fields = fields
         .into_iter()
         .map(|field| {
             let id = columns
@@ -217,5 +263,35 @@ pub fn restore(conn: &Connection, table: &str, fields: Vec<Field>) -> Result<Vec
             metadata.insert(PLENORA_FIELD_ID_KEY.to_owned(), id.to_string());
             Ok(field.with_metadata(metadata))
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok((fields, plan.properties))
+}
+
+/// The same immutable plans are validated before staging, persisted by the
+/// writer and consumed by the common planned-loss wrapper.
+pub fn prepare_write(
+    plan: &plenora_io_core::WritePlan,
+    opts: &plenora_io_core::WriteOptions,
+) -> Result<plenora_io_core::WriteOptions> {
+    if !opts.property_plans().is_empty() && opts.property_plans().len() != plan.layers.len() {
+        return Err(invalid());
+    }
+    let mut properties = Vec::new();
+    let mut source_report = plenora_io_core::LossReport::default();
+    for (index, layer) in plan.layers.iter().enumerate() {
+        super::schema::validate_sqlite_metadata(&layer.contract.schema)?;
+        let property = opts.property_plan(index).cloned().unwrap_or_else(|| {
+            plenora_io_core::property_plan::PropertyPlan::new(&layer.contract.schema, "gpkg", None)
+        });
+        ContractPlan::from_schema(&layer.contract.schema)?.with_properties(property.clone())?;
+        source_report.merge(&property.report(
+            index as u64,
+            plenora_io_core::property_plan::Phase::SourceWrite,
+        )?);
+        properties.push(property);
+    }
+    source_report.validate_property_budget()?;
+    let options = opts.clone().with_property_plans(properties);
+    plenora_io_core::driver::planned_write_loss(&super::DESCRIPTOR, plan, &options)?;
+    Ok(options)
 }

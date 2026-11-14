@@ -113,12 +113,18 @@ pub fn sqlite_declared_to_arrow(t: &str) -> DataType {
 
 /// Schema (senza leggere dati) dai tipi dichiarati; attributi = colonne non
 /// geometria, inclusa la chiave primaria.
+pub struct ReadSchema {
+    pub schema: SchemaRef,
+    pub attrs: Vec<(String, DataType)>,
+    pub properties: Option<plenora_io_core::property_plan::PropertyPlan>,
+}
+
 pub fn build_schema(
     conn: &Connection,
     table: &str,
     geom_col: &str,
     crs: &ResolvedCrs,
-) -> Result<(SchemaRef, Vec<(String, DataType)>)> {
+) -> Result<ReadSchema> {
     let mut stmt = conn
         .prepare(&format!(
             "PRAGMA table_xinfo(\"{}\")",
@@ -227,6 +233,16 @@ pub fn build_schema(
     {
         normalized.insert("order");
     }
+    finish_schema(conn, table, fields, attrs, normalized)
+}
+
+fn finish_schema(
+    conn: &Connection,
+    table: &str,
+    fields: Vec<Field>,
+    attrs: Vec<(String, DataType)>,
+    normalized: std::collections::BTreeSet<&str>,
+) -> Result<ReadSchema> {
     let mut metadata = std::collections::HashMap::new();
     if !normalized.is_empty() {
         metadata.insert(
@@ -234,8 +250,12 @@ pub fn build_schema(
             normalized.into_iter().collect::<Vec<_>>().join(","),
         );
     }
-    let fields = super::contract_plan::restore(conn, table, fields)?;
-    Ok((Arc::new(Schema::new_with_metadata(fields, metadata)), attrs))
+    let (fields, properties) = super::contract_plan::restore_with_properties(conn, table, fields)?;
+    Ok(ReadSchema {
+        schema: Arc::new(Schema::new_with_metadata(fields, metadata)),
+        attrs,
+        properties,
+    })
 }
 
 fn has_unrepresented_sql(conn: &Connection, table: &str) -> Result<bool> {

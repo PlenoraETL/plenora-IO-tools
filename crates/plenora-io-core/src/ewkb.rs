@@ -56,7 +56,7 @@ pub struct DaEwkbAWkb {
     srid: Option<i32>,
     limiti: WkbLimits,
     schema: SchemaRef,
-    effects: Vec<crate::property_plan::PropertyEffect>,
+    properties: crate::property_plan::PropertyPlan,
 }
 
 fn rifiuto(
@@ -150,41 +150,72 @@ pub fn pianifica(
             srid: geometria.srid,
             limiti,
             schema: schema_wkb,
-            effects: crate::property_plan::plan_metadata(schema, driver, Some(indice)),
+            properties: crate::property_plan::PropertyPlan::new(schema, driver, Some(indice)),
         },
     )))
 }
 
 impl DaEwkbAWkb {
-    /// Inventario calcolato sull'ingresso, prima di rimuovere encoding e SRID.
     #[must_use]
     pub fn property_effects(&self) -> &[crate::property_plan::PropertyEffect] {
-        &self.effects
+        self.properties.effects()
     }
+}
 
-    /// Proiezione diagnostica della trasformazione, localizzata sull'ingresso.
-    #[must_use]
-    pub fn loss_report(&self, layer_index: u64) -> crate::LossReport {
-        use crate::property_plan::Rule;
-        let mut report = crate::LossReport::default();
-        for effect in &self.effects {
-            let context = match effect.rule {
-                Rule::EwkbToWkb => "encoding=ewkb_to_iso_wkb byte_order=little_endian coordinates=bitwise phase=write",
-                Rule::SridRemoved => "srid=removed_from_wkb crs=validated_separately phase=write",
-                _ => continue,
+/// One preparation path for Rust, CLI and runtime. Original schemas are planned
+/// before encoding/SRID are changed; options carry those immutable plans to writers.
+pub struct PreparedWrite {
+    pub plan: crate::WritePlan,
+    pub conversions: Vec<Option<DaEwkbAWkb>>,
+    pub properties: Vec<crate::property_plan::PropertyPlan>,
+}
+
+impl PreparedWrite {
+    /// # Errors
+    /// Propagates invalid geometry contracts and incompatible EWKB SRIDs.
+    pub fn new(
+        input: &crate::WritePlan,
+        descriptor: &FormatDescriptor,
+        limits: WkbLimits,
+    ) -> Result<Self> {
+        let mut layers = Vec::new();
+        let mut conversions = Vec::new();
+        let mut properties = Vec::new();
+        for layer in &input.layers {
+            let converted = pianifica(
+                descriptor,
+                &layer.contract.schema,
+                layer.contract.geometry.as_ref(),
+                limits,
+            )?;
+            let (schema, geometry, conversion, property) = match converted {
+                Some((schema, geometry, conversion)) => {
+                    let property = conversion.properties.clone();
+                    (schema, Some(geometry), Some(conversion), property)
+                }
+                None => (
+                    layer.contract.schema.clone(),
+                    layer.contract.geometry.clone(),
+                    None,
+                    crate::property_plan::PropertyPlan::new(
+                        &layer.contract.schema,
+                        descriptor.id(),
+                        None,
+                    ),
+                ),
             };
-            report.record("geometry_representation_normalized", 1);
-            report.add_example(crate::LossExample {
-                category: "geometry_representation_normalized".to_owned(),
-                posizione: crate::loss::Posizione {
-                    layer_index: Some(layer_index),
-                    field_index: effect.field_index.map(|index| index as u64),
-                    type_class: None,
-                },
-                context: context.to_owned(),
+            layers.push(crate::WriteLayer {
+                name: layer.name.clone(),
+                contract: plenora_io_model::contract::DataContract { schema, geometry },
             });
+            conversions.push(conversion);
+            properties.push(property);
         }
-        report
+        Ok(Self {
+            plan: crate::WritePlan { layers },
+            conversions,
+            properties,
+        })
     }
 }
 

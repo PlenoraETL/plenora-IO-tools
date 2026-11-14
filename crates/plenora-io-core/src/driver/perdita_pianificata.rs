@@ -1,13 +1,4 @@
-//! Che cosa una scrittura perdera', calcolato prima di scriverla.
-//!
-//! Estratto da `driver.rs` per M1. Il gruppo non chiama nessuno degli altri due
-//! della validazione -- la misura dei riferimenti che attraversano i confini lo
-//! dava a zero in entrambe le direzioni -- e si raggiunge da
-//! `with_write_validation`, che resta nel genitore.
-//!
-//! Lo spostamento e' meccanico: nessuna firma cambia, nessun ordine di
-//! operazioni cambia, e cio' che il gruppo usa del genitore arriva per `use
-//! super::*`.
+//! Planned loss before publication, including the original-input property plan.
 
 use plenora_io_model::crs::CrsDefinitionFormat;
 
@@ -20,10 +11,20 @@ use super::{
     TypeCoercionPolicy, WritePlan,
 };
 
+/// # Errors
+/// Rejects invalid geometry, mismatched plans and excessive complete diagnostics.
 pub fn planned_write_loss(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
+    opts: &super::WriteOptions,
 ) -> plenora_io_model::Result<LossReport> {
+    if !opts.property_plans.is_empty() && opts.property_plans.len() != plan.layers.len() {
+        return Err(plenora_io_model::PlenoraIoError::contratto_redatto(
+            &plenora_io_model::PublicMessage::Curated(
+                "numero di piani delle proprieta incompatibile con i layer",
+            ),
+        ));
+    }
     let mut loss = LossReport::default();
     let Some(capabilities) = descriptor.write_capabilities() else {
         return Ok(loss);
@@ -31,12 +32,11 @@ pub fn planned_write_loss(
 
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
-        record_metadata_plan(
-            &mut loss,
-            &layer.contract.schema,
-            descriptor.id(),
-            layer_index,
-        );
+        let fallback =
+            crate::property_plan::PropertyPlan::new(&layer.contract.schema, descriptor.id(), None);
+        let properties = opts.property_plan(indice_layer).unwrap_or(&fallback);
+        properties.validate_schema(descriptor.id(), &layer.contract.schema)?;
+        loss.merge(&properties.report(indice_layer as u64, crate::property_plan::Phase::Write)?);
         let geometries = layer.contract.geometries()?;
         for geometry in geometries.iter().filter(|g| {
             layer.contract.geometry.is_some()
@@ -108,6 +108,7 @@ pub fn planned_write_loss(
 
         record_attribute_loss(&mut loss, descriptor, layer, layer_index);
     }
+    loss.validate_property_budget()?;
     Ok(loss)
 }
 
@@ -147,39 +148,6 @@ fn record_attribute_loss(
                 context: "il tipo dell'attributo richiede una coercizione".to_owned(),
             });
         }
-    }
-}
-
-/// L'inventario completo resta interrogabile con `property_plan::plan_metadata`;
-/// gli esempi qui sono una proiezione diagnostica bounded, non un consenso.
-fn record_metadata_plan(
-    loss: &mut LossReport,
-    schema: &arrow_schema::Schema,
-    driver: &str,
-    layer_index: Option<u64>,
-) {
-    for effect in crate::property_plan::plan_metadata(schema, driver, None) {
-        if effect.rule != crate::property_plan::Rule::Removed {
-            continue;
-        }
-        loss.record("gpkg_metadata_not_preserved", 1);
-        loss.add_example(LossExample {
-            category: "gpkg_metadata_not_preserved".to_owned(),
-            posizione: Posizione {
-                layer_index,
-                field_index: effect.field_index.map(saturating_u64),
-                type_class: None,
-            },
-            context: format!(
-                "scope={} key_index={} rule=removed phase=write",
-                if effect.field_index.is_some() {
-                    "field"
-                } else {
-                    "schema"
-                },
-                effect.key_index
-            ),
-        });
     }
 }
 

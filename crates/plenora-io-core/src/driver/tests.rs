@@ -1129,7 +1129,12 @@ fn l_epoca_delle_coordinate_perduta_si_dichiara() {
             ),
         }],
     };
-    let loss = planned_write_loss(&descrittore_che_dichiara_perdite(), &piano).unwrap();
+    let loss = planned_write_loss(
+        &descrittore_che_dichiara_perdite(),
+        &piano,
+        &opzioni_scrittura(),
+    )
+    .unwrap();
     assert_eq!(
         loss.counts.get("crs_coordinate_epoch_not_preserved"),
         Some(&1)

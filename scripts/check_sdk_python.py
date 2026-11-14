@@ -128,6 +128,8 @@ POSTI: dict[str, tuple[str, str]] = {
     # matrice del gate delle buste raggiunge non vuota, e su `read_loss` i
     # percorsi interni di `counts` ed `esempi` non compaiono affatto. Il tipo e'
     # lo stesso -- e' il caso che cambia.
+    "PropertyChange": ("convert", ".result.write_loss.property_changes[]"),
+    "PropertyEffect": ("convert", ".result.write_loss.property_changes[].effect"),
     "LossReport": ("convert", ".result.write_loss"),
     "LossCount": ("convert", ".result.write_loss.counts[]"),
     "LossExample": ("convert", ".result.write_loss.esempi[]"),

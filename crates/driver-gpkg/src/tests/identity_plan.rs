@@ -60,9 +60,11 @@ fn invalid_metadata_reference_and_registration_are_rejected() {
             .unwrap()
             .persist(&conn, "features")
             .unwrap();
-        assert!(contract_plan::restore(&conn, "features", output_fields()).is_ok());
+        assert!(contract_plan::restore_with_properties(&conn, "features", output_fields()).is_ok());
         conn.execute_batch(mutation).unwrap();
-        assert!(contract_plan::restore(&conn, "features", output_fields()).is_err());
+        assert!(
+            contract_plan::restore_with_properties(&conn, "features", output_fields()).is_err()
+        );
     }
 }
 
@@ -100,7 +102,8 @@ fn identity_map_roundtrip_reserves_all_ids_and_generated_primary() {
         schema.field(0).clone(),
         Field::new("fid_", DataType::Int64, false),
     ];
-    let restored = contract_plan::restore(&conn, "features", reordered).unwrap();
+    let (restored, _) =
+        contract_plan::restore_with_properties(&conn, "features", reordered).unwrap();
     let ids: Vec<_> = restored
         .iter()
         .map(|f| f.metadata()["plenora.field_id"].as_str())
@@ -116,7 +119,7 @@ fn identity_map_corruption_never_falls_back_to_positions() {
             .unwrap()
             .persist(&conn, "features")
             .unwrap();
-        assert!(contract_plan::restore(&conn, "features", output_fields()).is_ok());
+        assert!(contract_plan::restore_with_properties(&conn, "features", output_fields()).is_ok());
         let original = document(&conn);
         let changed = match mutation {
             0 => original.replacen("\"version\":1", "\"version\":1,\"version\":1", 1),
@@ -128,7 +131,8 @@ fn identity_map_corruption_never_falls_back_to_positions() {
         assert_ne!(changed, original);
         conn.execute("UPDATE gpkg_metadata SET metadata=?1", [changed])
             .unwrap();
-        let error = contract_plan::restore(&conn, "features", output_fields()).unwrap_err();
+        let error =
+            contract_plan::restore_with_properties(&conn, "features", output_fields()).unwrap_err();
         assert!(!error.to_string().contains("SECRET_PAYLOAD"));
     }
 }
@@ -155,7 +159,7 @@ fn identity_map_absent_is_deterministic_and_oversize_is_rejected() {
         Field::new("a", DataType::Int64, false),
         Field::new("b", DataType::Int64, false),
     ];
-    let restored = contract_plan::restore(&conn, "external", fields).unwrap();
+    let (restored, _) = contract_plan::restore_with_properties(&conn, "external", fields).unwrap();
     assert_eq!(restored[0].metadata()["plenora.field_id"], "0");
     assert_eq!(restored[1].metadata()["plenora.field_id"], "1");
     let schema = input();
@@ -163,10 +167,10 @@ fn identity_map_absent_is_deterministic_and_oversize_is_rejected() {
         .unwrap()
         .persist(&conn, "features")
         .unwrap();
-    assert!(contract_plan::restore(&conn, "features", output_fields()).is_ok());
+    assert!(contract_plan::restore_with_properties(&conn, "features", output_fields()).is_ok());
     let large = document(&conn) + &" ".repeat(1_048_577);
     assert!(plenora_io_model::json::from_str::<serde_json::Value>(&large).is_ok());
     conn.execute("UPDATE gpkg_metadata SET metadata=?1", [large])
         .unwrap();
-    assert!(contract_plan::restore(&conn, "features", output_fields()).is_err());
+    assert!(contract_plan::restore_with_properties(&conn, "features", output_fields()).is_err());
 }
