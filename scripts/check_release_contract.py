@@ -985,7 +985,7 @@ def _differita_ben_dichiarata(voce: dict[str, Any]) -> list[str]:
         return errori
     if prova.get("tipo") == "esterna":
         for relativo in _percorsi(prova.get("artefatto")):
-            derivato, _ = stato_esterno_osservato(relativo)
+            derivato, _ = stato_prova_esterna(voce, relativo)
             if derivato == STATO_ESTERNO_VALIDO:
                 errori.append(
                     f"«{relativo}» dice «{STATO_ESTERNO_VALIDO}»: l'evidenza "
@@ -1043,7 +1043,7 @@ def _prove_esterne(documento: dict[str, Any]) -> list[str]:
             errori.append(f"{voce.get('id')}: prova esterna senza artefatto da leggere")
             continue
         for relativo in percorsi:
-            derivato, _ = stato_esterno_osservato(relativo)
+            derivato, _ = stato_prova_esterna(voce, relativo)
             if prova.get("stato") != derivato:
                 errori.append(
                     f"{voce.get('id')}: la prova dichiara lo stato "
@@ -1242,7 +1242,13 @@ def versione_workspace() -> str | None:
     return None
 
 
-def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
+def stato_prova_esterna(voce: dict[str, Any], relativo: str) -> tuple[str, list[str]]:
+    if voce.get("id") == "sistema.qualifica-cross-component":
+        return stato_esterno_osservato(relativo, qualifica_sistema=True)
+    return stato_esterno_osservato(relativo)
+
+
+def stato_esterno_osservato(relativo: str, *, qualifica_sistema: bool = False) -> tuple[str, list[str]]:
     """`(stato, motivi)` di una qualifica esterna, **derivati dal contenuto**.
 
     Non si legge il campo con cui la voce si dichiara: un `passed` scritto
@@ -1257,6 +1263,9 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
         documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
     except json.JSONDecodeError as errore:
         return "illeggibile", [f"{relativo}: non e' JSON leggibile ({errore})"]
+
+    if not isinstance(documento, dict):
+        return "non_derivabile", ["qualifica esterna non strutturata"]
 
     evidenza = documento.get("evidence")
     dichiarato = evidenza.get("status") if isinstance(evidenza, dict) else None
@@ -1279,17 +1288,20 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
         motivi.append(
             f"{relativo}: l'owner dichiara {len(aperti)} blocchi ancora aperti"
         )
-    senza_revisione = [
-        componente.get("name")
-        for componente in documento.get("components", [])
-        if not componente.get("revision")
-    ]
+    components = documento.get("components", [])
+    if not isinstance(components, list) or any(not isinstance(c, dict) for c in components):
+        return "non_superata", ["componenti della qualifica non strutturati"]
+    senza_revisione = [c.get("name") for c in components if not c.get("revision")]
     if senza_revisione:
         motivi.append(
             f"{relativo}: revisione non fissata per {senza_revisione}. Una "
             "catena qualificata senza le revisioni non dice su che cosa e' "
             "girata."
         )
+
+    if qualifica_sistema or relativo == "release/system-rc-gate.json":
+        from system_qualification import validate
+        motivi.extend(validate(documento, ROOT))
 
     if motivi:
         return (
@@ -1495,6 +1507,8 @@ def artefatti_attesi(versione: str, versione_python: str | None = None,
     # di allora, non quella viva: chiedere al sorgente di oggi che nomi
     # avesse una release passata darebbe i nomi di oggi, e il confronto
     # direbbe che la release pubblicata e' sbagliata.
+    if versione_python is None and candidate is not None and candidate.get("stato") == "pubblicata":
+        versione_python = candidate.get("versione_manifesto")
     versione_python = versione_python or versione_del_pacchetto_python()
     python = [
         voce["nome"].replace("<versione>", versione_python)
@@ -2009,7 +2023,7 @@ def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]
         ]
     motivi: list[str] = []
     for relativo in percorsi:
-        _, trovati = stato_esterno_osservato(relativo)
+        _, trovati = stato_prova_esterna(voce, relativo)
         motivi.extend(trovati)
     return motivi
 

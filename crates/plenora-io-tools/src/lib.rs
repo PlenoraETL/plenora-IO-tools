@@ -996,7 +996,13 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
         })?;
         rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
     }
-    let pubblicato = writer.finish().map_err(map_err)?;
+    let mut pubblicato = writer.finish().map_err(map_err)?;
+    for (index, conversion) in conversioni.iter().enumerate() {
+        if let Some(conversion) = conversion {
+            pubblicato.loss.merge(&conversion.loss_report(index as u64));
+        }
+    }
+    pubblicato.fidelity = pubblicato.fidelity.with_loss_report(&pubblicato.loss);
 
     let fedelta_ingresso = fedelta_ingresso.with_loss_report(&perdita_in_ingresso);
     let combinata = combined_fidelity(&fedelta_ingresso, &pubblicato.fidelity);
@@ -1434,7 +1440,13 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
         })?;
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
-    let published = writer.finish().map_err(map_err)?;
+    let mut published = writer.finish().map_err(map_err)?;
+    for (index, conversion) in da_ewkb.iter().enumerate() {
+        if let Some(conversion) = conversion {
+            published.loss.merge(&conversion.loss_report(index as u64));
+        }
+    }
+    published.fidelity = published.fidelity.with_loss_report(&published.loss);
     let read_fidelity = initial_read_fidelity.with_loss_report(&read_loss);
     let conversion_fidelity = combined_fidelity(&read_fidelity, &published.fidelity);
 

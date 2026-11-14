@@ -31,6 +31,12 @@ pub fn planned_write_loss(
 
     for (indice_layer, layer) in plan.layers.iter().enumerate() {
         let layer_index = Some(saturating_u64(indice_layer));
+        record_metadata_plan(
+            &mut loss,
+            &layer.contract.schema,
+            descriptor.id(),
+            layer_index,
+        );
         let geometries = layer.contract.geometries()?;
         for geometry in geometries.iter().filter(|g| {
             layer.contract.geometry.is_some()
@@ -100,36 +106,81 @@ pub fn planned_write_loss(
             record_geometry_metadata_loss(&mut loss, descriptor.id(), geometry, dove);
         }
 
-        let geometry_name = layer
-            .contract
-            .geometry
-            .as_ref()
-            .map(|geometry| geometry.name.as_str());
-        for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
-            if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
-                continue;
-            }
-            let type_class = crate::capabilities::arrow_type_class(field.data_type());
-            let unsupported_text_coercion = !capabilities.allowed_types.contains(&type_class)
-                && matches!(
-                    capabilities.type_coercion,
-                    TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
-                );
-            if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
-                loss.record("coercion tipo attributo", 1);
-                loss.add_example(LossExample {
-                    category: "coercion tipo attributo".to_owned(),
-                    posizione: Posizione {
-                        layer_index,
-                        field_index: Some(saturating_u64(indice_campo)),
-                        type_class: Some(type_class),
-                    },
-                    context: "il tipo dell'attributo richiede una coercizione".to_owned(),
-                });
-            }
-        }
+        record_attribute_loss(&mut loss, descriptor, layer, layer_index);
     }
     Ok(loss)
+}
+
+fn record_attribute_loss(
+    loss: &mut LossReport,
+    descriptor: &FormatDescriptor,
+    layer: &crate::request::WriteLayer,
+    layer_index: Option<u64>,
+) {
+    let Some(capabilities) = descriptor.write_capabilities() else {
+        return;
+    };
+    let geometry_name = layer
+        .contract
+        .geometry
+        .as_ref()
+        .map(|geometry| geometry.name.as_str());
+    for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
+        if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
+            continue;
+        }
+        let type_class = crate::capabilities::arrow_type_class(field.data_type());
+        let unsupported_text_coercion = !capabilities.allowed_types.contains(&type_class)
+            && matches!(
+                capabilities.type_coercion,
+                TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
+            );
+        if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
+            loss.record("coercion tipo attributo", 1);
+            loss.add_example(LossExample {
+                category: "coercion tipo attributo".to_owned(),
+                posizione: Posizione {
+                    layer_index,
+                    field_index: Some(saturating_u64(indice_campo)),
+                    type_class: Some(type_class),
+                },
+                context: "il tipo dell'attributo richiede una coercizione".to_owned(),
+            });
+        }
+    }
+}
+
+/// L'inventario completo resta interrogabile con `property_plan::plan_metadata`;
+/// gli esempi qui sono una proiezione diagnostica bounded, non un consenso.
+fn record_metadata_plan(
+    loss: &mut LossReport,
+    schema: &arrow_schema::Schema,
+    driver: &str,
+    layer_index: Option<u64>,
+) {
+    for effect in crate::property_plan::plan_metadata(schema, driver, None) {
+        if effect.rule != crate::property_plan::Rule::Removed {
+            continue;
+        }
+        loss.record("gpkg_metadata_not_preserved", 1);
+        loss.add_example(LossExample {
+            category: "gpkg_metadata_not_preserved".to_owned(),
+            posizione: Posizione {
+                layer_index,
+                field_index: effect.field_index.map(saturating_u64),
+                type_class: None,
+            },
+            context: format!(
+                "scope={} key_index={} rule=removed phase=write",
+                if effect.field_index.is_some() {
+                    "field"
+                } else {
+                    "schema"
+                },
+                effect.key_index
+            ),
+        });
+    }
 }
 
 /// I formati senza schema Arrow dichiarano anche la normalizzazione dei tipi nativi.

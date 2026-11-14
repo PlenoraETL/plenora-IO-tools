@@ -126,7 +126,7 @@ class CollectionTests(unittest.TestCase):
             self.assertIn('last proof', Path(results[-1]['log']).read_text())
 
     def test_empty_unittest_module_is_not_green(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=gate.ROOT / 'target') as directory:
             root = Path(directory)
             (root / 'test_empty.py').write_text('value = 1\n')
             results = gate.run_all([[sys.executable, '-m', 'unittest', 'test_empty']], root, root)

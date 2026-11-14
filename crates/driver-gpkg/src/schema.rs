@@ -234,6 +234,7 @@ pub fn build_schema(
             normalized.into_iter().collect::<Vec<_>>().join(","),
         );
     }
+    let fields = super::contract_plan::restore(conn, table, fields)?;
     Ok((Arc::new(Schema::new_with_metadata(fields, metadata)), attrs))
 }
 
@@ -275,20 +276,8 @@ fn has_unrepresented_sql(conn: &Connection, table: &str) -> Result<bool> {
 
 pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
     let geom_name = schema.field(geom_idx).name();
-    let primary = schema
-        .fields()
-        .iter()
-        .find(|f| f.metadata().contains_key(PRIMARY_KEY));
     let mut cols_ddl = Vec::new();
-    if primary.is_none() {
-        let mut generated = "fid".to_owned();
-        while schema
-            .fields()
-            .iter()
-            .any(|f| f.name().eq_ignore_ascii_case(&generated))
-        {
-            generated.push('_');
-        }
+    if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
         cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY AUTOINCREMENT"));
     }
     cols_ddl.push(format!(

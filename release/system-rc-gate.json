@@ -6,9 +6,8 @@
   "external_owner": "plenora-contracts/conformance",
   "component_repository_harness": "not_present",
   "icd": {
-    "tag": "v2.0-rc14",
-    "revision": "65fd2c6418efa7937e3063245913d79a80c6499b",
-    "nota": "ICD di riferimento dichiarato; la corsa lo rifissa"
+    "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+    "source": "contracts/adoption-source.json"
   },
   "components": [
     {
@@ -76,9 +75,9 @@
     "All three revisions and the ICD revision are immutable and recorded.",
     "Identity-preserving operations preserve every required property byte-for-byte.",
     "Derived fields reconstruct metadata from the result and never inherit invalid source metadata.",
-    "A read boundary preserves conflicting representations and declares them in LossReport or FidelityAssessment.",
-    "The central component propagates conflicts unless an explicit plan resolves them.",
-    "A write boundary fails closed with four-axis error semantics before a permanent effect when a conflict remains.",
+    "GEO-005/REJ-001: prohibited CRS conflicts fail at the first validating boundary on every surface, with category crs, all four error axes and no permanent effect.",
+    "After rejection, preservation is skipped with a reason, never counted as passed.",
+    "Lawful representations are preserved or transformed with exact localized loss consent and verified output.",
     "Both required directions pass on Linux and Windows without an unreported LossReport entry.",
     "The evidence bundle includes commands, environment, fixture hashes and results."
   ],
@@ -88,5 +87,16 @@
     "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation."
   ],
   "open_blockers_nota": "due voci sono state tolte: nominavano l'ICD di una campagna esterna che non e' piu' descritta qui e i conteggi 83/84 e 27/28 di una matrice girata su v1.0.0-rc.1. Erano la cronaca di release gia' emesse, e un blocco che cita un'evidenza rimossa non si puo' chiudere. Restano i tre blocchi che descrivono cio' che oggi non e' stato eseguito. La provenienza resta in git.",
-  "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente"
+  "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente",
+  "required_platforms": [
+    "linux-native",
+    "windows-native"
+  ],
+  "required_surfaces": [
+    "rust",
+    "cli",
+    "python-sync",
+    "python-async",
+    "runtime"
+  ]
 }

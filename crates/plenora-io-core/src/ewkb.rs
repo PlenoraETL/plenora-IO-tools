@@ -33,13 +33,11 @@
 //! * ogni geometria del payload deve portare **quel** SRID, o nessuno; uno
 //!   diverso e' un errore, mai una scelta.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, LargeBinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use plenora_io_model::contract::{GeometryColumnContract, GeometryEncoding};
-use plenora_io_model::geometry::{PLENORA_ENCODING_KEY, PLENORA_SRID_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, encode_wkb_into, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_io_model::{
@@ -58,6 +56,7 @@ pub struct DaEwkbAWkb {
     srid: Option<i32>,
     limiti: WkbLimits,
     schema: SchemaRef,
+    effects: Vec<crate::property_plan::PropertyEffect>,
 }
 
 fn rifiuto(
@@ -151,8 +150,42 @@ pub fn pianifica(
             srid: geometria.srid,
             limiti,
             schema: schema_wkb,
+            effects: crate::property_plan::plan_metadata(schema, driver, Some(indice)),
         },
     )))
+}
+
+impl DaEwkbAWkb {
+    /// Inventario calcolato sull'ingresso, prima di rimuovere encoding e SRID.
+    #[must_use]
+    pub fn property_effects(&self) -> &[crate::property_plan::PropertyEffect] {
+        &self.effects
+    }
+
+    /// Proiezione diagnostica della trasformazione, localizzata sull'ingresso.
+    #[must_use]
+    pub fn loss_report(&self, layer_index: u64) -> crate::LossReport {
+        use crate::property_plan::Rule;
+        let mut report = crate::LossReport::default();
+        for effect in &self.effects {
+            let context = match effect.rule {
+                Rule::EwkbToWkb => "encoding=ewkb_to_iso_wkb byte_order=little_endian coordinates=bitwise phase=write",
+                Rule::SridRemoved => "srid=removed_from_wkb crs=validated_separately phase=write",
+                _ => continue,
+            };
+            report.record("geometry_representation_normalized", 1);
+            report.add_example(crate::LossExample {
+                category: "geometry_representation_normalized".to_owned(),
+                posizione: crate::loss::Posizione {
+                    layer_index: Some(layer_index),
+                    field_index: effect.field_index.map(|index| index as u64),
+                    type_class: None,
+                },
+                context: context.to_owned(),
+            });
+        }
+        report
+    }
 }
 
 /// Lo schema con la colonna geometria dichiarata WKB e senza SRID: le altre
@@ -166,19 +199,7 @@ fn schema_in_wkb(schema: &SchemaRef, indice: usize) -> SchemaRef {
             if i != indice {
                 return campo.as_ref().clone();
             }
-            let metadati: HashMap<String, String> = campo
-                .metadata()
-                .iter()
-                .filter(|(chiave, _)| chiave.as_str() != PLENORA_SRID_KEY)
-                .map(|(chiave, valore)| {
-                    if chiave.as_str() == PLENORA_ENCODING_KEY {
-                        (chiave.clone(), GeometryEncoding::Wkb.nome().to_owned())
-                    } else {
-                        (chiave.clone(), valore.clone())
-                    }
-                })
-                .collect();
-            campo.as_ref().clone().with_metadata(metadati)
+            crate::property_plan::field_in_wkb(campo)
         })
         .collect();
     Arc::new(Schema::new_with_metadata(campi, schema.metadata().clone()))

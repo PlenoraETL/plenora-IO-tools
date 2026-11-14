@@ -4140,7 +4140,7 @@ class SondeDellaReleasePubblicata(unittest.TestCase):
                 "dimensione": 2048 + indice,
                 "revisione": revisione,
             }
-            for indice, nome in enumerate(gate.artefatti_attesi(self.VERSIONE))
+            for indice, nome in enumerate(gate.artefatti_attesi(self.VERSIONE, versione_python=self.VERSIONE))
         ]
 
     def candidate(self, **cambi) -> dict:

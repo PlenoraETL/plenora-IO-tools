@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: "3.11"
+          python-version-file: .python-version
       - name: Dipendenze delle sonde e degli inventari
         run: python -m pip install pyarrow==25.0.1 PyYAML==6.0.3 openpyxl==3.1.5
       - name: Leggi il pin dei contratti
@@ -65,6 +65,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: Pin dell'oracolo storico dal comparatore
         id: historical-pin
         run: |
@@ -126,6 +129,9 @@ jobs:
           # sempre, per la ragione sbagliata. Gli altri job non leggono la
           # storia e restano a profondita' predefinita.
           fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -602,7 +608,7 @@ jobs:
       # esatta con cui si prova, e solo da ruote binarie.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: SDK Python con pyarrow su Windows
         shell: pwsh
         run: |
@@ -628,6 +634,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -691,6 +700,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -741,7 +753,7 @@ jobs:
 
   # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
   #
-  # E' il job che rende onesta quella riga. `>=3.10,<3.15` non e' una stima: e'
+  # E' il job che rende onesta quella riga. `>=3.14,<3.15` non e' una stima: e'
   # l'insieme che questa matrice prova, e allargarla senza allargare la matrice
   # prometterebbe un Python su cui nessuno ha guardato. Il gate
   # `check_requires_python.py` confronta le due cose e diventa rosso se
@@ -751,7 +763,7 @@ jobs:
   # che si costruisca, si installi e si importi. L'integrazione contro un
   # artefatto vero sta nel workflow di distribuzione, dove un artefatto vero
   # esiste.
-  # La wheel **nativa** dello SDK: abi3 da Python 3.10, Linux (manylinux 2_34)
+  # La wheel **nativa** dello SDK: abi3 da Python 3.14, Linux (manylinux 2_34)
   # e Windows, sul modello di plenora-database-tools. Porta lo stesso pacchetto
   # Python della wheel pura e in piu' `plenora_io._native`, che esegue i
   # comandi nel processo senza un binario accanto.
@@ -769,7 +781,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: Prepara il progetto della wheel nativa
         shell: bash
         run: python scripts/prepara-wheel-nativa.py
@@ -808,14 +820,13 @@ jobs:
   # `PLENORA_IO_RICHIEDI_NATIVO=1` fa fallire invece di saltare se il modulo
   # nativo non si carica.
   python-abi3-runtime:
-    name: abi3 ${{ matrix.os }} / Python ${{ matrix.python }}
+    name: abi3 ${{ matrix.os }}
     needs: python-wheel-abi3
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - os: ubuntu-latest
             artefatto: wheel-abi3-Linux
@@ -829,7 +840,7 @@ jobs:
           path: dist-nativa
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: ${{ matrix.python }}
+          python-version-file: .python-version
       - name: Installa la wheel e prova lo SDK contro di lei
         shell: bash
         env:
@@ -851,6 +862,9 @@ jobs:
       # qualcosa che non abbiamo dichiarato. Il gate lo ricontrolla comunque,
       # confrontando la HEAD del checkout col pin di `contracts/adoption-source.json`:
       # il `ref` qui e' comodita', la difesa sta nel gate.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: PlenoraETL/plenora-contracts
@@ -950,6 +964,9 @@ jobs:
           # un albero senza storia.
           fetch-depth: 1
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -967,21 +984,17 @@ jobs:
 
   python-sdk:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: ${{ matrix.python }}
+          python-version-file: .python-version
 
       # La versione dichiarata copre quella in prova. Se un giorno la matrice
       # provasse un Python che `requires-python` esclude, il pacchetto si
       # costruirebbe e non si installerebbe: meglio dirlo qui.
       - name: La versione in prova rientra in requires-python
-        run: python3 scripts/check_requires_python.py --versione "${{ matrix.python }}"
+        run: python3 scripts/check_requires_python.py --runtime
 
       - name: Costruisci wheel e sdist
         run: python3 scripts/costruisci-pacchetto-python.py --uscita dist

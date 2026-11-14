@@ -36,6 +36,9 @@ jobs:
           # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
           # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: Leggi il pin dei contratti dal checkout qualificato
         id: contracts-pin
         run: |

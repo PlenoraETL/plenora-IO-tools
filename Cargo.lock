@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "driver-common"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "driver-csv"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "driver-dxf"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "driver-filegdb"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geojson"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geoparquet"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "driver-gpkg"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -594,12 +594,14 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
 [[package]]
 name = "driver-ipc"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -614,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "driver-kml"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -629,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "driver-shp"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -645,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "driver-xls"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1476,7 +1478,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "plenora-bench"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -1566,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-fuzz"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "driver-common",
  "driver-geojson",
@@ -1580,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-core"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -1594,7 +1596,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-model"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1605,7 +1607,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-py"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "plenora-io-model",
  "plenora-io-tools",
@@ -1614,7 +1616,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-tools"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",

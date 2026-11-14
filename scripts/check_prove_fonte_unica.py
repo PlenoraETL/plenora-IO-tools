@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Comandi statici: nessuna build, rete, registrazione o misura sostituita da
 # uno snapshot. La lista e' una politica di esecuzione, non un conteggio.
 STATIC = [
+    ["check_python_version.py", "--runtime"], ["system_qualification.py"], ["check_async_surface.py"],
     ["check_action_pins.py"], ["check_public_identity.py"],
     ["check_docset.py"], ["check_comments.py"], ["check_test_layout.py"],
     ["code_size.py"], ["check_unsafe_forbid.py"],
@@ -288,7 +289,7 @@ def run_all(commands: list[list[str]], directory: Path, root: Path = ROOT) -> li
         if command[1:3] == ["-m", "unittest"]:
             counts = re.findall(r"^Ran (\d+) tests? in ", log.read_text(encoding='utf-8', errors='replace'), re.M)
             record['unittest_cases'] = int(counts[-1]) if counts else 0
-            if code == 0 and not record['unittest_cases']:
+            if code in (0, 5) and not record['unittest_cases']:
                 code = record['exit'] = 126
                 with log.open('a', encoding='utf-8') as output:
                     output.write('\nDiscovery vuota: zero test non e un verde.\n')

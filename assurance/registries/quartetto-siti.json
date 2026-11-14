@@ -314,9 +314,6 @@
     "layer_crs": [
       "Crs/Validate/Crs/Never"
     ],
-    "project_gpkg_layer": [
-      "InvalidPlan/Validate/Contract/Never"
-    ],
     "register_srs": [
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",

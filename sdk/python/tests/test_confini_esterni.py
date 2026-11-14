@@ -998,7 +998,10 @@ class LaRete(unittest.TestCase):
             with self.subTest(metodo=f"{classe.__name__}.{attributo}"):
                 self.assertFalse(inspect.isgeneratorfunction(originale))
                 self.assertFalse(inspect.isasyncgenfunction(originale))
-                self.assertFalse(inspect.iscoroutinefunction(originale))
+                if classe.__name__ != "AsyncClient":
+                    self.assertFalse(inspect.iscoroutinefunction(originale))
+                elif not attributo.startswith("_"):
+                    self.assertTrue(inspect.iscoroutinefunction(funzione))
 
     @prova("confine.rete")
     def test_nessun_metodo_si_aggiunge_alle_istanze(self) -> None:

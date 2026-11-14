@@ -167,6 +167,28 @@ def _confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callabl
             sostituto.__context__ = None
             raise
 
+    import inspect
+    if inspect.iscoroutinefunction(funzione):
+        @functools.wraps(funzione)
+        async def involucro_async(*argomenti: Any, **opzioni: Any) -> Any:
+            esterna = _avviati.get() is None
+            gettone = _avviati.set([]) if esterna else None
+            elenco = _avviati.get()
+            try:
+                return await funzione(*argomenti, **opzioni)
+            except Exception as errore:
+                sostituto = _al_confine(errore, elenco or [], etichetta)
+            finally:
+                if gettone is not None:
+                    _avviati.reset(gettone)
+            try:
+                raise sostituto from None
+            except PlenoraError:
+                sostituto.__context__ = None
+                raise
+        setattr(involucro_async, SEGNO, True)
+        return involucro_async
+
     setattr(involucro, SEGNO, True)
     return involucro
 
@@ -552,6 +574,12 @@ def _con_self(funzione: Callable[..., Any], classe: type) -> Callable[..., Any]:
             raise _dallo_sdk(InvalidArgumentError, "rete.self_estraneo")
         return funzione(*argomenti, **opzioni)
 
+    import inspect
+    if inspect.iscoroutinefunction(funzione):
+        @functools.wraps(funzione)
+        async def controllato_async(*argomenti: Any, **opzioni: Any) -> Any:
+            return await controllato(*argomenti, **opzioni)
+        return controllato_async
     return controllato
 
 

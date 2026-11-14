@@ -661,7 +661,7 @@
     {
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
-      "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",
+      "invariante": "GEO-005/REJ-001: rifiuto crs completo e senza effetto per conflitti proibiti; conservazione e trasformazioni dichiarate per rappresentazioni lecite. Verifica derivata solo dal bundle completo dell'owner su entrambe le direzioni, Linux/Windows nativi e tutte le superfici.",
       "prova": {
         "tipo": "esterna",
         "owner": "plenora-contracts/conformance",
@@ -760,7 +760,7 @@
       },
       {
         "id": "qualifica-cross-component",
-        "descrizione": "qualifica cross-component superata **oppure** dichiaratamente differita: se superata, con evidenza dell'owner esterno derivata dall'artefatto e non dichiarata qui; se differita, fra le voci differibili, con il proprio non-promette scritto e con l'artefatto che **non** dice `passed`. La condizione non e' stata tolta quando la 2.0.0 ha smesso di pretendere la qualifica: e' cambiato cio' che verifica, perche' un rinvio senza nessuno che lo guardi e' il verde piu' comodo di tutti",
+        "descrizione": "Qualifica derivata dall'evidenza completa dell'owner: SHA delle tre librerie e ICD adottato, matrice nativa completa, quattro assi CRS e assenza di effetto, artefatti con digest. Finche incompleta resta dichiaratamente differita, mai verified.",
         "verifica": {
           "tipo": "interna",
           "funzione": "condizione_qualifica_cross_component"

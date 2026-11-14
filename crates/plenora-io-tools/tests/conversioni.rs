@@ -284,9 +284,12 @@ fn shp_a_gpkg_conserva_geometria_crs_e_tipi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_definition_not_preserved_derived", 1)]),
+        perdite(&[
+            ("crs_definition_not_preserved_derived", 1),
+            ("gpkg_metadata_not_preserved", 2),
+        ]),
         "il GeoPackage riscrive la definizione dal proprio gpkg_spatial_ref_sys \
-         invece di conservare il WKT del .prj, e lo dichiara"
+         e dichiara i due metadata nativi SHP non rappresentati"
     );
     let righe = per_id(&uscita, &[]);
     assert_eq!(righe.len(), 2, "la fixture dei punti porta r1 e r5");
