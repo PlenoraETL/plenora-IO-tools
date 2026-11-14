@@ -661,7 +661,7 @@
     {
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
-      "invariante": "GEO-005/REJ-001: rifiuto crs completo e senza effetto per conflitti proibiti; conservazione e trasformazioni dichiarate per rappresentazioni lecite. Verifica derivata solo dal bundle completo dell'owner su entrambe le direzioni, Linux/Windows nativi e tutte le superfici.",
+      "invariante": "La qualifica completa distingue conservazione delle rappresentazioni lecite e rifiuto crs dei conflitti proibiti, con revisione e byte degli artefatti, copertura completa e confronti effettivi delle proprieta.",
       "prova": {
         "tipo": "esterna",
         "owner": "plenora-contracts/conformance",
@@ -669,11 +669,11 @@
         "stato": "not_run"
       },
       "stato": "differita",
-      "sintesi": "differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette",
+      "sintesi": "differita: manca il bundle completo dell owner per le candidate correnti; GEO-005/REJ-001 prevalgono sul gate",
       "differita": {
         "decisione": "la 2.0.0 rilascia plenora-IO-tools come componente autonomo, la 3.0.0 e' stata autorizzata con questo rinvio ancora in essere, e la 4.0.0 e' stata congelata con lo stesso rinvio. Il perimetro della release e' il confine sui file di questo componente -- lettura, scrittura, protocollo della CLI, artefatti di distribuzione -- e non la catena di sistema. Il rinvio e' una scelta di perimetro, non un giudizio sull'esito: la qualifica non e' stata tentata e fallita, non e' stata eseguita.",
-        "non_promette": "la 4.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. Che questo componente produca e accetti, alla 4.0.0, entrambe le serializzazioni Arrow che i quattro archi `direct` della matrice di composizione nominano riguarda la **condizione a nostro carico** su quei collegamenti: e' conformita' al contratto dichiarato, non interoperabilita' verificata con gli altri componenti, e non riduce di nulla cio' che questo rinvio lascia scoperto.",
-        "condizione_di_ripristino": "l'owner esterno consegna harness e fixture e la corsa produce evidenza. Allora `release/system-rc-gate.json` passa a `status: satisfied`, `evidence.status: passed`, `open_blockers: []` e le tre revisioni fissate, e la voce torna `verified` per derivazione dall'artefatto -- mai per riscrittura di questo campo. Finche' l'artefatto non dice `passed`, `verified` e' rosso; quando lo dira', `differita` sara' rosso a sua volta. Gli input esatti da consegnare sono elencati in docs/RELEASE.md, sezione «Qualifica cross-component»."
+        "non_promette": "La candidate non promette interoperabilita end-to-end qualificata fra i tre componenti. La corsa Linux storica del 13/11/2026 costituisce evidenza parziale, anche nella direzione inversa; non copre la matrice completa, Windows nativo e tutte le superfici. Il bundle corrente manca. I conflitti CRS proibiti devono essere rifiutati secondo GEO-005/REJ-001; solo rappresentazioni lecite sono soggette a conservazione/propagazione. Le prove sintetiche del validatore non sono evidenza della corsa congiunta.",
+        "condizione_di_ripristino": "L owner consegna il bundle v2 previsto da release/system-rc-gate.json; scripts/system_qualification.py verifica revisioni e oggetti Git, SHA-256, lock degli artefatti eseguiti, piattaforme native, comandi/log, matrice completa, osservazioni Arrow e rifiuti CRS senza effetto. Solo allora lo stato passed e derivabile; verified con bundle non superato e differita con bundle davvero superato sono incoerenti. La verifica offline non autentica l owner o l esecuzione."
       }
     },
     {
@@ -760,7 +760,7 @@
       },
       {
         "id": "qualifica-cross-component",
-        "descrizione": "Qualifica derivata dall'evidenza completa dell'owner: SHA delle tre librerie e ICD adottato, matrice nativa completa, quattro assi CRS e assenza di effetto, artefatti con digest. Finche incompleta resta dichiaratamente differita, mai verified.",
+        "descrizione": "qualifica cross-component verificata dal bundle completo, oppure esplicitamente differita e non promessa; il contratto GEO-005/REJ-001 prevale",
         "verifica": {
           "tipo": "interna",
           "funzione": "condizione_qualifica_cross_component"

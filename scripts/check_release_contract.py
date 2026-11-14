@@ -1256,16 +1256,27 @@ def stato_esterno_osservato(relativo: str, *, qualifica_sistema: bool = False) -
     esattamente la forma di falso verde che il tipo `esterna` esiste per
     escludere.
     """
-    percorso = ROOT / relativo
+    percorso = (ROOT / relativo).resolve()
+    if not percorso.is_relative_to(ROOT.resolve()):
+        return "non_superata", ["artefatto della qualifica esterno al repository"]
     if not percorso.exists():
         return "assente", [f"{relativo}: artefatto della prova esterna assente"]
     try:
         documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as errore:
-        return "illeggibile", [f"{relativo}: non e' JSON leggibile ({errore})"]
+    except (ValueError, UnicodeError, OSError):
+        return "illeggibile", [f"{relativo}: documento della qualifica non leggibile"]
 
     if not isinstance(documento, dict):
         return "non_derivabile", ["qualifica esterna non strutturata"]
+
+    if qualifica_sistema or relativo == "release/system-rc-gate.json":
+        from system_qualification import validate
+        motivi = validate(documento, ROOT)
+        evidenza = documento.get("evidence")
+        stato = evidenza.get("status") if isinstance(evidenza, dict) else None
+        if not motivi:
+            return STATO_ESTERNO_VALIDO, []
+        return (stato if stato in ("not_run", "partial", "failed") else "non_superata"), motivi
 
     evidenza = documento.get("evidence")
     dichiarato = evidenza.get("status") if isinstance(evidenza, dict) else None
@@ -1298,10 +1309,6 @@ def stato_esterno_osservato(relativo: str, *, qualifica_sistema: bool = False) -
             "catena qualificata senza le revisioni non dice su che cosa e' "
             "girata."
         )
-
-    if qualifica_sistema or relativo == "release/system-rc-gate.json":
-        from system_qualification import validate
-        motivi.extend(validate(documento, ROOT))
 
     if motivi:
         return (
