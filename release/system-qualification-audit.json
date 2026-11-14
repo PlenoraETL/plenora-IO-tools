@@ -1,0 +1,872 @@
+{
+  "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+  "checks": [
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "object_",
+      "predicate": "isinstance(value, dict)",
+      "diagnostic": "oggetto del bundle non valido",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "list_",
+      "predicate": "isinstance(value, list)",
+      "diagnostic": "elenco del bundle non valido",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "path_in",
+      "predicate": "isinstance(name, str) and name.startswith('assurance/evidence/') and ('\\\\' not in name) and (':' not in name) and all((p not in ('', '.', '..') for p in name.split('/')))",
+      "diagnostic": "percorso evidenza non canonico",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "path_in",
+      "predicate": "target.is_relative_to(root.resolve()) and target.is_file()",
+      "diagnostic": "artefatto assente o esterno al repository",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "property_keys",
+      "predicate": "bool(pairs) and len(dict(pairs)) == len(pairs)",
+      "diagnostic": "tabella proprieta non valida",
+      "authority": "IO declarative property table; campaign coverage, not a duplicate normative vocabulary."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "document.get('manifest_version') == 1 and document.get('gate_id') == 'plenora-system-contract-roundtrip-v1'",
+      "diagnostic": "identita gate non valida",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "document.get('ownership') == 'external_system_qualification' and document.get('external_owner') == OWNER",
+      "diagnostic": "owner della qualifica non valido",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "all((document.get(k) == v for k, v in policy(root).items()))",
+      "diagnostic": "requisiti del gate diversi dalla fonte unica",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "document.get('icd') == {'revision': adoption['contracts_source']['revision'], 'source': 'contracts/adoption-source.json'}",
+      "diagnostic": "ICD diverso dal contratto adottato",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "len(components) == len(COMPONENTS) and {object_(c).get('name') for c in components} == set(COMPONENTS)",
+      "diagnostic": "tre componenti obbligatori",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "all((c.get('role') == COMPONENTS[c['name']] and (c.get('revision') is None or sha(c['revision'], 40)) for c in components))",
+      "diagnostic": "ruoli o revisioni componenti non validi",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "document.get('status') in ('not_satisfied', 'satisfied')",
+      "diagnostic": "stato gate non valido",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "manifest_errors",
+      "predicate": "object_(document.get('evidence')).get('status') in ('not_run', 'failed', 'partial', 'passed')",
+      "diagnostic": "stato evidenza non valido",
+      "authority": "Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "__init__",
+      "predicate": "sha(pointer.get('sha256')) and hashlib.sha256(raw).hexdigest() == pointer['sha256']",
+      "diagnostic": "digest del bundle non corrispondente",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "__init__",
+      "predicate": "self.document.get('schema_version') == BUNDLE_VERSION",
+      "diagnostic": "versione bundle non valida",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "__init__",
+      "predicate": "name != pointer['path'] and name not in self.artifacts and (item.get('kind') in KINDS)",
+      "diagnostic": "artefatto duplicato o tipo non valido",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "__init__",
+      "predicate": "data and sha(item.get('sha256')) and (hashlib.sha256(data).hexdigest() == item['sha256'])",
+      "diagnostic": "digest artefatto non corrispondente",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "ref",
+      "predicate": "isinstance(name, str) and name in self.artifacts",
+      "diagnostic": "riferimento artefatto assente",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "ref",
+      "predicate": "item['kind'] in ((kind,) if isinstance(kind, str) else kind)",
+      "diagnostic": "tipo riferimento artefatto errato",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "commit",
+      "predicate": "sha(revision, 40) and hashlib.sha1(b'commit ' + str(len(raw)).encode() + b'\\x00' + raw).hexdigest() == revision",
+      "diagnostic": "revisione non corrispondente all oggetto Git",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "commit",
+      "predicate": "re.match(b'tree [0-9a-f]{40}\\\\n', raw) and b'\\nauthor ' in raw and (b'\\ncommitter ' in raw) and (b'\\n\\n' in raw)",
+      "diagnostic": "oggetto Git commit malformato",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "indexed",
+      "predicate": "all((isinstance(v, str) and v for v in key)) and key not in result",
+      "diagnostic": "identita duplicata o non valida",
+      "authority": "Bundle representation/integrity policy; no additional Arrow input restriction."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_lock",
+      "predicate": "lock.get('owner') == OWNER and lock.get('components') == gate['components'] and (lock.get('icd_revision') == gate['icd']['revision'])",
+      "diagnostic": "lock diverso dal gate",
+      "authority": "Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_lock",
+      "predicate": "sha(harness.get('revision'), 40)",
+      "diagnostic": "revisione harness non fissata",
+      "authority": "Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_lock",
+      "predicate": "set(commits) == set(revisions)",
+      "diagnostic": "oggetti Git mancanti",
+      "authority": "Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_lock",
+      "predicate": "set(executables) == wanted",
+      "diagnostic": "lock eseguibili incompleto",
+      "authority": "Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_lock",
+      "predicate": "executable.get('revision') == revisions[component]",
+      "diagnostic": "eseguibile legato a revisione diversa",
+      "authority": "Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_environments",
+      "predicate": "set(environments) == {(p,) for p in DOMAINS['required_platforms']}",
+      "diagnostic": "piattaforme native incomplete",
+      "authority": "Campaign native Linux/Windows run provenance; a binary digest alone is not an execution."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_environments",
+      "predicate": "env.get('os') == {'linux-native': 'Linux', 'windows-native': 'Windows'}[platform] and env.get('execution') == 'native' and (env.get('wsl') is False) and (env.get('container') is False)",
+      "diagnostic": "ambiente non nativo o piattaforma discordante",
+      "authority": "Campaign native Linux/Windows run provenance; a binary digest alone is not an execution."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_environments",
+      "predicate": "isinstance(env.get('run_id'), str) and env['run_id'] and (env['run_id'] not in run_ids) and (env.get('harness_revision') == harness['revision']) and isinstance(env.get('architecture'), str) and env['architecture']",
+      "diagnostic": "provenienza ambiente incompleta",
+      "authority": "Campaign native Linux/Windows run provenance; a binary digest alone is not an execution."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_fixtures",
+      "predicate": "set(fixtures) == set(itertools.product(DOMAINS['required_fixtures'], DOMAINS['fixture_variants']))",
+      "diagnostic": "fixture o varianti mancanti",
+      "authority": "Campaign complete fixture x variant coverage and all declared properties; normative validity delegated to adopted oracle."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_fixtures",
+      "predicate": "item.get('input_class') == FIXTURE_CLASSES[fixture]",
+      "diagnostic": "classe fixture non conforme al contratto",
+      "authority": "Campaign complete fixture x variant coverage and all declared properties; normative validity delegated to adopted oracle."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_fixtures",
+      "predicate": "covered == set(bundle.keys)",
+      "diagnostic": "proprieta mai esercitate dalle fixture",
+      "authority": "Campaign complete fixture x variant coverage and all declared properties; normative validity delegated to adopted oracle."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_variant",
+      "predicate": "value is None",
+      "diagnostic": "variante canonical_only con metadati di estensione",
+      "authority": "Campaign variant_rules; ARROW-005 is delegated to the normative oracle, on both variants."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_variant",
+      "predicate": "value is not None and isinstance(strict_json.loads(value.decode('utf-8')), dict)",
+      "diagnostic": "variante GeoArrow senza oggetto di metadati",
+      "authority": "Campaign variant_rules; ARROW-005 is delegated to the normative oracle, on both variants."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "verdict is not None and list(verdict) == rule['rejection'] and any((contract.contradiction(f) for f in table.schema))",
+      "diagnostic": "classe CRS non corrispondente ai byte della fixture",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "verdict is None",
+      "diagnostic": "fixture non conforme al contratto adottato",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "any((any((abs(v) > 2 ** 53 for v in col)) for col in columns))",
+      "diagnostic": "fixture senza interi oltre 2^53",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "any((len(set(col)) > 1 and col != sorted(col) and (max(col) > 2 ** 63 - 1) for col in columns))",
+      "diagnostic": "fixture senza uint64 non ordinati oltre int64",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "any(matches)",
+      "diagnostic": "payload geometrico non esercita la fixture dichiarata",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "check_fixture",
+      "predicate": "None in scopes and any((scope is not None for scope in scopes))",
+      "diagnostic": "metadati opachi schema/campo non esercitati",
+      "authority": "Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "bundle.contract.verdict(actual_table) is None and bundle.contract.verdict(expected_table) is None",
+      "diagnostic": "output o attesa non conformi al contratto adottato",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "table.schema.metadata == bundle.contract.canonical_primary(table).schema.metadata",
+      "diagnostic": "primaria di output non canonica PRIM-004",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "canonical_arrow(actual_table) == canonical_arrow(expected_table)",
+      "diagnostic": "valori o schema di output diversi dall attesa",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "set(checks) == set(bundle.keys)",
+      "diagnostic": "copertura proprieta incompleta",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "actual == expected",
+      "diagnostic": "output diverso dall attesa indipendente",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "mode in ('preserved', 'derived', 'declared_transformation')",
+      "diagnostic": "esito proprieta non valido",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "property_identity(source[prop], source_table) == property_identity(actual[prop], actual_table)",
+      "diagnostic": "proprieta dichiarata conservata ma diversa",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "hop.get('operation') in ('derived', 'explicit_plan', 'format_conversion')",
+      "diagnostic": "trasformazione senza operazione dichiarata",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "audit.get('command') == hop.get('command')",
+      "diagnostic": "rapporto perdita appartenente ad altro comando",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "bool(locations) and any((isinstance(e, dict) and e.get('property') == prop and (e.get('locations') == locations) and isinstance(e.get('rule'), str) and e['rule'] for e in entries))",
+      "diagnostic": "trasformazione senza rapporto localizzato",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "object_(hop.get('authorization')).get('model') == 'component_contract_and_options'",
+      "diagnostic": "modello consenso non dichiarato",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "hop.get('operation') in ('identity', 'derived', 'explicit_plan', 'format_conversion')",
+      "diagnostic": "operazione non dichiarata",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "canonical_arrow(source_table) != canonical_arrow(actual_table)",
+      "diagnostic": "operazione senza risultato osservabile",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "object_(hop.get('authorization')).get('model') == 'component_contract_and_options'",
+      "diagnostic": "modello consenso non dichiarato",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "audit.get('command') == hop.get('command') and isinstance(audit.get('property_changes'), list)",
+      "diagnostic": "rapporto di operazione non collegato",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "all((m == 'preserved' for m in checks.values())) and canonical_arrow(source_table) == canonical_arrow(actual_table)",
+      "diagnostic": "operazione identitaria con perdita",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_hop",
+      "predicate": "canonical_arrow(source_table) == canonical_arrow(actual_table)",
+      "diagnostic": "valori cambiati senza trasformazione dichiarata",
+      "authority": "ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "semantics.get('kind') in OPERATION_SEMANTICS and isinstance(semantics.get('operation_id'), str) and semantics['operation_id']",
+      "diagnostic": "semantica operativa o identificatore pubblico assenti",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "operation != 'identity' or semantics['kind'] == 'pass_through'",
+      "diagnostic": "identita classificata come calcolo",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "operation not in ('derived', 'explicit_plan') or semantics['kind'] != 'pass_through'",
+      "diagnostic": "pass-through non prova una derivazione o un piano",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "isinstance(requested, str) and (requested == contract.primary.NONE or any((f['metadata']['plenora.field_id'] == requested for f in contract.primary.geometry_fields(after))))",
+      "diagnostic": "primaria richiesta o sostituita non presente nel risultato",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "actual_primary == (None if requested == contract.primary.NONE else requested)",
+      "diagnostic": "primaria diversa dalla richiesta attestata",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "actual_primary == (identity(input_primary) if surviving else None)",
+      "diagnostic": "stato della primaria non conservato PRIM-005",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "operation in ('derived', 'explicit_plan')",
+      "diagnostic": "calcolo geometrico senza operazione dichiarata",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "'geometry_selection' in semantics and (semantics['geometry_selection'] is None or isinstance(semantics['geometry_selection'], str))",
+      "diagnostic": "selezione geometrica non attestata",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "not isinstance(operands, contract.data.Verdict)",
+      "diagnostic": "operando geometrico non conforme PRIM-007",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "all((decision is None for decision in decisions))",
+      "diagnostic": "calcolo CRS non qualificabile GEO-006/015/019/020",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "bool(produced) and len(produced) == len(set(produced)) and all((isinstance(i, str) for i in produced))",
+      "diagnostic": "provenienza dei campi calcolati assente",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_operation",
+      "predicate": "all((any((f['metadata']['plenora.field_id'] == identity and f['metadata']['plenora.geometry.precision'] == 'float64' for f in fields)) for identity in produced))",
+      "diagnostic": "precisione del risultato calcolato non conforme GEO-014",
+      "authority": "GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "result.get('preservation') == {'status': 'skipped', 'reason': 'rejected_at_validating_boundary'} and result.get('properties') == {}",
+      "diagnostic": "conservazione dopo rifiuto non saltata esplicitamente",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "observation.get('command') == command['id']",
+      "diagnostic": "errore appartenente ad altro comando",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "bundle.contract.error_validator.is_valid(observed)",
+      "diagnostic": "busta errore non conforme allo schema adottato",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "observed.get('category') == 'crs' and observed.get('phase') in bundle.contract.schema_rejection_phases and isinstance(observed.get('code'), str) and (observed.get('retry') == {'kind': 'never'}) and (observed.get('remote_effect') == 'none')",
+      "diagnostic": "rifiuto CRS incompleto",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "result.get('boundary') == 'first_validating_boundary'",
+      "diagnostic": "rifiuto non al primo confine validante",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "rejection",
+      "predicate": "before == after and before.get('capture') == 'complete_destination_state' and (before.get('command') == command['id']) and (before.get('destination') == command.get('destination')) and isinstance(before.get('destination'), str) and before['destination'] and isinstance(before.get('entries'), list)",
+      "diagnostic": "assenza di effetto non provata",
+      "authority": "REJ-001/003 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, public code and complete no-effect snapshots."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "manifest.get('owner') == OWNER and report.get('owner') == OWNER and (manifest.get('lock') == bundle.document['lock']) and (report.get('lock') == bundle.document['lock'])",
+      "diagnostic": "provenienza manifest o report diversa",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "set(results) == wanted and manifest.get('cells') == [list(k) for k in sorted(wanted)]",
+      "diagnostic": "matrice incompleta o diversa dal manifest",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "cell.get('status') == 'passed'",
+      "diagnostic": "cella non superata",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "[object_(h).get('component') for h in hops] == order",
+      "diagnostic": "catena a tre componenti incompleta o fuori ordine",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command_key in commands and command_key not in consumed",
+      "diagnostic": "comando mancante o riutilizzato",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command.get('cell') == list(key) and command.get('component') == hop['component'] and (command.get('run_id') == environments[platform,]['run_id'])",
+      "diagnostic": "comando appartenente ad altra cella o ambiente",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command.get('executable') == executable['artifact'] and command.get('revision') == executable['revision']",
+      "diagnostic": "comando non legato all eseguibile qualificato",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "isinstance(command.get('argv'), list) and command['argv'] and all((isinstance(a, str) and a for a in command['argv']))",
+      "diagnostic": "comando non riproducibile",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command.get('input') == current and command.get('output') == hop.get('output')",
+      "diagnostic": "input/output comando discordanti",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "logged == {k: v for k, v in command.items() if k != 'log'}",
+      "diagnostic": "log diverso dal comando dichiarato",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "type(command.get('exit_code')) is int",
+      "diagnostic": "exit code non intero",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command['exit_code'] != 0 and hop.get('output') is None",
+      "diagnostic": "conflitto CRS accettato o output pubblicato",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "surface != 'cli' or command['exit_code'] == bundle.contract.exit_codes['crs']",
+      "diagnostic": "rifiuto CLI diverso da exit normativo",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "command['exit_code'] == 0",
+      "diagnostic": "comando positivo fallito",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "consumed == set(commands)",
+      "diagnostic": "comandi estranei al bundle",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "all((set(OPERATIONS) <= seen for seen in operations.values()))",
+      "diagnostic": "operazioni derivate o piano lecito non esercitati su tutte le superfici",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "all(('geometry_compute' in seen for seen in operations.values()))",
+      "diagnostic": "calcolo geometrico non esercitato su tutte le superfici",
+      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "document['status'] == 'satisfied' and document['open_blockers'] == [] and (document['evidence']['status'] == 'passed')",
+      "diagnostic": "gate non soddisfatto, evidence.status non passed o blocchi non chiusi",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "all((sha(c['revision'], 40) for c in document['components']))",
+      "diagnostic": "revisioni componenti non fissate",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "bundle.document.get('owner') == OWNER",
+      "diagnostic": "owner bundle diverso dal gate",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "bundle.used == set(bundle.artifacts)",
+      "diagnostic": "artefatti non collegati alla corsa",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "git_bytes",
+      "predicate": "result.returncode",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "__init__",
+      "predicate": "git_bytes(repository, 'rev-parse', revision + '^{commit}').decode().strip() != revision",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "__init__",
+      "predicate": "not self.schema_rejection_phases",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "verdict",
+      "predicate": "found",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "verdict",
+      "predicate": "not field['nullable']",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "verdict",
+      "predicate": "found",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_contract.py",
+      "function": "canonical_primary",
+      "predicate": "self.primary.schema_verdict(vector) is not None",
+      "diagnostic": "normative adapter branch",
+      "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    }
+  ],
+  "gate_fields": {
+    "manifest_version": {
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "gate_id": {
+      "sha256": "c77c241c643067a0fec321dfa4462a55364b78038e536af685c77a13db272191",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "status": {
+      "sha256": "bf075af72ab2a5a265808e6e54ce288a65a743077cb8c75a55ffa0821916b165",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "ownership": {
+      "sha256": "7c73f6dd66d968830b02dacc0c805ea28215383c6957c9fa8aada52d393825ab",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "external_owner": {
+      "sha256": "8b744fc94183bb7c1c7c12599481aa856f015b01213afdef589c195d58f05960",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "component_repository_harness": {
+      "sha256": "ba1b28630784a8928d3a1460d68c2f4b8e342527da0bd84b553a07dc2c967e5a",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "icd": {
+      "sha256": "3c12413fbf0aa81316207a5803fa4940dd707181e2cca39ce344254764280cbf",
+      "authority": "adopted contract"
+    },
+    "components": {
+      "sha256": "488aaa3c53e7910e097841a3735daa98f810db0464fc0f2049acf1d92778afbe",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_directions": {
+      "sha256": "5b569fb0f8cdb72fe61b83aa052514dfc8a024a061a509f0e308ee4649059439",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_fixtures": {
+      "sha256": "9a13187e8b0bf4cf26a7c93fddf7dcc26869210d81c2e5208f595d5082d5bcf8",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "fixture_variants": {
+      "sha256": "565175d725acea884f1b92f648287e4b5cf78fb47ac3f2064d022da27fe28d53",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_properties": {
+      "sha256": "439be29b280e39bf21ec3b178de033613ba71d29863e70c7498a0e94fa3521cd",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "evidence": {
+      "sha256": "5bf163237a12f12aceb431e91d680ade621f46941ef81763af73a894ba147e08",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "pass_conditions": {
+      "sha256": "e3ea774dd310767272c49c77ae7cac3d0f9eb7817398149286a957f06baf827f",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "open_blockers": {
+      "sha256": "5462827dcc4b322a8eaf7798aa3e871cc4c552e1a8ed16fdce055262dca7715c",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "open_blockers_nota": {
+      "sha256": "864c75b49034c30347b8619fce3cbd994bc133e0dc854bcd63e26ed5bfc0b68a",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "components_nota": {
+      "sha256": "8d5d74be6665e0661b759cce49ff0f94241b25dbc4a84caa0028e7d0d9eb29a1",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_platforms": {
+      "sha256": "47a78ec0e2389e99ddb07e25fb5cff6ecbfa4314fc4333a1058882ff60582e70",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_surfaces": {
+      "sha256": "1344f51bb24a9abed986ea99b9a88ff3fd7b35f47ba04a2866aaaca8b20e84e2",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_operations": {
+      "sha256": "f445f3c5d59204aabdf86f6f738376de13033086fa6748513f64381f016b7631",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "fixture_classes": {
+      "sha256": "0a8dd99ceb49a59aeb9022faebc7ec7bca214f560b5342a9ea0ae5a4e5a0865d",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "input_rules": {
+      "sha256": "dca99fe6e2c7f52c30d4baf57b1f64ce99bd81d4b970a49041acc3919451e2be",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "bundle_contract": {
+      "sha256": "4e19b1ba9a32eaabc0ee2b3892b93f24c2b6b35e33435a0319c869c9c8398833",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "fixture_requirements": {
+      "sha256": "53cc9058204da5229c9fba4a51c2633683a0588769e9b27a51d9b4cf1f8c19de",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "variant_rules": {
+      "sha256": "354b5193bb18515892dae0bea8a8f7eca9e08b4e09e0252671b3b7e9719477f5",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "normative_source": {
+      "sha256": "f9a3436fb3f99265a8987f940522d5736611e738acf81a8b7ddcd6c23676b7b8",
+      "authority": "adopted contract"
+    },
+    "normative_vocabulary": {
+      "sha256": "8765c5d033d737dd55c00375666d6e35006763d26bed935780c93de601fe494f",
+      "authority": "adopted contract"
+    },
+    "operation_semantics": {
+      "sha256": "b2035c5c3d2c19e390949ca9db6b97b8f35ccc8f57566f81ecd798069d03d089",
+      "authority": "campaign requirement or explicit pending state"
+    },
+    "required_geometry_computation": {
+      "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b",
+      "authority": "campaign requirement or explicit pending state"
+    }
+  },
+  "delegation": {
+    "input": "arrow_primary.schema_verdict then arrow_data._value, from adopted Git objects; JSON vector type limits are not Arrow type limits",
+    "geometry": "arrow_data.decode_wkb: all contract types, empty geometries, ISO/extended exclusivity, ring closure, member SRID/dimensions, depth, trailing bytes",
+    "crs": "arrow_data._crs/definition_contradicts: WKT/WKT2/PROJJSON top-level identities, grammar and GEO-020; computation_verdict applies only to coordinate computations",
+    "errors": "error-v1.schema.json, REJ-003 schema phases from normative text, CLI-2.0 exit projection",
+    "producer_and_operations": "GEO-006/014/015/019/020 and PRIM-005/007 checked against command semantics, operands and output; other producer/source promises use independent expected outputs and provenance. Out-of-domain computation remains unqualified, never an input rejection. Hashes alone do not authenticate execution.",
+    "streaming": "IPC file and stream observations admitted; this offline bundle does not infer runtime bounded-memory behavior from serialized bytes"
+  },
+  "baseline_findings": {
+    "variant_name": "Removed forbidden absence of geoarrow.wkb; only extension metadata distinguishes the variants.",
+    "geometry_everywhere": "Removed for integer fixtures; each geometry actually present still obeys the normative oracle.",
+    "projjson_only": "Removed; every declared CRS format is interpreted by the pinned grammar.",
+    "unresolved": "Replaced by declared_unresolved from the normative vocabulary; unresolved remains valid only for types_declaration.",
+    "uint64_sorted_input": "Replaced by unordered campaign input; legal sort plans compare independently expected values without fictitious metadata loss.",
+    "local_wkb_parser": "Removed types 1..7 and nonempty restrictions; added all normative value rules through the single decoder.",
+    "absent_schema_checks": "Added version, required keys, storage, IDs, canonical types, CRS dependencies, primary geometry and output validation.",
+    "error_axes": "Full error schema; schema rejection phases validate/connect/probe, CLI exit from contract.",
+    "empty_observations": "Removed blanket nonempty-output restriction; fixture coverage still requires actual sample values.",
+    "ordinal_identity": "Preservation compares fields by field_id; physical reordering is lawful under a declared plan.",
+    "primary_spelling": "PRIM-004 normalization preserves primary state; output must use its normative spelling."
+  }
+}

@@ -4,13 +4,13 @@ from __future__ import annotations
 import hashlib
 import itertools
 import re
-import struct
 from pathlib import Path
 
 try:
-    from . import strict_json
+    from . import strict_json, qualification_contract
 except ImportError:
     import strict_json
+    import qualification_contract
 
 OWNER = 'plenora-contracts/conformance'
 COMPONENTS = {
@@ -19,15 +19,34 @@ COMPONENTS = {
     'plenora-database-tools': 'database_boundary',
 }
 AXES = ('direction', 'platform', 'surface', 'fixture', 'variant')
+# Campaign coverage, not extra normative input restrictions. Vocabulary and
+# decoding are exclusively owned by the adopted contract's oracle.
+FIXTURES = {
+    'axis_lat_lon': {'metadata': {'axis_order': 'lat_lon'}},
+    'conflicting_crs': {'rejection': ['crs', 'GEO-005']},
+    'crs_missing': {'metadata': {'crs_resolution': 'missing'}},
+    'crs_unresolved': {'metadata': {'crs_resolution': 'declared_unresolved'}},
+    'dimensions_unknown': {'metadata': {'dimensions': 'unknown'}},
+    'geography_semantics': {'metadata': {'geometry_or_geography': 'geography'}},
+    'int64_beyond_2_53': {'numeric': 'int64'},
+    'multipolygon_xyzm_srid': {'geometry': ['multipolygon', 'xyzm'], 'srid': True},
+    'point_z': {'geometry': ['point', 'xyz']},
+    'point_zm': {'geometry': ['point', 'xyzm']},
+    'polygon_xy_projected': {'geometry': ['polygon', 'xy'], 'metadata': {'axis_order': 'easting_northing'}},
+    'types_mixed': {'mixed': True},
+    'uint64_ordering': {'numeric': 'uint64', 'unordered': True},
+    'unknown_key': {'opaque_schema_and_field': True},
+}
+VARIANTS = {
+    'canonical_only': {'extension_metadata': 'absent'},
+    'geoarrow_extension': {'extension_metadata': 'json_object_on_geometry'},
+}
 DOMAINS = {
     'required_directions': ['io_to_data_to_database', 'database_to_data_to_io'],
     'required_platforms': ['linux-native', 'windows-native'],
     'required_surfaces': ['rust', 'cli', 'python-sync', 'python-async', 'runtime'],
-    'required_fixtures': ['axis_lat_lon', 'conflicting_crs', 'crs_missing', 'crs_unresolved',
-                         'dimensions_unknown', 'geography_semantics', 'int64_beyond_2_53',
-                         'multipolygon_xyzm_srid', 'point_z', 'point_zm', 'polygon_xy_projected',
-                         'types_mixed', 'uint64_ordering', 'unknown_key'],
-    'fixture_variants': ['canonical_only', 'geoarrow_extension'],
+    'required_fixtures': list(FIXTURES),
+    'fixture_variants': list(VARIANTS),
 }
 PASS_CONDITIONS = [
     'The adopted normative contract takes precedence: lawful declarations and non-prohibited discrepancies are tested separately from prohibited CRS conflicts.',
@@ -39,6 +58,7 @@ PASS_CONDITIONS = [
     'The owner bundle binds manifest, lock, actual Arrow input/output/expected observations, loss reports, commands, environment, logs and absence-of-effect evidence by SHA-256.',
 ]
 OPERATIONS = ["identity", "derived", "explicit_plan"]
+OPERATION_SEMANTICS = ['pass_through', 'tabular_plan', 'metadata_normalization', 'geometry_compute']
 
 BUNDLE_VERSION = 2
 KINDS = {'lock', 'manifest', 'report', 'commands', 'environment', 'fixtures',
@@ -102,7 +122,17 @@ def required_properties(root):
 
 
 def policy(root):
+    normative = qualification_contract.contract(root)
     return {**DOMAINS, 'required_operations': OPERATIONS, 'pass_conditions': PASS_CONDITIONS, 'required_properties': required_properties(root),
+            'fixture_requirements': FIXTURES, 'variant_rules': VARIANTS,
+            'operation_semantics': OPERATION_SEMANTICS, 'required_geometry_computation': True,
+            'normative_source': {'source': 'contracts/adoption-source.json', 'loader': 'scripts/qualification_contract.py',
+                                 'repository': 'PLENORA_CONTRACTS or .plenora-contracts', 'mode': 'offline Git objects at the adopted immutable revision'},
+            'normative_vocabulary': {'closed_values': {k: sorted(v) for k, v in normative.data.CLOSED_VALUES.items()},
+                                     'canonical_types': normative.data.CANONICAL_TYPES,
+                                     'required_geometry': list(normative.data.REQUIRED_GEOMETRY),
+                                     'schema_rejection_phases': list(normative.schema_rejection_phases),
+                                     'crs_cli_exit': normative.exit_codes['crs']},
             'fixture_classes': FIXTURE_CLASSES, 'input_rules': RULES,
             'bundle_contract': {'version': BUNDLE_VERSION,
                 'validator': 'scripts/system_qualification.py',
@@ -153,6 +183,7 @@ class Bundle:
         self.used = set()
         self.arrow_cache = {}
         self.keys = property_keys(root)
+        self.contract = qualification_contract.contract(root)
 
     def ref(self, name, kind):
         require(isinstance(name, str) and name in self.artifacts, 'riferimento artefatto assente')
@@ -176,27 +207,34 @@ class Bundle:
         if name not in self.arrow_cache:
             try:
                 import pyarrow as pa
-                reader = pa.ipc.open_file(pa.BufferReader(raw))
+                try:
+                    reader = pa.ipc.open_file(pa.BufferReader(raw))
+                except pa.ArrowInvalid:
+                    reader = pa.ipc.open_stream(pa.BufferReader(raw))
                 table = reader.read_all()
-                require(table.num_rows > 0, 'osservazione Arrow vuota')
-                result = {key: [] for key in self.keys}
-                canonical = {v.encode() for k, v in self.keys.items() if k != 'native_metadata'}
-                scopes = [(None, table.schema.metadata or {})] + [
-                    (i, field.metadata or {}) for i, field in enumerate(table.schema)]
-                for scope, metadata in scopes:
-                    for key, value in sorted(metadata.items()):
-                        prop = next((p for p, pattern in self.keys.items() if
-                                     key == pattern.encode() or pattern.endswith('.') and key.startswith(pattern.encode())), None)
-                        if prop is None and key not in canonical and key != b'ARROW:extension:name':
-                            prop = 'native_metadata'
-                        if prop:
-                            result[prop].append([scope, key.hex(), value.hex()])
+                result = property_observation(self.contract.canonical_primary(table), self.keys)
                 self.arrow_cache[name] = (result, table)
             except ImportError as exc:
                 raise Invalid('PyArrow necessario per verificare le osservazioni reali') from exc
             except Exception as exc:
                 raise Invalid('osservazione Arrow non leggibile') from exc
         return self.arrow_cache[name]
+
+
+def property_observation(table, keys):
+    result = {key: [] for key in keys}
+    canonical = {v.encode() for k, v in keys.items() if k != 'native_metadata'}
+    scopes = [(None, table.schema.metadata or {})] + [
+        (i, field.metadata or {}) for i, field in enumerate(table.schema)]
+    for scope, metadata in scopes:
+        for key, value in sorted(metadata.items()):
+            prop = next((p for p, pattern in keys.items() if
+                         key == pattern.encode() or pattern.endswith('.') and key.startswith(pattern.encode())), None)
+            if prop is None and key not in canonical and key != b'ARROW:extension:name':
+                prop = 'native_metadata'
+            if prop:
+                result[prop].append([scope, key.hex(), value.hex()])
+    return result
 
 
 def indexed(records, fields):
@@ -254,144 +292,72 @@ def validate_fixtures(bundle):
     for (fixture, variant), item in fixtures.items():
         require(item.get('input_class') == FIXTURE_CLASSES[fixture], 'classe fixture non conforme al contratto')
         props, table = bundle.arrow(item.get('artifact'), 'fixture')
-        geometry = [f for f in table.schema if b'plenora.geometry.encoding' in (f.metadata or {})]
-        require(bool(geometry), 'fixture priva di geometria dichiarata')
-        extension = [f.metadata.get(b'ARROW:extension:name') for f in geometry]
-        require(all(value == (b'geoarrow.wkb' if variant == 'geoarrow_extension' else None) for value in extension), 'variante Arrow non corrispondente ai byte')
-        check_fixture(fixture, props, table)
+        check_variant(variant, table, bundle.contract)
+        check_fixture(fixture, props, table, bundle.contract, bundle.keys)
         if fixture != 'conflicting_crs':
             covered.update(p for p, values in props.items() if values)
     require(covered == set(bundle.keys), 'proprieta mai esercitate dalle fixture')
     return fixtures
 
 
-def geometry_observation(raw):
-    """Bounded independent WKB/EWKB fixture oracle (types 1..7)."""
-    require(isinstance(raw, bytes), 'geometria fixture non binaria')
-    offset = 0
-
-    def read(fmt, endian):
-        nonlocal offset
-        size = struct.calcsize(endian + fmt)
-        require(offset + size <= len(raw), 'geometria fixture troncata')
-        value = struct.unpack_from(endian + fmt, raw, offset)
-        offset += size
-        return value[0] if len(value) == 1 else value
-
-    def geometry(depth=0):
-        require(depth <= 32, 'geometria fixture troppo profonda')
-        order = read('B', '<')
-        require(order in (0, 1), 'endian fixture non valido')
-        endian = '<' if order else '>'
-        code = read('I', endian)
-        base = code & 0x1fffffff
-        dimension, kind = divmod(base, 1000)
-        require(dimension in range(4) and kind in range(1, 8), 'tipo fixture non valido')
-        z, m = bool(code & 0x80000000) or dimension in (1, 3), bool(code & 0x40000000) or dimension in (2, 3)
-        dims = 'xy' + ('z' if z else '') + ('m' if m else '')
-        srid = read('I', endian) if code & 0x20000000 else None
-
-        def coordinates(count):
-            require(0 < count <= (len(raw) - offset) // (8 * len(dims)), 'coordinate fixture vuote o fuori limite')
-            for _ in range(count):
-                read('d' * len(dims), endian)
-
-        if kind == 1:
-            coordinates(1)
-        elif kind == 2:
-            coordinates(read('I', endian))
-        elif kind == 3:
-            count = read('I', endian)
-            require(0 < count <= len(raw) // 4, 'anelli fixture non validi')
-            for _ in range(count):
-                coordinates(read('I', endian))
-        else:
-            count = read('I', endian)
-            require(0 < count <= len(raw) // 5, 'componenti fixture non valide')
-            for _ in range(count):
-                child = geometry(depth + 1)
-                require(kind == 7 or (child[0] == kind - 3 and child[1] == dims), 'componenti fixture discordanti')
-        return kind, dims, srid
-
-    result = geometry()
-    require(offset == len(raw), 'byte geometrici residui nella fixture')
-    return result
-
-
-def geometry_features(name, table):
-    conflicts = []
-    matching = []
-    for index, field in enumerate(table.schema):
+def check_variant(variant, table, contract=None):
+    contract = contract or qualification_contract.contract()
+    rule = VARIANTS[variant]
+    for field in table.schema:
         metadata = field.metadata or {}
-        if b'plenora.geometry.encoding' not in metadata:
+        geometry = contract.data.is_geometry({'metadata': contract.metadata(metadata)})
+        if not geometry:
             continue
-        observations = [geometry_observation(raw) for raw in table.column(index).to_pylist() if raw is not None]
-        require(bool(observations), 'fixture senza geometrie osservabili')
-        crsid = metadata.get(b'plenora.geometry.crs_id', b'').decode('utf-8')
-        definition = metadata.get(b'plenora.geometry.crs_definition')
-        conflict = False
-        if definition is not None and crsid:
-            # The qualification fixture protocol uses PROJJSON so the oracle
-            # can inspect root IDs without relying on the component parser.
-            require(metadata.get(b'plenora.geometry.crs_definition_format') == b'projjson', 'fixture CRS richiede PROJJSON per l oracolo indipendente')
-            root = load_json(definition)
-            ids = root.get('ids', [root['id']] if 'id' in root else [])
-            authority, code = crsid.split(':', 1)
-            same = [str(object_(item).get('code')) for item in list_(ids)
-                    if str(object_(item).get('authority')).translate(str.maketrans('abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')) == authority.translate(str.maketrans('abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'))]
-            conflict = bool(same) and code not in same
-        conflicts.append(conflict)
-        wanted = {'point_z': (1, 'xyz'), 'point_zm': (1, 'xyzm'),
-                  'multipolygon_xyzm_srid': (6, 'xyzm'), 'polygon_xy_projected': (3, 'xy')}.get(name)
-        matches = wanted is None or all(o[:2] == wanted for o in observations)
-        if wanted:
-            type_name = {1: b'point', 3: b'polygon', 6: b'multipolygon'}[wanted[0]]
-            matches = matches and metadata.get(b'plenora.geometry.dimensions') == wanted[1].encode() and metadata.get(b'plenora.geometry.types') == type_name
-        if name == 'polygon_xy_projected':
-            matches = matches and metadata.get(b'plenora.geometry.axis_order') == b'easting_northing'
-        if name == 'multipolygon_xyzm_srid':
-            matches = matches and all(str(o[2]).encode() == metadata.get(b'plenora.geometry.srid') for o in observations)
-        if name == 'types_mixed':
-            matches = len({o[0] for o in observations}) >= 2
-        matching.append(matches)
-    require(any(matching), 'payload geometrico non esercita la fixture dichiarata')
-    require(any(conflicts) if name == 'conflicting_crs' else not any(conflicts), 'classe CRS non corrispondente ai byte della fixture')
+        value = metadata.get(b'ARROW:extension:metadata')
+        if rule['extension_metadata'] == 'absent':
+            require(value is None, 'variante canonical_only con metadati di estensione')
+        elif geometry:
+            require(value is not None and isinstance(strict_json.loads(value.decode('utf-8')), dict),
+                    'variante GeoArrow senza oggetto di metadati')
 
 
-def check_fixture(name, properties, table):
-    """Require the named coverage features in actual input observations."""
-    geometry_features(name, table)
-    def values(prop):
-        return {bytes.fromhex(v).decode('utf-8') for _, _, v in properties[prop]}
-    requirements = {
-        'axis_lat_lon': {'axis_order': 'lat_lon'},
-        'crs_missing': {'crs_resolution': 'missing'},
-        'crs_unresolved': {'crs_resolution': 'unresolved'},
-        'dimensions_unknown': {'dimensions': 'unknown'},
-        'geography_semantics': {'geometry_or_geography': 'geography'},
-        'point_z': {'dimensions': 'xyz', 'geometry_types': 'point'},
-        'point_zm': {'dimensions': 'xyzm', 'geometry_types': 'point'},
-        'multipolygon_xyzm_srid': {'dimensions': 'xyzm', 'geometry_types': 'multipolygon'},
-        'polygon_xy_projected': {'dimensions': 'xy', 'geometry_types': 'polygon', 'axis_order': 'easting_northing'},
-    }
-    require(all(expected in values(prop) for prop, expected in requirements.get(name, {}).items()), 'fixture nominale priva della proprieta richiesta')
-    if name == 'crs_missing':
-        require(not properties['crs_id'] and not properties['crs_definition'], 'fixture CRS missing contraddittoria')
-    if name == 'multipolygon_xyzm_srid':
-        require(bool(properties['srid']), 'fixture dimensionale senza SRID')
-    if name == 'types_mixed':
-        require('mixed' in values('types_declaration') or any(',' in v for v in values('geometry_types')), 'fixture senza tipi misti')
-    if name == 'unknown_key':
+def check_fixture(name, properties, table, contract=None, keys=None):
+    """First normative conformance; then only the declared campaign coverage."""
+    contract = contract or qualification_contract.contract()
+    keys = keys or property_keys(Path(__file__).resolve().parents[1])
+    rule = FIXTURES[name]
+    verdict = contract.verdict(table)
+    if 'rejection' in rule:
+        require(verdict is not None and list(verdict) == rule['rejection'] and
+                any(contract.contradiction(f) for f in table.schema),
+                'classe CRS non corrispondente ai byte della fixture')
+    else:
+        require(verdict is None, 'fixture non conforme al contratto adottato')
+    if 'numeric' in rule:
+        import pyarrow as pa
+        predicate = pa.types.is_int64 if rule['numeric'] == 'int64' else pa.types.is_uint64
+        columns = [[v for v in col.to_pylist() if v is not None] for col in table.columns if predicate(col.type)]
+        require(any(any(abs(v) > 2**53 for v in col) for col in columns), 'fixture senza interi oltre 2^53')
+        if rule.get('unordered'):
+            require(any(len(set(col)) > 1 and col != sorted(col) and max(col) > 2**63 - 1
+                        for col in columns), 'fixture senza uint64 non ordinati oltre int64')
+        return
+    matches = []
+    for index, field in enumerate(table.schema):
+        md = contract.metadata(field.metadata)
+        if not contract.data.is_geometry({'metadata': md}):
+            continue
+        try:
+            observations = [contract.data.decode_wkb(raw) for raw in table.column(index).to_pylist() if raw is not None]
+        except contract.data.Malformed as exc:
+            raise Invalid('payload geometrico non conforme al contratto') from exc
+        match = bool(observations) and all(md.get(keys[prop]) == value for prop, value in rule.get('metadata', {}).items())
+        if 'geometry' in rule:
+            match = match and all(list(o[:2]) == rule['geometry'] for o in observations)
+        if rule.get('srid'):
+            match = match and 'plenora.geometry.srid' in md
+        if rule.get('mixed'):
+            match = match and len({o.type for o in observations}) >= 2
+        matches.append(match)
+    require(any(matches), 'payload geometrico non esercita la fixture dichiarata')
+    if rule.get('opaque_schema_and_field'):
         scopes = {scope for scope, _, _ in properties['native_metadata']}
         require(None in scopes and any(scope is not None for scope in scopes), 'metadati opachi schema/campo non esercitati')
-    if name in ('int64_beyond_2_53', 'uint64_ordering'):
-        import pyarrow as pa
-        columns = [column.to_pylist() for column in table.columns if
-                   (pa.types.is_int64(column.type) if name == 'int64_beyond_2_53' else pa.types.is_uint64(column.type))]
-        require(any(any(v is not None and abs(v) > 2**53 for v in column) for column in columns), 'fixture senza interi oltre 2^53')
-        if name == 'uint64_ordering':
-            require(any(len(column) >= 2 and all(v is not None for v in column) and column == sorted(column) and
-                        len(set(column)) > 1 and max(column) > 2**63-1 for column in columns), 'ordinamento uint64 non esercitato')
 
 
 def property_locations(prop, properties, table):
@@ -404,23 +370,42 @@ def property_locations(prop, properties, table):
     return locations
 
 
+def property_identity(values, table):
+    """ARROW-003/004 binds unchanged fields by identity, not ordinal position."""
+    result = []
+    for scope, key, value in values:
+        identity = ('schema',) if scope is None else ('position', scope)
+        if scope is not None:
+            field_id = (table.schema.field(scope).metadata or {}).get(b'plenora.field_id')
+            if field_id is not None:
+                identity = ('field_id', field_id.decode('utf-8'))
+        result.append((identity, key, value))
+    return sorted(result, key=repr)
+
+
 def canonical_arrow(table):
     """Canonical Arrow observation, not arbitrary IPC container bytes."""
     import pyarrow as pa
+    table = qualification_contract.contract().canonical_primary(table)
     schema = pa.schema([field.with_metadata(dict(sorted((field.metadata or {}).items())))
                         for field in table.schema], metadata=dict(sorted((table.schema.metadata or {}).items())))
-    normalized = pa.Table.from_arrays([pa.array(column.to_pylist(), type=column.type)
-                                       for column in table.columns], schema=schema)
+    normalized = table.combine_chunks()
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
         writer.write_table(normalized)
     return sink.getvalue().to_pybytes()
 
 
-def compare_hop(bundle, hop, before, after):
+def compare_hop(bundle, hop, before, after, semantics):
     source, source_table = bundle.arrow(before, ('fixture', 'output'))
     actual, actual_table = bundle.arrow(after, 'output')
     expected, expected_table = bundle.arrow(hop.get('expected'), 'expected')
+    require(bundle.contract.verdict(actual_table) is None and bundle.contract.verdict(expected_table) is None,
+            'output o attesa non conformi al contratto adottato')
+    for table in (actual_table, expected_table):
+        require(table.schema.metadata == bundle.contract.canonical_primary(table).schema.metadata,
+                'primaria di output non canonica PRIM-004')
+    validate_operation(bundle.contract, object_(semantics), hop['operation'], source_table, actual_table)
     require(canonical_arrow(actual_table) == canonical_arrow(expected_table), 'valori o schema di output diversi dall attesa')
     checks = object_(hop.get('properties'))
     require(set(checks) == set(bundle.keys), 'copertura proprieta incompleta')
@@ -428,7 +413,8 @@ def compare_hop(bundle, hop, before, after):
     for prop, mode in checks.items():
         require(mode in ('preserved', 'derived', 'declared_transformation'), 'esito proprieta non valido')
         if mode == 'preserved':
-            require(source[prop] == actual[prop], 'proprieta dichiarata conservata ma diversa')
+            require(property_identity(source[prop], source_table) == property_identity(actual[prop], actual_table),
+                    'proprieta dichiarata conservata ma diversa')
         else:
             require(hop.get('operation') in ('derived', 'explicit_plan', 'format_conversion'), 'trasformazione senza operazione dichiarata')
             audit = bundle.json(hop.get('loss_report'), 'loss')
@@ -440,14 +426,54 @@ def compare_hop(bundle, hop, before, after):
                         for e in entries), 'trasformazione senza rapporto localizzato')
             require(object_(hop.get('authorization')).get('model') == 'component_contract_and_options', 'modello consenso non dichiarato')
     require(hop.get('operation') in ('identity', 'derived', 'explicit_plan', 'format_conversion'), 'operazione non dichiarata')
-    if hop['operation'] == 'derived':
-        require('derived' in checks.values(), 'ricostruzione non provata')
-    if hop['operation'] == 'explicit_plan':
-        require('declared_transformation' in checks.values() and source != actual, 'piano esplicito senza trasformazione osservabile')
+    if hop['operation'] in ('derived', 'explicit_plan'):
+        require(canonical_arrow(source_table) != canonical_arrow(actual_table), 'operazione senza risultato osservabile')
+        require(object_(hop.get('authorization')).get('model') == 'component_contract_and_options', 'modello consenso non dichiarato')
+        if hop.get('loss_report'):
+            audit = bundle.json(hop['loss_report'], 'loss')
+            require(audit.get('command') == hop.get('command') and isinstance(audit.get('property_changes'), list), 'rapporto di operazione non collegato')
     if hop['operation'] == 'identity':
         require(all(m == 'preserved' for m in checks.values()) and canonical_arrow(source_table) == canonical_arrow(actual_table), 'operazione identitaria con perdita')
-    if all(m == 'preserved' for m in checks.values()):
+    if hop['operation'] in ('identity', 'format_conversion') and all(m == 'preserved' for m in checks.values()):
         require(canonical_arrow(source_table) == canonical_arrow(actual_table), 'valori cambiati senza trasformazione dichiarata')
+
+
+def validate_operation(contract, semantics, operation, source, actual):
+    require(semantics.get('kind') in OPERATION_SEMANTICS and isinstance(semantics.get('operation_id'), str) and semantics['operation_id'],
+            'semantica operativa o identificatore pubblico assenti')
+    require(operation != 'identity' or semantics['kind'] == 'pass_through', 'identita classificata come calcolo')
+    require(operation not in ('derived', 'explicit_plan') or semantics['kind'] != 'pass_through',
+            'pass-through non prova una derivazione o un piano')
+    before, after = contract.vector(source), contract.vector(actual)
+    input_primary, output_primary = contract.primary.primary(before), contract.primary.primary(after)
+    identity = lambda field: None if field is None else field['metadata']['plenora.field_id']
+    actual_primary = identity(output_primary)
+    if 'requested_primary' in semantics or 'replaces_primary_with' in semantics:
+        requested = semantics.get('requested_primary', semantics.get('replaces_primary_with'))
+        require(isinstance(requested, str) and (requested == contract.primary.NONE or any(
+            f['metadata']['plenora.field_id'] == requested for f in contract.primary.geometry_fields(after))),
+            'primaria richiesta o sostituita non presente nel risultato')
+        require(actual_primary == (None if requested == contract.primary.NONE else requested), 'primaria diversa dalla richiesta attestata')
+    elif contract.primary.geometry_fields(before):
+        surviving = any(identity(f) == identity(input_primary) for f in contract.primary.geometry_fields(after))
+        require(actual_primary == (identity(input_primary) if surviving else None), 'stato della primaria non conservato PRIM-005')
+    if semantics['kind'] != 'geometry_compute':
+        return
+    require(operation in ('derived', 'explicit_plan'), 'calcolo geometrico senza operazione dichiarata')
+    require('geometry_selection' in semantics and (semantics['geometry_selection'] is None or isinstance(semantics['geometry_selection'], str)),
+            'selezione geometrica non attestata')
+    operands = contract.primary.operands(contract.vector(source), semantics['geometry_selection'])
+    require(not isinstance(operands, contract.data.Verdict), 'operando geometrico non conforme PRIM-007')
+    try:
+        decisions = [contract.data.computation_verdict(field) for field in operands]
+    except contract.data.Undecidable as exc:
+        raise Invalid('calcolo fuori dal dominio verificabile dall oracolo adottato; ingresso non dichiarato invalido') from exc
+    require(all(decision is None for decision in decisions), 'calcolo CRS non qualificabile GEO-006/015/019/020')
+    produced = list_(semantics.get('produced_geometry_ids'))
+    fields = contract.primary.geometry_fields(contract.vector(actual))
+    require(bool(produced) and len(produced) == len(set(produced)) and all(isinstance(i, str) for i in produced), 'provenienza dei campi calcolati assente')
+    require(all(any(f['metadata']['plenora.field_id'] == identity and f['metadata']['plenora.geometry.precision'] == 'float64'
+                    for f in fields) for identity in produced), 'precisione del risultato calcolato non conforme GEO-014')
 
 
 def rejection(bundle, result, command):
@@ -456,8 +482,9 @@ def rejection(bundle, result, command):
     observation = bundle.json(result.get('error'), 'report')
     require(observation.get('command') == command['id'], 'errore appartenente ad altro comando')
     observed = object_(observation.get('error'))
-    require(observed.get('category') == 'crs' and observed.get('phase') in ('validate', 'prepare', 'read', 'write') and
-            isinstance(observed.get('code'), str) and re.fullmatch('[A-Z][A-Z0-9_]{1,63}', observed['code']) and
+    require(bundle.contract.error_validator.is_valid(observed), 'busta errore non conforme allo schema adottato')
+    require(observed.get('category') == 'crs' and observed.get('phase') in bundle.contract.schema_rejection_phases and
+            isinstance(observed.get('code'), str) and
             observed.get('retry') == {'kind': 'never'} and observed.get('remote_effect') == 'none', 'rifiuto CRS incompleto')
     require(result.get('boundary') == 'first_validating_boundary', 'rifiuto non al primo confine validante')
     before = bundle.json(result.get('before'), 'snapshot')
@@ -503,14 +530,18 @@ def validate_results(bundle, executables, environments, fixtures):
             if fixture == 'conflicting_crs':
                 # Each component is independently probed at its public boundary.
                 require(command['exit_code'] != 0 and hop.get('output') is None, 'conflitto CRS accettato o output pubblicato')
+                require(surface != 'cli' or command['exit_code'] == bundle.contract.exit_codes['crs'], 'rifiuto CLI diverso da exit normativo')
                 rejection(bundle, hop, command)
             else:
                 require(command['exit_code'] == 0, 'comando positivo fallito')
-                compare_hop(bundle, hop, current, hop.get('output'))
+                semantics = object_(command.get('semantics'))
+                compare_hop(bundle, hop, current, hop.get('output'), semantics)
                 current = hop['output']
                 operations[key[:3]].add(hop['operation'])
+                operations[key[:3]].add(semantics['kind'])
     require(consumed == set(commands), 'comandi estranei al bundle')
     require(all(set(OPERATIONS) <= seen for seen in operations.values()), 'operazioni derivate o piano lecito non esercitati su tutte le superfici')
+    require(all('geometry_compute' in seen for seen in operations.values()), 'calcolo geometrico non esercitato su tutte le superfici')
 
 
 def validate(document, root):

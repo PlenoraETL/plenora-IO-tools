@@ -129,5 +129,180 @@
     "validator": "scripts/system_qualification.py",
     "integrity": "SHA-256 of every referenced artifact; Git commit object identities; complete per-cell execution and property comparisons.",
     "trust_boundary": "Offline consistency and byte comparisons do not authenticate the owner, prove execution, or establish membership of a Git object in a remote repository."
-  }
+  },
+  "fixture_requirements": {
+    "axis_lat_lon": {
+      "metadata": {
+        "axis_order": "lat_lon"
+      }
+    },
+    "conflicting_crs": {
+      "rejection": [
+        "crs",
+        "GEO-005"
+      ]
+    },
+    "crs_missing": {
+      "metadata": {
+        "crs_resolution": "missing"
+      }
+    },
+    "crs_unresolved": {
+      "metadata": {
+        "crs_resolution": "declared_unresolved"
+      }
+    },
+    "dimensions_unknown": {
+      "metadata": {
+        "dimensions": "unknown"
+      }
+    },
+    "geography_semantics": {
+      "metadata": {
+        "geometry_or_geography": "geography"
+      }
+    },
+    "int64_beyond_2_53": {
+      "numeric": "int64"
+    },
+    "multipolygon_xyzm_srid": {
+      "geometry": [
+        "multipolygon",
+        "xyzm"
+      ],
+      "srid": true
+    },
+    "point_z": {
+      "geometry": [
+        "point",
+        "xyz"
+      ]
+    },
+    "point_zm": {
+      "geometry": [
+        "point",
+        "xyzm"
+      ]
+    },
+    "polygon_xy_projected": {
+      "geometry": [
+        "polygon",
+        "xy"
+      ],
+      "metadata": {
+        "axis_order": "easting_northing"
+      }
+    },
+    "types_mixed": {
+      "mixed": true
+    },
+    "uint64_ordering": {
+      "numeric": "uint64",
+      "unordered": true
+    },
+    "unknown_key": {
+      "opaque_schema_and_field": true
+    }
+  },
+  "variant_rules": {
+    "canonical_only": {
+      "extension_metadata": "absent"
+    },
+    "geoarrow_extension": {
+      "extension_metadata": "json_object_on_geometry"
+    }
+  },
+  "normative_source": {
+    "source": "contracts/adoption-source.json",
+    "loader": "scripts/qualification_contract.py",
+    "repository": "PLENORA_CONTRACTS or .plenora-contracts",
+    "mode": "offline Git objects at the adopted immutable revision"
+  },
+  "normative_vocabulary": {
+    "closed_values": {
+      "plenora.geometry.encoding": [
+        "ewkb",
+        "wkb"
+      ],
+      "plenora.geometry.dimensions": [
+        "unknown",
+        "xy",
+        "xym",
+        "xyz",
+        "xyzm"
+      ],
+      "plenora.geometry.spatial_semantics": [
+        "geography",
+        "geometry"
+      ],
+      "plenora.geometry.precision": [
+        "float32",
+        "float64",
+        "native"
+      ],
+      "plenora.geometry.types_declaration": [
+        "exact",
+        "mixed",
+        "unresolved"
+      ],
+      "plenora.geometry.crs_resolution": [
+        "declared_unresolved",
+        "missing",
+        "resolved"
+      ],
+      "plenora.geometry.crs_definition_format": [
+        "projjson",
+        "wkt",
+        "wkt2"
+      ],
+      "plenora.geometry.axis_order": [
+        "easting_northing",
+        "lat_lon",
+        "lon_lat",
+        "northing_easting",
+        "other",
+        "unknown"
+      ]
+    },
+    "canonical_types": [
+      "point",
+      "linestring",
+      "polygon",
+      "multipoint",
+      "multilinestring",
+      "multipolygon",
+      "geometrycollection",
+      "circularstring",
+      "compoundcurve",
+      "curvepolygon",
+      "multicurve",
+      "multisurface",
+      "polyhedralsurface",
+      "tin",
+      "triangle",
+      "unknown"
+    ],
+    "required_geometry": [
+      "plenora.field_id",
+      "plenora.geometry.encoding",
+      "plenora.geometry.dimensions",
+      "plenora.geometry.spatial_semantics",
+      "plenora.geometry.precision",
+      "plenora.geometry.types_declaration",
+      "plenora.geometry.crs_resolution"
+    ],
+    "schema_rejection_phases": [
+      "validate",
+      "connect",
+      "probe"
+    ],
+    "crs_cli_exit": 3
+  },
+  "operation_semantics": [
+    "pass_through",
+    "tabular_plan",
+    "metadata_normalization",
+    "geometry_compute"
+  ],
+  "required_geometry_computation": true
 }

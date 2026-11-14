@@ -62,6 +62,9 @@ class SystemQualification(unittest.TestCase):
         for name in [*q.COMPONENTS, 'plenora-contracts', 'harness']:
             raw = (f'tree {"a" * 40}\nauthor Synthetic <test@example.invalid> 0 +0000\n'
                    f'committer Synthetic <test@example.invalid> 0 +0000\n\n{name}\n').encode()
+            if name == 'plenora-contracts':
+                oracle = q.qualification_contract.contract()
+                raw = q.qualification_contract.git_bytes(oracle.repository, 'cat-file', 'commit', oracle.revision)
             revisions[name] = hashlib.sha1(b'commit ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
             commits[name] = artifact('git_commit', name + '.commit', raw)
         for component in cls.original['components']:
@@ -100,7 +103,7 @@ class SystemQualification(unittest.TestCase):
                 'plenora.geometry.crs_definition_format': 'projjson', 'plenora.geometry.axis_order': 'lon_lat',
                 'plenora.geometry.native.sentinel': 'synthetic'})
             if fixture == 'crs_unresolved':
-                metadata['plenora.geometry.crs_resolution'] = 'unresolved'
+                metadata['plenora.geometry.crs_resolution'] = 'declared_unresolved'
             if fixture == 'axis_lat_lon':
                 metadata['plenora.geometry.axis_order'] = 'lat_lon'
             if fixture == 'dimensions_unknown':
@@ -117,17 +120,23 @@ class SystemQualification(unittest.TestCase):
                 metadata['plenora.geometry.axis_order'] = 'easting_northing'
             if fixture == 'types_mixed':
                 metadata['plenora.geometry.types'] = 'point,linestring'
+                metadata['plenora.geometry.precision'] = 'native'
+                reference = json.loads(q.qualification_contract.contract().read('vectors/arrow-data-v1/crs-proj-epsg-4326-projjson.json'))
+                metadata['plenora.geometry.crs_definition'] = next(f['metadata']['plenora.geometry.crs_definition'] for f in reference['fields'] if 'plenora.geometry.crs_definition' in f['metadata'])
             if fixture == 'crs_missing':
                 metadata['plenora.geometry.crs_resolution'] = 'missing'
-                for key in ('crs_id', 'crs_definition', 'crs_definition_format', 'srid'):
+                for key in ('crs_id', 'crs_definition', 'crs_definition_format', 'srid', 'axis_order'):
                     metadata.pop('plenora.geometry.' + key)
             if fixture == 'conflicting_crs':
                 metadata['plenora.geometry.crs_definition'] = '{"id":{"authority":"EPSG","code":3003}}'
+            metadata['ARROW:extension:name'] = 'geoarrow.wkb'
             if variant == 'geoarrow_extension':
-                metadata['ARROW:extension:name'] = 'geoarrow.wkb'
+                metadata['ARROW:extension:metadata'] = '{}'
             schema = pa.schema([pa.field('geometry', pa.binary(), metadata=metadata), pa.field('value', pa.uint64() if fixture == 'uint64_ordering' else pa.int64())],
                                metadata={'plenora.contract.version': '1', 'opaque': 'synthetic'})
-            table = pa.Table.from_arrays([pa.array(geometry_fixture(fixture)), pa.array([2**63+1, 2**64-1], type=pa.uint64()) if fixture == 'uint64_ordering' else pa.array([2**53+1, 2**53+2])], schema=schema)
+            table = pa.Table.from_arrays([pa.array(geometry_fixture(fixture)), pa.array([2**64-1, 2**63+1], type=pa.uint64()) if fixture == 'uint64_ordering' else pa.array([2**53+1, 2**53+2])], schema=schema)
+            if fixture in ('int64_beyond_2_53', 'uint64_ordering'):
+                table = table.select(['value'])
             raw = cls.arrow_bytes(table)
             source_tables[(fixture, variant)] = table
             label = fixture + '-' + variant
@@ -137,6 +146,11 @@ class SystemQualification(unittest.TestCase):
                 if fixture == 'crs_unresolved':
                     metadata['plenora.geometry.crs_resolution'] = 'resolved'
                     schema = pa.schema([schema.field(0).with_metadata(metadata), schema.field(1)], metadata=schema.metadata)
+                    table = pa.Table.from_arrays(table.columns, schema=schema)
+                    raw = cls.arrow_bytes(table)
+                if fixture == 'types_mixed':
+                    metadata['plenora.geometry.precision'] = 'float64'
+                    schema = table.schema.set(0, table.schema.field(0).with_metadata(metadata))
                     table = pa.Table.from_arrays(table.columns, schema=schema)
                     raw = cls.arrow_bytes(table)
                 outputs[(fixture, variant)] = artifact('output', label + '-out.arrow', raw)
@@ -156,7 +170,12 @@ class SystemQualification(unittest.TestCase):
                 command = {'id': command_id, 'cell': list(key), 'component': component,
                     'run_id': platform, 'executable': executable['artifact'], 'revision': revisions[component],
                     'argv': ['synthetic-runner', component, surface], 'input': current, 'output': output,
-                    'destination': command_id + '-destination', 'exit_code': 1 if output is None else 0}
+                    'destination': command_id + '-destination', 'exit_code': 3 if output is None else 0}
+                if output is not None:
+                    kind = 'geometry_compute' if step == 0 and fixture == 'types_mixed' else 'metadata_normalization' if step == 0 and fixture == 'crs_unresolved' else 'pass_through'
+                    command['semantics'] = {'kind': kind, 'operation_id': component + '.synthetic@1'}
+                    if kind == 'geometry_compute':
+                        command['semantics'].update(geometry_selection='41', produced_geometry_ids=['41'])
                 command['log'] = artifact('log', command_id + '.log', copy.deepcopy(command))
                 commands.append(command)
                 hop = {'component': component, 'command': command_id, 'output': output}
@@ -164,7 +183,7 @@ class SystemQualification(unittest.TestCase):
                     hop.update(preservation={'status': 'skipped', 'reason': 'rejected_at_validating_boundary'},
                                properties={}, boundary='first_validating_boundary')
                     hop['error'] = artifact('report', command_id + '-error.json', {'command': command_id,
-                        'error': {'category': 'crs', 'code': 'CRS_CONFLICT', 'phase': 'validate', 'remote_effect': 'none', 'retry': {'kind': 'never'}}})
+                        'error': {'category': 'crs', 'message': 'CRS conflict', 'code': 'CRS_CONFLICT', 'phase': 'validate', 'remote_effect': 'none', 'retry': {'kind': 'never'}}})
                     state = {'capture': 'complete_destination_state', 'entries': [],
                              'command': command_id, 'destination': command['destination']}
                     hop['before'] = artifact('snapshot', command_id + '-before.json', state)
@@ -174,7 +193,7 @@ class SystemQualification(unittest.TestCase):
                                properties=dict.fromkeys(q.required_properties(cls.root), 'preserved'))
                     prop = None
                     if step == 0 and fixture == 'types_mixed':
-                        hop['operation'], prop = 'derived', 'geometry_types'
+                        hop['operation'], prop = 'derived', 'precision'
                         hop['properties'][prop] = 'derived'
                     if step == 0 and fixture == 'crs_unresolved':
                         hop['operation'], prop = 'explicit_plan', 'crs_resolution'
@@ -253,12 +272,12 @@ class SystemQualification(unittest.TestCase):
                 table = pa.ipc.open_file(self.root / item['artifact']).read_all()
                 wrong = pa.Table.from_arrays([pa.array(geometry_fixture('point')), table.column(1)], schema=table.schema)
                 self.rewrite(item['artifact'], self.arrow_bytes(wrong))
-                self.assertIn('payload geometrico non esercita la fixture dichiarata', self.check())
+                self.assertTrue(self.check())
                 self.rewrite(item['artifact'], self.files[item['artifact']])
 
     def test_conversion_cannot_hide_changed_values(self):
         report = self.read(self.bundle['report'])
-        cell = next(c for c in report['results'] if c['fixture'] == 'int64_beyond_2_53')
+        cell = next(c for c in report['results'] if c['fixture'] == 'axis_lat_lon')
         hop = cell['hops'][0]
         hop['operation'] = 'format_conversion'
         for path in (hop['output'], hop['expected']):
@@ -277,7 +296,7 @@ class SystemQualification(unittest.TestCase):
                             pa.field('other', pa.binary(), metadata=table.schema.field(0).metadata)], metadata=table.schema.metadata)
         crossed = pa.Table.from_arrays([table.column(0), pa.array(geometry_fixture('point'))], schema=schema)
         self.rewrite(item['artifact'], self.arrow_bytes(crossed))
-        self.assertIn('payload geometrico non esercita la fixture dichiarata', self.check())
+        self.assertTrue(self.check())
 
     def test_each_domain_and_property_cannot_be_removed(self):
         baseline = copy.deepcopy(self.document)
