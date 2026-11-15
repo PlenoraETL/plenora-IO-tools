@@ -3230,16 +3230,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         return stato
 
     def test_un_digest_storico_alterato_e_rosso(self) -> None:
-        """Alterare la registrazione storica deve ancora produrre un errore.
-
-        Che cosa il gate puo' dimostrare, e che cosa no. I byte degli artefatti
-        non stanno nel repository -- sono su GitHub Releases -- quindi un digest
-        **ben formato** e sbagliato e' indistinguibile da uno giusto: a
-        distinguerli e' `check-deliverable.py --contro-la-candidate`, che ha gli
-        archivi sotto mano. Qui si verifica cio' che si puo': che il digest sia
-        un digest, che due artefatti non ne condividano uno, e che la revisione
-        sia quella congelata.
-        """
+        """Digest e identita sono vincolati al verbale nel commit conservato."""
         stato = self.stato_reale()
         originali = stato["chiuso"]["release_pubblicate"][0]["artefatti"]
 
@@ -3303,33 +3294,11 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         errori = gate.verifica_release_storiche(stato)
         self.assertTrue(any("due volte" in e for e in errori), errori)
 
-    def test_senza_release_pubblicate_la_verifica_non_tace(self) -> None:
-        """Un verde senza niente da guardare direbbe che cio' che e' stato
-        rilasciato e' ancora quello, senza aver guardato niente.
-
-        La condizione si **costruisce**, e serve che entrambe le meta' siano
-        vuote: `verifica_release_pubblicata` guarda prima la candidate
-        corrente, e solo se quella non e' `pubblicata` ripiega sull'archivio.
-
-        La stesura precedente svuotava il solo archivio, partendo dallo stato
-        reale. Funzionava finche' la candidate corrente non era una release --
-        ed e' diventata rossa quando la 3.0.0 e' stata pubblicata: con una
-        candidate `pubblicata` c'e' eccome qualcosa da guardare, il gate la
-        guardava, e la sonda cercava un messaggio che non doveva esserci.
-        Misurava il momento del repository invece del comportamento del gate,
-        come le sonde della candidate prima di lei.
-        """
+    def test_candidate_non_pubblicata_non_richiede_release_storiche(self) -> None:
         stato = self.stato_reale()
         stato["chiuso"]["release_pubblicate"] = []
-        stato["aperto"]["candidate_release"]["stato"] = "attiva"
-        self.assertNotEqual(
-            stato["aperto"]["candidate_release"]["stato"],
-            "pubblicata",
-            "la precondizione della sonda e' che **non** ci sia niente da "
-            "guardare: con una candidate pubblicata il gate ha ragione a tacere",
-        )
-        errori = gate.verifica_release_pubblicata(stato)
-        self.assertTrue(any("nessuna release" in e for e in errori), errori)
+        stato["aperto"]["candidate_release"]["stato"] = "iniziale"
+        self.assertEqual(gate.verifica_release_pubblicata(stato), [])
 
     def test_una_candidate_pubblicata_si_guarda_anche_senza_archivio(self) -> None:
         """La controprova: e' l'altra meta' di cio' che la sonda sopra pretende.
@@ -4246,6 +4215,12 @@ class SondeDellaReleasePubblicata(unittest.TestCase):
 
     # --- cio' che resta rifiutato -----------------------------------------
 
+    def test_pubblicazione_v900_con_tag_errato_fallisce(self) -> None:
+        with mock.patch.object(self, "VERSIONE", "9.0.0"):
+            self.assertEqual(self.verifica(self.candidate()), [])
+            errors = self.verifica(self.candidate(), tag="altrove")
+            self.assertTrue(any("v9.0.0" in e and "punta a" in e for e in errors), errors)
+
     def test_un_tag_spostato_e_rifiutato(self) -> None:
         """`pubblicata` non vuol dire «non guardare il tag»."""
         motivi = self.verifica(self.candidate(), tag="altrove")
@@ -5103,3 +5078,86 @@ class SondeDellaCampagnaCitataDalloStato(unittest.TestCase):
     def test_una_revisione_che_git_non_risolve_e_rossa(self) -> None:
         motivi = self._motivi(contenuto=self._verbale_completo("corta"))
         self.assertTrue(any("git non risolve" in m for m in motivi), motivi)
+
+
+class SondeRegistrazioniDocumentali(unittest.TestCase):
+    def test_digest_tipo_e_percorso_sono_controllati(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            relative = "assurance/evidence/nota.json"
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            raw = json.dumps({"schema_version": 1,
+                              "tipo": "registrazione_documentale_owner_non_checkpoint"}).encode()
+            path.write_bytes(raw)
+            item = {"percorso": relative, "sha256": hashlib.sha256(raw).hexdigest()}
+            state = {"docset": {"registrazioni_documentali": [item]}}
+            with mock.patch.object(gate, "ROOT", root):
+                refs, errors = gate._documenti_riferiti(state)
+                self.assertEqual(errors, [])
+                self.assertEqual(set(refs), {"nota.json"})
+                path.write_bytes(raw + b" ")
+                self.assertTrue(gate._documenti_riferiti(state)[1])
+                path.write_bytes(b'{"schema_version":1,"tipo":"checkpoint"}')
+                item["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                self.assertTrue(gate._documenti_riferiti(state)[1])
+                item["percorso"] = "assurance/evidence/../nota.json"
+                self.assertTrue(gate._documenti_riferiti(state)[1])
+
+    def test_assenza_non_apre_un_allowlist_generica(self):
+        self.assertEqual(gate._documenti_riferiti({}), ({}, []))
+        for value in (None, {}, [None], [{"percorso": "nota.json"}]):
+            self.assertTrue(gate._documenti_riferiti(
+                {"docset": {"registrazioni_documentali": value}})[1])
+
+    def test_un_documento_non_puo_sostituire_una_misura(self):
+        state = {"ultima_misura": {"evidenza": "assurance/evidence/nota.json"},
+                 "ultima_campagna_fuzz": {"verbale": "assurance/evidence/smoke.json"}}
+        with mock.patch.object(gate, "_documenti_riferiti",
+                               return_value=({"nota.json": "docset.registrazioni_documentali"}, [])):
+            _, errors = gate._evidenze_riferite(state)
+        self.assertTrue(any("usato anche come prova" in e for e in errors))
+
+
+class SondeArchivioSenzaTag(unittest.TestCase):
+    def test_candidate_assente_o_stato_sconosciuto_non_diventa_archivio_vuoto(self):
+        self.assertTrue(gate.verifica_release_pubblicata({}))
+        self.assertTrue(gate.verifica_release_pubblicata(
+            {"aperto": {"candidate_release": {"stato": "sconosciuto"}}}))
+
+    def stato(self):
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def test_archivio_e_pubblicazione_senza_tag_storici(self):
+        stato = self.stato()
+        originale = gate._git
+        def senza_tag(*args):
+            if any(arg.startswith("refs/tags/") or arg.startswith("v") and "^{commit}" in arg for arg in args):
+                return None
+            return originale(*args)
+        with mock.patch.object(gate, "_git", side_effect=senza_tag), mock.patch.object(
+                gate, "_tag_sulla_candidate", side_effect=AssertionError("tag vivo consultato per archivio")):
+            self.assertEqual(gate.verifica_release_storiche(stato), [])
+            self.assertEqual(gate.verifica_release_pubblicata(stato), [])
+
+    def test_digest_valido_ma_alterato_non_e_un_verbale_immutabile(self):
+        stato = self.stato()
+        stato["chiuso"]["release_pubblicate"][0]["artefatti"][0]["sha256"] = "1" * 64
+        errors = gate.verifica_release_storiche(stato)
+        self.assertTrue(any("artefatti: diverso dal verbale" in e for e in errors), errors)
+
+    def test_oggetto_della_registrazione_mancante_fallisce_chiuso(self):
+        verbale = self.stato()["chiuso"]["release_pubblicate"][0]
+        with mock.patch.object(gate, "_git", return_value=None):
+            self.assertTrue(gate._verbale_storico_conservato(verbale))
+
+    def test_tag_corrente_v900_errato_restera_rosso(self):
+        congelata = "a" * 40
+        altra = "b" * 40
+        candidate = {"versione_manifesto": "9.0.0", "revisione_candidate": congelata}
+        errors = gate._tag_sulla_candidate(candidate, congelata, "9.0.0",
+                                          risolvi=lambda ref: altra if ref == "v9.0.0" else congelata)
+        self.assertTrue(any("v9.0.0" in e and "congelata" in e for e in errors), errors)
+        self.assertEqual(gate._tag_sulla_candidate(candidate, congelata, "9.0.0",
+                                                  risolvi=lambda ref: congelata), [])

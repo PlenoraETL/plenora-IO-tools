@@ -478,6 +478,10 @@ FOGLIE_LEGATE = frozenset(
 #: sottratta al controllo, che e' esattamente cio' che la classificazione esiste
 #: per impedire.
 FOGLIE_CONDIZIONATE = {
+    "docset.registrazioni_documentali": (
+        "Riferimenti documentali con digest, verificati da _documenti_riferiti; "
+        "non sono checkpoint e non promuovono invarianti."
+    ),
     **{f"sviluppo_non_qualificato.{key}": "Decisione 8.0.0 non qualificata; non modifica la misura storica o autorizza il rilascio"
        for key in ("versione", "stato", "release_authorized", "decisione", "richiesto", "evidenza")},
     "chiuso.release_pubblicate": (
@@ -2091,6 +2095,45 @@ def percorso_canonico(valore: Any) -> str | None:
     return valore
 
 
+def _documenti_riferiti(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+    """Documenti espliciti, senza attribuire loro valore di checkpoint o gate."""
+    voci = stato.get("docset", {}).get("registrazioni_documentali", [])
+    if not isinstance(voci, list):
+        return {}, ["docset.registrazioni_documentali non e un elenco"]
+    riferite: dict[str, str] = {}
+    errori: list[str] = []
+    for voce in voci:
+        if not isinstance(voce, dict) or set(voce) != {"percorso", "sha256"}:
+            errori.append("registrazione documentale: attesi percorso e sha256")
+            continue
+        relativo = percorso_canonico(voce["percorso"])
+        if (relativo is None or Path(relativo).parent.as_posix() != CARTELLA_DELLE_EVIDENZE
+                or Path(relativo).suffix != ".json"):
+            errori.append("registrazione documentale: percorso non canonico in assurance/evidence")
+            continue
+        nome = Path(relativo).name
+        if nome in riferite:
+            errori.append("registrazione documentale duplicata: " + relativo)
+            continue
+        try:
+            file = ROOT / relativo
+            if file.is_symlink() or not file.resolve().is_relative_to(ROOT.resolve()):
+                raise ValueError("link o percorso esterno")
+            raw = file.read_bytes()
+            documento = strict_json.loads(raw.decode("utf-8"))
+            if hashlib.sha256(raw).hexdigest() != voce["sha256"]:
+                raise ValueError("digest diverso")
+            if (not isinstance(documento, dict)
+                    or documento.get("schema_version") != 1
+                    or documento.get("tipo") != "registrazione_documentale_owner_non_checkpoint"):
+                raise ValueError("tipo documentale non ammesso")
+        except (OSError, ValueError, UnicodeError) as exc:
+            errori.append(f"registrazione documentale {relativo}: {exc}")
+            continue
+        riferite[nome] = "docset.registrazioni_documentali"
+    return riferite, errori
+
+
 def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     """`{nome del file: chi lo cita}` per ogni evidenza che lo stato riferisce.
 
@@ -2162,6 +2205,13 @@ def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]
         )
     else:
         riferite.setdefault(Path(campagna).name, "`ultima_campagna_fuzz.verbale`")
+    documenti, problemi = _documenti_riferiti(stato)
+    errori.extend(problemi)
+    for nome, fonte in documenti.items():
+        if nome in riferite:
+            errori.append("documento usato anche come prova: " + nome)
+        else:
+            riferite[nome] = fonte
     return riferite, errori
 
 
@@ -3346,43 +3396,35 @@ STATI_DELLA_CANDIDATE = ("iniziale", "attiva", "ritirata", "pubblicata")
 RELEASE_STORICHE = ("chiuso", "release_pubblicate")
 
 
+def _verbale_storico_conservato(verbale: dict[str, Any]) -> list[str]:
+    """Confronta i fatti congelati col loro oggetto Git, senza consultare tag."""
+    commit = verbale.get("commit_di_assurance")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+        return ["commit_di_assurance: richiesto identificatore esadecimale di commit"]
+    risolto = revisione_risolta(commit)
+    testo = _git("show", f"{risolto}:assurance/current-state.json") if risolto else None
+    try:
+        if testo is None:
+            raise ValueError("oggetto non disponibile")
+        storico = strict_json.loads(testo)["aperto"]["candidate_release"]
+        if not isinstance(storico, dict):
+            raise ValueError("candidate storica non strutturata")
+    except (ValueError, KeyError, TypeError):
+        return ["verbale originale non leggibile nel commit_di_assurance"]
+    # Le note possono descrivere l'archiviazione successiva; i fatti no.
+    campi = ("versione_manifesto", "revisione_candidate", "tag_previsto",
+             "tag_revisione", "artefatti")
+    return [f"{campo}: diverso dal verbale nel commit_di_assurance"
+            for campo in campi if verbale.get(campo) != storico.get(campo)]
+
+
 def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
-    """Le release gia' pubblicate restano verificate mentre la seguente avanza.
+    """Verifica la cronaca locale contro i commit conservati, non ref vive.
 
-    # Perche' un archivio, e perche' **verificato**
-
-    `aperto.candidate_release` descrive **una** candidate. Fino alla 2.0.0 ne
-    esisteva una sola e la domanda non si poneva; alla seconda si pone, e ha due
-    risposte sbagliate. Sovrascrivere il verbale della 2.0.0 perderebbe la
-    registrazione di una release pubblicata. Lasciarlo come candidate corrente
-    impedirebbe alla 3.0.0 di nascere -- il gate pretende che la candidate
-    corrente sia coerente col workspace, e due versioni non possono esserlo
-    insieme.
-
-    Il verbale si sposta quindi qui, e conserva **gli stessi nomi di campo**
-    della candidate. Non e' un dettaglio di forma: e' cio' che permette di
-    riverificarlo con `_tag_sulla_candidate` e `_artefatti_fissati`, cioe' con
-    gli stessi controlli di prima, invece che con una copia che potrebbe
-    divergere da loro senza che nessuno se ne accorga.
-
-    Superare una candidate riguarda **quale sia corrente**, non la validita' di
-    cio' che e' stato pubblicato: la 3.0.0 puo' avanzare, e la 2.0.0 resta
-    verificabile. Alterare il verbale storico -- un digest, un tag, la revisione
-    -- e' ancora un errore, e questo e' il controllo che lo rende tale.
-
-    # Che cosa verifica, per ciascuna
-
-    * il tag esiste e punta alla revisione congelata;
-    * i sei artefatti sono quelli attesi per quella versione, con nome, digest,
-      dimensione e revisione, e la revisione e' quella congelata;
-    * l'evidenza nominata esiste, ed e' la corsa **di quella revisione**: senza,
-      un verbale potrebbe rimandare alla misura di un'altra;
-    * il commit di registrazione discende dalla revisione congelata e non ha
-      toccato altro che l'allowlist dell'assurance.
-
-    L'ultimo e' il motivo per cui `commit_di_assurance` esiste: riferirsi a HEAD
-    renderebbe rossa una release i cui byte nessuno ha toccato, al primo commit
-    di sviluppo.
+    Nomi, revisioni e digest sono quelli registrati nel commit di assurance.
+    Il tag scritto nel verbale resta un'identita storica: non deve esistere
+    oggi e non si scaricano asset remoti. Evidenza, perimetro e discendenza
+    restano verificati. I vincoli sul tag vivo sono della candidate corrente.
     """
     nodo: Any = stato
     for chiave in RELEASE_STORICHE:
@@ -3425,10 +3467,6 @@ def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
 
         errori.extend(
             f"{dove}: {motivo}"
-            for motivo in _tag_sulla_candidate(verbale, congelata, versione)
-        )
-        errori.extend(
-            f"{dove}: {motivo}"
             for motivo in _artefatti_fissati(
                 verbale, congelata, versione, verbale.get("versione_pacchetto_python")
             )
@@ -3452,6 +3490,12 @@ def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
                     "propria"
                 )
 
+        for campo in ("revisione_candidate", "commit_di_assurance"):
+            if not isinstance(verbale.get(campo), str) or not re.fullmatch(r"[0-9a-f]{7,40}", verbale[campo]):
+                errori.append(f"{dove}.{campo}: richiesto identificatore esadecimale di commit")
+        if verbale.get("tag_previsto") != f"v{versione}":
+            errori.append(f"{dove}.tag_previsto: identita storica diversa dalla versione")
+        errori.extend(f"{dove}: {motivo}" for motivo in _verbale_storico_conservato(verbale))
         registrazione = revisione_risolta(verbale.get("commit_di_assurance"))
         if registrazione is None:
             errori.append(
@@ -3608,32 +3652,16 @@ def verifica_release_pubblicata(stato: dict[str, Any]) -> list[str]:
     il repository per sempre -- che e' quanto e' successo, e la ragione per cui
     questo stato esiste.
     """
-    # Dove vive la risposta, dopo che le release sono diventate due.
-    #
-    # Finche' ce n'era una sola, `aperto.candidate_release` era insieme la
-    # candidate corrente e il verbale della release pubblicata. Dalla seconda le
-    # due cose si separano: la corrente e' quella che avanza, il verbale sta in
-    # archivio. La domanda di questo invariante -- «cio' che e' stato rilasciato
-    # e' ancora quello?» -- segue il verbale, non la corrente.
-    if stato.get("aperto", {}).get("candidate_release", {}).get("stato") != "pubblicata":
-        storiche = stato.get("chiuso", {}).get("release_pubblicate")
-        if not isinstance(storiche, list) or not storiche:
-            return [
-                "nessuna release pubblicata da verificare: la candidate corrente "
-                "non lo e' e `chiuso.release_pubblicate` e' vuoto o assente. Un "
-                "verde qui senza niente da guardare direbbe che cio' che e' "
-                "stato rilasciato e' ancora quello, senza aver guardato niente."
-            ]
-        return verifica_release_storiche(stato)
-
     candidate = stato.get("aperto", {}).get("candidate_release")
     if not isinstance(candidate, dict):
         return ["`aperto.candidate_release` assente: non c'e' release da verificare"]
-    if candidate.get("stato") != "pubblicata":
-        return [
-            f"la candidate e' in stato «{candidate.get('stato')}», non "
-            "«pubblicata»: questa verifica riguarda una release avvenuta"
-        ]
+    if candidate.get("stato") not in STATI_DELLA_CANDIDATE:
+        return ["stato della candidate non riconosciuto"]
+    # Prima della pubblicazione corrente si verifica solo la cronaca locale.
+    # Un archivio vuoto e le ref storiche cancellate non richiedono ripristini;
+    # questo ramo non attesta i byte o il tag della nuova candidate.
+    if candidate["stato"] != "pubblicata":
+        return verifica_release_storiche(stato)
 
     errori: list[str] = []
     versione = candidate.get("versione_manifesto")
