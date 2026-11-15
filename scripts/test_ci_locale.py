@@ -4,6 +4,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -195,6 +197,71 @@ class CiLocaleTests(unittest.TestCase):
         self.workflow([{"uses": "actions/setup-python@pin", "with": {"python-version": "3.14", "architecture": "arm64"}}])
         step = ci.derive(self.root)["jobs"][0]["steps"][0]
         self.assertIn("opzioni action non mappate", step["reason"])
+
+    def test_additional_checkout_pin_outputs_and_wrong_ref(self):
+        # Repository reale ma locale, nessuna rete; sorgente immutata.
+        source = self.root / "source"
+        source.mkdir()
+        subprocess.run(["git", "init", str(source)], check=True, capture_output=True)
+        # Un commit vuoto in un repository usa-e-getta non tocca la storia IO.
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "fixture"],
+                       check=True, capture_output=True)
+        pin = ci.git(source, "rev-parse", "HEAD")
+        (self.root / "pin.txt").write_text(pin)
+        producer = {"id": "pin", "shell": "python", "run":
+                    "import os; from pathlib import Path; "
+                    "Path(os.environ['GITHUB_OUTPUT']).write_text('revision='+Path('pin.txt').read_text()+"
+                    "'\\nrepository=owner/contracts\\npath=.contracts\\n')"}
+        checkout = {"uses": "actions/checkout@pin", "with": {
+            "repository": "${{ steps.pin.outputs.repository }}", "ref": "${{ steps.pin.outputs.revision }}",
+            "path": "${{ steps.pin.outputs.path }}"}}
+        self.workflow([producer, checkout, {"shell": "python", "run": "print('after checkout')"}])
+        with patch.dict(os.environ, {"CI_LOCALE_SORGENTE_CONTRACTS": str(source)}):
+            _, receipt = self.run_plan(ci.derive(self.root))
+            self.assertEqual([r["status"] for r in receipt["steps"]], ["PASS"] * 3)
+            self.assertEqual(ci.git(self.root / ".contracts", "rev-parse", "HEAD"), pin)
+            self.assertIn(pin, Path(receipt["steps"][1]["log"]).read_text())
+            # Riuso idempotente, anche offline.
+            with patch.object(ci, "git", return_value="abc"), patch.object(ci, "host_os", return_value="Windows"), contextlib.redirect_stdout(io.StringIO()):
+                _, receipt = ci.execute(ci.derive(self.root), self.root, offline=True)
+            self.assertEqual(receipt["steps"][1]["status"], "PASS")
+            evidence = json.loads(Path(receipt["steps"][1]["log"]).read_text().splitlines()[-1])
+            self.assertEqual(evidence["expected_sha"], pin)
+            self.assertEqual(evidence["obtained_sha"], pin)
+            # Non perdere modifiche locali quando la destinazione e' riusata.
+            local = self.root / ".contracts/local.txt"
+            local.write_text("preserve me")
+            _, receipt = self.run_plan(ci.derive(self.root))
+            self.assertEqual(receipt["steps"][1]["status"], "FAIL")
+            self.assertEqual(local.read_text(), "preserve me")
+            local.unlink()
+            (self.root / "pin.txt").write_text("f" * 40)
+            _, receipt = self.run_plan(ci.derive(self.root))
+            self.assertEqual(receipt["steps"][1]["status"], "FAIL")
+            self.assertNotEqual(receipt["steps"][1]["exit_code"], 0)
+            self.assertEqual(receipt["steps"][2]["status"], "NON ESEGUITO")
+        self.assertEqual(ci.git(source, "rev-parse", "HEAD"), pin)
+        # tempfile deve poter eliminare gli oggetti Git read-only su Windows.
+        for path in self.root.rglob("*"):
+            if path.is_file():
+                path.chmod(0o666)
+
+    def test_checkout_source_policy_and_sha_mismatch(self):
+        args = {"repository": "owner/contracts", "path": ".contracts", "ref": "a" * 40}
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(ci.checkout_source(args, self.root), "https://github.com/owner/contracts.git")
+            with self.assertRaisesRegex(Unsupported, "offline.*CI_LOCALE_SORGENTE_CONTRACTS"):
+                ci.checkout_source(args, self.root, True)
+        self.assertEqual(ci.checkout_source({"path": "old", "ref": "tag"}, self.root, True), str(self.root))
+        with self.assertRaises(Unsupported):
+            ci.checkout_source({**args, "path": ".."}, self.root)
+        with patch.object(ci.subprocess, "run"), patch.object(ci, "git", return_value="b" * 40):
+            with self.assertRaisesRegex(ValueError, "SHA richiesto"):
+                ci.additional_checkout(self.root, args, str(self.root / "source"))
+        with patch.object(ci.subprocess, "run"), patch.object(ci, "git", side_effect=["a" * 40, "b" * 40]):
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "SHA ottenuto"):
+                ci.additional_checkout(self.root, args, str(self.root / "source"))
 
     def test_unknown_action_with_false_condition_does_not_block(self):
         self.workflow([{"uses": "unknown/action@pin", "if": "false"}, {"run": "print('next')", "shell": "python"}])

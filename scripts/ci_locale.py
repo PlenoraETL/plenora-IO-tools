@@ -112,7 +112,7 @@ def preconditions(job, step, root, command, offline):
             for name in re.findall(r"--(?:old|new)\s+([^\s]+)", direct):
                 if not inside(root, name).is_file():
                     return f"binario storico/corrente assente: {name}"
-    if step.get("mapping") == "checkout" and step["with"].get("fetch-depth") == "0":
+    if step.get("mapping") == "checkout" and not step["with"].get("path") and step["with"].get("fetch-depth") == "0":
         if git(root, "rev-parse", "--is-shallow-repository") == "true":
             return "storia git completa richiesta; clone shallow"
     if step.get("mapping") == "python":
@@ -365,8 +365,12 @@ def classify(job, step, root, allow_services=False, offline=False):
     missing = preconditions(job, step, root, command, offline)
     if missing:
         return "NON ESEGUITO", missing
-    if step.get("mapping") == "checkout" and any(step["with"].get(k) for k in ("repository", "path", "submodules", "lfs")):
-        return "NON ESEGUITO", "checkout aggiuntivo/remoto non eseguito; usare il worktree corrente"
+    if step.get("mapping") == "checkout" and not any(
+            "${{" in str(value) for value in step["with"].values()):
+        try:
+            checkout_source(step["with"], root, offline)
+        except Unsupported as exc:
+            return "NON ESEGUITO", str(exc)
     if step.get("mapping"):
         return "ESEGUIBILE", "verifica locale del setup, senza installazioni"
     shell = step["shell"]
@@ -377,11 +381,73 @@ def classify(job, step, root, allow_services=False, offline=False):
     return "ESEGUIBILE", "prerequisiti e condizioni verificati durante l'esecuzione"
 
 
-def action_command(step, root, sha):
+def checkout_source(args, root, offline=False):
+    """Configurazione dichiarativa; nessuna rete o mutazione durante il piano."""
+    if any(str(args.get(k, "false")).lower() not in ("", "false") for k in ("submodules", "lfs")):
+        raise Unsupported("checkout submodules/lfs non mappato")
+    repository = args.get("repository", "")
+    if not repository and not args.get("path"):
+        return None
+    if not args.get("path") or inside(root, args["path"]) == root.resolve():
+        raise Unsupported("checkout aggiuntivo richiede path distinto dal worktree corrente")
+    if not args.get("ref"):
+        raise Unsupported("checkout aggiuntivo richiede ref esplicito")
+    if not repository:
+        return str(root)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise Unsupported("repository checkout deve essere OWNER/REPO")
+    name = re.sub(r"[^A-Za-z0-9]", "_", repository.split("/")[-1]).upper()
+    variable = "CI_LOCALE_SORGENTE_" + name
+    source = os.environ.get(variable)
+    if source:
+        path = Path(source).resolve()
+        if not path.is_dir():
+            raise Unsupported(f"sorgente checkout assente: {variable}={source}")
+        return str(path)
+    if offline:
+        raise Unsupported(f"offline: checkout senza sorgente locale {variable}")
+    return f"https://github.com/{repository}.git"
+
+
+def additional_checkout(root, args, source):
+    """Clone isolato, ref verificato e nessuna scrittura nella sorgente locale."""
+    destination = inside(root, args["path"])
+    ref = args["ref"]
+    if ref.startswith("-") or any(c.isspace() for c in ref):
+        raise ValueError("ref checkout non valido")
+    # Una destinazione preesistente non viene cancellata o resettata.
+    if destination.exists():
+        if not (destination / ".git").is_dir():
+            raise ValueError("destinazione checkout esistente non gestita")
+        if git(destination, "remote", "get-url", "origin") != source:
+            raise ValueError("sorgente della destinazione checkout diversa")
+        if git(destination, "status", "--porcelain"):
+            raise ValueError("destinazione checkout con modifiche locali")
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "clone", "--no-hardlinks", "--no-checkout", "--", source, str(destination)], check=True)
+    # Fetch del ref esplicito anche quando il clone riusato contiene altri ref.
+    subprocess.run(["git", "-C", str(destination), "fetch", "--no-tags", "origin", ref], check=True)
+    expected = git(destination, "rev-parse", "--verify", "FETCH_HEAD^{commit}")
+    if re.fullmatch(r"[0-9a-fA-F]{40}", ref) and expected.lower() != ref.lower():
+        raise ValueError(f"SHA richiesto {ref}, risolto {expected}")
+    subprocess.run(["git", "-C", str(destination), "checkout", "--detach", expected], check=True)
+    obtained = git(destination, "rev-parse", "HEAD")
+    print(json.dumps({"repository": args.get("repository"), "source": source,
+                      "ref": ref, "path": str(destination), "expected_sha": expected, "obtained_sha": obtained}))
+    if obtained != expected:
+        raise ValueError(f"SHA ottenuto {obtained}, richiesto {expected}")
+
+
+def action_command(step, root, sha, offline=False):
     mapping, args = step["mapping"], step["with"]
     if mapping == "checkout":
-        if args.get("repository") or args.get("path") or args.get("submodules") or args.get("lfs"):
-            raise Unsupported("checkout aggiuntivo/remoto non eseguito; usare il worktree corrente")
+        source = checkout_source(args, root, offline)
+        if source is not None:
+            return [sys.executable, "-c", "import sys,json; from pathlib import Path; "
+                    "sys.path.insert(0,sys.argv[1]); from ci_locale import additional_checkout; "
+                    "additional_checkout(Path(sys.argv[2]),json.loads(sys.argv[3]),sys.argv[4])",
+                    str(Path(__file__).resolve().parent), str(root), json.dumps(args), source]
         if args.get("ref", sha) != sha:
             raise Unsupported("checkout di revisione diversa da HEAD")
         return [sys.executable, "-c", "import subprocess,sys; "
@@ -492,7 +558,7 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800, offline
                     if rust and "RUSTUP_TOOLCHAIN" not in values["env"]:
                         env["RUSTUP_TOOLCHAIN"] = rust
                     if step.get("mapping"):
-                        command = action_command({**step, **values}, root, sha)
+                        command = action_command({**step, **values}, root, sha, offline)
                     else:
                         argv, suffix = SHELLS[step["shell"]]
                         script = directory / f"{len(receipt['steps']):04d}{suffix}"
@@ -505,7 +571,9 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800, offline
                                     "$PSNativeCommandUseErrorActionPreference = $true\n" + body +
                                     "\nif (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }\n")
                         script.write_text(body, encoding="utf-8", newline="\n")
-                        command = [*argv, str(script)]
+                        # Usa la shell verificata in PATH anche su Windows,
+                        # dove CreateProcess puo' preferire il launcher WSL.
+                        command = [shutil.which(argv[0]) or argv[0], *argv[1:], str(script)]
                     record.update(command=command, resolved_run=values["run"], working_directory=str(working),
                                   environment={k: v for k, v in env.items() if k in values["env"] or k in receipt["overrides"]
                                                or k in ("GITHUB_WORKSPACE", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT",
