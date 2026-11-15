@@ -377,6 +377,45 @@ non raggiungono il wire.
 
 ## Verifica
 
+### CI locale prima della consegna (sviluppatori e agenti)
+
+Prima di consegnare una modifica si esegue
+`python scripts/ci_locale.py --esegui --profilo pr` e si allega la ricevuta
+`target/ci-locale/<corsa>/ricevuta.json`, insieme ai log pertinenti.
+**Dichiarare verde solo ciò che la ricevuta dice PASS.** FAIL, NON ESEGUITO e
+SALTATO hanno motivazioni distinte e non attestano la parità con la CI.
+
+`python scripts/ci_locale.py --piano` stampa il piano JSON senza eseguire i
+passi. Il piano deriva da `.github/workflows`, espande le matrici statiche,
+le chiamate riusabili locali e le action composite. Conserva filtri PR,
+condizioni, ambiente, shell, directory, servizi e dichiarazioni delle
+toolchain. I filtri dei percorsi sono conservati ma non riducono la verifica
+locale: senza il contesto della PR si considera l'intero piano.
+Il job esistente che invoca `check_prove_fonte_unica.py --run` resta un passo
+unico; la discovery di quell'orchestratore comprende `scripts/test_ci_locale.py`.
+
+`--job windows` (ripetibile, oppure identificatore completo dal piano) limita
+l'esecuzione, conservando gli altri passi nella ricevuta come NON ESEGUITI.
+`--timeout` limita ciascun processo. Exit 1 indica almeno un FAIL; exit 2
+indica una verifica incompleta o un errore del piano. Exit 0 richiede tutti
+i passi PASS. L'esecuzione resta sequenziale e imposta `CARGO_BUILD_JOBS=4`
+e `CARGO_INCREMENTAL=0`, registrando anche l'ambiente dichiarato dal workflow.
+
+La tabella `ACTION_MAP` traduce solo checkout corrente e verifiche di setup
+Python/Rust; non scarica action, repository o toolchain. La cache non viene
+attestata. Ogni altra action è NON ESEGUIBILE con motivo. I job per un altro
+sistema operativo e le shell mancanti sono SALTATI, senza sostituire pwsh
+con Windows PowerShell. Le condizioni/espressioni ignote, i trasferimenti
+di artefatti e le dipendenze `needs` non riprodotte sono NON ESEGUITI.
+Le versioni richieste vengono verificate: poter leggere il piano con un
+Python precedente a 3.14 non qualifica quel runtime.
+
+Servizi/container dichiarati e comandi live sono NON ESEGUITI per default.
+`--servizi-live` abilita i comandi live, ma non inventa il provisioning dei
+servizi Actions. Pubblicazioni e workflow di release restano vietati anche
+con questa opzione. Nessuna ricevuta locale dimostra la configurazione dei
+required checks del server: dai file si osservano i job e `continue-on-error`.
+
 ### Due livelli
 
 | | Quando | Che cosa esegue |
