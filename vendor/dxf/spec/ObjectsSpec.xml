@@ -335,7 +335,7 @@
 
   -->
   <Object Name="LayerIndex" SubclassMarker="AcDbLayerIndex" TypeString="LAYER_INDEX" MinVersion="R14">
-    <Field Name="time_stamp" Code="40" Type="DateTime&lt;Local&gt;" DefaultValue="Local::now()" ReadConverter="as_datetime_local({})" WriteConverter="as_double_local({})" />
+    <Field Name="time_stamp" Code="40" Type="DateTime&lt;Local&gt;" DefaultValue="Local::now()" ReadConverter="as_datetime_local({})?" WriteConverter="as_double_local({})" />
     <Field Name="layer_names" Code="8" Type="String" DefaultValue="vec![]" AllowMultiples="true" />
     <Pointer Name="id_buffers" Code="360" AllowMultiples="true" />
     <Field Name="id_buffer_counts" Code="90" Type="i32" DefaultValue="vec![]" AllowMultiples="true" />
@@ -1046,7 +1046,7 @@
 
   -->
   <Object Name="SpatialIndex" SubclassMarker="AcDbIndex" TypeString="SPATIAL_INDEX" MinVersion="R2000">
-    <Field Name="timestamp" Code="40" Type="DateTime&lt;Local&gt;" DefaultValue="Local::now()" ReadConverter="as_datetime_local({})" WriteConverter="as_double_local({})" />
+    <Field Name="timestamp" Code="40" Type="DateTime&lt;Local&gt;" DefaultValue="Local::now()" ReadConverter="as_datetime_local({})?" WriteConverter="as_double_local({})" />
     <WriteOrder>
       <WriteSpecificValue Code="100" Value='&amp;String::from("AcDbIndex")' />
       <WriteField Field="timestamp" />

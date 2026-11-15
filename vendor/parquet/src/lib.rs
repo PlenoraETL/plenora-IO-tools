@@ -223,3 +223,5 @@ pub enum DecodeResult<T: Debug> {
 pub mod geospatial;
 #[cfg(feature = "variant_experimental")]
 pub mod variant;
+
+mod temporal;

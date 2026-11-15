@@ -4,6 +4,11 @@
 
 ### Superfici e comportamento
 
+- Sicurezza temporale I1–I7: conversioni DXF checked (durate in giorni), rifiuto
+  preventivo GeoParquet INT96, formatter record Parquet senza panic o orari
+  avvolti, setter GDAL esatto o errore. Candidate da ricongelare dopo la
+  correzione per decisione del titolare; rimisure e verifica nativa ancora richieste.
+
 - Python minimo 3.14, deciso dal titolare; fonte `.python-version`, ABI cp314
   e controlli CI su Linux e Windows. Workspace, SDK e binding nativo sono 9.0.0.
 - **B14-GPKG-FIELD-ID**: anche i GeoPackage privi dell'estensione di identita

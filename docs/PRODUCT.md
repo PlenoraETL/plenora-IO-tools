@@ -1248,3 +1248,14 @@ covering e completamento dei soli metadati nativi enumerati. Questa differenza
 di accettazione esisteva gia fra 7.0.3 e 8.0.0 ed e ora misurata dalla nuova
 fase; non e un nuovo rifiuto introdotto dal quinto giro. Nessun errore generico
 o differenza estranea viene trasformato in esito positivo.
+
+### Domini temporali dei lettori
+
+DXF rifiuta date fuori dagli anni 0001–9999, giorno giuliano zero, valori non
+finiti e durate negative. Le durate di editing sono giorni; le date vengono
+arrotondate al secondo, le durate ai nanosecondi dopo la conversione binary64
+in secondi. I secondi SUNSTUDY devono appartenere al giorno indicato.
+GeoParquet rifiuta il tipo fisico legacy INT96 nell'intero file, anche quando
+una proiezione escluderebbe la colonna. Usare timestamp INT64 con unita'
+esplicita per file da scambiare con IO. Arrow IPC conserva i tick interi,
+anche estremi, senza convertirli implicitamente in date calendariali.

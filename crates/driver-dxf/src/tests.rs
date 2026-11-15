@@ -2773,3 +2773,5 @@ fn due_geodata_uguali_a_meno_del_bom_concordano() {
     )
     .expect_err("un secondo BOM non si toglie");
 }
+
+mod tempo_remoto;

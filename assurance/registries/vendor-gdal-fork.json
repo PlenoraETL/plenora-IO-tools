@@ -73,7 +73,12 @@
     "nota": "I file in cui il fork diverge da upstream nel comportamento, non nell'imballaggio. L'elenco autoritativo e' `functional_delta_files` in scripts/gdal-fork-lock.json; qui c'e' il perche', che un elenco di nomi non porta.",
     "src/vector/layer.rs": "delta preesistente.",
     "src/spatial_ref/srs.rs": "aggiunge `set_proj_search_paths` e `get_proj_search_paths`, cioe' `OSRSetPROJSearchPaths` e `OSRGetPROJSearchPaths`, che upstream non espone. Servono perche' un artefatto rilocabile deve dire a PROJ dove sono i propri dati, e la config option `PROJ_DATA` di GDAL **non** arriva a PROJ: misurato con il default nascosto e l'ambiente avvelenato, e provato a ogni corsa da crates/driver-filegdb/tests/radici_di_proj.rs. Senza questa via l'artefatto Windows fallisce la prima conversione con un CRS.",
-    "src/spatial_ref/mod.rs": "esporta le due funzioni aggiunte in srs.rs."
+    "src/spatial_ref/mod.rs": "esporta le due funzioni aggiunte in srs.rs.",
+    "src/lib.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
+    "src/temporal.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
+    "src/temporal/tests.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
+    "src/vector/feature.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
+    "src/vector/feature/temporal_tests.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally"
   },
   "aggiornamento_0_19_0": {
     "quando": "2026-09-10, da 0.17.1",
@@ -96,5 +101,9 @@
     }
   ],
   "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/vector/layer.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato.",
-  "pin_arrow_di_sviluppo": "Per la patch 7.0.1 arrow-array nelle sole dev-dependencies passa da 57.1 a =60.1.0, con feature ffi invariata. Non entra nei grafi workspace/fuzz e non cambia il reader OGR di IO; evita una seconda serie Arrow nelle prove autonome del fork. Nessun sorgente vendor modificato o formattato."
+  "pin_arrow_di_sviluppo": "Per la patch 7.0.1 arrow-array nelle sole dev-dependencies passa da 57.1 a =60.1.0, con feature ffi invariata. Non entra nei grafi workspace/fuzz e non cambia il reader OGR di IO; evita una seconda serie Arrow nelle prove autonome del fork. Nessun sorgente vendor modificato o formattato.",
+  "temporal_2026_11_15": {
+    "cambiamento": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input.",
+    "prove": "temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally"
+  }
 }

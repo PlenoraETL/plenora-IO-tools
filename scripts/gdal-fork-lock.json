@@ -7,11 +7,16 @@
   "crate_sha256": "e26906e99e54000acd7f6328f85d161e6280390b9b596e06dbed0637a6e29717",
   "upstream_revision": "0b06a50a7d19ddd44f77e8c91599fd2d4384b12a",
   "vendor_path": "vendor/gdal",
-  "file_count": 64,
-  "tree_sha256": "3c9ba8e723080e2fbd564b57c718c918175ceba9c45cc4d034367d97294a1e95",
+  "file_count": 67,
+  "tree_sha256": "4dacf9617a69026a57fb4114327b458c2a9233249a7d215b26f6edca6fa0e82d",
   "functional_delta_files": [
+    "src/lib.rs",
     "src/spatial_ref/mod.rs",
     "src/spatial_ref/srs.rs",
+    "src/temporal.rs",
+    "src/temporal/tests.rs",
+    "src/vector/feature.rs",
+    "src/vector/feature/temporal_tests.rs",
     "src/vector/layer.rs"
   ],
   "packaging_delta_files": [
