@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `6e494a6` |
-| candidate, versione del manifesto | `8.0.0` |
-| candidate, stato | pubblicata |
-| candidate, revisione congelata | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
-| candidate, versione del workspace | `8.0.0` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v8.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, versione del manifesto | `9.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `9.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v9.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
-| release pubblicate | 12 |
-| release_authorized | `true` |
+| release pubblicate | 13 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -498,6 +498,13 @@ livello 2 e la propria evidenza.
 **Blocco che rimuove.** Il perimetro del componente è completo. S12 in particolare
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
+
+**Decisione del titolare per la 9.0.0.** Il bundle owner non entra nel
+repository e non e richiesto per la release; la precedente importazione e
+annullata. Resta la [registrazione documentale della qualifica esterna](../assurance/evidence/qualifica-cross-component-2026-11-15.json).
+Il gate e l'invariante cross-component restano invariati, senza promozione a
+`verified`. Il blocco generato seguente descrive quel gate locale, non nega
+l'esito esterno documentato.
 
 <!-- generato da release/system-rc-gate.json: inizio -->
 ### 4. Qualifica cross-component
@@ -2507,3 +2514,48 @@ directory nuova e ripetere tutti i confronti, registrando
 ```bash
 gh release download v8.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel800/pubblicata-riscaricata
 ```
+
+
+### Preparazione 9.0.0 prima del congelamento
+
+La candidate e `iniziale`: nessun SHA o artefatto congelato, tag non creato e
+permessi non concessi. La 8.0.0 e archiviata come verbale locale; checkpoint,
+soak e risultati precedenti non diventano risultati 9.0.0.
+Il CHANGELOG 9.0.0 e datato 2026-11-15, data del congelamento: CHANGELOG.md
+non appartiene all'allowlist successiva.
+
+Il titolare non richiede compatibilita con versioni precedenti ne permanenza
+delle release remote. Le istruzioni storiche su download e confronti con
+vecchie versioni non sono passi della 9.0.0. L'archivio viene verificato
+contro identita e digest nel commit Git di assurance conservato, senza ref tag
+vive o asset remoti; il controllo della pubblicazione applica i vincoli sul
+tag vivo alla sola candidate corrente pubblicata. Un digest storico alterato
+resta rosso. Il job `historical-readers` e i vincoli producer v1 restano
+invariati per decisione del titolare fino alla pulizia successiva alle release:
+il primo seleziona il commit `50f9357`, antenato di main, e il secondo legge il
+contratto e il codice corrente; nessuno dei due richiede i tag cancellati.
+I confronti dei byte della nuova distribuzione/draft/release 9.0.0 rimangono
+obbligatori: riguardano lo stesso rilascio, non compatibilita fra versioni.
+
+Le cinque nuove misure fornite dall'operatore sono conservate senza modifiche.
+La VM ha misurato `a5a90ef` con `fuzz/Cargo.lock` riordinato: la sola voce
+`windows-sys 0.61.2` passa dalla coda alla posizione ordinata. La struttura
+TOML dei 266 pacchetti e invariata (versioni, checksum, dipendenze e sorgenti).
+Il lock preparato coincide con il blob VM
+`f2d9d4a85be888be7169c9e8ecf446c13c3c299c`; le quattro impronte di profondita
+e quella ASan coincidono esattamente con il perimetro corrente. Chiusi i
+quattro `rimisurazione_dovuta` e il separato `rimisurazione_asan_dovuta`.
+
+| Target | Requisiti raggiunti | Semi |
+|---|---:|---:|
+| shp_reader | 35/35 | 32 |
+| filegdb_reader | 12/12 | 21 |
+| geojson_reader | 9/9 | 20 |
+| wkt_parse | 9/9 | 27 |
+
+Log VM forniti in `target/rimisure-vm/`: tutti exit 0, toolchain
+`nightly-2026-07-21`, `CARGO_INCREMENTAL=0` secondo l'operatore. I log
+registrano file non committati: l'identita della misura e il perimetro, non
+il solo SHA stampato. ASan: 181924 contatori su un modulo, zero sorgenti
+GDAL strumentati; il confine locale della libreria resta da controllare sulla VM.
+Queste misure non sono L2 o soak e non autorizzano il rilascio.

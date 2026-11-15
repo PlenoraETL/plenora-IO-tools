@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "tipo": "registrazione_documentale_owner_non_checkpoint",
+  "data_qualifica": "2026-11-15",
+  "fonte_locale": "C:\\pg\\interop-fin\\rapporto\\finale",
+  "stato_integrazione_gate_io": "importazione_annullata_per_decisione_del_titolare",
+  "esito_owner_osservato": {
+    "validatore": "passed",
+    "gate": "satisfied",
+    "errors": [],
+    "open_blockers": [],
+    "validation_mode": "pinned IO reevaluation; no consumer substitutions"
+  },
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "role": "file_boundary",
+      "revision": "a5a90ef32b0265a9fc6136c99ef57e1ef8f0468e"
+    },
+    {
+      "name": "plenora-data-tools",
+      "role": "transformation_core",
+      "revision": "0afbcf0035cd1528769c7772842374be82e65f90"
+    },
+    {
+      "name": "plenora-database-tools",
+      "role": "database_boundary",
+      "revision": "f4fdb9b5f09d8babe795f68e894949693aa9d0a1"
+    }
+  ],
+  "icd": {
+    "revision": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+    "source": "contracts/adoption-source.json"
+  },
+  "release_lock": {
+    "data": "5.0.0",
+    "database": "11.0.0",
+    "io": "candidate 9.0.0"
+  },
+  "bundle_owner": {
+    "path": "assurance/evidence/bundle-v2.json",
+    "sha256": "5e773ed2a1788bd766e682dbcb10d15b1d93fcb593f9a871965dae243cb42f89",
+    "digest_ricalcolato_in_questa_raccolta": true
+  },
+  "documenti_originali": [
+    {
+      "path": "C:\\pg\\interop-fin\\rapporto\\finale\\ESITO.md",
+      "bytes": 1090,
+      "sha256": "4d461fb002100feaa395b4afad36c039e57b0c476a9dc243be4c6c006b0a4836"
+    },
+    {
+      "path": "C:\\pg\\interop-fin\\rapporto\\finale\\owner-attestazione.json",
+      "bytes": 617140,
+      "sha256": "8185d8d7d7598548fef964912889c707152e3fde1bea18fe534485a28dead58d"
+    },
+    {
+      "path": "C:\\pg\\interop-fin\\rapporto\\finale\\owner-gate.json",
+      "bytes": 9356,
+      "sha256": "47eb3344b5200d64b73e02f84c1fafdec31b01074ba80dd1909bc825247dce2d"
+    },
+    {
+      "path": "C:\\pg\\interop-fin\\rapporto\\finale\\matrice-linux.md",
+      "bytes": 1913861,
+      "sha256": "7b1d974d406db945d1f050ae7c21776f85123a0c803723b81050d66c95d21825"
+    },
+    {
+      "path": "C:\\pg\\interop-fin\\rapporto\\finale\\matrice-windows.md",
+      "bytes": 1913841,
+      "sha256": "420920579d51950881664b5105c649fd7b218b222d4b6f7afd922e8570b774f2"
+    }
+  ],
+  "matrici_dichiarate": {
+    "linux-native": {
+      "verde": 19450,
+      "rosso": 0,
+      "saltato": 2590,
+      "atteso_rosso": 40
+    },
+    "windows-native": {
+      "verde": 19450,
+      "rosso": 0,
+      "saltato": 2590,
+      "atteso_rosso": 40
+    }
+  },
+  "non_significa": [
+    "Nessuna autorizzazione al rilascio, L2 o soak 9.0.0.",
+    "Nessuna presenza attuale del bundle nel repository e nessuna promozione dell invariante.",
+    "L esito owner esterno e la verifica locale precedente non sostituiscono lo stato del gate locale ripristinato."
+  ],
+  "da_completare": [],
+  "limite_fiducia": "Coerenza offline; nessuna autenticazione owner o prova di appartenenza Git remota.",
+  "importazione_locale": {
+    "sorgente": "C:/pg/conf-q/qualifica-windows-finale-owner",
+    "file_incluso_indice": 5020,
+    "byte": 416941838,
+    "digest_verificati_sorgente_e_destinazione": 5020,
+    "gate_sorgente": "gate.json",
+    "gate_sorgente_sha256": "47eb3344b5200d64b73e02f84c1fafdec31b01074ba80dd1909bc825247dce2d",
+    "note_gate_corrette": [
+      "components_nota",
+      "open_blockers_nota"
+    ],
+    "validazione": {
+      "call": "validate(gate, root)",
+      "reevaluate": false,
+      "errors": [],
+      "python": "3.14.6",
+      "pyarrow": "25.0.1",
+      "PLENORA_CONTRACTS": "C:/pg/contracts-icd"
+    },
+    "nota": "release/system-rc-gate.json nella sorgente e la policy originaria not_satisfied; gate.json e il risultato owner satisfied, identico a rapporto/finale/owner-gate.json.",
+    "stato_attuale": "annullata; verifica locale precedente conservata come fatto storico, non come stato del gate corrente"
+  },
+  "decisione_titolare": {
+    "bundle_nel_repository": false,
+    "bundle_richiesto_per_release": false,
+    "invariante": "invariato, nessuna promozione a verified",
+    "nota": "Resta soltanto questa registrazione documentale della qualifica esterna. La precedente importazione e stata annullata."
+  }
+}

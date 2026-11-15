@@ -1,24 +1,54 @@
 # Changelog
 
-## 9.0.0 — candidate in lavorazione
+## 9.0.0 - 2026-11-15
 
-Python minimo 3.14, deciso dal titolare: cambio di compatibilità major.
-Fonte unica `.python-version`, ABI cp314 e guardia CI.
-Ristrutturazione della qualifica IO B-11/B-14/B-15 in corso; questa voce
-non attesta completamento, qualifica di sistema o autorizzazione al rilascio.
+### Superfici e comportamento
 
-La proiezione GPKG delega al core: nello snapshot dei quartetti scompare il
-sito locale duplicato, mentre il controllo resta in `project_layer_contract`.
-Il runtime riusa il parser JSON rigoroso del model. AsyncClient e il suo stub
-derivano le operazioni dal client sincrono.
+- Python minimo 3.14, deciso dal titolare; fonte `.python-version`, ABI cp314
+  e controlli CI su Linux e Windows. Workspace, SDK e binding nativo sono 9.0.0.
+- **B14-GPKG-FIELD-ID**: anche i GeoPackage privi dell'estensione di identita
+  espongono `plenora.field_id` per geometria, attributi e chiave primaria,
+  nell'ordine del reader. Gli ID dichiarati rimangono distinti da quelli derivati.
+- **B-11/B-15, piano dichiarativo**: gestione condivisa nel core delle proprieta
+  Arrow/geometriche e delle trasformazioni dichiarate. La proiezione GPKG
+  delega al core; report di perdita puntuali per campo/chiave e relative
+  strutture nella CLI e nell'SDK Python. I controlli CRS e la semantica delle
+  operazioni seguono i contratti adottati, senza propagare conflitti proibiti.
+- AsyncClient e stub derivano le operazioni dal client sincrono. I test delle
+  nuove superfici SDK sono eseguiti sul wheel installato; nessun salto implicito.
+- Il runtime usa il parser JSON rigoroso del model. Il censimento dei quartetti
+  segue i siti effettivi: il controllo GPKG condiviso resta in
+  `project_layer_contract`, senza duplicare il sito locale.
 
-- **B14-GPKG-FIELD-ID**: anche i GPKG storici privi dell'estensione delle
-  identita espongono `plenora.field_id` per tutti i campi, secondo l'ordine
-  del reader (geometria, attributi, chiave primaria). Questo rende espliciti nel GeoParquet
-  gli ID prima assenti; IPC gia li esponeva. Il comparatore storico ricava
-  l'atteso dalle colonne SQLite e ammette solo queste aggiunte, con ogni
-  altro metadato e tutte le pagine codificate invariati. Non applica questo
-  caso a sorgenti che dichiarano identita persistite.
+### Qualifica, dipendenze e distribuzione
+
+- Validatore di sistema riallineato a GEO-005/REJ-001: separazione di ingressi
+  leciti, rifiuti CRS proibiti ed esclusioni lecite decise dal validatore IO.
+  Il codice `C-G02` e facoltativo nei casi previsti dal contratto.
+- Qualifica esterna congiunta conclusa il 15/11/2026 secondo i referti owner
+  al pin IO `a5a90ef`, data 5.0.0, database 11.0.0 e ICD `38d68b4`.
+  Per decisione del titolare il bundle non viene incluso nel repository e
+  non e richiesto per la release; resta la registrazione documentale senza
+  promuovere lo stato dell'invariante cross-component.
+- Allineamento delle dipendenze alla politica comune e snapshot del manifesto
+  di famiglia 14-11b; aggiornamento dei lock e dell'impronta del fork Parquet.
+- CI: contratti caricati al pin immutabile, fixture derivate dalla policy,
+  inventari delle superfici rigenerati e dipendenze Rust acquisite dal lock
+  prima dei self-test nativi.
+
+### Politica della release e prove ancora distinte
+
+La 9.0.0 non promette compatibilita con le release precedenti e non richiede
+che rimangano pubblicate. Le note delle versioni precedenti sono cronaca,
+non requisiti per questa release. L'ultima 8.0.0 verra rimossa dal titolare
+dopo la pubblicazione della 9.0.0; nessuna rimozione viene eseguita qui.
+
+Le nuove misure di profondita e ASan fornite dall'operatore sono riferite
+a `a5a90ef` con `fuzz/Cargo.lock` riordinato dalla toolchain VM. Il lock della
+9.0.0 conserva quella forma, senza cambi a pacchetti, versioni o checksum:
+le cinque impronte coincidono con il perimetro corrente.
+La distribuzione candidate, L2 e i due soak da 3600 s restano da eseguire;
+nessun risultato della 8.0.0 viene attribuito alla 9.0.0.
 
 ## 8.0.0 — non pubblicata
 
